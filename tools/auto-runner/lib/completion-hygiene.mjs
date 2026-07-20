@@ -1,5 +1,6 @@
 import { deriveIssueProposals } from "./issue-proposals.mjs";
 import { buildIssueOperationContext, executeIssueMutationPipeline } from "./issue-mutation-pipeline.mjs";
+import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 
 export { buildIssueOperationContext };
 
@@ -27,10 +28,14 @@ export function completeMergedIssueHygiene(config = {}, context = {}, options = 
   const duplicateComment = hasCompletionComment(refreshed.issue, refreshed);
   const comment = duplicateComment
     ? { status: "skipped", reason: "completion_comment_already_present" }
-    : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--body", completionBody]));
+    : refreshed.sessionLifecycle
+      ? canonicalCommentComponent(config, refreshed, runner, repositoryContext, refreshed.issue.number, completionBody, "issue_progress_comment")
+      : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--body", completionBody]));
   const closure =
     closeDecision.close === true
-      ? commandComponent(runner("gh", ["issue", "close", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--reason", "completed"]))
+      ? refreshed.sessionLifecycle
+        ? canonicalClosureComponent(config, refreshed, runner, repositoryContext)
+        : commandComponent(runner("gh", ["issue", "close", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--reason", "completed"]))
       : { status: "skipped", reason: closeDecision.reason };
   const labelCleanup = cleanupTransientLabels(refreshed.issue, runner, repositoryContext);
   const parentProgress = postParentProgress(config, refreshed, runner, repositoryContext);
@@ -217,7 +222,50 @@ function postParentProgress(config, context, runner, repositoryContext) {
   if ((parent.comments || []).some((comment) => String(comment.body || "").includes(marker))) {
     return { status: "skipped", reason: "parent_progress_already_present", parentIssue };
   }
-  return { ...commandComponent(runner("gh", ["issue", "comment", String(parentIssue), "--repo", repositoryContext.repositorySlug, "--body", body])), parentIssue, repositorySlug: repositoryContext.repositorySlug };
+  const component = context.sessionLifecycle
+    ? canonicalCommentComponent(config, context, runner, repositoryContext, parentIssue, body, "umbrella_update")
+    : commandComponent(runner("gh", ["issue", "comment", String(parentIssue), "--repo", repositoryContext.repositorySlug, "--body", body]));
+  return { ...component, parentIssue, repositorySlug: repositoryContext.repositorySlug };
+}
+
+function canonicalCommentComponent(config, context, runner, repositoryContext, issueNumber, body, effectType) {
+  const marker = body.split(/\r?\n/).find((line) => /(?:Completion|Parent progress) marker:/.test(line)) || `body-sha256:${canonicalGithubEvidenceDigest(body)}`;
+  const effect = { issueNumber, bodyDigest: canonicalGithubEvidenceDigest(body), stableMarker: marker, repository: repositoryContext.repositorySlug };
+  const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType, issueNumber, headSha: context.sourceHeadSha || context.expectedHeadSha, baseSha: context.mergeSha, effect }, {
+    readLive: (intent) => {
+      const live = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "number,comments"], { cwd: config.repoRoot });
+      if (live.error || live.status !== 0) return { complete: false };
+      let issue; try { issue = JSON.parse(live.stdout || "{}"); } catch { return { complete: false }; }
+      const matches = (issue.comments || []).filter((comment) => String(comment.body || "").includes(marker));
+      if (matches.length > 1) return { complete: true, ambiguous: true };
+      return matches.length === 1 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+    },
+    execute: () => {
+      const mutation = runner("gh", ["issue", "comment", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--body", body], { cwd: config.repoRoot });
+      if (mutation.error || mutation.status !== 0) throw new Error("Canonical issue comment did not confirm success");
+      return { ok: true, status: mutation.status };
+    },
+  });
+  return result.ok ? { status: "updated", canonicalEffect: result } : { status: "failed", reason: result.reasonCode, canonicalEffect: result };
+}
+
+function canonicalClosureComponent(config, context, runner, repositoryContext) {
+  const issueNumber = context.issue.number;
+  const effect = { issueNumber, closeReason: "completed", mergeSha: context.mergeSha, sourceHeadSha: context.sourceHeadSha, closeEvidenceDigest: canonicalGithubEvidenceDigest({ closeDecision: context.closeDecision, mergeSha: context.mergeSha, validation: context.validation }) };
+  const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "issue_closure", issueNumber, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
+    readLive: (intent) => {
+      const live = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "number,state"], { cwd: config.repoRoot });
+      if (live.error || live.status !== 0) return { complete: false };
+      let issue; try { issue = JSON.parse(live.stdout || "{}"); } catch { return { complete: false }; }
+      return String(issue.state).toUpperCase() === "CLOSED" ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+    },
+    execute: () => {
+      const mutation = runner("gh", ["issue", "close", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--reason", "completed"], { cwd: config.repoRoot });
+      if (mutation.error || mutation.status !== 0) throw new Error("Canonical issue closure did not confirm success");
+      return { ok: true, status: mutation.status };
+    },
+  });
+  return result.ok ? { status: "updated", canonicalEffect: result } : { status: "failed", reason: result.reasonCode, canonicalEffect: result };
 }
 
 function updateProjectStatusIfSupported(config, context, runner) {

@@ -35,14 +35,24 @@ export async function executeCanonicalEffect(config, input, adapters = {}) {
     const adopted = transitionPreEffectIntent(config, executing, "adopted_after_recovery", { diagnostics: ["exact_live_effect_adopted"] });
     return finalized(config, adopted, initial, "adopted");
   }
+  if (initial.classification === "live_read_unavailable") return pending(intent, initial.classification);
   if (initial.classification !== "effect_absent_safe_to_execute") return failClosed(config, intent, initial.classification);
 
   const executing = intent.status === "prepared" ? transitionPreEffectIntent(config, intent, "executing") : intent;
   let execution;
   try { execution = await adapters.execute(executing); }
-  catch { return failClosed(config, executing, "effect_execution_failed"); }
+  catch {
+    const uncertain = await safeRead(adapters.readLive, executing);
+    const reconciliation = reconcilePreEffectIntent(executing, uncertain);
+    if (reconciliation.classification === "effect_present_exact_adoptable") {
+      const adopted = transitionPreEffectIntent(config, executing, "adopted_after_recovery", { diagnostics: ["exact_live_effect_adopted_after_execution_error"] });
+      return finalized(config, adopted, reconciliation, "adopted");
+    }
+    return pending(executing, `effect_execution_uncertain_${reconciliation.classification}`);
+  }
   const after = await safeRead(adapters.readLive, executing);
   const readback = reconcilePreEffectIntent(executing, after);
+  if (["live_read_unavailable", "effect_absent_safe_to_execute"].includes(readback.classification)) return pending(executing, `post_effect_${readback.classification}`);
   if (readback.classification !== "effect_present_exact_adoptable") return failClosed(config, executing, `post_effect_${readback.classification}`);
   const confirmed = transitionPreEffectIntent(config, executing, "live_confirmed", { diagnostics: ["exact_live_effect_read_back"] });
   return { ...finalized(config, confirmed, readback, "executed"), execution: sanitizeResult(execution) };
@@ -64,13 +74,24 @@ export function executeCanonicalEffectSync(config, input, adapters = {}) {
     const executing = intent.status === "prepared" ? transitionPreEffectIntent(config, intent, "executing") : intent;
     return finalized(config, transitionPreEffectIntent(config, executing, "adopted_after_recovery", { diagnostics: ["exact_live_effect_adopted"] }), initial, "adopted");
   }
+  if (initial.classification === "live_read_unavailable") return pending(intent, initial.classification);
   if (initial.classification !== "effect_absent_safe_to_execute") return failClosed(config, intent, initial.classification);
   const executing = intent.status === "prepared" ? transitionPreEffectIntent(config, intent, "executing") : intent;
   let execution;
-  try { execution = adapters.execute(executing); } catch { return failClosed(config, executing, "effect_execution_failed"); }
+  try { execution = adapters.execute(executing); } catch {
+    let uncertain;
+    try { uncertain = adapters.readLive(executing); } catch { uncertain = { complete: false }; }
+    const reconciliation = reconcilePreEffectIntent(executing, uncertain);
+    if (reconciliation.classification === "effect_present_exact_adoptable") {
+      const adopted = transitionPreEffectIntent(config, executing, "adopted_after_recovery", { diagnostics: ["exact_live_effect_adopted_after_execution_error"] });
+      return finalized(config, adopted, reconciliation, "adopted");
+    }
+    return pending(executing, `effect_execution_uncertain_${reconciliation.classification}`);
+  }
   let after;
   try { after = adapters.readLive(executing); } catch { after = { complete: false }; }
   const readback = reconcilePreEffectIntent(executing, after);
+  if (["live_read_unavailable", "effect_absent_safe_to_execute"].includes(readback.classification)) return pending(executing, `post_effect_${readback.classification}`);
   if (readback.classification !== "effect_present_exact_adoptable") return failClosed(config, executing, `post_effect_${readback.classification}`);
   const confirmed = transitionPreEffectIntent(config, executing, "live_confirmed", { diagnostics: ["exact_live_effect_read_back"] });
   return { ...finalized(config, confirmed, readback, "executed"), execution: sanitizeResult(execution) };
@@ -108,6 +129,7 @@ function failClosed(config, intent, reasonCode) {
   return { ok: false, action: "none", classification: reasonCode, reasonCode, intentId: current.intentId, status: current.status };
 }
 function blocked(reasonCode, intent = null) { return { ok: false, action: "none", reasonCode, intentId: intent?.intentId || null }; }
+function pending(intent, reasonCode) { return { ok: false, action: "pending_reconciliation", reasonCode, classification: reasonCode, intentId: intent.intentId, status: intent.status }; }
 function requireAdapter(value, name) { if (typeof value !== "function") throw new Error(`Canonical effect ${name} adapter required`); }
 function sanitizeResult(value) { return value && typeof value === "object" ? { ok: value.ok === true, status: Number.isSafeInteger(value.status) ? value.status : null } : null; }
 function fingerprint(value) { if (!value || typeof value !== "object") return null; return createHash("sha256").update(canonical(value)).digest("hex"); }

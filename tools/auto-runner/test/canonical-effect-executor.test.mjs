@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { bridgeLegacyEffectState, executeCanonicalEffect } from "../lib/canonical-effect-executor.mjs";
+import { bridgeLegacyEffectState, executeCanonicalEffect, executeCanonicalEffectSync } from "../lib/canonical-effect-executor.mjs";
 
 const sha = (c) => c.repeat(40);
 function fixture() {
@@ -26,10 +26,26 @@ test("adopts an exact live effect without executing", async () => {
   assert.equal(result.action, "adopted"); assert.equal(executions, 0);
 });
 
-for (const [name, live] of [["ambiguous", { complete: true, ambiguous: true }], ["contradictory", { complete: true, present: true, identity: {}, effect: {} }], ["unavailable", { complete: false }]]) test(`fails closed for ${name} live state`, async () => {
+for (const [name, live] of [["ambiguous", { complete: true, ambiguous: true }], ["contradictory", { complete: true, present: true, identity: {}, effect: {} }]]) test(`fails closed for ${name} live state`, async () => {
   const { config, intent } = fixture(); let executions = 0;
   const result = await executeCanonicalEffect(config, { intent, intentOptions: { intentId: `push-${name}` } }, { readLive: () => live, execute: () => { executions += 1; } });
   assert.equal(result.ok, false); assert.equal(executions, 0); assert.equal(result.status, "failed_closed");
+});
+
+test("keeps an unavailable initial live read pending for later reconciliation", async () => {
+  const { config, intent } = fixture(); let executions = 0;
+  const result = await executeCanonicalEffect(config, { intent, intentOptions: { intentId: "push-unavailable" } }, { readLive: () => ({ complete: false }), execute: () => { executions += 1; } });
+  assert.equal(result.ok, false); assert.equal(result.action, "pending_reconciliation"); assert.equal(result.status, "prepared"); assert.equal(executions, 0);
+});
+
+for (const sync of [false, true]) test(`adopts an exact effect after an uncertain ${sync ? "sync" : "async"} execution error`, async () => {
+  const { config, intent } = fixture(); let reads = 0;
+  const adapters = { readLive: () => (++reads === 1 ? { complete: true, present: false } : { complete: true, present: true, identity: liveIdentity(intent), effect: intent.effect }), execute: () => { throw new Error("transport lost after effect"); } };
+  const input = { intent: { ...intent, effect: { ...intent.effect, sync } }, intentOptions: { intentId: `push-uncertain-${sync}` } };
+  const live = (stored) => ({ ...liveIdentity(intent), ...stored.identity });
+  adapters.readLive = (stored) => (++reads === 1 ? { complete: true, present: false } : { complete: true, present: true, identity: live(stored), effect: stored.effect });
+  const result = sync ? executeCanonicalEffectSync(config, input, adapters) : await executeCanonicalEffect(config, input, adapters);
+  assert.equal(result.ok, true); assert.equal(result.action, "adopted"); assert.equal(result.status, "finalized");
 });
 
 test("legacy bridge is explicitly non-authoritative and cannot adopt a crash window", () => {
