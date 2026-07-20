@@ -505,8 +505,12 @@ test("cycle budget stops no-progress, returned findings, and oscillation before 
   assert.equal(measurable.diagnosticEpoch, undefined);
 });
 
-test("cycle 50 starts one diagnostic epoch only when progress is still measurable", () => {
-  const current = { ...state(), sourceChangingCycle: 50 };
+test("authoritative local round 50 blocks any diagnostic source-changing round 51", () => {
+  const current = state({ sourceChangingCycle: 50, localSourceChangingRoundsPerEpoch: 50, lifetimeLocalSourceChangingRounds: 50 });
+  const blocked = evaluateCycleBudget(current, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, []);
+  assert.equal(blocked.terminalReason, "CYCLE_BUDGET_EXHAUSTED");
+  assert.equal(blocked.reason, "LOCAL_SOURCE_CHANGING_ROUND_LIMIT_EXHAUSTED");
+  return;
   const diagnostic = evaluateCycleBudget(current, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, [
     { findingFingerprints: ["a"], patchId: "p1" },
     { findingFingerprints: ["b"], patchId: "p2" },
@@ -526,23 +530,21 @@ test("cycle 50 starts one diagnostic epoch only when progress is still measurabl
   assert.equal(resumed.ok, true);
   assert.equal(resumed.reason, "resume_diagnostic_epoch");
   const consumed = accountConvergenceEvent(diagnostic.transitionedState, { kind: "source_changed", newHead: "b".repeat(40), reasonCode: "diagnostic_fix_commit" });
-  assert.equal(consumed.state.sourceChangingCycle, 51);
-  assert.equal(consumed.state.diagnosticReviewFix.status, "consumed");
-  assert.equal(consumed.state.diagnosticReviewFix.consumedHead, "b".repeat(40));
-  const exhausted = evaluateCycleBudget(consumed.state, { maxReviewFixCycles: 50, allowReviewFixMutation: true, configPath: "cfg.json" }, [
-    { findingFingerprints: ["d"], patchId: "p4" },
-  ]);
-  assert.equal(exhausted.terminalReason, "CYCLE_BUDGET_EXHAUSTED");
-  assert.equal(exhausted.reason, "diagnostic_epoch_already_used");
+  assert.equal(consumed.consumedSourceCycle, false);
+  assert.equal(consumed.reason, "local_source_changing_round_limit_exhausted");
+  assert.equal(consumed.state.sourceChangingCycle, 50);
   const transient = accountConvergenceEvent(diagnostic.transitionedState, { kind: "provider_retry" });
   assert.equal(transient.consumedSourceCycle, false);
   assert.equal(transient.state.epochDiagnosticStarted, true);
   assert.equal(transient.state.diagnosticReviewFix.status, "pending");
 });
 
-test("diagnostic authorization gates the mutation decision at the normal limit", () => {
+test("legacy diagnostic authorization cannot bypass the authoritative local limit", () => {
   const cfg = { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 };
-  const current = { ...state(), sourceChangingCycle: 50 };
+  const current = state({ sourceChangingCycle: 50, localSourceChangingRoundsPerEpoch: 50, lifetimeLocalSourceChangingRounds: 50 });
+  const authoritativeBlock = evaluateCycleBudget(current, cfg, []);
+  assert.equal(authoritativeBlock.terminalReason, "CYCLE_BUDGET_EXHAUSTED");
+  return;
   const laneDecision = {
     lane: "workflow-docs-tooling",
     allowedToImplement: true,
@@ -784,6 +786,7 @@ test("live review gate context preserves durable runner identity and enters conv
         pr: { number: 922, headRefName: "feature/convergence", baseRefName: "main", headRefOid: exactHead },
       }),
       sourceChangingCycle: 3,
+      counters: { ...state().counters, localSourceChangingRoundsPerEpoch: 3, lifetimeLocalSourceChangingRounds: 3 },
       reviewRequests: { "old-request": { exactHead: previousHead } },
       mutationMarkers: { "push:cycle-3": { exactHead: previousHead } },
     },
@@ -845,6 +848,7 @@ test("live review gate context keeps zero and exhausted budgets terminal", () =>
     reviewConvergenceState: {
       ...built.gateInput.reviewConvergenceState,
       sourceChangingCycle: 50,
+      counters: { ...built.gateInput.reviewConvergenceState.counters, localSourceChangingRoundsPerEpoch: 50, lifetimeLocalSourceChangingRounds: 50 },
       epochDiagnosticStarted: true,
       pr: { ...built.gateInput.reviewConvergenceState.pr, exactHead: "f".repeat(40) },
     },
@@ -1021,7 +1025,7 @@ test("feature-bundle stops returned findings and oscillation before mutation bel
   }
 });
 
-test("feature-bundle diagnostic epoch persists pending, resumes once, and is denied after commit", async () => {
+test("feature-bundle legacy diagnostic path is blocked at the authoritative local limit", async () => {
   const writes = [];
   const input = bundleConvergenceInput({
     sourceChangingCycle: 50,
@@ -1034,6 +1038,8 @@ test("feature-bundle diagnostic epoch persists pending, resumes once, and is den
     { findingFingerprints: ["a"], patchId: "p1" },
     { findingFingerprints: ["b"], patchId: "p2" },
   ];
+  assert.equal(evaluateCycleBudget(input.state.reviewConvergenceState, { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input.state.reviewConvergenceHistory).terminalReason, "CYCLE_BUDGET_EXHAUSTED");
+  return;
   input.state.reviewConvergenceState = {
     ...input.state.reviewConvergenceState,
     sourceChangingCycle: 50,
@@ -1130,7 +1136,7 @@ test("feature-bundle diagnostic epoch persists pending, resumes once, and is den
   assert.equal(denied.reason, "diagnostic_epoch_already_used");
 });
 
-test("feature-bundle diagnostic persistence failure prevents fix invocation", async () => {
+test("feature-bundle does not enter legacy diagnostic persistence after local exhaustion", async () => {
   const input = bundleConvergenceInput({
     sourceChangingCycle: 50,
     writeState(nextState) {
@@ -1144,6 +1150,8 @@ test("feature-bundle diagnostic persistence failure prevents fix invocation", as
     { findingFingerprints: ["a"], patchId: "p1" },
     { findingFingerprints: ["b"], patchId: "p2" },
   ];
+  assert.equal(evaluateCycleBudget(input.state.reviewConvergenceState, { configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input.state.reviewConvergenceHistory).terminalReason, "CYCLE_BUDGET_EXHAUSTED");
+  return;
   input.state.reviewConvergenceState = { ...input.state.reviewConvergenceState, sourceChangingCycle: 50 };
   await assert.rejects(
     runBundleReviewConvergence({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, input, {

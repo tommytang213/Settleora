@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
-export const reviewConvergenceStateVersion = 1;
+export const reviewConvergenceStateVersion = 2;
 export const reviewConvergenceTerminalReasons = Object.freeze([
   "REVIEW_CONVERGED",
   "MANUAL_DECISION_REQUIRED",
@@ -63,7 +63,27 @@ export function createInitialReviewConvergenceState(input = {}) {
       exactHead: head,
     },
     epoch: Number.isInteger(input.epoch) ? input.epoch : 1,
-    sourceChangingCycle: Number.isInteger(input.sourceChangingCycle) ? input.sourceChangingCycle : 0,
+    sourceChangingCycle: Number.isInteger(input.sourceChangingCycle)
+      ? input.sourceChangingCycle
+      : Number.isInteger(input.lifetimeLocalSourceChangingRounds)
+        ? input.lifetimeLocalSourceChangingRounds
+        : 0,
+    counters: {
+      localSourceChangingRoundsPerEpoch: Number.isInteger(input.localSourceChangingRoundsPerEpoch) ? input.localSourceChangingRoundsPerEpoch : 0,
+      githubTriggeredFixEpochsPerPr: Number.isInteger(input.githubTriggeredFixEpochsPerPr) ? input.githubTriggeredFixEpochsPerPr : 0,
+      lifetimeLocalSourceChangingRounds: Number.isInteger(input.lifetimeLocalSourceChangingRounds) ? input.lifetimeLocalSourceChangingRounds : 0,
+    },
+    counterAuthority: "two_loop_v1",
+    counterMigration: {
+      sourceVersion: "two_loop_v1",
+      resultingAuthority: "two_loop_v1",
+      legacyProjection: "sourceChangingCycle",
+      legacyProjectionAuthoritative: false,
+      migratedAt: now,
+    },
+    counterMarkers: {},
+    processedGithubFindingFingerprints: [],
+    loopPhase: input.loopPhase || "local_validation",
     findingInventory: [],
     evidence: emptyEvidence(head),
     reviewRequests: {},
@@ -129,6 +149,21 @@ export function normalizeReviewConvergenceStateIdentity(input = {}) {
       : Number.isInteger(existing.sourceChangingCycle)
         ? existing.sourceChangingCycle
         : 0,
+    localSourceChangingRoundsPerEpoch: Number.isInteger(input.counters?.localSourceChangingRoundsPerEpoch)
+      ? input.counters.localSourceChangingRoundsPerEpoch
+      : Number.isInteger(existing.counters?.localSourceChangingRoundsPerEpoch)
+        ? existing.counters.localSourceChangingRoundsPerEpoch
+        : Number.isInteger(input.sourceChangingCycle ?? existing.sourceChangingCycle)
+          ? (input.sourceChangingCycle ?? existing.sourceChangingCycle)
+          : 0,
+    githubTriggeredFixEpochsPerPr: input.counters?.githubTriggeredFixEpochsPerPr ?? existing.counters?.githubTriggeredFixEpochsPerPr ?? 0,
+    lifetimeLocalSourceChangingRounds: Number.isInteger(input.counters?.lifetimeLocalSourceChangingRounds)
+      ? input.counters.lifetimeLocalSourceChangingRounds
+      : Number.isInteger(existing.counters?.lifetimeLocalSourceChangingRounds)
+        ? existing.counters.lifetimeLocalSourceChangingRounds
+        : Number.isInteger(input.sourceChangingCycle ?? existing.sourceChangingCycle)
+          ? (input.sourceChangingCycle ?? existing.sourceChangingCycle)
+          : 0,
     parentPr: input.parentPr ?? existing.relationships?.parentPr ?? null,
     dependentPrs: input.dependentPrs ?? existing.relationships?.dependentPrs ?? [],
     phase: input.phase || existing.phase || "initialized",
@@ -159,6 +194,15 @@ export function normalizeReviewConvergenceStateIdentity(input = {}) {
     },
     epoch: initial.epoch,
     sourceChangingCycle: initial.sourceChangingCycle,
+    counters: {
+      ...initial.counters,
+      ...(existing.counters || {}),
+      ...(input.counters || {}),
+    },
+    counterAuthority: "two_loop_v1",
+    counterMarkers: existing.counterMarkers || input.counterMarkers || initial.counterMarkers,
+    processedGithubFindingFingerprints: existing.processedGithubFindingFingerprints || input.processedGithubFindingFingerprints || initial.processedGithubFindingFingerprints,
+    loopPhase: input.loopPhase || existing.loopPhase || initial.loopPhase,
     findingInventory: Array.isArray(input.findingInventory)
       ? input.findingInventory
       : Array.isArray(existing.findingInventory)
@@ -200,12 +244,74 @@ export function loadReviewConvergenceState(config, keyOrState) {
   } catch {
     return { ok: false, reasonCode: "review_convergence_state_corrupt", statePath };
   }
+  parsed = migrateReviewConvergenceState(parsed);
   const validation = validateReviewConvergenceState(parsed);
   if (!validation.ok) return { ok: false, reasonCode: "review_convergence_state_schema_invalid", reason: validation.reason, statePath };
   const identity = expectedIdentity(keyOrState);
   const mismatch = identityMismatch(parsed, identity);
   if (mismatch) return { ok: false, reasonCode: "review_convergence_state_identity_mismatch", reason: mismatch, statePath };
   return { ok: true, state: sanitizeState(parsed), statePath };
+}
+
+export function migrateReviewConvergenceState(state) {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return state;
+  if (![1, reviewConvergenceStateVersion].includes(state.stateVersion)) return state;
+  const legacyValid = Number.isSafeInteger(state.sourceChangingCycle) && state.sourceChangingCycle >= 0;
+  if (!legacyValid) return { ...state, stateVersion: reviewConvergenceStateVersion };
+  const legacyRounds = state.sourceChangingCycle;
+  const hasTwoLoop = state.counterAuthority === "two_loop_v1" || state.counters !== undefined;
+  const persistedGithubEpochs = state.counters?.githubTriggeredFixEpochsPerPr ?? 0;
+  const hasPriorGithubEpochEvidence = persistedGithubEpochs > 0
+    || (Number.isInteger(state.epoch) && state.epoch > 1)
+    || Object.keys(state.counterMarkers || {}).length > 0;
+  const hasProcessedGithubFindingAuthority = Array.isArray(state.processedGithubFindingFingerprints);
+  if (!hasProcessedGithubFindingAuthority && hasPriorGithubEpochEvidence) {
+    return {
+      ...state,
+      stateVersion: reviewConvergenceStateVersion,
+      counterMigration: {
+        sourceVersion: "two_loop_v1_before_cross_head_dedupe",
+        resultingAuthority: "invalid_contradictory_state",
+        legacyProjection: "sourceChangingCycle",
+        legacyProjectionAuthoritative: false,
+        contradiction: "processed_github_finding_history_unprovable",
+      },
+    };
+  }
+  const lifetime = state.counters?.lifetimeLocalSourceChangingRounds;
+  if (hasTwoLoop && Number.isSafeInteger(lifetime) && lifetime !== legacyRounds) {
+    return {
+      ...state,
+      stateVersion: reviewConvergenceStateVersion,
+      counterMigration: {
+        sourceVersion: state.stateVersion === 1 ? "legacy_v1_with_two_loop" : "two_loop_v1",
+        resultingAuthority: "invalid_contradictory_state",
+        legacyProjection: "sourceChangingCycle",
+        legacyProjectionAuthoritative: false,
+        contradiction: "legacy_lifetime_projection_mismatch",
+      },
+    };
+  }
+  return {
+    ...state,
+    stateVersion: reviewConvergenceStateVersion,
+    counters: {
+      localSourceChangingRoundsPerEpoch: state.counters?.localSourceChangingRoundsPerEpoch ?? legacyRounds,
+      githubTriggeredFixEpochsPerPr: state.counters?.githubTriggeredFixEpochsPerPr ?? 0,
+      lifetimeLocalSourceChangingRounds: state.counters?.lifetimeLocalSourceChangingRounds ?? legacyRounds,
+    },
+    counterMarkers: state.counterMarkers && typeof state.counterMarkers === "object" ? state.counterMarkers : {},
+    processedGithubFindingFingerprints: hasProcessedGithubFindingAuthority ? state.processedGithubFindingFingerprints : [],
+    counterAuthority: "two_loop_v1",
+    counterMigration: state.counterMigration || {
+      sourceVersion: hasTwoLoop ? "two_loop_v1" : "legacy_source_changing_cycle_v1",
+      resultingAuthority: "two_loop_v1",
+      legacyProjection: "sourceChangingCycle",
+      legacyProjectionAuthoritative: false,
+      migratedAt: new Date().toISOString(),
+    },
+    loopPhase: state.loopPhase || phaseToLoopPhase(state.phase),
+  };
 }
 
 export function bindReviewConvergenceEvidence(state, kind, evidence = {}) {
@@ -282,7 +388,8 @@ export function validateDiagnosticReviewFixAuthorization(input = {}) {
   const state = input.reviewConvergenceState || input.state || {};
   const authorization = input.diagnosticAuthorization || input.authorization || {};
   const normalizedMax = Number(input.normalizedMax ?? input.maxAttempts ?? input.budget?.normalized);
-  const attemptCount = Number(input.attemptCount ?? state.sourceChangingCycle);
+  const localRounds = state.counters?.localSourceChangingRoundsPerEpoch;
+  const attemptCount = Number(input.attemptCount ?? localRounds);
   const diagnostic = state.diagnosticReviewFix || {};
   const pr = state.pr || {};
   const mismatches = [];
@@ -293,7 +400,7 @@ export function validateDiagnosticReviewFixAuthorization(input = {}) {
   if (!pr.exactHead || authorization.exactHead !== pr.exactHead) mismatches.push("exact_head");
   if (!Number.isFinite(normalizedMax) || normalizedMax !== authorization.normalizedMax) mismatches.push("normalized_max");
   if (authorization.sourceChangingCycle !== normalizedMax) mismatches.push("authorization_source_cycle");
-  if (!Number.isFinite(attemptCount) || attemptCount !== normalizedMax || state.sourceChangingCycle !== normalizedMax) mismatches.push("source_cycle");
+  if (!Number.isFinite(attemptCount) || attemptCount !== normalizedMax || localRounds !== normalizedMax) mismatches.push("source_cycle");
   if (diagnostic.status !== "pending") mismatches.push("diagnostic_status");
   if (!diagnostic.startedAt) mismatches.push("diagnostic_started_marker");
   if (!diagnostic.attemptId || authorization.attemptId !== diagnostic.attemptId) mismatches.push("attempt_id");
@@ -316,6 +423,16 @@ export function validateReviewConvergenceState(state) {
   if (!state.pr.branch || !state.pr.base || !state.pr.exactHead) return fail("pr_identity_missing");
   if (!Number.isInteger(state.epoch) || state.epoch < 1) return fail("epoch_invalid");
   if (!Number.isInteger(state.sourceChangingCycle) || state.sourceChangingCycle < 0) return fail("source_cycle_invalid");
+  for (const key of ["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]) {
+    if (!Number.isSafeInteger(state.counters?.[key]) || state.counters[key] < 0) return fail(`counter_invalid:${key}`);
+  }
+  if (!state.counterMarkers || typeof state.counterMarkers !== "object" || Array.isArray(state.counterMarkers)) return fail("counter_markers_invalid");
+  if (!Array.isArray(state.processedGithubFindingFingerprints) || state.processedGithubFindingFingerprints.length > 2500 || state.processedGithubFindingFingerprints.some((value) => !/^[a-f0-9]{64}$/i.test(value))) return fail("processed_github_findings_invalid");
+  if (state.counterAuthority !== "two_loop_v1") return fail("counter_authority_invalid");
+  if (!state.counterMigration || state.counterMigration.resultingAuthority !== "two_loop_v1" || state.counterMigration.legacyProjectionAuthoritative !== false) {
+    return fail("counter_migration_invalid");
+  }
+  if (state.sourceChangingCycle !== state.counters.lifetimeLocalSourceChangingRounds) return fail("counter_projection_contradiction");
   if (!state.evidence || typeof state.evidence !== "object") return fail("evidence_missing");
   if (state.terminalReason && !reviewConvergenceTerminalReasons.includes(state.terminalReason)) return fail("terminal_reason_invalid");
   return { ok: true };
@@ -370,4 +487,10 @@ function bounded(value, max) {
 
 function fail(reason) {
   return { ok: false, reason };
+}
+
+function phaseToLoopPhase(phase) {
+  if (String(phase || "").includes("github") || String(phase || "").includes("ci")) return "github_wait";
+  if (String(phase || "").includes("merge")) return "merge_gate";
+  return "local_validation";
 }

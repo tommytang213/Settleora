@@ -87,6 +87,7 @@ const defaultBudgets = Object.freeze({
 
 const allowedMutationMarkerKinds = new Set([
   "claim",
+  "logical_task_charge",
   "checkpoint_commit",
   "push",
   "pr_create",

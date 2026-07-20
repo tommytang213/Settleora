@@ -275,15 +275,106 @@ export function accountConvergenceEvent(state, event = {}) {
         consumedHead: newHead,
       }
     : state.diagnosticReviewFix;
+  const roundsConsumed = Math.max(1, Number(event.roundsConsumed || 1));
+  const localBefore = state.counters?.localSourceChangingRoundsPerEpoch || 0;
+  if (!Number.isSafeInteger(roundsConsumed) || localBefore + roundsConsumed > localSourceChangingRoundsPerEpochLimit) {
+    return { state: { ...state, terminalReason: "CYCLE_BUDGET_EXHAUSTED" }, consumedSourceCycle: false, reason: "local_source_changing_round_limit_exhausted" };
+  }
   return {
     consumedSourceCycle: true,
     reason: "source_changing_exact_head",
     state: {
       ...invalidateConvergenceEvidenceForHead(state, newHead, event.reasonCode || "source_changed"),
-      sourceChangingCycle: state.sourceChangingCycle + 1,
+      sourceChangingCycle: state.sourceChangingCycle + roundsConsumed,
+      counters: {
+        ...(state.counters || {}),
+        localSourceChangingRoundsPerEpoch: localBefore + roundsConsumed,
+        lifetimeLocalSourceChangingRounds: (state.counters?.lifetimeLocalSourceChangingRounds || 0) + roundsConsumed,
+      },
+      loopPhase: "local_validation",
       diagnosticReviewFix: diagnostic,
     },
   };
+}
+
+export const localSourceChangingRoundsPerEpochLimit = 50;
+export const githubTriggeredFixEpochsPerPrLimit = 50;
+
+export function accountGithubTriggeredFixEpoch(state, input = {}) {
+  const fingerprints = [...new Set((input.findingFingerprints || []).filter((value) => /^[0-9a-f]{64}$/i.test(value)))].sort();
+  if (!Number.isInteger(state.pr?.number) || !state.pr?.exactHead || fingerprints.length === 0) {
+    return { ok: false, reasonCode: "github_fix_epoch_identity_invalid", state };
+  }
+  const processed = new Set(state.processedGithubFindingFingerprints || []);
+  const newFingerprints = fingerprints.filter((fingerprint) => !processed.has(fingerprint));
+  if (newFingerprints.length === 0) return { ok: true, duplicate: true, incremented: false, markerKey: null, newFingerprints: [], state };
+  const markerKey = digestFindingSet([String(state.pr.number), ...newFingerprints]);
+  if (state.counterMarkers?.[markerKey]) return { ok: true, duplicate: true, incremented: false, markerKey, state };
+  const current = state.counters?.githubTriggeredFixEpochsPerPr || 0;
+  if (current >= githubTriggeredFixEpochsPerPrLimit) {
+    return terminalLimit(state, "GITHUB_TRIGGERED_FIX_EPOCH_LIMIT_EXHAUSTED", githubTriggeredFixEpochsPerPrLimit);
+  }
+  const nextEpoch = state.epoch + 1;
+  return {
+    ok: true,
+    duplicate: false,
+    incremented: true,
+    markerKey,
+    newFingerprints,
+    state: {
+      ...state,
+      epoch: nextEpoch,
+      counters: {
+        ...(state.counters || {}),
+        localSourceChangingRoundsPerEpoch: 0,
+        githubTriggeredFixEpochsPerPr: current + 1,
+      },
+      counterMarkers: {
+        ...(state.counterMarkers || {}),
+        [markerKey]: { kind: "github_triggered_fix_epoch", prNumber: state.pr.number, exactHead: state.pr.exactHead, findingDigest: digestFindingSet(newFingerprints) },
+      },
+      processedGithubFindingFingerprints: [...processed, ...newFingerprints].sort(),
+      loopPhase: "local_validation",
+      evidence: staleEvidenceForHead(state.evidence || {}, state.pr.exactHead),
+    },
+  };
+}
+
+export function evaluateTwoLoopLimits(state, options = {}) {
+  // In-memory callers created before the durable two-loop schema may still
+  // carry only the legacy local source-cycle field. Durable loads migrate this
+  // shape before validation; this fallback keeps non-persisted gate probes
+  // compatible without reinterpreting a GitHub epoch count.
+  const local = state.counters?.localSourceChangingRoundsPerEpoch ?? state.sourceChangingCycle;
+  const github = state.counters?.githubTriggeredFixEpochsPerPr ?? 0;
+  if (!Number.isSafeInteger(local) || !Number.isSafeInteger(github)) {
+    return { ok: false, terminalReason: "COUNTER_STATE_INVALID", sanitizedReason: "authoritative nested counter state is invalid" };
+  }
+  if (local >= localSourceChangingRoundsPerEpochLimit) {
+    return { ok: false, terminalReason: "LOCAL_SOURCE_CHANGING_ROUND_LIMIT_EXHAUSTED", sanitizedReason: "local source-changing round limit exhausted" };
+  }
+  if (github > githubTriggeredFixEpochsPerPrLimit || (!options.allowAdmittedGithubLimit && github >= githubTriggeredFixEpochsPerPrLimit)) {
+    return { ok: false, terminalReason: "GITHUB_TRIGGERED_FIX_EPOCH_LIMIT_EXHAUSTED", sanitizedReason: "GitHub-triggered fix epoch limit exhausted" };
+  }
+  return { ok: true };
+}
+
+export function evaluateLocalConvergenceEvidence(state, input = {}) {
+  const identity = input.candidateIdentity || {};
+  const required = [input.validation, input.geminiReview, input.codexReview];
+  if (!identity.exactHead || !identity.baseSha || !identity.changedFilesDigest) return { ok: false, reasonCode: "candidate_identity_incomplete" };
+  for (const evidence of required) {
+    if (!evidence || evidence.status !== "passed") return { ok: false, reasonCode: "local_convergence_evidence_not_passing" };
+    if (evidence.exactHead !== identity.exactHead || evidence.baseSha !== identity.baseSha || evidence.changedFilesDigest !== identity.changedFilesDigest) {
+      return { ok: false, reasonCode: "local_convergence_candidate_identity_mismatch" };
+    }
+    if (evidence.stale) return { ok: false, reasonCode: "local_convergence_evidence_stale" };
+  }
+  return { ok: true, exactHead: identity.exactHead, candidateIdentity: identity };
+}
+
+function terminalLimit(state, terminalReason, limit) {
+  return { ok: false, reasonCode: terminalReason, terminalReason, sanitizedReason: "bounded convergence limit exhausted", limit, state: { ...state, terminalReason: "CYCLE_BUDGET_EXHAUSTED" } };
 }
 
 export function planExactHeadReviewRequest(state, request = {}) {
@@ -316,6 +407,10 @@ export function analyzeConvergenceProgress(history = [], options = {}) {
 }
 
 export function evaluateCycleBudget(state, config = {}, history = []) {
+  const nestedLimit = evaluateTwoLoopLimits(state, { allowAdmittedGithubLimit: true });
+  if (!nestedLimit.ok) {
+    return { ok: false, terminalReason: "CYCLE_BUDGET_EXHAUSTED", reason: nestedLimit.terminalReason, nestedLimit };
+  }
   const budget = normalizeConvergenceBudget(config);
   if (budget.malformed) return { ok: false, terminalReason: "MANUAL_DECISION_REQUIRED", reason: "review_fix_budget_malformed", budget };
   if (!budget.enabled) return { ok: false, terminalReason: "MANUAL_DECISION_REQUIRED", reason: "review_fix_mutation_disabled_by_zero_budget", budget };
@@ -330,7 +425,13 @@ export function evaluateCycleBudget(state, config = {}, history = []) {
       budget,
     };
   }
-  if (state.sourceChangingCycle < budget.normalized) return { ok: true, budget };
+  const localRounds = state.counterAuthority === "two_loop_v1"
+    ? state.counters?.localSourceChangingRoundsPerEpoch
+    : state.sourceChangingCycle;
+  if (!Number.isSafeInteger(localRounds) || localRounds < 0) {
+    return { ok: false, terminalReason: "MANUAL_DECISION_REQUIRED", reason: "authoritative_local_round_counter_invalid", budget };
+  }
+  if (localRounds < budget.normalized) return { ok: true, budget };
   const diagnostic = state.diagnosticReviewFix || null;
   if (diagnostic?.status === "pending") {
     const authorization = diagnosticAuthorizationForState(state, budget, "resume_diagnostic_epoch");
@@ -349,7 +450,7 @@ export function evaluateCycleBudget(state, config = {}, history = []) {
     epoch: state.epoch,
     prNumber: state.pr?.number ?? null,
     exactHead: state.pr?.exactHead || null,
-    sourceChangingCycle: state.sourceChangingCycle,
+    sourceChangingCycle: localRounds,
     normalizedMax: budget.normalized,
     decision: "start_diagnostic_epoch",
     startedAt: new Date().toISOString(),
@@ -494,6 +595,7 @@ export async function runExistingPrReviewConvergence(input = {}) {
   const findings = Array.isArray(input.findings) ? input.findings : [];
   const convergence = buildLiveReviewConvergenceContext({
     ...input,
+    reviewConvergenceState: input.reviewConvergenceState || input.convergenceState,
     currentFindings: findings,
     relationships: input.relationships || {
       parentPr: input.pr?.expectedParentPr ?? null,
@@ -512,6 +614,28 @@ export async function runExistingPrReviewConvergence(input = {}) {
       sourceChangingCycle: state.sourceChangingCycle,
     };
   }
+  const githubEpoch = accountGithubTriggeredFixEpoch(state, {
+    findingFingerprints: convergence.context.findingInventory.map((finding) => finding.fingerprint),
+  });
+  if (!githubEpoch.ok) {
+    return {
+      ok: false,
+      reasonCode: githubEpoch.reasonCode,
+      reason: githubEpoch.sanitizedReason,
+      reviewConvergenceState: githubEpoch.state,
+    };
+  }
+  state = githubEpoch.state;
+  if (githubEpoch.duplicate) {
+    return {
+      ok: false,
+      reasonCode: "existing_pr_convergence_duplicate_github_findings",
+      reason: "all current GitHub findings were already processed in an earlier source epoch",
+      reviewConvergenceState: state,
+      findingInventory: [],
+    };
+  }
+  const actionableInventory = convergence.context.findingInventory.filter((finding) => githubEpoch.newFingerprints.includes(finding.fingerprint));
   const budget = evaluateCycleBudget(state, input.config || {}, history);
   if (!budget.ok) {
     return {
@@ -530,7 +654,7 @@ export async function runExistingPrReviewConvergence(input = {}) {
       reason: "material findings require the shared bounded review-convergence batch-fix authority",
       reviewConvergenceState: state,
       convergence: convergence.context,
-      findingInventory: convergence.context.findingInventory,
+      findingInventory: actionableInventory,
       budget,
     };
   }
@@ -538,9 +662,9 @@ export async function runExistingPrReviewConvergence(input = {}) {
     issue: input.issue,
     branchName: input.pr?.headRefName || input.pr?.branch || input.branchName,
     laneDecision: input.laneDecision || {},
-    inventory: convergence.context.findingInventory,
+    inventory: actionableInventory,
   });
-  const fixResult = await input.runBatchFix({ ...input, fixTask, reviewConvergenceState: state, convergence: convergence.context });
+  const fixResult = await input.runBatchFix({ ...input, findings: actionableInventory, fixTask, reviewConvergenceState: state, convergence: { ...convergence.context, findingInventory: actionableInventory } });
   if (!fixResult?.ok) {
     return {
       ok: false,
@@ -548,7 +672,7 @@ export async function runExistingPrReviewConvergence(input = {}) {
       reason: fixResult?.reason || fixResult?.reasonCode || "review convergence fix did not proceed",
       reviewConvergenceState: markDiagnosticReviewFixTerminal(state, fixResult?.reasonCode || "existing_pr_convergence_fix_not_proceeded"),
       convergence: convergence.context,
-      findingInventory: convergence.context.findingInventory,
+      findingInventory: actionableInventory,
       budget,
     };
   }
@@ -556,13 +680,17 @@ export async function runExistingPrReviewConvergence(input = {}) {
     kind: fixResult.newHead && fixResult.newHead !== state.pr?.exactHead ? "source_changed" : "wait",
     newHead: fixResult.newHead,
     reasonCode: "existing_pr_review_convergence_fix",
+    roundsConsumed: fixResult?.sourceIdentity?.localSourceChangingRoundsConsumed || fixResult?.result?.sourceIdentity?.localSourceChangingRoundsConsumed || 1,
   });
+  if (fixResult.newHead && fixResult.newHead !== state.pr?.exactHead && !accounted.consumedSourceCycle) {
+    return { ok: false, reasonCode: "LOCAL_SOURCE_CHANGING_ROUND_LIMIT_EXHAUSTED", reason: accounted.reason, reviewConvergenceState: accounted.state };
+  }
   return {
     ok: true,
     reason: "existing_pr_review_convergence_fix_applied",
     reviewConvergenceState: accounted.state,
     convergence: convergence.context,
-    findingInventory: convergence.context.findingInventory,
+    findingInventory: actionableInventory,
     consumedSourceCycle: accounted.consumedSourceCycle,
     newHead: fixResult.newHead || state.pr?.exactHead || null,
     result: fixResult,
@@ -721,7 +849,7 @@ function diagnosticAuthorizationForState(state, budget, reason) {
     epoch: state.epoch,
     prNumber: state.pr?.number ?? null,
     exactHead: state.pr?.exactHead || null,
-    sourceChangingCycle: state.sourceChangingCycle,
+    sourceChangingCycle: state.counters?.localSourceChangingRoundsPerEpoch,
     normalizedMax: budget.normalized,
     attemptId: diagnostic.attemptId || diagnosticAttemptId(state, budget),
     status: diagnostic.status || null,
@@ -730,7 +858,7 @@ function diagnosticAuthorizationForState(state, budget, reason) {
     reviewConvergenceState: state,
     diagnosticAuthorization: authorization,
     normalizedMax: budget.normalized,
-    attemptCount: state.sourceChangingCycle,
+    attemptCount: state.counters?.localSourceChangingRoundsPerEpoch,
   });
   return validation.ok ? { ok: true, authorization } : validation;
 }
@@ -742,7 +870,7 @@ function diagnosticAttemptId(state, budget) {
       epoch: state.epoch,
       prNumber: state.pr?.number ?? null,
       exactHead: state.pr?.exactHead || null,
-      sourceChangingCycle: state.sourceChangingCycle,
+      sourceChangingCycle: state.counters?.localSourceChangingRoundsPerEpoch,
       normalizedMax: budget.normalized,
     }))
     .digest("hex");

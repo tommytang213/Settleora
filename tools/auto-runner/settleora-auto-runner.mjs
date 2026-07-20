@@ -111,6 +111,7 @@ import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
 import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
+import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -241,6 +242,7 @@ async function main() {
     attemptedIssueCount: 0,
     processedIssueNumbers: [],
     processedIssueCount: 0,
+    acceptedLogicalTaskCount: 0,
     stopReason: null,
     logPath: logger.logPath,
     autoMergeCanaryApprovalMode: trustPolicy.autoMergeCanaryApproval?.mode || "not_approved",
@@ -275,9 +277,28 @@ async function main() {
     writeActiveRunState(config, summary);
     logger.info(`Settleora auto-runner started in ${config.mode} mode.`);
 
+    if (!config.dryRun && !config.outageRecoveryOnly) {
+      const durableBudget = loadLogicalTaskBudget(config, config.supervisorRunId || runId);
+      if (!durableBudget.ok) {
+        summary.stopReason = `logical-task-budget:${durableBudget.reasonCode}`;
+        throw new Error(`Logical task budget startup failed closed: ${durableBudget.reasonCode}`);
+      }
+      summary.acceptedLogicalTaskCount = durableBudget.state.acceptedLogicalTaskCount;
+    }
+
     const startedAtMs = Date.now();
     const issueTracker = createRunIssueTracker(summary);
-    for (let index = 1; index <= config.maxIterations; index += 1) {
+    let chargedRecoveryCapBypassConsumed = false;
+    for (let index = 1; ; index += 1) {
+      let chargedRecoveryAtCap = null;
+      if (config.dryRun) {
+        if (index > config.maxIterations) break;
+      } else if (summary.acceptedLogicalTaskCount >= config.maxIterations) {
+        if (chargedRecoveryCapBypassConsumed) break;
+        chargedRecoveryAtCap = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
+        if (!chargedRecoveryAtCap.found) break;
+        chargedRecoveryCapBypassConsumed = true;
+      }
       const control = applyControlAtSafeBoundary(config, summary);
       if (control.action === "stop") {
         summary.stopReason = control.reason;
@@ -290,12 +311,18 @@ async function main() {
         break;
       }
       Object.assign(summary, trackerSnapshot(issueTracker));
-      const iteration = await runIteration(config, logger, runId, index, issueTracker);
+      const iteration = await runIteration(config, logger, runId, index, issueTracker, chargedRecoveryAtCap);
       const canaryEvidence = writeCanaryEvidence(config, iteration);
       if (canaryEvidence) {
         iteration.canaryEvidence = canaryEvidence;
       }
       summary.iterations.push(iteration);
+      if (Number.isSafeInteger(iteration.logicalTaskBudget?.acceptedLogicalTaskCount)) {
+        summary.acceptedLogicalTaskCount = iteration.logicalTaskBudget.acceptedLogicalTaskCount;
+      }
+      if (!config.dryRun && iteration.issueSource === "startup_recovery" && summary.acceptedLogicalTaskCount >= config.maxIterations) {
+        chargedRecoveryCapBypassConsumed = true;
+      }
       if (iteration.issue?.number) {
         markIssueProcessed(issueTracker, iteration.issue.number);
         Object.assign(summary, trackerSnapshot(issueTracker));
@@ -316,7 +343,7 @@ async function main() {
       writeActiveRunState(config, summary);
     }
     if (!summary.stopReason) {
-      summary.stopReason = "max-iterations-reached";
+      summary.stopReason = config.dryRun ? "max-iterations-reached" : "max-accepted-logical-tasks-reached";
     }
     }
   } finally {
@@ -335,7 +362,7 @@ function isFatalRunStopReason(stopReason) {
   return typeof stopReason === "string" && stopReason.startsWith("recoverable-work-blocked:");
 }
 
-async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker()) {
+async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker(), startupRecoveryOverride = null) {
   const iteration = {
     runId,
     index,
@@ -347,8 +374,24 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     runIssueState: trackerSnapshot(issueTracker),
   };
 
-  const startupRecovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config);
+  const startupRecovery = startupRecoveryOverride || (config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config));
   if (startupRecovery.found) {
+    config.logicalTaskBudgetScopeId ||= startupRecovery.state?.supervisorRunId || startupRecovery.state?.runId || config.supervisorRunId || runId;
+    const recoveryBudget = config.dryRun
+      ? { ok: true, charged: false, duplicate: false, preview: true, acceptedLogicalTaskCount: 0, reasonCode: "dry_run_recovery_not_charged" }
+      : startupRecovery.allowed
+      ? chargeStartupRecoveryLogicalTask(config, runId, startupRecovery)
+      : { ok: true, charged: false, skipped: true, reasonCode: "startup_recovery_not_allowed" };
+    iteration.logicalTaskBudget = recoveryBudget;
+    if (!recoveryBudget.ok) {
+      iteration.recovery = startupRecovery;
+      iteration.issueSource = "startup_recovery";
+      iteration.issue = Number.isSafeInteger(startupRecovery.state?.issue?.number) ? { number: startupRecovery.state.issue.number } : null;
+      iteration.outcome = "blocked_logical_task_budget";
+      iteration.systemicStop = `logical-task-budget:${recoveryBudget.reasonCode}`;
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
     const continuation = startupRecovery.allowed
       ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
       : await executeStartupContinuation(config, startupRecovery);
@@ -485,6 +528,33 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
+
+  const acceptedAt = new Date().toISOString();
+  iteration.logicalTaskBudget = config.dryRun
+    ? { ok: true, charged: false, duplicate: false, preview: true, acceptedLogicalTaskCount: 0, reasonCode: "dry_run_claim_not_accepted" }
+    : chargeAcceptedLogicalTask(config, {
+        budgetScopeId: config.logicalTaskBudgetScopeId || config.supervisorRunId || runId,
+        maxTasks: config.maxIterations,
+        issue,
+        taskLineageId: `issue-${issue.number}`,
+        claimIdentity: `${config.repositorySlug}#${issue.number}`,
+        acceptedAt,
+      });
+  if (!iteration.logicalTaskBudget.ok) {
+    iteration.outcome = "blocked_logical_task_budget";
+    iteration.systemicStop = `logical-task-budget:${iteration.logicalTaskBudget.reasonCode}`;
+    recoveryRecorder?.stop(
+      iteration.logicalTaskBudget.reasonCode,
+      iteration.logicalTaskBudget.reason || iteration.logicalTaskBudget.reasonCode,
+      "stop_fail_closed",
+    );
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+  if (!config.dryRun) recoveryRecorder?.marker("logical_task_charge", iteration.logicalTaskBudget.chargeId, {
+    target: `issue-${issue.number}`,
+    correlation: iteration.logicalTaskBudget.chargeId,
+  });
 
   const laneDecision = selection.laneDecision || classifyIssueLane(issue);
   iteration.laneDecision = laneDecision;
@@ -1327,6 +1397,34 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   iteration.recovery = recoveryRecorder?.summary();
   iteration.finishedAt = new Date().toISOString();
   return iteration;
+}
+
+function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
+  const issue = { number: recovery.state?.issueNumber };
+  if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) return { ok: false, reasonCode: "startup_recovery_issue_identity_missing" };
+  const budgetScopeId = config.logicalTaskBudgetScopeId || recovery.state?.supervisorRunId || recovery.state?.runId || config.supervisorRunId || runId;
+  const loaded = loadLogicalTaskBudget(config, budgetScopeId);
+  if (!loaded.ok) return loaded;
+  const alreadyCharged = Object.values(loaded.state.charges || {}).some((marker) =>
+    marker.identity?.repository === config.repositorySlug &&
+    marker.identity?.issueNumber === issue.number &&
+    marker.identity?.taskLineageId === `issue-${issue.number}` &&
+    marker.identity?.claimIdentity === `${config.repositorySlug}#${issue.number}`,
+  );
+  if (!alreadyCharged) {
+    const live = readIssueLive(config, issue.number);
+    if (!live.ok) return { ok: false, reasonCode: live.reason || "startup_recovery_claim_reread_failed" };
+    const reread = validateClaimReread(config, issue, live.issue);
+    if (!reread.ok) return { ok: false, reasonCode: reread.reason || "startup_recovery_claim_reread_failed" };
+  }
+  return chargeAcceptedLogicalTask(config, {
+    budgetScopeId,
+    maxTasks: config.maxIterations,
+    issue,
+    taskLineageId: `issue-${issue.number}`,
+    claimIdentity: `${config.repositorySlug}#${issue.number}`,
+    acceptedAt: new Date().toISOString(),
+  });
 }
 
 function createProductionRecoveryRecorder(config, input) {

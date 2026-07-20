@@ -17,13 +17,17 @@ import {
 } from "./auto-merge-policy.mjs";
 import { completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 import {
+  accountConvergenceEvent,
+  buildBatchFixTask,
   freezeMaterialFindingInventory,
+  reviewFindingsFromSupportedContainers,
   runExistingPrBatchFix,
   runExistingPrReviewConvergence,
 } from "./review-convergence-controller.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
 import { runCodexPrompt } from "./codex-runner.mjs";
+import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 
 export const prStackStateVersion = 1;
@@ -1176,7 +1180,10 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
       const reserved = validateReconciledSourceCycle({ config, state, pr, result: reconciled });
       if (!reserved.ok) return reserved;
       const sourceCycles = { ...(state.sourceCycles || {}), [pr.number]: reserved.consumedAfter };
-      const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, reconciled);
+      const recoveredEvidence = reconciled.result?.reviewConvergenceState
+        ? putEvidence(state.evidence, "reviewConvergenceState", pr.number, reconciled.result.reviewConvergenceState)
+        : state.evidence;
+      const rebound = rebindStateToNewHead({ ...state, evidence: recoveredEvidence }, pr.number, newHead, sourceCycles, reconciled);
       if (!rebound.ok) return rebound;
       return {
         ok: true,
@@ -1184,6 +1191,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
         mutationMarkers: rebound.mutationMarkers,
         sourceCycleReservations: upsertSourceCycleReservation(state.sourceCycleReservations, reserved.reservation),
         sourceCycles,
+        sourceCycleEpoch: { ...(typeof state.sourceCycleEpoch === "object" ? state.sourceCycleEpoch : {}), [pr.number]: reserved.reservation.sourceCycleEpoch },
         exactHeads: rebound.exactHeads,
         orderedPrs: rebound.orderedPrs,
         summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, pushIntentReconciledBeforeStale: true, sourceCycleReservation: reserved.summary },
@@ -1198,13 +1206,16 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   if (!budget.ok) return budget;
   const result = await adapter.convergeExistingPr({ config, plan, state, pr, findings: before.findings || [], sourceCycleBudget: budget });
   if (!result?.ok) return waitOrFail(result, "pr_convergence_failed");
+  const convergenceEvidence = result.reviewConvergenceState
+    ? putEvidence(state.evidence, "reviewConvergenceState", pr.number, result.reviewConvergenceState)
+    : state.evidence;
   const newHead = result.newHead || result.headRefOid || pr.headRefOid;
   const sourceCycles = { ...(state.sourceCycles || {}) };
   if (newHead !== pr.headRefOid) {
     const reserved = validateReconciledSourceCycle({ config, state, pr, result, budget });
     if (!reserved.ok) return reserved;
     sourceCycles[pr.number] = reserved.consumedAfter;
-    const rebound = rebindStateToNewHead(state, pr.number, newHead, sourceCycles, result);
+    const rebound = rebindStateToNewHead({ ...state, evidence: convergenceEvidence }, pr.number, newHead, sourceCycles, result);
     if (!rebound.ok) return rebound;
     return {
       ok: true,
@@ -1212,6 +1223,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
       mutationMarkers: rebound.mutationMarkers,
       sourceCycleReservations: upsertSourceCycleReservation(state.sourceCycleReservations, reserved.reservation),
       sourceCycles,
+      sourceCycleEpoch: { ...(typeof state.sourceCycleEpoch === "object" ? state.sourceCycleEpoch : {}), [pr.number]: reserved.reservation.sourceCycleEpoch },
       exactHeads: rebound.exactHeads,
       orderedPrs: rebound.orderedPrs,
       summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, reboundExactHead: true, sourceCycleReservation: reserved.summary },
@@ -1224,7 +1236,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
   };
   return {
     ok: true,
-    evidence: putEvidence(state.evidence, "reviewConverged", pr.number, result),
+    evidence: putEvidence(convergenceEvidence, "reviewConverged", pr.number, result),
     mutationMarkers,
     sourceCycles,
     summary: { action: action.action, prNumber: pr.number, sourceCycleConsumed: newHead !== pr.headRefOid, sourceCycleBudget: budget.summary },
@@ -1565,6 +1577,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         laneDecision: laneDecision.contract,
         sourceCycleBudget: durableBudget,
         sourceCycleOperationContext: sourceCycleOperationContext.context,
+        reviewConvergenceState: state?.evidence?.reviewConvergenceState?.[pr.number] || null,
         runBatchFix,
       });
       return result.ok
@@ -1787,14 +1800,37 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
 
 function createProductionBatchFixAdapters(config = {}, options = {}) {
   const runner = options.runner || defaultRunner;
+  const codexPromptRunner = options.runCodexPrompt || runCodexPrompt;
   const cwd = config.repoRoot || process.cwd();
   return {
-    async runCodexBatchFix({ fixTask, pr }) {
-      const proof = proveTargetBatchFixWorktree({ config, pr, runner });
+    async runCodexBatchFix({ fixTask, pr, exactHead }) {
+      const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
+      if (!loopState.ok) return loopState;
+      const promptDigest = digestJson(fixTask?.prompt || "");
+      const allowedPathsDigest = digestStringSet(normalizeChangedFiles(fixTask?.allowedPaths || []));
+      const findingDigest = digestStringSet(normalizeChangedFiles(fixTask?.findingFingerprints || []));
+      const exactRecoveryState = loopState.state.phase === "outer_fix_reserved"
+        && loopState.state.outerFixPromptDigest === promptDigest
+        && loopState.state.outerFixAllowedPathsDigest === allowedPathsDigest
+        && loopState.state.outerFixFindingDigest === findingDigest
+        ? loopState.state
+        : null;
+      const proof = proveTargetBatchFixWorktree({ config, pr, runner, recoveryState: exactRecoveryState });
       if (!proof.ok) return proof;
       if (proof.localCandidateHead && proof.localCandidateHead !== proof.expectedHead) {
         return { ok: true, skippedCodex: true, reason: "existing_unpushed_local_candidate", targetWorktreeProof: proof };
       }
+      if (proof.dirtyRecoveryAuthorized) {
+        return { ok: true, skippedCodex: true, reason: "outer_fix_reserved_dirty_recovery", targetWorktreeProof: proof };
+      }
+      persistLocalCandidateLoopState(loopState.statePath, {
+        ...loopState.state,
+        phase: "outer_fix_reserved",
+        reservedParentHead: exactHead,
+        outerFixPromptDigest: promptDigest,
+        outerFixAllowedPathsDigest: allowedPathsDigest,
+        outerFixFindingDigest: findingDigest,
+      });
       const promptPath = path.join(
         config.logsRoot || "/workspace/logs/settleora-auto-runner",
         "review-fix",
@@ -1802,7 +1838,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       );
       mkdirSync(path.dirname(promptPath), { recursive: true, mode: 0o700 });
       writeFileSync(promptPath, `${fixTask?.prompt || ""}\n`, { mode: 0o600 });
-      const codex = runCodexPrompt(
+      const codex = codexPromptRunner(
         { ...config, repoRoot: proof.worktreePath },
         {
           branchName: pr?.headRefName || pr?.branch || "unknown",
@@ -1816,23 +1852,73 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       }
       return { ok: true, codex, promptPath };
     },
-    async listChangedFiles({ exactHead }) {
+    async listChangedFiles({ exactHead, allowJournaledDirty = false }) {
       const head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_head_unreadable" });
       if (!head.ok) throw new Error(head.reason);
       if (exactHead && head.sha !== exactHead) {
         const committed = runner("git", ["diff", "--name-only", `${exactHead}..HEAD`], { cwd });
         if (committed.status !== 0 || committed.error) throw new Error(`git diff exactHead..HEAD failed: ${boundedText(committed.stderr || committed.error || committed.stdout)}`);
         const dirty = readWorktreeCleanProof({ runner, cwd });
-        if (!dirty.ok || dirty.clean !== true) throw new Error("existing local candidate has additional dirty changes");
+        if (!dirty.ok) throw new Error("existing local candidate worktree status is unreadable");
+        if (dirty.clean !== true && !allowJournaledDirty) throw new Error("existing local candidate has additional dirty changes");
+        if (dirty.clean !== true) {
+          const unstaged = runner("git", ["diff", "--name-only"], { cwd });
+          const staged = runner("git", ["diff", "--cached", "--name-only"], { cwd });
+          const untracked = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+          if (unstaged.status !== 0 || unstaged.error || staged.status !== 0 || staged.error || untracked.status !== 0 || untracked.error) throw new Error("journal-authorized inner fix file set is unreadable");
+          return normalizeChangedFiles(`${committed.stdout || ""}\n${unstaged.stdout || ""}\n${staged.stdout || ""}\n${untracked.stdout || ""}`.split(/\r?\n/));
+        }
         return normalizeChangedFiles(committed.stdout.split(/\r?\n/));
       }
       const diff = runner("git", ["diff", "--name-only"], { cwd });
       if (diff.status !== 0 || diff.error) throw new Error(`git diff failed: ${boundedText(diff.stderr || diff.error || diff.stdout)}`);
       const staged = runner("git", ["diff", "--cached", "--name-only"], { cwd });
       if (staged.status !== 0 || staged.error) throw new Error(`git diff --cached failed: ${boundedText(staged.stderr || staged.error || staged.stdout)}`);
-      return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}`.split(/\r?\n/));
+      const untracked = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+      if (untracked.status !== 0 || untracked.error) throw new Error(`git ls-files failed: ${boundedText(untracked.stderr || untracked.error || untracked.stdout)}`);
+      return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}\n${untracked.stdout || ""}`.split(/\r?\n/));
     },
-    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest }) {
+    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget = null, localLoop = null }) {
+      const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead, localLoop });
+      if (!loopState.ok) return loopState;
+      if (loopState.state.phase === "source_fix_applied") {
+        const appliedIdentity = collectAppliedSourceFixFiles({ runner, cwd, candidateHead: loopState.state.candidateHead });
+        if (!appliedIdentity.ok) return appliedIdentity;
+        if (appliedIdentity.currentHead !== loopState.state.appliedHead) return fail("existing_pr_local_loop_applied_head_mismatch", "journal-authorized source-fix head changed after application");
+        if (appliedIdentity.identityDigest !== loopState.state.appliedChangedFilesDigest) return fail("existing_pr_local_loop_applied_files_mismatch", "journal-authorized source-fix files changed after application");
+      }
+      if (["findings_frozen", "source_fix_reserved"].includes(loopState.state.phase)) {
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: loopState.state });
+        if (!resumedFix.ok) return resumedFix;
+        const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
+        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
+      }
+      const preCommitHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_precommit_head_unreadable" });
+      if (!preCommitHead.ok) return preCommitHead;
+      const preCommitClean = readWorktreeCleanProof({ runner, cwd });
+      if (!preCommitClean.ok) return preCommitClean;
+      if (preCommitHead.sha === exactHead || !preCommitClean.clean) {
+        const dirtyFiles = runner("git", ["diff", "--name-only"], { cwd });
+        const stagedFiles = runner("git", ["diff", "--cached", "--name-only"], { cwd });
+        const untrackedFiles = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+        if (dirtyFiles.status !== 0 || dirtyFiles.error || stagedFiles.status !== 0 || stagedFiles.error || untrackedFiles.status !== 0 || untrackedFiles.error) return fail("existing_pr_local_loop_precommit_files_unreadable", "pre-commit reservation could not bind the dirty/staged/untracked file set");
+        const reservedCommitFiles = normalizeChangedFiles(`${dirtyFiles.stdout || ""}\n${stagedFiles.stdout || ""}\n${untrackedFiles.stdout || ""}`.split(/\r?\n/));
+        if (reservedCommitFiles.length === 0) return fail("existing_pr_local_loop_precommit_files_missing", "pre-commit reservation requires source changes");
+        const reservedWorktreeIdentity = collectCumulativeCandidateContentIdentity({ runner, cwd, parentHead: preCommitHead.sha });
+        if (!reservedWorktreeIdentity.ok) return reservedWorktreeIdentity;
+        loopState.state = persistLocalCandidateLoopState(loopState.statePath, {
+          ...loopState.state,
+          phase: "commit_reserved",
+          reservedParentHead: preCommitHead.sha,
+          reservedChangedFilesDigest: digestStringSet(reservedCommitFiles),
+          reservedWorktreeIdentityDigest: reservedWorktreeIdentity.identityDigest,
+          reservedCommitMessage: "Auto-runner stack review-fix batch",
+        });
+      }
+      if (loopState.state.phase === "commit_reserved") {
+        const reservedIdentity = collectCumulativeCandidateContentIdentity({ runner, cwd, parentHead: loopState.state.reservedParentHead });
+        if (!reservedIdentity.ok || reservedIdentity.identityDigest !== loopState.state.reservedWorktreeIdentityDigest) return fail("existing_pr_local_loop_precommit_identity_mismatch", "pre-commit source identity changed after reservation");
+      }
       const candidate = createOrReuseLocalCandidateCommit({
         config,
         runner,
@@ -1840,8 +1926,16 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         exactHead,
         changedFiles,
         message: "Auto-runner stack review-fix batch",
+        localLoopState: loopState.state,
       });
       if (!candidate.ok) return candidate;
+      loopState.state = persistLocalCandidateLoopState(loopState.statePath, {
+        ...loopState.state,
+        phase: loopState.state.phase === "source_fix_applied" ? "evidence_invalidated" : "candidate_prepared",
+        candidateHead: candidate.newHead,
+        candidateTree: candidate.tree,
+        candidateCommitChainDigest: candidate.commitChainDigest,
+      });
       const baseFetch = runner("git", ["fetch", "origin", pr?.baseRefName || pr?.base || "main"], { cwd });
       if (baseFetch.status !== 0 || baseFetch.error) return fail("existing_pr_batch_fix_base_fetch_failed", boundedText(baseFetch.stderr || baseFetch.error || baseFetch.stdout));
       const live = readLivePrProof({ config, pr, expectedHead: exactHead, runner });
@@ -1859,6 +1953,15 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         laneDecision,
       });
       if (!fullCandidatePrDelta.ok) return fullCandidatePrDelta;
+      const candidateDigest = fullCandidatePrDelta.delta.normalizedPatchDigest;
+      const history = advanceLocalCandidateHistory(loopState.state.candidateHistory, candidate.newHead, candidateDigest);
+      if (!history.ok) return history;
+      if (history.changed) {
+        loopState.state = persistLocalCandidateLoopState(loopState.statePath, {
+          ...loopState.state,
+          candidateHistory: history.candidateHistory,
+        });
+      }
       if (!fullCandidatePrDelta.delta.allowedPathResult?.ok) {
         return fail("full_candidate_delta_allowed_path_failed", `full candidate delta changed forbidden paths: ${fullCandidatePrDelta.delta.allowedPathResult.rejectedPaths.join(",")}`, { fullCandidatePrDelta: fullCandidatePrDelta.delta });
       }
@@ -1890,13 +1993,46 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (typeof options.runStrongReview !== "function" || typeof options.runCodexReview !== "function") {
         return fail("existing_pr_batch_fix_review_adapter_unconfigured", "strong and Codex review adapters are required before push");
       }
+      persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "gemini_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
       const externalReview = await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha });
-      if (externalReview?.status !== "pass") return fail("existing_pr_batch_fix_strong_review_failed", externalReview?.reason || "strong review did not pass", { externalReview });
       const fullDeltaExternalReview = { ...externalReview, fullCandidatePrDelta: externalReview?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
+      persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
       const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha });
       const verdict = review?.verdict?.verdict || review?.verdict;
-      if (verdict !== "approve") return fail("existing_pr_batch_fix_codex_review_failed", review?.reviewFailureReason || "Codex review did not approve", { review });
       const fullDeltaCodexReview = { ...review, fullCandidatePrDelta: review?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
+      if (externalReview?.status !== "pass" || verdict !== "approve") {
+        const frozen = freezeMaterialFindingInventory(reviewFindingsFromSupportedContainers({ externalReview, review }));
+        if (frozen.length === 0) {
+          return fail(externalReview?.status !== "pass" ? "existing_pr_batch_fix_strong_review_failed" : "existing_pr_batch_fix_codex_review_failed", externalReview?.reason || review?.reviewFailureReason || "local reviewer did not pass and supplied no safe actionable finding");
+        }
+        if (frozen.some((finding) => finding.classification !== "material_safely_fixable")) {
+          return fail("existing_pr_local_loop_manual_or_unsafe", "local reviewer returned a manual, unsafe, or contradictory finding batch");
+        }
+        const forbiddenLocalFindingPaths = filterForbiddenChangedFiles(frozen.map((finding) => finding.path).filter(Boolean), laneDecision || {});
+        if (forbiddenLocalFindingPaths.length > 0) return fail("existing_pr_local_loop_out_of_contract", "local finding batch is outside the lane contract", { forbiddenFindingPaths: forbiddenLocalFindingPaths });
+        const findingDigest = digestStringSet(frozen.map((finding) => finding.fingerprint));
+        if ((loopState.state.findingDigests || []).includes(findingDigest)) return fail("existing_pr_local_loop_no_progress", "identical local finding batch repeated without convergence");
+        const localRound = Number(loopState.state.localRound || 0) + 1;
+        const allowance = evaluateLocalFixAllowance({ config, sourceCycleBudget, localRound });
+        if (!allowance.ok) return allowance;
+        const localFixTask = buildBatchFixTask({ issue: { number: pr?.issueNumber || 921 }, branchName: pr?.headRefName || pr?.branch, laneDecision, inventory: frozen });
+        const frozenState = persistLocalCandidateLoopState(loopState.statePath, {
+          ...loopState.state,
+          phase: "findings_frozen",
+          candidateHead: candidate.newHead,
+          candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest,
+          localRound,
+          frozenFindingDigest: findingDigest,
+          frozenFindings: frozen,
+          frozenFixPrompt: localFixTask.prompt,
+          findingDigests: [...(loopState.state.findingDigests || []), findingDigest],
+          evidenceInvalidated: true,
+        });
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: frozenState });
+        if (!resumedFix.ok) return resumedFix;
+        const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
+        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
+      }
       const postWorktreeProof = readExactFinalGateWorktreeProof({
         config: targetConfig,
         pr,
@@ -1977,10 +2113,12 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           fixDeltaFilesDigest: digestStringSet(changedFiles),
           findingFingerprints,
           fingerprintDigest,
+          localSourceChangingRoundsConsumed: Math.max(1, Number(loopState.state.localRound || 0) + 1),
         },
+        localLoopState: persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "local_convergence_passed", candidateHead: candidate.newHead, localRound: Number(loopState.state.localRound || 0) }),
       };
     },
-    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null }) {
+    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null, reviewConvergenceState = null }) {
       const newHead = reviewed?.localCandidate?.newHead || reviewed?.sourceIdentity?.newHead || null;
       if (!validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", "validated local candidate head is missing");
       const branch = pr?.headRefName || pr?.branch || "";
@@ -2040,6 +2178,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         liveProof: live.proof,
         repositoryIdentity: live.repositoryIdentity,
         sourceCycleReservation: reservation.reservation,
+        reviewConvergenceState,
       });
       const reconciledIntent = reconcilePushIntent({ config, pr, intent, runner });
       if (reconciledIntent.ok && reconciledIntent.finalized === true) {
@@ -2067,6 +2206,7 @@ function transitionState(state, patch = {}) {
     mutationMarkers: patch.mutationMarkers || state.mutationMarkers,
     sourceCycleReservations: patch.sourceCycleReservations || state.sourceCycleReservations || {},
     sourceCycles: patch.sourceCycles || state.sourceCycles,
+    sourceCycleEpoch: patch.sourceCycleEpoch || state.sourceCycleEpoch,
     exactHeads: patch.exactHeads || state.exactHeads,
     orderedPrs: patch.orderedPrs || state.orderedPrs,
     terminal: patch.terminal === undefined ? state.terminal : patch.terminal,
@@ -2486,15 +2626,33 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
   if (hasDurableState && !Object.prototype.hasOwnProperty.call(sourceCycles, prNumber)) {
     return fail("source_cycle_state_missing", "durable source-cycle state is missing for the active PR");
   }
-  const consumed = sourceCycles[prNumber];
+  const convergenceState = state?.evidence?.reviewConvergenceState?.[prNumber] || null;
+  if (!Number.isInteger(sourceCycles[prNumber]) || sourceCycles[prNumber] < 0) {
+    return fail("source_cycle_state_malformed", "durable source-cycle compatibility projection is malformed");
+  }
+  const materialFindings = Array.isArray(findings) ? findings.filter((finding) => finding && finding.material !== false) : [];
+  const frozenFingerprints = freezeMaterialFindingInventory(materialFindings).map((finding) => finding.fingerprint).sort();
+  const findingDigest = createHash("sha256").update(frozenFingerprints.join("\n")).digest("hex");
+  const epochAlreadyAdmitted = Object.values(convergenceState?.counterMarkers || {}).some((marker) => marker?.exactHead === pr?.headRefOid && marker?.findingDigest === findingDigest);
+  const authoritativeLocal = convergenceState?.counterAuthority === "two_loop_v1"
+    ? convergenceState.counters?.localSourceChangingRoundsPerEpoch
+    : null;
+  const initializingTwoLoopEpoch = !convergenceState && materialFindings.length > 0;
+  const consumed = Number.isInteger(authoritativeLocal)
+    ? materialFindings.length > 0 && !epochAlreadyAdmitted ? 0 : authoritativeLocal
+    : initializingTwoLoopEpoch ? 0 : sourceCycles[prNumber];
   if (!Number.isInteger(consumed) || consumed < 0) {
     return fail("source_cycle_state_malformed", "durable source-cycle count is malformed");
   }
   const max = normalizeSourceCycleMax(config);
   if (!Number.isInteger(max) || max < 0) return fail("source_cycle_budget_malformed", "source-cycle maximum is malformed");
-  const epoch = state?.sourceCycleEpoch?.[prNumber] || state?.sourceCycleEpoch || 1;
+  const legacyEpoch = state?.sourceCycleEpoch?.[prNumber] || state?.sourceCycleEpoch || 1;
+  const epoch = convergenceState?.counterAuthority === "two_loop_v1"
+    ? Number(convergenceState.epoch || legacyEpoch) + (materialFindings.length > 0 && !epochAlreadyAdmitted ? 1 : 0)
+    : initializingTwoLoopEpoch
+      ? Number(legacyEpoch) + 1
+      : legacyEpoch;
   if (!Number.isInteger(epoch) || epoch < 1) return fail("source_cycle_epoch_malformed", "durable source-cycle epoch is malformed");
-  const materialFindings = Array.isArray(findings) ? findings.filter((finding) => finding && finding.material !== false) : [];
   const remaining = Math.max(0, max - consumed);
   const summary = {
     prNumber,
@@ -2504,6 +2662,13 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
     max,
     remaining,
     materialFindingCount: materialFindings.length,
+    counterAuthority: convergenceState?.counterAuthority === "two_loop_v1"
+      ? "two_loop_v1"
+      : initializingTwoLoopEpoch
+        ? "two_loop_v1_initializing"
+        : "legacy_compatibility",
+    legacySourceCyclesProjection: sourceCycles[prNumber],
+    legacySourceCyclesAuthoritative: false,
   };
   if (materialFindings.length > 0 && consumed >= max) {
     return fail("source_cycle_budget_exhausted", "durable per-PR source-cycle budget is exhausted", { summary, sourceCycleBudget: summary });
@@ -2513,7 +2678,18 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
 
 function createSourceCycleOperationContext({ config = {}, plan = null, state = null, pr = {}, sourceCycleBudget = null } = {}) {
   if (!state || typeof state !== "object" || Array.isArray(state)) return fail("source_cycle_operation_state_missing", "validated stack state is required before source-cycle reservation");
-  const stateValidation = validatePrStackState(state, plan);
+  const usesTwoLoopAuthority = state?.evidence?.reviewConvergenceState?.[pr?.number]?.counterAuthority === "two_loop_v1"
+    || sourceCycleBudget?.counterAuthority === "two_loop_v1_initializing";
+  const reservationState = usesTwoLoopAuthority
+    ? {
+        ...state,
+        sourceCycles: { ...(state.sourceCycles || {}), [pr?.number]: sourceCycleBudget?.consumed },
+        sourceCycleEpoch: typeof state.sourceCycleEpoch === "object"
+          ? { ...state.sourceCycleEpoch, [pr?.number]: sourceCycleBudget?.epoch }
+          : { [pr?.number]: sourceCycleBudget?.epoch },
+      }
+    : state;
+  const stateValidation = validatePrStackState(reservationState, plan);
   if (!stateValidation.ok) return stateValidation;
   if (!sourceCycleBudget?.ok) return fail(sourceCycleBudget?.reasonCode || "source_cycle_reservation_budget_missing", sourceCycleBudget?.reason || "valid source-cycle budget is required before reservation");
   const prNumber = pr?.number;
@@ -2525,13 +2701,13 @@ function createSourceCycleOperationContext({ config = {}, plan = null, state = n
   const exactHead = state.exactHeads?.[prNumber] || state.orderedPrs?.find((entry) => entry.number === prNumber)?.headRefOid || null;
   if (exactHead !== pr.headRefOid) return fail("source_cycle_operation_head_mismatch", "stack state exact head does not match the PR old head");
   if (sourceCycleBudget.prNumber !== prNumber || sourceCycleBudget.exactHead !== pr.headRefOid) return fail("source_cycle_operation_budget_mismatch", "source-cycle budget is not bound to the active PR/head");
-  const currentCount = state.sourceCycles?.[prNumber];
+  const currentCount = reservationState.sourceCycles?.[prNumber];
   if (currentCount !== sourceCycleBudget.consumed) return fail("source_cycle_reservation_conflict", "source-cycle budget does not match durable state count");
-  const epoch = state?.sourceCycleEpoch?.[prNumber] || state?.sourceCycleEpoch || 1;
+  const epoch = reservationState?.sourceCycleEpoch?.[prNumber] || 1;
   if (epoch !== sourceCycleBudget.epoch) return fail("source_cycle_epoch_malformed", "source-cycle budget epoch does not match durable state");
   const context = sanitizeState({
-    state,
-    stateDigest: digestJson(state),
+    state: reservationState,
+    stateDigest: digestJson(reservationState),
     stackId: state.stackId,
     repository: state.repository,
     activePrNumber,
@@ -2619,7 +2795,8 @@ function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budge
   const sourceIdentity = reviewed?.sourceIdentity || {};
   const maxAtReservation = budget.max;
   const consumedBefore = budget.consumed;
-  const consumedAfter = consumedBefore + 1;
+  const roundsConsumed = Math.max(1, Number(reviewed?.sourceIdentity?.localSourceChangingRoundsConsumed || 1));
+  const consumedAfter = consumedBefore + roundsConsumed;
   if (consumedBefore >= maxAtReservation) return fail("source_cycle_budget_exhausted", "source-cycle reservation cannot be created after budget exhaustion", { sourceCycleBudget: budget.summary || budget });
   if (consumedAfter > maxAtReservation) return fail("source_cycle_reservation_over_budget", "source-cycle reservation would exceed the configured maximum");
   const epoch = budget.epoch;
@@ -2652,6 +2829,7 @@ function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budge
     policyDigest: sourceCyclePolicyDigest(config, maxAtReservation),
     maxAtReservation,
     consumedBefore,
+    roundsConsumed,
     reservedOrdinal: consumedAfter,
     consumedAfter,
     remainingBefore: maxAtReservation - consumedBefore,
@@ -2680,31 +2858,36 @@ function persistSourceCycleReservation({ config = {}, state = {}, pr = {}, budge
     createdAt: new Date().toISOString(),
     finalizedAt: null,
   });
-  const validation = validateSourceCycleReservation({ config, state, pr, reservation, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  const reservationValidationState = budget.counterAuthority === "two_loop_v1_initializing"
+    ? { ...state, sourceCycles: { ...(state.sourceCycles || {}), [pr.number]: budget.consumed }, sourceCycleEpoch: { ...(typeof state.sourceCycleEpoch === "object" ? state.sourceCycleEpoch : {}), [pr.number]: budget.epoch } }
+    : state;
+  const validation = validateSourceCycleReservation({ config, state: reservationValidationState, pr, reservation, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
   if (!validation.ok) return validation;
   const root = sourceCycleReservationRoot(config);
-  mkdirSync(root, { recursive: true, mode: 0o700 });
   const reservationPath = path.join(root, `${reservationId}.json`);
+  validateDurableArtifactPath(config, reservationPath);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  validateDurableArtifactPath(config, reservationPath);
   reservation.reservationPath = reservationPath;
-  const duplicate = readSourceCycleReservationFile(reservationPath);
+  const duplicate = readSourceCycleReservationFile(reservationPath, config);
   if (duplicate.ok && duplicate.reservation?.reservationId !== reservationId) return fail("source_cycle_reservation_conflict", "reservation path already contains another reservation");
   const conflicts = findReservationOrdinalConflicts({ config, reservation });
   if (!conflicts.ok) return conflicts;
   const tmp = `${reservationPath}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(reservation, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, reservationPath);
-  const readBack = readSourceCycleReservationFile(reservationPath);
+  const readBack = readSourceCycleReservationFile(reservationPath, config);
   if (!readBack.ok) return readBack;
   const persisted = { ...readBack.reservation, reservationPath };
-  const persistedValidation = validateSourceCycleReservation({ config, state, pr, reservation: persisted, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  const persistedValidation = validateSourceCycleReservation({ config, state: reservationValidationState, pr, reservation: persisted, oldHead, newHead, changedFiles, fingerprintDigest, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
   if (!persistedValidation.ok) return persistedValidation;
   return { ok: true, reservation: persisted };
 }
 
-function readSourceCycleReservationFile(reservationPath) {
+function readSourceCycleReservationFile(reservationPath, config = {}) {
   if (!reservationPath || !existsSync(reservationPath)) return fail("source_cycle_reservation_missing", "source-cycle reservation file is missing");
   try {
-    return { ok: true, reservation: JSON.parse(readFileSync(reservationPath, "utf8")) };
+    return { ok: true, reservation: readOwnerOnlyDurableJson(config, reservationPath) };
   } catch {
     return fail("source_cycle_reservation_malformed", "source-cycle reservation JSON could not be parsed");
   }
@@ -2716,7 +2899,7 @@ function findReservationOrdinalConflicts({ config = {}, reservation = {} } = {})
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const filePath = path.join(root, entry.name);
-    const loaded = readSourceCycleReservationFile(filePath);
+    const loaded = readSourceCycleReservationFile(filePath, config);
     if (!loaded.ok) return loaded;
     const current = loaded.reservation || {};
     if (current.reservationId === reservation.reservationId) continue;
@@ -2745,7 +2928,9 @@ function validateSourceCycleReservation({ config = {}, state = {}, pr = {}, rese
   if (!Number.isInteger(reservation.maxAtReservation) || reservation.maxAtReservation < 0) return fail("source_cycle_reservation_malformed", "reservation max is malformed");
   if (reservation.policyDigest !== sourceCyclePolicyDigest(config, reservation.maxAtReservation)) return fail("source_cycle_reservation_policy_mismatch", "source-cycle reservation policy digest does not match");
   if (!Number.isInteger(reservation.consumedBefore) || reservation.consumedBefore < 0) return fail("source_cycle_reservation_malformed", "reservation consumed-before count is malformed");
-  if (!Number.isInteger(reservation.consumedAfter) || reservation.consumedAfter !== reservation.consumedBefore + 1) return fail("source_cycle_reservation_malformed", "reservation consumed-after count is malformed");
+  const roundsConsumed = reservation.roundsConsumed ?? 1;
+  if (!Number.isInteger(roundsConsumed) || roundsConsumed < 1) return fail("source_cycle_reservation_malformed", "reservation source-changing round count is malformed");
+  if (!Number.isInteger(reservation.consumedAfter) || reservation.consumedAfter !== reservation.consumedBefore + roundsConsumed) return fail("source_cycle_reservation_malformed", "reservation consumed-after count is malformed");
   if (reservation.reservedOrdinal !== reservation.consumedAfter) return fail("source_cycle_reservation_malformed", "reservation ordinal does not match consumed-after count");
   if (reservation.consumedBefore >= reservation.maxAtReservation || reservation.consumedAfter > reservation.maxAtReservation) return fail("source_cycle_reservation_over_budget", "source-cycle reservation exceeds the budget active at reservation time");
   if (requireCurrentCount && state?.sourceCycles?.[pr.number] !== reservation.consumedBefore) return fail("source_cycle_reservation_conflict", "durable source-cycle count no longer matches the reservation's consumed-before count");
@@ -2775,9 +2960,14 @@ function validateReconciledSourceCycle({ config = {}, state = {}, pr = {}, resul
   const confirmation = result.pushConfirmation?.marker || result.pushConfirmation || null;
   const reservation = result.sourceCycleReservation || intent?.sourceCycleReservation || confirmation?.sourceCycleReservation || result.result?.sourceIdentity?.sourceCycleReservation || null;
   const normalized = reservation || null;
+  if (!reservation) return fail("source_cycle_reservation_missing", "source-cycle reconciliation requires a finalized reservation");
+  const reservationState = {
+    sourceCycles: { [pr.number]: reservation.consumedBefore },
+    sourceCycleEpoch: { [pr.number]: reservation.sourceCycleEpoch },
+  };
   const validation = validateSourceCycleReservation({
     config,
-    state,
+    state: reservationState,
     pr,
     reservation: normalized,
     oldHead: pr.headRefOid,
@@ -2797,7 +2987,7 @@ function validateReconciledSourceCycle({ config = {}, state = {}, pr = {}, resul
 
 function finalizeSourceCycleReservation({ config = {}, pr = {}, intent = {}, remoteHead = null, liveHead = null, localHead = null } = {}) {
   const reservation = intent.sourceCycleReservation;
-  const validation = validateSourceCycleReservation({ config, state: { sourceCycles: { [pr.number]: reservation?.consumedBefore } }, pr, reservation, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
+  const validation = validateSourceCycleReservation({ config, state: { sourceCycles: { [pr.number]: reservation?.consumedBefore }, sourceCycleEpoch: { [pr.number]: reservation?.sourceCycleEpoch } }, pr, reservation, expectStatus: "source_cycle_reserved", requireCurrentCount: true });
   if (!validation.ok) return validation;
   if (remoteHead !== reservation.finalCandidateHead || liveHead !== reservation.finalCandidateHead) return fail("source_cycle_reservation_candidate_mismatch", "reservation cannot finalize without remote/live candidate equality");
   const finalized = sanitizeState({
@@ -2808,8 +2998,11 @@ function finalizeSourceCycleReservation({ config = {}, pr = {}, intent = {}, rem
     liveHead,
     finalizedAt: new Date().toISOString(),
   });
-  const reservationPath = reservation.reservationPath;
+  const reservationPath = reservation.reservationId
+    ? path.join(sourceCycleReservationRoot(config), `${reservation.reservationId}.json`)
+    : null;
   if (reservationPath) {
+    validateDurableArtifactPath(config, reservationPath);
     mkdirSync(path.dirname(reservationPath), { recursive: true, mode: 0o700 });
     const tmp = `${reservationPath}.${process.pid}.${Date.now()}.finalized.tmp`;
     writeFileSync(tmp, `${JSON.stringify(finalized, null, 2)}\n`, { mode: 0o600 });
@@ -3530,7 +3723,7 @@ function repositoryBoundGhRunner(runner, repositoryContext = {}) {
   };
 }
 
-function proveTargetBatchFixWorktree({ config, pr, runner }) {
+function proveTargetBatchFixWorktree({ config, pr, runner, recoveryState = null }) {
   const cwd = config.repoRoot || process.cwd();
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
   const worktreePath = path.resolve(cwd);
@@ -3549,7 +3742,13 @@ function proveTargetBatchFixWorktree({ config, pr, runner }) {
   if (!branchValidation.ok) return branchValidation;
   const clean = readWorktreeCleanProof({ runner, cwd });
   if (!clean.ok) return clean;
-  if (clean.clean !== true) return fail("existing_pr_batch_fix_worktree_dirty", "target worktree/index must be clean before checkout or Codex", clean);
+  const dirtyRecoveryAuthorized = clean.clean !== true
+    && recoveryState?.phase === "outer_fix_reserved"
+    && recoveryState?.reservedParentHead === expectedHead
+    && recoveryState?.originalHead === expectedHead
+    && recoveryState?.prNumber === pr?.number
+    && recoveryState?.sourceBranch === branch;
+  if (clean.clean !== true && !dirtyRecoveryAuthorized) return fail("existing_pr_batch_fix_worktree_dirty", "target worktree/index must be clean before checkout or Codex", clean);
   const fetch = runner("git", ["fetch", "origin", branch], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("existing_pr_batch_fix_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "existing_pr_batch_fix_remote_head_unreadable" });
@@ -3610,6 +3809,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner }) {
     livePr: live.proof,
     repositoryIdentity: live.repositoryIdentity,
     localCandidateHead: afterHead.sha,
+    dirtyRecoveryAuthorized,
     provenAt: new Date().toISOString(),
   };
 }
@@ -3710,17 +3910,45 @@ function readWorktreeCleanProof({ runner, cwd }) {
   return { ok: true, clean: statusPorcelain === "", statusPorcelain, checkedAt: new Date().toISOString() };
 }
 
-function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, changedFiles, message }) {
+function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, changedFiles, message, localLoopState = null }) {
   const before = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_head_unreadable" });
   if (!before.ok) return before;
   if (before.sha !== exactHead) {
     const clean = readWorktreeCleanProof({ runner, cwd });
-    if (!clean.ok || clean.clean !== true) return fail("existing_pr_batch_fix_candidate_dirty", "existing local candidate has additional source changes");
+    if (!clean.ok) return clean;
+    if (clean.clean !== true) {
+      const journalAuthorizesDirtyHead = journalAuthorizesDirtyCandidate(localLoopState, before.sha);
+      if (!journalAuthorizesDirtyHead) {
+        return fail("existing_pr_batch_fix_candidate_dirty", "existing local candidate has unjournaled source changes");
+      }
+      return createLocalCandidateCommit({ runner, cwd, exactHead, changedFiles, message });
+    }
     const chain = deriveCanonicalCommitChain({ runner, cwd, oldHead: exactHead, newHead: before.sha });
     if (!chain.ok) return chain;
     const tree = readGitSha({ runner, cwd, ref: "HEAD^{tree}", reasonCode: "existing_pr_batch_fix_candidate_tree_unreadable" });
+    if (localLoopState?.candidateHead !== before.sha || (localLoopState.candidateTree && localLoopState.candidateTree !== tree.sha)) {
+      const immediateParent = readGitSha({ runner, cwd, ref: `${before.sha}^`, reasonCode: "existing_pr_batch_fix_candidate_parent_unreadable" });
+      const commitReservedRecovery = immediateParent.ok && localLoopState?.phase === "commit_reserved"
+        && localLoopState.reservedParentHead === immediateParent.sha;
+      const fixerCommittedRecovery = immediateParent.ok
+        && ((localLoopState?.phase === "outer_fix_reserved" && localLoopState.reservedParentHead === immediateParent.sha)
+          || (localLoopState?.phase === "source_fix_applied" && localLoopState.candidateHead === immediateParent.sha));
+      const reservedRecovery = commitReservedRecovery || fixerCommittedRecovery;
+      if (!reservedRecovery) return fail("existing_pr_batch_fix_candidate_journal_mismatch", "clean local descendant is not bound to the durable candidate journal");
+      const recoveryParent = localLoopState.reservedParentHead || localLoopState.candidateHead;
+      const files = runner("git", ["diff", "--name-only", `${recoveryParent}..${before.sha}`], { cwd });
+      const subject = commitReservedRecovery ? runner("git", ["log", "-1", "--format=%s", before.sha], { cwd }) : { status: 0, stdout: localLoopState.reservedCommitMessage || "", error: null };
+      const actualFilesDigest = files.status === 0 && !files.error ? digestStringSet(normalizeChangedFiles(String(files.stdout || "").split(/\r?\n/))) : null;
+      if (subject.status !== 0 || subject.error || (commitReservedRecovery && String(subject.stdout || "").trim() !== localLoopState.reservedCommitMessage) || files.status !== 0 || files.error || (commitReservedRecovery && actualFilesDigest !== localLoopState.reservedChangedFilesDigest)) {
+        return fail("existing_pr_batch_fix_candidate_journal_mismatch", "reserved candidate commit does not match its durable parent, message, and file-set identity");
+      }
+    }
     return { ok: true, reused: true, oldHead: exactHead, parent: chain.parent, newHead: before.sha, tree: tree.sha || null, commitChain: chain.chain, commitChainDigest: chain.digest, committedAt: new Date().toISOString() };
   }
+  return createLocalCandidateCommit({ runner, cwd, exactHead, changedFiles, message });
+}
+
+function createLocalCandidateCommit({ runner, cwd, exactHead, changedFiles, message }) {
   for (const file of normalizeChangedFiles(changedFiles)) {
     const add = runner("git", ["add", "--", file], { cwd });
     if (add.status !== 0 || add.error) return fail("existing_pr_batch_fix_git_add_failed", boundedText(add.stderr || add.error || add.stdout));
@@ -3738,10 +3966,277 @@ function createOrReuseLocalCandidateCommit({ config, runner, cwd, exactHead, cha
   return { ok: true, reused: false, oldHead: exactHead, parent: parent.sha, newHead: head.sha, tree: tree.sha, commitChain: chain.chain, commitChainDigest: chain.digest, committedAt: new Date().toISOString() };
 }
 
-function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fixDelta = null, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null, sourceCycleReservation = null }) {
+function journalAuthorizesDirtyCandidate(localLoopState, currentHead) {
+  if (!validSha(currentHead)) return false;
+  return (localLoopState?.phase === "source_fix_applied" && localLoopState?.candidateHead === currentHead)
+    || (localLoopState?.phase === "commit_reserved" && localLoopState?.reservedParentHead === currentHead);
+}
+
+function collectAppliedSourceFixFiles({ runner, cwd, candidateHead }) {
+  if (!validSha(candidateHead)) return fail("existing_pr_local_loop_applied_identity_invalid", "journaled candidate head is invalid");
+  const current = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_recovery_head_unreadable" });
+  if (!current.ok) return current;
+  const committed = current.sha === candidateHead ? { status: 0, stdout: "", error: null } : runner("git", ["diff", "--binary", `${candidateHead}..${current.sha}`], { cwd });
+  const unstaged = runner("git", ["diff", "--binary"], { cwd });
+  const staged = runner("git", ["diff", "--cached", "--binary"], { cwd });
+  const untracked = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+  if ([committed, unstaged, staged, untracked].some((result) => result.status !== 0 || result.error)) return fail("existing_pr_local_loop_applied_files_unreadable", "journal-authorized source-fix file identity is unreadable");
+  const untrackedFiles = normalizeChangedFiles(String(untracked.stdout || "").split(/\r?\n/));
+  const untrackedHashes = [];
+  for (const file of untrackedFiles) {
+    const hashed = runner("git", ["hash-object", "--", file], { cwd });
+    if (hashed.status !== 0 || hashed.error || !validSha(String(hashed.stdout || "").trim())) return fail("existing_pr_local_loop_applied_files_unreadable", "untracked source-fix content identity is unreadable");
+    untrackedHashes.push({ file, hash: String(hashed.stdout || "").trim() });
+  }
+  const committedNames = current.sha === candidateHead ? { status: 0, stdout: "", error: null } : runner("git", ["diff", "--name-only", `${candidateHead}..${current.sha}`], { cwd });
+  const unstagedNames = runner("git", ["diff", "--name-only"], { cwd });
+  const stagedNames = runner("git", ["diff", "--cached", "--name-only"], { cwd });
+  if ([committedNames, unstagedNames, stagedNames].some((result) => result.status !== 0 || result.error)) return fail("existing_pr_local_loop_applied_files_unreadable", "source-fix path identity is unreadable");
+  const committedFiles = normalizeChangedFiles(String(committedNames.stdout || "").split(/\r?\n/));
+  const unstagedFiles = normalizeChangedFiles(String(unstagedNames.stdout || "").split(/\r?\n/));
+  const stagedFiles = normalizeChangedFiles(String(stagedNames.stdout || "").split(/\r?\n/));
+  const files = normalizeChangedFiles([...committedFiles, ...unstagedFiles, ...stagedFiles, ...untrackedFiles]);
+  if (files.length === 0) return fail("existing_pr_local_loop_applied_files_missing", "journal-authorized source fix did not change files");
+  const identityDigest = digestJson({
+    candidateHead,
+    currentHead: current.sha,
+    committedPatchDigest: digestJson(committed.stdout || ""),
+    unstagedPatchDigest: digestJson(unstaged.stdout || ""),
+    stagedPatchDigest: digestJson(staged.stdout || ""),
+    untrackedHashes,
+  });
+  return { ok: true, currentHead: current.sha, files, digest: digestStringSet(files), identityDigest };
+}
+
+function collectCumulativeCandidateContentIdentity({ runner, cwd, parentHead }) {
+  if (!validSha(parentHead)) return fail("existing_pr_local_loop_precommit_identity_invalid", "reserved candidate parent is invalid");
+  const current = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_precommit_head_unreadable" });
+  if (!current.ok) return current;
+  if (current.sha !== parentHead) {
+    const ancestry = runner("git", ["merge-base", "--is-ancestor", parentHead, current.sha], { cwd });
+    if (ancestry.status !== 0 || ancestry.error) return fail("existing_pr_local_loop_precommit_ancestry_mismatch", "current candidate is not descended from its reserved parent");
+  }
+  const tracked = runner("git", ["diff", "--name-status", "--no-renames", parentHead], { cwd });
+  const untracked = runner("git", ["ls-files", "--others", "--exclude-standard"], { cwd });
+  if ([tracked, untracked].some((result) => result.status !== 0 || result.error)) return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate content identity is unreadable");
+  const entries = new Map();
+  for (const line of String(tracked.stdout || "").split(/\r?\n/)) {
+    if (!line) continue;
+    const [rawStatus, ...pathParts] = line.split("\t");
+    const file = pathParts.join("\t").trim();
+    const status = String(rawStatus || "").slice(0, 1);
+    if (!file || !["A", "D", "M", "T", "U"].includes(status)) return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate tracked file identity is malformed");
+    entries.set(file, { file, status });
+  }
+  for (const file of normalizeChangedFiles(String(untracked.stdout || "").split(/\r?\n/))) entries.set(file, { file, status: "A" });
+  if (entries.size === 0) return fail("existing_pr_local_loop_precommit_files_missing", "pre-commit reservation requires source changes");
+  const content = [];
+  for (const entry of [...entries.values()].sort((left, right) => left.file.localeCompare(right.file))) {
+    if (entry.status === "D") {
+      content.push({ ...entry, hash: null });
+      continue;
+    }
+    const hashed = runner("git", ["hash-object", "--", entry.file], { cwd });
+    const hash = String(hashed.stdout || "").trim();
+    if (hashed.status !== 0 || hashed.error || !validSha(hash)) return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate file content identity is unreadable");
+    let fileMode;
+    try {
+      const info = lstatSync(path.join(cwd, entry.file));
+      if (info.isSymbolicLink()) fileMode = "120000";
+      else if (info.isFile()) fileMode = (info.mode & 0o111) !== 0 ? "100755" : "100644";
+      else return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate file type is unsupported");
+    } catch {
+      return fail("existing_pr_local_loop_precommit_files_unreadable", "reserved candidate file mode identity is unreadable");
+    }
+    content.push({ ...entry, hash, fileMode });
+  }
+  return { ok: true, currentHead: current.sha, files: content.map((entry) => entry.file), identityDigest: digestJson({ parentHead, content }) };
+}
+
+function persistAppliedSourceFix({ runner, cwd, statePath, state }) {
+  const applied = collectAppliedSourceFixFiles({ runner, cwd, candidateHead: state.candidateHead });
+  if (!applied.ok) return applied;
+  return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", appliedHead: applied.currentHead, appliedChangedFilesDigest: applied.identityDigest, evidenceInvalidated: true }) };
+}
+
+function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPromptRunner = runCodexPrompt, cwd, pr, statePath, state }) {
+  if (!["findings_frozen", "source_fix_reserved"].includes(state.phase) || !state.frozenFindingDigest || !Array.isArray(state.frozenFindings) || !state.frozenFixPrompt) {
+    return fail("existing_pr_local_loop_frozen_batch_invalid", "frozen local finding batch is incomplete or contradictory");
+  }
+  const recomputedDigest = digestStringSet(state.frozenFindings.map((finding) => finding.fingerprint));
+  if (recomputedDigest !== state.frozenFindingDigest) return fail("existing_pr_local_loop_frozen_batch_digest_mismatch", "frozen local finding batch digest does not match its inventory");
+  const localPromptPath = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "review-fix", `pr-${pr?.number || "unknown"}-local-round-${state.localRound}-${state.frozenFindingDigest}.md`);
+  try { validateDurableArtifactPath(config, localPromptPath); } catch (error) { return fail("existing_pr_local_loop_prompt_path_unsafe", boundedText(error.message)); }
+  mkdirSync(path.dirname(localPromptPath), { recursive: true, mode: 0o700 });
+  try { validateDurableArtifactPath(config, localPromptPath); } catch (error) { return fail("existing_pr_local_loop_prompt_path_unsafe", boundedText(error.message)); }
+  if (!existsSync(localPromptPath)) writeFileSync(localPromptPath, `${state.frozenFixPrompt}\n`, { mode: 0o600 });
+  const recoveryWorktree = readWorktreeCleanProof({ runner, cwd });
+  if (!recoveryWorktree.ok) return recoveryWorktree;
+  const recoveryHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_recovery_head_unreadable" });
+  if (!recoveryHead.ok) return recoveryHead;
+  const committedMutation = recoveryHead.sha !== state.candidateHead;
+  if (committedMutation) {
+    const ancestry = runner("git", ["merge-base", "--is-ancestor", state.candidateHead, recoveryHead.sha], { cwd });
+    if (ancestry.status !== 0 || ancestry.error) return fail("existing_pr_local_loop_recovery_head_mismatch", "recovered local head is not a descendant of the journaled candidate");
+  }
+  if (state.phase === "source_fix_reserved") {
+    if (!recoveryWorktree.clean || committedMutation) return persistAppliedSourceFix({ runner, cwd, statePath, state });
+  }
+  if (!recoveryWorktree.clean || committedMutation) {
+    return fail("existing_pr_local_loop_unreserved_mutation", "local source changes appeared before the durable fix reservation");
+  }
+  const reserved = state.phase === "source_fix_reserved" ? state : persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_reserved", mutationClaimId: digestJson({ prNumber: pr?.number, candidateHead: state.candidateHead, localRound: state.localRound, frozenFindingDigest: state.frozenFindingDigest }) });
+  const localFix = codexPromptRunner({ ...config, repoRoot: cwd }, { branchName: pr?.headRefName || pr?.branch || "unknown", prompt: reserved.frozenFixPrompt, promptPath: localPromptPath }, "existing-pr-stack-inner-local-fix");
+  if (!localFix.skipped && (localFix.error || localFix.status !== 0)) return fail("existing_pr_local_loop_fix_failed", localFix.error || localFix.tail || "local finding batch fix failed");
+  return persistAppliedSourceFix({ runner, cwd, statePath, state: reserved });
+}
+
+function evaluateLocalFixAllowance({ config = {}, sourceCycleBudget = null, localRound }) {
+  const availableSourceChanges = Number.isInteger(sourceCycleBudget?.remaining)
+    ? sourceCycleBudget.remaining
+    : normalizeSourceCycleMax(config);
+  if (!Number.isInteger(localRound) || localRound < 1 || !Number.isInteger(availableSourceChanges) || availableSourceChanges < 0) {
+    return fail("existing_pr_local_loop_limit_malformed", "local source-changing allowance is malformed");
+  }
+  if (1 + localRound > availableSourceChanges) {
+    return fail("existing_pr_local_loop_limit_exhausted", "the initial candidate plus local fixes would exceed the configured source-changing allowance");
+  }
+  return { ok: true, localRound, availableSourceChanges };
+}
+
+function advanceLocalCandidateHistory(candidateHistory, head, digest) {
+  const history = Array.isArray(candidateHistory) ? candidateHistory : [];
+  if (!validSha(head) || !/^[a-f0-9]{64}$/.test(digest || "")) return fail("existing_pr_local_loop_candidate_identity_invalid", "local candidate history requires a valid head and digest");
+  if (history.some((entry) => entry?.digest === digest && entry?.head !== head)) {
+    return fail("existing_pr_local_loop_oscillation", "local source fixes returned to an earlier cumulative candidate identity");
+  }
+  if (history.some((entry) => entry?.digest === digest && entry?.head === head)) return { ok: true, changed: false, candidateHistory: history };
+  return { ok: true, changed: true, candidateHistory: [...history, { head, digest }].slice(-6) };
+}
+
+function localCandidateLoopStatePath({ config = {}, pr = {}, exactHead }) {
+  const identity = digestJson({
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    prNumber: pr.number,
+    sourceBranch: pr.headRefName || pr.branch || null,
+    baseRef: pr.baseRefName || pr.base || "main",
+    exactHead,
+    taskKey: config.taskKey || null,
+  });
+  return path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "local-candidate-loop", `${identity}.json`);
+}
+
+function loadOrCreateLocalCandidateLoopState({ config = {}, pr = {}, exactHead, localLoop = null }) {
+  if (!Number.isInteger(pr.number) || !validSha(exactHead)) return fail("existing_pr_local_loop_identity_invalid", "local candidate loop requires an exact PR/head identity");
+  const statePath = localCandidateLoopStatePath({ config, pr, exactHead });
+  try {
+    validateLocalCandidateLoopStatePath(statePath);
+  } catch (error) {
+    return fail("existing_pr_local_loop_state_unsafe", boundedText(error.message));
+  }
+  let state = localLoop;
+  if (!state && existsSync(statePath)) {
+    let fd;
+    try {
+      fd = openSync(statePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+      const stat = fstatSync(fd);
+      const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+      if (!stat.isFile() || stat.size <= 0 || stat.size > maxProtectedPlanAuthorizationBytes || (currentUid !== null && stat.uid !== currentUid) || (stat.mode & 0o077) !== 0) {
+        return fail("existing_pr_local_loop_state_unsafe", "local candidate loop state must be a bounded owner-only regular file");
+      }
+      const bytes = Buffer.alloc(stat.size);
+      if (readSync(fd, bytes, 0, stat.size, 0) !== stat.size || !isUtf8(bytes)) return fail("existing_pr_local_loop_state_unsafe", "local candidate loop state must be complete UTF-8");
+      state = JSON.parse(bytes.toString("utf8"));
+    } catch {
+      return fail("existing_pr_local_loop_state_corrupt", "local candidate loop state is unreadable");
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  }
+  state ||= {
+    stateVersion: 1,
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    prNumber: pr.number,
+    sourceBranch: pr.headRefName || pr.branch || null,
+    baseRef: pr.baseRefName || pr.base || "main",
+    originalHead: exactHead,
+    taskKey: config.taskKey || null,
+    runId: config.runId || null,
+    supervisorRunId: config.supervisorRunId || null,
+    githubEpoch: 1,
+    localRound: 0,
+    findingDigests: [],
+    phase: "candidate_prepared",
+    restartGeneration: 0,
+    createdAt: new Date().toISOString(),
+  };
+  const expected = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    prNumber: pr.number,
+    sourceBranch: pr.headRefName || pr.branch || null,
+    originalHead: exactHead,
+  };
+  if (state.stateVersion !== 1 || state.repository !== expected.repository || state.prNumber !== expected.prNumber || state.sourceBranch !== expected.sourceBranch || state.originalHead !== expected.originalHead) {
+    return fail("existing_pr_local_loop_identity_mismatch", "local candidate loop state belongs to a different repository, PR, branch, or candidate parent");
+  }
+  if (!Number.isInteger(state.localRound) || state.localRound < 0 || state.localRound > 50 || !Array.isArray(state.findingDigests)) {
+    return fail("existing_pr_local_loop_state_contradictory", "local candidate loop counters or finding markers are contradictory");
+  }
+  if (state.candidateHistory !== undefined && (!Array.isArray(state.candidateHistory) || state.candidateHistory.length > 6 || state.candidateHistory.some((entry) => !validSha(entry?.head) || !/^[a-f0-9]{64}$/.test(entry?.digest || "")))) {
+    return fail("existing_pr_local_loop_state_contradictory", "local candidate history is malformed or exceeds its bounded window");
+  }
+  if (state.phase === "source_fix_applied" && (!validSha(state.appliedHead) || !/^[a-f0-9]{64}$/.test(state.appliedChangedFilesDigest || ""))) {
+    return fail("existing_pr_local_loop_state_contradictory", "applied source-fix identity is missing or malformed");
+  }
+  if (state.phase === "commit_reserved" && (!validSha(state.reservedParentHead) || !/^[a-f0-9]{64}$/.test(state.reservedChangedFilesDigest || "") || !/^[a-f0-9]{64}$/.test(state.reservedWorktreeIdentityDigest || "") || !state.reservedCommitMessage)) {
+    return fail("existing_pr_local_loop_state_contradictory", "pre-commit reservation identity is missing or malformed");
+  }
+  return { ok: true, state: { ...state, restartGeneration: Number(state.restartGeneration || 0) + (existsSync(statePath) ? 1 : 0) }, statePath };
+}
+
+function persistLocalCandidateLoopState(statePath, state) {
+  validateLocalCandidateLoopStatePath(statePath);
+  mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+  validateLocalCandidateLoopStatePath(statePath);
+  const sanitized = sanitizeState({ ...state, updatedAt: new Date().toISOString() });
+  const tmp = `${statePath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, statePath);
+  return sanitized;
+}
+
+function validateLocalCandidateLoopStatePath(statePath) {
+  const logsRoot = path.dirname(path.dirname(statePath));
+  validateExplicitStackStatePath(statePath, logsRoot);
+}
+
+function validateDurableArtifactPath(config, artifactPath) {
+  validateExplicitStackStatePath(path.resolve(artifactPath), path.resolve(config.logsRoot || "/workspace/logs/settleora-auto-runner"));
+}
+
+function readOwnerOnlyDurableJson(config, artifactPath) {
+  validateDurableArtifactPath(config, artifactPath);
+  const fd = openSync(artifactPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const stat = fstatSync(fd);
+    const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (!stat.isFile() || stat.size <= 0 || stat.size > maxProtectedPlanAuthorizationBytes || (currentUid !== null && stat.uid !== currentUid) || (stat.mode & 0o077) !== 0) {
+      throw new Error("durable artifact must be a bounded owner-only regular file");
+    }
+    const bytes = Buffer.alloc(stat.size);
+    if (readSync(fd, bytes, 0, stat.size, 0) !== stat.size || !isUtf8(bytes)) throw new Error("durable artifact must be complete UTF-8");
+    return JSON.parse(bytes.toString("utf8"));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, changedFiles, fixDelta = null, fingerprintDigest, reviewed, pushTarget, liveProof = null, repositoryIdentity = null, sourceCycleReservation = null, reviewConvergenceState = null }) {
   const root = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-intents");
-  mkdirSync(root, { recursive: true, mode: 0o700 });
   const intentPath = path.join(root, `${digestJson({ markerKey, prNumber: pr?.number, oldHead, newHead })}.json`);
+  validateDurableArtifactPath(config, intentPath);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  validateDurableArtifactPath(config, intentPath);
   const sourceIdentity = reviewed?.sourceIdentity || {};
   const commitChain = normalizeCommitChain(sourceIdentity.commitChain || [oldHead, sourceIdentity.parent, newHead]);
   const commitChainDigest = sourceIdentity.commitChainDigest || digestStringList(commitChain);
@@ -3776,6 +4271,7 @@ function persistPushIntent({ config, markerKey, pr, branch, oldHead, newHead, ch
     nextSourceCycleCount: sourceIdentity.nextSourceCycleCount || null,
     sourceCycleReservationId: sourceCycleReservation?.reservationId || null,
     sourceCycleReservation: sourceCycleReservation || null,
+    reviewConvergenceState: reviewConvergenceState || null,
     taskKey: config.taskKey || null,
     runId: config.runId || null,
     supervisorRunId: config.supervisorRunId || null,
@@ -3857,6 +4353,7 @@ function finalizePushIntent({ config = {}, pr = {}, intent, remoteHead, liveHead
     finalizedAt: new Date().toISOString(),
   });
   const tmp = `${intent.intentPath}.${process.pid}.${Date.now()}.confirmed.tmp`;
+  validateDurableArtifactPath(config, intent.intentPath);
   writeFileSync(tmp, `${JSON.stringify(confirmed, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, intent.intentPath);
   return { ok: true, finalized: true, confirmedAt: confirmed.finalizedAt, marker: confirmed, sourceCycleReservation: reservation.reservation };
@@ -3878,6 +4375,11 @@ function reconcileTaskScopedPendingPushIntent({ config = {}, state = {}, pr = {}
 function discoverTaskScopedPendingPushIntents({ config = {}, state = {}, pr = {}, livePr = {} } = {}) {
   const root = path.join(config.logsRoot || "/workspace/logs/settleora-auto-runner", "source-cycle-intents");
   if (!existsSync(root)) return { ok: true, intents: [] };
+  try {
+    validateDurableArtifactPath(config, path.join(root, ".inventory-proof"));
+  } catch (error) {
+    return fail("push_intent_inventory_untrusted", boundedText(error.message));
+  }
   let entries;
   try {
     entries = readdirSync(root, { withFileTypes: true });
@@ -3890,7 +4392,7 @@ function discoverTaskScopedPendingPushIntents({ config = {}, state = {}, pr = {}
     const intentPath = path.join(root, entry.name);
     let parsed;
     try {
-      parsed = JSON.parse(readFileSync(intentPath, "utf8"));
+      parsed = readOwnerOnlyDurableJson(config, intentPath);
     } catch {
       return fail("push_intent_malformed", "task-scoped push intent JSON could not be parsed", { intentPath });
     }
@@ -4060,6 +4562,28 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
     },
     pushedAt: confirmation.confirmedAt || confirmation.marker?.finalizedAt || new Date().toISOString(),
   });
+  if (intent.reviewConvergenceState) {
+    const convergenceValidation = validateReviewConvergenceState(intent.reviewConvergenceState);
+    const reservation = intent.sourceCycleReservation || confirmation.sourceCycleReservation || confirmation.marker?.sourceCycleReservation || null;
+    if (!convergenceValidation.ok
+      || intent.reviewConvergenceState.pr?.number !== intent.prNumber
+      || intent.reviewConvergenceState.pr?.exactHead !== intent.oldHead
+      || intent.reviewConvergenceState.epoch !== reservation?.sourceCycleEpoch
+      || intent.reviewConvergenceState.counters?.localSourceChangingRoundsPerEpoch !== reservation?.consumedBefore) {
+      return fail("source_cycle_recovered_convergence_identity_mismatch", "push-intent convergence state is not bound to the reservation PR, old head, epoch, and local count");
+    }
+  }
+  const recoveredConvergence = intent.reviewConvergenceState
+    ? accountConvergenceEvent(intent.reviewConvergenceState, {
+        kind: "source_changed",
+        newHead: intent.candidateNewHead,
+        reasonCode: "existing_pr_review_convergence_fix_recovered",
+        roundsConsumed: intent.sourceCycleReservation?.roundsConsumed || 1,
+      })
+    : null;
+  if (intent.reviewConvergenceState && !recoveredConvergence?.consumedSourceCycle) {
+    return fail("source_cycle_recovered_convergence_invalid", recoveredConvergence?.reason || "push intent could not reconstruct two-loop convergence state");
+  }
   const result = {
     ok: true,
     newHead: intent.candidateNewHead,
@@ -4074,6 +4598,7 @@ function sourceChangingResultFromIntent({ intent = {}, confirmation = {} } = {})
     review: marker.review,
     sourceIdentity: marker.sourceIdentity,
     durableMutationMarkers: { [markerKey]: marker },
+    reviewConvergenceState: recoveredConvergence?.state || null,
     completedAt: marker.pushedAt,
   };
   const normalized = normalizeSourceChangingConvergenceResult({ ok: true, newHead: intent.candidateNewHead, result }, {
@@ -5666,6 +6191,7 @@ export const prStackExecutorTestInternals = Object.freeze({
   buildCanonicalCandidatePrDelta,
   createProductionBatchFixAdapters,
   createOrReuseLocalCandidateCommit,
+  collectCumulativeCandidateContentIdentity,
   createSourceCycleOperationContext,
   deriveCanonicalCommitChain,
   digestStackPlan,
@@ -5674,9 +6200,12 @@ export const prStackExecutorTestInternals = Object.freeze({
   protectedPlanAuthorizationIdentity,
   readProtectedPlanAuthorizationFile,
   discoverTaskScopedPendingPushIntents,
+  advanceLocalCandidateHistory,
+  evaluateLocalFixAllowance,
   evaluateSourceCycleBudget,
   fetchAndReadOriginMain,
   finalizePushIntent,
+  journalAuthorizesDirtyCandidate,
   normalizeSourceChangingConvergenceResult,
   validateCanonicalCommitChain,
   validateCandidateDeltaEvidence,

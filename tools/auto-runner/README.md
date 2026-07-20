@@ -69,6 +69,37 @@ recovery root before polling unrelated issues; with recovery capability
 default-off it fails closed for operator review instead of adopting arbitrary
 work.
 
+Review convergence has one durable two-loop counter authority in that task/PR
+lineage. `localSourceChangingRoundsPerEpoch` blocks at 50 and increments only
+when one bounded local fix produces a new exact head;
+`githubTriggeredFixEpochsPerPr` blocks at 50 and increments once per frozen,
+deduplicated actionable GitHub finding batch that starts a new local epoch;
+`lifetimeLocalSourceChangingRounds` is monotonic telemetry and never blocks.
+Polling, pending checks, provider retries, unchanged reruns, restarts, and
+session rotation consume no nested counter. A GitHub-triggered epoch resets
+only the per-epoch local counter and must complete validation plus fresh Gemini
+and local Codex reviews on the same candidate identity before push.
+The production existing-PR stack adapter journals each unpushed cumulative
+candidate, freezes and deduplicates combined local reviewer findings, applies
+one bounded batch, invalidates stale evidence, and repeats all three gates.
+Restart after finding freeze, local fix, candidate commit, reservation, or push
+does not replay the completed effect.
+
+`sourceChangingCycle` and stack `sourceCycles` remain labeled compatibility
+projections only. `two_loop_v1.localSourceChangingRoundsPerEpoch` is the sole
+blocking reservation count; a later GitHub epoch is not blocked by cumulative
+legacy history. A reservation may consume the complete cumulative candidate's
+bounded local commit chain exactly once, while lifetime telemetry and logical-
+task charges remain independent.
+
+Accepted logical-task accounting is separate under
+`logical-task-budget/<budget-scope-digest>.json`. After claim labels are
+authoritatively reread, the runner atomically writes an idempotent charge bound
+to repository, issue, task lineage, claim identity, and accepted-at evidence
+before source mutation. Candidate search/skip activity, internal convergence,
+polling, retries, recovery, and session rotation do not charge. Corrupt or
+contradictory durable state fails closed.
+
 Bounded outage resubmission is a separate supervisor-side recovery controller
 and remains default-off. It is not an immortal mutation worker and does not
 poll unrelated issues before recovery state is reconciled. When explicitly
@@ -1075,10 +1106,9 @@ to at least three source-changing cycles. Terminal reasons are:
 `REVIEW_CONVERGED`, `MANUAL_DECISION_REQUIRED`, `NO_PROGRESS`,
 `REVIEW_OSCILLATION`, `CYCLE_BUDGET_EXHAUSTED`, `VALIDATION_BLOCKED`,
 `REVIEW_PROVIDER_BLOCKED`, `CI_OR_SCANNER_BLOCKED`, and
-`UNSAFE_SCOPE_CHANGE`. At cycle 50 the runner starts one fresh diagnostic
-epoch with a fresh context and alternate implementation strategy, compares
-prior findings and patch/tree identities, and continues only when measurable
-progress exists.
+`UNSAFE_SCOPE_CHANGE`. Round 50 is admissible; reservation of source-changing
+round 51 is refused. A diagnostic review may explain exhaustion, but cannot
+authorize another source mutation.
 
 The trigger must be structured and actionable: integrated Gemini must return a
 bounded strict-JSON blocking finding, or Codex mechanics review must return
