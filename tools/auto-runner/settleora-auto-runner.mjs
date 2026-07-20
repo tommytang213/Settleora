@@ -924,6 +924,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome =
@@ -1050,6 +1051,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
     if (fixAttempt.proceeded) {
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
@@ -1151,6 +1153,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
       });
       iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+      if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
       if (!fixAttempt.proceeded) {
         markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
         iteration.outcome =
@@ -1281,6 +1284,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome = "review_changes_requested_retry_exhausted";

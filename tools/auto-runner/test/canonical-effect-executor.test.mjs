@@ -8,7 +8,7 @@ import { bridgeLegacyEffectState, executeCanonicalEffect, executeCanonicalEffect
 const sha = (c) => c.repeat(40);
 function fixture() {
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-canonical-effect-"));
-  const currentAuthority = { runId: "run-1", sessionId: "session-1", authorityGeneration: 2 };
+  const currentAuthority = { runId: "run-1", sessionId: "session-1", authorityGeneration: 2, status: "active" };
   const intent = { repository: "owner/repo", sourceTaskKey: "task-1", runId: "run-1", logicalTaskIdentity: "logical-1", claimIdentity: "claim-1", chargeIdentity: "charge-1", sessionId: "session-1", authorityGeneration: 2, effectType: "push", branchName: "feature/a", baseSha: sha("a"), headSha: sha("b"), effect: { localCommitSha: sha("b"), remoteBeforeSha: sha("a"), remoteBranch: "feature/a" } };
   return { config: { logsRoot, currentAuthority }, intent };
 }

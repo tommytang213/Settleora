@@ -81,7 +81,7 @@ export function findPreEffectIntents(config, predicate = () => true) {
 
 export function assertPreEffectIntentAuthority(intent, authority) {
   if (!authority) return true;
-  if (authority.retired === true || authority.status === "retired") throw new Error("Retired session cannot mutate pre-effect intent");
+  if (authority.retired === true || authority.status !== "active") throw new Error("Only an active session can mutate pre-effect intent");
   if (authority.sessionId !== intent.sessionId || authority.authorityGeneration !== intent.authorityGeneration || authority.runId !== intent.runId) throw new Error("Pre-effect intent mutation authority mismatch");
   return true;
 }
@@ -91,7 +91,10 @@ export function reconcilePreEffectIntent(intent, live) {
   if (["live_confirmed", "adopted_after_recovery", "finalized"].includes(intent.status)) return { classification: "effect_confirmed", intentId: intent.intentId };
   if (!live?.complete) return { classification: "live_read_unavailable", intentId: intent.intentId };
   if (live.ambiguous) return { classification: "effect_ambiguous", intentId: intent.intentId };
-  if (live.present === false) return { classification: "effect_absent_safe_to_execute", intentId: intent.intentId };
+  if (live.present === false) return {
+    classification: intent.status === "prepared" ? "effect_absent_safe_to_execute" : "effect_absent_execution_uncertain",
+    intentId: intent.intentId,
+  };
   const liveFingerprint = digest(canonical({ effectType: intent.effectType, identity: sanitizeEffect(live.identity || {}), effect: sanitizeEffect(live.effect || {}) }));
   return liveFingerprint === intent.fingerprint
     ? { classification: "effect_present_exact_adoptable", intentId: intent.intentId }
