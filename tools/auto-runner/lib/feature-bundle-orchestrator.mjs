@@ -514,26 +514,26 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
     });
     writeState(state);
 
-    const budget = evaluateCycleBudget(state.reviewConvergenceState, config, state.reviewConvergenceHistory || []);
-    if (!budget.ok) {
-      input.recovery?.stop(`bundle_review_convergence_${budget.terminalReason || "blocked"}`, budget.reason, "stop_fail_closed");
+    const cycleDecision = evaluateCycleBudget(state.reviewConvergenceState, config, state.reviewConvergenceHistory || []);
+    if (!cycleDecision.ok) {
+      input.recovery?.stop(`bundle_review_convergence_${cycleDecision.terminalReason || "blocked"}`, cycleDecision.reason, "stop_fail_closed");
       return {
         ok: false,
-        outcome: terminalOutcomeForConvergence(budget.terminalReason),
-        reasonCode: budget.terminalReason || "bundle_review_convergence_blocked",
-        reason: budget.reason,
+        outcome: terminalOutcomeForConvergence(cycleDecision.terminalReason),
+        reasonCode: cycleDecision.terminalReason || "bundle_review_convergence_blocked",
+        reason: cycleDecision.reason,
         state,
         attempts,
-        summary: { budget },
+        summary: { budget: cycleDecision },
       };
     }
-    if (budget.transitionedState) {
+    if (cycleDecision.transitionedState) {
       state = {
         ...state,
-        reviewConvergenceState: budget.transitionedState,
+        reviewConvergenceState: cycleDecision.transitionedState,
       };
       writeState(state);
-      budget.transitionedState = state.reviewConvergenceState;
+      cycleDecision.transitionedState = state.reviewConvergenceState;
     }
 
     input.recovery?.advance("review_fix", source === "codex_mechanics_security_review" ? "run_bundle_codex_review_convergence" : "run_bundle_review_convergence");
