@@ -8,9 +8,10 @@ import path from "node:path";
 import { canonicalEffectContext, canonicalIntent, commitExplicitPaths } from "../lib/git-workspace.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import { pushBranch } from "../lib/pr-manager.mjs";
+import { createSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 
 function git(cwd, ...args) { return execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" } }).trim(); }
-function lifecycle(repo, head) { return { repository: "owner/repo", logicalTask: { taskKey: "task", runId: "run", claimIdentity: "owner/repo#1", chargeMarkerRef: "charge-1" }, branch: { name: "feature/test", baseSha: head, headSha: head, candidateDigest: "a".repeat(64) }, sessions: { current: "session-1", generation: 1 }, mutationAuthority: { ownerSessionId: "session-1", generation: 1, status: "active" } }; }
+function lifecycle(repo, head) { return createSessionLifecycleState({ repository: "owner/repo", issueNumber: 1, taskKey: "task", runId: "run", claimIdentity: "owner/repo#1", chargeMarkerRef: "charge-1", branchName: "feature/test", baseSha: head, headSha: head, sessionId: "session-1", phase: "commit", nextExactAction: "commit" }); }
 function fixture() {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-canonical-git-"));
   const repo = path.join(root, "repo");
@@ -38,6 +39,7 @@ test("actual commit consumer adopts a crash-window commit without recommitting",
   const count = git(repo, "rev-list", "--count", "HEAD");
   const result = await commitExplicitPaths(config, ["file.txt"], "change", { effectContext: state });
   assert.equal(result.canonicalEffect.action, "adopted");
+  assert.equal(state.branch.headSha, completed);
   assert.equal(git(repo, "rev-parse", "HEAD"), completed);
   assert.equal(git(repo, "rev-list", "--count", "HEAD"), count);
 });

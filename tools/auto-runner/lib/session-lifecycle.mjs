@@ -308,11 +308,11 @@ export function planInterruptionRecovery(state, live = {}, interruption = {}) {
     return { ok: true, recoverable: true, duplicate: true, classification: classified, effectsAlreadyPresent: state.recovery.effectsAlreadyPresent, earliestSafePhase: state.recovery.phaseAfter, state };
   }
   const effects = {
-    mutation: Boolean(live.mutationPresent || reservationConfirmed(state.reservations, ["sourceMutation", "review_fix", "ci_fix"])),
-    commit: Boolean(live.commitPresent || reservationConfirmed(state.reservations, ["commit", "checkpoint_commit"])),
-    push: Boolean(live.pushPresent || reservationConfirmed(state.reservations, ["push"])),
-    merge: Boolean(live.mergePresent || reservationConfirmed(state.reservations, ["merge"])),
-    comment: Boolean(live.commentPresent || reservationConfirmed(state.reservations, ["comment", "issue_comment", "parent_comment", "pr_comment", "issue_close", "ledger_hygiene"])),
+    mutation: live.mutationPresent === true,
+    commit: live.commitPresent === true,
+    push: live.pushPresent === true,
+    merge: live.mergePresent === true,
+    comment: live.commentPresent === true,
   };
   const phase = effects.merge ? "issue_parent_ledger_hygiene" : effects.push ? "ci_wait" : effects.commit ? "push" : effects.mutation ? "checkpoint_validation_commit" : state.controller.phase;
   const next = structuredClone(state);
@@ -350,11 +350,3 @@ function positiveInteger(value) { return Number.isSafeInteger(value) && value > 
 function nonnegativeInteger(value) { return Number.isSafeInteger(value) && value >= 0 ? value : null; }
 function validTimestamp(value) { return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : null; }
 function allowedValue(value, allowed, fallback) { return allowed.includes(value) ? value : fallback; }
-function reservationConfirmed(reservations, keys) {
-  return keys.some((key) => {
-    const value = reservations?.[key];
-    if (!value) return false;
-    if (value.confirmed === true || value.status === "confirmed" || value.status === "completed") return true;
-    return false;
-  });
-}

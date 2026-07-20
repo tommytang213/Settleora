@@ -156,14 +156,15 @@ function defaultLeaseRead(config, identity, now) {
 function defaultGitRead(config, identity) {
   const run = (args) => spawnSync("git", args, { cwd: config.repoRoot, encoding: "utf8", timeout: 15_000 });
   const status = run(["status", "--porcelain=v2"]);
+  const branch = run(["symbolic-ref", "--quiet", "--short", "HEAD"]);
   const head = run(["rev-parse", "HEAD"]);
   const commit = run(["show", "-s", "--format=%P%n%T%n%B", "HEAD"]);
   const remote = run(["ls-remote", "--exit-code", "origin", `refs/heads/${identity.branchName}`]);
-  if (status.status !== 0 || head.status !== 0 || commit.status !== 0 || !sha40(head.stdout.trim()) || ![0, 2].includes(remote.status)) return { complete: false, source: "git_cli" };
+  if (status.status !== 0 || branch.status !== 0 || head.status !== 0 || commit.status !== 0 || !sha40(head.stdout.trim()) || ![0, 2].includes(remote.status)) return { complete: false, source: "git_cli" };
   const lines = status.stdout.split("\n").filter(Boolean);
   const remoteHead = remote.status === 0 ? remote.stdout.trim().split(/\s+/)[0] : null;
   const [parents = "", treeSha = "", ...messageLines] = commit.stdout.replace(/\r\n/g, "\n").split("\n");
-  return { complete: true, source: "git_cli", branchName: identity.branchName, baseSha: sha40(identity.baseSha), headSha: head.stdout.trim(), remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), commit: { sha: head.stdout.trim(), parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
+  return { complete: true, source: "git_cli", branchName: branch.stdout.trim(), baseSha: sha40(identity.baseSha), headSha: head.stdout.trim(), remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), commit: { sha: head.stdout.trim(), parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
 }
 
 function defaultGithubRead(config, identity) {

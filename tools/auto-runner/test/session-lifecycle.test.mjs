@@ -224,7 +224,7 @@ test("valid recovery v1 migrates without reinterpreting counters or markers", ()
   assert.equal(migrated.state.reservations.checkpoint_commit.key, "c1");
   assert.equal(migrated.state.reservations.checkpoint_commit.status, "confirmed");
   const recovered = planInterruptionRecovery(migrated.state, {}, { processExited: true, checkpointValid: true });
-  assert.equal(recovered.effectsAlreadyPresent.commit, true);
+  assert.equal(recovered.effectsAlreadyPresent.commit, false);
   assert.equal(recovered.earliestSafePhase, "push");
 });
 

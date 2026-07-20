@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { findPreEffectIntents, loadPreEffectIntent } from "./pre-effect-intent.mjs";
+import { persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export function runGit(args, options = {}) {
   const result = spawnSync("git", args, {
@@ -228,7 +229,18 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
     },
   });
   if (!result.ok) throw new Error(`Canonical commit failed closed: ${result.reasonCode || result.classification}`);
-  return { skipped: false, files, commit: getRefSha("HEAD", { cwd }), canonicalEffect: result };
+  const commitSha = getRefSha("HEAD", { cwd });
+  persistConfirmedLifecycleHead(config, options.effectContext, commitSha);
+  return { skipped: false, files, commit: commitSha, canonicalEffect: result };
+}
+
+function persistConfirmedLifecycleHead(config, effectContext, headSha) {
+  const state = effectContext?.state || effectContext;
+  if (!state?.branch || state.branch.headSha === headSha) return;
+  const persisted = persistSessionLifecycleState(config, { ...state, branch: { ...state.branch, headSha, candidateDigest: null } });
+  if (!persisted.ok) throw new Error(`Unable to persist confirmed lifecycle head: ${persisted.reasonCode}`);
+  if (effectContext?.state) effectContext.state = persisted.state;
+  else Object.assign(effectContext, persisted.state);
 }
 
 export function canonicalEffectContext(input = {}) {
