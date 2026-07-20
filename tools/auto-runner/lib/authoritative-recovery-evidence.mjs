@@ -79,13 +79,14 @@ function reconcileDurableIntents(config, intentIds, git, github, diagnostics, co
     try { intent = loadPreEffectIntent(config, intentId); } catch { diagnostics.push("pre_effect_intent_read_failed"); continue; }
     if (!intent) { diagnostics.push("pre_effect_intent_missing"); continue; }
     const intentGit = gitForIntent(config, intent, git);
-    const result = reconcilePreEffectIntent(intent, liveEvidenceForIntent(intent, intentGit, githubForIntent(config, intent, github)));
+    const liveEvidence = liveEvidenceForIntent(intent, intentGit, githubForIntent(config, intent, github));
+    const result = reconcilePreEffectIntent(intent, liveEvidence);
     // Evidence collection is deliberately read-only. The successor must first
     // acquire active mutation authority; its canonical consumer then performs
     // the atomic adoption/finalization transition.
     if (result.classification === "effect_ambiguous") ambiguities.push("pre_effect_intent_ambiguous");
     else if (["effect_contradictory", "live_read_unavailable"].includes(result.classification)) contradictions.push(`pre_effect_intent_${result.classification}`);
-    results.push({ intentId: String(intent.intentId).slice(0, 120), effectType: intent.effectType, fingerprint: intent.fingerprint, classification: result.classification, ...(intent.effectType === "commit" ? { treeSha: sha40(intent.effect.treeSha), stagedPaths: Array.isArray(intent.effect.stagedPaths) ? intent.effect.stagedPaths.slice(0, 200) : [] } : {}) });
+    results.push({ intentId: String(intent.intentId).slice(0, 120), effectType: intent.effectType, fingerprint: intent.fingerprint, classification: result.classification, ...(intent.effectType === "commit" ? { treeSha: sha40(intent.effect.treeSha), stagedPaths: Array.isArray(intent.effect.stagedPaths) ? intent.effect.stagedPaths.slice(0, 200) : [], confirmedHeadMatches: liveEvidence.present === true } : {}) });
   }
   return results;
 }
@@ -260,7 +261,8 @@ function readAllGithubComments(config, endpoint) {
 
 function reconcileIdentity(identity, git, github, intents, contradictions, ambiguities) {
   if (!git || !github) return;
-  const exactPendingCommit = intents.some((intent) => intent.effectType === "commit" && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification));
+  const exactPendingCommit = intents.some((intent) => intent.effectType === "commit"
+    && (intent.classification === "effect_present_exact_adoptable" || (intent.classification === "effect_confirmed" && intent.confirmedHeadMatches === true)));
   if (git.branchName !== identity.branchName || (identity.headSha && git.headSha !== identity.headSha && !exactPendingCommit)) contradictions.push("local_git_identity_mismatch");
   if (github.pr && (github.pr.number !== identity.prNumber || github.pr.headRefName !== identity.branchName || github.pr.baseRefName !== identity.baseBranch)) contradictions.push("github_pr_identity_mismatch");
   if (github.pr?.headSha && git.remoteHeadSha && github.pr.headSha !== git.remoteHeadSha) contradictions.push("github_remote_head_mismatch");

@@ -360,7 +360,7 @@ export function reconcileAuthoritativeLifecycleHead(state, authoritative) {
   const liveHead = authoritative?.git?.headSha;
   if (liveHead === state?.branch?.headSha) return { ok: true, changed: false, state };
   const exactCommit = authoritative?.intents?.some((intent) => intent.effectType === "commit"
-    && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification));
+    && (intent.classification === "effect_present_exact_adoptable" || (intent.classification === "effect_confirmed" && intent.confirmedHeadMatches === true)));
   if (!exactCommit || !/^[a-f0-9]{40}$/.test(String(liveHead || ""))) {
     return { ok: false, reasonCode: "session_lifecycle_authoritative_head_unproven" };
   }
