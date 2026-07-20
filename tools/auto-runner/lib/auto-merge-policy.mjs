@@ -496,7 +496,15 @@ function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, 
       if (view.error || view.status !== 0) return { complete: false };
       let pr; try { pr = JSON.parse(view.stdout || "{}"); } catch { return { complete: false }; }
       if (Number(pr.number) !== Number(prNumber) || pr.headRefOid !== effect.expectedHeadSha || pr.baseRefName !== effect.baseBranch) return { complete: true, present: true, identity: intent.identity, effect: { ...effect, expectedHeadSha: pr.headRefOid || "unknown" } };
-      if (String(pr.state).toUpperCase() === "MERGED" && pr.mergeCommit?.oid) return { complete: true, present: true, identity: intent.identity, effect };
+      if (String(pr.state).toUpperCase() === "MERGED" && pr.mergeCommit?.oid) {
+        const commit = runner("gh", ["api", `repos/${repositorySlug}/git/commits/${pr.mergeCommit.oid}`], { cwd: config.repoRoot });
+        if (commit.error || commit.status !== 0) return { complete: false };
+        let mergeCommit; try { mergeCommit = JSON.parse(commit.stdout || "{}"); } catch { return { complete: false }; }
+        if (mergeCommit.parents?.[0]?.sha !== effect.expectedBaseSha || mergeCommit.parents?.[1]?.sha !== effect.expectedHeadSha) {
+          return { complete: true, present: true, identity: intent.identity, effect: { ...effect, expectedBaseSha: mergeCommit.parents?.[0]?.sha || "unknown" } };
+        }
+        return { complete: true, present: true, identity: intent.identity, effect };
+      }
       if (String(pr.state).toUpperCase() === "OPEN") return { complete: true, present: false };
       return { complete: true, ambiguous: true };
     },
@@ -510,18 +518,19 @@ function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, 
 
 function executeCanonicalPrComment(config, context, { runner, repositorySlug, prNumber, mergeSha, body }) {
   const stableFingerprint = `settleora-auto-merge:${prNumber}:${mergeSha}`;
-  const effect = { prNumber, mergeSha, bodyDigest: canonicalGithubEvidenceDigest(body), stableFingerprint };
+  const markedBody = `${body}\n\n<!-- ${stableFingerprint} -->`;
+  const effect = { prNumber, mergeSha, bodyDigest: canonicalGithubEvidenceDigest(markedBody), stableFingerprint };
   const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "comment", prNumber, headSha: context.expectedHeadSha, baseSha: mergeSha, effect }, {
     readLive: (intent) => {
       const view = runner("gh", ["pr", "view", String(prNumber), "--repo", repositorySlug, "--json", "number,comments"], { cwd: config.repoRoot });
       if (view.error || view.status !== 0) return { complete: false };
       let pr; try { pr = JSON.parse(view.stdout || "{}"); } catch { return { complete: false }; }
-      const matches = (pr.comments || []).filter((comment) => String(comment.body || "").includes(mergeSha));
+      const matches = (pr.comments || []).filter((comment) => String(comment.body || "").includes(`<!-- ${stableFingerprint} -->`) && canonicalGithubEvidenceDigest(String(comment.body || "")) === effect.bodyDigest);
       if (matches.length > 1) return { complete: true, ambiguous: true };
       return matches.length === 1 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
     },
     execute: () => {
-      const result = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", body], { cwd: config.repoRoot });
+      const result = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", markedBody], { cwd: config.repoRoot });
       if (result.error || result.status !== 0) throw new Error("Canonical PR merge comment did not confirm success");
       return { ok: true, status: result.status };
     },
