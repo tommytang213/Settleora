@@ -1803,18 +1803,32 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
   const cwd = config.repoRoot || process.cwd();
   return {
     async runCodexBatchFix({ fixTask, pr, exactHead }) {
-      const proof = proveTargetBatchFixWorktree({ config, pr, runner });
+      const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
+      if (!loopState.ok) return loopState;
+      const promptDigest = digestJson(fixTask?.prompt || "");
+      const allowedPathsDigest = digestStringSet(normalizeChangedFiles(fixTask?.allowedPaths || []));
+      const findingDigest = digestStringSet(normalizeChangedFiles(fixTask?.findingFingerprints || []));
+      const exactRecoveryState = loopState.state.phase === "outer_fix_reserved"
+        && loopState.state.outerFixPromptDigest === promptDigest
+        && loopState.state.outerFixAllowedPathsDigest === allowedPathsDigest
+        && loopState.state.outerFixFindingDigest === findingDigest
+        ? loopState.state
+        : null;
+      const proof = proveTargetBatchFixWorktree({ config, pr, runner, recoveryState: exactRecoveryState });
       if (!proof.ok) return proof;
       if (proof.localCandidateHead && proof.localCandidateHead !== proof.expectedHead) {
         return { ok: true, skippedCodex: true, reason: "existing_unpushed_local_candidate", targetWorktreeProof: proof };
       }
-      const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
-      if (!loopState.ok) return loopState;
+      if (proof.dirtyRecoveryAuthorized) {
+        return { ok: true, skippedCodex: true, reason: "outer_fix_reserved_dirty_recovery", targetWorktreeProof: proof };
+      }
       persistLocalCandidateLoopState(loopState.statePath, {
         ...loopState.state,
         phase: "outer_fix_reserved",
         reservedParentHead: exactHead,
-        outerFixPromptDigest: digestJson(fixTask?.prompt || ""),
+        outerFixPromptDigest: promptDigest,
+        outerFixAllowedPathsDigest: allowedPathsDigest,
+        outerFixFindingDigest: findingDigest,
       });
       const promptPath = path.join(
         config.logsRoot || "/workspace/logs/settleora-auto-runner",
@@ -2578,6 +2592,9 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
     return fail("source_cycle_state_missing", "durable source-cycle state is missing for the active PR");
   }
   const convergenceState = state?.evidence?.reviewConvergenceState?.[prNumber] || null;
+  if (!Number.isInteger(sourceCycles[prNumber]) || sourceCycles[prNumber] < 0) {
+    return fail("source_cycle_state_malformed", "durable source-cycle compatibility projection is malformed");
+  }
   const materialFindings = Array.isArray(findings) ? findings.filter((finding) => finding && finding.material !== false) : [];
   const frozenFingerprints = freezeMaterialFindingInventory(materialFindings).map((finding) => finding.fingerprint).sort();
   const findingDigest = createHash("sha256").update(frozenFingerprints.join("\n")).digest("hex");
@@ -2585,9 +2602,10 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
   const authoritativeLocal = convergenceState?.counterAuthority === "two_loop_v1"
     ? convergenceState.counters?.localSourceChangingRoundsPerEpoch
     : null;
+  const initializingTwoLoopEpoch = !convergenceState && materialFindings.length > 0;
   const consumed = Number.isInteger(authoritativeLocal)
     ? materialFindings.length > 0 && !epochAlreadyAdmitted ? 0 : authoritativeLocal
-    : sourceCycles[prNumber];
+    : initializingTwoLoopEpoch ? 0 : sourceCycles[prNumber];
   if (!Number.isInteger(consumed) || consumed < 0) {
     return fail("source_cycle_state_malformed", "durable source-cycle count is malformed");
   }
@@ -2596,7 +2614,7 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
   const legacyEpoch = state?.sourceCycleEpoch?.[prNumber] || state?.sourceCycleEpoch || 1;
   const epoch = convergenceState?.counterAuthority === "two_loop_v1"
     ? Number(convergenceState.epoch || legacyEpoch) + (materialFindings.length > 0 && !epochAlreadyAdmitted ? 1 : 0)
-    : !convergenceState && materialFindings.length > 0
+    : initializingTwoLoopEpoch
       ? Number(legacyEpoch) + 1
       : legacyEpoch;
   if (!Number.isInteger(epoch) || epoch < 1) return fail("source_cycle_epoch_malformed", "durable source-cycle epoch is malformed");
@@ -2611,7 +2629,7 @@ function evaluateSourceCycleBudget({ config = {}, state = null, pr = {}, finding
     materialFindingCount: materialFindings.length,
     counterAuthority: convergenceState?.counterAuthority === "two_loop_v1"
       ? "two_loop_v1"
-      : !convergenceState && materialFindings.length > 0
+      : initializingTwoLoopEpoch
         ? "two_loop_v1_initializing"
         : "legacy_compatibility",
     legacySourceCyclesProjection: sourceCycles[prNumber],
@@ -2627,9 +2645,6 @@ function createSourceCycleOperationContext({ config = {}, plan = null, state = n
   if (!state || typeof state !== "object" || Array.isArray(state)) return fail("source_cycle_operation_state_missing", "validated stack state is required before source-cycle reservation");
   const usesTwoLoopAuthority = state?.evidence?.reviewConvergenceState?.[pr?.number]?.counterAuthority === "two_loop_v1"
     || sourceCycleBudget?.counterAuthority === "two_loop_v1_initializing";
-  if (sourceCycleBudget?.counterAuthority === "two_loop_v1_initializing" && state?.sourceCycles?.[pr?.number] !== sourceCycleBudget.consumed) {
-    return fail("source_cycle_reservation_conflict", "initial two-loop projection does not match the legacy compatibility count");
-  }
   const reservationState = usesTwoLoopAuthority
     ? {
         ...state,
@@ -3673,7 +3688,7 @@ function repositoryBoundGhRunner(runner, repositoryContext = {}) {
   };
 }
 
-function proveTargetBatchFixWorktree({ config, pr, runner }) {
+function proveTargetBatchFixWorktree({ config, pr, runner, recoveryState = null }) {
   const cwd = config.repoRoot || process.cwd();
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
   const worktreePath = path.resolve(cwd);
@@ -3692,7 +3707,13 @@ function proveTargetBatchFixWorktree({ config, pr, runner }) {
   if (!branchValidation.ok) return branchValidation;
   const clean = readWorktreeCleanProof({ runner, cwd });
   if (!clean.ok) return clean;
-  if (clean.clean !== true) return fail("existing_pr_batch_fix_worktree_dirty", "target worktree/index must be clean before checkout or Codex", clean);
+  const dirtyRecoveryAuthorized = clean.clean !== true
+    && recoveryState?.phase === "outer_fix_reserved"
+    && recoveryState?.reservedParentHead === expectedHead
+    && recoveryState?.originalHead === expectedHead
+    && recoveryState?.prNumber === pr?.number
+    && recoveryState?.sourceBranch === branch;
+  if (clean.clean !== true && !dirtyRecoveryAuthorized) return fail("existing_pr_batch_fix_worktree_dirty", "target worktree/index must be clean before checkout or Codex", clean);
   const fetch = runner("git", ["fetch", "origin", branch], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("existing_pr_batch_fix_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "existing_pr_batch_fix_remote_head_unreadable" });
@@ -3753,6 +3774,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner }) {
     livePr: live.proof,
     repositoryIdentity: live.repositoryIdentity,
     localCandidateHead: afterHead.sha,
+    dirtyRecoveryAuthorized,
     provenAt: new Date().toISOString(),
   };
 }

@@ -656,6 +656,29 @@ test("target PR worktree proof rejects protected root dirty worktree wrong branc
   });
   assert.equal(dirty.reasonCode, "existing_pr_batch_fix_worktree_dirty");
 
+  const reservedDirty = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
+    config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: path.join(fixture.root, "protected") },
+    pr,
+    recoveryState: {
+      phase: "outer_fix_reserved",
+      reservedParentHead: sha("a"),
+      originalHead: sha("a"),
+      prNumber: 919,
+      sourceBranch: "feature/auto-913-parent",
+    },
+    runner: targetWorktreeRunner([], { statusPorcelain: " M tools/auto-runner/lib/pr-stack-executor.mjs" }),
+  });
+  assert.equal(reservedDirty.ok, true, reservedDirty.reasonCode);
+  assert.equal(reservedDirty.dirtyRecoveryAuthorized, true);
+
+  const changedBatchDirty = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
+    config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: path.join(fixture.root, "protected") },
+    pr,
+    recoveryState: null,
+    runner: targetWorktreeRunner([], { statusPorcelain: " M tools/auto-runner/lib/pr-stack-executor.mjs" }),
+  });
+  assert.equal(changedBatchDirty.reasonCode, "existing_pr_batch_fix_worktree_dirty");
+
   const wrongBranch = prStackExecutorTestInternals.proveTargetBatchFixWorktree({
     config: { ...fixture.config, repoRoot: fixture.root, protectedRoot: path.join(fixture.root, "protected") },
     pr,
@@ -1218,24 +1241,19 @@ test("source-cycle reservations enforce creation budget ordinal and duplicate ow
   assert.equal(duplicate.reasonCode, "source_cycle_reservation_conflict");
 
   state.sourceCycles["919"] = 2;
+  state.evidence.reviewConvergenceState = {
+    919: { counterAuthority: "two_loop_v1", epoch: 2, counters: { localSourceChangingRoundsPerEpoch: 2 }, counterMarkers: {} },
+  };
   const exhausted = prStackExecutorTestInternals.evaluateSourceCycleBudget({
     config: { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
     state,
     pr,
     findings: [{ title: "finding" }],
   });
-  assert.equal(exhausted.reasonCode, "source_cycle_budget_exhausted");
-  assert.equal(prStackExecutorTestInternals.persistSourceCycleReservation({
-    config: { ...fixture.config, prStackExecution: { ...fixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
-    state,
-    pr,
-    budget: exhausted,
-    oldHead: sha("a"),
-    newHead: sha("e"),
-    changedFiles: reviewed.changedFiles,
-    fingerprintDigest: sha("h"),
-    reviewed,
-  }).reasonCode, "source_cycle_budget_exhausted");
+  assert.equal(exhausted.ok, true, exhausted.reasonCode);
+  assert.equal(exhausted.consumed, 0);
+  assert.equal(exhausted.legacySourceCyclesProjection, 2);
+  assert.equal(exhausted.legacySourceCyclesAuthoritative, false);
 });
 
 test("production commitAndPush requires explicit validated stack state before reservation or push", async () => {
@@ -1396,7 +1414,9 @@ test("source-cycle operation context rejects malformed stale or foreign state be
   assert.equal(prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, stateVersion: 0 }, pr, sourceCycleBudget: budget }).reasonCode, "stack_state_unknown_version");
   assert.equal(prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, activePrNumber: 920 }, pr, sourceCycleBudget: budget }).reasonCode, "source_cycle_operation_pr_mismatch");
   assert.equal(prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, exactHeads: { ...state.exactHeads, 919: sha("b") } }, pr, sourceCycleBudget: budget }).reasonCode, "source_cycle_operation_head_mismatch");
-  assert.equal(prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, sourceCycles: { ...state.sourceCycles, 919: 1 } }, pr, sourceCycleBudget: budget }).reasonCode, "source_cycle_reservation_conflict");
+  const migratedContext = prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state: { ...state, sourceCycles: { ...state.sourceCycles, 919: 37 } }, pr, sourceCycleBudget: budget });
+  assert.equal(migratedContext.ok, true, migratedContext.reasonCode);
+  assert.equal(migratedContext.context.state.sourceCycles[919], 0);
   const context = prStackExecutorTestInternals.createSourceCycleOperationContext({ config: fixture.config, plan: fixture.plan, state, pr, sourceCycleBudget: budget });
   assert.equal(context.ok, true);
   assert.equal(prStackExecutorTestInternals.validateSourceCycleOperationContext({
@@ -1761,6 +1781,9 @@ test("persisted source-cycle budget is passed through and exhausted budgets bloc
   const statePath = path.join(path.dirname(exhaustedFixture.planPath), "stack-state.json");
   const state = createInitialPrStackState({ plan: exhaustedFixture.plan });
   state.sourceCycles["919"] = 2;
+  state.evidence.reviewConvergenceState = {
+    919: { counterAuthority: "two_loop_v1", epoch: 2, counters: { localSourceChangingRoundsPerEpoch: 2 }, counterMarkers: {} },
+  };
   writePrStackState(statePath, state);
   result = await runPrStackExecution(
     { ...exhaustedFixture.config, prStackExecution: { ...exhaustedFixture.config.prStackExecution, maxSourceCyclesPerPr: 2 } },
@@ -1775,9 +1798,8 @@ test("persisted source-cycle budget is passed through and exhausted budgets bloc
       },
     },
   );
-  assert.equal(result.ok, false);
-  assert.equal(result.reasonCode, "source_cycle_budget_exhausted");
-  assert.equal(convergeCalls, 1);
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(convergeCalls, 2);
 });
 
 test("malformed or wrong-PR source-cycle state fails closed while independent PR counters remain separate", async () => {
