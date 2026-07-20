@@ -187,7 +187,7 @@ export function loadSessionLifecycleForRecovery(config, identity) {
   const root = path.join(config.logsRoot, "session-lifecycle");
   if (!existsSync(root)) return fail("session_lifecycle_state_missing", null, { statePath: root });
   const matches = [];
-  for (const entry of readdirSync(root, { withFileTypes: true }).filter((item) => item.isFile() && /^[a-f0-9]{64}\.json$/.test(item.name)).slice(0, 1000)) {
+  for (const entry of readdirSync(root, { withFileTypes: true }).filter((item) => item.isFile() && /^[a-f0-9]{64}\.json$/.test(item.name)).sort((left, right) => left.name.localeCompare(right.name))) {
     let state;
     try { state = JSON.parse(readFileSync(path.join(root, entry.name), "utf8")); } catch { continue; }
     if (state.repository !== identity.repository || state.logicalTask?.issueNumber !== identity.issueNumber || state.logicalTask?.taskKey !== identity.taskKey || state.logicalTask?.runId !== identity.runId) continue;

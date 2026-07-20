@@ -30,11 +30,11 @@ export async function executeCanonicalEffect(config, input, adapters = {}) {
   const before = await safeRead(adapters.readLive, intent);
   const initial = reconcilePreEffectIntent(intent, before);
   if (!canonicalEffectClassifications.includes(initial.classification)) return blocked("canonical_classification_invalid", intent);
-  if (initial.classification === "effect_confirmed") return finalized(config, intent, initial, "already_confirmed");
+  if (initial.classification === "effect_confirmed") return finalizeAsync(config, intent, initial, "already_confirmed", adapters);
   if (initial.classification === "effect_present_exact_adoptable") {
     const executing = intent.status === "prepared" ? transitionPreEffectIntent(config, intent, "executing") : intent;
     const adopted = transitionPreEffectIntent(config, executing, "adopted_after_recovery", { diagnostics: ["exact_live_effect_adopted"] });
-    return finalized(config, adopted, initial, "adopted");
+    return finalizeAsync(config, adopted, initial, "adopted", adapters);
   }
   if (["live_read_unavailable", "effect_absent_execution_uncertain"].includes(initial.classification)) return pending(intent, initial.classification);
   if (initial.classification !== "effect_absent_safe_to_execute") return failClosed(config, intent, initial.classification);
@@ -47,7 +47,7 @@ export async function executeCanonicalEffect(config, input, adapters = {}) {
     const reconciliation = reconcilePreEffectIntent(executing, uncertain);
     if (reconciliation.classification === "effect_present_exact_adoptable") {
       const adopted = transitionPreEffectIntent(config, executing, "adopted_after_recovery", { diagnostics: ["exact_live_effect_adopted_after_execution_error"] });
-      return finalized(config, adopted, reconciliation, "adopted");
+      return finalizeAsync(config, adopted, reconciliation, "adopted", adapters);
     }
     return pending(executing, `effect_execution_uncertain_${reconciliation.classification}`);
   }
@@ -56,7 +56,12 @@ export async function executeCanonicalEffect(config, input, adapters = {}) {
   if (["live_read_unavailable", "effect_absent_safe_to_execute", "effect_absent_execution_uncertain"].includes(readback.classification)) return pending(executing, `post_effect_${readback.classification}`);
   if (readback.classification !== "effect_present_exact_adoptable") return failClosed(config, executing, `post_effect_${readback.classification}`);
   const confirmed = transitionPreEffectIntent(config, executing, "live_confirmed", { diagnostics: ["exact_live_effect_read_back"] });
-  return { ...finalized(config, confirmed, readback, "executed"), execution: sanitizeResult(execution) };
+  return { ...await finalizeAsync(config, confirmed, readback, "executed", adapters), execution: sanitizeResult(execution) };
+}
+
+async function finalizeAsync(config, intent, classification, action, adapters) {
+  if (typeof adapters.beforeFinalize === "function") await adapters.beforeFinalize(intent, classification, action);
+  return finalized(config, intent, classification, action);
 }
 
 export function executeCanonicalEffectSync(config, input, adapters = {}) {

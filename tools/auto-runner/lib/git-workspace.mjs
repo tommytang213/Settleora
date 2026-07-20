@@ -1,13 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
-import { findPreEffectIntents, loadPreEffectIntent } from "./pre-effect-intent.mjs";
+import { findPreEffectIntents, loadPreEffectIntent, preparePreEffectIntent } from "./pre-effect-intent.mjs";
 import { persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export function runGit(args, options = {}) {
   const result = spawnSync("git", args, {
     cwd: options.cwd || process.cwd(),
+    env: options.env ? { ...process.env, ...options.env } : process.env,
     encoding: "utf8",
     windowsHide: true,
   });
@@ -197,9 +201,9 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
   if (files.length === 0) return { skipped: true, reason: "no-changes" };
   if (config.dryRun) return { skipped: true, reason: "dry-run", files };
   const cwd = config.repoRoot || process.cwd();
-  const add = runGit(["add", "--", ...files], { cwd });
-  assertGitSuccess(add, "Unable to stage explicit paths");
   if (!options.effectContext) {
+    const add = runGit(["add", "--", ...files], { cwd });
+    assertGitSuccess(add, "Unable to stage explicit paths");
     const commit = runGit(["commit", "-m", message], { cwd });
     assertGitSuccess(commit, "Unable to create commit");
     return { skipped: false, files, commit: commit.stdout.trim() };
@@ -207,18 +211,23 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
   const effectContext = canonicalEffectContext(options.effectContext);
   const pending = findPendingEffect(config, effectContext, "commit", (intent) => sameStrings(intent.effect.stagedPaths, [...files].sort()) && intent.effect.messageDigest === createHash("sha256").update(normalizeCommitMessage(message)).digest("hex"));
   const parent = pending?.effect.expectedParents?.[0] || getRefSha("HEAD", { cwd });
-  const tree = runGit(["write-tree"], { cwd });
-  assertGitSuccess(tree, "Unable to compute staged tree");
+  const intendedTreeSha = pending?.effect.treeSha || computeIntendedTree(cwd, files, parent);
   const effect = pending?.effect || {
     expectedParents: [parent],
-    treeSha: tree.stdout.trim(),
+    treeSha: intendedTreeSha,
     stagedPaths: [...files].sort(),
     messageDigest: createHash("sha256").update(normalizeCommitMessage(message)).digest("hex"),
   };
   const canonicalConfig = { ...config, currentAuthority: effectContext.currentAuthority };
   const intent = canonicalIntent(effectContext, "commit", effect, { headSha: parent });
+  const prepared = pending || prepareCommitIntent(canonicalConfig, intent);
+  const add = runGit(["add", "--", ...files], { cwd });
+  assertGitSuccess(add, "Unable to stage explicit paths");
+  const stagedTree = runGit(["write-tree"], { cwd });
+  assertGitSuccess(stagedTree, "Unable to compute staged tree");
+  if (stagedTree.stdout.trim() !== effect.treeSha) throw new Error("Staged tree changed after canonical commit intent was persisted");
   const result = await executeCanonicalEffect(canonicalConfig, {
-    ...(pending ? { intentId: pending.intentId } : canonicalExecutionInput(canonicalConfig, intent)),
+    intentId: prepared.intentId,
     expectedIdentity: effectContext.expectedIdentity,
   }, {
     readLive: (intent) => readCommitEffect(cwd, parent, effect, intent.identity),
@@ -227,11 +236,32 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
       assertGitSuccess(commit, "Unable to create commit");
       return { ok: true, status: commit.status };
     },
+    beforeFinalize: () => persistConfirmedLifecycleHead(config, options.effectContext, getRefSha("HEAD", { cwd })),
   });
   if (!result.ok) throw new Error(`Canonical commit failed closed: ${result.reasonCode || result.classification}`);
   const commitSha = getRefSha("HEAD", { cwd });
-  persistConfirmedLifecycleHead(config, options.effectContext, commitSha);
   return { skipped: false, files, commit: commitSha, canonicalEffect: result };
+}
+
+function prepareCommitIntent(config, intent) {
+  return preparePreEffectIntent(config, intent);
+}
+
+function computeIntendedTree(cwd, files, parent) {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-commit-index-"));
+  const indexPath = path.join(tempRoot, "index");
+  const env = { GIT_INDEX_FILE: indexPath };
+  try {
+    const read = runGit(["read-tree", parent], { cwd, env });
+    assertGitSuccess(read, "Unable to initialize isolated commit index");
+    const add = runGit(["add", "--", ...files], { cwd, env });
+    assertGitSuccess(add, "Unable to stage explicit paths in isolated commit index");
+    const tree = runGit(["write-tree"], { cwd, env });
+    assertGitSuccess(tree, "Unable to compute intended commit tree");
+    return tree.stdout.trim();
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 }
 
 function persistConfirmedLifecycleHead(config, effectContext, headSha) {
