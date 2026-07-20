@@ -61,6 +61,24 @@ export function loadPreEffectIntent(config, intentId) {
   return value;
 }
 
+export function findPreEffectIntents(config, predicate = () => true) {
+  const root = intentRoot(config);
+  if (!existsSync(root)) return [];
+  ensureTrustedRoot(root);
+  const values = [];
+  for (const name of readdirSync(root).sort()) {
+    if (!name.endsWith(".json")) continue;
+    const file = path.join(root, name);
+    validateTrustedArtifact(file, root, name);
+    const value = parseBounded(file);
+    validateStored(value);
+    if (`${digest(value.intentId)}.json` !== name) throw new Error("Pre-effect intent filename identity mismatch");
+    if (predicate(value)) values.push(value);
+  }
+  if (new Set(values.map((value) => value.fingerprint)).size !== values.length) throw new Error("Duplicate or conflicting pre-effect intent artifact");
+  return values;
+}
+
 export function assertPreEffectIntentAuthority(intent, authority) {
   if (!authority) return true;
   if (authority.retired === true || authority.status === "retired") throw new Error("Retired session cannot mutate pre-effect intent");

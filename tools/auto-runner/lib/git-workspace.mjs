@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
-import { loadPreEffectIntent } from "./pre-effect-intent.mjs";
+import { findPreEffectIntents, loadPreEffectIntent } from "./pre-effect-intent.mjs";
 
 export function runGit(args, options = {}) {
   const result = spawnSync("git", args, {
@@ -203,11 +203,12 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
     return { skipped: false, files, commit: commit.stdout.trim() };
   }
   const cwd = config.repoRoot || process.cwd();
-  const parent = getRefSha("HEAD", { cwd });
+  const effectContext = canonicalEffectContext(options.effectContext);
+  const pending = findPendingEffect(config, effectContext, "commit", (intent) => sameStrings(intent.effect.stagedPaths, [...files].sort()) && intent.effect.messageDigest === createHash("sha256").update(normalizeCommitMessage(message)).digest("hex"));
+  const parent = pending?.effect.expectedParents?.[0] || getRefSha("HEAD", { cwd });
   const tree = runGit(["write-tree"], { cwd });
   assertGitSuccess(tree, "Unable to compute staged tree");
-  const effectContext = canonicalEffectContext(options.effectContext);
-  const effect = {
+  const effect = pending?.effect || {
     expectedParents: [parent],
     treeSha: tree.stdout.trim(),
     stagedPaths: [...files].sort(),
@@ -216,7 +217,7 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
   const canonicalConfig = { ...config, currentAuthority: effectContext.currentAuthority };
   const intent = canonicalIntent(effectContext, "commit", effect, { headSha: parent });
   const result = await executeCanonicalEffect(canonicalConfig, {
-    ...canonicalExecutionInput(canonicalConfig, intent),
+    ...(pending ? { intentId: pending.intentId } : canonicalExecutionInput(canonicalConfig, intent)),
     expectedIdentity: effectContext.expectedIdentity,
   }, {
     readLive: (intent) => readCommitEffect(cwd, parent, effect, intent.identity),
@@ -262,6 +263,16 @@ export function canonicalExecutionInput(config, intent) {
   return loadPreEffectIntent(config, intentId) ? { intentId } : { intent, intentOptions: { intentId } };
 }
 
+export function findPendingEffect(config, context, effectType, extra = () => true) {
+  const matches = findPreEffectIntents(config, (intent) => intent.effectType === effectType
+    && !["finalized", "failed_closed"].includes(intent.status)
+    && intent.repository === context.repository && intent.runId === context.runId
+    && intent.sessionId === context.sessionId && intent.authorityGeneration === context.authorityGeneration
+    && intent.identity?.branchName === context.branchName && extra(intent));
+  if (matches.length > 1) throw new Error(`Ambiguous pending canonical ${effectType} intents`);
+  return matches[0] || null;
+}
+
 function readCommitEffect(cwd, parent, effect, identity) {
   const head = getRefSha("HEAD", { cwd });
   if (head === parent) return { complete: true, present: false };
@@ -276,6 +287,7 @@ function readCommitEffect(cwd, parent, effect, identity) {
 }
 
 function normalizeCommitMessage(value) { return String(value).replace(/\r\n/g, "\n").trimEnd(); }
+function sameStrings(left, right) { return Array.isArray(left) && left.length === right.length && left.every((value, index) => value === right[index]); }
 
 function dedupeSorted(lines) {
   return [...new Set(lines.map((line) => line.trim()).filter(Boolean))].sort();

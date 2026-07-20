@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
-import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, getRefSha } from "./git-workspace.mjs";
+import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha } from "./git-workspace.mjs";
 
 function runGh(args, cwd) {
   const result = spawnSync("gh", args, { cwd, encoding: "utf8", windowsHide: true });
@@ -34,13 +34,15 @@ export async function pushBranch(config, branchName, options = {}) {
 async function canonicalPush(config, branchName, lifecycle) {
   const context = canonicalEffectContext(lifecycle);
   const localSha = getRefSha("HEAD", { cwd: config.repoRoot });
+  const pending = findPendingEffect(config, context, "push", (intent) => intent.effect.remoteBranch === branchName);
+  if (pending && pending.effect.localSha !== localSha) throw new Error("Pending canonical push local head mismatch");
   const before = readRemoteHead(config, branchName);
   if (!before.complete) throw new Error("Canonical push remote-before read unavailable");
-  const effect = { localSha, remoteBranch: branchName, expectedRemoteBeforeSha: before.sha, allowedFastForwardTarget: localSha, repositoryOwnership: context.repository };
+  const effect = pending?.effect || { localSha, remoteBranch: branchName, expectedRemoteBeforeSha: before.sha, allowedFastForwardTarget: localSha, repositoryOwnership: context.repository };
   const canonicalConfig = { ...config, currentAuthority: context.currentAuthority };
   const intent = canonicalIntent(context, "push", effect, { headSha: localSha });
   const result = await executeCanonicalEffect(canonicalConfig, {
-    ...canonicalExecutionInput(canonicalConfig, intent),
+    ...(pending ? { intentId: pending.intentId } : canonicalExecutionInput(canonicalConfig, intent)),
     expectedIdentity: context.expectedIdentity,
   }, {
     readLive: (intent) => {
@@ -153,15 +155,17 @@ export async function openOrUpdatePr(config, issue, branchName, summary, options
 
 async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
   const context = canonicalEffectContext(lifecycle);
+  const pending = findPendingEffect(config, context, "pr_create", (intent) => intent.effect.sourceBranch === branchName && intent.effect.issueNumber === issue.number);
   const headSha = getRefSha("HEAD", { cwd: config.repoRoot });
   const baseSha = getRefSha("origin/main", { cwd: config.repoRoot });
   const title = `Auto-runner: #${issue.number} ${issue.title}`;
-  const effect = { sourceBranch: branchName, sourceHeadSha: headSha, targetBaseBranch: "main", targetBaseSha: baseSha, titleDigest: digest(title), bodyDigest: digest(body), draft: false, issueNumber: issue.number };
+  if (pending && (pending.effect.sourceHeadSha !== headSha || pending.effect.targetBaseSha !== baseSha || pending.effect.titleDigest !== digest(title) || pending.effect.bodyDigest !== digest(body))) throw new Error("Pending canonical PR identity mismatch");
+  const effect = pending?.effect || { sourceBranch: branchName, sourceHeadSha: headSha, targetBaseBranch: "main", targetBaseSha: baseSha, titleDigest: digest(title), bodyDigest: digest(body), draft: false, issueNumber: issue.number };
   const canonicalConfig = { ...config, currentAuthority: context.currentAuthority };
   const intent = canonicalIntent(context, "pr_create", effect, { branchName, baseBranch: "main", baseSha, headSha, issueNumber: issue.number });
   let adoptedPr = null;
   const result = await executeCanonicalEffect(canonicalConfig, {
-    ...canonicalExecutionInput(canonicalConfig, intent),
+    ...(pending ? { intentId: pending.intentId } : canonicalExecutionInput(canonicalConfig, intent)),
     expectedIdentity: { ...context.expectedIdentity, branchName, baseBranch: "main", baseSha, headSha, issueNumber: issue.number },
   }, {
     readLive: (stored) => {
