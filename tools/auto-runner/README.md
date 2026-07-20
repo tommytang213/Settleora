@@ -69,6 +69,35 @@ recovery root before polling unrelated issues; with recovery capability
 default-off it fails closed for operator review instead of adopting arbitrary
 work.
 
+Session rotation and reportless-interruption decisions use the coordinated
+version-1 authority in `lib/session-lifecycle.mjs`, persisted under
+`/workspace/logs/settleora-auto-runner/session-lifecycle/`. It preserves the
+same logical-task charge, claim, branch/PR/candidate identity, convergence
+counters, findings, reservations, evidence, pending checks, report
+correlation, phase, and next action. Rotation first retires the old session
+and leaves mutation authority ownerless; only a validated successor handoff
+can acquire the next authority generation.
+
+The default context policy checkpoints at 60 percent, requires rotation at 75
+percent, and treats 90 percent or failed compaction as emergency pressure.
+Reported provider telemetry is combined with bounded deterministic byte-based
+estimation and a conservative fallback window. Missing optional telemetry
+therefore schedules checkpoints at long phase boundaries rather than
+disabling rotation. A two-turn cooldown prevents ordinary rotation loops;
+emergency rotation may bypass it only after a complete checkpoint. An
+unjournaled mutation always blocks rotation.
+
+Reportless recovery distinguishes remote compaction failure, provider stream
+disconnect, main-process exit without a trusted terminal report,
+wrapper/supervisor interruption, host restart/process loss, partial
+report/checkpoint write, and ambiguous/contradictory state. Process and lease
+readback outrank a stale `IN_PROGRESS` report. A live owner blocks takeover;
+dead-owner recovery validates the checkpoint and exact identities, marks the
+old session retired, and resumes from the earliest safe incomplete phase.
+Observed commit, push, merge, comment, and reservation effects are never
+replayed. Corrupt, mismatched, unsupported, or contradictory state stops
+fail-closed.
+
 Review convergence has one durable two-loop counter authority in that task/PR
 lineage. `localSourceChangingRoundsPerEpoch` blocks at 50 and increments only
 when one bounded local fix produces a new exact head;

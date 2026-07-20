@@ -3,6 +3,7 @@ import { closeSync, openSync, readFileSync, writeFileSync, appendFileSync } from
 import path from "node:path";
 import { digestChangedFiles } from "./config.mjs";
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
+import { prepareFreshSessionInvocation } from "./session-lifecycle.mjs";
 
 export function resolveCodexCommand(requested = "codex-vm-full") {
   const absolute = requested === "codex-vm-full" ? "/home/tommytang213/bin/codex-vm-full" : requested;
@@ -31,6 +32,17 @@ export function resolveCodexCommand(requested = "codex-vm-full") {
 export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run", purpose };
+  }
+  let sessionLifecycle = null;
+  if (config.sessionLifecycle?.enabled === true) {
+    if (!promptInfo.sessionLifecycle?.state || !promptInfo.sessionLifecycle?.newSessionId) {
+      return { skipped: false, status: null, error: "session_lifecycle_invocation_identity_missing", purpose };
+    }
+    sessionLifecycle = prepareFreshSessionInvocation(config, {
+      ...promptInfo.sessionLifecycle,
+      phase: promptInfo.sessionLifecycle.phase || purpose,
+    });
+    if (!sessionLifecycle.ok) return { skipped: false, status: null, error: sessionLifecycle.reasonCode, purpose, sessionLifecycle };
   }
   const command = resolveCodexCommand(config.codexCommand);
   const logPath = path.join(
@@ -86,6 +98,7 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
     error: result.error ? result.error.message : null,
     logPath,
     tail: tailText(logPath),
+    sessionLifecycle,
   };
 }
 

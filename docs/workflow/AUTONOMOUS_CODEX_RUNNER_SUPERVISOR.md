@@ -415,3 +415,20 @@ and summaries must resolve through exact correlation rather than newest-file
 guessing. Recovery must not steal active locks, run a second mutating Codex
 process on the same branch, delete source branches, force-push, or push
 directly to `main`.
+
+The session-lifecycle checkpoint is the coordinated authority for proactive
+Codex rotation and reportless process recovery. A planned rotation is a
+continuation of the accepted logical task: it does not charge another task,
+start a local source-changing round or GitHub fix epoch, or authorize a source
+mutation. The supervisor must persist the checkpoint, retire the current
+session's mutation authority, and validate the successor identity before
+granting the next authority generation. A crash between retirement and grant
+is recovered as an ownerless handoff, never as two active owners.
+
+On startup, process/lease and live Git/GitHub readback outrank report prose.
+A stale `IN_PROGRESS` report with no live owner is stopped/recoverable, while
+a live valid owner prevents takeover. Recovery classifies the interruption,
+validates exact repository/task/run/claim/session identity and checkpoint
+digest, and resumes the earliest safe incomplete phase without replaying
+already observed mutation, commit, push, review request, polling, merge,
+comment, closure, or hygiene effects.

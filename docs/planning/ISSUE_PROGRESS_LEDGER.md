@@ -1,5 +1,27 @@
 # Issue Progress Ledger
 
+### Issues #928/#929 — session lifecycle implementation candidate (2026-07-20)
+
+- Current candidate branch:
+  `feature/auto-runner-session-lifecycle-20260720-2110`, based on exact
+  `origin/main` `b221ff32fb896d3488d06f53da714aec1e2d7ec2`.
+- #929 slice adds versioned proactive context budgeting, deterministic
+  fallback telemetry, warning/mandatory/emergency thresholds, checkpoint-first
+  rotation, ownerless handoff, successor generation validation, cooldown, and
+  repeated-rotation counter/charge preservation.
+- #928 slice adds the documented seven interruption classes, active-owner
+  exclusion, dead-owner recovery, checkpoint/identity validation, earliest
+  safe incomplete phase selection, live-effect reconciliation, and idempotent
+  no-replay recovery/report correlation.
+- Authority remains separated: #923 owns local/GitHub convergence counters;
+  #932 owns accepted logical-task charging; #927 projects sanitized state;
+  #924 owns large-candidate routing; #910 remains the umbrella; #912 remains
+  the untouched production activation gate.
+- This entry records an implementation candidate, not completion. #928/#929
+  remain open until the PR merges and their required non-production acceptance
+  and post-merge current-main proofs satisfy the live close rules.
+
+
 ## Purpose
 
 This ledger prevents stale GitHub issue or Project state from causing duplicated

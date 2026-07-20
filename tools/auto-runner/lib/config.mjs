@@ -9,6 +9,7 @@ import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
 import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.mjs";
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
+import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./session-lifecycle.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -57,6 +58,11 @@ export const defaultConfig = Object.freeze({
   },
   allowExistingPrRecovery: false,
   outageResubmission: defaultOutageResubmissionConfig,
+  sessionLifecycle: {
+    enabled: false,
+    allowRecoveryTakeover: false,
+    contextBudget: defaultContextBudgetPolicy,
+  },
 	  prStackExecution: {
 	    enabled: false,
 	    allowRun: false,
@@ -485,6 +491,11 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
+  config.sessionLifecycle = {
+    enabled: config.sessionLifecycle?.enabled === true,
+    allowRecoveryTakeover: config.sessionLifecycle?.allowRecoveryTakeover === true,
+    contextBudget: normalizeContextBudgetPolicy(config.sessionLifecycle?.contextBudget),
+  };
   if (config.outageRecoveryOnly) {
     config.outageRecoveryTarget = normalizeOutageRecoveryCliTarget(config.outageRecoveryTarget || {});
     config.maxIterations = 1;
@@ -507,6 +518,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     path.join(config.logsRoot, "reviews"),
     path.join(config.logsRoot, "review-fix"),
     path.join(config.logsRoot, "recovery"),
+    path.join(config.logsRoot, "session-lifecycle"),
     path.join(config.logsRoot, "summaries"),
     path.join(config.logsRoot, "locks"),
     path.join(config.logsRoot, "canary"),
