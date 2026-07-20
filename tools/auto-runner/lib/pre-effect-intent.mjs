@@ -79,6 +79,26 @@ export function findPreEffectIntents(config, predicate = () => true) {
   return values;
 }
 
+export function handoffPreEffectIntentAuthority(config, intentId, handoff, { now = new Date() } = {}) {
+  const current = loadPreEffectIntent(config, intentId);
+  if (!current || ["finalized", "failed_closed"].includes(current.status)) return current;
+  if (handoff?.runId !== current.runId || handoff?.oldSessionId !== current.sessionId || handoff?.oldAuthorityGeneration !== current.authorityGeneration) throw new Error("Pre-effect intent handoff source mismatch");
+  if (handoff?.status !== "active" || typeof handoff.newSessionId !== "string" || !handoff.newSessionId.length || handoff.newAuthorityGeneration !== current.authorityGeneration + 1) throw new Error("Pre-effect intent handoff successor invalid");
+  const identity = { ...current.identity, sessionId: handoff.newSessionId, authorityGeneration: handoff.newAuthorityGeneration };
+  const next = {
+    ...current,
+    sessionId: handoff.newSessionId,
+    authorityGeneration: handoff.newAuthorityGeneration,
+    identity,
+    fingerprint: digest(canonical({ effectType: current.effectType, identity, effect: current.effect })),
+    recoveryProvenance: { sessionId: current.sessionId, authorityGeneration: current.authorityGeneration, fingerprint: current.fingerprint },
+    updatedAt: now.toISOString(),
+    diagnostics: ["validated_successor_authority_handoff"],
+  };
+  persist(config, next, false);
+  return next;
+}
+
 export function assertPreEffectIntentAuthority(intent, authority) {
   if (!authority) throw new Error("Pre-effect intent mutation authority required");
   if (authority.retired === true || authority.status !== "active") throw new Error("Only an active session can mutate pre-effect intent");
@@ -122,6 +142,7 @@ function validateStored(v) {
   if (!v.identity || typeof v.identity !== "object" || Array.isArray(v.identity) || !v.effect || typeof v.effect !== "object" || Array.isArray(v.effect)) throw new Error("Invalid pre-effect intent payload");
   if (v.identity.repository !== v.repository || (v.identity.claimIdentity && v.identity.claimIdentity !== v.claimIdentity)) throw new Error("Invalid pre-effect intent bound identity");
   if (v.fingerprint !== digest(canonical({ effectType: v.effectType, identity: v.identity, effect: v.effect }))) throw new Error("Invalid pre-effect intent fingerprint");
+  if (v.recoveryProvenance && (typeof v.recoveryProvenance.sessionId !== "string" || !Number.isSafeInteger(v.recoveryProvenance.authorityGeneration) || !/^[a-f0-9]{64}$/.test(v.recoveryProvenance.fingerprint || ""))) throw new Error("Invalid pre-effect intent recovery provenance");
 }
 function boundedIdentity(v) { return sanitizeEffect({ repository: v.repository, sourceTaskKey: v.sourceTaskKey, runId: v.runId, logicalTaskIdentity: v.logicalTaskIdentity, claimIdentity: v.claimIdentity || v.logicalTaskIdentity, chargeIdentity: v.chargeIdentity || v.logicalTaskIdentity, sessionId: v.sessionId, authorityGeneration: v.authorityGeneration, branchName: v.branchName, baseBranch: v.baseBranch, baseSha: v.baseSha, headSha: v.headSha, candidateIdentity: v.candidateIdentity, prNumber: v.prNumber, issueNumber: v.issueNumber, reservationIdentity: v.reservationIdentity }); }
 function sanitizeEffect(v) { const out = {}; for (const key of Object.keys(v).sort().slice(0, 64)) { const x = v[key]; if (typeof x === "string") out[key] = x.slice(0, 500); else if (typeof x === "boolean" || Number.isSafeInteger(x) || x === null) out[key] = x; else if (Array.isArray(x)) out[key] = x.filter((i) => typeof i === "string").slice(0, 200).map((i) => i.slice(0, 300)); } return out; }

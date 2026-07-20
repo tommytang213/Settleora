@@ -4,7 +4,7 @@ import test from "node:test";
 import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { assertPreEffectIntentAuthority, loadPreEffectIntent, preparePreEffectIntent, reconcilePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
+import { assertPreEffectIntentAuthority, handoffPreEffectIntentAuthority, loadPreEffectIntent, preparePreEffectIntent, reconcilePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 
 const base = { repository: "owner/repo", sourceTaskKey: "20260720-2239", runId: "run-1", logicalTaskIdentity: "claim-1", sessionId: "session-1", authorityGeneration: 2, effectType: "push", branchName: "feature/a", baseSha: "a".repeat(40), headSha: "b".repeat(40), effect: { localCommitSha: "b".repeat(40), remoteBeforeSha: "a".repeat(40), remoteBranch: "feature/a" } };
 
@@ -77,5 +77,18 @@ test("pre-effect intent inventory rejects duplicate fingerprints and lifecycle s
     const authority = { runId: "run-1", sessionId: "session-1", authorityGeneration: 2, status: "active" };
     const executing = transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, intent, "executing");
     assert.throws(() => transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, executing, "prepared"), /Invalid/);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
+test("validated successor handoff preserves provenance and authorizes only the next generation", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "intent-handoff-"));
+  try {
+    const intent = preparePreEffectIntent({ logsRoot }, base, { intentId: "handoff" });
+    assert.throws(() => handoffPreEffectIntentAuthority({ logsRoot }, intent.intentId, { runId: "run-1", oldSessionId: "wrong", oldAuthorityGeneration: 2, newSessionId: "session-2", newAuthorityGeneration: 3, status: "active" }), /source mismatch/);
+    const handedOff = handoffPreEffectIntentAuthority({ logsRoot }, intent.intentId, { runId: "run-1", oldSessionId: "session-1", oldAuthorityGeneration: 2, newSessionId: "session-2", newAuthorityGeneration: 3, status: "active" });
+    assert.equal(handedOff.recoveryProvenance.fingerprint, intent.fingerprint);
+    assert.equal(handedOff.sessionId, "session-2");
+    assert.throws(() => transitionPreEffectIntent({ logsRoot, currentAuthority: { runId: "run-1", sessionId: "session-1", authorityGeneration: 2, status: "active" } }, handedOff, "executing"), /authority mismatch/);
+    assert.equal(transitionPreEffectIntent({ logsRoot, currentAuthority: { runId: "run-1", sessionId: "session-2", authorityGeneration: 3, status: "active" } }, handedOff, "executing").status, "executing");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });

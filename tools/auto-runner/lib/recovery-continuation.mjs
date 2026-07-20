@@ -9,6 +9,7 @@ import {
 } from "./recovery-state.mjs";
 import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
+import { findPreEffectIntents, handoffPreEffectIntentAuthority } from "./pre-effect-intent.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -279,6 +280,13 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   };
   const loaded = loadSessionLifecycleForRecovery(config, identity);
   if (!loaded.ok) return loaded;
+  const pendingIntents = findPreEffectIntents(config, (intent) => !["finalized", "failed_closed"].includes(intent.status)
+    && intent.repository === loaded.state.repository
+    && intent.sourceTaskKey === loaded.state.logicalTask.taskKey
+    && intent.runId === loaded.state.logicalTask.runId
+    && intent.claimIdentity === loaded.state.logicalTask.claimIdentity
+    && intent.sessionId === loaded.state.sessions.current
+    && intent.authorityGeneration === loaded.state.mutationAuthority.generation);
   const authoritative = collectAuthoritativeRecoveryEvidence(config, {
     repository: loaded.state.repository,
     issueNumber: loaded.state.logicalTask.issueNumber,
@@ -308,6 +316,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     issueClosureMarker: hasAnyMutationMarker(recoveryState, "issue_close"),
     hygieneMarker: hasAnyMutationMarker(recoveryState, "ledger_hygiene"),
     issueNumber: recoveryState.issue?.number,
+    preEffectIntentIds: pendingIntents.map((intent) => intent.intentId),
   }, evidenceAdapters);
   const inputs = plannerInputsFromAuthoritativeEvidence(authoritative);
   if (!inputs.ok) return { ...inputs, authoritativeEvidence: authoritative };
@@ -325,7 +334,13 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   const authority = assertMutationAuthority(completed.state, successorSessionId);
   if (!authority.ok) return authority;
   const persisted = persistSessionLifecycleState(config, completed.state);
-  return persisted.ok ? { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation } : persisted;
+  if (!persisted.ok) return persisted;
+  try {
+    for (const intent of pendingIntents) handoffPreEffectIntentAuthority(config, intent.intentId, { runId: loaded.state.logicalTask.runId, oldSessionId: loaded.state.sessions.current, oldAuthorityGeneration: loaded.state.mutationAuthority.generation, newSessionId: successorSessionId, newAuthorityGeneration: authority.generation, status: "active" });
+  } catch {
+    return { ok: false, reasonCode: "pre_effect_intent_authority_handoff_failed", state: persisted.state };
+  }
+  return { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation, handedOffIntentIds: pendingIntents.map((intent) => intent.intentId) };
 }
 
 function hasAnyMutationMarker(state, kind) {
