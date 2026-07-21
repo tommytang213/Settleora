@@ -1856,14 +1856,14 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       context.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, candidate.changedFiles);
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_structured_review_mutated_checkout" };
       const manual = structuredLargeCandidateManualVerdict(context.largeCandidateReview);
-      const findings = ["gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(context.largeCandidateReview, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
+      const findings = ordinaryStructuredFindings(context.largeCandidateReview);
       return manual ? { ok: false, outcome: manual, reasonCode: context.largeCandidateReview.reasonCode || `ordinary_continuation_structured_review_${manual}` } : { ok: true, evidence: { status: context.largeCandidateReview.ok ? "passed" : "changes_requested", reasonCode: context.largeCandidateReview.reasonCode || null, findings, state: context.largeCandidateReview.state } };
     },
     review_convergence: async (continuation) => {
       const candidate = continuation.identity;
       if (context.externalReview?.status === "pass" && context.review?.verdict?.verdict === "approve" && (!context.largeCandidateReview || context.largeCandidateReview.ok)) return { ok: true, evidence: { exactHeadReviewPassed: true } };
       const promptInfo = { promptPath: null, ...(state.sessionLifecycle ? { sessionLifecycle: { state: state.sessionLifecycle } } : {}) };
-      const structuredFindings = context.largeCandidateReview?.ok === false && Array.isArray(context.largeCandidateReview.findings) ? context.largeCandidateReview.findings : [];
+      const structuredFindings = context.largeCandidateReview?.ok === false ? ordinaryStructuredFindings(context.largeCandidateReview) : [];
       const reviewForFix = structuredFindings.length ? { ...context.review, verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: structuredFindings } } : context.review;
       const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName: state.branch.name, promptInfo, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: context.validation, report: { found: true, recovered: true }, externalReview: context.externalReview, review: reviewForFix, largeCandidateReview: context.largeCandidateReview, reviewConvergenceState: state.reviewConvergenceState });
       if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
@@ -2010,6 +2010,11 @@ function ordinaryStructuredReviewCheckpoint(evidence) {
   if (!evidence) return null;
   if (!["passed", "changes_requested"].includes(evidence.status)) return { ok: false, reasonCode: "ordinary_continuation_structured_checkpoint_invalid", findings: [] };
   return { ok: evidence.status === "passed", reasonCode: evidence.reasonCode || null, findings: Array.isArray(evidence.findings) ? evidence.findings : [], state: evidence.state || null };
+}
+
+function ordinaryStructuredFindings(review) {
+  if (Array.isArray(review?.findings) && review.findings.length) return review.findings;
+  return ["gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
 }
 
 function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
