@@ -278,6 +278,7 @@ export function routeReviewer({
         totalChangedLines,
         changedFileCount: files.length,
         strongRequired: true,
+        largeCandidateRouting: largeClassification,
         largeBundleApproval: approval.evidence,
       });
     }
@@ -313,6 +314,7 @@ export function routeReviewer({
       changedFileCount: files.length,
       strongRequired: true,
       laneRequiredTier,
+      largeCandidateRouting: largeClassification,
     });
   }
   if (large) {
@@ -324,6 +326,7 @@ export function routeReviewer({
       changedFileCount: files.length,
       strongRequired: true,
       laneRequiredTier,
+      largeCandidateRouting: largeClassification,
     });
   }
   if (docsOnly) {
