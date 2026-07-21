@@ -323,7 +323,14 @@ function updateProjectStatusIfSupported(config, context, runner) {
 function reconcileLedger(config, context, runner, repositoryContext) {
   const proposalResult = buildLedgerReconciliationProposal(context);
   if (proposalResult.skipped || !proposalResult.ok) return proposalResult;
-  if (context.sessionLifecycle) return { status: "failed", reason: "canonical_docs_hygiene_required", proposal: proposalResult.proposal };
+  if (context.sessionLifecycle) {
+    return {
+      status: "skipped",
+      skipped: true,
+      reason: "canonical_docs_hygiene_deferred",
+      proposal: proposalResult.proposal,
+    };
+  }
   const result = executeIssueMutationPipeline(
     { ...config, maxFollowupIssuesPerRun: 1 },
     [proposalResult.proposal],

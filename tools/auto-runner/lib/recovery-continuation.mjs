@@ -315,7 +315,10 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     issueClosureMarker: hasAnyMutationMarker(recoveryState, "issue_close"),
     hygieneMarker: hasAnyMutationMarker(recoveryState, "ledger_hygiene"),
     issueNumber: recoveryState.issue?.number,
-    preEffectIntentIds: pendingIntents.map((intent) => intent.intentId),
+    // Finalized intents are still authoritative crash-window evidence. A process can
+    // exit after the canonical effect is finalized but before the legacy marker is
+    // persisted, so excluding them would incorrectly rewind already-completed work.
+    preEffectIntentIds: taskIntents.map((intent) => intent.intentId),
     commentFingerprints: taskIntents.map((intent) => intent.effect?.contentFingerprint).filter(Boolean),
     commentCanonicalFingerprints: taskIntents.map((intent) => intent.effect?.bodyDigest).filter(Boolean),
   }, evidenceAdapters);

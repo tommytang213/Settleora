@@ -380,7 +380,7 @@ test("feature-bundle context can use the same completion pipeline", () => {
   assert.equal(result.closeDecision.close, true);
 });
 
-test("session lifecycle completion fails closed for noncanonical ledger and project mutations", () => {
+test("session lifecycle completion defers noncanonical ledger work without blocking terminal state", () => {
   const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false, projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1", doneOptionId: "done" } };
   const sessionLifecycle = lifecycleFor(config);
   const baseContext = context({ parentIssue: null, remainingGates: ["post-merge acceptance"], sessionLifecycle });
@@ -397,7 +397,9 @@ test("session lifecycle completion fails closed for noncanonical ledger and proj
   );
   assert.equal(result.status, "merged");
   assert.equal(result.project.reason, "canonical_project_hygiene_required");
-  assert.equal(result.ledger.reason, "canonical_docs_hygiene_required");
+  assert.equal(result.ledger.status, "skipped");
+  assert.equal(result.ledger.skipped, true);
+  assert.equal(result.ledger.reason, "canonical_docs_hygiene_deferred");
   assert.equal(result.ledger.proposal.correlationKey.includes("ledger"), true);
 });
 
