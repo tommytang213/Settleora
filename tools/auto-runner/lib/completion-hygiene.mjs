@@ -307,7 +307,28 @@ function updateProjectStatusIfSupported(config, context, runner) {
   if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId) {
     return { status: "not_updated", reason: "project_status_mapping_incomplete" };
   }
-  if (context.sessionLifecycle) return { status: "skipped", skipped: true, reason: "canonical_project_hygiene_deferred" };
+  if (context.sessionLifecycle) {
+    const effect = { issueNumber: context.issue.number, projectId: config.projectStatusUpdates.projectId, fieldId: config.projectStatusUpdates.fieldId, optionId: config.projectStatusUpdates.doneOptionId };
+    let projectItemId = String(context.issue.number);
+    const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "project_status_update", issueNumber: context.issue.number, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
+      readLive: (intent) => {
+        const live = runner("gh", ["api", "graphql", "-f", "query=query($projectId:ID!){node(id:$projectId){... on ProjectV2{items(first:100){nodes{id content{... on Issue{number}} fieldValues(first:20){nodes{... on ProjectV2ItemFieldSingleSelectValue{optionId field{... on ProjectV2SingleSelectField{id}}}}}}}}}}", "-F", `projectId=${config.projectStatusUpdates.projectId}`]);
+        if (live.error || live.status !== 0) return { complete: false };
+        if (!String(live.stdout || "").trim()) return { complete: true, present: false };
+        let payload; try { payload = JSON.parse(live.stdout); } catch { return { complete: false }; }
+        const item = payload?.data?.node?.items?.nodes?.find((candidate) => candidate?.content?.number === context.issue.number);
+        if (item?.id) projectItemId = item.id;
+        const present = item?.fieldValues?.nodes?.some((value) => value?.field?.id === config.projectStatusUpdates.fieldId && value?.optionId === config.projectStatusUpdates.doneOptionId) === true;
+        return present ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+      },
+      execute: () => {
+        const mutation = runner("gh", ["project", "item-edit", "--id", projectItemId, "--project-id", config.projectStatusUpdates.projectId, "--field-id", config.projectStatusUpdates.fieldId, "--single-select-option-id", config.projectStatusUpdates.doneOptionId]);
+        if (mutation.error || mutation.status !== 0) throw new Error("Canonical project status update did not confirm success");
+        return { ok: true, status: mutation.status };
+      },
+    });
+    return result.ok ? { status: "updated", canonicalEffect: result } : { status: "failed", reason: result.reasonCode, canonicalEffect: result };
+  }
   return commandComponent(
     runner("gh", [
       "project",

@@ -270,6 +270,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
 
 export function consumeStartupInterruptionPlanner(config, recoveryState, interruption = {}, evidenceAdapters = {}) {
   if (config.sessionLifecycle?.enabled !== true) return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
+  if (config.sessionLifecycle.allowRecoveryTakeover !== true) return { ok: false, reasonCode: "session_lifecycle_recovery_takeover_disabled" };
   const identity = {
     repository: config.repositorySlug,
     issueNumber: recoveryState.issue?.number,

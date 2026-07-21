@@ -396,7 +396,7 @@ test("feature-bundle context can use the same completion pipeline", () => {
   assert.equal(result.closeDecision.close, true);
 });
 
-test("session lifecycle completion defers project work and durably processes ledger reconciliation", () => {
+test("session lifecycle completion canonically updates project work and durably processes ledger reconciliation", () => {
   const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false, projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1", doneOptionId: "done" } };
   const sessionLifecycle = lifecycleFor(config);
   const baseContext = context({ parentIssue: null, remainingGates: ["post-merge acceptance"], sessionLifecycle });
@@ -406,20 +406,27 @@ test("session lifecycle completion defers project work and durably processes led
     ...baseContext,
     issue: { ...baseContext.issue, labels: ["area:infra"], comments: [{ body: completionBody }] },
   };
-  const lifecycleRunner = runnerWith({ issue: lifecycleContext.issue });
+  const baseLifecycleRunner = runnerWith({ issue: lifecycleContext.issue });
+  let projectUpdated = false;
+  const lifecycleRunner = (command, args, options) => {
+    if (command === "gh" && args[0] === "project" && args[1] === "item-edit") projectUpdated = true;
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql") {
+      return { status: 0, stdout: JSON.stringify({ data: { node: { items: { nodes: [{ id: "PVTI_1", content: { number: lifecycleContext.issue.number }, fieldValues: { nodes: projectUpdated ? [{ optionId: "done", field: { id: "PVTF_1" } }] : [] } }] } } } }), stderr: "", error: null };
+    }
+    return baseLifecycleRunner(command, args, options);
+  };
   const result = completeMergedIssueHygiene(
     config,
     lifecycleContext,
     { runner: lifecycleRunner },
   );
   assert.equal(result.status, "merged");
-  assert.equal(result.project.status, "skipped");
-  assert.equal(result.project.skipped, true);
-  assert.equal(result.project.reason, "canonical_project_hygiene_deferred");
+  assert.equal(result.project.status, "updated");
+  assert.equal(result.project.canonicalEffect.ok, true);
   assert.equal(result.ledger.status, "preview");
   assert.equal(result.ledger.reason, "followup_issue_creation_disabled");
   assert.equal(result.ledger.proposal.correlationKey.includes("ledger"), true);
-  assert.equal(lifecycleRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment" && call.args[2] === "891"), false);
+  assert.equal(baseLifecycleRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment" && call.args[2] === "891"), false);
 });
 
 test("completion hygiene requires a repository context before issue commands", () => {
