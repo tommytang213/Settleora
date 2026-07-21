@@ -361,7 +361,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {
 
 export function executeAutoMerge(config, context, options = {}) {
   const runner = options.runner || defaultRunner;
-  const decision = evaluateAutoMergeDecision(context);
+  const decision = confirmedLifecycleMergeDecision(context) || evaluateAutoMergeDecision(context);
   const wait = normalizeAutoMergeWait(config.autoMergeWait);
   if (!decision.eligible && shouldWaitForAutoMergeDecision(decision) && wait.maxAttempts > 1) {
     return executeAutoMergeWithWait(config, context, { ...options, runner, wait, firstDecision: decision });
@@ -392,7 +392,7 @@ export function executeAutoMerge(config, context, options = {}) {
     const origin = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
     finalContext.currentOriginMainSha = origin.status === 0 && !origin.error ? origin.stdout.trim() : finalContext.currentOriginMainSha;
   }
-  const finalDecision = evaluateAutoMergeDecision(finalContext);
+  const finalDecision = confirmedLifecycleMergeDecision(finalContext) || evaluateAutoMergeDecision(finalContext);
   if (!finalDecision.eligible) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
     return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
@@ -473,6 +473,12 @@ export function executeAutoMerge(config, context, options = {}) {
     },
   };
   return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
+}
+
+function confirmedLifecycleMergeDecision(context = {}) {
+  const expectedHeadSha = context.expectedHeadSha || context.pr?.expectedHeadSha;
+  if (!context.sessionLifecycle || String(context.pr?.state).toUpperCase() !== "MERGED" || context.pr?.headRefOid !== expectedHeadSha) return null;
+  return { eligible: true, attempted: false, result: "eligible", reason: "canonical_merge_already_confirmed", expectedHeadSha };
 }
 
 function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, prNumber, finalDecision }) {

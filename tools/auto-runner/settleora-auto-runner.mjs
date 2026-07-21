@@ -2558,7 +2558,17 @@ async function runReviewFixCycle(config, context) {
 }
 
 function finishIssueOutcome(config, issue, outcome, body) {
-  return commentIssueOutcome(config, issue, outcome, body, { effectContext: issue.sessionLifecycle || null });
+  const result = commentIssueOutcome(config, issue, outcome, body, { effectContext: issue.sessionLifecycle || null });
+  if (issue.sessionLifecycle && !["auto_merged", "approved_pr_opened"].includes(outcome)
+    && result?.status === 0 && !lifecycleHasPendingCanonicalIntents(config, issue.sessionLifecycle)) {
+    const terminal = transitionSessionLifecyclePhase(config, issue.sessionLifecycle, {
+      phase: "stopped",
+      nextExactAction: `terminal_outcome:${outcome}`,
+    });
+    if (!terminal.ok) throw new Error(terminal.reasonCode);
+    issue.sessionLifecycle = terminal.state;
+  }
+  return result;
 }
 
 function autoMergeEffectsConfirmed(config, lifecycle, autoMerge = {}) {
