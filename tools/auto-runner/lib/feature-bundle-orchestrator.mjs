@@ -351,6 +351,13 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   result.largeCandidateReview = result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
     ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review, sessionLifecycle })
     : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
+  const structuredReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_structured_review",
+  });
+  result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard, structuredReviewMutationGuard);
+  if (structuredReviewMutationGuard.mutationDetected) {
+    return stopForBundleReviewMutation({ config, result, state, recovery, guard: structuredReviewMutationGuard, phase: "bundle_structured_review" });
+  }
   if (result.largeCandidateReview.sessionLifecycle) {
     sessionLifecycle = result.largeCandidateReview.sessionLifecycle;
     result.sessionLifecycle = sessionLifecycle;
@@ -946,6 +953,9 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
   const largeCandidateReview = externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
     ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review, sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle })
     : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
+  const structuredReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_convergence_structured_review",
+  });
   return {
     changedFiles,
     forbiddenChangedFiles,
@@ -957,7 +967,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     review,
     largeCandidateReview,
     sessionLifecycle: largeCandidateReview.sessionLifecycle || review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
-    reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
+    reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard, structuredReviewMutationGuard),
   };
 }
 
@@ -1021,7 +1031,7 @@ function persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage, 
     taskKey: slice.taskKey || `${config.taskKey || `issue-${issue.number}`}:${slice.id}`,
     allowedPathsProven: slice.allowedPathsProven === true,
     semanticOwnDeltaProven: slice.semanticOwnDeltaProven === true,
-    executionAuthorityProven: false,
+    executionAuthorityProven: slice.executionAuthorityProven === true,
     dependsOn: slice.dependsOn || [],
   }));
   return persistLargeCandidateSplitDecision({

@@ -1066,6 +1066,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   iteration.largeCandidateReview = iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
     ? await certifyNormalCumulativeLargeReview(config, iteration, changedFiles)
     : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
+  iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
+  if (iteration.reviewMutationGuard.mutationDetected) {
+    iteration.outcome = "auto_failed";
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner blocked #${issue.number} because structured pre-PR review mutated the checkout.`);
+    recoveryRecorder?.stop("structured_review_mutated_checkout", "Structured pre-PR review mutated the checkout.", "stop_fail_closed");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
   if (iteration.largeCandidateReview.sessionLifecycle) {
     iteration.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
     issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
@@ -2998,7 +3006,14 @@ async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, chan
     iteration.largeCandidateReview = { ok: true, route: "normal", state: "external_review_normal_ready" };
     return true;
   }
+  const beforeStructuredReview = await checkoutFingerprint();
   iteration.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, changedFiles);
+  const structuredReviewMutationGuard = compareFingerprints(beforeStructuredReview, await checkoutFingerprint());
+  if (structuredReviewMutationGuard.mutationDetected) {
+    iteration.reviewMutationGuard = structuredReviewMutationGuard;
+    stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "structured_post_fix_review_mutated_checkout");
+    return false;
+  }
   if (iteration.largeCandidateReview.sessionLifecycle) {
     iteration.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
     issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
