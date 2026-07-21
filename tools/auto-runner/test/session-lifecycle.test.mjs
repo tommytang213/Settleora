@@ -8,6 +8,7 @@ import {
   beginSessionRotation,
   boundedContextSnapshot,
   classifyReportlessInterruption,
+  checkpointLockOwnerStatus,
   completeSessionRotation,
   createSessionLifecycleState,
   evaluateContextBudget,
@@ -193,6 +194,26 @@ test("checkpoint persistence reclaims a lock whose exact process owner is dead",
   const recovered = persistSessionLifecycleState(config, next);
   assert.equal(recovered.ok, true);
   assert.equal(recovered.state.controller.nextExactAction, "recovered_after_dead_lock");
+});
+
+test("checkpoint lock owner probing fails closed on unreadable or malformed process state", () => {
+  const owner = { pid: 123, processStart: "456", token: "00000000-0000-4000-8000-000000000000" };
+  assert.equal(checkpointLockOwnerStatus(owner, () => { const error = new Error("denied"); error.code = "EACCES"; throw error; }), "unknown");
+  assert.equal(checkpointLockOwnerStatus(owner, () => "malformed"), "unknown");
+  assert.equal(checkpointLockOwnerStatus(owner, () => { const error = new Error("gone"); error.code = "ENOENT"; throw error; }), "inactive");
+});
+
+test("checkpoint persistence never reclaims a lock held by the current process identity", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "session-lifecycle-active-lock-"));
+  const config = { logsRoot: root, repositorySlug: "owner/repo" };
+  const first = persistSessionLifecycleState(config, fixture());
+  assert.equal(first.ok, true);
+  const processStart = parseProcStartIdentity(readFileSync(`/proc/${process.pid}/stat`, "utf8"));
+  const lockPath = `${sessionLifecyclePath(config, first.state)}.lock`;
+  writeFileSync(lockPath, `${JSON.stringify({ pid: process.pid, processStart, token: "00000000-0000-4000-8000-000000000000" })}\n`, { mode: 0o600 });
+  const blocked = persistSessionLifecycleState(config, first.state);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.reasonCode, "session_lifecycle_checkpoint_write_locked");
 });
 
 test("startup recovery resolves one checkpoint without guessing claim identity", () => {

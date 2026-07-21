@@ -254,7 +254,7 @@ function releaseCheckpointLock(lockPath, ownerPath, owner) {
 function reclaimInactiveCheckpointLock(lockPath) {
   let observed;
   try { observed = JSON.parse(readFileSync(lockPath, "utf8")); } catch { return false; }
-  if (!validCheckpointLockOwner(observed) || processStartIdentity(observed.pid) === observed.processStart) return false;
+  if (!validCheckpointLockOwner(observed) || checkpointLockOwnerStatus(observed) !== "inactive") return false;
   const quarantinePath = `${lockPath}.${process.pid}.${Date.now()}.${randomUUID()}.stale`;
   try {
     renameSync(lockPath, quarantinePath);
@@ -271,6 +271,17 @@ function reclaimInactiveCheckpointLock(lockPath) {
     if (existsSync(quarantinePath)) {
       try { unlinkSync(quarantinePath); } catch { /* fail-closed acquisition result preserves the live lock path */ }
     }
+  }
+}
+
+export function checkpointLockOwnerStatus(owner, readProcessStat = (pid) => readFileSync(`/proc/${pid}/stat`, "utf8")) {
+  if (!validCheckpointLockOwner(owner)) return "unknown";
+  try {
+    const currentStart = parseProcStartIdentity(readProcessStat(owner.pid));
+    if (!currentStart) return "unknown";
+    return currentStart === owner.processStart ? "active" : "inactive";
+  } catch (error) {
+    return error?.code === "ENOENT" ? "inactive" : "unknown";
   }
 }
 
