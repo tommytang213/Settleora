@@ -305,7 +305,10 @@ function reconcileEffects(expected, git, github, identity, contradictions, ambig
   const matchingComments = (github?.comments || []).filter((comment) => expectedFingerprints.includes(comment.fingerprint) || expectedCanonicalFingerprints.includes(comment.canonicalFingerprint));
   if ([...expectedFingerprints, ...expectedCanonicalFingerprints].some((fingerprint) => matchingComments.filter((comment) => comment.fingerprint === fingerprint || comment.canonicalFingerprint === fingerprint).length > 1)) ambiguities.push("duplicate_comment_fingerprint");
   const commentPresent = matchingComments.length === 1 || Boolean(expected.commentId && (github?.comments || []).some((c) => c.id === expected.commentId));
-  const closurePresent = expected.issueClosed === true && github?.issue?.state === "CLOSED";
+  const closureExpected = expected.issueClosed === true || expected.issueClosureMarker === true;
+  const closurePresent = closureExpected
+    && github?.issue?.state === "CLOSED"
+    && (expected.issueClosureMarker !== true || github?.issue?.stateReason === "COMPLETED");
   const hygienePresent = expected.hygieneFingerprint && (github?.hygiene || []).includes(expected.hygieneFingerprint);
   for (const [name, marker, present] of [["commit", expected.commitMarker, commitPresent], ["push", expected.pushMarker, pushPresent], ["merge", expected.mergeMarker, mergePresent], ["comment", expected.commentMarker, commentPresent], ["issue_closure", expected.issueClosureMarker, closurePresent], ["hygiene", expected.hygieneMarker, hygienePresent]]) {
     if (marker === true && !present) contradictions.push(`${name}_marker_live_effect_absent`);

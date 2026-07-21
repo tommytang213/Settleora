@@ -116,6 +116,13 @@ test("durable comment intent cannot adopt an identical comment from another targ
 });
 test("duplicate matching comments fail closed", () => { const e = collect({ github: { comments: [{ id: "C1", fingerprint: commentFingerprint }, { id: "C2", fingerprint: commentFingerprint }] } }, { commentFingerprint }); assert.equal(e.ok, false); assert.equal(e.ambiguity, true); });
 test("already closed issue is adopted", () => { const e = collect({ github: { issue: { number: 928, state: "CLOSED" } } }, { issueClosed: true, issueNumber: 928 }); assert.equal(e.effects.issueClosure.present, true); });
+test("closure marker adopts only authoritative completed issue closure", () => {
+  const completed = collect({ github: { issue: { number: 928, state: "CLOSED", stateReason: "COMPLETED" } } }, { issueClosureMarker: true, issueNumber: 928 });
+  assert.equal(completed.effects.issueClosure.present, true);
+  const notPlanned = collect({ github: { issue: { number: 928, state: "CLOSED", stateReason: "NOT_PLANNED" } } }, { issueClosureMarker: true, issueNumber: 928 });
+  assert.equal(notPlanned.ok, false);
+  assert.ok(notPlanned.contradictions.includes("issue_closure_marker_live_effect_absent"));
+});
 test("existing hygiene identity is reused", () => { const e = collect({ github: { hygiene: [digest] } }, { hygieneFingerprint: digest }); assert.equal(e.effects.hygiene.present, true); });
 test("pending checks remain pending evidence", () => { const e = collect({ github: { checks: { state: "pending", pending: 2, failed: 0 } } }); assert.equal(e.pendingChecks.state, "pending"); });
 test("failed checks remain failed without changing counters", () => { const e = collect({ github: { checks: { state: "failed", pending: 0, failed: 1 } } }); assert.equal(e.pendingChecks.state, "failed"); assert.equal(Object.hasOwn(e, "controller"), false); });

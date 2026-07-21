@@ -25,7 +25,19 @@ import {
   projectStartupRecoveryIssueIdentity,
   shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
+  consumeStartupInterruptionPlanner,
 } from "../lib/recovery-continuation.mjs";
+
+test("disabled lifecycle preserves legacy startup continuation before takeover gating", () => {
+  assert.deepEqual(
+    consumeStartupInterruptionPlanner({ sessionLifecycle: { enabled: false, allowRecoveryTakeover: false } }, {}),
+    { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" },
+  );
+  assert.equal(
+    consumeStartupInterruptionPlanner({ sessionLifecycle: { enabled: true, allowRecoveryTakeover: false } }, {}).reasonCode,
+    "session_lifecycle_recovery_takeover_disabled",
+  );
+});
 
 test("successor lifecycle adopts only an exact authoritatively proven commit head", () => {
   const oldHead = "a".repeat(40);
