@@ -805,9 +805,6 @@ async function runBundleReviewFixCycle(config, context) {
   if (!validationAfter.passed) {
     return { attempted: true, proceeded: false, reason: "review_fix_validation_failed", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter };
   }
-  const largeCandidateReview = externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
-    ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review, sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle })
-    : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
   return {
     attempted: true,
     proceeded: true,
@@ -901,6 +898,9 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_codex_review",
   });
+  const largeCandidateReview = externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
+    ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review, sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle })
+    : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
   return {
     changedFiles,
     forbiddenChangedFiles,
