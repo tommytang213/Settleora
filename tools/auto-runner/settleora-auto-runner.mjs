@@ -2962,12 +2962,12 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
     externalReview: iteration.externalReview,
     codexReview: iteration.review,
     invokeSection: ({ provider, section, manifest }) => runNormalStructuredReviewCall(config, reviewPackage, provider, { phase: "section", section, manifest }, iteration.sessionLifecycle),
-    invokeIntegration: ({ provider, manifest }) => runNormalStructuredReviewCall(config, reviewPackage, provider, { phase: "integration", manifest }, iteration.sessionLifecycle),
+    invokeIntegration: ({ provider, manifest, sections }) => runNormalStructuredReviewCall(config, reviewPackage, provider, { phase: "integration", manifest, sections }, iteration.sessionLifecycle),
   });
 }
 
 async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {
-  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], manifestDigest: structuredReview.manifest.manifestDigest } } };
+  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findingCount: (entry.findings || []).length })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
   const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;

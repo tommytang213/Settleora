@@ -928,12 +928,12 @@ async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage
     externalReview,
     codexReview,
     invokeSection: ({ provider, section, manifest }) => runBundleStructuredReviewCall(config, reviewPackage, provider, { phase: "section", section, manifest }),
-    invokeIntegration: ({ provider, manifest }) => runBundleStructuredReviewCall(config, reviewPackage, provider, { phase: "integration", manifest }),
+    invokeIntegration: ({ provider, manifest, sections }) => runBundleStructuredReviewCall(config, reviewPackage, provider, { phase: "integration", manifest, sections }),
   });
 }
 
 async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview) {
-  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], manifestDigest: structuredReview.manifest.manifestDigest } } };
+  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findingCount: (entry.findings || []).length })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
   const evidence = provider === "gemini" ? await runGeminiIntegratedReview(config, scopedPackage) : runReviewPrompt(config, scopedPackage);
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
