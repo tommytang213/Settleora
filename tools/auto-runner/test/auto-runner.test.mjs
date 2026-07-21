@@ -6979,6 +6979,7 @@ test("existing-PR recovery creates lifecycle authority before merge execution", 
   assert.match(recovery, /sessionLifecycle,/);
   const iteration = source.slice(source.indexOf("const recovery = await recoverExistingPrIfConfigured"), source.indexOf("const slug = slugify"));
   assert.match(iteration, /recoveryTerminalEffectConfirmed/);
+  assert.match(iteration, /const recoveryLifecycle = issue\.sessionLifecycle \|\| recovery\.sessionLifecycle/);
   assert.match(iteration, /transitionSessionLifecyclePhase\(config, recoveryLifecycle/);
   assert.match(iteration, /autoMergeEffectsConfirmed\(config, recoveryLifecycle, recovery\.autoMerge\)/);
   assert.match(source, /findPreEffectIntents\(config,[\s\S]*!\["finalized", "failed_closed"\]\.includes\(intent\.status\)/);
@@ -7004,6 +7005,14 @@ test("merged lifecycle terminal effects block failed supported project hygiene",
     ...merged,
     completionHygiene: { ...merged.completionHygiene, project: { status: "not_updated", reason: "project_status_mapping_not_configured" } },
   }), true);
+  assert.equal(autoMergeEffectsConfirmed({}, null, {
+    ...merged,
+    completionHygiene: { ...merged.completionHygiene, project: { status: "not_updated", reason: "project_status_mapping_not_configured" }, ledger: { status: "preview", reason: "followup_issue_creation_disabled" } },
+  }), true);
+  assert.equal(autoMergeEffectsConfirmed({}, null, {
+    ...merged,
+    completionHygiene: { ...merged.completionHygiene, project: { status: "not_updated", reason: "project_status_mapping_not_configured" }, ledger: { status: "preview", reason: "unexpected_preview" } },
+  }), false);
 });
 
 test("feature-bundle results propagate lifecycle authority to terminal issue effects", () => {
@@ -7012,7 +7021,8 @@ test("feature-bundle results propagate lifecycle authority to terminal issue eff
   assert.match(bundlePath, /issue\.sessionLifecycle = bundleResult\.sessionLifecycle/);
   const bundle = readFileSync("tools/auto-runner/lib/feature-bundle-orchestrator.mjs", "utf8");
   assert.match(bundle, /result\.sessionLifecycle = sessionLifecycle/);
-  assert.match(bundlePath, /finishIssueOutcome[\s\S]*autoMergeEffectsConfirmed\(config, bundleResult\.sessionLifecycle, bundleResult\.autoMerge\)[\s\S]*transitionSessionLifecyclePhase\(config, bundleResult\.sessionLifecycle/);
+  assert.match(bundlePath, /finishIssueOutcome[\s\S]*const bundleLifecycle = issue\.sessionLifecycle \|\| bundleResult\.sessionLifecycle/);
+  assert.match(bundlePath, /autoMergeEffectsConfirmed\(config, bundleLifecycle, bundleResult\.autoMerge\)[\s\S]*transitionSessionLifecyclePhase\(config, bundleLifecycle/);
 });
 
 test("stack CLI constructs and injects one live fixed-argv runner", () => {

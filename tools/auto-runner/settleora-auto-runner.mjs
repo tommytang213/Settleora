@@ -629,10 +629,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner feature-bundle result for #${issue.number}: ${iteration.outcome}.${detail}${reason}`,
       );
-      const bundleTerminalEffectsConfirmed = iteration.issueComment?.status === 0 && autoMergeEffectsConfirmed(config, bundleResult.sessionLifecycle, bundleResult.autoMerge);
-      if (bundleResult.sessionLifecycle && bundleTerminalEffectsConfirmed) {
+      const bundleLifecycle = issue.sessionLifecycle || bundleResult.sessionLifecycle;
+      const bundleTerminalEffectsConfirmed = iteration.issueComment?.status === 0 && autoMergeEffectsConfirmed(config, bundleLifecycle, bundleResult.autoMerge);
+      if (bundleLifecycle && bundleTerminalEffectsConfirmed) {
         const successfulBundleOutcome = ["auto_merged", "approved_pr_opened"].includes(iteration.outcome);
-        const terminal = transitionSessionLifecyclePhase(config, bundleResult.sessionLifecycle, { phase: successfulBundleOutcome ? "completed" : "stopped", nextExactAction: successfulBundleOutcome ? "bundle_complete" : "bundle_stopped" });
+        const targetPhase = successfulBundleOutcome ? "completed" : "stopped";
+        const terminal = bundleLifecycle.controller?.phase === targetPhase
+          ? { ok: true, state: bundleLifecycle }
+          : transitionSessionLifecyclePhase(config, bundleLifecycle, { phase: targetPhase, nextExactAction: successfulBundleOutcome ? "bundle_complete" : "bundle_stopped" });
         if (!terminal.ok) throw new Error(terminal.reasonCode);
         iteration.sessionLifecycle = terminal.state;
         issue.sessionLifecycle = terminal.state;
@@ -666,13 +670,16 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         `Auto-runner existing-PR recovery did not auto-merge #${issue.number}.\n\nPR: ${recovery.pr?.url || recovery.pr?.number || "unavailable"}\nReason: ${recovery.autoMerge?.reason || recovery.reason}`,
       );
     }
-    const recoveryLifecycle = recovery.sessionLifecycle || issue.sessionLifecycle;
+    const recoveryLifecycle = issue.sessionLifecycle || recovery.sessionLifecycle;
     const recoveryTerminalEffectConfirmed = (iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0) && autoMergeEffectsConfirmed(config, recoveryLifecycle, recovery.autoMerge);
     if (recoveryLifecycle && recoveryTerminalEffectConfirmed) {
-      const terminal = transitionSessionLifecyclePhase(config, recoveryLifecycle, {
-        phase: iteration.outcome === "auto_merged" ? "completed" : "stopped",
-        nextExactAction: iteration.outcome === "auto_merged" ? "existing_pr_recovery_complete" : "existing_pr_recovery_stopped",
-      });
+      const targetPhase = iteration.outcome === "auto_merged" ? "completed" : "stopped";
+      const terminal = recoveryLifecycle.controller?.phase === targetPhase
+        ? { ok: true, state: recoveryLifecycle }
+        : transitionSessionLifecyclePhase(config, recoveryLifecycle, {
+            phase: targetPhase,
+            nextExactAction: iteration.outcome === "auto_merged" ? "existing_pr_recovery_complete" : "existing_pr_recovery_stopped",
+          });
       if (!terminal.ok) throw new Error(terminal.reasonCode);
       iteration.sessionLifecycle = terminal.state;
       issue.sessionLifecycle = terminal.state;

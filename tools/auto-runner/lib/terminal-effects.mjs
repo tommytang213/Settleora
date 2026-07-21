@@ -5,7 +5,10 @@ export function autoMergeEffectsConfirmed(config, lifecycle, autoMerge = {}) {
   if (autoMerge.result !== "merged") return true;
   const hygiene = autoMerge.completionHygiene || {};
   const mutationComponents = [hygiene.comment, hygiene.closure, hygiene.labelCleanup, hygiene.parentProgress, hygiene.project, hygiene.ledger];
-  const completeStatus = (component) => !component || ["updated", "skipped", "not_updated", "reused", "created"].includes(component.status) || component.skipped === true;
+  const completeStatus = (component) => !component
+    || ["updated", "skipped", "not_updated", "reused", "created"].includes(component.status)
+    || (component.status === "preview" && component.reason === "followup_issue_creation_disabled")
+    || component.skipped === true;
   return autoMerge.mergeReadback?.ok === true
     && autoMerge.sourceBranchRestoration?.confirmed === true
     && autoMerge.comments?.pr?.status === 0
