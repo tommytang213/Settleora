@@ -200,7 +200,7 @@ function persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest
         && current.mutationAuthority.generation === state.mutationAuthority.generation
         && !(current.mutationAuthority.status === "retired_pending_successor" && state.mutationAuthority.status === "active");
       const validSuccessor = state.sessions.generation === current.sessions.generation + 1
-        && current.mutationAuthority.status === "retired_pending_successor"
+        && ["retired_pending_successor", "recovery_pending"].includes(current.mutationAuthority.status)
         && state.mutationAuthority.status === "active"
         && state.sessions.retired.includes(current.sessions.current);
       if (!sameGeneration && !validSuccessor) {

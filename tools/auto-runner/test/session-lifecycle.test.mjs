@@ -177,6 +177,23 @@ test("checkpoint persistence rejects a retired generation racing its successor",
   assert.equal(reloaded.state.sessions.generation, 2);
 });
 
+test("recovery-pending checkpoint persists one exact successor generation", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "session-recovery-successor-"));
+  const config = { logsRoot: root, repositorySlug: "owner/repo" };
+  const initial = persistSessionLifecycleState(config, fixture());
+  assert.equal(initial.ok, true);
+  const planned = planInterruptionRecovery(initial.state, { recoveryOperationId: "recovery-successor" }, { processExited: true, checkpointValid: true });
+  assert.equal(planned.ok, true);
+  const pending = persistSessionLifecycleState(config, planned.state);
+  assert.equal(pending.ok, true);
+  const completed = completeSessionRotation(pending.state, { requestId: pending.state.mutationAuthority.handoff.requestId, newSessionId: "session-recovery-successor" });
+  assert.equal(completed.ok, true);
+  const persisted = persistSessionLifecycleState(config, completed.state);
+  assert.equal(persisted.ok, true);
+  assert.equal(persisted.state.sessions.generation, 2);
+  assert.equal(assertMutationAuthority(persisted.state, "session-recovery-successor").ok, true);
+});
+
 test("checkpoint persistence rejects a stale writer from the same authority generation", () => {
   const root = mkdtempSync(path.join(tmpdir(), "session-lifecycle-same-generation-cas-"));
   const config = { logsRoot: root, repositorySlug: "owner/repo" };
