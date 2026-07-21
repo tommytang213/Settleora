@@ -163,6 +163,8 @@ test("review mutation guards precede recovery and split side effects", () => {
   assert.match(runner, /ordinaryStructuredReviewCheckpoint\(initial\.effects\?\.structured_review\?\.evidence\)/);
   assert.match(runner, /providerPromptBindingDigest: review\.providerPromptBindingDigest/);
   assert.match(runner, /attestationSource: review\.attestationSource/);
+  assert.equal((runner.match(/refreshOrdinaryContinuationAfterSourceChange\(config, recoveryRecorder, iteration, issue, branchName, "[^\"]+_commit"\)/g) || []).length, 4);
+  assert.match(runner, /headChanged\(iteration\.runnerCreatedCommitSha, reasonCode, \{ ordinaryContinuation \}\)/);
   assert.match(runner, /review_convergence: async \(continuation\).*runReviewFixCycle.*commitReviewFixAndRerunExactHeadReviews/s);
 
   const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
@@ -189,7 +191,7 @@ test("head-changing commit invalidates every stale evidence binding", () => {
     assert.equal(loaded.ok, true);
     const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
     assert.match(source, /headChanged\(iteration\.runnerCreatedCommitSha, "checkpoint_commit"\)/);
-    assert.match(source, /headChanged\(iteration\.runnerCreatedCommitSha, "review_fix_commit"\)/);
+    assert.match(source, /refreshOrdinaryContinuationAfterSourceChange\(config, recoveryRecorder, iteration, issue, branchName, "review_fix_commit"\)/);
   } finally {
     config.cleanup();
   }

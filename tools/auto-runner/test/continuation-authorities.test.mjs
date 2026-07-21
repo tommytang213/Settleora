@@ -105,6 +105,30 @@ test("ordinary source change invalidates review and mutation effects", async () 
   assert.deepEqual(result.state.identity.changedFiles, ["a.mjs", "b.mjs"]);
 });
 
+test("ordinary continuation crash recovery invalidates identity after every review-fix source", async () => {
+  for (const sourcePhase of ["external_review", "codex_review", "structured_review", "review_convergence"]) {
+    const original = identity(`before:${sourcePhase}`);
+    const replacement = identity(`after:${sourcePhase}`, ["a.mjs", "fresh.mjs"]);
+    const state = createOrdinaryContinuationState({ logicalTaskKey: "root", issueNumber: 924, branchName: "feature/test", identity: original, phase: sourcePhase });
+    let changedOnce = false;
+    const handlers = Object.fromEntries(ordinaryContinuationPhases.map((phase) => [phase, async () => {
+      if (phase === sourcePhase && !changedOnce) {
+        changedOnce = true;
+        return { ok: true, sourceChanged: true, identity: replacement };
+      }
+      return { ok: true };
+    }]));
+    const changed = await continueOrdinaryCandidate(state, handlers);
+    assert.equal(changed.outcome, "complete");
+    assert.equal(changed.state.identity.headSha, replacement.headSha);
+    assert.equal(changed.state.counters.sourceRounds, 1);
+    const restarted = await continueOrdinaryCandidate({ ...changed.state, phase: "local_validation", effects: {} }, handlers);
+    assert.equal(restarted.outcome, "complete");
+    assert.equal(restarted.state.identity.headSha, replacement.headSha);
+    assert.equal(restarted.state.counters.acceptedLogicalTasks, 1);
+  }
+});
+
 test("ordinary continuation rejects corrupt identity, missing handlers, and conflicting adopted effects", async () => {
   const invalid = await continueOrdinaryCandidate({ version: 1 }, {});
   assert.equal(invalid.reasonCode, "ordinary_continuation_phase_invalid");

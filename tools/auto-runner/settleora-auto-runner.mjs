@@ -1038,7 +1038,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-    recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_fix_commit");
+    refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, "review_fix_commit");
     recoveryRecorder?.marker("checkpoint_commit", `review-fix-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
       target: branchName,
       correlation: runId,
@@ -1186,7 +1186,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-      recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "codex_review_initial_fix_commit");
+      refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, "codex_review_initial_fix_commit");
       recoveryRecorder?.marker("checkpoint_commit", `codex-review-initial-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
         target: branchName,
         correlation: runId,
@@ -1306,7 +1306,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-      recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "codex_review_convergence_fix_commit");
+      refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, "codex_review_convergence_fix_commit");
       recoveryRecorder?.marker("checkpoint_commit", `codex-review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
         target: branchName,
         correlation: runId,
@@ -1433,7 +1433,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-    recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_convergence_fix_commit");
+    refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, "review_convergence_fix_commit");
     recoveryRecorder?.marker("checkpoint_commit", `review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
       target: branchName,
       correlation: runId,
@@ -1649,8 +1649,8 @@ function createProductionRecoveryRecorder(config, input) {
       }
       return persisted;
     },
-    headChanged(newHeadSha, reasonCode) {
-      return persist(invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }));
+    headChanged(newHeadSha, reasonCode, metadata = {}) {
+      return persist({ ...invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }), ...metadata });
     },
     marker(kind, key, marker = {}) {
       return persist(recordIdempotentMutation(state, { kind, key, marker }));
@@ -2006,6 +2006,34 @@ function ordinaryReviewerCheckpoint(review = {}, provider) {
     attestedIntegrationBoundaries: review.attestedIntegrationBoundaries,
     contextLimited: review.contextLimited,
   };
+}
+
+function refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, reasonCode) {
+  if (!recoveryRecorder || !iteration.runnerCreatedCommitSha) return null;
+  const changedFiles = listChangedFiles(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha);
+  const prior = recoveryRecorder.state?.ordinaryContinuation;
+  const identity = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    baseSha: iteration.baseOriginMainSha,
+    headSha: iteration.runnerCreatedCommitSha,
+    treeSha: getRefSha(`${iteration.runnerCreatedCommitSha}^{tree}`),
+    diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+    changedFiles,
+  };
+  const ordinaryContinuation = createOrdinaryContinuationState({
+    logicalTaskKey: prior?.logicalTaskKey || config.taskKey || `issue-${issue.number}`,
+    executionKey: prior?.executionKey || config.runnerRunId || null,
+    issueNumber: issue.number,
+    branchName,
+    identity,
+    phase: "candidate_reconciliation",
+    counters: {
+      acceptedLogicalTasks: prior?.counters?.acceptedLogicalTasks ?? 1,
+      sourceRounds: (prior?.counters?.sourceRounds ?? 0) + 1,
+      githubEpochs: prior?.counters?.githubEpochs ?? 0,
+    },
+  });
+  return recoveryRecorder.headChanged(iteration.runnerCreatedCommitSha, reasonCode, { ordinaryContinuation });
 }
 
 function ordinaryStructuredReviewCheckpoint(evidence) {
