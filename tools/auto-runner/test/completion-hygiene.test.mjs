@@ -411,7 +411,7 @@ test("session lifecycle completion canonically updates project work and durably 
   const lifecycleRunner = (command, args, options) => {
     if (command === "gh" && args[0] === "project" && args[1] === "item-edit") projectUpdated = true;
     if (command === "gh" && args[0] === "api" && args[1] === "graphql") {
-      return { status: 0, stdout: JSON.stringify({ data: { node: { items: { nodes: [{ id: "PVTI_1", content: { number: lifecycleContext.issue.number }, fieldValues: { nodes: projectUpdated ? [{ optionId: "done", field: { id: "PVTF_1" } }] : [] } }] } } } }), stderr: "", error: null };
+      return { status: 0, stdout: JSON.stringify({ data: { node: { items: { nodes: [{ id: "PVTI_1", content: { number: lifecycleContext.issue.number }, fieldValues: { nodes: projectUpdated ? [{ optionId: "done", field: { id: "PVTF_1" } }] : [] } }], pageInfo: { hasNextPage: false, endCursor: null } } } } }), stderr: "", error: null };
     }
     return baseLifecycleRunner(command, args, options);
   };

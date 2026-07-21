@@ -309,19 +309,34 @@ function updateProjectStatusIfSupported(config, context, runner) {
   }
   if (context.sessionLifecycle) {
     const effect = { issueNumber: context.issue.number, projectId: config.projectStatusUpdates.projectId, fieldId: config.projectStatusUpdates.fieldId, optionId: config.projectStatusUpdates.doneOptionId };
-    let projectItemId = String(context.issue.number);
+    let projectItemId = null;
     const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "project_status_update", issueNumber: context.issue.number, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
       readLive: (intent) => {
-        const live = runner("gh", ["api", "graphql", "-f", "query=query($projectId:ID!){node(id:$projectId){... on ProjectV2{items(first:100){nodes{id content{... on Issue{number}} fieldValues(first:20){nodes{... on ProjectV2ItemFieldSingleSelectValue{optionId field{... on ProjectV2SingleSelectField{id}}}}}}}}}}", "-F", `projectId=${config.projectStatusUpdates.projectId}`]);
-        if (live.error || live.status !== 0) return { complete: false };
-        if (!String(live.stdout || "").trim()) return { complete: true, present: false };
-        let payload; try { payload = JSON.parse(live.stdout); } catch { return { complete: false }; }
-        const item = payload?.data?.node?.items?.nodes?.find((candidate) => candidate?.content?.number === context.issue.number);
-        if (item?.id) projectItemId = item.id;
-        const present = item?.fieldValues?.nodes?.some((value) => value?.field?.id === config.projectStatusUpdates.fieldId && value?.optionId === config.projectStatusUpdates.doneOptionId) === true;
-        return present ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+        let cursor = null;
+        for (let page = 0; page < 20; page += 1) {
+          const args = ["api", "graphql", "-f", "query=query($projectId:ID!,$cursor:String){node(id:$projectId){... on ProjectV2{items(first:100,after:$cursor){nodes{id content{... on Issue{number}} fieldValues(first:100){nodes{... on ProjectV2ItemFieldSingleSelectValue{optionId field{... on ProjectV2SingleSelectField{id}}}}}} pageInfo{hasNextPage endCursor}}}}}", "-F", `projectId=${config.projectStatusUpdates.projectId}`];
+          if (cursor) args.push("-f", `cursor=${cursor}`);
+          const live = runner("gh", args);
+          if (live.error || live.status !== 0 || !String(live.stdout || "").trim()) return { complete: false };
+          let payload; try { payload = JSON.parse(live.stdout); } catch { return { complete: false }; }
+          if (Array.isArray(payload?.errors) && payload.errors.length > 0) return { complete: false };
+          const items = payload?.data?.node?.items;
+          if (!Array.isArray(items?.nodes) || typeof items?.pageInfo?.hasNextPage !== "boolean") return { complete: false };
+          const item = items.nodes.find((candidate) => candidate?.content?.number === context.issue.number);
+          if (item) {
+            if (!item.id || !Array.isArray(item.fieldValues?.nodes)) return { complete: false };
+            projectItemId = item.id;
+            const present = item.fieldValues.nodes.some((value) => value?.field?.id === config.projectStatusUpdates.fieldId && value?.optionId === config.projectStatusUpdates.doneOptionId);
+            return present ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+          }
+          if (!items.pageInfo.hasNextPage) return { complete: false };
+          if (!items.pageInfo.endCursor) return { complete: false };
+          cursor = items.pageInfo.endCursor;
+        }
+        return { complete: false };
       },
       execute: () => {
+        if (!projectItemId) throw new Error("Canonical project status update lacks an authoritative item identity");
         const mutation = runner("gh", ["project", "item-edit", "--id", projectItemId, "--project-id", config.projectStatusUpdates.projectId, "--field-id", config.projectStatusUpdates.fieldId, "--single-select-option-id", config.projectStatusUpdates.doneOptionId]);
         if (mutation.error || mutation.status !== 0) throw new Error("Canonical project status update did not confirm success");
         return { ok: true, status: mutation.status };
