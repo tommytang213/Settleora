@@ -526,7 +526,7 @@ test("supervisor status, report, and health distinguish mapped reports from hist
       reportPath: mapped.reportPath,
       reportResolution: mapped,
     }, logsRoot);
-    writeHeartbeat(runId, buildHeartbeat({ runId, state: "completed", reportPath: mapped.reportPath, reportResolution: mapped }), logsRoot);
+    writeHeartbeat(runId, buildHeartbeat({ runId, runnerRunId: mapped.runnerRunId, state: "completed", reportPath: mapped.reportPath, reportResolution: mapped }), logsRoot);
     let state = readSupervisorState(runId, logsRoot);
     let health = classifyHealth(state, { found: true, heartbeat: { state: "completed", terminal: true }, stale: false });
     assert.equal(health.status, "terminal_success");
@@ -567,7 +567,7 @@ test("supervisor terminal controls reject without state heartbeat or control mut
           reportPath: mapped.reportPath,
           reportResolution: mapped,
         }, logsRoot);
-        writeHeartbeat(runId, buildHeartbeat({ runId, state: terminalState, reportPath: mapped.reportPath, reportResolution: mapped }), logsRoot);
+        writeHeartbeat(runId, buildHeartbeat({ runId, runnerRunId: mapped.runnerRunId, state: terminalState, reportPath: mapped.reportPath, reportResolution: mapped }), logsRoot);
         const stateBefore = fileSnapshot(readSupervisorState(runId, logsRoot).statePath);
         const heartbeatBefore = fileSnapshot(deriveSupervisorPaths({ runId, logsRoot }).artifactPath(runArtifactKinds.heartbeat));
         let controlWrites = 0;
