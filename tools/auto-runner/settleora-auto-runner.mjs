@@ -1775,7 +1775,17 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     phase: "candidate_reconciliation",
     counters: { acceptedLogicalTasks: 1, sourceRounds: state.reviewConvergenceState?.counters?.lifetimeLocalSourceChangingRounds || 0, githubEpochs: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0 },
   });
-  const context = { issue, laneDecision, checkpoint, validation: null, reviewPackage: null, externalReview: null, review: null, largeCandidateReview: null, pr: null };
+  const context = {
+    issue,
+    laneDecision,
+    checkpoint,
+    validation: null,
+    reviewPackage: null,
+    externalReview: initial.effects?.external_review?.evidence?.review || null,
+    review: initial.effects?.codex_review?.evidence?.review || null,
+    largeCandidateReview: null,
+    pr: null,
+  };
   const persist = async (ordinaryContinuation) => writeRecoveryState(config, { ...state, ordinaryContinuation });
   const result = await continueOrdinaryCandidate(initial, {
     candidate_reconciliation: async () => {
@@ -1797,7 +1807,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_external_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.externalReview);
-      return context.externalReview.status === "pass" ? { ok: true, evidence: { status: "passed", evidencePath: context.externalReview.reportPath } } : { ok: false, outcome: manual || "review_convergence_required", reasonCode: context.externalReview.reason || `ordinary_continuation_external_review_${manual || "non_pass"}` };
+      return context.externalReview.status === "pass" ? { ok: true, evidence: { status: "passed", evidencePath: context.externalReview.reportPath, review: ordinaryReviewerCheckpoint(context.externalReview, "external") } } : { ok: false, outcome: manual || "review_convergence_required", reasonCode: context.externalReview.reason || `ordinary_continuation_external_review_${manual || "non_pass"}` };
     },
     codex_review: async () => {
       const before = await checkoutFingerprint();
@@ -1805,9 +1815,10 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       context.review = runReviewPrompt(config, context.reviewPackage);
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_codex_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.review);
-      return context.review?.verdict?.verdict === "approve" ? { ok: true, evidence: { status: "passed", evidencePath: context.review.logPath } } : { ok: false, outcome: manual || "review_convergence_required", reasonCode: context.review?.reviewFailureReason || `ordinary_continuation_codex_review_${manual || "non_pass"}` };
+      return context.review?.verdict?.verdict === "approve" ? { ok: true, evidence: { status: "passed", evidencePath: context.review.logPath, review: ordinaryReviewerCheckpoint(context.review, "codex") } } : { ok: false, outcome: manual || "review_convergence_required", reasonCode: context.review?.reviewFailureReason || `ordinary_continuation_codex_review_${manual || "non_pass"}` };
     },
     structured_review: async () => {
+      if (!context.externalReview || !context.review) return { ok: false, reasonCode: "ordinary_continuation_reviewer_checkpoint_missing" };
       if (context.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") return { ok: true, evidence: { route: "normal" } };
       const before = await checkoutFingerprint();
       const iteration = { issue, baseOriginMainSha: identity.baseSha, runnerCreatedCommitSha: identity.headSha, reviewPackage: context.reviewPackage, externalReview: context.externalReview, review: context.review };
@@ -1924,6 +1935,26 @@ function ordinaryMergeEvidenceAsAutoMerge(evidence = {}) {
     sourceBranchRestoration: evidence?.sourceBranchRestoration,
     completionHygiene: evidence?.completionHygiene,
     comments: evidence?.comments,
+  };
+}
+
+function ordinaryReviewerCheckpoint(review = {}, provider) {
+  return {
+    status: review.status,
+    reason: review.reason,
+    verdict: review.verdict,
+    provider: review.provider || provider,
+    tier: review.tier,
+    reviewedHead: review.reviewedHead,
+    baseSha: review.baseSha,
+    changedFilesDigest: review.changedFilesDigest,
+    reportPath: review.reportPath,
+    logPath: review.logPath,
+    route: review.route,
+    findings: review.findings,
+    attestedCandidateIdentity: review.attestedCandidateIdentity,
+    attestedIntegrationBoundaries: review.attestedIntegrationBoundaries,
+    contextLimited: review.contextLimited,
   };
 }
 

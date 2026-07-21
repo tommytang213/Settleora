@@ -59,6 +59,9 @@ export function validateSplitMaterializationInput(input = {}) {
   const ids = new Set(slices.map((slice) => slice.id));
   if (slices.some((slice) => slice.dependsOn.some((id) => !ids.has(id)))) return fail("split_dependency_unknown");
   if (slices.some((slice) => slice.dependsOn.length > 1)) return fail("split_dependency_non_linear");
+  const dependentCounts = new Map();
+  for (const slice of slices) for (const parent of slice.dependsOn) dependentCounts.set(parent, (dependentCounts.get(parent) || 0) + 1);
+  if ([...dependentCounts.values()].some((count) => count > 1)) return fail("split_dependency_non_linear");
   const ordered = topological(slices);
   if (!ordered) return fail("split_dependency_cycle");
   return { ok: true, slices: ordered };

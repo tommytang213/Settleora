@@ -152,7 +152,10 @@ test("review mutation guards precede recovery and split side effects", () => {
     "ordinary_continuation_external_review_mutated_checkout",
     "ordinary_continuation_codex_review_mutated_checkout",
     "ordinary_continuation_structured_review_mutated_checkout",
+    "ordinary_continuation_reviewer_checkpoint_missing",
   ]) assert.match(runner, new RegExp(reason));
+  assert.match(runner, /initial\.effects\?\.external_review\?\.evidence\?\.review/);
+  assert.match(runner, /initial\.effects\?\.codex_review\?\.evidence\?\.review/);
 
   const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
   const reviewCall = bundle.indexOf("result.externalReview = await runGeminiIntegratedReview");
