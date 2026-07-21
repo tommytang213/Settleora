@@ -20,6 +20,7 @@ import {
   notificationDecisionForConvergence,
   planExactHeadReviewRequest,
   reviewFindingFingerprintsFromSupportedContainers,
+  runExistingPrBatchFix,
 } from "../lib/review-convergence-controller.mjs";
 import {
   bindReviewConvergenceEvidence,
@@ -191,6 +192,20 @@ test("review-fix budget defaults to 50, clamps above hard max, allows zero, and 
   assert.equal(high.overHardMaxPolicy, "clamp_to_hard_max");
   assert.equal(normalizeReviewFixMutationConfig({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: -1 }).malformed, true);
   assert.equal(normalizeReviewFixMutationConfig({ configPath: "cfg.json", allowReviewFixMutation: true, maxReviewFixCycles: "bad" }).malformed, true);
+});
+
+test("batch-fix failure returns the rotated lifecycle for durable restart", async () => {
+  const successor = { sessions: { current: "successor", generation: 2 } };
+  const result = await runExistingPrBatchFix({
+    pr: { number: 938, headRefOid: "a".repeat(40) },
+    findings: [{ title: "actionable", classification: "actionable", severity: "high" }],
+  }, {
+    runCodexBatchFix: async () => ({ ok: true, sessionLifecycle: successor }),
+    listChangedFiles: async () => [],
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "existing_pr_batch_fix_left_no_changed_files");
+  assert.deepEqual(result.sessionLifecycle, successor);
 });
 
 test("transient retries do not consume source cycles; pushed new heads do and invalidate evidence", () => {

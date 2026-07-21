@@ -286,6 +286,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
         sourceCycles: dispatch.sourceCycles || state.sourceCycles,
         exactHeads: dispatch.exactHeads || state.exactHeads,
         orderedPrs: dispatch.orderedPrs || state.orderedPrs,
+        sessionLifecycle: dispatch.sessionLifecycle || state.sessionLifecycle,
         summary: dispatch.summary || null,
       });
       if (!dispatch.waiting) {
@@ -2031,7 +2032,9 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (untracked.status !== 0 || untracked.error) throw new Error(`git ls-files failed: ${boundedText(untracked.stderr || untracked.error || untracked.stdout)}`);
       return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}\n${untracked.stdout || ""}`.split(/\r?\n/));
     },
-    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget = null, localLoop = null }) {
+    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget = null, localLoop = null, sessionLifecycle = null }) {
+      const lifecycleAuthority = validateActiveStackLifecycleAuthority(config, sessionLifecycle);
+      if (!lifecycleAuthority.ok) return lifecycleAuthority;
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead, localLoop });
       if (!loopState.ok) return loopState;
       if (loopState.state.phase === "source_fix_applied") {
@@ -2041,10 +2044,10 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         if (appliedIdentity.identityDigest !== loopState.state.appliedChangedFilesDigest) return fail("existing_pr_local_loop_applied_files_mismatch", "journal-authorized source-fix files changed after application");
       }
       if (["findings_frozen", "source_fix_reserved"].includes(loopState.state.phase)) {
-        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: loopState.state });
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: loopState.state, sessionLifecycle });
         if (!resumedFix.ok) return resumedFix;
         const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
-        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
+        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state, sessionLifecycle: resumedFix.sessionLifecycle || sessionLifecycle });
       }
       const preCommitHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_precommit_head_unreadable" });
       if (!preCommitHead.ok) return preCommitHead;
@@ -2181,10 +2184,10 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           findingDigests: [...(loopState.state.findingDigests || []), findingDigest],
           evidenceInvalidated: true,
         });
-        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: frozenState });
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: frozenState, sessionLifecycle });
         if (!resumedFix.ok) return resumedFix;
         const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
-        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
+        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state, sessionLifecycle: resumedFix.sessionLifecycle || sessionLifecycle });
       }
       const postWorktreeProof = readExactFinalGateWorktreeProof({
         config: targetConfig,
@@ -2269,9 +2272,12 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           localSourceChangingRoundsConsumed: Math.max(1, Number(loopState.state.localRound || 0) + 1),
         },
         localLoopState: persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "local_convergence_passed", candidateHead: candidate.newHead, localRound: Number(loopState.state.localRound || 0) }),
+        sessionLifecycle,
       };
     },
-    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null, reviewConvergenceState = null }) {
+    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null, reviewConvergenceState = null, sessionLifecycle = null }) {
+      const lifecycleAuthority = validateActiveStackLifecycleAuthority(config, sessionLifecycle);
+      if (!lifecycleAuthority.ok) return lifecycleAuthority;
       const newHead = reviewed?.localCandidate?.newHead || reviewed?.sourceIdentity?.newHead || null;
       if (!validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", "validated local candidate head is missing");
       const branch = pr?.headRefName || pr?.branch || "";
@@ -3590,9 +3596,10 @@ function waitOrFail(result, fallback) {
       reason: result.reason || fallback,
       evidence: result.evidence,
       evidencePatch: result.evidencePatch,
+      sessionLifecycle: result.sessionLifecycle || null,
     };
   }
-  return fail(result?.reasonCode || fallback, result?.reason || fallback);
+  return fail(result?.reasonCode || fallback, result?.reason || fallback, { sessionLifecycle: result?.sessionLifecycle || null });
 }
 
 function mergeEvidencePatch(evidence = {}, patch = {}) {
@@ -4237,7 +4244,7 @@ function persistAppliedSourceFix({ runner, cwd, statePath, state }) {
   return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", appliedHead: applied.currentHead, appliedChangedFilesDigest: applied.identityDigest, evidenceInvalidated: true }) };
 }
 
-function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPromptRunner = runCodexPrompt, cwd, pr, statePath, state }) {
+function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPromptRunner = runCodexPrompt, cwd, pr, statePath, state, sessionLifecycle = null }) {
   if (!["findings_frozen", "source_fix_reserved"].includes(state.phase) || !state.frozenFindingDigest || !Array.isArray(state.frozenFindings) || !state.frozenFixPrompt) {
     return fail("existing_pr_local_loop_frozen_batch_invalid", "frozen local finding batch is incomplete or contradictory");
   }
@@ -4264,9 +4271,35 @@ function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPro
     return fail("existing_pr_local_loop_unreserved_mutation", "local source changes appeared before the durable fix reservation");
   }
   const reserved = state.phase === "source_fix_reserved" ? state : persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_reserved", mutationClaimId: digestJson({ prNumber: pr?.number, candidateHead: state.candidateHead, localRound: state.localRound, frozenFindingDigest: state.frozenFindingDigest }) });
-  const localFix = codexPromptRunner({ ...config, repoRoot: cwd }, { branchName: pr?.headRefName || pr?.branch || "unknown", prompt: reserved.frozenFixPrompt, promptPath: localPromptPath }, "existing-pr-stack-inner-local-fix");
+  const lifecycleInvocation = sessionLifecycle
+    ? {
+        state: sessionLifecycle,
+        newSessionId: `${sessionLifecycle.logicalTask.runId}:pr-stack-inner-local-fix:${sessionLifecycle.sessions.generation + 1}:${randomUUID()}`,
+        phase: "existing-pr-stack-inner-local-fix",
+        telemetry: {},
+        mutationJournaled: true,
+      }
+    : null;
+  const localFix = codexPromptRunner({ ...config, repoRoot: cwd }, {
+    branchName: pr?.headRefName || pr?.branch || "unknown",
+    prompt: reserved.frozenFixPrompt,
+    promptPath: localPromptPath,
+    ...(lifecycleInvocation ? { sessionLifecycle: lifecycleInvocation } : {}),
+  }, "existing-pr-stack-inner-local-fix");
   if (!localFix.skipped && (localFix.error || localFix.status !== 0)) return fail("existing_pr_local_loop_fix_failed", localFix.error || localFix.tail || "local finding batch fix failed");
-  return persistAppliedSourceFix({ runner, cwd, statePath, state: reserved });
+  return { ...persistAppliedSourceFix({ runner, cwd, statePath, state: reserved }), sessionLifecycle: localFix.sessionLifecycle?.state || sessionLifecycle };
+}
+
+function validateActiveStackLifecycleAuthority(config, sessionLifecycle) {
+  if (config.sessionLifecycle?.enabled !== true) return { ok: true };
+  if (!sessionLifecycle) return fail("pr_stack_lifecycle_authority_missing", "PR-stack source mutation requires lifecycle authority");
+  const validation = validateSessionLifecycleState(sessionLifecycle);
+  if (!validation.ok) return fail(validation.reasonCode || "pr_stack_lifecycle_authority_invalid", "PR-stack lifecycle authority is invalid");
+  if (sessionLifecycle.mutationAuthority?.status !== "active"
+    || sessionLifecycle.mutationAuthority?.ownerSessionId !== sessionLifecycle.sessions?.current) {
+    return fail("pr_stack_lifecycle_authority_retired", "PR-stack source mutation requires the current active lifecycle owner");
+  }
+  return { ok: true };
 }
 
 function evaluateLocalFixAllowance({ config = {}, sourceCycleBudget = null, localRound }) {
