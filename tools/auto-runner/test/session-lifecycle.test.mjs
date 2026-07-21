@@ -66,6 +66,19 @@ test("terminal phases retire mutation authority and reject contradictory state",
   assert.equal(validateSessionLifecycleState(contradictory).reasonCode, "session_lifecycle_terminal_state_contradictory");
 });
 
+test("interruption planning adopts an already-terminal lifecycle without rotating authority", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "session-lifecycle-terminal-recovery-"));
+  const config = { logsRoot: root, repositorySlug: "owner/repo" };
+  const persisted = persistSessionLifecycleState(config, fixture());
+  const completed = transitionSessionLifecyclePhase(config, persisted.state, { phase: "completed", nextExactAction: "done" });
+  const planned = planInterruptionRecovery(completed.state, { recoveryOperationId: "must-not-rotate" }, { processExited: true, checkpointValid: true });
+  assert.equal(planned.ok, true);
+  assert.equal(planned.terminal, true);
+  assert.equal(planned.terminalPhase, "completed");
+  assert.equal(planned.state.mutationAuthority.status, "terminal");
+  assert.equal(planned.state.recovery.status, completed.state.recovery.status);
+});
+
 test("mandatory pressure rotates before a long operation", () => {
   const result = evaluateContextBudget({ telemetry: { totalTokens: 100000, contextWindowTokens: 128000 }, phase: "external_review", checkpointComplete: true });
   assert.equal(result.action, "rotate_before_next_operation");

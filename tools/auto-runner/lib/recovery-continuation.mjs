@@ -206,6 +206,22 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery: { ...recovery, lifecycle: lifecycleRecovery },
     };
   }
+  if (lifecycleRecovery.terminal) {
+    state = advanceRecoveryPhase(state, {
+      phase: lifecycleRecovery.terminalPhase,
+      firstIncompleteAction: `lifecycle_${lifecycleRecovery.terminalPhase}`,
+      nextSafeAction: `lifecycle_${lifecycleRecovery.terminalPhase}`,
+    });
+    state = { ...state, sessionLifecycle: lifecycleRecovery.state };
+    writeRecoveryState(config, state);
+    return {
+      ok: true,
+      outcome: "terminal_lifecycle_reconciled",
+      reasonCode: lifecycleRecovery.reasonCode,
+      recovery: { ...recovery, lifecycle: lifecycleRecovery, state: summarizeRecoverableState(state) },
+      result: { terminalPhase: lifecycleRecovery.terminalPhase },
+    };
+  }
   if (lifecycleRecovery.state) state = { ...state, sessionLifecycle: lifecycleRecovery.state };
   if (lifecycleRecovery.earliestSafePhase && lifecycleRecovery.earliestSafePhase !== state.phase) {
     state = advanceRecoveryPhase(state, {
@@ -342,6 +358,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   const planned = planInterruptionRecovery(lifecycleState, inputs.liveEffects, { ...inputs.interruption, ...interruption });
   if (!planned.ok) return planned;
   if (planned.active) return { ok: false, reasonCode: planned.reasonCode };
+  if (planned.terminal) return { ...planned, state: lifecycleState, statePath: loaded.statePath };
   const pending = persistSessionLifecycleState(config, planned.state);
   if (!pending.ok) return pending;
   const successorSessionId = `${planned.state.logicalTask.runId}:recovery:${planned.state.recovery.operationId}`;

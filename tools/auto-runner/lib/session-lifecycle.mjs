@@ -498,6 +498,11 @@ export function classifyReportlessInterruption(input = {}) {
 export function planInterruptionRecovery(state, live = {}, interruption = {}) {
   const validation = validateSessionLifecycleState(state, live.expectedIdentity || {});
   if (!validation.ok) return validation;
+  if (["completed", "stopped"].includes(state.controller?.phase)
+    && state.report?.status === state.controller.phase
+    && state.mutationAuthority?.status === "terminal") {
+    return { ok: true, recoverable: false, terminal: true, reasonCode: "session_lifecycle_already_terminal", terminalPhase: state.controller.phase, state };
+  }
   const classified = classifyReportlessInterruption(interruption);
   if (classified.active || !classified.recoverable) return classified;
   if (state.recovery?.status === "pending" && state.interruption?.class === classified.interruptionClass) {
