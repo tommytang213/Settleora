@@ -368,13 +368,11 @@ export function loadSessionLifecycleForRecovery(config, identity) {
   }
   if (matches.length !== 1) return fail(matches.length === 0 ? "session_lifecycle_state_missing" : "session_lifecycle_state_ambiguous");
   const match = matches[0];
-  const persisted = persistSessionLifecycleState(config, match.state);
-  if (!persisted.ok) return persisted;
   return {
     ok: true,
-    state: persisted.state,
-    statePath: persisted.statePath,
-    recoveryHeadAdvanced: persisted.state.branch.headSha !== identity.headSha,
+    state: match.state,
+    statePath: match.statePath,
+    recoveryHeadAdvanced: match.state.branch.headSha !== identity.headSha,
   };
 }
 
