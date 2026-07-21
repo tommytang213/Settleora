@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { acquireCheckpointLock } from "./session-lifecycle.mjs";
 
 export const preEffectIntentSchemaVersion = 1;
 export const preEffectIntentStatuses = Object.freeze(["prepared", "executing", "live_confirmed", "adopted_after_recovery", "finalized", "failed_closed"]);
@@ -40,14 +41,16 @@ export function preparePreEffectIntent(config, input, { now = new Date(), intent
 
 export function transitionPreEffectIntent(config, intent, status, { diagnostics = [], now = new Date() } = {}) {
   requiredEnum(status, preEffectIntentStatuses, "status");
-  const current = loadPreEffectIntent(config, intent.intentId);
-  if (!current || current.fingerprint !== intent.fingerprint) throw new Error("Pre-effect intent identity mismatch");
-  assertPreEffectIntentAuthority(current, config.currentAuthority);
-  const allowed = { prepared: ["executing", "failed_closed"], executing: ["live_confirmed", "adopted_after_recovery", "failed_closed"], live_confirmed: ["finalized", "failed_closed"], adopted_after_recovery: ["finalized", "failed_closed"], finalized: ["finalized"], failed_closed: ["failed_closed"] };
-  if (!allowed[current.status]?.includes(status)) throw new Error(`Invalid pre-effect intent transition ${current.status} -> ${status}`);
-  const next = { ...current, status, updatedAt: now.toISOString(), diagnostics: sanitizeDiagnostics(diagnostics) };
-  persist(config, next, false);
-  return next;
+  return withIntentLock(config, intent.intentId, () => {
+    const current = loadPreEffectIntent(config, intent.intentId);
+    if (!current || current.fingerprint !== intent.fingerprint || current.status !== intent.status) throw new Error("Pre-effect intent compare-and-swap failed");
+    assertPreEffectIntentAuthority(current, config.currentAuthority);
+    const allowed = { prepared: ["executing", "failed_closed"], executing: ["live_confirmed", "adopted_after_recovery", "failed_closed"], live_confirmed: ["finalized", "failed_closed"], adopted_after_recovery: ["finalized", "failed_closed"], finalized: ["finalized"], failed_closed: ["failed_closed"] };
+    if (!allowed[current.status]?.includes(status)) throw new Error(`Invalid pre-effect intent transition ${current.status} -> ${status}`);
+    const next = { ...current, status, updatedAt: now.toISOString(), diagnostics: sanitizeDiagnostics(diagnostics) };
+    persist(config, next, false);
+    return next;
+  });
 }
 
 export function loadPreEffectIntent(config, intentId) {
@@ -80,6 +83,7 @@ export function findPreEffectIntents(config, predicate = () => true) {
 }
 
 export function handoffPreEffectIntentAuthority(config, intentId, handoff, { now = new Date() } = {}) {
+  return withIntentLock(config, intentId, () => {
   const current = loadPreEffectIntent(config, intentId);
   if (!current || ["finalized", "failed_closed"].includes(current.status)) return current;
   if (handoff?.runId !== current.runId || handoff?.oldSessionId !== current.sessionId || handoff?.oldAuthorityGeneration !== current.authorityGeneration) throw new Error("Pre-effect intent handoff source mismatch");
@@ -98,6 +102,7 @@ export function handoffPreEffectIntentAuthority(config, intentId, handoff, { now
   };
   persist(config, next, false);
   return next;
+  });
 }
 
 export function assertPreEffectIntentAuthority(intent, authority) {
@@ -133,6 +138,12 @@ function persist(config, value, exclusive) {
   renameSync(temp, file);
   fsyncDirectory(root);
   validateTrustedArtifact(file, root, path.basename(file));
+}
+function withIntentLock(config, intentId, operation) {
+  const acquired = acquireCheckpointLock(intentPath(config, intentId));
+  if (!acquired.ok) throw new Error(`Pre-effect intent lock failed: ${acquired.reasonCode}`);
+  try { return operation(); }
+  finally { if (!acquired.release().ok) throw new Error("Pre-effect intent lock cleanup failed"); }
 }
 function intentRoot(config) { const logsRoot = path.resolve(required(config?.logsRoot, 4096, "logsRoot")); if (logsRoot === path.parse(logsRoot).root) throw new Error("Unsafe pre-effect intent logs root"); return path.join(logsRoot, "recovery", "pre-effect-intents"); }
 function intentPath(config, intentId) { return path.join(intentRoot(config), `${digest(required(intentId, 120, "intentId"))}.json`); }

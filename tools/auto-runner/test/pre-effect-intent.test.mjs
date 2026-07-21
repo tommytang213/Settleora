@@ -91,6 +91,7 @@ test("pre-effect intent inventory rejects duplicate fingerprints and lifecycle s
     rmSync(path.join(root, `${"f".repeat(64)}.json`));
     const authority = { runId: "run-1", sessionId: "session-1", authorityGeneration: 2, status: "active" };
     const executing = transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, intent, "executing");
+    assert.throws(() => transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, intent, "executing"), /compare-and-swap/);
     assert.throws(() => transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, executing, "prepared"), /Invalid/);
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });

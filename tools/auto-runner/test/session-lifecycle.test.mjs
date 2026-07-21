@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -266,6 +266,25 @@ test("startup recovery resolves one checkpoint without guessing claim identity",
     repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1",
     branchName: "feature/session", baseSha: sha, headSha: "b".repeat(40),
   }).recoveryHeadAdvanced, true);
+});
+
+test("startup recovery rejects malformed or symlinked lifecycle artifacts", () => {
+  for (const kind of ["malformed", "symlink"]) {
+    const root = mkdtempSync(path.join(tmpdir(), `session-recovery-untrusted-${kind}-`));
+    const config = { logsRoot: root, repositorySlug: "owner/repo" };
+    const persisted = persistSessionLifecycleState(config, fixture());
+    assert.equal(persisted.ok, true);
+    const inventory = path.join(root, "session-lifecycle");
+    const candidate = path.join(inventory, `${(kind === "malformed" ? "c" : "d").repeat(64)}.json`);
+    if (kind === "malformed") writeFileSync(candidate, "{bad", { mode: 0o600 });
+    else symlinkSync(persisted.statePath, candidate);
+    const loaded = loadSessionLifecycleForRecovery(config, {
+      repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1",
+      branchName: "feature/session", baseSha: sha, headSha: sha,
+    });
+    assert.equal(loaded.ok, false);
+    assert.match(loaded.reasonCode, /corrupt|untrusted/);
+  }
 });
 
 test("checkpoint tampering fails closed", () => {

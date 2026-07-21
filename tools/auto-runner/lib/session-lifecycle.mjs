@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -215,7 +215,7 @@ function persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest
   }
 }
 
-function acquireCheckpointLock(statePath) {
+export function acquireCheckpointLock(statePath) {
   const lockPath = `${statePath}.lock`;
   const ownerPath = `${lockPath}.${process.pid}.${Date.now()}.owner`;
   const owner = { pid: process.pid, processStart: processStartIdentity(process.pid), token: randomUUID() };
@@ -331,14 +331,21 @@ export function loadSessionLifecycleState(config, identity) {
 export function loadSessionLifecycleForRecovery(config, identity) {
   const root = path.join(config.logsRoot, "session-lifecycle");
   if (!existsSync(root)) return fail("session_lifecycle_state_missing", null, { statePath: root });
+  const rootInfo = lstatSync(root);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0 || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())) return fail("session_lifecycle_recovery_root_untrusted");
   const matches = [];
-  for (const entry of readdirSync(root, { withFileTypes: true }).filter((item) => item.isFile() && /^[a-f0-9]{64}\.json$/.test(item.name)).sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of readdirSync(root, { withFileTypes: true }).filter((item) => /^[a-f0-9]{64}\.json$/.test(item.name)).sort((left, right) => left.name.localeCompare(right.name))) {
+    const statePath = path.join(root, entry.name);
+    let info;
+    try { info = lstatSync(statePath); } catch { return fail("session_lifecycle_recovery_artifact_untrusted"); }
+    if (!entry.isFile() || !info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || info.size > 1024 * 1024 || (typeof process.getuid === "function" && info.uid !== process.getuid())) return fail("session_lifecycle_recovery_artifact_untrusted");
     let state;
-    try { state = JSON.parse(readFileSync(path.join(root, entry.name), "utf8")); } catch { continue; }
+    try { state = JSON.parse(readFileSync(statePath, "utf8")); } catch { return fail("session_lifecycle_state_corrupt", null, { statePath }); }
     if (state.repository !== identity.repository || state.logicalTask?.issueNumber !== identity.issueNumber || state.logicalTask?.taskKey !== identity.taskKey || state.logicalTask?.runId !== identity.runId) continue;
     if (state.branch?.name !== identity.branchName || state.branch?.baseSha !== identity.baseSha) continue;
     const validation = validateSessionLifecycleState(state, { ...identity, claimIdentity: state.logicalTask.claimIdentity });
-    if (validation.ok) matches.push({ state, statePath: path.join(root, entry.name) });
+    if (!validation.ok) return { ...validation, statePath };
+    matches.push({ state, statePath });
   }
   if (matches.length !== 1) return fail(matches.length === 0 ? "session_lifecycle_state_missing" : "session_lifecycle_state_ambiguous");
   const match = matches[0];
