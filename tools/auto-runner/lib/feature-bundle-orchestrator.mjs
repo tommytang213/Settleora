@@ -325,6 +325,13 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   });
   const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
+  const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_external_review",
+  });
+  if (externalReviewMutationGuard.mutationDetected) {
+    result.reviewMutationGuard = externalReviewMutationGuard;
+    return stopForBundleReviewMutation({ config, result, state, recovery, guard: externalReviewMutationGuard, phase: "bundle_external_review" });
+  }
   if (result.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
     result.largeCandidateReview = persistBundleLargeCandidateSplit(config, { issue, plan, state, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview });
     if (result.largeCandidateReview.ok && result.largeCandidateReview.execution === "deterministic_split") {
@@ -359,13 +366,6 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       return result;
     }
     return stopBundle(result, "blocked_needs_tommy", result.largeCandidateReview.reasonCode, "Mixed bundle requires a proven semantics-preserving split or the minimum architecture decision.");
-  }
-  const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
-    phase: "bundle_external_review",
-  });
-  if (externalReviewMutationGuard.mutationDetected) {
-    result.reviewMutationGuard = externalReviewMutationGuard;
-    return stopForBundleReviewMutation({ config, result, state, recovery, guard: externalReviewMutationGuard, phase: "bundle_external_review" });
   }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");

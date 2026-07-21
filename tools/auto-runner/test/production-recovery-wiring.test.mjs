@@ -146,6 +146,21 @@ test("feature-bundle production path records linked recovery state", () => {
   assert.match(source, /post_merge_current_main_checks_scanner_reconciliation/);
 });
 
+test("review mutation guards precede recovery and split side effects", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  for (const reason of [
+    "ordinary_continuation_external_review_mutated_checkout",
+    "ordinary_continuation_codex_review_mutated_checkout",
+    "ordinary_continuation_structured_review_mutated_checkout",
+  ]) assert.match(runner, new RegExp(reason));
+
+  const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const reviewCall = bundle.indexOf("result.externalReview = await runGeminiIntegratedReview");
+  const guard = bundle.indexOf("externalReviewMutationGuard", reviewCall);
+  const splitRoute = bundle.indexOf('route === "split_or_block"', reviewCall);
+  assert.ok(reviewCall >= 0 && guard > reviewCall && splitRoute > guard);
+});
+
 test("head-changing commit invalidates every stale evidence binding", () => {
   let state = recoveryState();
   for (const kind of headBoundEvidenceKinds) {
