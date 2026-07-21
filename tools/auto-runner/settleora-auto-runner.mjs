@@ -1463,9 +1463,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   const ordinaryTerminalEffectsConfirmed = (iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0)
     && autoMergeEffectsConfirmed(config, ordinaryLifecycle, iteration.autoMerge);
   if (ordinaryLifecycle && ordinaryTerminalEffectsConfirmed) {
+    const successfulOutcome = ["auto_merged", "approved_pr_opened"].includes(iteration.outcome);
     const terminal = transitionSessionLifecyclePhase(config, ordinaryLifecycle, {
-      phase: "completed",
-      nextExactAction: iteration.outcome === "auto_merged" ? "ordinary_auto_merge_complete" : "ordinary_pr_opened_complete",
+      phase: successfulOutcome ? "completed" : "stopped",
+      nextExactAction: iteration.outcome === "auto_merged"
+        ? "ordinary_auto_merge_complete"
+        : iteration.outcome === "approved_pr_opened"
+          ? "ordinary_pr_opened_complete"
+          : "ordinary_failure_terminalized",
     });
     if (!terminal.ok) throw new Error(terminal.reasonCode);
     iteration.sessionLifecycle = terminal.state;
