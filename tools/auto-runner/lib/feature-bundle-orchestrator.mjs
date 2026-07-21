@@ -626,8 +626,14 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       externalReview: postFix.externalReview,
       review: postFix.review,
       reviewPackage: postFix.reviewPackage,
+      largeCandidateReview: postFix.largeCandidateReview,
       reviewMutationGuard: postFix.reviewMutationGuard,
     };
+    if (postFix.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !postFix.largeCandidateReview?.ok) {
+      state = markBundleStopped(state, { reasonCode: postFix.largeCandidateReview?.reasonCode || "large_candidate_review_incomplete", reason: "Post-fix structured large-candidate certification failed." });
+      writeState(state);
+      return { ok: false, outcome: "auto_failed", reasonCode: postFix.largeCandidateReview?.reasonCode || "large_candidate_review_incomplete", reason: "Post-fix structured large-candidate certification failed.", state, attempts, summary: { largeCandidateReview: postFix.largeCandidateReview } };
+    }
     if (currentResult.reviewMutationGuard?.mutationDetected) {
       input.recovery?.stop("bundle_review_mutation_detected_after_convergence", currentResult.reviewMutationGuard.reason, "operator_recovery_required");
       state = markBundleStopped(state, {
