@@ -195,11 +195,11 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
   if (effectContext) {
     const labelEffect = { addLabels: mutations.addLabels, removeLabels: mutations.removeLabels, outcome };
     const labels = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "hygiene_component", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: labelEffect }, {
-      readLive: () => {
+      readLive: (intent) => {
         const live = readIssueLive(config, issue.number);
         if (!live.ok) return { complete: false };
         const current = new Set(live.issue.labels || []);
-        return { complete: true, present: mutations.addLabels.every((label) => current.has(label)) && mutations.removeLabels.every((label) => !current.has(label)), identity: { issueNumber: issue.number } };
+        return { complete: true, present: mutations.addLabels.every((label) => current.has(label)) && mutations.removeLabels.every((label) => !current.has(label)), identity: intent.identity, effect: labelEffect };
       },
       execute: () => {
         if (mutations.addLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--add-label", mutations.addLabels.join(",")]), `Unable to add terminal outcome labels for issue #${issue.number}`);
@@ -208,11 +208,12 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
       },
     });
     if (!labels.ok) return { skipped: false, status: 1, reason: labels.reasonCode };
-    const comment = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "comment", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: { body: boundedBody, outcome } }, {
-      readLive: () => {
+    const commentEffect = { body: boundedBody, outcome };
+    const comment = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "comment", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: commentEffect }, {
+      readLive: (intent) => {
         const result = runGh(["api", "--paginate", "--slurp", `repos/${config.repositorySlug}/issues/${issue.number}/comments?per_page=100`]);
         if (result.status !== 0) return { complete: false };
-        try { return { complete: true, present: JSON.parse(result.stdout || "[]").flat().some((entry) => entry.body === boundedBody), identity: { issueNumber: issue.number } }; } catch { return { complete: false }; }
+        try { return { complete: true, present: JSON.parse(result.stdout || "[]").flat().some((entry) => entry.body === boundedBody), identity: intent.identity, effect: commentEffect }; } catch { return { complete: false }; }
       },
       execute: () => runGh(["issue", "comment", String(issue.number), "--body", boundedBody]),
     });
