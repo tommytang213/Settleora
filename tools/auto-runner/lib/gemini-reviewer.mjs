@@ -206,11 +206,11 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     sleep: options.sleep,
   });
 
-  const finalBeforeReport = {
+  const finalBeforeReport = attachIntegratedAttestations({
     ...attemptedResult,
     elapsedMs: Date.now() - startedAtMs,
     completedAt: new Date().toISOString(),
-  };
+  });
   finalBeforeReport.reportPath = writeIntegratedReport(config, finalBeforeReport);
   try {
     writeReviewerAccounting(config, accounting, finalBeforeReport);
@@ -878,21 +878,27 @@ function finishIntegrated(config, result, startedAtMs, reason, options = {}) {
     reason: result.reason || reason,
     elapsedMs: Date.now() - startedAtMs,
   };
-  if (final.status === "pass") {
-    final.attestedCandidateIdentity = {
-      repository: final.repository,
-      baseSha: final.baseSha,
-      headSha: final.reviewedHead,
-      treeSha: final.treeSha,
-      diffDigest: final.rawDiffSha256,
-      changedFilesDigest: final.changedFilesDigest,
-    };
-    final.attestedIntegrationBoundaries = final.integrationBoundaries;
-  }
+  Object.assign(final, attachIntegratedAttestations(final));
   if (!final.reportPath || options.rewriteReport) {
     final.reportPath = writeIntegratedReport(config, final);
   }
   return final;
+}
+
+function attachIntegratedAttestations(result) {
+  if (result.status !== "pass") return result;
+  return {
+    ...result,
+    attestedCandidateIdentity: {
+      repository: result.repository,
+      baseSha: result.baseSha,
+      headSha: result.reviewedHead,
+      treeSha: result.treeSha,
+      diffDigest: result.rawDiffSha256,
+      changedFilesDigest: result.changedFilesDigest,
+    },
+    attestedIntegrationBoundaries: result.integrationBoundaries,
+  };
 }
 
 function writeSmokeReport(config, result) {
