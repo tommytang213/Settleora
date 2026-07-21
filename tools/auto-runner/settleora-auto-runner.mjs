@@ -1807,7 +1807,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     reviewPackage: null,
     externalReview: initial.effects?.external_review?.evidence?.review || null,
     review: initial.effects?.codex_review?.evidence?.review || null,
-    largeCandidateReview: null,
+    largeCandidateReview: ordinaryStructuredReviewCheckpoint(initial.effects?.structured_review?.evidence),
     pr: null,
   };
   const persist = async (ordinaryContinuation) => writeRecoveryState(config, { ...state, ordinaryContinuation });
@@ -1856,7 +1856,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       context.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, candidate.changedFiles);
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_structured_review_mutated_checkout" };
       const manual = structuredLargeCandidateManualVerdict(context.largeCandidateReview);
-      return manual ? { ok: false, outcome: manual, reasonCode: context.largeCandidateReview.reasonCode || `ordinary_continuation_structured_review_${manual}` } : { ok: true, evidence: { status: context.largeCandidateReview.ok ? "passed" : "changes_requested", state: context.largeCandidateReview.state } };
+      return manual ? { ok: false, outcome: manual, reasonCode: context.largeCandidateReview.reasonCode || `ordinary_continuation_structured_review_${manual}` } : { ok: true, evidence: { status: context.largeCandidateReview.ok ? "passed" : "changes_requested", reasonCode: context.largeCandidateReview.reasonCode || null, findings: structuredLargeCandidateFindings(context.largeCandidateReview), state: context.largeCandidateReview.state } };
     },
     review_convergence: async (continuation) => {
       const candidate = continuation.identity;
@@ -2001,6 +2001,12 @@ function ordinaryReviewerCheckpoint(review = {}, provider) {
     attestedIntegrationBoundaries: review.attestedIntegrationBoundaries,
     contextLimited: review.contextLimited,
   };
+}
+
+function ordinaryStructuredReviewCheckpoint(evidence) {
+  if (!evidence) return null;
+  if (!["passed", "changes_requested"].includes(evidence.status)) return { ok: false, reasonCode: "ordinary_continuation_structured_checkpoint_invalid", findings: [] };
+  return { ok: evidence.status === "passed", reasonCode: evidence.reasonCode || null, findings: Array.isArray(evidence.findings) ? evidence.findings : [], state: evidence.state || null };
 }
 
 function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
