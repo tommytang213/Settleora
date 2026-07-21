@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, linkSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants, existsSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -208,11 +208,18 @@ function persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest
       }
     }
     writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+    fsyncPath(tmp);
     renameSync(tmp, statePath);
+    fsyncPath(path.dirname(statePath));
     return { ok: true, state: next, statePath };
   } finally {
     if (existsSync(tmp)) unlinkSync(tmp);
   }
+}
+
+function fsyncPath(targetPath) {
+  const descriptor = openSync(targetPath, constants.O_RDONLY);
+  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
 }
 
 export function acquireCheckpointLock(statePath) {
