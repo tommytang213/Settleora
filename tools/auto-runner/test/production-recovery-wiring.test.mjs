@@ -163,11 +163,16 @@ test("review mutation guards precede recovery and split side effects", () => {
   assert.match(runner, /ordinaryStructuredReviewCheckpoint\(initial\.effects\?\.structured_review\?\.evidence\)/);
   assert.match(runner, /providerPromptBindingDigest: review\.providerPromptBindingDigest/);
   assert.match(runner, /attestationSource: review\.attestationSource/);
-  assert.equal((runner.match(/refreshOrdinaryContinuationAfterSourceChange\(config, recoveryRecorder, iteration, issue, branchName, "[^\"]+_commit"\)/g) || []).length, 4);
+  assert.equal((runner.match(/recoveryRecorder,\n\s+branchName,/g) || []).length, 4);
   assert.match(runner, /headChanged\(iteration\.runnerCreatedCommitSha, reasonCode, \{ ordinaryContinuation \}\)/);
+  assert.match(runner, /if \(headChangeCheckpoint\) await headChangeCheckpoint\(runnerCreatedCommitSha\)/);
   assert.match(runner, /review_convergence: async \(continuation\).*runReviewFixCycle.*commitReviewFixAndRerunExactHeadReviews/s);
 
   const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const bundleFixCommit = bundle.indexOf("const commit = await commitExplicitPaths", bundle.indexOf("commitBundleReviewFixAndRerunExactHeadReviews"));
+  const bundleHeadCheckpoint = bundle.indexOf("recovery?.headChanged(runnerCreatedCommitSha", bundleFixCommit);
+  const bundleReviewPackage = bundle.indexOf("const reviewPackage = writeBundleReviewPackage", bundleFixCommit);
+  assert.ok(bundleFixCommit >= 0 && bundleHeadCheckpoint > bundleFixCommit && bundleHeadCheckpoint < bundleReviewPackage);
   const reviewCall = bundle.indexOf("result.externalReview = await runGeminiIntegratedReview");
   const guard = bundle.indexOf("externalReviewMutationGuard", reviewCall);
   const splitRoute = bundle.indexOf('route === "split_or_block"', reviewCall);
@@ -191,7 +196,10 @@ test("head-changing commit invalidates every stale evidence binding", () => {
     assert.equal(loaded.ok, true);
     const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
     assert.match(source, /headChanged\(iteration\.runnerCreatedCommitSha, "checkpoint_commit"\)/);
-    assert.match(source, /refreshOrdinaryContinuationAfterSourceChange\(config, recoveryRecorder, iteration, issue, branchName, "review_fix_commit"\)/);
+    const reviewFixCommit = source.indexOf("const commit = await commitExplicitPaths", source.indexOf("commitReviewFixAndRerunExactHeadReviews"));
+    const reviewFixCheckpoint = source.indexOf("if (headChangeCheckpoint) await headChangeCheckpoint(runnerCreatedCommitSha)", reviewFixCommit);
+    const reviewFixPackage = source.indexOf("const reviewPackage = await writeReviewPackage", reviewFixCommit);
+    assert.ok(reviewFixCommit >= 0 && reviewFixCheckpoint > reviewFixCommit && reviewFixCheckpoint < reviewFixPackage);
   } finally {
     config.cleanup();
   }

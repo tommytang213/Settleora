@@ -685,6 +685,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       baseSha: input.baseSha,
       fixAttempt,
       sessionLifecycle: input.sessionLifecycle,
+      recovery: input.recovery,
     });
     if (postFix.sessionLifecycle) input.sessionLifecycle = postFix.sessionLifecycle;
     changedFiles = postFix.changedFiles || changedFiles;
@@ -795,7 +796,6 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
         codexReview: currentResult.review,
       },
     };
-    input.recovery?.headChanged(postFix.runnerCreatedCommitSha, "bundle_review_convergence_fix_commit");
     input.recovery?.marker("checkpoint_commit", `bundle-review-convergence-${postFix.runnerCreatedCommitSha || "dry-run"}`, {
       target: input.branchName,
       correlation: input.issue?.number || "",
@@ -953,10 +953,11 @@ function bundleLifecycleInvocation(state, phase) {
   };
 }
 
-async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt, sessionLifecycle }) {
+async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt, sessionLifecycle, recovery }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
   const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Feature bundle issue #${issue.number}: review-fix follow-up`, { effectContext: fixAttempt.sessionLifecycle || sessionLifecycle });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  if (runnerCreatedCommitSha) recovery?.headChanged(runnerCreatedCommitSha, "bundle_review_convergence_fix_commit");
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
   const validation = fixAttempt.validationAfter;

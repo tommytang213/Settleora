@@ -1025,6 +1025,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       promptInfo,
       report: iteration.report,
       fixAttempt,
+      recoveryRecorder,
+      branchName,
     });
     changedFiles = postFix.changedFiles;
     forbidden = postFix.forbiddenChangedFiles;
@@ -1038,7 +1040,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-    refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, "review_fix_commit");
     recoveryRecorder?.marker("checkpoint_commit", `review-fix-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
       target: branchName,
       correlation: runId,
@@ -1173,6 +1174,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         promptInfo,
         report: iteration.report,
         fixAttempt,
+        recoveryRecorder,
+        branchName,
       });
       changedFiles = postFix.changedFiles;
       forbidden = postFix.forbiddenChangedFiles;
@@ -1186,7 +1189,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-      refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, "codex_review_initial_fix_commit");
       recoveryRecorder?.marker("checkpoint_commit", `codex-review-initial-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
         target: branchName,
         correlation: runId,
@@ -1293,6 +1295,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         promptInfo,
         report: iteration.report,
         fixAttempt,
+        recoveryRecorder,
+        branchName,
       });
       changedFiles = postFix.changedFiles;
       forbidden = postFix.forbiddenChangedFiles;
@@ -1306,7 +1310,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-      refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, "codex_review_convergence_fix_commit");
       recoveryRecorder?.marker("checkpoint_commit", `codex-review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
         target: branchName,
         correlation: runId,
@@ -1420,6 +1423,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       promptInfo,
       report: iteration.report,
       fixAttempt,
+      recoveryRecorder,
+      branchName,
     });
     changedFiles = postFix.changedFiles;
     forbidden = postFix.forbiddenChangedFiles;
@@ -1433,7 +1438,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-    refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, "review_convergence_fix_commit");
     recoveryRecorder?.marker("checkpoint_commit", `review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
       target: branchName,
       correlation: runId,
@@ -1867,7 +1871,26 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const reviewForFix = structuredFindings.length ? { ...context.review, verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: structuredFindings } } : context.review;
       const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName: state.branch.name, promptInfo, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: context.validation, report: { found: true, recovered: true }, externalReview: context.externalReview, review: reviewForFix, largeCandidateReview: context.largeCandidateReview, reviewConvergenceState: state.reviewConvergenceState });
       if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
-      const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt });
+      const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
+        issue,
+        laneDecision,
+        promptInfo,
+        report: { found: true, recovered: true },
+        fixAttempt,
+        headChangeCheckpoint: async (headSha) => {
+          const changedFiles = listChangedFiles(candidate.baseSha, headSha);
+          const next = createOrdinaryContinuationState({
+            logicalTaskKey: continuation.logicalTaskKey,
+            executionKey: continuation.executionKey,
+            issueNumber: continuation.issueNumber,
+            branchName: continuation.branchName,
+            identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
+            phase: "candidate_reconciliation",
+            counters: { ...continuation.counters, sourceRounds: continuation.counters.sourceRounds + 1 },
+          });
+          await persist(next);
+        },
+      });
       if (postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass" || postFix.review?.verdict?.verdict !== "approve" || postFix.forbiddenChangedFiles?.length) return { ok: false, outcome: "review_convergence_required", reasonCode: "ordinary_continuation_post_fix_recertification_failed" };
       const changedFiles = postFix.changedFiles;
       const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, postFix.runnerCreatedCommitSha).text).digest("hex"), changedFiles };
@@ -2993,10 +3016,17 @@ function lifecycleHasPendingCanonicalIntents(config, lifecycle) {
   }
 }
 
-async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {
+async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt, recoveryRecorder, branchName, headChangeCheckpoint }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
   const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`, { effectContext: promptInfo?.sessionLifecycle?.state });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  if (runnerCreatedCommitSha) {
+    if (headChangeCheckpoint) await headChangeCheckpoint(runnerCreatedCommitSha);
+    else refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, {
+        baseOriginMainSha: getRefSha("origin/main"),
+        runnerCreatedCommitSha,
+      }, issue, branchName, "review_fix_commit");
+  }
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
   const validation = fixAttempt.validationAfter;
