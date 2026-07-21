@@ -598,6 +598,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       fixAttempt,
       sessionLifecycle: input.sessionLifecycle,
     });
+    if (postFix.sessionLifecycle) input.sessionLifecycle = postFix.sessionLifecycle;
     changedFiles = postFix.changedFiles || changedFiles;
     forbiddenChangedFiles = postFix.forbiddenChangedFiles || forbiddenChangedFiles;
     currentResult = {
