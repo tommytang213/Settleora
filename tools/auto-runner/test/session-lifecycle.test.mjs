@@ -131,6 +131,30 @@ test("checkpoint persistence and identity validation are durable", () => {
   assert.equal(Object.hasOwn(persisted, "history"), false);
 });
 
+test("checkpoint persistence rejects a retired generation racing its successor", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "session-lifecycle-cas-"));
+  const config = { logsRoot: root, repositorySlug: "owner/repo" };
+  const original = fixture();
+  const first = persistSessionLifecycleState(config, original);
+  assert.equal(first.ok, true);
+  const begun = beginSessionRotation(first.state, { reason: "mandatory", requestId: "rotation-cas" });
+  const pending = persistSessionLifecycleState(config, begun.state);
+  assert.equal(pending.ok, true);
+  const completed = completeSessionRotation(pending.state, { requestId: "rotation-cas", newSessionId: "session-2" });
+  const successor = persistSessionLifecycleState(config, completed.state);
+  assert.equal(successor.ok, true);
+
+  const staleWrite = persistSessionLifecycleState(config, first.state);
+  assert.equal(staleWrite.ok, false);
+  assert.equal(staleWrite.reasonCode, "session_lifecycle_checkpoint_compare_and_swap_failed");
+  const reloaded = loadSessionLifecycleState(config, {
+    repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1", claimIdentity: "claim-1",
+  });
+  assert.equal(reloaded.ok, true);
+  assert.equal(reloaded.state.sessions.current, "session-2");
+  assert.equal(reloaded.state.sessions.generation, 2);
+});
+
 test("startup recovery resolves one checkpoint without guessing claim identity", () => {
   const root = mkdtempSync(path.join(tmpdir(), "session-recovery-lookup-"));
   const config = { logsRoot: root, repositorySlug: "owner/repo" };

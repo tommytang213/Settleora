@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -168,10 +168,40 @@ export function persistSessionLifecycleState(config, state) {
   if (!validation.ok) return validation;
   const statePath = sessionLifecyclePath(config, next);
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+  const lockPath = `${statePath}.lock`;
+  let lockFd;
+  try {
+    lockFd = openSync(lockPath, "wx", 0o600);
+  } catch (error) {
+    return fail(error?.code === "EEXIST" ? "session_lifecycle_checkpoint_write_locked" : "session_lifecycle_checkpoint_lock_failed");
+  }
   const tmp = `${statePath}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, statePath);
-  return { ok: true, state: next, statePath };
+  try {
+    if (existsSync(statePath)) {
+      let current;
+      try { current = JSON.parse(readFileSync(statePath, "utf8")); } catch { return fail("session_lifecycle_state_corrupt"); }
+      const currentValidation = validateSessionLifecycleState(current);
+      if (!currentValidation.ok) return currentValidation;
+      const sameGeneration = current.sessions.generation === state.sessions.generation
+        && current.sessions.current === state.sessions.current
+        && current.mutationAuthority.generation === state.mutationAuthority.generation
+        && !(current.mutationAuthority.status === "retired_pending_successor" && state.mutationAuthority.status === "active");
+      const validSuccessor = state.sessions.generation === current.sessions.generation + 1
+        && current.mutationAuthority.status === "retired_pending_successor"
+        && state.mutationAuthority.status === "active"
+        && state.sessions.retired.includes(current.sessions.current);
+      if (!sameGeneration && !validSuccessor) {
+        return fail("session_lifecycle_checkpoint_compare_and_swap_failed");
+      }
+    }
+    writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+    renameSync(tmp, statePath);
+    return { ok: true, state: next, statePath };
+  } finally {
+    if (existsSync(tmp)) unlinkSync(tmp);
+    closeSync(lockFd);
+    unlinkSync(lockPath);
+  }
 }
 
 export function loadSessionLifecycleState(config, identity) {
