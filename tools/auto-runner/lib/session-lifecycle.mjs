@@ -150,8 +150,8 @@ export function validateSessionLifecycleState(state, expected = {}) {
   if (!state.sessions?.current || !Number.isSafeInteger(state.sessions.generation) || state.sessions.generation < 1 || !Array.isArray(state.sessions.retired)) return fail("session_lifecycle_session_identity_invalid");
   if (new Set(state.sessions.retired).size !== state.sessions.retired.length || (state.mutationAuthority?.status === "active" && state.sessions.retired.includes(state.sessions.current))) return fail("session_lifecycle_retirement_contradictory");
   const authority = state.mutationAuthority;
-  if (!authority || authority.generation !== state.sessions.generation || (authority.status === "active" && authority.ownerSessionId !== state.sessions.current) || state.sessions.retired.includes(authority.ownerSessionId)) return fail("session_lifecycle_authority_contradictory");
-  if (!["active", "retired_pending_successor", "recovery_pending"].includes(authority.status)) return fail("session_lifecycle_authority_status_invalid");
+  if (!authority || authority.generation !== state.sessions.generation || (authority.status === "active" && authority.ownerSessionId !== state.sessions.current) || state.sessions.retired.includes(authority.ownerSessionId) || (authority.status === "terminal" && authority.ownerSessionId !== null)) return fail("session_lifecycle_authority_contradictory");
+  if (!["active", "retired_pending_successor", "recovery_pending", "terminal"].includes(authority.status)) return fail("session_lifecycle_authority_status_invalid");
   for (const key of ["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]) if (!Number.isSafeInteger(state.controller?.[key]) || state.controller[key] < 0) return fail("session_lifecycle_counter_invalid");
   try { normalizeContextBudgetPolicy(state.context?.policy); } catch { return fail("session_lifecycle_policy_invalid"); }
   if (state.report?.correlationKey !== state.logicalTask.taskKey) return fail("session_lifecycle_report_correlation_mismatch");
@@ -412,6 +412,22 @@ export function transitionSessionLifecyclePhase(config, state, { phase, nextExac
   const next = structuredClone(state);
   next.controller.phase = bounded(phase, 120);
   next.controller.nextExactAction = bounded(nextExactAction, 500);
+  if (["completed", "stopped"].includes(phase)) {
+    next.report.status = phase;
+    next.mutationAuthority = { ownerSessionId: null, generation: next.sessions.generation, status: "terminal", handoff: null };
+  }
+  refreshDigest(next);
+  return persistSessionLifecycleState(config, next);
+}
+
+export function transitionSessionLifecycleHead(config, state, { branchName, headSha, prNumber } = {}) {
+  const validation = validateSessionLifecycleState(state);
+  if (!validation.ok) return validation;
+  if (!sha(headSha)) return fail("session_lifecycle_head_transition_invalid");
+  const next = structuredClone(state);
+  next.branch.name = bounded(branchName || next.branch.name, 240);
+  next.branch.headSha = headSha;
+  next.branch.prNumber = Number.isSafeInteger(prNumber) ? prNumber : next.branch.prNumber;
   refreshDigest(next);
   return persistSessionLifecycleState(config, next);
 }

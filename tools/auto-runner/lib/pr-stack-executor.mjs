@@ -30,7 +30,7 @@ import { runCodexPrompt } from "./codex-runner.mjs";
 import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "./session-lifecycle.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, transitionSessionLifecycleHead, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -102,7 +102,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   const loadedState = loadOrCreateStackState({ config, plan, statePath, adapter });
   if (!loadedState.ok) return fail(loadedState.reasonCode, loadedState.reason, { statePath });
   let state = loadedState.state;
-  const firstPr = plan.orderedPrs[0];
+  const firstPr = state.orderedPrs?.find((pr) => pr.number === state.sessionLifecycle?.branch?.prNumber) || state.orderedPrs?.[0] || plan.orderedPrs[0];
   const stackRunId = config.runnerRunId || `pr-stack:${plan.stackId}`;
   const stackIssueNumber = plan.issueNumber ?? firstPr?.issueNumber ?? firstPr?.number;
   const stackClaimIdentity = digestJson({ stackId: plan.stackId, statePath });
@@ -292,7 +292,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     const finalEvidence = completionAuthorization?.protectedPlan
       ? putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization.evidence)
       : (dispatch.evidence || state.evidence);
-    const nextState = transitionState(state, {
+    let nextState = transitionState(state, {
       phase: dispatch.complete ? "completed" : "advanced",
       terminal: dispatch.complete ? { reasonCode: "stack_complete", reason: "all_prs_merged_and_hygiene_complete" } : null,
       wait: null,
@@ -305,6 +305,14 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
       orderedPrs: dispatch.orderedPrs || state.orderedPrs,
       summary: dispatch.summary || null,
     });
+    if (config.sessionLifecycle?.enabled === true && nextState.sessionLifecycle) {
+      const lifecyclePr = nextState.orderedPrs.find((pr) => pr.number === nextState.sessionLifecycle.branch.prNumber);
+      if (lifecyclePr?.headRefOid && lifecyclePr.headRefOid !== nextState.sessionLifecycle.branch.headSha) {
+        const reboundLifecycle = transitionSessionLifecycleHead(config, nextState.sessionLifecycle, { branchName: lifecyclePr.headRefName, headSha: lifecyclePr.headRefOid, prNumber: lifecyclePr.number });
+        if (!reboundLifecycle.ok) return fail(reboundLifecycle.reasonCode, "unable to bind PR-stack lifecycle to rebound exact head", { statePath });
+        nextState = sanitizeState({ ...nextState, sessionLifecycle: reboundLifecycle.state });
+      }
+    }
     state = writePrStackState(statePath, nextState).state;
     dispatchCount += 1;
     lastResult = dispatch.result || null;
