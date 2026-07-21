@@ -1840,20 +1840,31 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         },
       };
       const recovered = await recoverExistingPrIfConfigured(recoveryConfig, logger, issue, laneDecision, state, { runId: state.run?.runId || config.runnerRunId });
-      if (recovered?.autoMerge?.result === "merged") return { ok: true, evidence: { mergeSha: recovered.autoMerge.mergeSha, prNumber } };
+      if (recovered?.autoMerge?.result === "merged") {
+        if (!autoMergeEffectsConfirmed(config, state.sessionLifecycle, recovered.autoMerge)) {
+          return { ok: false, reasonCode: "ordinary_continuation_merge_hygiene_unconfirmed" };
+        }
+        return { ok: true, evidence: compactOrdinaryMergeEvidence(recovered.autoMerge, prNumber) };
+      }
       if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
       return { ok: false, reasonCode: recovered?.autoMerge?.reason || recovered?.reason || "ordinary_continuation_github_convergence_blocked" };
     },
     merge: async () => ({ ok: true, evidence: { adoptedFromGithubConvergence: true } }),
-    post_merge_hygiene: async () => ({ ok: true, evidence: { continuation: "existing_completion_hygiene_authority" } }),
-    adoptEffect: async (phase, continuation, adopted) => adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted),
+    post_merge_hygiene: async (continuation) => {
+      const evidence = continuation.effects?.github_convergence?.evidence;
+      const autoMerge = ordinaryMergeEvidenceAsAutoMerge(evidence);
+      return autoMerge.result === "merged" && autoMergeEffectsConfirmed(config, state.sessionLifecycle, autoMerge)
+        ? { ok: true, evidence }
+        : { ok: false, reasonCode: "ordinary_continuation_post_merge_hygiene_unconfirmed" };
+    },
+    adoptEffect: async (phase, continuation, adopted) => adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, state.sessionLifecycle),
     onCheckpoint: persist,
   });
   logger.info(`Issue #${issue.number}: ordinary continuation advanced to ${result.state?.phase || result.outcome}.`);
   return { ...result, ordinaryContinuation: result.state, largeCandidateReviewRecovery: checkpoint, state };
 }
 
-function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted) {
+function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {
   const targetDigest = adopted.targetDigest;
   if (phase === "push") {
     const live = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${continuation.branchName}`], { cwd: config.repoRoot, encoding: "utf8" });
@@ -1871,10 +1882,35 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
     return proof.status === 0 ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_merge_live_mismatch" };
   }
   if (phase === "post_merge_hygiene") {
-    const live = readIssueLive(config, issue.number);
-    return live.ok && live.issue?.state === "CLOSED" ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_hygiene_live_mismatch" };
+    const autoMerge = ordinaryMergeEvidenceAsAutoMerge(adopted.evidence);
+    return autoMerge.result === "merged" && autoMergeEffectsConfirmed(config, sessionLifecycle, autoMerge)
+      ? { ok: true, targetDigest }
+      : { ok: false, reasonCode: "ordinary_continuation_hygiene_effects_unconfirmed" };
   }
   return { ok: false, reasonCode: `ordinary_continuation_live_adoption_unsupported:${phase}` };
+}
+
+function compactOrdinaryMergeEvidence(autoMerge, prNumber) {
+  return {
+    result: autoMerge.result,
+    mergeSha: autoMerge.mergeSha,
+    prNumber,
+    mergeReadback: autoMerge.mergeReadback,
+    sourceBranchRestoration: autoMerge.sourceBranchRestoration,
+    completionHygiene: autoMerge.completionHygiene,
+    comments: { pr: autoMerge.comments?.pr },
+  };
+}
+
+function ordinaryMergeEvidenceAsAutoMerge(evidence = {}) {
+  return {
+    result: evidence?.result,
+    mergeSha: evidence?.mergeSha,
+    mergeReadback: evidence?.mergeReadback,
+    sourceBranchRestoration: evidence?.sourceBranchRestoration,
+    completionHygiene: evidence?.completionHygiene,
+    comments: evidence?.comments,
+  };
 }
 
 function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
