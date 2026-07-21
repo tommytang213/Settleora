@@ -627,8 +627,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner feature-bundle result for #${issue.number}: ${iteration.outcome}.${detail}${reason}`,
       );
-      if (bundleResult.sessionLifecycle && iteration.issueComment?.status === 0) {
-        const terminal = transitionSessionLifecyclePhase(config, bundleResult.sessionLifecycle, { phase: "completed", nextExactAction: "bundle_complete" });
+      const bundleTerminalEffectsConfirmed = iteration.issueComment?.status === 0 && autoMergeEffectsConfirmed(bundleResult.autoMerge);
+      if (bundleResult.sessionLifecycle && bundleTerminalEffectsConfirmed) {
+        const successfulBundleOutcome = ["auto_merged", "approved_pr_opened"].includes(iteration.outcome);
+        const terminal = transitionSessionLifecyclePhase(config, bundleResult.sessionLifecycle, { phase: successfulBundleOutcome ? "completed" : "stopped", nextExactAction: successfulBundleOutcome ? "bundle_complete" : "bundle_stopped" });
         if (!terminal.ok) throw new Error(terminal.reasonCode);
         iteration.sessionLifecycle = terminal.state;
         issue.sessionLifecycle = terminal.state;
@@ -663,7 +665,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       );
     }
     const recoveryLifecycle = recovery.sessionLifecycle || issue.sessionLifecycle;
-    const recoveryTerminalEffectConfirmed = iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0;
+    const recoveryTerminalEffectConfirmed = (iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0) && autoMergeEffectsConfirmed(recovery.autoMerge);
     if (recoveryLifecycle && recoveryTerminalEffectConfirmed) {
       const terminal = transitionSessionLifecyclePhase(config, recoveryLifecycle, {
         phase: iteration.outcome === "auto_merged" ? "completed" : "stopped",
@@ -2539,6 +2541,17 @@ async function runReviewFixCycle(config, context) {
 
 function finishIssueOutcome(config, issue, outcome, body) {
   return commentIssueOutcome(config, issue, outcome, body, { effectContext: issue.sessionLifecycle || null });
+}
+
+function autoMergeEffectsConfirmed(autoMerge = {}) {
+  if (autoMerge.result !== "merged") return true;
+  const hygiene = autoMerge.completionHygiene || {};
+  const mutationComponents = [hygiene.comment, hygiene.closure, hygiene.labelCleanup, hygiene.parentProgress, hygiene.project, hygiene.ledger];
+  const completeStatus = (component) => !component || ["updated", "skipped", "not_updated", "reused", "created"].includes(component.status) || component.skipped === true;
+  return autoMerge.mergeReadback?.ok === true
+    && autoMerge.sourceBranchRestoration?.confirmed === true
+    && autoMerge.comments?.pr?.status === 0
+    && mutationComponents.every(completeStatus);
 }
 
 async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {

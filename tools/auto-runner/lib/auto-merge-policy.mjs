@@ -1345,6 +1345,7 @@ function independentReviewSummaryLine(context) {
 }
 
 function commandStatus(result) {
+  if (typeof result?.ok === "boolean") return { status: result.ok ? 0 : 1, error: result.ok ? null : result.reasonCode || "canonical_effect_incomplete" };
   return { status: result.status, error: result.error || null };
 }
 
