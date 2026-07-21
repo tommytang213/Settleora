@@ -1,6 +1,6 @@
 import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
-import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
@@ -524,7 +524,6 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     path.join(config.logsRoot, "reviews"),
     path.join(config.logsRoot, "review-fix"),
     path.join(config.logsRoot, "recovery"),
-    path.join(config.logsRoot, "session-lifecycle"),
     path.join(config.logsRoot, "summaries"),
     path.join(config.logsRoot, "locks"),
     path.join(config.logsRoot, "canary"),
@@ -533,6 +532,9 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   ]) {
     mkdirSync(dir, { recursive: true });
   }
+  const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
+  mkdirSync(lifecycleRoot, { recursive: true, mode: 0o700 });
+  chmodSync(lifecycleRoot, 0o700);
   config.canaryEvidenceRoot = path.join(config.logsRoot, "canary");
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
