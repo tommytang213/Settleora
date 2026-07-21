@@ -36,7 +36,11 @@ export function preparePreEffectIntent(config, input, { now = new Date(), intent
     diagnostics: [],
   };
   ensureTrustedRoot(intentRoot(config));
-  return withIntentLock(config, value.intentId, () => {
+  return withIntentLock(config, `fingerprint-${fingerprint}`, () => {
+    const matching = findPreEffectIntents(config, (intent) => intent.fingerprint === fingerprint);
+    if (matching.length === 1) return matching[0];
+    const conflictingId = loadPreEffectIntent(config, value.intentId);
+    if (conflictingId) throw new Error("Conflicting pre-effect intent identity");
     persist(config, value, true);
     return value;
   });
