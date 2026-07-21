@@ -35,6 +35,9 @@ import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
 import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./large-candidate-review-routing.mjs";
+import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, readSplitMaterializationState } from "./feature-bundle-split-materializer.mjs";
+import { createDependentPrStackPlan } from "./pr-stack-controller.mjs";
+import { runPrStackExecution } from "./pr-stack-executor.mjs";
 import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
@@ -323,12 +326,34 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
   if (result.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
-    result.largeCandidateReview = persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview });
+    result.largeCandidateReview = persistBundleLargeCandidateSplit(config, { issue, plan, state, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview });
     if (result.largeCandidateReview.ok && result.largeCandidateReview.execution === "deterministic_split") {
-      result.outcome = "deterministic_split_planned";
       result.splitPlan = result.largeCandidateReview;
       recovery?.marker("deterministic_split_plan", result.largeCandidateReview.planDigest, { target: bundleBranchName, correlation: plan.planDigest });
       recovery?.advance("implementation_or_bundle_slice", "execute_deterministic_split_plan", "execute_deterministic_split_plan");
+      const checkpointPath = path.join(config.logsRoot, "bundle-splits", `${result.largeCandidateReview.planDigest}.json`);
+      const splitInput = buildBundleSplitMaterializationInput(config, { issue, plan, state, splitPlan: result.largeCandidateReview, baseSha: baseOriginMainSha, headSha: finalHead, checkpointPath });
+      const adapter = createProductionSplitMaterializationAdapter(config, {
+        checkpointPath,
+        handoffToPrStack: async ({ slices }) => {
+          const groups = groupMaterializedSplitStacks(slices);
+          const executions = [];
+          for (const [groupIndex, group] of groups.entries()) {
+            const stackPlan = createDependentPrStackPlan({ repository: config.repositorySlug, stackId: `bundle-split:${result.largeCandidateReview.planDigest}:${groupIndex + 1}`, issueNumber: issue.number, prs: group });
+            const planPath = path.join(config.logsRoot, "pr-stacks", `${stackPlan.stackId.replace(/[^A-Za-z0-9_.-]/g, "-")}.json`);
+            mkdirSync(path.dirname(planPath), { recursive: true, mode: 0o700 });
+            writeFileSync(planPath, `${JSON.stringify(stackPlan, null, 2)}\n`, { mode: 0o600 });
+            const execution = await runPrStackExecution(config, { stackPlanPath: planPath });
+            if (!execution.ok && execution.outcome !== "waiting") return { ...execution, stackId: stackPlan.stackId, planPath };
+            executions.push({ ...execution, stackId: stackPlan.stackId, planPath });
+          }
+          return { ok: true, outcome: executions.some((entry) => entry.outcome === "waiting") ? "waiting" : "complete", executions };
+        },
+      });
+      result.splitMaterialization = await materializeFeatureBundleSplit(splitInput, adapter);
+      if (!result.splitMaterialization.ok) return stopBundle(result, "blocked", result.splitMaterialization.reasonCode, "Deterministic split materialization failed closed before PR-stack convergence.");
+      result.outcome = result.splitMaterialization.outcome;
+      recovery?.marker("deterministic_split_materialized", result.largeCandidateReview.planDigest, { target: bundleBranchName, correlation: plan.planDigest });
       result.recovery = recovery?.summary();
       result.bundle.state = summarizeBundleState(state);
       return result;
@@ -1042,7 +1067,7 @@ function bundleStructuredFindings(evidence) {
     : { severity: finding?.severity || "reviewer", path: finding?.path || null, summary: String(finding?.summary || finding?.message || "").slice(0, 500) });
 }
 
-function persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage, changedFiles, headSha, baseSha, externalReview }) {
+function persistBundleLargeCandidateSplit(config, { issue, plan, state, reviewPackage, changedFiles, headSha, baseSha, externalReview }) {
   const slices = (plan?.slices || []).map((slice) => ({
     ...slice,
     changedFiles: changedFiles.filter((changedPath) => (slice.allowedPaths || []).some((allowedPath) => featureBundleAllowedPathMatches(allowedPath, changedPath))),
@@ -1061,6 +1086,39 @@ function persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage, 
     changedFiles,
     slices,
   });
+}
+
+function buildBundleSplitMaterializationInput(config, { issue, plan, state, splitPlan, baseSha, headSha, checkpointPath }) {
+  let previous = baseSha;
+  const plannedById = new Map((splitPlan.slices || []).map((slice) => [slice.id, slice]));
+  const slices = state.sliceOrder.map((sliceId) => {
+    const contract = plan.slices.find((slice) => slice.id === sliceId);
+    const planned = plannedById.get(sliceId);
+    const checkpoint = state.slices[sliceId];
+    const value = {
+      ...planned,
+      branchName: `feature/auto-${issue.number}-split-${sliceId}-${splitPlan.planDigest.slice(0, 10)}`,
+      commitRange: { fromExclusive: previous, toInclusive: checkpoint.commitSha },
+      allowedPathsProven: contract.allowedPathsProven === true,
+      semanticOwnDeltaProven: contract.semanticOwnDeltaProven === true,
+    };
+    previous = checkpoint.commitSha;
+    return value;
+  });
+  return { logicalTaskKey: config.taskKey || `issue-${issue.number}`, repository: config.repositorySlug || "tommytang213/Settleora", issueNumber: issue.number, executionAuthorityProven: slices.every((slice) => plan.slices.find((entry) => entry.id === slice.id)?.executionAuthorityProven === true), baseSha, headSha, changedFiles: splitPlan.slices.flatMap((slice) => slice.changedFiles), slices, state: readSplitMaterializationState(checkpointPath) };
+}
+
+function groupMaterializedSplitStacks(slices) {
+  const groups = [];
+  const groupById = new Map();
+  for (const slice of slices) {
+    const parentGroup = slice.dependsOn?.length ? groupById.get(slice.dependsOn.at(-1)) : null;
+    const group = parentGroup || [];
+    if (!parentGroup) groups.push(group);
+    group.push(slice);
+    groupById.set(slice.id, group);
+  }
+  return groups;
 }
 
 function markBundleReviewConvergenceRequired(state, { exactHead, outcome, reason, message, source }) {

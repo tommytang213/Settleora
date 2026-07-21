@@ -1,5 +1,11 @@
 # Settleora Auto-Runner Tooling
 
+## Post-implementation continuation authorities
+
+Ordinary post-implementation work uses one durable continuation authority from exact candidate reconciliation through validation, dual and structured review, convergence, push/PR recovery, GitHub gates, merge, and post-merge hygiene. Startup recovery re-enters that authority at the earliest incomplete exact-head phase; loading a large-review checkpoint is not a terminal success.
+
+Proven feature-bundle splits are materialized by the bundle authority from frozen checkpoint commit ranges. Each concrete file belongs to exactly one slice, branch and PR reuse is exact-head/base bound, dependent slices retain their parent-branch PR base, and verified split PRs are handed to the existing PR-stack executor. Ambiguous ownership, branch/PR conflicts, missing execution authority, or semantic-delta mismatch block before further mutation.
+
 ## Canonical mutation consumer contract
 
 When session lifecycle authority is enabled, production mutation consumers use

@@ -1,5 +1,11 @@
 # Autonomous Codex Runner
 
+## Post-implementation continuation authorities
+
+The ordinary issue path and startup recovery share an idempotent continuation spanning exact candidate reconciliation, validation, independent and local/structured review, convergence, push, PR recovery, GitHub convergence, exact-head merge, and post-merge hygiene. Durable exact-target effects are adopted rather than replayed, a source change invalidates review and downstream effects, and the accepted logical-task charge remains the root task charge across execution/session continuations.
+
+For a deterministic feature-bundle split, the bundle orchestrator—not the PR-stack executor—materializes exact branches from the frozen base and proven checkpoint ranges. It verifies the actual per-slice file digest and semantic own delta, normally pushes and creates or reuses the exact dependent PR relationship, persists each step, then hands the created PR stack to the existing stack executor. Incomplete proof or conflicting live state fails closed before mutation.
+
 ## Accepted-task and convergence budget authority
 
 The top-level task budget is charged at the accepted claim boundary, not by

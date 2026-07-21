@@ -222,9 +222,11 @@ test("large review recovery re-requires binding and reviewer prompts carry bound
   assert.match(runner, /refreshNormalLargeCandidateReviewAfterFix\(config, iteration, postFix\.changedFiles/);
   assert.match(bundle, /changedFiles\.filter\(\(changedPath\).*featureBundleAllowedPathMatches/);
   assert.match(runner, /loadNormalLargeCandidateRecoveryCheckpoint\(config, state\)/);
-  assert.match(runner, /outcome: "recovery_large_candidate_review_checkpoint_loaded"/);
-  assert.match(bundle, /outcome = "deterministic_split_planned"/);
-  assert.match(bundle, /execute_deterministic_split_plan/);
+  assert.match(runner, /continueOrdinaryCandidateRecovery\(config, logger/);
+  assert.match(runner, /continueOrdinaryCandidate\(initial/);
+  assert.match(bundle, /materializeFeatureBundleSplit/);
+  assert.match(bundle, /deterministic_split_materialized/);
+  assert.match(bundle, /runPrStackExecution/);
 });
 
 test("stack local-fix recovery threads one injected Codex execution authority", () => {

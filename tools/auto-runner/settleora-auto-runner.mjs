@@ -116,6 +116,7 @@ import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
+import { continueOrdinaryCandidate, createOrdinaryContinuationState } from "./lib/ordinary-candidate-continuation.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -910,6 +911,25 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFilesDigest: iteration.validation.changedFilesDigest,
     summary: "exact-head validation",
   });
+
+  if (recoveryRecorder) {
+    const identity = {
+      repository: config.repositorySlug || "tommytang213/Settleora",
+      baseSha: iteration.baseOriginMainSha,
+      headSha: iteration.runnerCreatedCommitSha,
+      treeSha: getRefSha("HEAD^{tree}"),
+      diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+      changedFiles,
+    };
+    const ordinaryContinuation = createOrdinaryContinuationState({ logicalTaskKey: config.taskKey || `issue-${issue.number}`, executionKey: runId, issueNumber: issue.number, branchName, identity });
+    const registered = await continueOrdinaryCandidate(ordinaryContinuation, {
+      candidate_reconciliation: async () => ({ ok: true, evidence: identity }),
+      local_validation: async () => ({ ok: true, evidence: { changedFilesDigest: iteration.validation.changedFilesDigest } }),
+      external_review: async () => ({ ok: true, wait: true, completed: false, reasonCode: "external_review_pending" }),
+      onCheckpoint: async (continuation) => recoveryRecorder.annotate({ ordinaryContinuation: continuation }),
+    });
+    if (!registered.ok || registered.state?.phase !== "external_review") throw new Error(registered.reasonCode || "ordinary_continuation_registration_failed");
+  }
 
   const beforeReview = await checkoutFingerprint();
   recoveryRecorder?.advance("external_review", "run_external_review");
@@ -1710,13 +1730,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       if (["external_review", "codex_mechanics_security_review"].includes(boundary.phase)) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
         if (checkpoint.ok) {
-          return {
-            ok: true,
-            outcome: "recovery_large_candidate_review_checkpoint_loaded",
-            reasonCode: "large_candidate_review_checkpoint_resumable",
-            largeCandidateReviewRecovery: checkpoint,
-            state,
-          };
+          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary });
         }
       }
       if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
@@ -1748,6 +1762,67 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary }) {
+  const identity = checkpoint.candidateIdentity;
+  const initial = state.ordinaryContinuation || createOrdinaryContinuationState({
+    logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
+    executionKey: config.runnerRunId || null,
+    issueNumber: issue.number,
+    branchName: state.branch.name,
+    identity: { ...identity, changedFiles: listChangedFiles(identity.baseSha, identity.headSha) },
+    phase: "candidate_reconciliation",
+    counters: { acceptedLogicalTasks: 1, sourceRounds: state.reviewConvergenceState?.counters?.lifetimeLocalSourceChangingRounds || 0, githubEpochs: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0 },
+  });
+  const context = { issue, laneDecision, checkpoint, validation: null, reviewPackage: null, externalReview: null, review: null, largeCandidateReview: null, pr: null };
+  const persist = async (ordinaryContinuation) => writeRecoveryState(config, { ...state, ordinaryContinuation });
+  const result = await continueOrdinaryCandidate(initial, {
+    candidate_reconciliation: async () => {
+      fetchOriginMain(config);
+      if (getCurrentBranch() !== state.branch.name || getRefSha("HEAD") !== identity.headSha || getRefSha("origin/main") !== identity.baseSha || getStatusShort() !== "") return { ok: false, reasonCode: "ordinary_continuation_candidate_mismatch" };
+      return { ok: true, evidence: identity };
+    },
+    local_validation: async () => {
+      const changedFiles = listChangedFiles(identity.baseSha, identity.headSha);
+      const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
+      if (forbidden.length) return { ok: false, reasonCode: "ordinary_continuation_scope_mismatch" };
+      context.validation = bindValidationEvidence(runValidationPlan(config, planValidation(changedFiles, laneDecision)), { headSha: identity.headSha, baseSha: identity.baseSha, changedFiles, profile: laneDecision.validationProfile });
+      return context.validation.passed ? { ok: true, evidence: { changedFilesDigest: context.validation.changedFilesDigest } } : { ok: false, reasonCode: "ordinary_continuation_validation_failed" };
+    },
+    external_review: async () => {
+      const changedFiles = initial.identity.changedFiles;
+      context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: identity.baseSha, diffHeadRef: identity.headSha });
+      context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
+      return context.externalReview.status === "pass" ? { ok: true, evidence: { status: "passed", evidencePath: context.externalReview.reportPath } } : { ok: false, outcome: "review_convergence_required", reasonCode: context.externalReview.reason || "ordinary_continuation_external_review_non_pass" };
+    },
+    codex_review: async () => {
+      context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: initial.identity.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: identity.baseSha, diffHeadRef: identity.headSha });
+      context.review = runReviewPrompt(config, context.reviewPackage);
+      return context.review?.verdict?.verdict === "approve" ? { ok: true, evidence: { status: "passed", evidencePath: context.review.logPath } } : { ok: false, outcome: "review_convergence_required", reasonCode: context.review?.reviewFailureReason || "ordinary_continuation_codex_review_non_pass" };
+    },
+    structured_review: async () => {
+      if (context.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") return { ok: true, evidence: { route: "normal" } };
+      const iteration = { issue, baseOriginMainSha: identity.baseSha, runnerCreatedCommitSha: identity.headSha, reviewPackage: context.reviewPackage, externalReview: context.externalReview, review: context.review };
+      context.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, initial.identity.changedFiles);
+      return context.largeCandidateReview.ok ? { ok: true, evidence: { state: context.largeCandidateReview.state } } : { ok: false, outcome: structuredLargeCandidateManualVerdict(context.largeCandidateReview) || "review_convergence_required", reasonCode: context.largeCandidateReview.reasonCode || "ordinary_continuation_structured_review_non_pass" };
+    },
+    review_convergence: async () => ({ ok: true, evidence: { exactHeadReviewPassed: true } }),
+    push: async () => {
+      const pushed = await pushBranch(config, state.branch.name, { effectContext: state.sessionLifecycle });
+      return pushed.status === 0 ? { ok: true, evidence: { headSha: identity.headSha } } : { ok: false, reasonCode: "ordinary_continuation_push_failed" };
+    },
+    pr_create_or_update: async () => {
+      context.pr = await openOrUpdatePr(config, issue, state.branch.name, `Recovered exact-head continuation for ${identity.headSha}.`, { effectContext: state.sessionLifecycle });
+      return context.pr?.url ? { ok: true, evidence: { url: context.pr.url, number: context.pr.number } } : { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
+    },
+    github_convergence: async () => ({ ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { pr: context.pr?.url } }),
+    merge: async () => ({ ok: false, reasonCode: "ordinary_continuation_merge_requires_fresh_github_state" }),
+    post_merge_hygiene: async () => ({ ok: false, reasonCode: "ordinary_continuation_post_merge_not_reached" }),
+    onCheckpoint: persist,
+  });
+  logger.info(`Issue #${issue.number}: ordinary continuation advanced to ${result.state?.phase || result.outcome}.`);
+  return { ...result, ordinaryContinuation: result.state, largeCandidateReviewRecovery: checkpoint, state };
 }
 
 function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
