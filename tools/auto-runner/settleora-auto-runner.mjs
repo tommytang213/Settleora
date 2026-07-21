@@ -1026,7 +1026,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   if (!iteration.review) {
     recoveryRecorder?.advance("codex_mechanics_security_review", "run_codex_mechanics_review");
-    iteration.review = runReviewPrompt(config, iteration.reviewPackage);
+    iteration.review = runReviewPrompt(config, { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null });
+    if (iteration.review.sessionLifecycle) iteration.sessionLifecycle = iteration.review.sessionLifecycle;
     const afterReview = await checkoutFingerprint();
     iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
     if (iteration.reviewMutationGuard.mutationDetected) {
@@ -2059,7 +2060,7 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
       diffText: readPrDiff(config, pr.number || pr.url),
     });
     const externalReview = await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery");
-    const review = externalReview.status === "pass" ? runReviewPrompt(config, reviewPackage) : null;
+    const review = externalReview.status === "pass" ? runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }) : null;
     return {
       reason: "recovery_evidence_generated",
       validation,
@@ -2238,9 +2239,9 @@ function createLivePrStackReviewAdapters(config) {
         fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
       };
     },
-    runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta }) => {
+    runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta, sessionLifecycle = null }) => {
       const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview });
-      const review = runReviewPrompt(config, reviewPackage);
+      const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle });
       return {
         ...review,
         reviewedHead: review.reviewedHead || headSha,
@@ -2503,7 +2504,8 @@ async function runReviewFixCycle(config, context) {
     reviewPhase: "post-review-fix-mechanics",
     reviewFixMechanicsContext: postFixContext.context,
   });
-  const reviewAfter = runReviewPrompt(config, reviewPackageAfter);
+  const reviewAfter = runReviewPrompt(config, { ...reviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
+  if (reviewAfter.sessionLifecycle) context.issue.sessionLifecycle = reviewAfter.sessionLifecycle;
   const afterReview = await checkoutFingerprint();
   const reviewMutationGuardAfter = compareFingerprints(beforeReview, afterReview);
   if (reviewMutationGuardAfter.mutationDetected) {
@@ -2627,7 +2629,7 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
     diffHeadRef: "HEAD",
   });
   const externalReview = await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head");
-  const review = runReviewPrompt(config, reviewPackage);
+  const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
   const afterReview = await checkoutFingerprint();
   return {
     changedFiles,

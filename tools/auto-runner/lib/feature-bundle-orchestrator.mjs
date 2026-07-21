@@ -330,7 +330,11 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
-  result.review = runReviewPrompt(config, result.reviewPackage);
+  result.review = runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
+  if (result.review.sessionLifecycle) {
+    sessionLifecycle = result.review.sessionLifecycle;
+    result.sessionLifecycle = sessionLifecycle;
+  }
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_codex_review",
   });
@@ -874,7 +878,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     };
   }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
-  const review = runReviewPrompt(config, reviewPackage);
+  const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: fixAttempt.sessionLifecycle || sessionLifecycle || null });
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_codex_review",
   });
@@ -887,6 +891,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
+    sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
   };
 }

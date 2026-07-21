@@ -2154,7 +2154,8 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       const externalReview = await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha });
       const fullDeltaExternalReview = { ...externalReview, fullCandidatePrDelta: externalReview?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
-      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha });
+      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle });
+      if (review?.sessionLifecycle && codex) codex.sessionLifecycle = review.sessionLifecycle;
       const verdict = review?.verdict?.verdict || review?.verdict;
       const fullDeltaCodexReview = { ...review, fullCandidatePrDelta: review?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       if (externalReview?.status !== "pass" || verdict !== "approve") {

@@ -157,10 +157,15 @@ export function runReviewPrompt(config, packageInfo) {
   const retry = normalizeMechanicsReviewRetry(config.codexMechanicsReviewRetry || config.mechanicsReviewRetry);
   const attempts = [];
   let selected = null;
+  let sessionLifecycle = packageInfo.sessionLifecycle || null;
+  if (config.sessionLifecycle?.enabled === true && !sessionLifecycle) {
+    return { skipped: false, promptPath, status: null, error: "session_lifecycle_invocation_identity_missing", reviewStatus: "unable_to_review", reviewFailureReason: "session_lifecycle_invocation_identity_missing", attempts: [], sessionLifecycle: null };
+  }
   for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
-    const attemptResult = runReviewPromptAttempt(config, command, prompt, attempt);
+    const attemptResult = runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecycle);
     attempts.push(summarizeReviewAttempt(attemptResult));
     selected = attemptResult;
+    sessionLifecycle = attemptResult.sessionLifecycle || sessionLifecycle;
     if (!isRetryableReviewAttempt(attemptResult) || attempt === retry.maxAttempts) break;
   }
   return {
@@ -189,16 +194,32 @@ export function runReviewPrompt(config, packageInfo) {
     changedFilesDigest: digestChangedFiles(packageInfo.summary?.changedFiles || []),
     completedAt: new Date().toISOString(),
     verdict: selected.verdict,
+    sessionLifecycle,
   };
 }
 
-function runReviewPromptAttempt(config, command, prompt, attempt) {
+function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecycle = null) {
   const timestamp = safeTimestamp();
   const logPath = path.join(config.logsRoot, "reviews", `${timestamp}-review${attempt > 1 ? `-attempt-${attempt}` : ""}.log`);
   const stdoutPath = path.join(config.logsRoot, "reviews", `${timestamp}-review${attempt > 1 ? `-attempt-${attempt}` : ""}.stdout`);
   const stderrPath = path.join(config.logsRoot, "reviews", `${timestamp}-review${attempt > 1 ? `-attempt-${attempt}` : ""}.stderr`);
   const stdoutFd = openSync(stdoutPath, "w");
   const stderrFd = openSync(stderrPath, "w");
+  let invocationLifecycle = null;
+  if (sessionLifecycle) {
+    invocationLifecycle = prepareFreshSessionInvocation(config, {
+      state: sessionLifecycle,
+      newSessionId: `${sessionLifecycle.logicalTask.runId}:codex-review-${attempt}:${sessionLifecycle.sessions.generation + 1}:${randomUUID()}`,
+      phase: `codex_mechanics_review_attempt_${attempt}`,
+      telemetry: {},
+      mutationJournaled: true,
+    });
+    if (!invocationLifecycle.ok) {
+      closeSync(stdoutFd);
+      closeSync(stderrFd);
+      return { status: null, signal: null, error: invocationLifecycle.reasonCode, reviewStatus: "unable_to_review", reviewFailureReason: invocationLifecycle.reasonCode, sessionLifecycle: invocationLifecycle.state || sessionLifecycle };
+    }
+  }
   let result;
   try {
     result = spawnSync(command.command, [], {
@@ -207,9 +228,21 @@ function runReviewPromptAttempt(config, command, prompt, attempt) {
       stdio: ["pipe", stdoutFd, stderrFd],
       encoding: "utf8",
     });
+  } catch (error) {
+    result = { status: null, signal: null, error };
   } finally {
     closeSync(stdoutFd);
     closeSync(stderrFd);
+  }
+  if (invocationLifecycle?.state) {
+    const returned = prepareFreshSessionInvocation(config, {
+      state: invocationLifecycle.state,
+      newSessionId: `controller-successor:${randomUUID()}`,
+      phase: result.status === 0 && !result.signal && !result.error ? "codex_mechanics_review_complete" : "codex_mechanics_review_failed",
+      telemetry: {},
+      mutationJournaled: true,
+    });
+    sessionLifecycle = returned.ok ? returned.state : invocationLifecycle.state;
   }
   const stdout = readFileSync(stdoutPath, "utf8");
   const stderr = readFileSync(stderrPath, "utf8");
@@ -276,6 +309,7 @@ function runReviewPromptAttempt(config, command, prompt, attempt) {
     rawCandidateDiagnostics,
     verdict: parsedVerdict,
     ...classification,
+    sessionLifecycle,
   };
 }
 

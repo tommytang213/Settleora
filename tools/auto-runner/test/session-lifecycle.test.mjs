@@ -26,7 +26,7 @@ import {
   validateSessionLifecycleState,
 } from "../lib/session-lifecycle.mjs";
 import { consumeSupervisorInterruptionPlanner } from "../supervisor/outage-resubmission-controller.mjs";
-import { runCodexPrompt } from "../lib/codex-runner.mjs";
+import { runCodexPrompt, runReviewPrompt } from "../lib/codex-runner.mjs";
 
 const sha = "a".repeat(40);
 const digest = "b".repeat(64);
@@ -407,6 +407,23 @@ test("failed Codex child durably hands lifecycle authority back to a controller 
   assert.match(result.sessionLifecycle.state.sessions.current, /^controller-successor:/);
   assert.equal(result.sessionLifecycle.state.mutationAuthority.ownerSessionId, result.sessionLifecycle.state.sessions.current);
   assert.equal(result.sessionLifecycle.state.sessions.retired.includes("failed-child"), true);
+});
+
+test("failed Codex mechanics review also returns lifecycle authority", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "failed-review-lifecycle-"));
+  mkdirSync(path.join(root, "reviews"), { recursive: true });
+  const command = path.join(root, "fail-review.sh");
+  writeFileSync(command, "#!/bin/sh\nexit 23\n");
+  chmodSync(command, 0o700);
+  const config = { logsRoot: root, repoRoot: root, repositorySlug: "owner/repo", reviewerCommand: command, sessionLifecycle: { enabled: true } };
+  const persisted = persistSessionLifecycleState(config, fixture());
+  const result = runReviewPrompt(config, {
+    summary: { currentHead: sha, baseSha: sha, changedFiles: [] },
+    sessionLifecycle: persisted.state,
+  });
+  assert.equal(result.status, 23);
+  assert.match(result.sessionLifecycle.sessions.current, /^controller-successor:/);
+  assert.equal(result.sessionLifecycle.mutationAuthority.ownerSessionId, result.sessionLifecycle.sessions.current);
 });
 
 test("supervisor rejects caller-supplied synthetic liveness", () => {
