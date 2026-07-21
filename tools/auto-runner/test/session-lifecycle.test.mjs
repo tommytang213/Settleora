@@ -445,6 +445,7 @@ test("production invocation sources wire lifecycle through feature bundle and re
   assert.match(runner, /context\.issue\.sessionLifecycle = codex\.sessionLifecycle\.state/);
   assert.match(codexRunner, /controller-successor/);
   assert.match(codexRunner, /sessionLifecycle = controllerReturn/);
+  assert.match(codexRunner, /reviewFailureCategory: "session_lifecycle_handoff_failed"/);
   const prStack = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
   const convergence = readFileSync(new URL("../lib/review-convergence-controller.mjs", import.meta.url), "utf8");
   assert.match(prStack, /sessionLifecycle: state\?\.sessionLifecycle \|\| plan\?\.sessionLifecycle \|\| null/);

@@ -242,7 +242,21 @@ function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecyc
       telemetry: {},
       mutationJournaled: true,
     });
-    sessionLifecycle = returned.ok ? returned.state : invocationLifecycle.state;
+    if (!returned.ok) {
+      return {
+        status: null,
+        signal: result.signal || null,
+        error: returned.reasonCode,
+        logPath,
+        stdoutPath,
+        stderrPath,
+        reviewStatus: "unable_to_review",
+        reviewFailureCategory: "session_lifecycle_handoff_failed",
+        reviewFailureReason: returned.reasonCode,
+        sessionLifecycle: returned.state || invocationLifecycle.state,
+      };
+    }
+    sessionLifecycle = returned.state;
   }
   const stdout = readFileSync(stdoutPath, "utf8");
   const stderr = readFileSync(stderrPath, "utf8");
