@@ -30,6 +30,7 @@ import { runCodexPrompt } from "./codex-runner.mjs";
 import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
+import { findPreEffectIntents } from "./pre-effect-intent.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, transitionSessionLifecycleHead, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const prStackStateVersion = 1;
@@ -139,6 +140,16 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     writePrStackState(statePath, state);
   }
   if (state.terminal?.reasonCode === "stack_complete") {
+    const pendingIntents = pendingPrStackCanonicalIntents(config, state);
+    if (!pendingIntents.ok || pendingIntents.intents.length > 0) {
+      const blocked = transitionState(state, {
+        phase: "blocked",
+        terminal: { reasonCode: pendingIntents.reasonCode || "stack_canonical_effect_reconciliation_required", reason: pendingIntents.reason || "canonical effects remain pending reconciliation" },
+        summary: { action: "terminal_effect_reconciliation", pendingIntentIds: pendingIntents.intents?.map((intent) => intent.intentId) || [] },
+      });
+      writePrStackState(statePath, blocked);
+      return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+    }
     const lifecycleComplete = state.sessionLifecycle?.controller?.phase === "completed"
       && state.sessionLifecycle?.report?.status === "completed"
       && state.sessionLifecycle?.mutationAuthority?.status === "terminal";
@@ -315,6 +326,19 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     const finalEvidence = completionAuthorization?.protectedPlan
       ? putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization.evidence)
       : (dispatch.evidence || state.evidence);
+    if (dispatch.complete) {
+      const pendingIntents = pendingPrStackCanonicalIntents(config, state);
+      if (!pendingIntents.ok || pendingIntents.intents.length > 0) {
+        const blocked = transitionState(state, {
+          phase: "blocked",
+          terminal: { reasonCode: pendingIntents.reasonCode || "stack_canonical_effect_reconciliation_required", reason: pendingIntents.reason || "canonical effects remain pending reconciliation" },
+          evidence: finalEvidence,
+          summary: { action: "terminal_effect_reconciliation", pendingIntentIds: pendingIntents.intents?.map((intent) => intent.intentId) || [] },
+        });
+        writePrStackState(statePath, blocked);
+        return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+      }
+    }
     let nextState = transitionState(state, {
       phase: dispatch.complete ? "completed" : "advanced",
       terminal: dispatch.complete ? { reasonCode: "stack_complete", reason: "all_prs_merged_and_hygiene_complete" } : null,
@@ -2329,9 +2353,25 @@ function transitionState(state, patch = {}) {
 
 function stopPrStackLifecycle(config, state, reasonCode) {
   if (config.sessionLifecycle?.enabled !== true || !state.sessionLifecycle) return { ok: true, state };
+  const pendingIntents = pendingPrStackCanonicalIntents(config, state);
+  if (!pendingIntents.ok || pendingIntents.intents.length > 0) return { ok: true, state };
   const stopped = transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "stopped", nextExactAction: reasonCode || "blocked" });
   if (!stopped.ok) return stopped;
   return { ok: true, state: sanitizeState({ ...state, sessionLifecycle: stopped.state }) };
+}
+
+function pendingPrStackCanonicalIntents(config, state) {
+  if (config.sessionLifecycle?.enabled !== true || !state.sessionLifecycle) return { ok: true, intents: [] };
+  const lifecycle = state.sessionLifecycle;
+  try {
+    const intents = findPreEffectIntents(config, (intent) => intent.repository === lifecycle.repository
+      && intent.runId === lifecycle.logicalTask?.runId
+      && intent.claimIdentity === lifecycle.logicalTask?.claimIdentity
+      && !["finalized", "failed_closed"].includes(intent.status));
+    return { ok: true, intents };
+  } catch {
+    return { ok: false, reasonCode: "stack_canonical_intent_inventory_unavailable", reason: "canonical effect intent inventory could not be proven terminal", intents: [] };
+  }
 }
 
 function shouldContinueStackDispatch({ adapter, dispatchCount }) {
