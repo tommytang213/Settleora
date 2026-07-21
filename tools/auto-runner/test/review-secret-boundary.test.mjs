@@ -2287,7 +2287,7 @@ test("raw diff and provider-bound digests are deterministic", () => {
   assert.equal(providerBoundReviewDigest(diff), providerBoundReviewDigest(diff));
 });
 
-test("route remains blocked for unsupported aggregate size instead of rewriting package scope", async () => {
+test("coherent aggregate size escalates without rewriting package scope", async () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-boundary-route-block-"));
   try {
     const changedFiles = Array.from({ length: 41 }, (_item, index) => `tools/auto-runner/lib/file-${index}.mjs`);
@@ -2298,9 +2298,10 @@ test("route remains blocked for unsupported aggregate size instead of rewriting 
         throw new Error("should not call");
       },
     });
-    assert.equal(result.status, "blocked");
-    assert.equal(result.reason, "blocked_external_reviewer_split_required");
-    assert.equal(result.route.tier, "block_split_or_escalate");
+    assert.equal(result.status, "skipped");
+    assert.equal(result.reason, "skipped_external_reviewer_tier_disabled");
+    assert.equal(result.route.tier, "strong_independent");
+    assert.equal(result.route.largeCandidateRouting.state, "external_review_large_bundle_escalation_required");
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
