@@ -34,17 +34,6 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run", purpose };
   }
-  let sessionLifecycle = null;
-  if (config.sessionLifecycle?.enabled === true) {
-    if (!promptInfo.sessionLifecycle?.state || !promptInfo.sessionLifecycle?.newSessionId) {
-      return { skipped: false, status: null, error: "session_lifecycle_invocation_identity_missing", purpose };
-    }
-    sessionLifecycle = prepareFreshSessionInvocation(config, {
-      ...promptInfo.sessionLifecycle,
-      phase: promptInfo.sessionLifecycle.phase || purpose,
-    });
-    if (!sessionLifecycle.ok) return { skipped: false, status: null, error: sessionLifecycle.reasonCode, purpose, sessionLifecycle };
-  }
   const command = resolveCodexCommand(config.codexCommand);
   const logPath = path.join(
     config.logsRoot,
@@ -66,6 +55,21 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
     ].join("\n"),
   );
   const fd = openSync(logPath, "a");
+  let sessionLifecycle = null;
+  if (config.sessionLifecycle?.enabled === true) {
+    if (!promptInfo.sessionLifecycle?.state || !promptInfo.sessionLifecycle?.newSessionId) {
+      closeSync(fd);
+      return { skipped: false, status: null, error: "session_lifecycle_invocation_identity_missing", purpose };
+    }
+    sessionLifecycle = prepareFreshSessionInvocation(config, {
+      ...promptInfo.sessionLifecycle,
+      phase: promptInfo.sessionLifecycle.phase || purpose,
+    });
+    if (!sessionLifecycle.ok) {
+      closeSync(fd);
+      return { skipped: false, status: null, error: sessionLifecycle.reasonCode, purpose, sessionLifecycle };
+    }
+  }
   const invocationStartedAt = Date.now();
   let result;
   try {
@@ -75,15 +79,17 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
       stdio: ["pipe", fd, fd],
       encoding: "utf8",
     });
+  } catch (error) {
+    result = { status: null, signal: null, error };
   } finally {
     closeSync(fd);
   }
   const invocationSucceeded = result.status === 0 && !result.signal && !result.error;
-  if (sessionLifecycle?.state && invocationSucceeded) {
+  if (sessionLifecycle?.state) {
     const controllerReturn = prepareFreshSessionInvocation(config, {
       state: sessionLifecycle.state,
       newSessionId: `controller-successor:${randomUUID()}`,
-      phase: `${purpose}_complete`,
+      phase: invocationSucceeded ? `${purpose}_complete` : `${purpose}_failed`,
       telemetry: {
         ...(promptInfo.sessionLifecycle?.telemetry || {}),
         modelVisibleBytes: Buffer.byteLength(String(promptInfo.prompt || ""), "utf8"),

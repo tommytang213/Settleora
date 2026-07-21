@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,6 +26,7 @@ import {
   validateSessionLifecycleState,
 } from "../lib/session-lifecycle.mjs";
 import { consumeSupervisorInterruptionPlanner } from "../supervisor/outage-resubmission-controller.mjs";
+import { runCodexPrompt } from "../lib/codex-runner.mjs";
 
 const sha = "a".repeat(40);
 const digest = "b".repeat(64);
@@ -385,6 +386,27 @@ test("production-shaped fresh invocation rotates atomically with zero external m
   assert.equal(result.rotated, true);
   assert.equal(result.state.sessions.current, "session-2");
   assert.equal(result.state.controller.localSourceChangingRoundsPerEpoch, 0);
+});
+
+test("failed Codex child durably hands lifecycle authority back to a controller successor", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "failed-codex-lifecycle-"));
+  mkdirSync(path.join(root, "codex-runs"), { recursive: true });
+  const command = path.join(root, "fail-codex.sh");
+  writeFileSync(command, "#!/bin/sh\nexit 17\n");
+  chmodSync(command, 0o700);
+  const config = { logsRoot: root, repoRoot: root, repositorySlug: "owner/repo", codexCommand: command, sessionLifecycle: { enabled: true } };
+  const persisted = persistSessionLifecycleState(config, fixture());
+  const result = runCodexPrompt(config, {
+    branchName: "feature/session",
+    prompt: "synthetic failed invocation",
+    promptPath: path.join(root, "prompt.md"),
+    sessionLifecycle: { state: persisted.state, newSessionId: "failed-child", mutationJournaled: true },
+  }, "failed-child-test");
+  assert.equal(result.status, 17);
+  assert.equal(result.sessionLifecycle.ok, true);
+  assert.match(result.sessionLifecycle.state.sessions.current, /^controller-successor:/);
+  assert.equal(result.sessionLifecycle.state.mutationAuthority.ownerSessionId, result.sessionLifecycle.state.sessions.current);
+  assert.equal(result.sessionLifecycle.state.sessions.retired.includes("failed-child"), true);
 });
 
 test("supervisor rejects caller-supplied synthetic liveness", () => {
