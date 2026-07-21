@@ -68,6 +68,8 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     changedFiles,
     laneDecision,
     stats: effectiveDiffStats,
+    featureBundle: summary.featureBundle || null,
+    taskContract: summary.taskContract || null,
     largeBundleReviewApproval: config.largeBundleReviewApproval,
     reviewPackageEvidence: buildLargeBundleReviewEvidence({
       config,

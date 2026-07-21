@@ -223,6 +223,8 @@ export function routeReviewer({
   stats = {},
   largeBundleReviewApproval = defaultLargeBundleReviewApproval,
   reviewPackageEvidence = null,
+  featureBundle = null,
+  taskContract = null,
   now = new Date(),
 } = {}) {
   const files = changedFiles.map(normalizePath);
@@ -242,7 +244,7 @@ export function routeReviewer({
     files.length > 0 &&
     files.every((file) => /^apps\/mobile\/(lib|test)\/ui(?:\/|$)/.test(file));
 
-  const largeClassification = classifyLargeCandidate({ changedFiles: files, laneDecision, stats: { additions, deletions } });
+  const largeClassification = classifyLargeCandidate({ changedFiles: files, laneDecision, stats: { additions, deletions }, featureBundle, taskContract });
   if (largeClassification.route === "split_or_block") {
     return decision("block_split_or_escalate", "Mixed or unsafe candidate requires a deterministic split or an exact manual scope decision.", {
       sensitiveFiles, domains, normalizedDomainSet, totalChangedLines, changedFileCount: files.length, block: true, largeCandidateRouting: largeClassification,

@@ -947,12 +947,23 @@ async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage
 }
 
 async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle = null, onLifecycle = null) {
-  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findingCount: (entry.findings || []).length })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
+  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findings: (entry.findings || []).slice(0, 20) })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
   const evidence = provider === "gemini" ? await runGeminiIntegratedReview(config, scopedPackage) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   if (evidence?.sessionLifecycle && onLifecycle) onLifecycle(evidence.sessionLifecycle);
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: bundleStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
+}
+
+function bundleStructuredFindings(evidence) {
+  return [
+    ...(evidence?.sanitizedResponseSummary?.findings || []),
+    ...(evidence?.verdict?.blocking_findings || []),
+    ...(evidence?.verdict?.non_blocking_findings || []),
+    ...(evidence?.findings || []),
+  ].slice(0, 20).map((finding) => typeof finding === "string"
+    ? { severity: "reviewer", path: null, summary: finding.slice(0, 500) }
+    : { severity: finding?.severity || "reviewer", path: finding?.path || null, summary: String(finding?.summary || finding?.message || "").slice(0, 500) });
 }
 
 function persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage, changedFiles, headSha, baseSha, externalReview }) {
@@ -1069,6 +1080,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     reviewPhase: "feature-bundle-final",
     issue: { number: issue.number, title: issue.title, labels: issue.labels || [], url: issue.url || null },
     bundle: summarizeBundleState(state),
+    featureBundle: { architectureConsistent: plan.architectureConsistent === true },
     planDigest: plan.planDigest,
     laneDecision,
     reviewerPolicy: reviewerReadinessSummary(config, { changedFiles, laneDecision, stats: { additions: 0, deletions: 0 } }),

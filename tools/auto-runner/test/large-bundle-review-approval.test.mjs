@@ -46,6 +46,16 @@ test("coherent architecture-consistent feature bundle escalates", () => {
   assert.equal(result.coherent, true);
 });
 
+test("production reviewer routing honors feature-bundle architecture proof", () => {
+  const result = routeReviewer({
+    changedFiles: ["services/api/migrations/001.sql", "apps/mobile/ui/page.dart"],
+    stats: { additions: 2200 },
+    featureBundle: { architectureConsistent: true },
+  });
+  assert.equal(result.largeCandidateRouting.route, "large_bundle_escalation");
+  assert.equal(result.tier, "strong_independent");
+});
+
 test("size alone does not require manual merge", () => {
   const result = classifyLargeCandidate({ changedFiles: workflowFiles(), stats: { additions: 5000 }, laneDecision: { lane: "workflow-docs-tooling" } });
   assert.equal(result.explicitManual, false);

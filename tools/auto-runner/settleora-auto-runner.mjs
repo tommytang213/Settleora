@@ -1147,6 +1147,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
+      if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
         return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_initial_fix_review_mutated_checkout");
@@ -1266,6 +1267,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
+      if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
         return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_convergence_fix_review_mutated_checkout");
@@ -1392,6 +1394,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
+    if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder)) return iteration;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
     if (iteration.reviewMutationGuard?.mutationDetected) {
       return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_convergence_fix_review_mutated_checkout");
@@ -2978,12 +2981,55 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
   return { ...certification, sessionLifecycle: structuredLifecycle };
 }
 
+async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder) {
+  if (iteration.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") {
+    iteration.largeCandidateReview = { ok: true, route: "normal", state: "external_review_normal_ready" };
+    return true;
+  }
+  iteration.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, changedFiles);
+  if (iteration.largeCandidateReview.sessionLifecycle) {
+    iteration.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
+    issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
+  }
+  if (iteration.largeCandidateReview.ok) return true;
+  iteration.externalReview = {
+    ...iteration.externalReview,
+    status: "blocked",
+    reason: iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete",
+  };
+  iteration.outcome = "auto_failed";
+  iteration.issueComment = finishIssueOutcome(
+    config,
+    issue,
+    iteration.outcome,
+    `Auto-runner did not open a PR for #${issue.number} because cumulative large-candidate review did not re-certify the post-fix head.`,
+  );
+  recoveryRecorder?.stop(
+    iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete",
+    "Post-fix cumulative large-candidate review is incomplete.",
+    "resume_large_candidate_review",
+  );
+  iteration.finishedAt = new Date().toISOString();
+  return false;
+}
+
 async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {
-  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findingCount: (entry.findings || []).length })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
+  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findings: (entry.findings || []).slice(0, 20) })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
   const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, nextSessionLifecycle: evidence?.sessionLifecycle || null };
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: normalStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, nextSessionLifecycle: evidence?.sessionLifecycle || null };
+}
+
+function normalStructuredFindings(evidence) {
+  return [
+    ...(evidence?.sanitizedResponseSummary?.findings || []),
+    ...(evidence?.verdict?.blocking_findings || []),
+    ...(evidence?.verdict?.non_blocking_findings || []),
+    ...(evidence?.findings || []),
+  ].slice(0, 20).map((finding) => typeof finding === "string"
+    ? { severity: "reviewer", path: null, summary: finding.slice(0, 500) }
+    : { severity: finding?.severity || "reviewer", path: finding?.path || null, summary: String(finding?.summary || finding?.message || "").slice(0, 500) });
 }
 
 function persistNormalLargeCandidateSplit(config, iteration, changedFiles) {
