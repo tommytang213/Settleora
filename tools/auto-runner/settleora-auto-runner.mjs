@@ -944,6 +944,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     diffHeadRef: "HEAD",
   });
   iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
+  if (iteration.reviewMutationGuard.mutationDetected) {
+    iteration.outcome = "auto_failed";
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner blocked #${issue.number} because external pre-PR review mutated the checkout.`);
+    recoveryRecorder?.stop("external_review_mutated_checkout", "External pre-PR review mutated the checkout.", "stop_fail_closed");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
   recoveryRecorder?.evidence("externalReview", {
     status: iteration.externalReview.status === "pass" ? "passed" : "blocked",
     headSha: iteration.externalReview.reviewedHead || iteration.runnerCreatedCommitSha,

@@ -116,6 +116,25 @@ test("split materialization creates independent and dependent stacks then hands 
   }
 });
 
+test("split materialization adopts an exact completed handoff without replay", async () => {
+  const input = splitInput();
+  const first = await materializeFeatureBundleSplit(input, adapter([]));
+  const events = [];
+  const resumed = adapter(events, first.state);
+  resumed.readBranch = async (branchName) => {
+    const record = Object.values(first.state.slices).find((slice) => slice.branchName === branchName);
+    return { complete: true, exists: true, headSha: record.headSha, treeSha: record.treeSha, remoteExists: true };
+  };
+  resumed.readPr = async (branchName) => {
+    const record = Object.values(first.state.slices).find((slice) => slice.branchName === branchName);
+    return { complete: true, exists: true, ok: true, state: "MERGED", number: record.prNumber, url: record.prUrl, baseBranch: record.baseBranch, headSha: record.headSha };
+  };
+  const result = await materializeFeatureBundleSplit({ ...input, state: first.state }, resumed);
+  assert.equal(result.ok, true);
+  assert.equal(result.adopted, true);
+  assert.deepEqual(events, []);
+});
+
 test("split materialization adopts a persisted branch after interruption", async () => {
   const events = [];
   const input = splitInput();

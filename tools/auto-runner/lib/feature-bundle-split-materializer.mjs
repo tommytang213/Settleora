@@ -42,6 +42,7 @@ export async function materializeFeatureBundleSplit(input, adapter) {
     await adapter.checkpoint?.(state);
     materialized.push({ ...state.slices[slice.id], number: pr.number, baseRefName: expected.baseBranch, headRefName: expected.branchName, headRefOid: branch.headSha, ownDelta: verified.ownDelta });
   }
+  if (state.phase === "handed_off" && state.stack?.ok === true) return { ok: true, outcome: "deterministic_split_materialized", state, prs: materialized, handoff: state.stack, adopted: true };
   const handoff = await adapter.handoffToPrStack({ logicalTaskKey: input.logicalTaskKey, repository: input.repository, issueNumber: input.issueNumber, slices: materialized, state });
   if (!handoff?.ok) return fail(handoff?.reasonCode || "split_materialization_stack_handoff_failed");
   state = { ...state, phase: "handed_off", stack: bounded(handoff) };
@@ -122,10 +123,10 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
     readPr: async (branchName) => {
       const result = gh(cwd, ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,baseRefName,headRefName,headRefOid"]);
       if (result.status !== 0) return { complete: false, exists: false, unavailable: true };
-      const prs = JSON.parse(result.stdout || "[]").filter((pr) => pr.state === "OPEN");
+      const prs = JSON.parse(result.stdout || "[]");
       if (prs.length > 1) return { exists: true, ambiguous: true };
       const pr = prs[0];
-      return pr ? { complete: true, exists: true, ok: true, number: pr.number, url: pr.url, baseBranch: pr.baseRefName, headSha: pr.headRefOid } : { complete: true, exists: false };
+      return pr ? { complete: true, exists: true, ok: true, number: pr.number, url: pr.url, state: pr.state, baseBranch: pr.baseRefName, headSha: pr.headRefOid } : { complete: true, exists: false };
     },
     createPr: async (expected) => {
       const result = gh(cwd, ["pr", "create", "--base", expected.baseBranch, "--head", expected.branchName, "--title", `Auto-runner split: #${expected.issueNumber} ${expected.id}`, "--body", `Part of #${expected.issueNumber}. Deterministic split of logical task ${expected.logicalTaskKey}.`]);
