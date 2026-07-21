@@ -41,7 +41,7 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
     if (!result || result.ok === false) {
       return { ok: false, outcome: result?.outcome || "blocked", reasonCode: result?.reasonCode || `ordinary_continuation_${phase}_blocked`, state };
     }
-    if (result.wait === true && result.completed === false) {
+    if (result.wait === true && result.completed !== true) {
       await handlers.onCheckpoint?.(state, { phase, action: "waiting" });
       return { ok: true, outcome: "waiting", reasonCode: result.reasonCode || `${phase}_pending`, state };
     }

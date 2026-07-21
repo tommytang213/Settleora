@@ -26,19 +26,32 @@ test("ordinary continuation resumes each review and mutation boundary without fa
 });
 
 test("ordinary continuation adopts exact effects and waits at real pending state", async () => {
-  const handlers = Object.fromEntries(ordinaryContinuationPhases.map((phase) => [phase, async () => ({ ok: true, wait: phase === "github_convergence", reasonCode: "checks_pending" })]));
+  let pending = true;
+  const handlers = Object.fromEntries(ordinaryContinuationPhases.map((phase) => [phase, async () => {
+    if (phase === "github_convergence" && pending) { pending = false; return { ok: true, wait: true, reasonCode: "checks_pending" }; }
+    return { ok: true };
+  }]));
   let state = createOrdinaryContinuationState({ logicalTaskKey: "root", issueNumber: 924, branchName: "feature/test", identity: identity() });
   const first = await continueOrdinaryCandidate(state, handlers);
   assert.equal(first.outcome, "waiting");
+  assert.equal(first.state.phase, "github_convergence");
   state = first.state;
   const second = await continueOrdinaryCandidate(state, handlers);
   assert.equal(second.outcome, "complete");
   assert.equal(second.state.counters.acceptedLogicalTasks, 1);
 });
 
+test("split materialization blocks on unavailable branch or PR absence proof", async () => {
+  const input = splitInput();
+  const branchUnavailable = adapter([]); branchUnavailable.readBranch = async () => ({ complete: false, unavailable: true });
+  assert.equal((await materializeFeatureBundleSplit(input, branchUnavailable)).reasonCode, "split_materialization_branch_read_unavailable");
+  const prUnavailable = adapter([]); prUnavailable.readPr = async () => ({ complete: false, unavailable: true });
+  assert.equal((await materializeFeatureBundleSplit(input, prUnavailable)).reasonCode, "split_materialization_pr_read_unavailable");
+});
+
 test("ordinary continuation requires authoritative adoption for stored external mutations", async () => {
   const state = createOrdinaryContinuationState({ logicalTaskKey: "root", issueNumber: 924, branchName: "feature/test", identity: identity(), phase: "push" });
-  const primed = await continueOrdinaryCandidate(state, { push: async () => ({ ok: true, wait: true }) });
+  const primed = await continueOrdinaryCandidate(state, { push: async () => ({ ok: true, wait: true, completed: true }) });
   const blocked = await continueOrdinaryCandidate({ ...primed.state, phase: "push" }, {});
   assert.match(blocked.reasonCode, /live_adoption_missing/);
 });

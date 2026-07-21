@@ -14,6 +14,7 @@ export async function materializeFeatureBundleSplit(input, adapter) {
     const prior = state.slices[slice.id];
     if (prior && prior.expectedDigest !== expected.expectedDigest) return fail("split_materialization_state_conflict", { sliceId: slice.id });
     const liveBranch = await adapter.readBranch(expected.branchName);
+    if (liveBranch?.complete === false || liveBranch?.unavailable) return fail("split_materialization_branch_read_unavailable", { sliceId: slice.id });
     if (liveBranch?.exists && prior?.headSha && liveBranch.headSha !== prior.headSha) return fail("split_materialization_branch_conflict", { sliceId: slice.id, branchName: expected.branchName });
     let branch = liveBranch?.exists
       ? { ...prior, ...liveBranch, ok: true, adopted: true }
@@ -32,6 +33,7 @@ export async function materializeFeatureBundleSplit(input, adapter) {
       await adapter.checkpoint?.(state);
     }
     const livePr = await adapter.readPr(expected.branchName);
+    if (livePr?.complete === false || livePr?.unavailable) return fail("split_materialization_pr_read_unavailable", { sliceId: slice.id });
     if (livePr?.ambiguous || (livePr?.exists && (livePr.headSha !== branch.headSha || livePr.baseBranch !== expected.baseBranch))) return fail("split_materialization_pr_conflict", { sliceId: slice.id });
     let pr = livePr?.exists ? livePr : await adapter.createPr({ ...expected, ...branch });
     if (!pr?.ok && !pr?.exists) return fail(pr?.reasonCode || "split_materialization_pr_failed", { sliceId: slice.id });
@@ -67,13 +69,14 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
       const local = git(cwd, ["show-ref", "--verify", "--hash", `refs/heads/${branchName}`]);
       if (local.status === 0) {
         const headSha = local.stdout.trim();
-        return { exists: true, headSha, treeSha: git(cwd, ["rev-parse", `${headSha}^{tree}`]).stdout.trim(), source: "local" };
+        return { complete: true, exists: true, headSha, treeSha: git(cwd, ["rev-parse", `${headSha}^{tree}`]).stdout.trim(), source: "local" };
       }
       const remote = git(cwd, ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`]);
+      if (remote.status !== 0 || remote.error) return { complete: false, exists: false, unavailable: true };
       const remoteHead = remote.status === 0 && remote.stdout.trim() ? remote.stdout.trim().split(/\s+/)[0] : null;
-      if (!remoteHead) return { exists: false, headSha: null };
+      if (!remoteHead) return { complete: true, exists: false, headSha: null };
       const fetched = git(cwd, ["fetch", "origin", `refs/heads/${branchName}`]);
-      return fetched.status === 0 ? { exists: true, headSha: remoteHead, treeSha: git(cwd, ["rev-parse", `${remoteHead}^{tree}`]).stdout.trim(), source: "remote" } : { exists: true, headSha: remoteHead, unavailable: true };
+      return fetched.status === 0 ? { complete: true, exists: true, headSha: remoteHead, treeSha: git(cwd, ["rev-parse", `${remoteHead}^{tree}`]).stdout.trim(), source: "remote" } : { complete: false, exists: true, headSha: remoteHead, unavailable: true };
     },
     materializeBranch: async (expected) => {
       const temporary = mkdtempSync(path.join(tmpdir(), "settleora-split-"));
@@ -114,11 +117,11 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
     },
     readPr: async (branchName) => {
       const result = gh(cwd, ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,baseRefName,headRefName,headRefOid"]);
-      if (result.status !== 0) return { exists: false, unavailable: true };
+      if (result.status !== 0) return { complete: false, exists: false, unavailable: true };
       const prs = JSON.parse(result.stdout || "[]").filter((pr) => pr.state === "OPEN");
       if (prs.length > 1) return { exists: true, ambiguous: true };
       const pr = prs[0];
-      return pr ? { exists: true, ok: true, number: pr.number, url: pr.url, baseBranch: pr.baseRefName, headSha: pr.headRefOid } : { exists: false };
+      return pr ? { complete: true, exists: true, ok: true, number: pr.number, url: pr.url, baseBranch: pr.baseRefName, headSha: pr.headRefOid } : { complete: true, exists: false };
     },
     createPr: async (expected) => {
       const result = gh(cwd, ["pr", "create", "--base", expected.baseBranch, "--head", expected.branchName, "--title", `Auto-runner split: #${expected.issueNumber} ${expected.id}`, "--body", `Part of #${expected.issueNumber}. Deterministic split of logical task ${expected.logicalTaskKey}.`]);
