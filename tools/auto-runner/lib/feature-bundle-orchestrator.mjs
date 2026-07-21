@@ -324,6 +324,15 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
   if (result.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
     result.largeCandidateReview = persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview });
+    if (result.largeCandidateReview.ok && result.largeCandidateReview.execution === "deterministic_split") {
+      result.outcome = "deterministic_split_planned";
+      result.splitPlan = result.largeCandidateReview;
+      recovery?.marker("deterministic_split_plan", result.largeCandidateReview.planDigest, { target: bundleBranchName, correlation: plan.planDigest });
+      recovery?.advance("implementation_or_bundle_slice", "execute_deterministic_split_plan", "execute_deterministic_split_plan");
+      result.recovery = recovery?.summary();
+      result.bundle.state = summarizeBundleState(state);
+      return result;
+    }
     return stopBundle(result, "blocked_needs_tommy", result.largeCandidateReview.reasonCode, "Mixed bundle requires a proven semantics-preserving split or the minimum architecture decision.");
   }
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {

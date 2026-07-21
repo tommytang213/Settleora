@@ -51,7 +51,7 @@ import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
-import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
+import { createLargeCandidateRoutingState, loadLargeCandidateRoutingState, persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -1707,6 +1707,18 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
       }
+      if (["external_review", "codex_mechanics_security_review"].includes(boundary.phase)) {
+        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
+        if (checkpoint.ok) {
+          return {
+            ok: true,
+            outcome: "recovery_large_candidate_review_checkpoint_loaded",
+            reasonCode: "large_candidate_review_checkpoint_resumable",
+            largeCandidateReviewRecovery: checkpoint,
+            state,
+          };
+        }
+      }
       if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
         const stopped = advanceRecoveryPhase(state, {
           phase: "stopped",
@@ -1736,6 +1748,26 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
+  const baseSha = state.branch?.baseSha || state.baseSha || null;
+  const headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
+  if (!baseSha || !headSha) return { ok: false, reasonCode: "large_candidate_recovery_identity_missing" };
+  const changedFiles = listChangedFiles(baseSha, headSha);
+  const diff = getBoundedDiff(baseSha, headSha);
+  const candidateIdentity = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    baseSha,
+    headSha,
+    treeSha: getRefSha(`${headSha}^{tree}`),
+    diffDigest: createHash("sha256").update(diff.text).digest("hex"),
+    changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+  };
+  const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });
+  const loaded = loadLargeCandidateRoutingState(config, seed);
+  if (!loaded.ok) return loaded;
+  return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults };
 }
 
 function validateRecoveryOnlyStartupEvidence(config, state) {
