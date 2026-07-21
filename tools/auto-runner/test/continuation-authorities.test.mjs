@@ -41,6 +41,41 @@ test("ordinary continuation adopts exact effects and waits at real pending state
   assert.equal(second.state.counters.acceptedLogicalTasks, 1);
 });
 
+test("ordinary continuation restart at structured review preserves reviewer prompt attestations", async () => {
+  const candidate = identity();
+  const attestedCandidateIdentity = {
+    baseSha: candidate.baseSha,
+    headSha: candidate.headSha,
+    treeSha: candidate.treeSha,
+    diffDigest: candidate.diffDigest,
+  };
+  const reviewerEvidence = {
+    review: {
+      attestationSource: "provider_response",
+      providerPromptBindingDigest: digest("bound-review-prompt"),
+      attestedCandidateIdentity,
+      attestedIntegrationBoundaries: ["lib/integration.mjs"],
+    },
+  };
+  const state = createOrdinaryContinuationState({
+    logicalTaskKey: "root",
+    issueNumber: 924,
+    branchName: "feature/test",
+    identity: candidate,
+    phase: "structured_review",
+  });
+  state.effects.external_review = { targetDigest: state.targetDigest, evidence: reviewerEvidence };
+  state.effects.codex_review = { targetDigest: state.targetDigest, evidence: reviewerEvidence };
+  const handlers = Object.fromEntries(ordinaryContinuationPhases.slice(ordinaryContinuationPhases.indexOf("structured_review")).map((phase) => [phase, async (continuation) => {
+    assert.equal(continuation.effects.external_review.evidence.review.attestationSource, "provider_response");
+    assert.equal(continuation.effects.external_review.evidence.review.providerPromptBindingDigest, reviewerEvidence.review.providerPromptBindingDigest);
+    assert.deepEqual(continuation.effects.codex_review.evidence.review.attestedCandidateIdentity, attestedCandidateIdentity);
+    return { ok: true };
+  }]));
+  const result = await continueOrdinaryCandidate(state, handlers);
+  assert.equal(result.outcome, "complete");
+});
+
 test("split materialization blocks on unavailable branch or PR absence proof", async () => {
   const input = splitInput();
   const branchUnavailable = adapter([]); branchUnavailable.readBranch = async () => ({ complete: false, unavailable: true });

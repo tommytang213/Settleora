@@ -2000,6 +2000,8 @@ function ordinaryReviewerCheckpoint(review = {}, provider) {
     logPath: review.logPath,
     route: review.route,
     findings: review.findings,
+    attestationSource: review.attestationSource,
+    providerPromptBindingDigest: review.providerPromptBindingDigest,
     attestedCandidateIdentity: review.attestedCandidateIdentity,
     attestedIntegrationBoundaries: review.attestedIntegrationBoundaries,
     contextLimited: review.contextLimited,

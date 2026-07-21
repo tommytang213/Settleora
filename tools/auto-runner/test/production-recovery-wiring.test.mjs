@@ -161,6 +161,8 @@ test("review mutation guards precede recovery and split side effects", () => {
   assert.match(runner, /initial\.effects\?\.external_review\?\.evidence\?\.review/);
   assert.match(runner, /initial\.effects\?\.codex_review\?\.evidence\?\.review/);
   assert.match(runner, /ordinaryStructuredReviewCheckpoint\(initial\.effects\?\.structured_review\?\.evidence\)/);
+  assert.match(runner, /providerPromptBindingDigest: review\.providerPromptBindingDigest/);
+  assert.match(runner, /attestationSource: review\.attestationSource/);
   assert.match(runner, /review_convergence: async \(continuation\).*runReviewFixCycle.*commitReviewFixAndRerunExactHeadReviews/s);
 
   const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
