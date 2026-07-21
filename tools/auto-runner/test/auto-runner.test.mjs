@@ -6968,6 +6968,25 @@ test("enabled session lifecycle builds and persists an exact implementation invo
   assert.match(source, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
 });
 
+test("existing-PR recovery creates lifecycle authority before merge execution", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const recovery = source.slice(source.indexOf("async function recoverExistingPrIfConfigured"), source.indexOf("async function generateExistingPrRecoveryEvidence"));
+  const lifecycleIndex = recovery.indexOf("createSessionLifecycleState({");
+  const mergeIndex = recovery.indexOf("executeAutoMerge(config, context");
+  assert.ok(lifecycleIndex >= 0 && mergeIndex > lifecycleIndex);
+  assert.match(recovery, /if \(sessionLifecycle\) issue\.sessionLifecycle = sessionLifecycle/);
+  assert.match(recovery, /sessionLifecycle,/);
+});
+
+test("feature-bundle results propagate lifecycle authority to terminal issue effects", () => {
+  const runner = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const bundlePath = runner.slice(runner.indexOf("const bundleResult = await runFeatureBundleIteration"), runner.indexOf("const recovery = await recoverExistingPrIfConfigured"));
+  assert.match(bundlePath, /issue\.sessionLifecycle = bundleResult\.sessionLifecycle/);
+  const bundle = readFileSync("tools/auto-runner/lib/feature-bundle-orchestrator.mjs", "utf8");
+  assert.match(bundle, /result\.sessionLifecycle = sessionLifecycle/);
+  assert.match(bundle, /transitionSessionLifecyclePhase\(config, sessionLifecycle, \{ phase: "completed"/);
+});
+
 test("stack CLI constructs and injects one live fixed-argv runner", () => {
   const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const stackIndex = source.indexOf("if (cliArgs.runPrStack)");

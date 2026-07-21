@@ -612,6 +612,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.ci = bundleResult.ci || null;
     iteration.autoMerge = bundleResult.autoMerge || null;
     iteration.recovery = bundleResult.recovery || recoveryRecorder?.summary();
+    if (bundleResult.sessionLifecycle) {
+      iteration.sessionLifecycle = bundleResult.sessionLifecycle;
+      issue.sessionLifecycle = bundleResult.sessionLifecycle;
+    }
     iteration.runnerCreatedCommitSha = config.dryRun ? null : (bundleResult.stopReason ? null : getRefSha("HEAD"));
     iteration.outcome = bundleResult.outcome || (bundleResult.ok ? "approved_pr_opened" : "auto_failed");
     if (!config.dryRun) {
@@ -628,7 +632,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
 
-  const recovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision);
+  const recovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, null, {
+    runId,
+    index,
+    chargeMarkerRef: iteration.logicalTaskBudget?.statePath,
+  });
   if (recovery) {
     iteration.existingPrRecovery = recovery;
     iteration.autoMerge = recovery.autoMerge;
@@ -1619,7 +1627,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: "unsupported_early_phase_recovery", state: stopped };
       }
-      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state);
+      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state, { runId: state.runId || state.logicalTask?.runId });
       if (!existingPrRecovery) {
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: "recovery_existing_pr_context_missing", state };
       }
@@ -1651,7 +1659,7 @@ function validateRecoveryOnlyStartupEvidence(config, state) {
   });
 }
 
-async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null) {
+async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null, lifecycleInput = {}) {
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
   if (!recoveryConfig) return null;
@@ -1751,6 +1759,32 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
+  let sessionLifecycle = recoveryState?.sessionLifecycle || null;
+  if (!config.dryRun && config.sessionLifecycle?.enabled === true && !sessionLifecycle) {
+    const lifecycleRunId = lifecycleInput.runId || exactHeadEvidence.runnerRunId || config.outageRecoveryTarget?.runnerRunId || `existing-pr-${issue.number}`;
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: issue.number,
+      taskKey: exactHeadEvidence.taskKey || config.outageRecoveryTarget?.taskKey || `existing-pr-${issue.number}`,
+      runId: lifecycleRunId,
+      claimIdentity: `${config.repositorySlug}#${issue.number}`,
+      chargeMarkerRef: lifecycleInput.chargeMarkerRef || recoveryState?.logicalTaskBudget?.chargeId || `accepted:${lifecycleRunId}:${issue.number}`,
+      sessionId: `${lifecycleRunId}:existing-pr:${lifecycleInput.index || 0}`,
+      branchName: githubState.pr?.headRefName || recoveryConfig.branchName,
+      baseSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+      headSha: expectedHeadSha,
+      phase: "exact_head_final_refresh",
+      nextExactAction: "evaluate_existing_pr_merge",
+      contextPolicy: config.sessionLifecycle.contextBudget,
+      reservations: recoveryState?.mutationMarkers || {},
+      evidence: recoveryState?.evidence || {},
+      reportCorrelationKey: exactHeadEvidence.taskKey || config.outageRecoveryTarget?.taskKey || `existing-pr-${issue.number}`,
+    });
+    const persisted = persistSessionLifecycleState(config, lifecycle);
+    if (!persisted.ok) return { reason: persisted.reasonCode, autoMerge: { result: "blocked", reason: persisted.reasonCode } };
+    sessionLifecycle = persisted.state;
+  }
+  if (sessionLifecycle) issue.sessionLifecycle = sessionLifecycle;
   const context = {
     config,
     issue: githubState.issue || { ...issue, state: issue.state || "OPEN", labels: issue.labels || [] },
@@ -1819,6 +1853,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     actualHeadSha: githubState.pr?.headRefOid || null,
     exactHeadEvidence,
     issueLinkageEvidence,
+    sessionLifecycle,
   };
   const strictRecoveryDecision = evaluateExistingPrRecovery({
     allowExistingPrRecovery: config.allowExistingPrRecovery,
@@ -1916,6 +1951,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     baseOriginMainSha,
     expectedHeadSha,
     autoMerge,
+    sessionLifecycle,
   };
 }
 

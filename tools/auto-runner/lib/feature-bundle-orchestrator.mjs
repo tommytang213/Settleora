@@ -27,7 +27,7 @@ import {
 } from "./git-workspace.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./codex-runner.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters } from "./session-lifecycle.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
 import { collectReport } from "./report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./pr-manager.mjs";
@@ -148,6 +148,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     headSha: config.dryRun ? baseOriginMainSha : getRefSha("HEAD"),
     recoveryState: recovery?.state || recoveryState,
   });
+  result.sessionLifecycle = sessionLifecycle;
   recovery?.advance("implementation_or_bundle_slice", "run_next_bundle_slice");
 
   let checkpointBase = config.dryRun ? "origin/main" : getRefSha("HEAD");
@@ -180,7 +181,10 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       branchName: bundleBranchName,
       ...(sessionLifecycle ? { sessionLifecycle: bundleLifecycleInvocation(sessionLifecycle, `bundle-${slice.sequence}-${slice.id}`) } : {}),
     }, `bundle-${slice.sequence}-${slice.id}`);
-    if (codex.sessionLifecycle?.state) sessionLifecycle = codex.sessionLifecycle.state;
+    if (codex.sessionLifecycle?.state) {
+      sessionLifecycle = codex.sessionLifecycle.state;
+      result.sessionLifecycle = sessionLifecycle;
+    }
     if (!codex.skipped && (codex.error || codex.status !== 0)) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "codex_failed", reason: codex.error || `status ${codex.status}` });
       if (!config.dryRun) writeBundleState(config, state);
@@ -410,6 +414,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   });
   state = convergence.state;
   sessionLifecycle = convergence.sessionLifecycle || sessionLifecycle;
+  result.sessionLifecycle = sessionLifecycle;
   if (convergence.result) {
     result.validation = convergence.result.validation;
     result.externalReview = convergence.result.externalReview;
@@ -464,6 +469,12 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       correlation: result.autoMerge.mergeSha || finalHead || runId,
     });
     recovery?.advance("post_merge_current_main_checks_scanner_reconciliation", "reconcile_current_main");
+  }
+  if (sessionLifecycle && config.sessionLifecycle?.enabled === true) {
+    const terminalLifecycle = transitionSessionLifecyclePhase(config, sessionLifecycle, { phase: "completed", nextExactAction: "bundle_complete" });
+    if (!terminalLifecycle.ok) return stopBundle(result, "auto_failed", terminalLifecycle.reasonCode, "Bundle lifecycle terminalization failed.");
+    sessionLifecycle = terminalLifecycle.state;
+    result.sessionLifecycle = sessionLifecycle;
   }
   recovery?.complete(result.outcome);
   result.recovery = recovery?.summary();
