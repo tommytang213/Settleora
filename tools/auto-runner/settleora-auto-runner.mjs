@@ -1881,6 +1881,14 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
     const proof = spawnSync("git", ["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot, encoding: "utf8" });
     return proof.status === 0 ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_merge_live_mismatch" };
   }
+  if (phase === "github_convergence") {
+    fetchOriginMain(config);
+    const proof = spawnSync("git", ["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot, encoding: "utf8" });
+    const autoMerge = ordinaryMergeEvidenceAsAutoMerge(adopted.evidence);
+    return proof.status === 0 && autoMerge.result === "merged" && autoMergeEffectsConfirmed(config, sessionLifecycle, autoMerge)
+      ? { ok: true, targetDigest }
+      : { ok: false, reasonCode: "ordinary_continuation_github_convergence_live_mismatch" };
+  }
   if (phase === "post_merge_hygiene") {
     const autoMerge = ordinaryMergeEvidenceAsAutoMerge(adopted.evidence);
     return autoMerge.result === "merged" && autoMergeEffectsConfirmed(config, sessionLifecycle, autoMerge)

@@ -172,6 +172,8 @@ test("split proof blocks ambiguity, missing authority, cycles, and semantic mism
   assert.equal(validateSplitMaterializationInput(ambiguous).reasonCode, "split_file_ownership_ambiguous");
   const cyclic = splitInput(true); cyclic.slices[0].dependsOn = ["b"];
   assert.equal(validateSplitMaterializationInput(cyclic).reasonCode, "split_dependency_cycle");
+  const joined = splitInput(true); joined.slices.push({ id: "c", branchName: "split/c", changedFiles: ["c.mjs"], commitRange: { fromExclusive: sha("b"), toInclusive: sha("c") }, dependsOn: ["a", "b"], allowedPathsProven: true, semanticOwnDeltaProven: true }); joined.changedFiles.push("c.mjs");
+  assert.equal(validateSplitMaterializationInput(joined).reasonCode, "split_dependency_non_linear");
   const events = []; const bad = adapter(events); bad.verifyOwnDelta = async () => ({ ok: false, reasonCode: "semantic_bad" });
   const result = await materializeFeatureBundleSplit(splitInput(), bad);
   assert.equal(result.reasonCode, "semantic_bad");

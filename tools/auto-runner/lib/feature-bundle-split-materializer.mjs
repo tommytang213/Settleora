@@ -58,6 +58,7 @@ export function validateSplitMaterializationInput(input = {}) {
   if (new Set(assigned).size !== assigned.length || digest([...assigned].sort()) !== digest([...input.changedFiles].sort())) return fail("split_file_ownership_ambiguous");
   const ids = new Set(slices.map((slice) => slice.id));
   if (slices.some((slice) => slice.dependsOn.some((id) => !ids.has(id)))) return fail("split_dependency_unknown");
+  if (slices.some((slice) => slice.dependsOn.length > 1)) return fail("split_dependency_non_linear");
   const ordered = topological(slices);
   if (!ordered) return fail("split_dependency_cycle");
   return { ok: true, slices: ordered };
