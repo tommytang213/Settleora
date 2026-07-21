@@ -135,6 +135,30 @@ test("split materialization adopts an exact completed handoff without replay", a
   assert.deepEqual(events, []);
 });
 
+test("split materialization resumes a waiting PR-stack handoff", async () => {
+  const input = splitInput();
+  const waitingEvents = [];
+  const waiting = adapter(waitingEvents);
+  waiting.handoffToPrStack = async () => ({ ok: true, outcome: "waiting", stackId: "stack" });
+  const first = await materializeFeatureBundleSplit(input, waiting);
+  assert.equal(first.outcome, "waiting");
+  assert.equal(first.state.phase, "stack_waiting");
+
+  const resumedEvents = [];
+  const resumed = adapter(resumedEvents, first.state);
+  resumed.readBranch = async (branchName) => {
+    const record = Object.values(first.state.slices).find((slice) => slice.branchName === branchName);
+    return { complete: true, exists: true, headSha: record.headSha, treeSha: record.treeSha, remoteExists: true };
+  };
+  resumed.readPr = async (branchName) => {
+    const record = Object.values(first.state.slices).find((slice) => slice.branchName === branchName);
+    return { complete: true, exists: true, ok: true, state: "OPEN", number: record.prNumber, url: record.prUrl, baseBranch: record.baseBranch, headSha: record.headSha };
+  };
+  const result = await materializeFeatureBundleSplit({ ...input, state: first.state }, resumed);
+  assert.equal(result.outcome, "deterministic_split_materialized");
+  assert.equal(resumedEvents.at(-1), "handoff:2");
+});
+
 test("split materialization adopts a persisted branch after interruption", async () => {
   const events = [];
   const input = splitInput();

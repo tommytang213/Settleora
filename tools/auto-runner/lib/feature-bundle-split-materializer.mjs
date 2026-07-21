@@ -42,12 +42,12 @@ export async function materializeFeatureBundleSplit(input, adapter) {
     await adapter.checkpoint?.(state);
     materialized.push({ ...state.slices[slice.id], number: pr.number, baseRefName: expected.baseBranch, headRefName: expected.branchName, headRefOid: branch.headSha, ownDelta: verified.ownDelta });
   }
-  if (state.phase === "handed_off" && state.stack?.ok === true) return { ok: true, outcome: "deterministic_split_materialized", state, prs: materialized, handoff: state.stack, adopted: true };
+  if (state.phase === "handed_off" && state.stack?.ok === true && state.stack?.outcome !== "waiting") return { ok: true, outcome: "deterministic_split_materialized", state, prs: materialized, handoff: state.stack, adopted: true };
   const handoff = await adapter.handoffToPrStack({ logicalTaskKey: input.logicalTaskKey, repository: input.repository, issueNumber: input.issueNumber, slices: materialized, state });
   if (!handoff?.ok) return fail(handoff?.reasonCode || "split_materialization_stack_handoff_failed");
-  state = { ...state, phase: "handed_off", stack: bounded(handoff) };
+  state = { ...state, phase: handoff.outcome === "waiting" ? "stack_waiting" : "handed_off", stack: bounded(handoff) };
   await adapter.checkpoint?.(state);
-  return { ok: true, outcome: "deterministic_split_materialized", state, prs: materialized, handoff };
+  return { ok: true, outcome: handoff.outcome === "waiting" ? "waiting" : "deterministic_split_materialized", state, prs: materialized, handoff };
 }
 
 export function validateSplitMaterializationInput(input = {}) {
