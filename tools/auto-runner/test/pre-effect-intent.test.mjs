@@ -35,6 +35,21 @@ test("pre-effect intent fails closed on missing, ambiguous, or contradictory liv
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
+test("finalized pre-effect intents revalidate authoritative live evidence", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "intent-finalized-live-"));
+  try {
+    const authority = { runId: "run-1", sessionId: "session-1", authorityGeneration: 2, status: "active" };
+    const prepared = preparePreEffectIntent({ logsRoot }, base, { intentId: "finalized-live" });
+    const executing = transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, prepared, "executing");
+    const confirmed = transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, executing, "live_confirmed");
+    const finalized = transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, confirmed, "finalized");
+    assert.equal(reconcilePreEffectIntent(finalized, { complete: true, present: true, identity: finalized.identity, effect: finalized.effect }).classification, "effect_confirmed");
+    assert.equal(reconcilePreEffectIntent(finalized, { complete: true, present: false }).classification, "effect_absent_execution_uncertain");
+    assert.equal(reconcilePreEffectIntent(finalized, { complete: true, present: true, identity: finalized.identity, effect: { remoteBranch: "moved" } }).classification, "effect_contradictory");
+    assert.equal(reconcilePreEffectIntent(finalized, { complete: false }).classification, "live_read_unavailable");
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
 test("pre-effect intent reader rejects symlinks, unsafe modes, malformed and oversized artifacts", () => {
   for (const kind of ["symlink", "mode", "malformed", "oversized"]) {
     const logsRoot = mkdtempSync(path.join(tmpdir(), "intent-trust-"));

@@ -109,7 +109,6 @@ export function assertPreEffectIntentAuthority(intent, authority) {
 
 export function reconcilePreEffectIntent(intent, live) {
   validateStored(intent);
-  if (["live_confirmed", "adopted_after_recovery", "finalized"].includes(intent.status)) return { classification: "effect_confirmed", intentId: intent.intentId };
   if (!live?.complete) return { classification: "live_read_unavailable", intentId: intent.intentId };
   if (live.ambiguous) return { classification: "effect_ambiguous", intentId: intent.intentId };
   if (live.present === false) return {
@@ -117,9 +116,10 @@ export function reconcilePreEffectIntent(intent, live) {
     intentId: intent.intentId,
   };
   const liveFingerprint = digest(canonical({ effectType: intent.effectType, identity: sanitizeEffect(live.identity || {}), effect: sanitizeEffect(live.effect || {}) }));
-  return liveFingerprint === intent.fingerprint
-    ? { classification: "effect_present_exact_adoptable", intentId: intent.intentId }
-    : { classification: "effect_contradictory", intentId: intent.intentId };
+  if (liveFingerprint !== intent.fingerprint) return { classification: "effect_contradictory", intentId: intent.intentId };
+  return ["live_confirmed", "adopted_after_recovery", "finalized"].includes(intent.status)
+    ? { classification: "effect_confirmed", intentId: intent.intentId }
+    : { classification: "effect_present_exact_adoptable", intentId: intent.intentId };
 }
 
 function persist(config, value, exclusive) {
