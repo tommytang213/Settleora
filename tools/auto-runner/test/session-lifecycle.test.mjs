@@ -16,6 +16,7 @@ import {
   loadSessionLifecycleForRecovery,
   migrateRecoveryStateToSessionLifecycle,
   normalizeContextBudgetPolicy,
+  parseProcStartIdentity,
   persistSessionLifecycleState,
   planInterruptionRecovery,
   prepareFreshSessionInvocation,
@@ -171,6 +172,12 @@ test("checkpoint persistence rejects a stale writer from the same authority gene
   assert.equal(loadSessionLifecycleState(config, {
     repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1", claimIdentity: "claim-1",
   }).state.controller.nextExactAction, "newer_action");
+});
+
+test("process start identity parses proc stat commands containing spaces", () => {
+  const fields = ["S", ...Array.from({ length: 18 }, (_value, index) => String(index + 1)), "987654", "21"];
+  assert.equal(parseProcStartIdentity(`123 (runner worker name) ${fields.join(" ")}\n`), "987654");
+  assert.equal(parseProcStartIdentity("123 malformed"), null);
 });
 
 test("startup recovery resolves one checkpoint without guessing claim identity", () => {

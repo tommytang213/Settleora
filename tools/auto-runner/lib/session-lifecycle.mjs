@@ -247,9 +247,17 @@ function releaseCheckpointLock(lockPath, ownerPath) {
 function processStartIdentity(pid) {
   if (!Number.isSafeInteger(pid) || pid < 1) return null;
   try {
-    const fields = readFileSync(`/proc/${pid}/stat`, "utf8").trim().split(/\s+/);
-    return /^\d+$/.test(fields[21] || "") ? fields[21] : null;
+    return parseProcStartIdentity(readFileSync(`/proc/${pid}/stat`, "utf8"));
   } catch { return null; }
+}
+
+export function parseProcStartIdentity(value) {
+  const stat = String(value || "").trim();
+  const commandEnd = stat.lastIndexOf(")");
+  if (commandEnd < 3) return null;
+  const fieldsAfterCommand = stat.slice(commandEnd + 1).trim().split(/\s+/);
+  const startTime = fieldsAfterCommand[19];
+  return /^\d+$/.test(startTime || "") ? startTime : null;
 }
 
 export function loadSessionLifecycleState(config, identity) {
