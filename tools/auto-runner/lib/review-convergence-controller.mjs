@@ -765,7 +765,7 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
     return lifecycleResult({ ok: false, reasonCode: "existing_pr_batch_fix_validation_review_adapter_unconfigured", reason: "exact validation and review adapter is required before push" });
   }
   const reviewed = await adapters.validateAndReview({ ...continuedInput, exactHead, changedFiles, codex, inventory, findingFingerprints: fingerprints, fingerprintDigest });
-  if (!reviewed?.ok) return lifecycleResult(reviewed || { ok: false, reasonCode: "existing_pr_batch_fix_validation_review_failed", reason: "validation/review failed" });
+  if (!reviewed?.ok) return lifecycleResult(reviewed || { ok: false, reasonCode: "existing_pr_batch_fix_validation_review_failed", reason: "validation/review failed" }, reviewed?.sessionLifecycle || codex.sessionLifecycle || continuedInput.sessionLifecycle);
   const reviewedInput = { ...continuedInput, sessionLifecycle: reviewed.sessionLifecycle || continuedInput.sessionLifecycle };
   const fixDelta = reviewed.fixDelta || {
     changedFiles,

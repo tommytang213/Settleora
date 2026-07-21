@@ -412,6 +412,8 @@ test("production invocation sources wire lifecycle through feature bundle and re
   assert.match(prStack, /newSessionId: `\$\{sessionLifecycle\.logicalTask\.runId\}:pr-stack-batch-fix:/);
   assert.match(prStack, /sessionLifecycle: lifecycleInvocation/);
   assert.match(prStack, /sessionLifecycle: codex\.sessionLifecycle\?\.state \|\| sessionLifecycle/);
+  assert.match(prStack, /if \(resumedFix\.sessionLifecycle && codex\) codex\.sessionLifecycle = resumedFix\.sessionLifecycle/);
+  assert.match(prStack, /existing_pr_local_loop_fix_failed[\s\S]*sessionLifecycle: localFix\.sessionLifecycle\?\.state \|\| sessionLifecycle/);
   assert.match(convergence, /sessionLifecycle: reviewedInput\.sessionLifecycle \|\| null/);
   assert.match(convergence, /continuedInput = \{ \.\.\.input, sessionLifecycle: codex\.sessionLifecycle \|\| input\.sessionLifecycle \|\| null \}/);
   assert.match(startup, /consumeStartupInterruptionPlanner\(config, state/);

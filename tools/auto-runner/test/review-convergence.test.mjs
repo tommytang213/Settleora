@@ -208,6 +208,18 @@ test("batch-fix failure returns the rotated lifecycle for durable restart", asyn
   assert.deepEqual(result.sessionLifecycle, successor);
 });
 
+test("failed outer batch-fix Codex preserves its rotated lifecycle", async () => {
+  const successor = { sessions: { current: "failed-successor", generation: 3 } };
+  const result = await runExistingPrBatchFix({
+    pr: { number: 938, headRefOid: "a".repeat(40) },
+    findings: [{ title: "actionable", classification: "actionable", severity: "high" }],
+  }, {
+    runCodexBatchFix: async () => ({ ok: false, reasonCode: "codex_failed", sessionLifecycle: successor }),
+  });
+  assert.equal(result.reasonCode, "codex_failed");
+  assert.deepEqual(result.sessionLifecycle, successor);
+});
+
 test("transient retries do not consume source cycles; pushed new heads do and invalidate evidence", () => {
   let current = bindReviewConvergenceEvidence(state(), "validation", { status: "passed", exactHead: "a".repeat(40) });
   const retry = accountConvergenceEvent(current, { kind: "provider_retry" });
