@@ -97,6 +97,7 @@ import {
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
 import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor } from "./lib/recovery-continuation.mjs";
+import { autoMergeEffectsConfirmed } from "./lib/terminal-effects.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -2584,18 +2585,6 @@ function finishIssueOutcome(config, issue, outcome, body) {
     issue.sessionLifecycle = terminal.state;
   }
   return result;
-}
-
-function autoMergeEffectsConfirmed(config, lifecycle, autoMerge = {}) {
-  if (lifecycleHasPendingCanonicalIntents(config, lifecycle)) return false;
-  if (autoMerge.result !== "merged") return true;
-  const hygiene = autoMerge.completionHygiene || {};
-  const mutationComponents = [hygiene.comment, hygiene.closure, hygiene.labelCleanup, hygiene.parentProgress, hygiene.project, hygiene.ledger];
-  const completeStatus = (component) => !component || ["updated", "skipped", "not_updated", "reused", "created"].includes(component.status) || component.skipped === true;
-  return autoMerge.mergeReadback?.ok === true
-    && autoMerge.sourceBranchRestoration?.confirmed === true
-    && autoMerge.comments?.pr?.status === 0
-    && mutationComponents.every(completeStatus);
 }
 
 function lifecycleHasPendingCanonicalIntents(config, lifecycle) {

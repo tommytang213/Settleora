@@ -94,6 +94,7 @@ import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planVa
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
+import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";
 import {
   evaluateReviewFixCanaryFixtureApproval,
   normalizeReviewFixCanaryFixtureConfig,
@@ -6981,6 +6982,28 @@ test("existing-PR recovery creates lifecycle authority before merge execution", 
   assert.match(iteration, /transitionSessionLifecyclePhase\(config, recoveryLifecycle/);
   assert.match(iteration, /autoMergeEffectsConfirmed\(config, recoveryLifecycle, recovery\.autoMerge\)/);
   assert.match(source, /findPreEffectIntents\(config,[\s\S]*!\["finalized", "failed_closed"\]\.includes\(intent\.status\)/);
+});
+
+test("merged lifecycle terminal effects block failed supported project hygiene", () => {
+  const merged = {
+    result: "merged",
+    mergeReadback: { ok: true },
+    sourceBranchRestoration: { confirmed: true },
+    comments: { pr: { status: 0 } },
+    completionHygiene: {
+      comment: { status: "updated" },
+      closure: { status: "skipped" },
+      labelCleanup: { status: "skipped" },
+      parentProgress: { status: "updated" },
+      ledger: { status: "reused" },
+      project: { status: "failed", reason: "project_status_mapping_incomplete" },
+    },
+  };
+  assert.equal(autoMergeEffectsConfirmed({}, null, merged), false);
+  assert.equal(autoMergeEffectsConfirmed({}, null, {
+    ...merged,
+    completionHygiene: { ...merged.completionHygiene, project: { status: "not_updated", reason: "project_status_mapping_not_configured" } },
+  }), true);
 });
 
 test("feature-bundle results propagate lifecycle authority to terminal issue effects", () => {
