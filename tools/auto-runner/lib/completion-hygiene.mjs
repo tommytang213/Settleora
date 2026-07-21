@@ -26,10 +26,10 @@ export function completeMergedIssueHygiene(config = {}, context = {}, options = 
   const closeDecision = evaluateCloseDecision(refreshed.issue, refreshed);
   const completionBody = renderCompletionComment(refreshed, closeDecision);
   const duplicateComment = hasCompletionComment(refreshed.issue, refreshed, completionBody);
-  const comment = duplicateComment
-    ? { status: "skipped", reason: "completion_comment_already_present" }
-    : refreshed.sessionLifecycle
-      ? canonicalCommentComponent(config, refreshed, runner, repositoryContext, refreshed.issue.number, completionBody, "issue_progress_comment")
+  const comment = refreshed.sessionLifecycle
+    ? canonicalCommentComponent(config, refreshed, runner, repositoryContext, refreshed.issue.number, completionBody, "issue_progress_comment")
+    : duplicateComment
+      ? { status: "skipped", reason: "completion_comment_already_present" }
       : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--body", completionBody]));
   const closure =
     closeDecision.close === true
