@@ -86,7 +86,7 @@ function reconcileDurableIntents(config, intentIds, git, github, diagnostics, co
     // the atomic adoption/finalization transition.
     if (result.classification === "effect_ambiguous") ambiguities.push("pre_effect_intent_ambiguous");
     else if (["effect_contradictory", "live_read_unavailable"].includes(result.classification)) contradictions.push(`pre_effect_intent_${result.classification}`);
-    results.push({ intentId: String(intent.intentId).slice(0, 120), effectType: intent.effectType, fingerprint: intent.fingerprint, classification: result.classification, ...(intent.effectType === "commit" ? { treeSha: sha40(intent.effect.treeSha), stagedPaths: Array.isArray(intent.effect.stagedPaths) ? intent.effect.stagedPaths.slice(0, 200) : [], confirmedHeadMatches: liveEvidence.present === true } : {}) });
+    results.push({ intentId: String(intent.intentId).slice(0, 120), effectType: intent.effectType, fingerprint: intent.fingerprint, classification: result.classification, ...(intent.effectType === "commit" ? { treeSha: sha40(intent.effect.treeSha), stagedPaths: Array.isArray(intent.effect.stagedPaths) ? intent.effect.stagedPaths.slice(0, 200) : [], confirmedHeadMatches: liveEvidence.present === true, preparedWorktreeMatches: intent.status === "prepared" && result.classification === "effect_absent_safe_to_execute" && intentGit.stagedTreeSha === intent.effect.treeSha && sameStrings(intentGit.stagedPaths, intent.effect.stagedPaths) && intentGit.unstagedPaths.length === 0 && intentGit.untrackedClean === true } : {}) });
   }
   return results;
 }
@@ -266,12 +266,7 @@ function reconcileIdentity(identity, git, github, intents, contradictions, ambig
   if (git.branchName !== identity.branchName || (identity.headSha && git.headSha !== identity.headSha && !exactPendingCommit)) contradictions.push("local_git_identity_mismatch");
   if (github.pr && (github.pr.number !== identity.prNumber || github.pr.headRefName !== identity.branchName || github.pr.baseRefName !== identity.baseBranch)) contradictions.push("github_pr_identity_mismatch");
   if (github.pr?.headSha && git.remoteHeadSha && github.pr.headSha !== git.remoteHeadSha) contradictions.push("github_remote_head_mismatch");
-  const exactPreparedCommit = intents.some((intent) => intent.effectType === "commit"
-    && intent.classification === "effect_absent_safe_to_execute"
-    && intent.treeSha === git.stagedTreeSha
-    && sameStrings(intent.stagedPaths, git.stagedPaths)
-    && git.unstagedPaths.length === 0
-    && git.untrackedClean);
+  const exactPreparedCommit = intents.some((intent) => intent.effectType === "commit" && intent.preparedWorktreeMatches === true);
   if ((!git.worktreeClean || !git.indexClean || !git.untrackedClean) && !exactPreparedCommit) ambiguities.push("local_worktree_not_clean");
 }
 
