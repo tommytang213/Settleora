@@ -171,9 +171,16 @@ export function persistSessionLifecycleState(config, state) {
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
   const acquired = acquireCheckpointLock(statePath);
   if (!acquired.ok) return acquired;
-  const result = persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest);
-  const released = acquired.release();
-  return released.ok ? result : released;
+  let result;
+  try {
+    result = persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest);
+  } finally {
+    const released = acquired.release();
+    if (!released.ok) result = result?.ok
+      ? { ...result, cleanupWarning: released.reasonCode }
+      : result || released;
+  }
+  return result;
 }
 
 function persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest) {
@@ -213,20 +220,13 @@ function acquireCheckpointLock(statePath) {
   if (!owner.processStart) return fail("session_lifecycle_checkpoint_lock_identity_unavailable");
   try {
     writeFileSync(ownerPath, `${JSON.stringify(owner)}\n`, { flag: "wx", mode: 0o600 });
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        linkSync(ownerPath, lockPath);
-        linked = true;
-        return { ok: true, release: () => releaseCheckpointLock(lockPath, ownerPath) };
-      } catch (error) {
-        if (error?.code !== "EEXIST") return fail("session_lifecycle_checkpoint_lock_failed");
-        let existing;
-        try { existing = JSON.parse(readFileSync(lockPath, "utf8")); } catch { return fail("session_lifecycle_checkpoint_write_locked"); }
-        if (processStartIdentity(existing.pid) === existing.processStart) return fail("session_lifecycle_checkpoint_write_locked");
-        try { unlinkSync(lockPath); } catch { return fail("session_lifecycle_checkpoint_stale_lock_recovery_failed"); }
-      }
+    try {
+      linkSync(ownerPath, lockPath);
+      linked = true;
+      return { ok: true, release: () => releaseCheckpointLock(lockPath, ownerPath) };
+    } catch (error) {
+      return fail(error?.code === "EEXIST" ? "session_lifecycle_checkpoint_write_locked" : "session_lifecycle_checkpoint_lock_failed");
     }
-    return fail("session_lifecycle_checkpoint_write_locked");
   } finally {
     if (!linked && existsSync(ownerPath)) {
       try { unlinkSync(ownerPath); } catch { /* owner-only orphan is non-authoritative */ }
