@@ -68,6 +68,8 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     changedFiles,
     laneDecision,
     stats: effectiveDiffStats,
+    featureBundle: summary.featureBundle || null,
+    taskContract: summary.taskContract || null,
     largeBundleReviewApproval: config.largeBundleReviewApproval,
     reviewPackageEvidence: buildLargeBundleReviewEvidence({
       config,
@@ -125,6 +127,9 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     diffStats: effectiveDiffStats,
     secretBoundary: sanitizeBoundaryForEvidence(secretBoundary),
     baseSha,
+    treeSha: summary.treeSha || null,
+    repository: summary.repository || null,
+    integrationBoundaries: Array.isArray(summary.integrationBoundaries) ? summary.integrationBoundaries : [],
     verdictSchemaVersion: 1,
     reviewedHead,
     issueNumber: summary.issue?.number || null,
@@ -203,11 +208,11 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     sleep: options.sleep,
   });
 
-  const finalBeforeReport = {
+  const finalBeforeReport = attachIntegratedAttestations({
     ...attemptedResult,
     elapsedMs: Date.now() - startedAtMs,
     completedAt: new Date().toISOString(),
-  };
+  });
   finalBeforeReport.reportPath = writeIntegratedReport(config, finalBeforeReport);
   try {
     writeReviewerAccounting(config, accounting, finalBeforeReport);
@@ -717,6 +722,10 @@ function buildIntegratedReviewPrompt(summary, diff) {
       rawDiffSha256: summary.rawDiffSha256 || summary.diffSha256 || null,
       providerBoundDiffSha256: summary.providerBoundDiffSha256 || null,
       secretBoundary: summary.secretBoundary || null,
+      candidateIdentity: { repository: summary.repository || null, baseSha: summary.baseSha || null, headSha: summary.currentHead || null, treeSha: summary.treeSha || null },
+      integrationBoundaries: summary.integrationBoundaries || [],
+      integrationBoundaryMaterial: summary.integrationBoundaryMaterial || [],
+      structuredReview: summary.structuredReview || null,
       nonGoals: [
         "No GitHub mutation from reviewer output.",
         "No auth/session/security runtime, storage/privacy, money, schema, OpenAPI, generated-client, Docker, CI, deployment, OCR, sync/import/export, mobile release, public/admin exposure, or production changes.",
@@ -736,6 +745,11 @@ function buildIntegratedReviewPrompt(summary, diff) {
   return [
     "Return strict JSON only. No markdown, no prose outside JSON.",
     "Use the provider-enforced schema. Do not add fields.",
+    summary.structuredReview?.phase === "section"
+      ? `This is mandatory section ${summary.structuredReview.sectionId}. Review every declared changed path in that section against the complete cumulative diff and candidate context; do not pass if any declared path is unassessed.`
+      : summary.structuredReview?.phase === "integration"
+        ? "This is the mandatory final cross-section integration pass. Review interactions, dependency boundaries, and findings across every section of the immutable candidate; section passes alone are insufficient."
+        : "This is the complete cumulative candidate review.",
     "Pass only if this Settleora auto-runner pre-PR package's actual lane decision, changed files, validation, and boundaries make it safe to proceed to PR creation.",
     "Fail or gate if the package touches unapproved or manual-action domains, has ambiguous scope, missing validation, secret-boundary risk, stale/incomplete evidence, or reviewer-output GitHub mutation risk.",
     "",
@@ -875,10 +889,34 @@ function finishIntegrated(config, result, startedAtMs, reason, options = {}) {
     reason: result.reason || reason,
     elapsedMs: Date.now() - startedAtMs,
   };
+  Object.assign(final, attachIntegratedAttestations(final));
   if (!final.reportPath || options.rewriteReport) {
     final.reportPath = writeIntegratedReport(config, final);
   }
   return final;
+}
+
+function attachIntegratedAttestations(result) {
+  const validBoundVerdict = result.status === "pass" || (
+    result.reason === "blocked_external_reviewer_non_pass" &&
+    ["fail", "needs_tommy", "danger_gate"].includes(result.verdict) &&
+    result.sanitizedResponseSummary?.verdict === result.verdict
+  );
+  if (!validBoundVerdict) return result;
+  return {
+    ...result,
+    attestedCandidateIdentity: {
+      repository: result.repository,
+      baseSha: result.baseSha,
+      headSha: result.reviewedHead,
+      treeSha: result.treeSha,
+      diffDigest: result.rawDiffSha256,
+      changedFilesDigest: result.changedFilesDigest,
+    },
+    attestedIntegrationBoundaries: result.integrationBoundaries,
+    attestationSource: "provider_prompt_binding",
+    providerPromptBindingDigest: result.packageDigest,
+  };
 }
 
 function writeSmokeReport(config, result) {

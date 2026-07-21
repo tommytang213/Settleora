@@ -92,6 +92,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);
+  assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
 });
 
 test("only the controller-owning production runner path grants outage resubmission capability", () => {
@@ -146,6 +147,38 @@ test("feature-bundle production path records linked recovery state", () => {
   assert.match(source, /post_merge_current_main_checks_scanner_reconciliation/);
 });
 
+test("review mutation guards precede recovery and split side effects", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  for (const reason of [
+    "ordinary_continuation_external_review_mutated_checkout",
+    "ordinary_continuation_codex_review_mutated_checkout",
+    "ordinary_continuation_structured_review_mutated_checkout",
+    "ordinary_continuation_reviewer_checkpoint_missing",
+    "ordinary_continuation_live_candidate_mismatch",
+    "external_review_mutated_checkout",
+    "review_fix_post_fix_external_review_mutated_checkout",
+  ]) assert.match(runner, new RegExp(reason));
+  assert.match(runner, /initial\.effects\?\.external_review\?\.evidence\?\.review/);
+  assert.match(runner, /initial\.effects\?\.codex_review\?\.evidence\?\.review/);
+  assert.match(runner, /ordinaryStructuredReviewCheckpoint\(initial\.effects\?\.structured_review\?\.evidence\)/);
+  assert.match(runner, /providerPromptBindingDigest: review\.providerPromptBindingDigest/);
+  assert.match(runner, /attestationSource: review\.attestationSource/);
+  assert.equal((runner.match(/recoveryRecorder,\n\s+branchName,/g) || []).length, 4);
+  assert.match(runner, /headChanged\(iteration\.runnerCreatedCommitSha, reasonCode, \{ ordinaryContinuation \}\)/);
+  assert.match(runner, /if \(headChangeCheckpoint\) await headChangeCheckpoint\(runnerCreatedCommitSha\)/);
+  assert.match(runner, /review_convergence: async \(continuation\).*runReviewFixCycle.*commitReviewFixAndRerunExactHeadReviews/s);
+
+  const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const bundleFixCommit = bundle.indexOf("const commit = await commitExplicitPaths", bundle.indexOf("commitBundleReviewFixAndRerunExactHeadReviews"));
+  const bundleHeadCheckpoint = bundle.indexOf("recovery?.headChanged(runnerCreatedCommitSha", bundleFixCommit);
+  const bundleReviewPackage = bundle.indexOf("const reviewPackage = writeBundleReviewPackage", bundleFixCommit);
+  assert.ok(bundleFixCommit >= 0 && bundleHeadCheckpoint > bundleFixCommit && bundleHeadCheckpoint < bundleReviewPackage);
+  const reviewCall = bundle.indexOf("result.externalReview = await runGeminiIntegratedReview");
+  const guard = bundle.indexOf("externalReviewMutationGuard", reviewCall);
+  const splitRoute = bundle.indexOf('route === "split_or_block"', reviewCall);
+  assert.ok(reviewCall >= 0 && guard > reviewCall && splitRoute > guard);
+});
+
 test("head-changing commit invalidates every stale evidence binding", () => {
   let state = recoveryState();
   for (const kind of headBoundEvidenceKinds) {
@@ -163,7 +196,10 @@ test("head-changing commit invalidates every stale evidence binding", () => {
     assert.equal(loaded.ok, true);
     const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
     assert.match(source, /headChanged\(iteration\.runnerCreatedCommitSha, "checkpoint_commit"\)/);
-    assert.match(source, /headChanged\(iteration\.runnerCreatedCommitSha, "review_fix_commit"\)/);
+    const reviewFixCommit = source.indexOf("const commit = await commitExplicitPaths", source.indexOf("commitReviewFixAndRerunExactHeadReviews"));
+    const reviewFixCheckpoint = source.indexOf("if (headChangeCheckpoint) await headChangeCheckpoint(runnerCreatedCommitSha)", reviewFixCommit);
+    const reviewFixPackage = source.indexOf("const reviewPackage = await writeReviewPackage", reviewFixCommit);
+    assert.ok(reviewFixCommit >= 0 && reviewFixCheckpoint > reviewFixCommit && reviewFixCheckpoint < reviewFixPackage);
   } finally {
     config.cleanup();
   }
@@ -182,8 +218,51 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /if \(iteration\.reviewMutationGuard\?\.mutationDetected\) \{\n\s+return stopForPostFixReviewMutation/);
   assert.match(source, /appendNormalReviewConvergenceHistory\(iteration/);
   assert.match(source, /persistNormalReviewConvergenceState\(config, iteration, "post_fix_reviewed"\)/);
+  assert.equal((source.match(/refreshNormalLargeCandidateReviewAfterFix\(config, iteration, postFix\.changedFiles, issue, recoveryRecorder\)/g) || []).length, 3);
+  assert.equal((source.match(/async function refreshNormalLargeCandidateReviewAfterFix\(config, iteration, changedFiles, issue, recoveryRecorder\)/g) || []).length, 1);
+  assert.match(source, /Post-fix cumulative large-candidate review is incomplete/);
+  assert.match(source, /routeNormalStructuredFindingsToConvergence\(iteration\)/);
+  assert.match(source, /sanitizedResponseSummary: \{ verdict: "fail", findings: gemini \}/);
+  assert.match(source, /recommended_next_action: "run_safe_fix_cycle"/);
   assert.match(source, /reviewConvergenceState: iteration\.reviewConvergenceState/);
   assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
+});
+
+test("valid non-pass reviewers retain prompt binding for structured convergence", () => {
+  const gemini = readFileSync(new URL("../lib/gemini-reviewer.mjs", import.meta.url), "utf8");
+  const codex = readFileSync(new URL("../lib/codex-runner.mjs", import.meta.url), "utf8");
+  assert.match(gemini, /reason === "blocked_external_reviewer_non_pass"/);
+  assert.match(gemini, /\["fail", "needs_tommy", "danger_gate"\]\.includes\(result\.verdict\)/);
+  assert.match(codex, /\["approve", "changes_requested", "needs_tommy", "danger_gate"\]\.includes\(finalResult\.verdict\?\.verdict\)/);
+});
+
+test("large review recovery re-requires binding and reviewer prompts carry boundary material", () => {
+  const routing = readFileSync(new URL("../lib/large-candidate-review-routing.mjs", import.meta.url), "utf8");
+  const gemini = readFileSync(new URL("../lib/gemini-reviewer.mjs", import.meta.url), "utf8");
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  assert.match(routing, /runtimeStructuredRequired: true \} : seed/);
+  assert.match(gemini, /integrationBoundaryMaterial: summary\.integrationBoundaryMaterial \|\| \[\]/);
+  assert.match(runner, /integrationBoundaryMaterial: integrationBoundaryMaterial/);
+  assert.match(bundle, /function writeBundleReviewPackage[\s\S]*?integrationBoundaries:[\s\S]*?integrationBoundaryMaterial: bundleIntegrationBoundaryMaterial[\s\S]*?writeFileSync\(packagePath/);
+  assert.doesNotMatch(runner, /function integrationBoundaryMaterial[\s\S]*?slice\(0, 40_000\)/);
+  assert.doesNotMatch(bundle, /function bundleIntegrationBoundaryMaterial[\s\S]*?slice\(0, 40_000\)/);
+  assert.match(runner, /certifyNormalCumulativeLargeReview[\s\S]*?compareFingerprints\(beforeReview, await checkoutFingerprint\(\)\)/);
+  assert.match(bundle, /phase: "bundle_structured_review"/);
+  assert.match(bundle, /phase: "bundle_convergence_structured_review"/);
+  assert.match(bundle, /executionAuthorityProven: slice\.executionAuthorityProven === true/);
+  assert.doesNotMatch(bundle, /executionAuthorityProven: false/);
+  assert.match(runner, /structuredLargeCandidateManualVerdict\(iteration\.largeCandidateReview\)/);
+  assert.match(bundle, /structuredLargeCandidateManualVerdict\(result\.largeCandidateReview\)/);
+  assert.match(runner, /repository: config\.repositorySlug \|\| "tommytang213\/Settleora"/);
+  assert.match(runner, /refreshNormalLargeCandidateReviewAfterFix\(config, iteration, postFix\.changedFiles/);
+  assert.match(bundle, /changedFiles\.filter\(\(changedPath\).*featureBundleAllowedPathMatches/);
+  assert.match(runner, /loadNormalLargeCandidateRecoveryCheckpoint\(config, state\)/);
+  assert.match(runner, /continueOrdinaryCandidateRecovery\(config, logger/);
+  assert.match(runner, /continueOrdinaryCandidate\(initial/);
+  assert.match(bundle, /materializeFeatureBundleSplit/);
+  assert.match(bundle, /deterministic_split_materialized/);
+  assert.match(bundle, /runPrStackExecution/);
 });
 
 test("stack local-fix recovery threads one injected Codex execution authority", () => {

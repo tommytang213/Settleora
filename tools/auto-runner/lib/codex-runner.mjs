@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, openSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { digestChangedFiles } from "./config.mjs";
@@ -168,7 +168,7 @@ export function runReviewPrompt(config, packageInfo) {
     sessionLifecycle = attemptResult.sessionLifecycle || sessionLifecycle;
     if (!isRetryableReviewAttempt(attemptResult) || attempt === retry.maxAttempts) break;
   }
-  return {
+  const finalResult = {
     skipped: false,
     promptPath,
     command: command.command,
@@ -196,6 +196,27 @@ export function runReviewPrompt(config, packageInfo) {
     verdict: selected.verdict,
     sessionLifecycle,
   };
+  const validBoundProcessResult = finalResult.status === 0
+    && !finalResult.signal
+    && !finalResult.error
+    && ["passed", "completed"].includes(finalResult.reviewStatus)
+    && finalResult.reviewedBaseSha === finalResult.baseSha;
+  if (validBoundProcessResult && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(finalResult.verdict?.verdict)) {
+    finalResult.attestedCandidateIdentity = {
+      repository: packageInfo.summary?.repository || null,
+      baseSha: finalResult.baseSha,
+      headSha: finalResult.reviewedHead,
+      treeSha: packageInfo.summary?.treeSha || null,
+      diffDigest: packageInfo.summary?.rawDiffSha256 || null,
+      changedFilesDigest: finalResult.changedFilesDigest,
+    };
+    finalResult.attestedIntegrationBoundaries = Array.isArray(packageInfo.summary?.integrationBoundaries)
+      ? packageInfo.summary.integrationBoundaries
+      : [];
+    finalResult.attestationSource = "provider_prompt_binding";
+    finalResult.providerPromptBindingDigest = createHash("sha256").update(prompt).digest("hex");
+  }
+  return finalResult;
 }
 
 function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecycle = null) {
@@ -658,9 +679,16 @@ function collectJsonObjectCandidates(text) {
 }
 
 function buildReviewPrompt(packageInfo) {
+  const structuredInstruction = packageInfo.summary?.structuredReview?.phase === "section"
+    ? `Mandatory section review: ${packageInfo.summary.structuredReview.sectionId}. Review every declared section path against the complete cumulative candidate; do not approve if any declared path is unassessed.`
+    : packageInfo.summary?.structuredReview?.phase === "integration"
+      ? "Mandatory final cross-section integration review: assess interactions, dependencies, and combined findings across every section; section passes alone are insufficient."
+      : "Complete cumulative candidate review.";
   return `# Settleora Pre-PR Review
 
 Review only. Do not edit files. Use the provided package and return the required JSON verdict followed by concise notes.
+
+${structuredInstruction}
 
 Required JSON shape:
 

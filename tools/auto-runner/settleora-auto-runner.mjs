@@ -51,6 +51,7 @@ import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
+import { createLargeCandidateRoutingState, loadLargeCandidateRoutingState, persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -115,6 +116,7 @@ import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
+import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches } from "./lib/ordinary-candidate-continuation.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -910,6 +912,25 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     summary: "exact-head validation",
   });
 
+  if (recoveryRecorder) {
+    const identity = {
+      repository: config.repositorySlug || "tommytang213/Settleora",
+      baseSha: iteration.baseOriginMainSha,
+      headSha: iteration.runnerCreatedCommitSha,
+      treeSha: getRefSha("HEAD^{tree}"),
+      diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+      changedFiles,
+    };
+    const ordinaryContinuation = createOrdinaryContinuationState({ logicalTaskKey: config.taskKey || `issue-${issue.number}`, executionKey: runId, issueNumber: issue.number, branchName, identity });
+    const registered = await continueOrdinaryCandidate(ordinaryContinuation, {
+      candidate_reconciliation: async () => ({ ok: true, evidence: identity }),
+      local_validation: async () => ({ ok: true, evidence: { changedFilesDigest: iteration.validation.changedFilesDigest } }),
+      external_review: async () => ({ ok: true, wait: true, completed: false, reasonCode: "external_review_pending" }),
+      onCheckpoint: async (continuation) => recoveryRecorder.annotate({ ordinaryContinuation: continuation }),
+    });
+    if (!registered.ok || registered.state?.phase !== "external_review") throw new Error(registered.reasonCode || "ordinary_continuation_registration_failed");
+  }
+
   const beforeReview = await checkoutFingerprint();
   recoveryRecorder?.advance("external_review", "run_external_review");
   iteration.reviewPackage = await writeReviewPackage(config, {
@@ -923,6 +944,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     diffHeadRef: "HEAD",
   });
   iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
+  if (iteration.reviewMutationGuard.mutationDetected) {
+    iteration.outcome = "auto_failed";
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner blocked #${issue.number} because external pre-PR review mutated the checkout.`);
+    recoveryRecorder?.stop("external_review_mutated_checkout", "External pre-PR review mutated the checkout.", "stop_fail_closed");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
   recoveryRecorder?.evidence("externalReview", {
     status: iteration.externalReview.status === "pass" ? "passed" : "blocked",
     headSha: iteration.externalReview.reviewedHead || iteration.runnerCreatedCommitSha,
@@ -933,6 +962,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     summary: iteration.externalReview.reason,
   });
   if (iteration.externalReview.status === "blocked") {
+    if (iteration.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
+      iteration.largeCandidateReview = persistNormalLargeCandidateSplit(config, iteration, changedFiles);
+      iteration.outcome = "blocked_needs_tommy";
+      recoveryRecorder?.stop(iteration.largeCandidateReview.reasonCode, "Mixed candidate lacks a proven semantics-preserving split.", "minimum_scope_architecture_decision_required");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
     recoveryRecorder?.advance("review_fix", "run_external_review_fix");
     if (!config.dryRun) {
       const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
@@ -989,6 +1025,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       promptInfo,
       report: iteration.report,
       fixAttempt,
+      recoveryRecorder,
+      branchName,
     });
     changedFiles = postFix.changedFiles;
     forbidden = postFix.forbiddenChangedFiles;
@@ -1002,7 +1040,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-    recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_fix_commit");
     recoveryRecorder?.marker("checkpoint_commit", `review-fix-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
       target: branchName,
       correlation: runId,
@@ -1055,6 +1092,40 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       return iteration;
     }
   }
+  iteration.largeCandidateReview = iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
+    ? await certifyNormalCumulativeLargeReview(config, iteration, changedFiles)
+    : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
+  iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
+  if (iteration.reviewMutationGuard.mutationDetected) {
+    iteration.outcome = "auto_failed";
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner blocked #${issue.number} because structured pre-PR review mutated the checkout.`);
+    recoveryRecorder?.stop("structured_review_mutated_checkout", "Structured pre-PR review mutated the checkout.", "stop_fail_closed");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+  }
+  if (iteration.largeCandidateReview.sessionLifecycle) {
+    iteration.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
+    issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
+  }
+  if (iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !iteration.largeCandidateReview.ok) {
+    const manualVerdict = structuredLargeCandidateManualVerdict(iteration.largeCandidateReview);
+    if (manualVerdict) {
+      iteration.outcome = manualVerdict === "danger_gate" ? "danger_gate" : "blocked_needs_tommy";
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Structured large-candidate review returned ${manualVerdict}; no fix cycle or push was attempted.`);
+      recoveryRecorder?.stop(`structured_review_${manualVerdict}`, "Structured reviewer required a manual decision.", "manual_review_decision_required");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    if (routeNormalStructuredFindingsToConvergence(iteration)) {
+      recoveryRecorder?.advance("review_fix", "route_structured_large_candidate_findings");
+    } else {
+    iteration.outcome = "auto_failed";
+    iteration.externalReview = { ...iteration.externalReview, status: "blocked", reason: iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete" };
+    recoveryRecorder?.stop(iteration.externalReview.reason, "Complete cumulative large-candidate dual review evidence was not established.", "rerun_complete_dual_review");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
+    }
+  }
   recoveryRecorder?.evidence("codexReview", {
     status: iteration.review.verdict?.verdict === "approve" ? "passed" : "blocked",
     headSha: iteration.runnerCreatedCommitSha,
@@ -1065,7 +1136,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     summary: iteration.review.reviewFailureReason || iteration.review.verdict?.verdict,
   });
 
-  if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
+  if (config.requirePrePrReview && (iteration.review.verdict.verdict !== "approve" || iteration.externalReview?.status !== "pass")) {
     if (!config.dryRun) {
       const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
         issue,
@@ -1103,6 +1174,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         promptInfo,
         report: iteration.report,
         fixAttempt,
+        recoveryRecorder,
+        branchName,
       });
       changedFiles = postFix.changedFiles;
       forbidden = postFix.forbiddenChangedFiles;
@@ -1116,7 +1189,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-      recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "codex_review_initial_fix_commit");
       recoveryRecorder?.marker("checkpoint_commit", `codex-review-initial-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
         target: branchName,
         correlation: runId,
@@ -1125,6 +1197,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
+      if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
         return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_initial_fix_review_mutated_checkout");
@@ -1168,7 +1241,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
   while (true) {
-    if (!config.dryRun && iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") {
+    if (!config.dryRun && ((iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") || iteration.externalReview?.status === "blocked")) {
       recoveryRecorder?.advance("review_fix", "run_bounded_codex_review_convergence");
       const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
         issue,
@@ -1222,6 +1295,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         promptInfo,
         report: iteration.report,
         fixAttempt,
+        recoveryRecorder,
+        branchName,
       });
       changedFiles = postFix.changedFiles;
       forbidden = postFix.forbiddenChangedFiles;
@@ -1235,7 +1310,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-      recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "codex_review_convergence_fix_commit");
       recoveryRecorder?.marker("checkpoint_commit", `codex-review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
         target: branchName,
         correlation: runId,
@@ -1244,6 +1318,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
+      if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
         return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_convergence_fix_review_mutated_checkout");
@@ -1348,6 +1423,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       promptInfo,
       report: iteration.report,
       fixAttempt,
+      recoveryRecorder,
+      branchName,
     });
     changedFiles = postFix.changedFiles;
     forbidden = postFix.forbiddenChangedFiles;
@@ -1361,7 +1438,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
-    recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "review_convergence_fix_commit");
     recoveryRecorder?.marker("checkpoint_commit", `review-convergence-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
       target: branchName,
       correlation: runId,
@@ -1370,6 +1446,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
+    if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
     if (iteration.reviewMutationGuard?.mutationDetected) {
       return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_convergence_fix_review_mutated_checkout");
@@ -1576,8 +1653,8 @@ function createProductionRecoveryRecorder(config, input) {
       }
       return persisted;
     },
-    headChanged(newHeadSha, reasonCode) {
-      return persist(invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }));
+    headChanged(newHeadSha, reasonCode, metadata = {}) {
+      return persist({ ...invalidateEvidenceForHeadChange(state, { newHeadSha, reasonCode }), ...metadata });
     },
     marker(kind, key, marker = {}) {
       return persist(recordIdempotentMutation(state, { kind, key, marker }));
@@ -1662,6 +1739,12 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
       }
+      if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
+        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
+        if (checkpoint.ok) {
+          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary });
+        }
+      }
       if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
         const stopped = advanceRecoveryPhase(state, {
           phase: "stopped",
@@ -1691,6 +1774,326 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary }) {
+  const identity = checkpoint.candidateIdentity;
+  const initial = state.ordinaryContinuation || createOrdinaryContinuationState({
+    logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
+    executionKey: config.runnerRunId || null,
+    issueNumber: issue.number,
+    branchName: state.branch.name,
+    identity: { ...identity, changedFiles: listChangedFiles(identity.baseSha, identity.headSha) },
+    phase: "candidate_reconciliation",
+    counters: { acceptedLogicalTasks: 1, sourceRounds: state.reviewConvergenceState?.counters?.lifetimeLocalSourceChangingRounds || 0, githubEpochs: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0 },
+  });
+  fetchOriginMain(config);
+  if (getCurrentBranch() !== initial.branchName || getRefSha("HEAD") !== initial.identity.headSha || getRefSha("origin/main") !== initial.identity.baseSha || getStatusShort() !== "") {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
+  }
+  const actualChangedFiles = listChangedFiles(initial.identity.baseSha, initial.identity.headSha);
+  const actualIdentity = {
+    baseSha: initial.identity.baseSha,
+    headSha: initial.identity.headSha,
+    treeSha: getRefSha(`${initial.identity.headSha}^{tree}`),
+    diffDigest: createHash("sha256").update(getBoundedDiff(initial.identity.baseSha, initial.identity.headSha).text).digest("hex"),
+    changedFiles: actualChangedFiles,
+    changedFilesDigest: createHash("sha256").update(JSON.stringify([...actualChangedFiles].sort())).digest("hex"),
+  };
+  if (!ordinaryCandidateIdentityMatches(initial.identity, actualIdentity)) {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_candidate_identity_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
+  }
+  const context = {
+    issue,
+    laneDecision,
+    checkpoint,
+    validation: null,
+    reviewPackage: null,
+    externalReview: initial.effects?.external_review?.evidence?.review || null,
+    review: initial.effects?.codex_review?.evidence?.review || null,
+    largeCandidateReview: ordinaryStructuredReviewCheckpoint(initial.effects?.structured_review?.evidence),
+    pr: null,
+  };
+  const persist = async (ordinaryContinuation) => writeRecoveryState(config, { ...state, ordinaryContinuation });
+  const result = await continueOrdinaryCandidate(initial, {
+    candidate_reconciliation: async (continuation) => {
+      const candidate = continuation.identity;
+      fetchOriginMain(config);
+      if (getCurrentBranch() !== state.branch.name || getRefSha("HEAD") !== candidate.headSha || getRefSha("origin/main") !== candidate.baseSha || getStatusShort() !== "") return { ok: false, reasonCode: "ordinary_continuation_candidate_mismatch" };
+      return { ok: true, evidence: candidate };
+    },
+    local_validation: async (continuation) => {
+      const candidate = continuation.identity;
+      const changedFiles = listChangedFiles(candidate.baseSha, candidate.headSha);
+      const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
+      if (forbidden.length) return { ok: false, reasonCode: "ordinary_continuation_scope_mismatch" };
+      context.validation = bindValidationEvidence(runValidationPlan(config, planValidation(changedFiles, laneDecision)), { headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles, profile: laneDecision.validationProfile });
+      return context.validation.passed ? { ok: true, evidence: { changedFilesDigest: context.validation.changedFilesDigest } } : { ok: false, reasonCode: "ordinary_continuation_validation_failed" };
+    },
+    external_review: async (continuation) => {
+      const candidate = continuation.identity;
+      const before = await checkoutFingerprint();
+      const changedFiles = candidate.changedFiles;
+      context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
+      context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
+      if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_external_review_mutated_checkout" };
+      const manual = recoveredReviewerManualVerdict(context.externalReview);
+      if (manual) return { ok: false, outcome: manual, reasonCode: context.externalReview.reason || `ordinary_continuation_external_review_${manual}` };
+      return { ok: true, evidence: { status: context.externalReview.status === "pass" ? "passed" : "changes_requested", evidencePath: context.externalReview.reportPath, review: ordinaryReviewerCheckpoint(context.externalReview, "external") } };
+    },
+    codex_review: async (continuation) => {
+      const candidate = continuation.identity;
+      const before = await checkoutFingerprint();
+      context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
+      context.review = runReviewPrompt(config, context.reviewPackage);
+      if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_codex_review_mutated_checkout" };
+      const manual = recoveredReviewerManualVerdict(context.review);
+      if (manual) return { ok: false, outcome: manual, reasonCode: context.review?.reviewFailureReason || `ordinary_continuation_codex_review_${manual}` };
+      return { ok: true, evidence: { status: context.review?.verdict?.verdict === "approve" ? "passed" : "changes_requested", evidencePath: context.review.logPath, review: ordinaryReviewerCheckpoint(context.review, "codex") } };
+    },
+    structured_review: async (continuation) => {
+      const candidate = continuation.identity;
+      if (!context.externalReview || !context.review) return { ok: false, reasonCode: "ordinary_continuation_reviewer_checkpoint_missing" };
+      if (context.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") return { ok: true, evidence: { route: "normal" } };
+      const before = await checkoutFingerprint();
+      const iteration = { issue, baseOriginMainSha: candidate.baseSha, runnerCreatedCommitSha: candidate.headSha, reviewPackage: context.reviewPackage, externalReview: context.externalReview, review: context.review };
+      context.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, candidate.changedFiles);
+      if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_structured_review_mutated_checkout" };
+      const manual = structuredLargeCandidateManualVerdict(context.largeCandidateReview);
+      const findings = ordinaryStructuredFindings(context.largeCandidateReview);
+      return manual ? { ok: false, outcome: manual, reasonCode: context.largeCandidateReview.reasonCode || `ordinary_continuation_structured_review_${manual}` } : { ok: true, evidence: { status: context.largeCandidateReview.ok ? "passed" : "changes_requested", reasonCode: context.largeCandidateReview.reasonCode || null, findings, state: context.largeCandidateReview.state } };
+    },
+    review_convergence: async (continuation) => {
+      const candidate = continuation.identity;
+      if (context.externalReview?.status === "pass" && context.review?.verdict?.verdict === "approve" && (!context.largeCandidateReview || context.largeCandidateReview.ok)) return { ok: true, evidence: { exactHeadReviewPassed: true } };
+      const promptInfo = { promptPath: null, ...(state.sessionLifecycle ? { sessionLifecycle: { state: state.sessionLifecycle } } : {}) };
+      const structuredFindings = context.largeCandidateReview?.ok === false ? ordinaryStructuredFindings(context.largeCandidateReview) : [];
+      const reviewForFix = structuredFindings.length ? { ...context.review, verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: structuredFindings } } : context.review;
+      const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName: state.branch.name, promptInfo, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: context.validation, report: { found: true, recovered: true }, externalReview: context.externalReview, review: reviewForFix, largeCandidateReview: context.largeCandidateReview, reviewConvergenceState: state.reviewConvergenceState });
+      if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
+      const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
+        issue,
+        laneDecision,
+        promptInfo,
+        report: { found: true, recovered: true },
+        fixAttempt,
+        headChangeCheckpoint: async (headSha) => {
+          const changedFiles = listChangedFiles(candidate.baseSha, headSha);
+          const next = createOrdinaryContinuationState({
+            logicalTaskKey: continuation.logicalTaskKey,
+            executionKey: continuation.executionKey,
+            issueNumber: continuation.issueNumber,
+            branchName: continuation.branchName,
+            identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
+            phase: "candidate_reconciliation",
+            counters: { ...continuation.counters, sourceRounds: continuation.counters.sourceRounds + 1 },
+          });
+          await persist(next);
+        },
+      });
+      if (postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass" || postFix.review?.verdict?.verdict !== "approve" || postFix.forbiddenChangedFiles?.length) return { ok: false, outcome: "review_convergence_required", reasonCode: "ordinary_continuation_post_fix_recertification_failed" };
+      const changedFiles = postFix.changedFiles;
+      const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, postFix.runnerCreatedCommitSha).text).digest("hex"), changedFiles };
+      return { ok: true, sourceChanged: true, identity: next };
+    },
+    push: async (continuation) => {
+      const candidate = continuation.identity;
+      const pushed = await pushBranch(config, state.branch.name, { effectContext: state.sessionLifecycle });
+      return pushed.status === 0 ? { ok: true, evidence: { headSha: candidate.headSha } } : { ok: false, reasonCode: "ordinary_continuation_push_failed" };
+    },
+    pr_create_or_update: async (continuation) => {
+      context.pr = await openOrUpdatePr(config, issue, state.branch.name, `Recovered exact-head continuation for ${continuation.identity.headSha}.`, { effectContext: state.sessionLifecycle });
+      return context.pr?.url ? { ok: true, evidence: { url: context.pr.url, number: context.pr.number } } : { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
+    },
+    github_convergence: async (continuation) => {
+      const candidate = continuation.identity;
+      const prEvidence = context.pr || initial.effects?.pr_create_or_update?.evidence || {};
+      const prNumber = prEvidence.number || Number(String(prEvidence.url || "").split("/").at(-1));
+      if (!Number.isInteger(prNumber)) return { ok: false, reasonCode: "ordinary_continuation_pr_identity_missing" };
+      const recoveryConfig = {
+        ...config,
+        allowExistingPrRecovery: true,
+        existingPrRecovery: {
+          ...(config.existingPrRecovery || {}),
+          [issue.number]: {
+            prNumber,
+            branchName: state.branch.name,
+            expectedHeadSha: candidate.headSha,
+            expectedOriginMainSha: candidate.baseSha,
+            expectedRepository: config.repositorySlug,
+            checkoutReconstructable: true,
+            allowStateRebuildFromEvidence: true,
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true },
+          },
+        },
+      };
+      const recovered = await recoverExistingPrIfConfigured(recoveryConfig, logger, issue, laneDecision, state, { runId: state.run?.runId || config.runnerRunId });
+      if (recovered?.autoMerge?.result === "merged") {
+        if (!autoMergeEffectsConfirmed(config, state.sessionLifecycle, recovered.autoMerge)) {
+          return { ok: false, reasonCode: "ordinary_continuation_merge_hygiene_unconfirmed" };
+        }
+        return { ok: true, evidence: compactOrdinaryMergeEvidence(recovered.autoMerge, prNumber) };
+      }
+      if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
+      return { ok: false, reasonCode: recovered?.autoMerge?.reason || recovered?.reason || "ordinary_continuation_github_convergence_blocked" };
+    },
+    merge: async () => ({ ok: true, evidence: { adoptedFromGithubConvergence: true } }),
+    post_merge_hygiene: async (continuation) => {
+      const evidence = continuation.effects?.github_convergence?.evidence;
+      const autoMerge = ordinaryMergeEvidenceAsAutoMerge(evidence);
+      return autoMerge.result === "merged" && autoMergeEffectsConfirmed(config, state.sessionLifecycle, autoMerge)
+        ? { ok: true, evidence }
+        : { ok: false, reasonCode: "ordinary_continuation_post_merge_hygiene_unconfirmed" };
+    },
+    adoptEffect: async (phase, continuation, adopted) => adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, state.sessionLifecycle),
+    onCheckpoint: persist,
+  });
+  logger.info(`Issue #${issue.number}: ordinary continuation advanced to ${result.state?.phase || result.outcome}.`);
+  return { ...result, ordinaryContinuation: result.state, largeCandidateReviewRecovery: checkpoint, state };
+}
+
+function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {
+  const targetDigest = adopted.targetDigest;
+  if (phase === "push") {
+    const live = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${continuation.branchName}`], { cwd: config.repoRoot, encoding: "utf8" });
+    const head = live.status === 0 && live.stdout.trim() ? live.stdout.trim().split(/\s+/)[0] : null;
+    return head === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_push_live_mismatch" };
+  }
+  if (phase === "pr_create_or_update") {
+    const live = spawnSync("gh", ["pr", "list", "--head", continuation.branchName, "--state", "open", "--json", "number,baseRefName,headRefOid"], { cwd: config.repoRoot, encoding: "utf8" });
+    let prs = []; try { prs = JSON.parse(live.stdout || "[]"); } catch { return { ok: false, reasonCode: "ordinary_continuation_pr_live_unavailable" }; }
+    return live.status === 0 && prs.length === 1 && prs[0].baseRefName === "main" && prs[0].headRefOid === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_pr_live_mismatch" };
+  }
+  if (phase === "merge") {
+    fetchOriginMain(config);
+    const proof = spawnSync("git", ["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot, encoding: "utf8" });
+    return proof.status === 0 ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_merge_live_mismatch" };
+  }
+  if (phase === "github_convergence") {
+    fetchOriginMain(config);
+    const proof = spawnSync("git", ["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot, encoding: "utf8" });
+    const autoMerge = ordinaryMergeEvidenceAsAutoMerge(adopted.evidence);
+    return proof.status === 0 && autoMerge.result === "merged" && autoMergeEffectsConfirmed(config, sessionLifecycle, autoMerge)
+      ? { ok: true, targetDigest }
+      : { ok: false, reasonCode: "ordinary_continuation_github_convergence_live_mismatch" };
+  }
+  if (phase === "post_merge_hygiene") {
+    const autoMerge = ordinaryMergeEvidenceAsAutoMerge(adopted.evidence);
+    return autoMerge.result === "merged" && autoMergeEffectsConfirmed(config, sessionLifecycle, autoMerge)
+      ? { ok: true, targetDigest }
+      : { ok: false, reasonCode: "ordinary_continuation_hygiene_effects_unconfirmed" };
+  }
+  return { ok: false, reasonCode: `ordinary_continuation_live_adoption_unsupported:${phase}` };
+}
+
+function compactOrdinaryMergeEvidence(autoMerge, prNumber) {
+  return {
+    result: autoMerge.result,
+    mergeSha: autoMerge.mergeSha,
+    prNumber,
+    mergeReadback: autoMerge.mergeReadback,
+    sourceBranchRestoration: autoMerge.sourceBranchRestoration,
+    completionHygiene: autoMerge.completionHygiene,
+    comments: { pr: autoMerge.comments?.pr },
+  };
+}
+
+function ordinaryMergeEvidenceAsAutoMerge(evidence = {}) {
+  return {
+    result: evidence?.result,
+    mergeSha: evidence?.mergeSha,
+    mergeReadback: evidence?.mergeReadback,
+    sourceBranchRestoration: evidence?.sourceBranchRestoration,
+    completionHygiene: evidence?.completionHygiene,
+    comments: evidence?.comments,
+  };
+}
+
+function ordinaryReviewerCheckpoint(review = {}, provider) {
+  return {
+    status: review.status,
+    reason: review.reason,
+    verdict: review.verdict,
+    provider: review.provider || provider,
+    tier: review.tier,
+    reviewedHead: review.reviewedHead,
+    baseSha: review.baseSha,
+    changedFilesDigest: review.changedFilesDigest,
+    reportPath: review.reportPath,
+    logPath: review.logPath,
+    route: review.route,
+    findings: review.findings,
+    attestationSource: review.attestationSource,
+    providerPromptBindingDigest: review.providerPromptBindingDigest,
+    attestedCandidateIdentity: review.attestedCandidateIdentity,
+    attestedIntegrationBoundaries: review.attestedIntegrationBoundaries,
+    contextLimited: review.contextLimited,
+  };
+}
+
+function refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, iteration, issue, branchName, reasonCode) {
+  if (!recoveryRecorder || !iteration.runnerCreatedCommitSha) return null;
+  const changedFiles = listChangedFiles(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha);
+  const prior = recoveryRecorder.state?.ordinaryContinuation;
+  const identity = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    baseSha: iteration.baseOriginMainSha,
+    headSha: iteration.runnerCreatedCommitSha,
+    treeSha: getRefSha(`${iteration.runnerCreatedCommitSha}^{tree}`),
+    diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+    changedFiles,
+  };
+  const ordinaryContinuation = createOrdinaryContinuationState({
+    logicalTaskKey: prior?.logicalTaskKey || config.taskKey || `issue-${issue.number}`,
+    executionKey: prior?.executionKey || config.runnerRunId || null,
+    issueNumber: issue.number,
+    branchName,
+    identity,
+    phase: "candidate_reconciliation",
+    counters: {
+      acceptedLogicalTasks: prior?.counters?.acceptedLogicalTasks ?? 1,
+      sourceRounds: (prior?.counters?.sourceRounds ?? 0) + 1,
+      githubEpochs: prior?.counters?.githubEpochs ?? 0,
+    },
+  });
+  return recoveryRecorder.headChanged(iteration.runnerCreatedCommitSha, reasonCode, { ordinaryContinuation });
+}
+
+function ordinaryStructuredReviewCheckpoint(evidence) {
+  if (!evidence) return null;
+  if (!["passed", "changes_requested"].includes(evidence.status)) return { ok: false, reasonCode: "ordinary_continuation_structured_checkpoint_invalid", findings: [] };
+  return { ok: evidence.status === "passed", reasonCode: evidence.reasonCode || null, findings: Array.isArray(evidence.findings) ? evidence.findings : [], state: evidence.state || null };
+}
+
+function ordinaryStructuredFindings(review) {
+  if (Array.isArray(review?.findings) && review.findings.length) return review.findings;
+  return ["gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
+}
+
+function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
+  const baseSha = state.branch?.baseSha || state.baseSha || null;
+  const headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
+  if (!baseSha || !headSha) return { ok: false, reasonCode: "large_candidate_recovery_identity_missing" };
+  const changedFiles = listChangedFiles(baseSha, headSha);
+  const diff = getBoundedDiff(baseSha, headSha);
+  const candidateIdentity = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
+    baseSha,
+    headSha,
+    treeSha: getRefSha(`${headSha}^{tree}`),
+    diffDigest: createHash("sha256").update(diff.text).digest("hex"),
+    changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+  };
+  const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });
+  const loaded = loadLargeCandidateRoutingState(config, seed);
+  if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true };
+  if (!loaded.ok) return loaded;
+  return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults };
+}
+
+function recoveredReviewerManualVerdict(evidence) {
+  const verdict = evidence?.verdict?.verdict || evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict || null;
+  return verdict === "danger_gate" ? "danger_gate" : verdict === "needs_tommy" ? "blocked_needs_tommy" : null;
 }
 
 function validateRecoveryOnlyStartupEvidence(config, state) {
@@ -2484,6 +2887,14 @@ async function runReviewFixCycle(config, context) {
     report: context.report,
   });
   const externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
+  const externalMutationGuardAfter = compareFingerprints(beforeReview, await checkoutFingerprint());
+  if (externalMutationGuardAfter.mutationDetected) {
+    return finishBlocked("review_fix_post_fix_external_review_mutated_checkout", {
+      validationAfter: summarizeValidation(validationAfter),
+      externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+      externalMutationGuardAfter,
+    });
+  }
   if (externalReviewAfter.status === "blocked") {
     return finishBlocked("review_fix_integrated_review_still_blocking", {
       validationAfter: summarizeValidation(validationAfter),
@@ -2605,10 +3016,17 @@ function lifecycleHasPendingCanonicalIntents(config, lifecycle) {
   }
 }
 
-async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {
+async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt, recoveryRecorder, branchName, headChangeCheckpoint }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
   const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`, { effectContext: promptInfo?.sessionLifecycle?.state });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  if (runnerCreatedCommitSha) {
+    if (headChangeCheckpoint) await headChangeCheckpoint(runnerCreatedCommitSha);
+    else refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, {
+        baseOriginMainSha: getRefSha("origin/main"),
+        runnerCreatedCommitSha,
+      }, issue, branchName, "review_fix_commit");
+  }
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
   const validation = fixAttempt.validationAfter;
@@ -2638,6 +3056,11 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
     diffHeadRef: "HEAD",
   });
   const externalReview = await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head");
+  const afterExternalReview = await checkoutFingerprint();
+  const externalReviewMutationGuard = compareFingerprints(beforeReview, afterExternalReview);
+  if (externalReviewMutationGuard.mutationDetected) {
+    return { changedFiles, forbiddenChangedFiles, validation, commit, runnerCreatedCommitSha, reviewPackage, externalReview, review: { verdict: { verdict: "unable_to_review" } }, reviewMutationGuard: externalReviewMutationGuard };
+  }
   const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
   if (review.sessionLifecycle) {
     issue.sessionLifecycle = review.sessionLifecycle;
@@ -2879,7 +3302,7 @@ async function writeReviewPackage(config, payload) {
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
     taskKey: config.taskKey || null,
-    repository: config.repositorySlug || null,
+    repository: config.repositorySlug || "tommytang213/Settleora",
     manualMergeRequired: payload.manualMergeRequired ?? payload.laneDecision?.manualMergeRequired ?? null,
     autoMergeEligible: payload.autoMergeEligible ?? payload.laneDecision?.autoMergeEligible ?? null,
     issue: {
@@ -2900,15 +3323,26 @@ async function writeReviewPackage(config, payload) {
     changedFiles: payload.changedFiles,
     currentHead: payload.headSha || (config.dryRun ? null : getRefSha("HEAD")),
     baseSha: payload.baseSha || payload.baseRefSha || payload.baseOriginMainSha || (config.dryRun ? null : getRefSha("origin/main")),
+    treeSha: config.dryRun ? payload.headSha || null : getRefSha("HEAD^{tree}"),
+    rawDiffSha256: createHash("sha256").update(diff.text).digest("hex"),
     validation: payload.validation,
     report: payload.report,
     externalReview: payload.externalReview || null,
     fullCandidatePrDelta: payload.fullCandidatePrDelta || null,
+    integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaryMaterial: integrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };
   writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);
   return { packagePath, summary, diff: diff.text };
+}
+
+function integrationBoundaryMaterial(repoRoot = process.cwd(), paths) {
+  return paths.map((relativePath) => {
+    const content = readFileSync(path.join(repoRoot, relativePath), "utf8");
+    return { path: relativePath, sha256: createHash("sha256").update(content).digest("hex"), content };
+  });
 }
 
 async function runIntegratedReviewSource(config, reviewPackage, phase) {
@@ -2919,6 +3353,155 @@ async function runIntegratedReviewSource(config, reviewPackage, phase) {
     });
   }
   return runGeminiIntegratedReview(config, reviewPackage);
+}
+
+async function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
+  const reviewPackage = iteration.reviewPackage || {};
+  let structuredLifecycle = iteration.review?.sessionLifecycle || iteration.sessionLifecycle || null;
+  const invoke = async (provider, structuredReview) => {
+    const result = await runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, structuredLifecycle);
+    if (result.nextSessionLifecycle) structuredLifecycle = result.nextSessionLifecycle;
+    const { nextSessionLifecycle, ...evidence } = result;
+    return evidence;
+  };
+  const headSha = iteration.runnerCreatedCommitSha || reviewPackage.summary?.currentHead || (config.dryRun ? null : getRefSha("HEAD"));
+  const baseSha = iteration.baseOriginMainSha || reviewPackage.summary?.baseSha || (config.dryRun ? null : getRefSha("origin/main"));
+  const certification = await persistCumulativeLargeCandidateReview({
+    config,
+    taskKey: config.taskKey || `issue-${iteration.issue?.number || "unknown"}`,
+    candidateIdentity: {
+      repository: config.repositorySlug || "tommytang213/Settleora",
+      baseSha,
+      headSha,
+      treeSha: config.dryRun ? headSha : getRefSha("HEAD^{tree}"),
+      diffDigest: reviewPackage.summary?.rawDiffSha256 || createHash("sha256").update(String(reviewPackage.diff || "")).digest("hex"),
+      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+    },
+    changedFiles,
+    integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    externalReview: iteration.externalReview,
+    codexReview: iteration.review,
+    invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
+    invokeIntegration: ({ provider, manifest, sections }) => invoke(provider, { phase: "integration", manifest, sections }),
+  });
+  return { ...certification, sessionLifecycle: structuredLifecycle };
+}
+
+async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder) {
+  if (iteration.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") {
+    iteration.largeCandidateReview = { ok: true, route: "normal", state: "external_review_normal_ready" };
+    return true;
+  }
+  const beforeStructuredReview = await checkoutFingerprint();
+  iteration.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, changedFiles);
+  const structuredReviewMutationGuard = compareFingerprints(beforeStructuredReview, await checkoutFingerprint());
+  if (structuredReviewMutationGuard.mutationDetected) {
+    iteration.reviewMutationGuard = structuredReviewMutationGuard;
+    stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "structured_post_fix_review_mutated_checkout");
+    return false;
+  }
+  const manualVerdict = structuredLargeCandidateManualVerdict(iteration.largeCandidateReview);
+  if (manualVerdict) {
+    iteration.outcome = manualVerdict === "danger_gate" ? "danger_gate" : "blocked_needs_tommy";
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Post-fix structured review returned ${manualVerdict}; no further mutation or push was attempted.`);
+    recoveryRecorder?.stop(`structured_review_${manualVerdict}`, "Structured reviewer required a manual decision.", "manual_review_decision_required");
+    iteration.finishedAt = new Date().toISOString();
+    return false;
+  }
+  if (iteration.largeCandidateReview.sessionLifecycle) {
+    iteration.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
+    issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
+  }
+  if (iteration.largeCandidateReview.ok) return true;
+  if (routeNormalStructuredFindingsToConvergence(iteration)) {
+    recoveryRecorder?.advance("review_fix", "route_post_fix_structured_large_candidate_findings");
+    return true;
+  }
+  iteration.externalReview = {
+    ...iteration.externalReview,
+    status: "blocked",
+    reason: iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete",
+  };
+  iteration.outcome = "auto_failed";
+  iteration.issueComment = finishIssueOutcome(
+    config,
+    issue,
+    iteration.outcome,
+    `Auto-runner did not open a PR for #${issue.number} because cumulative large-candidate review did not re-certify the post-fix head.`,
+  );
+  recoveryRecorder?.stop(
+    iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete",
+    "Post-fix cumulative large-candidate review is incomplete.",
+    "resume_large_candidate_review",
+  );
+  iteration.finishedAt = new Date().toISOString();
+  return false;
+}
+
+function routeNormalStructuredFindingsToConvergence(iteration) {
+  const gemini = structuredLargeCandidateFindings(iteration.largeCandidateReview, "gemini").map(convergenceFinding);
+  const codex = structuredLargeCandidateFindings(iteration.largeCandidateReview, "codex-local").map(convergenceFinding);
+  if (gemini.length + codex.length === 0) return false;
+  if (gemini.length > 0) iteration.externalReview = {
+    ...iteration.externalReview,
+    status: "blocked",
+    verdict: "fail",
+    sanitizedResponseSummary: { verdict: "fail", findings: gemini },
+    reason: "blocked_external_reviewer_non_pass",
+  };
+  if (codex.length > 0) iteration.review = {
+    ...iteration.review,
+    verdict: {
+      ...(iteration.review?.verdict || {}),
+      verdict: "changes_requested",
+      recommended_next_action: "run_safe_fix_cycle",
+      blocking_findings: codex,
+    },
+  };
+  return true;
+}
+
+function convergenceFinding(finding) {
+  return { severity: finding.severity, path: finding.path, message: finding.summary };
+}
+
+async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {
+  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findings: (entry.findings || []).slice(0, 20) })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
+  const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
+  const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
+  const reviewerVerdict = provider === "gemini" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", reviewerVerdict, manifestDigest: structuredReview.manifest.manifestDigest, findings: normalStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries, nextSessionLifecycle: evidence?.sessionLifecycle || null };
+}
+
+function normalStructuredFindings(evidence) {
+  return [
+    ...(evidence?.sanitizedResponseSummary?.findings || []),
+    ...(evidence?.verdict?.blocking_findings || []),
+    ...(evidence?.verdict?.non_blocking_findings || []),
+    ...(evidence?.findings || []),
+  ].slice(0, 20).map((finding) => typeof finding === "string"
+    ? { severity: "reviewer", path: null, summary: finding.slice(0, 500) }
+    : { severity: finding?.severity || "reviewer", path: finding?.path || null, summary: String(finding?.summary || finding?.message || "").slice(0, 500) });
+}
+
+function persistNormalLargeCandidateSplit(config, iteration, changedFiles) {
+  const summary = iteration.reviewPackage?.summary || {};
+  return persistLargeCandidateSplitDecision({
+    config,
+    taskKey: config.taskKey || `issue-${iteration.issue?.number || "unknown"}`,
+    candidateIdentity: {
+      repository: config.repositorySlug || "tommytang213/Settleora",
+      baseSha: iteration.baseOriginMainSha || summary.baseSha,
+      headSha: iteration.runnerCreatedCommitSha || summary.currentHead,
+      treeSha: summary.treeSha,
+      diffDigest: summary.rawDiffSha256,
+      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+    },
+    classification: iteration.externalReview.route.largeCandidateRouting,
+    changedFiles,
+    slices: iteration.featureBundle?.slices || [],
+  });
 }
 
 function prSummary(iteration) {

@@ -273,6 +273,9 @@ test("protected live plans require exact future authorization and ordinary plans
   assert.equal(validateExecutableStackPlan(noAuthorization, makePlan({ prs: [pr(930, "main", "feature/auto-930-parent", sha("a")), pr(920, "feature/auto-930-parent", "feature/auto-913-child", sha("b"))] })).reasonCode, "protected_stack_plan_unauthorized");
   const ordinary = makePlan({ prs: [pr(930, "main", "feature/auto-930-parent", sha("a")), pr(931, "feature/auto-930-parent", "feature/auto-931-child", sha("b"))] });
   assert.equal(validateExecutableStackPlan(noAuthorization, ordinary).ok, true);
+  const singleton = makePlan({ stackId: "bundle-split-singleton-930", prs: [pr(930, "main", "feature/auto-930-singleton", sha("a"))] });
+  assert.equal(validateExecutableStackPlan(noAuthorization, singleton).ok, true);
+  assert.equal(validatePrStackState(createInitialPrStackState({ plan: singleton }), singleton).ok, true);
 
   const cases = [
     ["wrong-repo.json", { repositorySlug: "other/repo" }, "protected_stack_plan_authorization_repository_mismatch"],

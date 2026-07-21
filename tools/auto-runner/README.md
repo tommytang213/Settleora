@@ -1,5 +1,11 @@
 # Settleora Auto-Runner Tooling
 
+## Post-implementation continuation authorities
+
+Ordinary post-implementation work uses one durable continuation authority from exact candidate reconciliation through validation, dual and structured review, convergence, push/PR recovery, GitHub gates, merge, and post-merge hygiene. Startup recovery re-enters that authority at the earliest incomplete exact-head phase; loading a large-review checkpoint is not a terminal success.
+
+Proven feature-bundle splits are materialized by the bundle authority from frozen checkpoint commit ranges. Each concrete file belongs to exactly one slice, branch and PR reuse is exact-head/base bound, dependent slices retain their parent-branch PR base, and verified split PRs are handed to the existing PR-stack executor. Ambiguous ownership, branch/PR conflicts, missing execution authority, or semantic-delta mismatch block before further mutation.
+
 ## Canonical mutation consumer contract
 
 When session lifecycle authority is enabled, production mutation consumers use
@@ -284,7 +290,7 @@ the stack capabilities for existing PR convergence, exact-head review
 requests, CI/scanner polling, exact-head merge, base retarget, ready
 transition, semantic proof, and final hygiene. Forbidden capabilities remain
 false. Plans are immutable stack identities with repository, stack ID, issue
-IDs, and 2-4 ordered PR entries including expected bases, branches, heads,
+IDs, and 1-4 ordered PR entries including expected bases, branches, heads,
 parent relationship, and own-delta evidence. Read-only fixture plans,
 repository mismatches, duplicate PRs, invalid relationships, PR #917, missing
 evidence, stale heads, corrupt state, and production-profile activation fail
@@ -1293,3 +1299,14 @@ and validation/review/runner failure outcomes add `auto-failed`. `no_changes`
 removes both active labels, comments the outcome, and leaves the issue open.
 Successful auto-merge performs the post-merge transient-label cleanup above;
 it does not remove stop/manual labels before merge to bypass gates.
+# Large-candidate review routing
+
+Coherent large candidates automatically select strong cumulative review; the
+legacy exact large-bundle approval is compatibility/exception evidence, not a
+routine prerequisite. `lib/large-candidate-review-routing.mjs` owns versioned
+route state, the immutable coverage manifest, dual-review section and final-
+integration proof, deterministic split-or-block planning, context-limit
+packets, exact-candidate invalidation, and atomic recovery state. Route state is
+separate from reviewer verdict: required, in-progress, split, context-blocked,
+coverage-incomplete, malformed, partial, or stale state can never pass review
+or merge gates.

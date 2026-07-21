@@ -1,5 +1,11 @@
 # Autonomous Codex Runner
 
+## Post-implementation continuation authorities
+
+The ordinary issue path and startup recovery share an idempotent continuation spanning exact candidate reconciliation, validation, independent and local/structured review, convergence, push, PR recovery, GitHub convergence, exact-head merge, and post-merge hygiene. Durable exact-target effects are adopted rather than replayed, a source change invalidates review and downstream effects, and the accepted logical-task charge remains the root task charge across execution/session continuations.
+
+For a deterministic feature-bundle split, the bundle orchestrator—not the PR-stack executor—materializes exact branches from the frozen base and proven checkpoint ranges. It verifies the actual per-slice file digest and semantic own delta, normally pushes and creates or reuses the exact dependent PR relationship, persists each step, then hands the created PR stack to the existing stack executor. Incomplete proof or conflicting live state fails closed before mutation.
+
 ## Accepted-task and convergence budget authority
 
 The top-level task budget is charged at the accepted claim boundary, not by
@@ -214,7 +220,7 @@ activation remains separate/manual under #912.
   explicit `--run-pr-stack --config <absolute-path> --stack-plan
   <absolute-path>` entry. It is mutually exclusive with normal issue polling,
   canary, security-finding, smoke, preflight, status/control, and
-  review-package modes. It consumes an immutable 2-4 PR plan, calls
+  review-package modes. It consumes an immutable 1-4 PR plan, calls
   `nextStackAction(...)`, persists before and after each external mutation,
   records mutation markers for exact-once retarget/ready/merge/hygiene
   behavior, and returns durable wait reasons for GitHub Codex, checks,
@@ -1510,3 +1516,25 @@ systemd user templates and does not install or enable them.
   foundation exists but requires explicit external config and issue-contract
   opt-in before it can attempt a normal GitHub merge commit.
 - Manual review is still required before enabling real unattended mutation.
+# Large-candidate review routing
+
+Large-candidate routing is a distinct versioned authority. Size alone routes a
+coherent candidate to mandatory strong cumulative Gemini and local Codex
+review; it is not a manual gate and does not require routine exact approval
+metadata. Mixed architecture-sensitive combinations route to deterministic
+split planning and proceed only when exact issue/task ownership, allowed paths,
+dependency order, and semantic own-delta proof cover every changed path exactly
+once. Otherwise the runner records the conflicting domains/files and minimum
+manual scope decision. Historical `blocked_external_reviewer_split_required`
+state migrates to split-required state and never counts as a review pass.
+
+Structured review freezes base/head/tree/diff/file-manifest identity, assigns
+every changed path to one domain section, records required unchanged integration
+boundaries, and requires fresh Gemini and local Codex section passes plus a
+final cross-section integration pass from each reviewer. Missing, duplicate,
+stale, mismatched, malformed, truncated, over-budget, partial, or uncovered
+evidence blocks. Provider/context limits record exact uncovered scope and
+resume through recovery/session rotation or a proven deterministic split
+without consuming a source-changing round or logical-task charge. Any candidate
+identity change invalidates all route, coverage, section, integration, and
+verdict evidence.

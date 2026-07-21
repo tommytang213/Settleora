@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
+import { featureBundleAllowedPathMatches, planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
 import {
   createInitialBundleState,
   loadBundleState,
@@ -34,6 +34,10 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
+import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./large-candidate-review-routing.mjs";
+import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, readSplitMaterializationState } from "./feature-bundle-split-materializer.mjs";
+import { createDependentPrStackPlan } from "./pr-stack-controller.mjs";
+import { runPrStackExecution } from "./pr-stack-executor.mjs";
 import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
@@ -328,6 +332,41 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     result.reviewMutationGuard = externalReviewMutationGuard;
     return stopForBundleReviewMutation({ config, result, state, recovery, guard: externalReviewMutationGuard, phase: "bundle_external_review" });
   }
+  if (result.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
+    result.largeCandidateReview = persistBundleLargeCandidateSplit(config, { issue, plan, state, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview });
+    if (result.largeCandidateReview.ok && result.largeCandidateReview.execution === "deterministic_split") {
+      result.splitPlan = result.largeCandidateReview;
+      recovery?.marker("deterministic_split_plan", result.largeCandidateReview.planDigest, { target: bundleBranchName, correlation: plan.planDigest });
+      recovery?.advance("implementation_or_bundle_slice", "execute_deterministic_split_plan", "execute_deterministic_split_plan");
+      const checkpointPath = path.join(config.logsRoot, "bundle-splits", `${result.largeCandidateReview.planDigest}.json`);
+      const splitInput = buildBundleSplitMaterializationInput(config, { issue, plan, state, splitPlan: result.largeCandidateReview, baseSha: baseOriginMainSha, headSha: finalHead, checkpointPath });
+      const adapter = createProductionSplitMaterializationAdapter(config, {
+        checkpointPath,
+        handoffToPrStack: async ({ slices }) => {
+          const groups = groupMaterializedSplitStacks(slices);
+          const executions = [];
+          for (const [groupIndex, group] of groups.entries()) {
+            const stackPlan = createDependentPrStackPlan({ repository: config.repositorySlug, stackId: `bundle-split:${result.largeCandidateReview.planDigest}:${groupIndex + 1}`, issueNumber: issue.number, prs: group });
+            const planPath = path.join(config.logsRoot, "pr-stacks", `${stackPlan.stackId.replace(/[^A-Za-z0-9_.-]/g, "-")}.json`);
+            mkdirSync(path.dirname(planPath), { recursive: true, mode: 0o700 });
+            writeFileSync(planPath, `${JSON.stringify(stackPlan, null, 2)}\n`, { mode: 0o600 });
+            const execution = await runPrStackExecution(config, { stackPlanPath: planPath });
+            if (!execution.ok && execution.outcome !== "waiting") return { ...execution, stackId: stackPlan.stackId, planPath };
+            executions.push({ ...execution, stackId: stackPlan.stackId, planPath });
+          }
+          return { ok: true, outcome: executions.some((entry) => entry.outcome === "waiting") ? "waiting" : "complete", executions };
+        },
+      });
+      result.splitMaterialization = await materializeFeatureBundleSplit(splitInput, adapter);
+      if (!result.splitMaterialization.ok) return stopBundle(result, "blocked", result.splitMaterialization.reasonCode, "Deterministic split materialization failed closed before PR-stack convergence.");
+      result.outcome = result.splitMaterialization.outcome;
+      recovery?.marker("deterministic_split_materialized", result.largeCandidateReview.planDigest, { target: bundleBranchName, correlation: plan.planDigest });
+      result.recovery = recovery?.summary();
+      result.bundle.state = summarizeBundleState(state);
+      return result;
+    }
+    return stopBundle(result, "blocked_needs_tommy", result.largeCandidateReview.reasonCode, "Mixed bundle requires a proven semantics-preserving split or the minimum architecture decision.");
+  }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
   result.review = runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
@@ -343,6 +382,28 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     return stopForBundleReviewMutation({ config, result, state, recovery, guard: codexReviewMutationGuard, phase: "bundle_codex_review" });
   }
   result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard);
+  result.largeCandidateReview = result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
+    ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review, sessionLifecycle })
+    : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
+  const structuredReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_structured_review",
+  });
+  result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard, structuredReviewMutationGuard);
+  if (structuredReviewMutationGuard.mutationDetected) {
+    return stopForBundleReviewMutation({ config, result, state, recovery, guard: structuredReviewMutationGuard, phase: "bundle_structured_review" });
+  }
+  if (result.largeCandidateReview.sessionLifecycle) {
+    sessionLifecycle = result.largeCandidateReview.sessionLifecycle;
+    result.sessionLifecycle = sessionLifecycle;
+  }
+  if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
+    const manualVerdict = structuredLargeCandidateManualVerdict(result.largeCandidateReview);
+    if (manualVerdict) return stopBundle(result, manualVerdict === "danger_gate" ? "danger_gate" : "blocked_needs_tommy", `structured_review_${manualVerdict}`, "Structured reviewer required a manual decision; no fix cycle or push was attempted.");
+    if (!routeBundleStructuredFindingsToConvergence(result)) {
+      return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
+    }
+    recovery?.advance("review_fix", "route_structured_large_candidate_findings");
+  }
   recovery?.evidence("externalReview", {
     status: result.externalReview.status === "pass" ? "passed" : "blocked",
     headSha: result.externalReview.reviewedHead || finalHead,
@@ -480,6 +541,33 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   return result;
 }
 
+function routeBundleStructuredFindingsToConvergence(result) {
+  const gemini = structuredLargeCandidateFindings(result.largeCandidateReview, "gemini").map(bundleConvergenceFinding);
+  const codex = structuredLargeCandidateFindings(result.largeCandidateReview, "codex-local").map(bundleConvergenceFinding);
+  if (gemini.length + codex.length === 0) return false;
+  if (gemini.length > 0) result.externalReview = {
+    ...result.externalReview,
+    status: "blocked",
+    verdict: "fail",
+    sanitizedResponseSummary: { verdict: "fail", findings: gemini },
+    reason: "blocked_external_reviewer_non_pass",
+  };
+  if (codex.length > 0) result.review = {
+    ...result.review,
+    verdict: {
+      ...(result.review?.verdict || {}),
+      verdict: "changes_requested",
+      recommended_next_action: "run_safe_fix_cycle",
+      blocking_findings: codex,
+    },
+  };
+  return true;
+}
+
+function bundleConvergenceFinding(finding) {
+  return { severity: finding.severity, path: finding.path, message: finding.summary };
+}
+
 export async function runBundleReviewConvergence(config, input, deps = {}) {
   const writeState = input.writeState || (() => {});
   let state = input.state;
@@ -597,6 +685,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       baseSha: input.baseSha,
       fixAttempt,
       sessionLifecycle: input.sessionLifecycle,
+      recovery: input.recovery,
     });
     if (postFix.sessionLifecycle) input.sessionLifecycle = postFix.sessionLifecycle;
     changedFiles = postFix.changedFiles || changedFiles;
@@ -611,8 +700,30 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       externalReview: postFix.externalReview,
       review: postFix.review,
       reviewPackage: postFix.reviewPackage,
+      largeCandidateReview: postFix.largeCandidateReview,
       reviewMutationGuard: postFix.reviewMutationGuard,
     };
+    if (postFix.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !postFix.largeCandidateReview?.ok) {
+      const manualVerdict = structuredLargeCandidateManualVerdict(postFix.largeCandidateReview);
+      if (manualVerdict) {
+        const outcome = manualVerdict === "danger_gate" ? "danger_gate" : "blocked_needs_tommy";
+        state = markBundleStopped(state, { reasonCode: `structured_review_${manualVerdict}`, reason: "Structured reviewer required a manual decision." });
+        writeState(state);
+        return { ok: false, outcome, reasonCode: `structured_review_${manualVerdict}`, reason: "Structured reviewer required a manual decision; no further mutation or push was attempted.", state, attempts, summary: { largeCandidateReview: postFix.largeCandidateReview } };
+      }
+      if (routeBundleStructuredFindingsToConvergence(postFix)) {
+        currentResult = {
+          ...currentResult,
+          externalReview: postFix.externalReview,
+          review: postFix.review,
+          largeCandidateReview: postFix.largeCandidateReview,
+        };
+        continue;
+      }
+      state = markBundleStopped(state, { reasonCode: postFix.largeCandidateReview?.reasonCode || "large_candidate_review_incomplete", reason: "Post-fix structured large-candidate certification failed." });
+      writeState(state);
+      return { ok: false, outcome: "auto_failed", reasonCode: postFix.largeCandidateReview?.reasonCode || "large_candidate_review_incomplete", reason: "Post-fix structured large-candidate certification failed.", state, attempts, summary: { largeCandidateReview: postFix.largeCandidateReview } };
+    }
     if (currentResult.reviewMutationGuard?.mutationDetected) {
       input.recovery?.stop("bundle_review_mutation_detected_after_convergence", currentResult.reviewMutationGuard.reason, "operator_recovery_required");
       state = markBundleStopped(state, {
@@ -685,7 +796,6 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
         codexReview: currentResult.review,
       },
     };
-    input.recovery?.headChanged(postFix.runnerCreatedCommitSha, "bundle_review_convergence_fix_commit");
     input.recovery?.marker("checkpoint_commit", `bundle-review-convergence-${postFix.runnerCreatedCommitSha || "dry-run"}`, {
       target: input.branchName,
       correlation: input.issue?.number || "",
@@ -843,10 +953,11 @@ function bundleLifecycleInvocation(state, phase) {
   };
 }
 
-async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt, sessionLifecycle }) {
+async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt, sessionLifecycle, recovery }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
   const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Feature bundle issue #${issue.number}: review-fix follow-up`, { effectContext: fixAttempt.sessionLifecycle || sessionLifecycle });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  if (runnerCreatedCommitSha) recovery?.headChanged(runnerCreatedCommitSha, "bundle_review_convergence_fix_commit");
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
   const validation = fixAttempt.validationAfter;
@@ -883,6 +994,12 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_codex_review",
   });
+  const largeCandidateReview = externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
+    ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review, sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle })
+    : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
+  const structuredReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
+    phase: "bundle_convergence_structured_review",
+  });
   return {
     changedFiles,
     forbiddenChangedFiles,
@@ -892,9 +1009,117 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
-    sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
-    reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
+    largeCandidateReview,
+    sessionLifecycle: largeCandidateReview.sessionLifecycle || review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
+    reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard, structuredReviewMutationGuard),
   };
+}
+
+async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha, baseSha, externalReview, codexReview, sessionLifecycle = null }) {
+  let structuredLifecycle = codexReview?.sessionLifecycle || sessionLifecycle;
+  const invoke = (provider, structuredReview) => runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, structuredLifecycle, (next) => { structuredLifecycle = next; });
+  const certification = await persistCumulativeLargeCandidateReview({
+    config,
+    taskKey: config.taskKey || `issue-${issue?.number || "unknown"}`,
+    candidateIdentity: {
+      repository: config.repositorySlug || "tommytang213/Settleora",
+      baseSha,
+      headSha,
+      treeSha: config.dryRun ? headSha : getRefSha("HEAD^{tree}"),
+      diffDigest: reviewPackage?.summary?.rawDiffSha256 || createHash("sha256").update(String(reviewPackage?.diff || "")).digest("hex"),
+      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+    },
+    changedFiles,
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaryMaterial: bundleIntegrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
+    externalReview,
+    codexReview,
+    invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
+    invokeIntegration: ({ provider, manifest, sections }) => invoke(provider, { phase: "integration", manifest, sections }),
+  });
+  return { ...certification, sessionLifecycle: structuredLifecycle };
+}
+
+function bundleIntegrationBoundaryMaterial(repoRoot = process.cwd(), paths) {
+  return paths.map((relativePath) => {
+    const content = readFileSync(path.join(repoRoot, relativePath), "utf8");
+    return { path: relativePath, sha256: createHash("sha256").update(content).digest("hex"), content };
+  });
+}
+
+async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle = null, onLifecycle = null) {
+  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findings: (entry.findings || []).slice(0, 20) })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
+  const evidence = provider === "gemini" ? await runGeminiIntegratedReview(config, scopedPackage) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
+  if (evidence?.sessionLifecycle && onLifecycle) onLifecycle(evidence.sessionLifecycle);
+  const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
+  const reviewerVerdict = provider === "gemini" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", reviewerVerdict, manifestDigest: structuredReview.manifest.manifestDigest, findings: bundleStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries };
+}
+
+function bundleStructuredFindings(evidence) {
+  return [
+    ...(evidence?.sanitizedResponseSummary?.findings || []),
+    ...(evidence?.verdict?.blocking_findings || []),
+    ...(evidence?.verdict?.non_blocking_findings || []),
+    ...(evidence?.findings || []),
+  ].slice(0, 20).map((finding) => typeof finding === "string"
+    ? { severity: "reviewer", path: null, summary: finding.slice(0, 500) }
+    : { severity: finding?.severity || "reviewer", path: finding?.path || null, summary: String(finding?.summary || finding?.message || "").slice(0, 500) });
+}
+
+function persistBundleLargeCandidateSplit(config, { issue, plan, state, reviewPackage, changedFiles, headSha, baseSha, externalReview }) {
+  const slices = (plan?.slices || []).map((slice) => ({
+    ...slice,
+    changedFiles: changedFiles.filter((changedPath) => (slice.allowedPaths || []).some((allowedPath) => featureBundleAllowedPathMatches(allowedPath, changedPath))),
+    issueNumber: slice.issueNumber || issue.number,
+    taskKey: slice.taskKey || `${config.taskKey || `issue-${issue.number}`}:${slice.id}`,
+    allowedPathsProven: slice.allowedPathsProven === true,
+    semanticOwnDeltaProven: slice.semanticOwnDeltaProven === true,
+    executionAuthorityProven: slice.executionAuthorityProven === true,
+    dependsOn: slice.dependsOn || [],
+  }));
+  return persistLargeCandidateSplitDecision({
+    config,
+    taskKey: config.taskKey || `issue-${issue.number}`,
+    candidateIdentity: { repository: config.repositorySlug || "tommytang213/Settleora", baseSha, headSha, treeSha: reviewPackage.summary?.treeSha, diffDigest: reviewPackage.summary?.rawDiffSha256, changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex") },
+    classification: externalReview.route.largeCandidateRouting,
+    changedFiles,
+    slices,
+  });
+}
+
+function buildBundleSplitMaterializationInput(config, { issue, plan, state, splitPlan, baseSha, headSha, checkpointPath }) {
+  let previous = baseSha;
+  const plannedById = new Map((splitPlan.slices || []).map((slice) => [slice.id, slice]));
+  const slices = state.sliceOrder.map((sliceId) => {
+    const contract = plan.slices.find((slice) => slice.id === sliceId);
+    const planned = plannedById.get(sliceId);
+    const checkpoint = state.slices[sliceId];
+    const value = {
+      ...planned,
+      branchName: `feature/auto-${issue.number}-split-${sliceId}-${splitPlan.planDigest.slice(0, 10)}`,
+      commitRange: { fromExclusive: previous, toInclusive: checkpoint.commitSha },
+      allowedPathsProven: contract.allowedPathsProven === true,
+      semanticOwnDeltaProven: contract.semanticOwnDeltaProven === true,
+    };
+    previous = checkpoint.commitSha;
+    return value;
+  });
+  return { logicalTaskKey: config.taskKey || `issue-${issue.number}`, repository: config.repositorySlug || "tommytang213/Settleora", issueNumber: issue.number, executionAuthorityProven: slices.every((slice) => plan.slices.find((entry) => entry.id === slice.id)?.executionAuthorityProven === true), baseSha, headSha, changedFiles: splitPlan.slices.flatMap((slice) => slice.changedFiles), slices, state: readSplitMaterializationState(checkpointPath) };
+}
+
+function groupMaterializedSplitStacks(slices) {
+  const groups = [];
+  const groupById = new Map();
+  for (const slice of slices) {
+    const parentGroup = slice.dependsOn?.length ? groupById.get(slice.dependsOn.at(-1)) : null;
+    const group = parentGroup || [];
+    if (!parentGroup) groups.push(group);
+    group.push(slice);
+    groupById.set(slice.id, group);
+  }
+  return groups;
 }
 
 function markBundleReviewConvergenceRequired(state, { exactHead, outcome, reason, message, source }) {
@@ -986,17 +1211,23 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
   const diff = config.dryRun ? { text: "", truncated: false } : getBoundedDiff("origin/main", "HEAD");
   const packagePath = path.join(config.logsRoot, "reviews", `${safeTimestamp()}-issue-${issue.number}-feature-bundle.json`);
   const summary = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
     reviewPhase: "feature-bundle-final",
     issue: { number: issue.number, title: issue.title, labels: issue.labels || [], url: issue.url || null },
     bundle: summarizeBundleState(state),
+    featureBundle: { architectureConsistent: plan.architectureConsistent === true },
     planDigest: plan.planDigest,
     laneDecision,
     reviewerPolicy: reviewerReadinessSummary(config, { changedFiles, laneDecision, stats: { additions: 0, deletions: 0 } }),
     changedFiles,
     currentHead: headSha,
     baseSha,
+    treeSha: config.dryRun ? headSha : getRefSha("HEAD^{tree}"),
     validation,
     externalReviewRequired: requiresIndependentAiReview(laneDecision),
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaryMaterial: bundleIntegrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
+    rawDiffSha256: createHash("sha256").update(diff.text).digest("hex"),
     diffTruncated: diff.truncated,
   };
   mkdirSync(path.dirname(packagePath), { recursive: true });

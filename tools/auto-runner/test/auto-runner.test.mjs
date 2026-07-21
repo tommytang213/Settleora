@@ -2106,7 +2106,7 @@ test("sensitive domain uses strong integrated Gemini review when lane metadata r
     let prompt = "";
     const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage({
       changedFiles: ["services/api/Auth/SessionRuntime.cs"],
-      laneDecision: { lane: "auth-session-security", dangerGate: true, reviewerTier: "strong_independent" },
+      laneDecision: { lane: "auth-session-security", reviewerTier: "strong_independent" },
       diff: "diff --git a/services/api/Auth/SessionRuntime.cs b/services/api/Auth/SessionRuntime.cs\n",
     }), {
       env: { GEMINI_API_KEY: "super-secret-key" },
@@ -2349,7 +2349,6 @@ test("strong Gemini profile uses stable model override instead of provider defau
         laneDecision: {
           lane: "api-domain-runtime",
           allowedToImplement: true,
-          dangerGate: true,
           reviewerTier: "strong_independent",
         },
       }),
@@ -2391,7 +2390,6 @@ test("integrated Gemini provider 404 blocks without fallback and stays sanitized
         laneDecision: {
           lane: "api-domain-runtime",
           allowedToImplement: true,
-          dangerGate: true,
           reviewerTier: "strong_independent",
         },
       }),
@@ -6656,6 +6654,26 @@ test("persisted Codex review evidence retains its bounded completion timestamp",
 
   assert.equal(sanitized.completedAt, completedAt);
   assert.equal(sanitized.rawOutput, undefined);
+});
+
+test("Codex prompt attestation requires the reviewer-returned base to match the package base", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-base-binding-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const reviewer = writeFakeReviewer(tempRoot, [`printf '%s\\n' ${shellArg(reviewVerdictJson())}`]);
+    const common = { dryRun: false, logsRoot, repoRoot: process.cwd(), reviewerCommand: reviewer };
+    const matching = runReviewPrompt(common, { summary: { repository: "tommytang213/Settleora", baseSha: "e".repeat(40) } });
+    const mismatched = runReviewPrompt(common, { summary: { repository: "tommytang213/Settleora", baseSha: "d".repeat(40) } });
+
+    assert.equal(matching.attestationSource, "provider_prompt_binding");
+    assert.equal(matching.attestedCandidateIdentity.baseSha, "e".repeat(40));
+    assert.equal(mismatched.reviewedBaseSha, "e".repeat(40));
+    assert.equal(mismatched.attestationSource, undefined);
+    assert.equal(mismatched.attestedCandidateIdentity, undefined);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test("review prompt rejects conflicting stdout and stderr verdicts without fallback", () => {

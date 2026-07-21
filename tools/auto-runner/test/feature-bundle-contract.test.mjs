@@ -65,6 +65,14 @@ test("feature-bundle planner accepts valid 2-, 3-, and 4-slice contracts", () =>
   }
 });
 
+test("feature-bundle planner preserves explicitly validated split execution proofs", () => {
+  const proofs = { allowedPathsProven: true, semanticOwnDeltaProven: true, executionAuthorityProven: true };
+  const result = planFeatureBundleIssue(issueWithBundle({ slices: [slice("first", proofs), slice("second", { ...proofs, dependsOn: ["first"] })] }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.plan.slices.map(({ allowedPathsProven, semanticOwnDeltaProven, executionAuthorityProven }) => ({ allowedPathsProven, semanticOwnDeltaProven, executionAuthorityProven })), [proofs, proofs]);
+  assert.equal(planFeatureBundleIssue(issueWithBundle({ slices: [slice("first", { executionAuthorityProven: "yes" }), slice("second")] })).reasonCode, "bundle_slice_split_proof_invalid");
+});
+
 test("ordinary non-bundle contracts remain valid without a bundle object", () => {
   const parsed = parseAutoRunnerContract(`## Auto-runner contract
 \`\`\`json

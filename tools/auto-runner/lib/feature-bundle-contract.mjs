@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { classifyIssueLane, getValidationProfile, laneManifest, parseAutoRunnerContract } from "./lane-policy.mjs";
 
 const bundleFields = new Set(["bundleVersion", "strategy", "slices"]);
-const sliceFields = new Set(["id", "title", "objective", "allowedPaths", "validationProfile", "requiredReading", "dependsOn"]);
+const sliceFields = new Set(["id", "title", "objective", "allowedPaths", "validationProfile", "requiredReading", "dependsOn", "allowedPathsProven", "semanticOwnDeltaProven", "executionAuthorityProven"]);
 const supportedBundleLanes = new Set(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 const maxTextLength = 500;
 const maxReadingLength = 240;
@@ -79,6 +79,9 @@ export function planFeatureBundleIssue(issue) {
       validationProfile: slice.validationProfile,
       requiredReading: [...(slice.requiredReading || [])],
       dependsOn: [...(slice.dependsOn || [])],
+      allowedPathsProven: slice.allowedPathsProven === true,
+      semanticOwnDeltaProven: slice.semanticOwnDeltaProven === true,
+      executionAuthorityProven: slice.executionAuthorityProven === true,
       state: "pending",
     });
   }
@@ -234,6 +237,11 @@ function validateSlice(slice, { index, ids, contract, parentManifest }) {
       return { ok: false, reasonCode: "bundle_slice_dependency_invalid", reason: "Slice dependsOn must contain bounded stable ids." };
     }
   }
+  for (const field of ["allowedPathsProven", "semanticOwnDeltaProven", "executionAuthorityProven"]) {
+    if (slice[field] !== undefined && typeof slice[field] !== "boolean") {
+      return { ok: false, reasonCode: "bundle_slice_split_proof_invalid", reason: `Slice ${field} must be boolean when provided.` };
+    }
+  }
   return { ok: true };
 }
 
@@ -261,6 +269,12 @@ function globIsSubsetOf(childGlob, parentGlob) {
 
 function globMatchesPath(glob, filePath) {
   return matchSegments(splitPath(glob), splitPath(filePath));
+}
+
+export function featureBundleAllowedPathMatches(glob, filePath) {
+  if (!isSafeRepoRelativePath(glob, { allowGlob: true, maxLength: maxAllowedPathLength })) return false;
+  if (!isSafeRepoRelativePath(filePath, { allowGlob: false, maxLength: maxAllowedPathLength })) return false;
+  return globMatchesPath(glob, filePath);
 }
 
 function splitPath(value) {
