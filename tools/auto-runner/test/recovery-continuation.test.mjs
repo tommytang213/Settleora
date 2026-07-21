@@ -3,6 +3,7 @@ import test from "node:test";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createSessionLifecycleState, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -37,6 +38,31 @@ test("disabled lifecycle preserves legacy startup continuation before takeover g
     consumeStartupInterruptionPlanner({ sessionLifecycle: { enabled: true, allowRecoveryTakeover: false } }, {}).reasonCode,
     "session_lifecycle_recovery_takeover_disabled",
   );
+});
+
+test("disabled lifecycle refuses legacy fallback when a lifecycle checkpoint exists", () => {
+  const config = tempConfig({ repositorySlug: "tommytang213/Settleora", sessionLifecycle: { enabled: false, allowRecoveryTakeover: false } });
+  try {
+    const recovery = state();
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      claimIdentity: "claim-893",
+      chargeMarkerRef: "charge-893",
+      sessionId: "session-893",
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+      phase: "push",
+      nextExactAction: "push",
+    });
+    assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
+    assert.equal(consumeStartupInterruptionPlanner(config, recovery).reasonCode, "session_lifecycle_disabled_existing_state");
+  } finally {
+    config.cleanup();
+  }
 });
 
 test("successor lifecycle adopts only an exact authoritatively proven commit head", () => {

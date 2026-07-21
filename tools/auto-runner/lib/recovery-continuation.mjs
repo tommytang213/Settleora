@@ -269,8 +269,6 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
 }
 
 export function consumeStartupInterruptionPlanner(config, recoveryState, interruption = {}, evidenceAdapters = {}) {
-  if (config.sessionLifecycle?.enabled !== true) return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
-  if (config.sessionLifecycle?.allowRecoveryTakeover !== true) return { ok: false, reasonCode: "session_lifecycle_recovery_takeover_disabled" };
   const identity = {
     repository: config.repositorySlug,
     issueNumber: recoveryState.issue?.number,
@@ -280,6 +278,14 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     baseSha: recoveryState.branch?.baseSha,
     headSha: recoveryState.branch?.currentHeadSha,
   };
+  if (config.sessionLifecycle?.enabled !== true) {
+    if (!config.logsRoot) return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
+    const existing = loadSessionLifecycleForRecovery(config, identity);
+    if (existing.ok) return { ok: false, reasonCode: "session_lifecycle_disabled_existing_state" };
+    if (existing.reasonCode !== "session_lifecycle_state_missing") return existing;
+    return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
+  }
+  if (config.sessionLifecycle?.allowRecoveryTakeover !== true) return { ok: false, reasonCode: "session_lifecycle_recovery_takeover_disabled" };
   const loaded = loadSessionLifecycleForRecovery(config, identity);
   if (!loaded.ok) return loaded;
   const taskIntents = findPreEffectIntents(config, (intent) => intent.repository === loaded.state.repository
