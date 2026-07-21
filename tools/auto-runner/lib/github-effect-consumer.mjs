@@ -59,7 +59,7 @@ function fingerprintFor(context, effectType, identity, effect) {
     authorityGeneration: context.authorityGeneration,
     branchName: identity.branchName ?? context.branchName,
     baseBranch: identity.baseBranch,
-    baseSha: identity.baseSha,
+    baseSha: identity.baseSha ?? context.baseSha,
     headSha: identity.headSha,
     candidateIdentity: identity.candidateIdentity ?? context.candidateIdentity,
     prNumber: identity.prNumber,

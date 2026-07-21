@@ -30,3 +30,14 @@ for (const [effectType, target] of [
   const second = effectType === "pr_update" ? executeCanonicalGithubEffectSync(config, state, input, adapters) : await executeCanonicalGithubEffect(config, state, input, adapters);
   assert.equal(second.ok, true); assert.equal(second.action, "already_confirmed"); assert.equal(executions, 1);
 });
+
+test("successor consumers reuse lifecycle base SHA when the call omits it", async () => {
+  const { config, state } = fixture(); let present = false; let executions = 0;
+  const input = { effectType: "pr_ready", prNumber: 12, headSha: sha("b"), effect: { operation: "pr_ready", expectedHeadSha: sha("b") } };
+  const adapters = { readLive: (intent) => present ? { complete: true, present: true, identity: intent.identity, effect: intent.effect } : { complete: true, present: false }, execute: () => { executions += 1; present = true; throw new Error("response lost"); } };
+  const first = await executeCanonicalGithubEffect(config, state, input, adapters);
+  const second = await executeCanonicalGithubEffect(config, state, input, adapters);
+  assert.equal(first.ok, true);
+  assert.equal(second.action, "already_confirmed");
+  assert.equal(executions, 1);
+});

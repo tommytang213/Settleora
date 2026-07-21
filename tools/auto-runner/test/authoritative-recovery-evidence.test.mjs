@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectAuthoritativeRecoveryEvidence, mergeIntentCommentReadback, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
+import { collectAuthoritativeRecoveryEvidence, discoverExactRecoveryPr, mergeIntentCommentReadback, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
 import { preparePreEffectIntent } from "../lib/pre-effect-intent.mjs";
 
 const sha = "a".repeat(40);
@@ -89,6 +89,13 @@ test("reconstructed prepared commit evidence permits its exact dirty worktree", 
 });
 test("push succeeded before marker write is adopted", () => { const e = collect({}, { pushSha: sha }); assert.equal(e.effects.push.present, true); });
 test("PR head already updated is adopted", () => { const e = collect({}, { prHeadSha: sha }); assert.equal(e.effects.prHead.present, true); });
+test("PR recovery discovers one exact branch head and rejects ambiguity", () => {
+  const exact = { number: 938, baseRefName: identity.baseBranch, headRefName: identity.branchName, headRefOid: identity.headSha };
+  const runner = (_command, _args) => ({ status: 0, stdout: JSON.stringify([exact, { ...exact, number: 917, headRefOid: base }]) });
+  assert.deepEqual(discoverExactRecoveryPr(config, { ...identity, prNumber: null }, runner), { complete: true, prNumber: 938 });
+  const ambiguous = (_command, _args) => ({ status: 0, stdout: JSON.stringify([exact, { ...exact, number: 939 }]) });
+  assert.equal(discoverExactRecoveryPr(config, { ...identity, prNumber: null }, ambiguous).complete, false);
+});
 test("merge succeeded before marker write resumes only with exact base and head parents", () => { const pr = { number: 42, state: "MERGED", baseRefName: "main", headRefName: identity.branchName, headSha: sha, draft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", mergeSha: base, mergeParentShas: [identity.baseSha, sha] }; const e = collect({ github: { pr } }, { mergeSha: base, mergedHeadSha: sha }); assert.equal(e.effects.merge.present, true); const wrong = collect({ github: { pr: { ...pr, mergeParentShas: ["f".repeat(40), sha] } } }, { mergeSha: base, mergedHeadSha: sha }); assert.equal(wrong.effects.merge.present, false); });
 test("comment fingerprint adopts one exact comment", () => { const e = collect({ github: { comments: [{ id: "C1", fingerprint: commentFingerprint, channel: "issue", targetNumber: 928 }] } }, { commentFingerprint }); assert.equal(e.effects.comment.present, true); });
 test("comment reconciliation searches evidence beyond the former 200-comment prefix", () => { const comments = Array.from({ length: 250 }, (_, index) => ({ id: `C${index}`, fingerprint: index === 249 ? commentFingerprint : `${index}`.padStart(64, "0"), channel: "issue", targetNumber: 928 })); const e = collect({ github: { comments } }, { commentFingerprint }); assert.equal(e.effects.comment.present, true); });

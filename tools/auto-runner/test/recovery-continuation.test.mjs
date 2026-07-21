@@ -42,6 +42,20 @@ test("successor lifecycle adopts only an exact authoritatively proven commit hea
   assert.equal(reconcileAuthoritativeLifecycleHead(lifecycle, { git: { headSha: newHead }, intents: [] }).reasonCode, "session_lifecycle_authoritative_head_unproven");
 });
 
+test("successor lifecycle adopts an exactly discovered PR after the create checkpoint window", () => {
+  const headSha = "a".repeat(40);
+  const lifecycle = { branch: { name: "feature/recovery", headSha, prNumber: null, candidateDigest: null } };
+  const adopted = reconcileAuthoritativeLifecycleHead(lifecycle, {
+    git: { headSha },
+    github: { pr: { number: 938, headRefName: lifecycle.branch.name, headSha } },
+    intents: [{ effectType: "pr_create", classification: "effect_present_exact_adoptable" }],
+  });
+  assert.equal(adopted.ok, true);
+  assert.equal(adopted.changed, true);
+  assert.equal(adopted.state.branch.prNumber, 938);
+  assert.equal(reconcileAuthoritativeLifecycleHead(lifecycle, { git: { headSha }, github: { pr: { number: 938, headRefName: lifecycle.branch.name, headSha } }, intents: [] }).reasonCode, "session_lifecycle_authoritative_pr_unproven");
+});
+
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-recovery-continuation-"));
   return {

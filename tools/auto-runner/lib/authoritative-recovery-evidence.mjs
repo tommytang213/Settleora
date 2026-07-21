@@ -235,12 +235,15 @@ function defaultGithubRead(config, identity) {
   const issue = JSON.parse(issueResult.stdout);
   const issueComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${identity.issueNumber}/comments?per_page=100`, { channel: "issue", targetNumber: identity.issueNumber });
   if (!issueComments.complete) return { complete: false, source: "gh_cli" };
-  if (!identity.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue: { number: issue.number, state: issue.state, stateReason: issue.stateReason }, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
-  const result = spawnSync("gh", ["pr", "view", String(identity.prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+  const discovered = identity.prNumber ? { complete: true, prNumber: identity.prNumber } : discoverExactRecoveryPr(config, identity);
+  if (!discovered.complete) return { complete: false, source: discovered.source };
+  if (!discovered.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue: { number: issue.number, state: issue.state, stateReason: issue.stateReason }, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
+  const prNumber = discovered.prNumber;
+  const result = spawnSync("gh", ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
   if (result.status !== 0) return { complete: false, source: "gh_cli" };
   const pr = JSON.parse(result.stdout);
-  const prComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${identity.prNumber}/comments?per_page=100`, { channel: "pr_conversation", targetNumber: identity.prNumber });
-  const reviewComments = readAllGithubComments(config, `repos/${config.repositorySlug}/pulls/${identity.prNumber}/comments?per_page=100`, { channel: "review", targetNumber: identity.prNumber });
+  const prComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${prNumber}/comments?per_page=100`, { channel: "pr_conversation", targetNumber: prNumber });
+  const reviewComments = readAllGithubComments(config, `repos/${config.repositorySlug}/pulls/${prNumber}/comments?per_page=100`, { channel: "review", targetNumber: prNumber });
   if (!prComments.complete || !reviewComments.complete) return { complete: false, source: "gh_cli" };
   const comments = [...issueComments.comments, ...prComments.comments, ...reviewComments.comments];
   let mergeParentShas = [];
@@ -251,6 +254,18 @@ function defaultGithubRead(config, identity) {
     catch { return { complete: false, source: "gh_cli_merge_commit_parse_failed" }; }
   }
   return { complete: true, source: "gh_cli", pr: { number: pr.number, state: pr.state, baseRefName: pr.baseRefName, headRefName: pr.headRefName, headSha: pr.headRefOid, draft: pr.isDraft, mergeable: pr.mergeable, mergeStateStatus: pr.mergeStateStatus, mergeSha: pr.mergeCommit?.oid || null, mergeParentShas }, comments, issue: { number: issue.number, state: issue.state, stateReason: issue.stateReason }, checks: checks(pr.statusCheckRollup), hygiene: [] };
+}
+
+export function discoverExactRecoveryPr(config, identity, runner = spawnSync) {
+  const result = runner("gh", ["pr", "list", "--repo", config.repositorySlug, "--head", identity.branchName, "--state", "all", "--limit", "100", "--json", "number,baseRefName,headRefName,headRefOid"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+  if (result.error || result.status !== 0) return { complete: false, source: "gh_cli_pr_discovery_failed" };
+  try {
+    const matches = JSON.parse(result.stdout || "[]").filter((pr) => pr.headRefName === identity.branchName && pr.headRefOid === identity.headSha && pr.baseRefName === identity.baseBranch);
+    if (matches.length > 1) return { complete: false, source: "gh_cli_pr_discovery_ambiguous" };
+    return { complete: true, prNumber: matches[0]?.number || null };
+  } catch {
+    return { complete: false, source: "gh_cli_pr_discovery_parse_failed" };
+  }
 }
 
 function readAllGithubComments(config, endpoint, target = {}) {
@@ -268,7 +283,8 @@ function reconcileIdentity(identity, git, github, intents, contradictions, ambig
   const exactPendingCommit = intents.some((intent) => intent.effectType === "commit"
     && (intent.classification === "effect_present_exact_adoptable" || (intent.classification === "effect_confirmed" && intent.confirmedHeadMatches === true)));
   if (git.branchName !== identity.branchName || (identity.headSha && git.headSha !== identity.headSha && !exactPendingCommit)) contradictions.push("local_git_identity_mismatch");
-  if (github.pr && (github.pr.number !== identity.prNumber || github.pr.headRefName !== identity.branchName || github.pr.baseRefName !== identity.baseBranch)) contradictions.push("github_pr_identity_mismatch");
+  const discoveredCreatedPr = !identity.prNumber && intents.some((intent) => intent.effectType === "pr_create" && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification));
+  if (github.pr && ((!discoveredCreatedPr && github.pr.number !== identity.prNumber) || github.pr.headRefName !== identity.branchName || github.pr.baseRefName !== identity.baseBranch)) contradictions.push("github_pr_identity_mismatch");
   if (github.pr?.headSha && git.remoteHeadSha && github.pr.headSha !== git.remoteHeadSha) contradictions.push("github_remote_head_mismatch");
   const exactPreparedCommit = intents.some((intent) => intent.effectType === "commit" && intent.preparedWorktreeMatches === true);
   if ((!git.worktreeClean || !git.indexClean || !git.untrackedClean) && !exactPreparedCommit) ambiguities.push("local_worktree_not_clean");

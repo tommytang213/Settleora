@@ -361,13 +361,27 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
 
 export function reconcileAuthoritativeLifecycleHead(state, authoritative) {
   const liveHead = authoritative?.git?.headSha;
-  if (liveHead === state?.branch?.headSha) return { ok: true, changed: false, state };
-  const exactCommit = authoritative?.intents?.some((intent) => intent.effectType === "commit"
-    && (intent.classification === "effect_present_exact_adoptable" || (intent.classification === "effect_confirmed" && intent.confirmedHeadMatches === true)));
-  if (!exactCommit || !/^[a-f0-9]{40}$/.test(String(liveHead || ""))) {
-    return { ok: false, reasonCode: "session_lifecycle_authoritative_head_unproven" };
+  let next = state;
+  let changed = false;
+  if (liveHead !== state?.branch?.headSha) {
+    const exactCommit = authoritative?.intents?.some((intent) => intent.effectType === "commit"
+      && (intent.classification === "effect_present_exact_adoptable" || (intent.classification === "effect_confirmed" && intent.confirmedHeadMatches === true)));
+    if (!exactCommit || !/^[a-f0-9]{40}$/.test(String(liveHead || ""))) {
+      return { ok: false, reasonCode: "session_lifecycle_authoritative_head_unproven" };
+    }
+    next = { ...next, branch: { ...next.branch, headSha: liveHead, candidateDigest: null } };
+    changed = true;
   }
-  return { ok: true, changed: true, state: { ...state, branch: { ...state.branch, headSha: liveHead, candidateDigest: null } } };
+  const livePr = authoritative?.github?.pr;
+  if (livePr && !next?.branch?.prNumber) {
+    const exactPrCreate = authoritative?.intents?.some((intent) => intent.effectType === "pr_create" && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification));
+    if (!exactPrCreate || !Number.isSafeInteger(livePr.number) || livePr.headRefName !== next.branch.name || livePr.headSha !== next.branch.headSha) {
+      return { ok: false, reasonCode: "session_lifecycle_authoritative_pr_unproven" };
+    }
+    next = { ...next, branch: { ...next.branch, prNumber: livePr.number } };
+    changed = true;
+  }
+  return { ok: true, changed, state: next };
 }
 
 function hasAnyMutationMarker(state, kind) {
