@@ -196,7 +196,7 @@ export function runReviewPrompt(config, packageInfo) {
     verdict: selected.verdict,
     sessionLifecycle,
   };
-  if (finalResult.verdict?.verdict === "approve") {
+  if (["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(finalResult.verdict?.verdict)) {
     finalResult.attestedCandidateIdentity = {
       repository: packageInfo.summary?.repository || null,
       baseSha: finalResult.baseSha,

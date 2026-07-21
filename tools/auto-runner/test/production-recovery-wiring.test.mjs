@@ -191,6 +191,14 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
 });
 
+test("valid non-pass reviewers retain prompt binding for structured convergence", () => {
+  const gemini = readFileSync(new URL("../lib/gemini-reviewer.mjs", import.meta.url), "utf8");
+  const codex = readFileSync(new URL("../lib/codex-runner.mjs", import.meta.url), "utf8");
+  assert.match(gemini, /reason === "blocked_external_reviewer_non_pass"/);
+  assert.match(gemini, /\["fail", "needs_tommy", "danger_gate"\]\.includes\(result\.verdict\)/);
+  assert.match(codex, /\["approve", "changes_requested", "needs_tommy", "danger_gate"\]\.includes\(finalResult\.verdict\?\.verdict\)/);
+});
+
 test("stack local-fix recovery threads one injected Codex execution authority", () => {
   const source = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
   assert.match(source, /const codexPromptRunner = options\.runCodexPrompt \|\| runCodexPrompt/);

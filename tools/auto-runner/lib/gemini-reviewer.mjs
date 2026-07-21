@@ -896,7 +896,12 @@ function finishIntegrated(config, result, startedAtMs, reason, options = {}) {
 }
 
 function attachIntegratedAttestations(result) {
-  if (result.status !== "pass") return result;
+  const validBoundVerdict = result.status === "pass" || (
+    result.reason === "blocked_external_reviewer_non_pass" &&
+    ["fail", "needs_tommy", "danger_gate"].includes(result.verdict) &&
+    result.sanitizedResponseSummary?.verdict === result.verdict
+  );
+  if (!validBoundVerdict) return result;
   return {
     ...result,
     attestedCandidateIdentity: {
