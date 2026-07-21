@@ -6,7 +6,7 @@ import path from "node:path";
 import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { findPreEffectIntents, loadPreEffectIntent, preparePreEffectIntent } from "./pre-effect-intent.mjs";
-import { persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { assertMutationAuthority, loadSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export function runGit(args, options = {}) {
   const result = spawnSync("git", args, {
@@ -208,7 +208,7 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
     assertGitSuccess(commit, "Unable to create commit");
     return { skipped: false, files, commit: commit.stdout.trim() };
   }
-  const effectContext = canonicalEffectContext(options.effectContext);
+  const effectContext = canonicalEffectContext(config, options.effectContext);
   const pending = findPendingEffect(config, effectContext, "commit", (intent) => sameStrings(intent.effect.stagedPaths, [...files].sort()) && intent.effect.messageDigest === createHash("sha256").update(normalizeCommitMessage(message)).digest("hex"));
   const parent = pending?.effect.expectedParents?.[0] || getRefSha("HEAD", { cwd });
   const intendedTreeSha = pending?.effect.treeSha || computeIntendedTree(cwd, files, parent);
@@ -273,11 +273,24 @@ function persistConfirmedLifecycleHead(config, effectContext, headSha) {
   else Object.assign(effectContext, persisted.state);
 }
 
-export function canonicalEffectContext(input = {}) {
-  const state = input.state || input;
+export function canonicalEffectContext(config, input = {}) {
+  const supplied = input.state || input;
+  const loaded = loadSessionLifecycleState(config, {
+    repository: supplied.repository,
+    issueNumber: supplied.logicalTask?.issueNumber,
+    taskKey: supplied.logicalTask?.taskKey,
+    runId: supplied.logicalTask?.runId,
+    claimIdentity: supplied.logicalTask?.claimIdentity,
+    sessionId: supplied.sessions?.current,
+  });
+  if (!loaded.ok) throw new Error(`Canonical effect lifecycle unavailable: ${loaded.reasonCode}`);
+  if (loaded.state.checkpoint.digest !== supplied.checkpoint?.digest) throw new Error("Canonical effect lifecycle checkpoint is stale");
+  const state = loaded.state;
   const logical = state.logicalTask || {};
   const authority = state.mutationAuthority || {};
   const sessionId = authority.ownerSessionId || state.sessions?.current;
+  const authorized = assertMutationAuthority(state, sessionId);
+  if (!authorized.ok) throw new Error(`Canonical effect mutation authority denied: ${authorized.reasonCode}`);
   return {
     repository: state.repository,
     sourceTaskKey: logical.taskKey,

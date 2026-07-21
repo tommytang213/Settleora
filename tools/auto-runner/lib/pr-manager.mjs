@@ -32,7 +32,7 @@ export async function pushBranch(config, branchName, options = {}) {
 }
 
 async function canonicalPush(config, branchName, lifecycle) {
-  const context = canonicalEffectContext(lifecycle);
+  const context = canonicalEffectContext(config, lifecycle);
   const localSha = getRefSha("HEAD", { cwd: config.repoRoot });
   const pending = findPendingEffect(config, context, "push", (intent) => intent.effect.remoteBranch === branchName);
   if (pending && pending.effect.localSha !== localSha) throw new Error("Pending canonical push local head mismatch");
@@ -154,7 +154,7 @@ export async function openOrUpdatePr(config, issue, branchName, summary, options
 }
 
 async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
-  const context = canonicalEffectContext(lifecycle);
+  const context = canonicalEffectContext(config, lifecycle);
   const pending = findPendingEffect(config, context, "pr_create", (intent) => intent.effect.sourceBranch === branchName && intent.effect.issueNumber === issue.number);
   const headSha = getRefSha("HEAD", { cwd: config.repoRoot });
   const baseSha = getRefSha("origin/main", { cwd: config.repoRoot });

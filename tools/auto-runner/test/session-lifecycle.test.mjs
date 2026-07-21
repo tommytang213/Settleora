@@ -362,9 +362,13 @@ test("production invocation sources wire lifecycle through feature bundle and re
   const feature = readFileSync(path.join(root, "lib/feature-bundle-orchestrator.mjs"), "utf8");
   const runner = readFileSync(path.join(root, "settleora-auto-runner.mjs"), "utf8");
   const startup = readFileSync(path.join(root, "lib/recovery-continuation.mjs"), "utf8");
+  const codexRunner = readFileSync(path.join(root, "lib/codex-runner.mjs"), "utf8");
   assert.match(feature, /sessionLifecycle: bundleLifecycleInvocation\(sessionLifecycle/);
   assert.match(feature, /sessionLifecycle: bundleLifecycleInvocation\(lifecycleState/);
+  assert.match(feature, /context\.sessionLifecycle = codex\.sessionLifecycle\.state/);
   assert.match(runner, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
+  assert.match(codexRunner, /controller-successor/);
+  assert.match(codexRunner, /sessionLifecycle = controllerReturn/);
   assert.match(startup, /consumeStartupInterruptionPlanner\(config, state/);
   assert.match(startup, /repository: loaded\.state\.repository/);
   assert.match(startup, /branchName: loaded\.state\.branch\.name/);

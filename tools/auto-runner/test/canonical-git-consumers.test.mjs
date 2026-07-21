@@ -8,7 +8,7 @@ import path from "node:path";
 import { canonicalEffectContext, canonicalIntent, commitExplicitPaths } from "../lib/git-workspace.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import { pushBranch } from "../lib/pr-manager.mjs";
-import { createSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, transitionSessionLifecyclePhase } from "../lib/session-lifecycle.mjs";
 
 function git(cwd, ...args) { return execFileSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" } }).trim(); }
 function lifecycle(repo, head) { return createSessionLifecycleState({ repository: "owner/repo", issueNumber: 1, taskKey: "task", runId: "run", claimIdentity: "owner/repo#1", chargeMarkerRef: "charge-1", branchName: "feature/test", baseSha: head, headSha: head, sessionId: "session-1", phase: "commit", nextExactAction: "commit" }); }
@@ -21,15 +21,17 @@ function fixture() {
   git(repo, "add", "--", "file.txt");
   git(repo, "commit", "-m", "initial");
   const head = git(repo, "rev-parse", "HEAD");
-  const state = lifecycle(repo, head);
-  return { root, repo, state, config: { repoRoot: repo, logsRoot: path.join(root, "logs"), dryRun: false } };
+  const config = { repoRoot: repo, logsRoot: path.join(root, "logs"), dryRun: false };
+  const persisted = persistSessionLifecycleState(config, lifecycle(repo, head));
+  assert.equal(persisted.ok, true);
+  return { root, repo, state: persisted.state, config };
 }
 
 test("actual commit consumer adopts a crash-window commit without recommitting", async () => {
   const { repo, state, config } = fixture();
   writeFileSync(path.join(repo, "file.txt"), "two\n");
   git(repo, "add", "--", "file.txt");
-  const context = canonicalEffectContext(state);
+  const context = canonicalEffectContext(config, state);
   const parent = git(repo, "rev-parse", "HEAD");
   const effect = { expectedParents: [parent], treeSha: git(repo, "write-tree"), stagedPaths: ["file.txt"], messageDigest: createHash("sha256").update("change").digest("hex") };
   const intent = preparePreEffectIntent({ ...config, currentAuthority: context.currentAuthority }, canonicalIntent(context, "commit", effect, { headSha: parent }));
@@ -49,7 +51,7 @@ test("actual push consumer adopts a crash-window remote update without replay", 
   const bare = path.join(root, "remote.git");
   git(root, "init", "--bare", bare);
   git(repo, "remote", "add", "origin", bare);
-  const context = canonicalEffectContext(state);
+  const context = canonicalEffectContext(config, state);
   const localSha = git(repo, "rev-parse", "HEAD");
   const effect = { localSha, remoteBranch: "feature/test", expectedRemoteBeforeSha: null, allowedFastForwardTarget: localSha, repositoryOwnership: context.repository };
   const intent = preparePreEffectIntent({ ...config, currentAuthority: context.currentAuthority }, canonicalIntent(context, "push", effect, { headSha: localSha }));
@@ -58,4 +60,12 @@ test("actual push consumer adopts a crash-window remote update without replay", 
   const result = await pushBranch(config, "feature/test", { effectContext: state });
   assert.equal(result.canonicalEffect.action, "adopted");
   assert.equal(git(repo, "ls-remote", "--heads", "origin", "refs/heads/feature/test").split(/\s+/)[0], localSha);
+});
+
+test("canonical effect context rejects a stale supplied lifecycle checkpoint", () => {
+  const { state, config } = fixture();
+  const advanced = transitionSessionLifecyclePhase(config, state, { phase: "validation", nextExactAction: "validate" });
+  assert.equal(advanced.ok, true);
+  assert.throws(() => canonicalEffectContext(config, state), /lifecycle unavailable|checkpoint is stale/);
+  assert.equal(canonicalEffectContext(config, advanced.state).authorityGeneration, advanced.state.sessions.generation);
 });

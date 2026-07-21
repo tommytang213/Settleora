@@ -763,6 +763,7 @@ async function runBundleReviewFixCycle(config, context) {
     promptPath,
     ...(lifecycleState ? { sessionLifecycle: bundleLifecycleInvocation(lifecycleState, "bundle-review-fix") } : {}),
   }, "bundle-review-fix");
+  if (codex.sessionLifecycle?.state) context.sessionLifecycle = codex.sessionLifecycle.state;
   if (!codex.skipped && (codex.error || codex.status !== 0)) {
     return { attempted: true, proceeded: false, reason: "review_fix_codex_failed", decision, promptPath, codex };
   }

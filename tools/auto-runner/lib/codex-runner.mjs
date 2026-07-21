@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { closeSync, openSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { digestChangedFiles } from "./config.mjs";
@@ -75,6 +76,19 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
     });
   } finally {
     closeSync(fd);
+  }
+  if (sessionLifecycle?.state) {
+    const controllerReturn = prepareFreshSessionInvocation(config, {
+      state: sessionLifecycle.state,
+      newSessionId: `${promptInfo.sessionLifecycle.state.sessions.current}:controller-successor:${randomUUID()}`,
+      phase: `${purpose}_complete`,
+      telemetry: {},
+      mutationJournaled: true,
+    });
+    if (!controllerReturn.ok) {
+      return { skipped: false, status: null, error: controllerReturn.reasonCode, purpose, logPath, sessionLifecycle: controllerReturn };
+    }
+    sessionLifecycle = controllerReturn;
   }
   appendFileSync(
     logPath,

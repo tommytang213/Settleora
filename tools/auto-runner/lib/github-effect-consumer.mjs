@@ -13,7 +13,7 @@ export function executeCanonicalGithubEffectSync(config, lifecycle, input, adapt
 function execute(sync, config, lifecycle, input, adapters) {
   if (!lifecycle) throw new Error("Canonical GitHub effect lifecycle authority required");
   if (typeof adapters?.readLive !== "function" || typeof adapters?.execute !== "function") throw new Error("Canonical GitHub effect adapters required");
-  const context = canonicalEffectContext(lifecycle);
+  const context = canonicalEffectContext(config, lifecycle);
   const identity = {
     ...(input.identity || {}),
     ...(Number.isSafeInteger(input.prNumber) ? { prNumber: input.prNumber } : {}),
