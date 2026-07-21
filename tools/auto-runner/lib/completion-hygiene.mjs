@@ -265,10 +265,24 @@ function canonicalCommentComponent(config, context, runner, repositoryContext, i
   const effect = { issueNumber, bodyDigest: canonicalGithubEvidenceDigest(body), stableMarker: marker, repository: repositoryContext.repositorySlug };
   const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType, issueNumber, headSha: context.sourceHeadSha || context.expectedHeadSha, baseSha: context.mergeSha, effect }, {
     readLive: (intent) => {
-      const live = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "number,comments"], { cwd: config.repoRoot });
-      if (live.error || live.status !== 0) return { complete: false };
-      let issue; try { issue = JSON.parse(live.stdout || "{}"); } catch { return { complete: false }; }
-      const matches = (issue.comments || []).filter((comment) => String(comment.body || "").includes(marker) && canonicalGithubEvidenceDigest(String(comment.body || "")) === effect.bodyDigest);
+      const [owner, name] = repositoryContext.repositorySlug.split("/");
+      const matches = [];
+      let cursor = null;
+      for (let page = 0; page < 100; page += 1) {
+        const args = ["api", "graphql", "-f", "query=query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){issue(number:$number){number comments(first:100,after:$cursor){nodes{body} pageInfo{hasNextPage endCursor}}}}}", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${issueNumber}`];
+        if (cursor) args.push("-f", `cursor=${cursor}`);
+        const live = runner("gh", args, { cwd: config.repoRoot });
+        if (live.error || live.status !== 0 || !String(live.stdout || "").trim()) return { complete: false };
+        let payload; try { payload = JSON.parse(live.stdout); } catch { return { complete: false }; }
+        if (Array.isArray(payload?.errors) && payload.errors.length > 0) return { complete: false };
+        const issue = payload?.data?.repository?.issue;
+        if (issue?.number !== issueNumber || !Array.isArray(issue?.comments?.nodes) || typeof issue?.comments?.pageInfo?.hasNextPage !== "boolean") return { complete: false };
+        matches.push(...issue.comments.nodes.filter((comment) => String(comment.body || "").includes(marker) && canonicalGithubEvidenceDigest(String(comment.body || "")) === effect.bodyDigest));
+        if (!issue.comments.pageInfo.hasNextPage) break;
+        if (!issue.comments.pageInfo.endCursor) return { complete: false };
+        cursor = issue.comments.pageInfo.endCursor;
+        if (page === 99) return { complete: false };
+      }
       if (matches.length > 1) return { complete: true, ambiguous: true };
       return matches.length === 1 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
     },
@@ -304,7 +318,7 @@ function canonicalClosureComponent(config, context, runner, repositoryContext) {
 
 function updateProjectStatusIfSupported(config, context, runner) {
   if (!config.projectStatusUpdates?.supported) return { status: "not_updated", reason: "project_status_mapping_not_configured" };
-  if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId) {
+  if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId || !config.projectStatusUpdates.doneOptionId) {
     return { status: "not_updated", reason: "project_status_mapping_incomplete" };
   }
   if (context.sessionLifecycle) {
@@ -313,8 +327,9 @@ function updateProjectStatusIfSupported(config, context, runner) {
     const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "project_status_update", issueNumber: context.issue.number, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
       readLive: (intent) => {
         let cursor = null;
+        const matchingItems = [];
         for (let page = 0; page < 20; page += 1) {
-          const args = ["api", "graphql", "-f", "query=query($projectId:ID!,$cursor:String){node(id:$projectId){... on ProjectV2{items(first:100,after:$cursor){nodes{id content{... on Issue{number}} fieldValues(first:100){nodes{... on ProjectV2ItemFieldSingleSelectValue{optionId field{... on ProjectV2SingleSelectField{id}}}}}} pageInfo{hasNextPage endCursor}}}}}", "-F", `projectId=${config.projectStatusUpdates.projectId}`];
+          const args = ["api", "graphql", "-f", "query=query($projectId:ID!,$cursor:String){node(id:$projectId){... on ProjectV2{items(first:100,after:$cursor){nodes{id content{... on Issue{number repository{nameWithOwner}}} fieldValues(first:100){nodes{... on ProjectV2ItemFieldSingleSelectValue{optionId field{... on ProjectV2SingleSelectField{id}}}}}} pageInfo{hasNextPage endCursor}}}}}", "-F", `projectId=${config.projectStatusUpdates.projectId}`];
           if (cursor) args.push("-f", `cursor=${cursor}`);
           const live = runner("gh", args);
           if (live.error || live.status !== 0 || !String(live.stdout || "").trim()) return { complete: false };
@@ -322,18 +337,18 @@ function updateProjectStatusIfSupported(config, context, runner) {
           if (Array.isArray(payload?.errors) && payload.errors.length > 0) return { complete: false };
           const items = payload?.data?.node?.items;
           if (!Array.isArray(items?.nodes) || typeof items?.pageInfo?.hasNextPage !== "boolean") return { complete: false };
-          const item = items.nodes.find((candidate) => candidate?.content?.number === context.issue.number);
-          if (item) {
-            if (!item.id || !Array.isArray(item.fieldValues?.nodes)) return { complete: false };
-            projectItemId = item.id;
-            const present = item.fieldValues.nodes.some((value) => value?.field?.id === config.projectStatusUpdates.fieldId && value?.optionId === config.projectStatusUpdates.doneOptionId);
-            return present ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
-          }
-          if (!items.pageInfo.hasNextPage) return { complete: false };
+          matchingItems.push(...items.nodes.filter((candidate) => candidate?.content?.number === context.issue.number && candidate?.content?.repository?.nameWithOwner === config.repositorySlug));
+          if (!items.pageInfo.hasNextPage) break;
           if (!items.pageInfo.endCursor) return { complete: false };
           cursor = items.pageInfo.endCursor;
+          if (page === 19) return { complete: false };
         }
-        return { complete: false };
+        if (matchingItems.length !== 1) return matchingItems.length > 1 ? { complete: true, ambiguous: true } : { complete: false };
+        const item = matchingItems[0];
+        if (!item.id || !Array.isArray(item.fieldValues?.nodes)) return { complete: false };
+        projectItemId = item.id;
+        const present = item.fieldValues.nodes.some((value) => value?.field?.id === config.projectStatusUpdates.fieldId && value?.optionId === config.projectStatusUpdates.doneOptionId);
+        return present ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
       },
       execute: () => {
         if (!projectItemId) throw new Error("Canonical project status update lacks an authoritative item identity");

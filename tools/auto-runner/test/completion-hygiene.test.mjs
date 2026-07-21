@@ -80,6 +80,12 @@ function runnerWith(fixtures = {}) {
       const pr = typeof fixtures.pr === "function" ? fixtures.pr() : fixtures.pr;
       return { status: 0, stdout: JSON.stringify(pr || { number: 100, url: "https://github.com/tommytang213/Settleora/pull/100", headRefOid: headSha, mergeCommit: { oid: mergeSha } }) };
     }
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql" && args.some((arg) => String(arg).includes("repository(owner:$owner"))) {
+      const numberArg = args.find((arg) => String(arg).startsWith("number="));
+      const number = Number(String(numberArg || "number=0").slice("number=".length));
+      const issue = number === 800 ? fixtures.parentIssue || { number: 800, comments: [] } : fixtures.issue || narrowIssue();
+      return { status: 0, stdout: JSON.stringify({ data: { repository: { issue: { number, comments: { nodes: issue.comments || [], pageInfo: { hasNextPage: false, endCursor: null } } } } } }) };
+    }
     return { status: 0, stdout: "" };
   };
   runner.calls = calls;
@@ -410,8 +416,8 @@ test("session lifecycle completion canonically updates project work and durably 
   let projectUpdated = false;
   const lifecycleRunner = (command, args, options) => {
     if (command === "gh" && args[0] === "project" && args[1] === "item-edit") projectUpdated = true;
-    if (command === "gh" && args[0] === "api" && args[1] === "graphql") {
-      return { status: 0, stdout: JSON.stringify({ data: { node: { items: { nodes: [{ id: "PVTI_1", content: { number: lifecycleContext.issue.number }, fieldValues: { nodes: projectUpdated ? [{ optionId: "done", field: { id: "PVTF_1" } }] : [] } }], pageInfo: { hasNextPage: false, endCursor: null } } } } }), stderr: "", error: null };
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql" && args.some((arg) => String(arg).includes("node(id:$projectId)"))) {
+      return { status: 0, stdout: JSON.stringify({ data: { node: { items: { nodes: [{ id: "PVTI_1", content: { number: lifecycleContext.issue.number, repository: { nameWithOwner: "tommytang213/Settleora" } }, fieldValues: { nodes: projectUpdated ? [{ optionId: "done", field: { id: "PVTF_1" } }] : [] } }], pageInfo: { hasNextPage: false, endCursor: null } } } } }), stderr: "", error: null };
     }
     return baseLifecycleRunner(command, args, options);
   };
@@ -427,6 +433,65 @@ test("session lifecycle completion canonically updates project work and durably 
   assert.equal(result.ledger.reason, "followup_issue_creation_disabled");
   assert.equal(result.ledger.proposal.correlationKey.includes("ledger"), true);
   assert.equal(baseLifecycleRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment" && call.args[2] === "891"), false);
+});
+
+test("canonical completion comment recovery exhausts comment pagination before mutating", () => {
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false };
+  const sessionLifecycle = lifecycleFor(config);
+  const baseContext = context({ parentIssue: null, sessionLifecycle });
+  const completionBody = renderCompletionComment(baseContext, evaluateCloseDecision(baseContext.issue, baseContext));
+  const baseRunner = runnerWith({ issue: baseContext.issue });
+  const runner = (command, args, options) => {
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql" && args.some((arg) => String(arg).includes("repository(owner:$owner"))) {
+      const cursor = args.find((arg) => String(arg).startsWith("cursor="));
+      const nodes = cursor ? [{ body: completionBody }] : Array.from({ length: 100 }, (_, index) => ({ body: `older-${index}` }));
+      return { status: 0, stdout: JSON.stringify({ data: { repository: { issue: { number: 891, comments: { nodes, pageInfo: { hasNextPage: !cursor, endCursor: cursor ? null : "page-2" } } } } } }) };
+    }
+    return baseRunner(command, args, options);
+  };
+  const result = completeMergedIssueHygiene(config, baseContext, { runner });
+  assert.equal(result.comment.status, "updated");
+  assert.equal(result.comment.canonicalEffect.ok, true);
+  assert.equal(baseRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment"), false);
+});
+
+test("canonical project lookup selects the repository-bound item across pages", () => {
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false, projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1", doneOptionId: "done" } };
+  const sessionLifecycle = lifecycleFor(config);
+  const baseContext = context({ parentIssue: null, remainingGates: ["acceptance"], sessionLifecycle });
+  const baseRunner = runnerWith({ issue: baseContext.issue });
+  const editedIds = [];
+  let projectUpdated = false;
+  const runner = (command, args, options) => {
+    if (command === "gh" && args[0] === "project" && args[1] === "item-edit") {
+      editedIds.push(args[args.indexOf("--id") + 1]);
+      projectUpdated = true;
+      return { status: 0, stdout: "" };
+    }
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql" && args.some((arg) => String(arg).includes("node(id:$projectId)"))) {
+      const cursor = args.find((arg) => String(arg).startsWith("cursor="));
+      const item = cursor
+        ? { id: "PVTI_RIGHT", content: { number: 891, repository: { nameWithOwner: "tommytang213/Settleora" } }, fieldValues: { nodes: projectUpdated ? [{ optionId: "done", field: { id: "PVTF_1" } }] : [] } }
+        : { id: "PVTI_WRONG", content: { number: 891, repository: { nameWithOwner: "other/Repository" } }, fieldValues: { nodes: [] } };
+      return { status: 0, stdout: JSON.stringify({ data: { node: { items: { nodes: [item], pageInfo: { hasNextPage: !cursor, endCursor: cursor ? null : "page-2" } } } } }) };
+    }
+    return baseRunner(command, args, options);
+  };
+  const result = completeMergedIssueHygiene(config, baseContext, { runner });
+  assert.equal(result.project.status, "updated");
+  assert.deepEqual(editedIds, ["PVTI_RIGHT"]);
+});
+
+test("incomplete project mapping does not register or mutate a status update", () => {
+  const runner = runnerWith();
+  const result = completeMergedIssueHygiene(
+    { logsRoot: logsRoot(), projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1" } },
+    context(),
+    { runner },
+  );
+  assert.equal(result.project.status, "not_updated");
+  assert.equal(result.project.reason, "project_status_mapping_incomplete");
+  assert.equal(runner.calls.some((call) => call.args[0] === "project" && call.args[1] === "item-edit"), false);
 });
 
 test("completion hygiene requires a repository context before issue commands", () => {
