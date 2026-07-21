@@ -1167,7 +1167,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
-      if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder)) return iteration;
+      if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
         return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_initial_fix_review_mutated_checkout");
@@ -1287,7 +1287,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
-      if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder)) return iteration;
+      if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
         return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "codex_review_convergence_fix_review_mutated_checkout");
@@ -1414,7 +1414,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
-    if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, changedFiles, issue, recoveryRecorder)) return iteration;
+    if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
     if (iteration.reviewMutationGuard?.mutationDetected) {
       return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_convergence_fix_review_mutated_checkout");
@@ -2924,7 +2924,7 @@ async function writeReviewPackage(config, payload) {
   const summary = {
     reviewPhase: payload.reviewPhase || "pre-pr-review",
     taskKey: config.taskKey || null,
-    repository: config.repositorySlug || null,
+    repository: config.repositorySlug || "tommytang213/Settleora",
     manualMergeRequired: payload.manualMergeRequired ?? payload.laneDecision?.manualMergeRequired ?? null,
     autoMergeEligible: payload.autoMergeEligible ?? payload.laneDecision?.autoMergeEligible ?? null,
     issue: {

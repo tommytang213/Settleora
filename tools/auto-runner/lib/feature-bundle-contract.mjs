@@ -271,6 +271,12 @@ function globMatchesPath(glob, filePath) {
   return matchSegments(splitPath(glob), splitPath(filePath));
 }
 
+export function featureBundleAllowedPathMatches(glob, filePath) {
+  if (!isSafeRepoRelativePath(glob, { allowGlob: true, maxLength: maxAllowedPathLength })) return false;
+  if (!isSafeRepoRelativePath(filePath, { allowGlob: false, maxLength: maxAllowedPathLength })) return false;
+  return globMatchesPath(glob, filePath);
+}
+
 function splitPath(value) {
   return String(value || "").replace(/^\.\//, "").split("/");
 }

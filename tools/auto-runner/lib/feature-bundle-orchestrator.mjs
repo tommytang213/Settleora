@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
+import { featureBundleAllowedPathMatches, planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
 import {
   createInitialBundleState,
   loadBundleState,
@@ -1036,7 +1036,7 @@ function bundleStructuredFindings(evidence) {
 function persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage, changedFiles, headSha, baseSha, externalReview }) {
   const slices = (plan?.slices || []).map((slice) => ({
     ...slice,
-    changedFiles: slice.changedFiles || slice.allowedPaths || [],
+    changedFiles: changedFiles.filter((changedPath) => (slice.allowedPaths || []).some((allowedPath) => featureBundleAllowedPathMatches(allowedPath, changedPath))),
     issueNumber: slice.issueNumber || issue.number,
     taskKey: slice.taskKey || `${config.taskKey || `issue-${issue.number}`}:${slice.id}`,
     allowedPathsProven: slice.allowedPathsProven === true,

@@ -182,7 +182,8 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /if \(iteration\.reviewMutationGuard\?\.mutationDetected\) \{\n\s+return stopForPostFixReviewMutation/);
   assert.match(source, /appendNormalReviewConvergenceHistory\(iteration/);
   assert.match(source, /persistNormalReviewConvergenceState\(config, iteration, "post_fix_reviewed"\)/);
-  assert.equal((source.match(/refreshNormalLargeCandidateReviewAfterFix\(config, iteration, changedFiles, issue, recoveryRecorder\)/g) || []).length, 4);
+  assert.equal((source.match(/refreshNormalLargeCandidateReviewAfterFix\(config, iteration, postFix\.changedFiles, issue, recoveryRecorder\)/g) || []).length, 3);
+  assert.equal((source.match(/async function refreshNormalLargeCandidateReviewAfterFix\(config, iteration, changedFiles, issue, recoveryRecorder\)/g) || []).length, 1);
   assert.match(source, /Post-fix cumulative large-candidate review is incomplete/);
   assert.match(source, /routeNormalStructuredFindingsToConvergence\(iteration\)/);
   assert.match(source, /sanitizedResponseSummary: \{ verdict: "fail", findings: gemini \}/);
@@ -217,6 +218,9 @@ test("large review recovery re-requires binding and reviewer prompts carry bound
   assert.doesNotMatch(bundle, /executionAuthorityProven: false/);
   assert.match(runner, /structuredLargeCandidateManualVerdict\(iteration\.largeCandidateReview\)/);
   assert.match(bundle, /structuredLargeCandidateManualVerdict\(result\.largeCandidateReview\)/);
+  assert.match(runner, /repository: config\.repositorySlug \|\| "tommytang213\/Settleora"/);
+  assert.match(runner, /refreshNormalLargeCandidateReviewAfterFix\(config, iteration, postFix\.changedFiles/);
+  assert.match(bundle, /changedFiles\.filter\(\(changedPath\).*featureBundleAllowedPathMatches/);
 });
 
 test("stack local-fix recovery threads one injected Codex execution authority", () => {
