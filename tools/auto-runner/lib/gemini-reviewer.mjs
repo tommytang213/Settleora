@@ -742,6 +742,11 @@ function buildIntegratedReviewPrompt(summary, diff) {
   return [
     "Return strict JSON only. No markdown, no prose outside JSON.",
     "Use the provider-enforced schema. Do not add fields.",
+    summary.structuredReview?.phase === "section"
+      ? `This is mandatory section ${summary.structuredReview.sectionId}. Review every declared changed path in that section against the complete cumulative diff and candidate context; do not pass if any declared path is unassessed.`
+      : summary.structuredReview?.phase === "integration"
+        ? "This is the mandatory final cross-section integration pass. Review interactions, dependency boundaries, and findings across every section of the immutable candidate; section passes alone are insufficient."
+        : "This is the complete cumulative candidate review.",
     "Pass only if this Settleora auto-runner pre-PR package's actual lane decision, changed files, validation, and boundaries make it safe to proceed to PR creation.",
     "Fail or gate if the package touches unapproved or manual-action domains, has ambiguous scope, missing validation, secret-boundary risk, stale/incomplete evidence, or reviewer-output GitHub mutation risk.",
     "",

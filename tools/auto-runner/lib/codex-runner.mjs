@@ -674,9 +674,16 @@ function collectJsonObjectCandidates(text) {
 }
 
 function buildReviewPrompt(packageInfo) {
+  const structuredInstruction = packageInfo.summary?.structuredReview?.phase === "section"
+    ? `Mandatory section review: ${packageInfo.summary.structuredReview.sectionId}. Review every declared section path against the complete cumulative candidate; do not approve if any declared path is unassessed.`
+    : packageInfo.summary?.structuredReview?.phase === "integration"
+      ? "Mandatory final cross-section integration review: assess interactions, dependencies, and combined findings across every section; section passes alone are insufficient."
+      : "Complete cumulative candidate review.";
   return `# Settleora Pre-PR Review
 
 Review only. Do not edit files. Use the provided package and return the required JSON verdict followed by concise notes.
+
+${structuredInstruction}
 
 Required JSON shape:
 
