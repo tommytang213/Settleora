@@ -221,23 +221,36 @@ export function persistLargeCandidateSplitDecision({ config, taskKey, candidateI
 }
 
 function cumulativeSectionEvidence(evidence, provider, section, manifest) {
+  const bound = cumulativeEvidenceBound(evidence, manifest.candidateIdentity, manifest);
   const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest);
-  return { id: section.id, status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
+  return { id: section.id, status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: bound ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
 }
 
 function cumulativeIntegrationEvidence(evidence, provider, manifest) {
+  const bound = cumulativeEvidenceBound(evidence, manifest.candidateIdentity, manifest);
   const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest);
-  return { status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
+  return { status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: bound ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
 }
 
 function cumulativeEvidencePasses(evidence, provider, identity, manifest) {
   const verdictPass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
-  return verdictPass && sameCandidateIdentity(evidence?.attestedCandidateIdentity, identity)
+  return verdictPass && cumulativeEvidenceBound(evidence, identity, manifest);
+}
+
+function cumulativeEvidenceBound(evidence, identity, manifest) {
+  return sameCandidateIdentity(evidence?.attestedCandidateIdentity, identity)
     && evidence?.attestationSource === "provider_prompt_binding" && hash(evidence?.providerPromptBindingDigest)
     && digest(normalizeFiles(evidence?.attestedIntegrationBoundaries)) === digest(normalizeFiles(manifest?.declaredIntegrationBoundaries));
 }
 
-function cumulativeFindings(evidence) { return evidence?.findings || evidence?.verdict?.findings || []; }
+function cumulativeFindings(evidence) {
+  return [
+    ...(evidence?.sanitizedResponseSummary?.findings || []),
+    ...(evidence?.verdict?.blocking_findings || []),
+    ...(evidence?.verdict?.non_blocking_findings || []),
+    ...(evidence?.findings || []),
+  ];
+}
 function validPromptBinding(evidence) { return evidence?.attestationSource === "provider_prompt_binding" && Boolean(hash(evidence?.providerPromptBindingDigest)); }
 function providerContextLimited(evidence) { return /context|token|truncat|over.?budget/i.test(`${evidence?.reason || ""} ${evidence?.reviewFailureReason || ""}`); }
 

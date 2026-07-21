@@ -164,6 +164,21 @@ test("blocked structured findings remain available for production convergence ro
   assert.equal(findings[0].summary, "repair routing");
 });
 
+test("bound non-pass cumulative evidence retains findings for convergence", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-bound-non-pass-"));
+  const changedFiles = ["tools/auto-runner/a.mjs"];
+  const bound = { attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: [], attestationSource: "provider_prompt_binding", providerPromptBindingDigest: h("prompt") };
+  try {
+    const result = await persistCumulativeLargeCandidateReview({
+      config: { logsRoot }, taskKey: "bound-non-pass", candidateIdentity, changedFiles,
+      externalReview: { ...bound, status: "blocked", verdict: "fail", sanitizedResponseSummary: { verdict: "fail", findings: [{ severity: "high", path: changedFiles[0], summary: "repair bound review" }] } },
+      codexReview: { ...bound, verdict: { verdict: "approve", blocking_findings: [], non_blocking_findings: [] } },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(structuredLargeCandidateFindings(result, "gemini")[0].summary, "repair bound review");
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
 test("structured reviewer adapters satisfy the existing convergence trigger contract", () => {
   const finding = { severity: "high", path: "tools/auto-runner/a.mjs", message: "repair routing" };
   const gemini = extractReviewFixTrigger({ externalReview: { status: "blocked", reason: "blocked_external_reviewer_non_pass", sanitizedResponseSummary: { verdict: "fail", findings: [finding] } } });
