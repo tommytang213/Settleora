@@ -303,6 +303,7 @@ function updateProjectStatusIfSupported(config, context, runner) {
   if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId) {
     return { status: "not_updated", reason: "project_status_mapping_incomplete" };
   }
+  if (context.sessionLifecycle) return { status: "failed", reason: "canonical_project_hygiene_required" };
   return commandComponent(
     runner("gh", [
       "project",
@@ -322,6 +323,7 @@ function updateProjectStatusIfSupported(config, context, runner) {
 function reconcileLedger(config, context, runner, repositoryContext) {
   const proposalResult = buildLedgerReconciliationProposal(context);
   if (proposalResult.skipped || !proposalResult.ok) return proposalResult;
+  if (context.sessionLifecycle) return { status: "failed", reason: "canonical_docs_hygiene_required", proposal: proposalResult.proposal };
   const result = executeIssueMutationPipeline(
     { ...config, maxFollowupIssuesPerRun: 1 },
     [proposalResult.proposal],

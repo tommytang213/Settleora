@@ -380,8 +380,8 @@ test("feature-bundle context can use the same completion pipeline", () => {
   assert.equal(result.closeDecision.close, true);
 });
 
-test("session lifecycle completion keeps durable ledger reconciliation and normal project capability checks", () => {
-  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false };
+test("session lifecycle completion fails closed for noncanonical ledger and project mutations", () => {
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false, projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1", doneOptionId: "done" } };
   const sessionLifecycle = lifecycleFor(config);
   const baseContext = context({ parentIssue: null, remainingGates: ["post-merge acceptance"], sessionLifecycle });
   const closeDecision = evaluateCloseDecision(baseContext.issue, baseContext);
@@ -396,8 +396,8 @@ test("session lifecycle completion keeps durable ledger reconciliation and norma
     { runner: runnerWith({ issue: lifecycleContext.issue }) },
   );
   assert.equal(result.status, "merged");
-  assert.equal(result.project.reason, "project_status_mapping_not_configured");
-  assert.notEqual(result.ledger.reason, "canonical_docs_hygiene_required");
+  assert.equal(result.project.reason, "canonical_project_hygiene_required");
+  assert.equal(result.ledger.reason, "canonical_docs_hygiene_required");
   assert.equal(result.ledger.proposal.correlationKey.includes("ledger"), true);
 });
 
