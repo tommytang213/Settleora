@@ -281,11 +281,11 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   };
   const loaded = loadSessionLifecycleForRecovery(config, identity);
   if (!loaded.ok) return loaded;
-  const pendingIntents = findPreEffectIntents(config, (intent) => !["finalized", "failed_closed"].includes(intent.status)
-    && intent.repository === loaded.state.repository
+  const taskIntents = findPreEffectIntents(config, (intent) => intent.repository === loaded.state.repository
     && intent.sourceTaskKey === loaded.state.logicalTask.taskKey
     && intent.runId === loaded.state.logicalTask.runId
     && intent.claimIdentity === loaded.state.logicalTask.claimIdentity);
+  const pendingIntents = taskIntents.filter((intent) => !["finalized", "failed_closed"].includes(intent.status));
   const authoritative = collectAuthoritativeRecoveryEvidence(config, {
     repository: loaded.state.repository,
     issueNumber: loaded.state.logicalTask.issueNumber,
@@ -316,8 +316,8 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     hygieneMarker: hasAnyMutationMarker(recoveryState, "ledger_hygiene"),
     issueNumber: recoveryState.issue?.number,
     preEffectIntentIds: pendingIntents.map((intent) => intent.intentId),
-    commentFingerprints: pendingIntents.map((intent) => intent.effect?.contentFingerprint).filter(Boolean),
-    commentCanonicalFingerprints: pendingIntents.map((intent) => intent.effect?.bodyDigest).filter(Boolean),
+    commentFingerprints: taskIntents.map((intent) => intent.effect?.contentFingerprint).filter(Boolean),
+    commentCanonicalFingerprints: taskIntents.map((intent) => intent.effect?.bodyDigest).filter(Boolean),
   }, evidenceAdapters);
   const inputs = plannerInputsFromAuthoritativeEvidence(authoritative);
   if (!inputs.ok) return { ...inputs, authoritativeEvidence: authoritative };

@@ -284,8 +284,10 @@ function reconcileEffects(expected, git, github, identity, contradictions, ambig
     && github.pr.mergeParentShas?.[0] === identity.baseSha
     && github.pr.mergeParentShas?.[1] === expected.mergedHeadSha;
   const mergePresent = Boolean(mergeIdentityMatches && (!expected.mergeSha || github.pr.mergeSha === expected.mergeSha));
-  const matchingComments = expected.commentFingerprint ? (github?.comments || []).filter((c) => c.fingerprint === expected.commentFingerprint) : [];
-  if (matchingComments.length > 1) ambiguities.push("duplicate_comment_fingerprint");
+  const expectedFingerprints = [expected.commentFingerprint, ...(expected.commentFingerprints || [])].filter(Boolean);
+  const expectedCanonicalFingerprints = [expected.commentCanonicalFingerprint, ...(expected.commentCanonicalFingerprints || [])].filter(Boolean);
+  const matchingComments = (github?.comments || []).filter((comment) => expectedFingerprints.includes(comment.fingerprint) || expectedCanonicalFingerprints.includes(comment.canonicalFingerprint));
+  if ([...expectedFingerprints, ...expectedCanonicalFingerprints].some((fingerprint) => matchingComments.filter((comment) => comment.fingerprint === fingerprint || comment.canonicalFingerprint === fingerprint).length > 1)) ambiguities.push("duplicate_comment_fingerprint");
   const commentPresent = matchingComments.length === 1 || Boolean(expected.commentId && (github?.comments || []).some((c) => c.id === expected.commentId));
   const closurePresent = expected.issueClosed === true && github?.issue?.state === "CLOSED";
   const hygienePresent = expected.hygieneFingerprint && (github?.hygiene || []).includes(expected.hygieneFingerprint);
@@ -295,7 +297,7 @@ function reconcileEffects(expected, git, github, identity, contradictions, ambig
   if (expected.commitSha && git?.headSha && !commitPresent && expected.commitMarker !== true) contradictions.push("commit_live_identity_mismatch");
   if (expected.pushSha && git?.remoteHeadSha && !pushPresent) contradictions.push("push_live_identity_mismatch");
   if (expected.prHeadSha && github?.pr?.headSha && !prHeadPresent) contradictions.push("pr_head_live_identity_mismatch");
-  return { sourceMutation: effect(expected.sourceMutationPresent), commit: effect(commitPresent, expected.commitSha), push: effect(pushPresent, expected.pushSha), prHead: effect(prHeadPresent, expected.prHeadSha), merge: effect(mergePresent, expected.mergeSha || expected.mergedHeadSha), comment: effect(commentPresent, expected.commentId || expected.commentFingerprint), issueClosure: effect(closurePresent, identityIssue(expected)), hygiene: effect(hygienePresent, expected.hygieneFingerprint) };
+  return { sourceMutation: effect(expected.sourceMutationPresent), commit: effect(commitPresent, expected.commitSha), push: effect(pushPresent, expected.pushSha), prHead: effect(prHeadPresent, expected.prHeadSha), merge: effect(mergePresent, expected.mergeSha || expected.mergedHeadSha), comment: effect(commentPresent, expected.commentId || matchingComments[0]?.id || expected.commentFingerprint), issueClosure: effect(closurePresent, identityIssue(expected)), hygiene: effect(hygienePresent, expected.hygieneFingerprint) };
 }
 
 function validateIdentity(config, value) {

@@ -193,21 +193,27 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
     };
   }
   if (effectContext) {
-    const labelEffect = { issueNumber: issue.number, addLabels: mutations.addLabels, removeLabels: mutations.removeLabels, outcome };
-    const labels = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "hygiene_component", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: labelEffect }, {
+    const executeLabelEffect = (labelEffect) => executeCanonicalGithubEffectSync(config, effectContext, { effectType: "hygiene_component", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: labelEffect }, {
       readLive: (intent) => {
         const live = readIssueLive(config, issue.number);
         if (!live.ok) return { complete: false };
         const current = new Set(live.issue.labels || []);
-        return { complete: true, present: mutations.addLabels.every((label) => current.has(label)) && mutations.removeLabels.every((label) => !current.has(label)), identity: intent.identity, effect: labelEffect };
+        return { complete: true, present: labelEffect.addLabels.every((label) => current.has(label)) && labelEffect.removeLabels.every((label) => !current.has(label)), identity: intent.identity, effect: labelEffect };
       },
       execute: () => {
-        if (mutations.addLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--add-label", mutations.addLabels.join(",")]), `Unable to add terminal outcome labels for issue #${issue.number}`);
-        if (mutations.removeLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--remove-label", mutations.removeLabels.join(",")]), `Unable to remove active runner labels for issue #${issue.number}`);
+        if (labelEffect.addLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--add-label", labelEffect.addLabels.join(",")]), `Unable to add terminal outcome labels for issue #${issue.number}`);
+        if (labelEffect.removeLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--remove-label", labelEffect.removeLabels.join(",")]), `Unable to remove active runner labels for issue #${issue.number}`);
         return { status: 0 };
       },
     });
-    if (!labels.ok) return { skipped: false, status: 1, reason: labels.reasonCode };
+    if (mutations.addLabels.length > 0) {
+      const added = executeLabelEffect({ issueNumber: issue.number, addLabels: mutations.addLabels, removeLabels: [], outcome, operation: "add" });
+      if (!added.ok) return { skipped: false, status: 1, reason: added.reasonCode };
+    }
+    if (mutations.removeLabels.length > 0) {
+      const removed = executeLabelEffect({ issueNumber: issue.number, addLabels: [], removeLabels: mutations.removeLabels, outcome, operation: "remove" });
+      if (!removed.ok) return { skipped: false, status: 1, reason: removed.reasonCode };
+    }
     const commentEffect = { issueNumber: issue.number, bodyDigest: canonicalGithubEvidenceDigest(boundedBody), outcome };
     const comment = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "comment", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: commentEffect }, {
       readLive: (intent) => {
