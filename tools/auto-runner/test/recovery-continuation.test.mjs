@@ -61,6 +61,7 @@ function tempConfig(extra = {}) {
   return {
     logsRoot,
     allowExistingPrRecovery: false,
+    sessionLifecycle: { allowRecoveryTakeover: true },
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
     ...extra,
   };
