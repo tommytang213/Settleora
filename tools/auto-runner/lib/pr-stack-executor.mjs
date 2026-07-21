@@ -2156,6 +2156,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
       const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle });
       if (review?.sessionLifecycle && codex) codex.sessionLifecycle = review.sessionLifecycle;
+      const postReviewSessionLifecycle = review?.sessionLifecycle || codex?.sessionLifecycle || sessionLifecycle;
       const verdict = review?.verdict?.verdict || review?.verdict;
       const fullDeltaCodexReview = { ...review, fullCandidatePrDelta: review?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       if (externalReview?.status !== "pass" || verdict !== "approve") {
@@ -2275,7 +2276,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           localSourceChangingRoundsConsumed: Math.max(1, Number(loopState.state.localRound || 0) + 1),
         },
         localLoopState: persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "local_convergence_passed", candidateHead: candidate.newHead, localRound: Number(loopState.state.localRound || 0) }),
-        sessionLifecycle,
+        sessionLifecycle: postReviewSessionLifecycle,
       };
     },
     async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null, reviewConvergenceState = null, sessionLifecycle = null }) {

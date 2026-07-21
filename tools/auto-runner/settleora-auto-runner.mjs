@@ -1027,7 +1027,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   if (!iteration.review) {
     recoveryRecorder?.advance("codex_mechanics_security_review", "run_codex_mechanics_review");
     iteration.review = runReviewPrompt(config, { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null });
-    if (iteration.review.sessionLifecycle) iteration.sessionLifecycle = iteration.review.sessionLifecycle;
+    if (iteration.review.sessionLifecycle) {
+      iteration.sessionLifecycle = iteration.review.sessionLifecycle;
+      issue.sessionLifecycle = iteration.review.sessionLifecycle;
+      if (promptInfo.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: iteration.review.sessionLifecycle };
+    }
     const afterReview = await checkoutFingerprint();
     iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
     if (iteration.reviewMutationGuard.mutationDetected) {
@@ -1792,6 +1796,10 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       changedFiles,
       expectedHeadSha,
     });
+    if (generatedRecoveryEvidence.sessionLifecycle) {
+      sessionLifecycle = generatedRecoveryEvidence.sessionLifecycle;
+      issue.sessionLifecycle = sessionLifecycle;
+    }
     exactHeadEvidence = {
       ...exactHeadEvidence,
       repositorySlug: config.repositorySlug,
@@ -2067,6 +2075,7 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
       reviewPackage,
       externalReview,
       review,
+      sessionLifecycle: review?.sessionLifecycle || issue.sessionLifecycle || null,
     };
   } finally {
     restore();

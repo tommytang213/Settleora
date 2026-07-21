@@ -443,6 +443,8 @@ test("production invocation sources wire lifecycle through feature bundle and re
   assert.match(feature, /context\.sessionLifecycle = codex\.sessionLifecycle\.state/);
   assert.match(runner, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
   assert.match(runner, /context\.issue\.sessionLifecycle = codex\.sessionLifecycle\.state/);
+  assert.match(runner, /promptInfo\.sessionLifecycle = \{ \.\.\.promptInfo\.sessionLifecycle, state: iteration\.review\.sessionLifecycle \}/);
+  assert.match(runner, /sessionLifecycle = generatedRecoveryEvidence\.sessionLifecycle/);
   assert.match(codexRunner, /controller-successor/);
   assert.match(codexRunner, /sessionLifecycle = controllerReturn/);
   assert.match(codexRunner, /reviewFailureCategory: "session_lifecycle_handoff_failed"/);
@@ -452,6 +454,7 @@ test("production invocation sources wire lifecycle through feature bundle and re
   assert.match(prStack, /newSessionId: `\$\{sessionLifecycle\.logicalTask\.runId\}:pr-stack-batch-fix:/);
   assert.match(prStack, /sessionLifecycle: lifecycleInvocation/);
   assert.match(prStack, /sessionLifecycle: codex\.sessionLifecycle\?\.state \|\| sessionLifecycle/);
+  assert.match(prStack, /postReviewSessionLifecycle = review\?\.sessionLifecycle \|\| codex\?\.sessionLifecycle \|\| sessionLifecycle/);
   assert.match(prStack, /if \(resumedFix\.sessionLifecycle && codex\) codex\.sessionLifecycle = resumedFix\.sessionLifecycle/);
   assert.match(prStack, /existing_pr_local_loop_fix_failed[\s\S]*sessionLifecycle: localFix\.sessionLifecycle\?\.state \|\| sessionLifecycle/);
   assert.match(convergence, /sessionLifecycle: reviewedInput\.sessionLifecycle \|\| null/);
