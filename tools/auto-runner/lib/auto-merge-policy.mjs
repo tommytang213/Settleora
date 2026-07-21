@@ -480,12 +480,12 @@ function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, 
   const gateEvidenceDigest = canonicalGithubEvidenceDigest({
     expectedHeadSha: finalDecision.expectedHeadSha,
     baseSha,
-    requiredChecks: context.requiredChecks,
-    reviewThreads: context.reviewThreads,
-    codeScanningAlerts: context.codeScanningAlerts,
-    validation: context.validation,
-    externalReview: context.externalReview,
-    codexReview: context.review,
+    requiredChecks: (context.requiredChecks || []).map((check) => ({ name: bounded(check.name), status: bounded(check.status), conclusion: bounded(check.conclusion) })),
+    reviewThreads: (context.reviewThreads || []).map((thread) => ({ id: bounded(thread.id), resolved: thread.isResolved === true })),
+    codeScanningAlerts: (context.codeScanningAlerts || []).map((alert) => ({ number: Number.isSafeInteger(alert.number) ? alert.number : null, state: bounded(alert.state), rule: bounded(alert.rule?.id || alert.ruleId) })),
+    validation: { passed: context.validation?.passed === true, headSha: bounded(context.validation?.headSha), baseSha: bounded(context.validation?.baseSha), changedFilesDigest: bounded(context.validation?.changedFilesDigest) },
+    externalReview: { status: bounded(context.externalReview?.status), verdict: bounded(context.externalReview?.verdict), reviewedHead: bounded(context.externalReview?.reviewedHead), changedFilesDigest: bounded(context.externalReview?.changedFilesDigest) },
+    codexReview: { verdict: bounded(context.review?.verdict?.verdict || context.review?.status), reviewedHead: bounded(context.review?.reviewedHead), changedFilesDigest: bounded(context.review?.changedFilesDigest) },
   });
   const effect = { prNumber: Number(prNumber), expectedHeadSha: finalDecision.expectedHeadSha, expectedBaseSha: baseSha, baseBranch: context.pr?.baseRefName || context.baseRefName || "main", mergeMethod: "merge", gateEvidenceDigest, retainSourceBranch: true };
   return executeCanonicalGithubEffectSync(config, context.sessionLifecycle, {

@@ -5193,6 +5193,15 @@ test("lifecycle branch restoration is routed through a canonical retained-branch
   assert.match(restoration, /executeCanonicalGithubEffectSync/);
 });
 
+test("canonical merge evidence projects review gates without provider payload objects", () => {
+  const source = readFileSync("tools/auto-runner/lib/auto-merge-policy.mjs", "utf8");
+  const mergeEffect = source.slice(source.indexOf("function executeCanonicalMergeEffect"), source.indexOf("function executeCanonicalPrComment"));
+  assert.doesNotMatch(mergeEffect, /externalReview:\s*context\.externalReview/);
+  assert.doesNotMatch(mergeEffect, /codexReview:\s*context\.review/);
+  assert.match(mergeEffect, /externalReview:\s*\{ status:/);
+  assert.match(mergeEffect, /codexReview:\s*\{ verdict:/);
+});
+
 test("merge-only auto-merge blocks completion when source branch restoration is unconfirmed", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-fail-"));
   try {
