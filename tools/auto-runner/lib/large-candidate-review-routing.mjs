@@ -203,6 +203,16 @@ export async function persistCumulativeLargeCandidateReview({ config, taskKey, c
   return freeze({ ...reviewed, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
 }
 
+export function structuredLargeCandidateFindings(reviewResult, provider) {
+  const reviewerResults = reviewResult?.state?.reviewerResults || [];
+  const result = reviewerResults.find((entry) => entry.provider === provider);
+  if (!result) return [];
+  return deduplicateFindings([
+    ...(result.sections || []).flatMap((section) => section.findings || []),
+    ...(result.integration?.findings || []),
+  ]);
+}
+
 export function persistLargeCandidateSplitDecision({ config, taskKey, candidateIdentity, classification, changedFiles, slices = [] } = {}) {
   const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification });
   const splitPlan = planLargeCandidateSplit({ classification, changedFiles, slices });

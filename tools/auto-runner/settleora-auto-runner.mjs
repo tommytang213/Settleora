@@ -51,7 +51,7 @@ import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
-import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision } from "./lib/large-candidate-review-routing.mjs";
+import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings } from "./lib/large-candidate-review-routing.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -1071,11 +1071,15 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
   }
   if (iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !iteration.largeCandidateReview.ok) {
+    if (routeNormalStructuredFindingsToConvergence(iteration)) {
+      recoveryRecorder?.advance("review_fix", "route_structured_large_candidate_findings");
+    } else {
     iteration.outcome = "auto_failed";
     iteration.externalReview = { ...iteration.externalReview, status: "blocked", reason: iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete" };
     recoveryRecorder?.stop(iteration.externalReview.reason, "Complete cumulative large-candidate dual review evidence was not established.", "rerun_complete_dual_review");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
+    }
   }
   recoveryRecorder?.evidence("codexReview", {
     status: iteration.review.verdict?.verdict === "approve" ? "passed" : "blocked",
@@ -2992,6 +2996,10 @@ async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, chan
     issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
   }
   if (iteration.largeCandidateReview.ok) return true;
+  if (routeNormalStructuredFindingsToConvergence(iteration)) {
+    recoveryRecorder?.advance("review_fix", "route_post_fix_structured_large_candidate_findings");
+    return true;
+  }
   iteration.externalReview = {
     ...iteration.externalReview,
     status: "blocked",
@@ -3011,6 +3019,28 @@ async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, chan
   );
   iteration.finishedAt = new Date().toISOString();
   return false;
+}
+
+function routeNormalStructuredFindingsToConvergence(iteration) {
+  const gemini = structuredLargeCandidateFindings(iteration.largeCandidateReview, "gemini");
+  const codex = structuredLargeCandidateFindings(iteration.largeCandidateReview, "codex-local");
+  if (gemini.length + codex.length === 0) return false;
+  if (gemini.length > 0) iteration.externalReview = {
+    ...iteration.externalReview,
+    status: "blocked",
+    verdict: "changes_requested",
+    findings: gemini,
+    reason: "structured_large_candidate_findings",
+  };
+  if (codex.length > 0) iteration.review = {
+    ...iteration.review,
+    verdict: {
+      ...(iteration.review?.verdict || {}),
+      verdict: "request_changes",
+      blocking_findings: codex,
+    },
+  };
+  return true;
 }
 
 async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {

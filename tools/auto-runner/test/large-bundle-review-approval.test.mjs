@@ -20,6 +20,7 @@ import {
   persistLargeCandidateSplitDecision,
   loadLargeCandidateRoutingState,
   runStructuredLargeCandidateReview,
+  structuredLargeCandidateFindings,
   validateLargeCandidateReviewEvidence,
   validateLargeCandidateRoutingState,
   writeLargeCandidateRoutingState,
@@ -150,6 +151,16 @@ test("findings across sections and integration deduplicate for #923 batch", () =
   const a = reviewFixture(manifest, "gemini"); const b = reviewFixture(manifest, "codex-local");
   for (const review of [a, b]) review.sections[0].findings = [{ severity: "high", path: "a", summary: "same finding" }];
   assert.equal(validateLargeCandidateReviewEvidence({ manifest, reviewerResults: [a, b] }).findings.length, 1);
+});
+
+test("blocked structured findings remain available for production convergence routing", () => {
+  const findings = structuredLargeCandidateFindings({ state: { reviewerResults: [{
+    provider: "codex-local",
+    sections: [{ findings: [{ severity: "high", path: "tools/auto-runner/a.mjs", summary: "repair routing" }] }],
+    integration: { findings: [{ severity: "high", path: "tools/auto-runner/a.mjs", summary: "repair routing" }] },
+  }] } }, "codex-local");
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].summary, "repair routing");
 });
 
 test("source identity change invalidates all evidence", () => {

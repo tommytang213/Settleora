@@ -34,7 +34,7 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
-import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision } from "./large-candidate-review-routing.mjs";
+import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings } from "./large-candidate-review-routing.mjs";
 import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
@@ -356,7 +356,10 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     result.sessionLifecycle = sessionLifecycle;
   }
   if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
-    return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
+    if (!routeBundleStructuredFindingsToConvergence(result)) {
+      return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
+    }
+    recovery?.advance("review_fix", "route_structured_large_candidate_findings");
   }
   recovery?.evidence("externalReview", {
     status: result.externalReview.status === "pass" ? "passed" : "blocked",
@@ -495,6 +498,28 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   return result;
 }
 
+function routeBundleStructuredFindingsToConvergence(result) {
+  const gemini = structuredLargeCandidateFindings(result.largeCandidateReview, "gemini");
+  const codex = structuredLargeCandidateFindings(result.largeCandidateReview, "codex-local");
+  if (gemini.length + codex.length === 0) return false;
+  if (gemini.length > 0) result.externalReview = {
+    ...result.externalReview,
+    status: "blocked",
+    verdict: "changes_requested",
+    findings: gemini,
+    reason: "structured_large_candidate_findings",
+  };
+  if (codex.length > 0) result.review = {
+    ...result.review,
+    verdict: {
+      ...(result.review?.verdict || {}),
+      verdict: "request_changes",
+      blocking_findings: codex,
+    },
+  };
+  return true;
+}
+
 export async function runBundleReviewConvergence(config, input, deps = {}) {
   const writeState = input.writeState || (() => {});
   let state = input.state;
@@ -630,6 +655,12 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       reviewMutationGuard: postFix.reviewMutationGuard,
     };
     if (postFix.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !postFix.largeCandidateReview?.ok) {
+      if (routeBundleStructuredFindingsToConvergence(postFix)) {
+        result.externalReview = postFix.externalReview;
+        result.review = postFix.review;
+        result.largeCandidateReview = postFix.largeCandidateReview;
+        continue;
+      }
       state = markBundleStopped(state, { reasonCode: postFix.largeCandidateReview?.reasonCode || "large_candidate_review_incomplete", reason: "Post-fix structured large-candidate certification failed." });
       writeState(state);
       return { ok: false, outcome: "auto_failed", reasonCode: postFix.largeCandidateReview?.reasonCode || "large_candidate_review_incomplete", reason: "Post-fix structured large-candidate certification failed.", state, attempts, summary: { largeCandidateReview: postFix.largeCandidateReview } };
