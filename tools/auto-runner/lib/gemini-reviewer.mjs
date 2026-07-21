@@ -724,6 +724,7 @@ function buildIntegratedReviewPrompt(summary, diff) {
       secretBoundary: summary.secretBoundary || null,
       candidateIdentity: { repository: summary.repository || null, baseSha: summary.baseSha || null, headSha: summary.currentHead || null, treeSha: summary.treeSha || null },
       integrationBoundaries: summary.integrationBoundaries || [],
+      integrationBoundaryMaterial: summary.integrationBoundaryMaterial || [],
       structuredReview: summary.structuredReview || null,
       nonGoals: [
         "No GitHub mutation from reviewer output.",

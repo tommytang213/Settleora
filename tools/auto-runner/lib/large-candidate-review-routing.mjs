@@ -183,7 +183,7 @@ export async function persistCumulativeLargeCandidateReview({ config, taskKey, c
   if (!built.ok) return built;
   const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification: { state: "external_review_large_bundle_in_progress" }, coverageManifest: built.manifest, runtimeStructuredRequired: true });
   const loaded = loadLargeCandidateRoutingState(config, seed);
-  const state = loaded.ok ? invalidateLargeCandidateEvidence(loaded.state, candidateIdentity) : seed;
+  const state = loaded.ok ? { ...invalidateLargeCandidateEvidence(loaded.state, candidateIdentity), runtimeStructuredRequired: true } : seed;
   const evidence = { gemini: externalReview, "codex-local": codexReview };
   const limitedProvider = ["gemini", "codex-local"].find((provider) => providerContextLimited(evidence[provider]));
   if (limitedProvider) {

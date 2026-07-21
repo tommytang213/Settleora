@@ -2936,11 +2936,19 @@ async function writeReviewPackage(config, payload) {
     externalReview: payload.externalReview || null,
     fullCandidatePrDelta: payload.fullCandidatePrDelta || null,
     integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaryMaterial: integrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };
   writeFileSync(packagePath, `${JSON.stringify({ summary, diff: diff.text }, null, 2)}\n`);
   return { packagePath, summary, diff: diff.text };
+}
+
+function integrationBoundaryMaterial(repoRoot = process.cwd(), paths) {
+  return paths.map((relativePath) => {
+    const content = readFileSync(path.join(repoRoot, relativePath), "utf8").slice(0, 40_000);
+    return { path: relativePath, sha256: createHash("sha256").update(content).digest("hex"), content };
+  });
 }
 
 async function runIntegratedReviewSource(config, reviewPackage, phase) {

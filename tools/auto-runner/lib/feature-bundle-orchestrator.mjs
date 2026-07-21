@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
 import {
@@ -977,12 +977,20 @@ async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage
     },
     changedFiles,
     integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaryMaterial: bundleIntegrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
     externalReview,
     codexReview,
     invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
     invokeIntegration: ({ provider, manifest, sections }) => invoke(provider, { phase: "integration", manifest, sections }),
   });
   return { ...certification, sessionLifecycle: structuredLifecycle };
+}
+
+function bundleIntegrationBoundaryMaterial(repoRoot = process.cwd(), paths) {
+  return paths.map((relativePath) => {
+    const content = readFileSync(path.join(repoRoot, relativePath), "utf8").slice(0, 40_000);
+    return { path: relativePath, sha256: createHash("sha256").update(content).digest("hex"), content };
+  });
 }
 
 async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle = null, onLifecycle = null) {

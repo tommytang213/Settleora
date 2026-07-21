@@ -199,6 +199,17 @@ test("valid non-pass reviewers retain prompt binding for structured convergence"
   assert.match(codex, /\["approve", "changes_requested", "needs_tommy", "danger_gate"\]\.includes\(finalResult\.verdict\?\.verdict\)/);
 });
 
+test("large review recovery re-requires binding and reviewer prompts carry boundary material", () => {
+  const routing = readFileSync(new URL("../lib/large-candidate-review-routing.mjs", import.meta.url), "utf8");
+  const gemini = readFileSync(new URL("../lib/gemini-reviewer.mjs", import.meta.url), "utf8");
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  assert.match(routing, /runtimeStructuredRequired: true \} : seed/);
+  assert.match(gemini, /integrationBoundaryMaterial: summary\.integrationBoundaryMaterial \|\| \[\]/);
+  assert.match(runner, /integrationBoundaryMaterial: integrationBoundaryMaterial/);
+  assert.match(bundle, /integrationBoundaryMaterial: bundleIntegrationBoundaryMaterial/);
+});
+
 test("stack local-fix recovery threads one injected Codex execution authority", () => {
   const source = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
   assert.match(source, /const codexPromptRunner = options\.runCodexPrompt \|\| runCodexPrompt/);
