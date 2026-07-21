@@ -1091,7 +1091,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     summary: iteration.review.reviewFailureReason || iteration.review.verdict?.verdict,
   });
 
-  if (config.requirePrePrReview && iteration.review.verdict.verdict !== "approve") {
+  if (config.requirePrePrReview && (iteration.review.verdict.verdict !== "approve" || iteration.externalReview?.status !== "pass")) {
     if (!config.dryRun) {
       const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
         issue,
@@ -1195,7 +1195,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
   while (true) {
-    if (!config.dryRun && iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") {
+    if (!config.dryRun && ((iteration.review?.verdict?.verdict && iteration.review.verdict.verdict !== "approve") || iteration.externalReview?.status === "blocked")) {
       recoveryRecorder?.advance("review_fix", "run_bounded_codex_review_convergence");
       const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
         issue,
@@ -3053,7 +3053,7 @@ async function runNormalStructuredReviewCall(config, reviewPackage, provider, st
   const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: normalStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, nextSessionLifecycle: evidence?.sessionLifecycle || null };
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: normalStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries, nextSessionLifecycle: evidence?.sessionLifecycle || null };
 }
 
 function normalStructuredFindings(evidence) {

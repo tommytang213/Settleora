@@ -150,9 +150,9 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
     let result = current.reviewerResults.find((entry) => entry.provider === provider && entry.manifestDigest === manifest.manifestDigest);
     if (!result) result = { provider, candidateIdentity: manifest.candidateIdentity, manifestDigest: manifest.manifestDigest, verdict: "not_run", sections: [], integration: null };
     for (const section of manifest.sections) {
-      if (result.sections.some((entry) => entry.id === section.id && entry.status === "pass" && entry.manifestDigest === manifest.manifestDigest && (!current.runtimeStructuredRequired || validPromptBinding(entry)))) continue;
+      if (result.sections.some((entry) => entry.id === section.id && entry.status === "pass" && entry.manifestDigest === manifest.manifestDigest && (!current.runtimeStructuredRequired || validPromptBinding(entry, manifest)))) continue;
       const sectionResult = await invokeSection({ provider, section, manifest });
-      if (current.runtimeStructuredRequired && !validPromptBinding(sectionResult)) return freeze({ ok: false, state: current, reasonCode: "review_section_prompt_binding_missing" });
+      if (current.runtimeStructuredRequired && !validPromptBinding(sectionResult, manifest)) return freeze({ ok: false, state: current, reasonCode: "review_section_prompt_binding_missing" });
       result = { ...result, sections: [...result.sections.filter((entry) => entry.id !== section.id), sectionResult] };
       current = { ...current, reviewerResults: [...current.reviewerResults.filter((entry) => entry.provider !== provider), result] };
       if (onCheckpoint) current = await onCheckpoint(current, { provider, phase: "section", sectionId: section.id }) || current;
@@ -165,9 +165,9 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
         return freeze({ ok: false, state: current, reasonCode: "review_section_not_passed" });
       }
     }
-    if (manifest.requiresFinalIntegration && (result.integration?.manifestDigest !== manifest.manifestDigest || (current.runtimeStructuredRequired && !validPromptBinding(result.integration)))) {
+    if (manifest.requiresFinalIntegration && (result.integration?.manifestDigest !== manifest.manifestDigest || (current.runtimeStructuredRequired && !validPromptBinding(result.integration, manifest)))) {
       result = { ...result, integration: await invokeIntegration({ provider, manifest, sections: result.sections }) };
-      if (current.runtimeStructuredRequired && !validPromptBinding(result.integration)) return freeze({ ok: false, state: current, reasonCode: "review_integration_prompt_binding_missing" });
+      if (current.runtimeStructuredRequired && !validPromptBinding(result.integration, manifest)) return freeze({ ok: false, state: current, reasonCode: "review_integration_prompt_binding_missing" });
       current = { ...current, reviewerResults: [...current.reviewerResults.filter((entry) => entry.provider !== provider), result] };
       if (onCheckpoint) current = await onCheckpoint(current, { provider, phase: "integration" }) || current;
     }
@@ -223,13 +223,13 @@ export function persistLargeCandidateSplitDecision({ config, taskKey, candidateI
 function cumulativeSectionEvidence(evidence, provider, section, manifest) {
   const bound = cumulativeEvidenceBound(evidence, manifest.candidateIdentity, manifest);
   const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest);
-  return { id: section.id, status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: bound ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
+  return { id: section.id, status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: bound ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries };
 }
 
 function cumulativeIntegrationEvidence(evidence, provider, manifest) {
   const bound = cumulativeEvidenceBound(evidence, manifest.candidateIdentity, manifest);
   const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest);
-  return { status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: bound ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
+  return { status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: bound ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries };
 }
 
 function cumulativeEvidencePasses(evidence, provider, identity, manifest) {
@@ -251,7 +251,12 @@ function cumulativeFindings(evidence) {
     ...(evidence?.findings || []),
   ];
 }
-function validPromptBinding(evidence) { return evidence?.attestationSource === "provider_prompt_binding" && Boolean(hash(evidence?.providerPromptBindingDigest)); }
+function validPromptBinding(evidence, manifest) {
+  return evidence?.attestationSource === "provider_prompt_binding"
+    && Boolean(hash(evidence?.providerPromptBindingDigest))
+    && sameCandidateIdentity(evidence?.attestedCandidateIdentity, manifest?.candidateIdentity)
+    && digest(normalizeFiles(evidence?.attestedIntegrationBoundaries)) === digest(normalizeFiles(manifest?.declaredIntegrationBoundaries));
+}
 function providerContextLimited(evidence) { return /context|token|truncat|over.?budget/i.test(`${evidence?.reason || ""} ${evidence?.reviewFailureReason || ""}`); }
 
 export function migrateLargeCandidateRoutingState(input = {}) {
