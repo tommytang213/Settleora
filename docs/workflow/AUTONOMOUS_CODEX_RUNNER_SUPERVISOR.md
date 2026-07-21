@@ -440,3 +440,12 @@ validates exact repository/task/run/claim/session identity and checkpoint
 digest, and resumes the earliest safe incomplete phase without replaying
 already observed mutation, commit, push, review request, polling, merge,
 comment, closure, or hygiene effects.
+# Large-review continuation
+
+Large-review continuation uses the existing recovery and fresh-session
+authority. The continuation packet preserves only bounded candidate identity,
+route, coverage/section/integration progress, split-plan identity, uncovered
+scope, and idempotency markers. A restart skips already completed exact-
+manifest review calls and split effects; a source identity change discards
+them. Sectioning, provider retries, polling, recovery, and session rotation do
+not create a new logical task or consume review source-round counters.

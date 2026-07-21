@@ -1510,3 +1510,25 @@ systemd user templates and does not install or enable them.
   foundation exists but requires explicit external config and issue-contract
   opt-in before it can attempt a normal GitHub merge commit.
 - Manual review is still required before enabling real unattended mutation.
+# Large-candidate review routing
+
+Large-candidate routing is a distinct versioned authority. Size alone routes a
+coherent candidate to mandatory strong cumulative Gemini and local Codex
+review; it is not a manual gate and does not require routine exact approval
+metadata. Mixed architecture-sensitive combinations route to deterministic
+split planning and proceed only when exact issue/task ownership, allowed paths,
+dependency order, and semantic own-delta proof cover every changed path exactly
+once. Otherwise the runner records the conflicting domains/files and minimum
+manual scope decision. Historical `blocked_external_reviewer_split_required`
+state migrates to split-required state and never counts as a review pass.
+
+Structured review freezes base/head/tree/diff/file-manifest identity, assigns
+every changed path to one domain section, records required unchanged integration
+boundaries, and requires fresh Gemini and local Codex section passes plus a
+final cross-section integration pass from each reviewer. Missing, duplicate,
+stale, mismatched, malformed, truncated, over-budget, partial, or uncovered
+evidence blocks. Provider/context limits record exact uncovered scope and
+resume through recovery/session rotation or a proven deterministic split
+without consuming a source-changing round or logical-task charge. Any candidate
+identity change invalidates all route, coverage, section, integration, and
+verdict evidence.

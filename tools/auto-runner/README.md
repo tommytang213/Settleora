@@ -1293,3 +1293,14 @@ and validation/review/runner failure outcomes add `auto-failed`. `no_changes`
 removes both active labels, comments the outcome, and leaves the issue open.
 Successful auto-merge performs the post-merge transient-label cleanup above;
 it does not remove stop/manual labels before merge to bypass gates.
+# Large-candidate review routing
+
+Coherent large candidates automatically select strong cumulative review; the
+legacy exact large-bundle approval is compatibility/exception evidence, not a
+routine prerequisite. `lib/large-candidate-review-routing.mjs` owns versioned
+route state, the immutable coverage manifest, dual-review section and final-
+integration proof, deterministic split-or-block planning, context-limit
+packets, exact-candidate invalidation, and atomic recovery state. Route state is
+separate from reviewer verdict: required, in-progress, split, context-blocked,
+coverage-incomplete, malformed, partial, or stale state can never pass review
+or merge gates.

@@ -482,3 +482,12 @@ Focused child issues under #800:
 Both slices must preserve #865/#866 as unrelated protected canaries and must
 not expose the health endpoint publicly or configure secrets without explicit
 approval.
+# Large-candidate monitoring
+
+Large-candidate status exposes only route state, immutable identity digests,
+section counts, final-integration readiness, bounded uncovered paths or section
+identifiers, split-plan status, and the next safe action. It excludes raw
+prompts/diffs/provider payloads, unrestricted paths, secrets, credentials,
+OCR/user data, and storage internals. Split-required, context-blocked, and
+coverage-incomplete states are blocking health evidence, never successful
+review verdicts.
