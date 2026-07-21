@@ -3316,6 +3316,8 @@ test("production stack dispatch rebinds the plan after source-changing convergen
   state.evidence.merged["919"] = { ok: true, merged: true, mergeSha: sha("m"), sourceBranchRestoration: confirmedSourceBranchRestoration("feature/auto-913-parent", sha("a")) };
   state.evidence.currentMainProof["919"] = { ok: true, currentMain: sha("m") };
   state.activePrNumber = 920;
+  state.sessionLifecycle = { sessions: { current: "retired-session", generation: 4 } };
+  const successorLifecycle = { sessions: { current: "successor-session", generation: 5 } };
   writePrStackState(statePath, state);
 
   const calls = [];
@@ -3324,7 +3326,7 @@ test("production stack dispatch rebinds the plan after source-changing convergen
     capabilities: { stackDispatchLoop: true },
     convergeExistingPr: async ({ pr }) => {
       calls.push(`converge:${pr.number}:${pr.headRefOid}`);
-      return sourceChangingConvergenceResult({ prNumber: 920, oldHead: sha("b"), newHead: sha("c") });
+      return { ...sourceChangingConvergenceResult({ prNumber: 920, oldHead: sha("b"), newHead: sha("c") }), sessionLifecycle: successorLifecycle };
     },
     proveSemanticOwnDelta: async ({ pr }) => {
       calls.push(`own-delta:${pr.number}:${pr.headRefOid}`);
@@ -3359,6 +3361,7 @@ test("production stack dispatch rebinds the plan after source-changing convergen
   const persisted = JSON.parse(readFileSync(statePath, "utf8"));
   assert.equal(persisted.exactHeads["920"], sha("c"));
   assert.equal(persisted.orderedPrs[1].headRefOid, sha("c"));
+  assert.deepEqual(persisted.sessionLifecycle, successorLifecycle);
   assert.equal(persisted.evidence.gatesPassed["920"].exactHead, sha("c"));
   assert.equal(persisted.evidence.merged["920"].sourceBranchRestoration.headSha, sha("c"));
 });

@@ -2355,6 +2355,7 @@ function transitionState(state, patch = {}) {
     currentPhase: patch.phase || state.currentPhase,
     currentAction: patch.currentAction ?? state.currentAction ?? null,
     activePrNumber: patch.activePrNumber ?? state.activePrNumber,
+    sessionLifecycle: patch.sessionLifecycle || state.sessionLifecycle || null,
     evidence: patch.evidence || state.evidence,
     mutationMarkers: patch.mutationMarkers || state.mutationMarkers,
     sourceCycleReservations: patch.sourceCycleReservations || state.sourceCycleReservations || {},

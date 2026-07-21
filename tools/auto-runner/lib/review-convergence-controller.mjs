@@ -749,8 +749,9 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
   }
   const codex = await adapters.runCodexBatchFix({ ...input, exactHead, inventory, findingFingerprints: fingerprints, fingerprintDigest, markerKey });
   if (!codex?.ok) return codex || { ok: false, reasonCode: "existing_pr_batch_fix_codex_failed", reason: "Codex batch fix failed" };
+  const continuedInput = { ...input, sessionLifecycle: codex.sessionLifecycle || input.sessionLifecycle || null };
   const changedFiles = typeof adapters.listChangedFiles === "function"
-    ? normalizeChangedFiles(await adapters.listChangedFiles({ ...input, exactHead, inventory }))
+    ? normalizeChangedFiles(await adapters.listChangedFiles({ ...continuedInput, exactHead, inventory }))
     : normalizeChangedFiles(codex.changedFiles || []);
   if (changedFiles.length === 0) return { ok: false, reasonCode: "existing_pr_batch_fix_left_no_changed_files", reason: "batch fix produced no changed files" };
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, input.laneDecision || {});
@@ -760,7 +761,7 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
   if (typeof adapters.validateAndReview !== "function") {
     return { ok: false, reasonCode: "existing_pr_batch_fix_validation_review_adapter_unconfigured", reason: "exact validation and review adapter is required before push" };
   }
-  const reviewed = await adapters.validateAndReview({ ...input, exactHead, changedFiles, codex, inventory, findingFingerprints: fingerprints, fingerprintDigest });
+  const reviewed = await adapters.validateAndReview({ ...continuedInput, exactHead, changedFiles, codex, inventory, findingFingerprints: fingerprints, fingerprintDigest });
   if (!reviewed?.ok) return reviewed || { ok: false, reasonCode: "existing_pr_batch_fix_validation_review_failed", reason: "validation/review failed" };
   const fixDelta = reviewed.fixDelta || {
     changedFiles,
@@ -773,7 +774,7 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
   if (typeof adapters.commitAndPush !== "function") {
     return { ok: false, reasonCode: "existing_pr_batch_fix_commit_push_adapter_unconfigured", reason: "commit/push adapter is required for a source-changing cycle" };
   }
-  const pushed = await adapters.commitAndPush({ ...input, exactHead, changedFiles: candidateChangedFiles, fixDelta, codex, reviewed, inventory, findingFingerprints: fingerprints, fingerprintDigest, markerKey });
+  const pushed = await adapters.commitAndPush({ ...continuedInput, exactHead, changedFiles: candidateChangedFiles, fixDelta, codex, reviewed, inventory, findingFingerprints: fingerprints, fingerprintDigest, markerKey });
   if (!pushed?.ok || !pushed.newHead || pushed.newHead === exactHead) {
     return pushed?.ok === false
       ? pushed
@@ -797,7 +798,7 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
     pushedAt: pushed.pushedAt || new Date().toISOString(),
   };
   if (typeof adapters.persistMutationMarker === "function") {
-    await adapters.persistMutationMarker({ ...input, markerKey, marker });
+    await adapters.persistMutationMarker({ ...continuedInput, markerKey, marker });
   }
   return {
     ok: true,
