@@ -57,14 +57,15 @@ export function buildLargeCandidateCoverageManifest(input = {}) {
   if (!identity.ok) return freeze({ ok: false, state: "external_review_coverage_incomplete", reasonCode: identity.reasonCode });
   if (changedFiles.length === 0) return freeze({ ok: false, state: "external_review_coverage_incomplete", reasonCode: "coverage_changed_files_missing" });
   const sectionMap = new Map();
-  for (const changedPath of changedFiles) {
-    const domain = classifyPath(changedPath);
-    if (!sectionMap.has(domain)) sectionMap.set(domain, []);
-    sectionMap.get(domain).push(changedPath);
-  }
+  if (input.sectioningRequired === false) sectionMap.set("complete-cumulative-candidate", changedFiles);
+  else for (const changedPath of changedFiles) {
+      const domain = classifyPath(changedPath);
+      if (!sectionMap.has(domain)) sectionMap.set(domain, []);
+      sectionMap.get(domain).push(changedPath);
+    }
   const sections = [...sectionMap].sort(([a], [b]) => a.localeCompare(b)).map(([domain, paths], index) => freeze({ id: `section-${index + 1}-${domain}`, domain, changedPaths: [...paths].sort() }));
   const integrationBoundaries = normalizeFiles(input.integrationBoundaries || []).filter((entry) => !changedFiles.includes(entry)).map((entry) => freeze({ path: entry, reasonCode: "required_unchanged_integration_boundary" }));
-  const manifest = { schemaVersion: 1, candidateIdentity: identity.value, changedFiles, changedFilesDigest: digest(changedFiles), sections, integrationBoundaries, requiresFinalIntegration: sections.length > 1, manifestDigest: null };
+  const manifest = { schemaVersion: 1, candidateIdentity: identity.value, changedFiles, changedFilesDigest: digest(changedFiles), sections, integrationBoundaries, requiresFinalIntegration: input.sectioningRequired !== false && sections.length > 1, manifestDigest: null };
   manifest.manifestDigest = digest({ ...manifest, manifestDigest: null });
   return freeze({ ok: true, state: "external_review_large_bundle_in_progress", manifest });
 }
@@ -97,6 +98,12 @@ export function planLargeCandidateSplit({ classification, changedFiles = [], sli
   const assignedFiles = assignments.map(([changedPath]) => changedPath).sort();
   if (new Set(assignedFiles).size !== assignedFiles.length || digest(assignedFiles) !== digest(files)) return manualSplitBlock(classification, files, "split_file_ownership_ambiguous");
   if (slices.some((slice) => !slice.id || !slice.issueNumber || !slice.taskKey || !slice.allowedPathsProven || !slice.semanticOwnDeltaProven || !Array.isArray(slice.dependsOn))) return manualSplitBlock(classification, files, "split_contract_or_semantic_proof_missing");
+  const ids = slices.map((slice) => slice.id);
+  const taskKeys = slices.map((slice) => slice.taskKey);
+  if (new Set(ids).size !== ids.length || new Set(taskKeys).size !== taskKeys.length) return manualSplitBlock(classification, files, "split_identity_duplicate");
+  const idSet = new Set(ids);
+  if (slices.some((slice) => slice.dependsOn.some((dependency) => dependency === slice.id || !idSet.has(dependency)))) return manualSplitBlock(classification, files, "split_dependency_invalid");
+  if (splitGraphHasCycle(slices)) return manualSplitBlock(classification, files, "split_dependency_cycle");
   return freeze({ ok: true, state: "external_review_split_required", execution: "deterministic_split", planDigest: digest({ files, slices }), slices: slices.map((slice) => ({ id: slice.id, issueNumber: slice.issueNumber, taskKey: slice.taskKey, changedFiles: normalizeFiles(slice.changedFiles), dependsOn: [...slice.dependsOn].sort() })) });
 }
 
@@ -159,7 +166,22 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
 
 export function migrateLargeCandidateRoutingState(input = {}) {
   const routeState = historicalStates.get(input.routeState || input.status) || input.routeState || input.status;
-  return createLargeCandidateRoutingState({ ...input, classification: { state: largeCandidateRoutingStates.includes(routeState) ? routeState : "external_review_coverage_incomplete" }, coverageManifest: input.coverageManifest, splitPlan: input.splitPlan, updatedAt: input.updatedAt });
+  const initial = createLargeCandidateRoutingState({ ...input, classification: { state: largeCandidateRoutingStates.includes(routeState) ? routeState : "external_review_coverage_incomplete" }, coverageManifest: input.coverageManifest, splitPlan: input.splitPlan, updatedAt: input.updatedAt });
+  return freeze({ ...initial, reviewerVerdict: input.reviewerVerdict ?? initial.reviewerVerdict, reviewerResults: Array.isArray(input.reviewerResults) ? input.reviewerResults : initial.reviewerResults, uncoveredScope: input.uncoveredScope ?? initial.uncoveredScope, mutationMarkers: input.mutationMarkers && typeof input.mutationMarkers === "object" ? input.mutationMarkers : initial.mutationMarkers, countersConsumed: input.countersConsumed && typeof input.countersConsumed === "object" ? input.countersConsumed : initial.countersConsumed });
+}
+
+export function certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview } = {}) {
+  const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries, sectioningRequired: false });
+  if (!built.ok) return built;
+  const manifest = built.manifest;
+  const section = manifest.sections[0];
+  const externalPass = externalReview?.status === "pass" && (!externalReview.verdict || externalReview.verdict === "pass");
+  const codexPass = codexReview?.verdict?.verdict === "approve" || codexReview?.verdict === "pass";
+  const results = [
+    { provider: "gemini", candidateIdentity: manifest.candidateIdentity, manifestDigest: manifest.manifestDigest, verdict: externalPass ? "pass" : "blocked", sections: [{ id: section.id, status: externalPass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: externalReview?.findings || [] }], integration: null },
+    { provider: "codex-local", candidateIdentity: manifest.candidateIdentity, manifestDigest: manifest.manifestDigest, verdict: codexPass ? "pass" : "blocked", sections: [{ id: section.id, status: codexPass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: codexReview?.verdict?.findings || codexReview?.findings || [] }], integration: null },
+  ];
+  return { ...validateLargeCandidateReviewEvidence({ manifest, reviewerResults: results }), manifest, reviewerResults: results };
 }
 
 export function validateLargeCandidateRoutingState(state = {}) {
@@ -183,6 +205,7 @@ export function largeCandidateStateIsReviewPass(state) { return Boolean(state?.r
 function blocked(reasonCode) { return freeze({ ok: false, state: "external_review_coverage_incomplete", verdict: "blocked", reasonCode }); }
 function manualSplitBlock(classification, files, reasonCode) { return freeze({ ok: false, state: "external_review_split_required", execution: "manual_scope_decision_required", reasonCode, conflictingDomains: classification?.domains || [], conflictingFiles: files, minimumDecision: "Provide exact issue/task ownership and semantics-preserving file/dependency boundaries." }); }
 function incompatibleDomainPairs(domains) { const pairs = [["auth-security", "money-settlement"], ["storage-privacy", "deployment-ci"], ["schema-migration", "product-ui"], ["openapi-generated", "product-ui"], ["deployment-ci", "product-ui"]]; return pairs.filter(([a, b]) => domains.includes(a) && domains.includes(b)).map(([a, b]) => `${a}+${b}`); }
+function splitGraphHasCycle(slices) { const graph = new Map(slices.map((slice) => [slice.id, slice.dependsOn])); const visiting = new Set(); const visited = new Set(); const visit = (id) => { if (visiting.has(id)) return true; if (visited.has(id)) return false; visiting.add(id); if ((graph.get(id) || []).some(visit)) return true; visiting.delete(id); visited.add(id); return false; }; return slices.some((slice) => visit(slice.id)); }
 function classifyPath(changedPath) { for (const [domain, pattern] of domainRules) if (pattern.test(changedPath)) return domain; return "product-runtime"; }
 function normalizeFiles(files) { return [...new Set((Array.isArray(files) ? files : []).filter((entry) => typeof entry === "string" && entry && !entry.startsWith("/") && !entry.includes("..") && entry.length <= 400).map((entry) => entry.replaceAll("\\", "/")))].sort(); }
 function normalizeCandidateIdentity(identity = {}) { const value = { repository: bounded(identity.repository), baseSha: sha(identity.baseSha), headSha: sha(identity.headSha), treeSha: sha(identity.treeSha), diffDigest: hash(identity.diffDigest), changedFilesDigest: hash(identity.changedFilesDigest) }; return Object.values(value).every(Boolean) ? { ok: true, value } : { ok: false, reasonCode: "candidate_identity_incomplete", value: null }; }

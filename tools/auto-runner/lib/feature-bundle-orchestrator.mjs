@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
@@ -34,6 +34,7 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
+import { certifyCompleteCumulativeLargeReview } from "./large-candidate-review-routing.mjs";
 import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
@@ -343,6 +344,10 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     return stopForBundleReviewMutation({ config, result, state, recovery, guard: codexReviewMutationGuard, phase: "bundle_codex_review" });
   }
   result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard);
+  result.largeCandidateReview = certifyLargeBundleCumulativeReview({ config, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review });
+  if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
+    return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
+  }
   recovery?.evidence("externalReview", {
     status: result.externalReview.status === "pass" ? "passed" : "blocked",
     headSha: result.externalReview.reviewedHead || finalHead,
@@ -892,9 +897,27 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
+    largeCandidateReview: certifyLargeBundleCumulativeReview({ config, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review }),
     sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
   };
+}
+
+function certifyLargeBundleCumulativeReview({ config, reviewPackage, changedFiles, headSha, baseSha, externalReview, codexReview }) {
+  return certifyCompleteCumulativeLargeReview({
+    candidateIdentity: {
+      repository: config.repositorySlug || "tommytang213/Settleora",
+      baseSha,
+      headSha,
+      treeSha: config.dryRun ? headSha : getRefSha("HEAD^{tree}"),
+      diffDigest: createHash("sha256").update(String(reviewPackage?.diff || "")).digest("hex"),
+      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+    },
+    changedFiles,
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"],
+    externalReview,
+    codexReview,
+  });
 }
 
 function markBundleReviewConvergenceRequired(state, { exactHead, outcome, reason, message, source }) {

@@ -51,6 +51,7 @@ import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
+import { certifyCompleteCumulativeLargeReview } from "./lib/large-candidate-review-routing.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -1054,6 +1055,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
+  }
+  iteration.largeCandidateReview = certifyNormalCumulativeLargeReview(config, iteration, changedFiles);
+  if (iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !iteration.largeCandidateReview.ok) {
+    iteration.outcome = "auto_failed";
+    iteration.externalReview = { ...iteration.externalReview, status: "blocked", reason: iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete" };
+    recoveryRecorder?.stop(iteration.externalReview.reason, "Complete cumulative large-candidate dual review evidence was not established.", "rerun_complete_dual_review");
+    iteration.finishedAt = new Date().toISOString();
+    return iteration;
   }
   recoveryRecorder?.evidence("codexReview", {
     status: iteration.review.verdict?.verdict === "approve" ? "passed" : "blocked",
@@ -2919,6 +2928,26 @@ async function runIntegratedReviewSource(config, reviewPackage, phase) {
     });
   }
   return runGeminiIntegratedReview(config, reviewPackage);
+}
+
+function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
+  const reviewPackage = iteration.reviewPackage || {};
+  const headSha = iteration.runnerCreatedCommitSha || reviewPackage.summary?.currentHead || (config.dryRun ? null : getRefSha("HEAD"));
+  const baseSha = iteration.baseOriginMainSha || reviewPackage.summary?.baseSha || (config.dryRun ? null : getRefSha("origin/main"));
+  return certifyCompleteCumulativeLargeReview({
+    candidateIdentity: {
+      repository: config.repositorySlug || "tommytang213/Settleora",
+      baseSha,
+      headSha,
+      treeSha: config.dryRun ? headSha : getRefSha("HEAD^{tree}"),
+      diffDigest: createHash("sha256").update(String(reviewPackage.diff || "")).digest("hex"),
+      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+    },
+    changedFiles,
+    integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    externalReview: iteration.externalReview,
+    codexReview: iteration.review,
+  });
 }
 
 function prSummary(iteration) {

@@ -179,6 +179,25 @@ test("routing state persists atomically and reloads for recovery", () => {
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
+test("current-version migration preserves completed calls markers and counters", () => {
+  const original = { ...createLargeCandidateRoutingState({ candidateIdentity }), routeState: "external_review_large_bundle_in_progress", reviewerResults: [{ provider: "gemini", status: "pass" }], mutationMarkers: { split: "complete" }, countersConsumed: { logicalTasks: 0, localSourceRounds: 0, githubEpochs: 0 } };
+  const migrated = migrateLargeCandidateRoutingState(original);
+  assert.deepEqual(migrated.reviewerResults, original.reviewerResults);
+  assert.deepEqual(migrated.mutationMarkers, original.mutationMarkers);
+});
+
+test("split plans reject unknown self cyclic and duplicate dependencies", () => {
+  const changedFiles = ["services/api/auth/a.mjs", "services/api/money/b.mjs"];
+  const classification = classifyLargeCandidate({ changedFiles, stats: { additions: 2200 } });
+  const base = [
+    { id: "a", issueNumber: 1, taskKey: "20260721-0001", changedFiles: [changedFiles[0]], allowedPathsProven: true, semanticOwnDeltaProven: true, dependsOn: ["b"] },
+    { id: "b", issueNumber: 2, taskKey: "20260721-0002", changedFiles: [changedFiles[1]], allowedPathsProven: true, semanticOwnDeltaProven: true, dependsOn: ["a"] },
+  ];
+  assert.equal(planLargeCandidateSplit({ classification, changedFiles, slices: base }).reasonCode, "split_dependency_cycle");
+  assert.equal(planLargeCandidateSplit({ classification, changedFiles, slices: [{ ...base[0], dependsOn: ["a"] }, { ...base[1], dependsOn: [] }] }).reasonCode, "split_dependency_invalid");
+  assert.equal(planLargeCandidateSplit({ classification, changedFiles, slices: [{ ...base[0], dependsOn: ["missing"] }, { ...base[1], dependsOn: [] }] }).reasonCode, "split_dependency_invalid");
+});
+
 test("restart during structured review resumes without duplicate provider calls", async () => {
   const { manifest } = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs", "services/api/runtime.mjs"] });
   const completeGemini = reviewFixture(manifest, "gemini");
