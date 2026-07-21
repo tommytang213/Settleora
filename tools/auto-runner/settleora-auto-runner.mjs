@@ -2944,6 +2944,13 @@ async function runIntegratedReviewSource(config, reviewPackage, phase) {
 
 async function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
   const reviewPackage = iteration.reviewPackage || {};
+  let structuredLifecycle = iteration.review?.sessionLifecycle || iteration.sessionLifecycle || null;
+  const invoke = async (provider, structuredReview) => {
+    const result = await runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, structuredLifecycle);
+    if (result.nextSessionLifecycle) structuredLifecycle = result.nextSessionLifecycle;
+    const { nextSessionLifecycle, ...evidence } = result;
+    return evidence;
+  };
   const headSha = iteration.runnerCreatedCommitSha || reviewPackage.summary?.currentHead || (config.dryRun ? null : getRefSha("HEAD"));
   const baseSha = iteration.baseOriginMainSha || reviewPackage.summary?.baseSha || (config.dryRun ? null : getRefSha("origin/main"));
   return persistCumulativeLargeCandidateReview({
@@ -2961,8 +2968,8 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
     integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     externalReview: iteration.externalReview,
     codexReview: iteration.review,
-    invokeSection: ({ provider, section, manifest }) => runNormalStructuredReviewCall(config, reviewPackage, provider, { phase: "section", section, manifest }, iteration.sessionLifecycle),
-    invokeIntegration: ({ provider, manifest, sections }) => runNormalStructuredReviewCall(config, reviewPackage, provider, { phase: "integration", manifest, sections }, iteration.sessionLifecycle),
+    invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
+    invokeIntegration: ({ provider, manifest, sections }) => invoke(provider, { phase: "integration", manifest, sections }),
   });
 }
 
@@ -2971,7 +2978,7 @@ async function runNormalStructuredReviewCall(config, reviewPackage, provider, st
   const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, nextSessionLifecycle: evidence?.sessionLifecycle || null };
 }
 
 function persistNormalLargeCandidateSplit(config, iteration, changedFiles) {

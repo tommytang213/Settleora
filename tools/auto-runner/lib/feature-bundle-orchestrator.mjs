@@ -349,7 +349,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
   result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard);
   result.largeCandidateReview = result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
-    ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review })
+    ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review, sessionLifecycle })
     : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
   if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
     return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
@@ -904,14 +904,16 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     externalReview,
     review,
     largeCandidateReview: externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
-      ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review })
+      ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review, sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle })
       : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" },
     sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
   };
 }
 
-async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha, baseSha, externalReview, codexReview }) {
+async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha, baseSha, externalReview, codexReview, sessionLifecycle = null }) {
+  let structuredLifecycle = codexReview?.sessionLifecycle || sessionLifecycle;
+  const invoke = (provider, structuredReview) => runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, structuredLifecycle, (next) => { structuredLifecycle = next; });
   return persistCumulativeLargeCandidateReview({
     config,
     taskKey: config.taskKey || `issue-${issue?.number || "unknown"}`,
@@ -927,14 +929,15 @@ async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage
     integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     externalReview,
     codexReview,
-    invokeSection: ({ provider, section, manifest }) => runBundleStructuredReviewCall(config, reviewPackage, provider, { phase: "section", section, manifest }),
-    invokeIntegration: ({ provider, manifest, sections }) => runBundleStructuredReviewCall(config, reviewPackage, provider, { phase: "integration", manifest, sections }),
+    invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
+    invokeIntegration: ({ provider, manifest, sections }) => invoke(provider, { phase: "integration", manifest, sections }),
   });
 }
 
-async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview) {
+async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle = null, onLifecycle = null) {
   const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], sections: (structuredReview.sections || []).map((entry) => ({ id: entry.id, status: entry.status, findingCount: (entry.findings || []).length })), coverageSections: structuredReview.manifest.sections.map((entry) => ({ id: entry.id, changedPaths: entry.changedPaths })), manifestDigest: structuredReview.manifest.manifestDigest } } };
-  const evidence = provider === "gemini" ? await runGeminiIntegratedReview(config, scopedPackage) : runReviewPrompt(config, scopedPackage);
+  const evidence = provider === "gemini" ? await runGeminiIntegratedReview(config, scopedPackage) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
+  if (evidence?.sessionLifecycle && onLifecycle) onLifecycle(evidence.sessionLifecycle);
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
   return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
