@@ -6976,6 +6976,9 @@ test("existing-PR recovery creates lifecycle authority before merge execution", 
   assert.ok(lifecycleIndex >= 0 && mergeIndex > lifecycleIndex);
   assert.match(recovery, /if \(sessionLifecycle\) issue\.sessionLifecycle = sessionLifecycle/);
   assert.match(recovery, /sessionLifecycle,/);
+  const iteration = source.slice(source.indexOf("const recovery = await recoverExistingPrIfConfigured"), source.indexOf("const slug = slugify"));
+  assert.match(iteration, /recoveryTerminalEffectConfirmed/);
+  assert.match(iteration, /transitionSessionLifecyclePhase\(config, recoveryLifecycle/);
 });
 
 test("feature-bundle results propagate lifecycle authority to terminal issue effects", () => {

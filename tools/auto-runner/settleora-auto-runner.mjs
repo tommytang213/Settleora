@@ -662,6 +662,17 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         `Auto-runner existing-PR recovery did not auto-merge #${issue.number}.\n\nPR: ${recovery.pr?.url || recovery.pr?.number || "unavailable"}\nReason: ${recovery.autoMerge?.reason || recovery.reason}`,
       );
     }
+    const recoveryLifecycle = recovery.sessionLifecycle || issue.sessionLifecycle;
+    const recoveryTerminalEffectConfirmed = iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0;
+    if (recoveryLifecycle && recoveryTerminalEffectConfirmed) {
+      const terminal = transitionSessionLifecyclePhase(config, recoveryLifecycle, {
+        phase: iteration.outcome === "auto_merged" ? "completed" : "stopped",
+        nextExactAction: iteration.outcome === "auto_merged" ? "existing_pr_recovery_complete" : "existing_pr_recovery_stopped",
+      });
+      if (!terminal.ok) throw new Error(terminal.reasonCode);
+      iteration.sessionLifecycle = terminal.state;
+      issue.sessionLifecycle = terminal.state;
+    }
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
