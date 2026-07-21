@@ -499,8 +499,8 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
 }
 
 function routeBundleStructuredFindingsToConvergence(result) {
-  const gemini = structuredLargeCandidateFindings(result.largeCandidateReview, "gemini");
-  const codex = structuredLargeCandidateFindings(result.largeCandidateReview, "codex-local");
+  const gemini = structuredLargeCandidateFindings(result.largeCandidateReview, "gemini").map(bundleConvergenceFinding);
+  const codex = structuredLargeCandidateFindings(result.largeCandidateReview, "codex-local").map(bundleConvergenceFinding);
   if (gemini.length + codex.length === 0) return false;
   if (gemini.length > 0) result.externalReview = {
     ...result.externalReview,
@@ -519,6 +519,10 @@ function routeBundleStructuredFindingsToConvergence(result) {
     },
   };
   return true;
+}
+
+function bundleConvergenceFinding(finding) {
+  return { severity: finding.severity, path: finding.path, message: finding.summary };
 }
 
 export async function runBundleReviewConvergence(config, input, deps = {}) {

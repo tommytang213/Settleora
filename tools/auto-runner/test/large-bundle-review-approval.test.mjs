@@ -165,11 +165,13 @@ test("blocked structured findings remain available for production convergence ro
 });
 
 test("structured reviewer adapters satisfy the existing convergence trigger contract", () => {
-  const finding = { severity: "high", path: "tools/auto-runner/a.mjs", summary: "repair routing" };
+  const finding = { severity: "high", path: "tools/auto-runner/a.mjs", message: "repair routing" };
   const gemini = extractReviewFixTrigger({ externalReview: { status: "blocked", reason: "blocked_external_reviewer_non_pass", sanitizedResponseSummary: { verdict: "fail", findings: [finding] } } });
   const codex = extractReviewFixTrigger({ review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: [finding] } } });
   assert.equal(gemini.actionable, true);
   assert.equal(codex.actionable, true);
+  assert.equal(gemini.findings[0].message, "repair routing");
+  assert.equal(codex.findings[0].message, "repair routing");
 });
 
 test("source identity change invalidates all evidence", () => {

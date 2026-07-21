@@ -3022,8 +3022,8 @@ async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, chan
 }
 
 function routeNormalStructuredFindingsToConvergence(iteration) {
-  const gemini = structuredLargeCandidateFindings(iteration.largeCandidateReview, "gemini");
-  const codex = structuredLargeCandidateFindings(iteration.largeCandidateReview, "codex-local");
+  const gemini = structuredLargeCandidateFindings(iteration.largeCandidateReview, "gemini").map(convergenceFinding);
+  const codex = structuredLargeCandidateFindings(iteration.largeCandidateReview, "codex-local").map(convergenceFinding);
   if (gemini.length + codex.length === 0) return false;
   if (gemini.length > 0) iteration.externalReview = {
     ...iteration.externalReview,
@@ -3042,6 +3042,10 @@ function routeNormalStructuredFindingsToConvergence(iteration) {
     },
   };
   return true;
+}
+
+function convergenceFinding(finding) {
+  return { severity: finding.severity, path: finding.path, message: finding.summary };
 }
 
 async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {
