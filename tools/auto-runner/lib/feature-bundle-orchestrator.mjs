@@ -351,6 +351,10 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   result.largeCandidateReview = result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
     ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review, sessionLifecycle })
     : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
+  if (result.largeCandidateReview.sessionLifecycle) {
+    sessionLifecycle = result.largeCandidateReview.sessionLifecycle;
+    result.sessionLifecycle = sessionLifecycle;
+  }
   if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
     return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
   }
@@ -801,6 +805,9 @@ async function runBundleReviewFixCycle(config, context) {
   if (!validationAfter.passed) {
     return { attempted: true, proceeded: false, reason: "review_fix_validation_failed", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter };
   }
+  const largeCandidateReview = externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
+    ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review, sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle })
+    : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
   return {
     attempted: true,
     proceeded: true,
@@ -903,10 +910,8 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
-    largeCandidateReview: externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
-      ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review, sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle })
-      : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" },
-    sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
+    largeCandidateReview,
+    sessionLifecycle: largeCandidateReview.sessionLifecycle || review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
   };
 }
@@ -914,7 +919,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
 async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha, baseSha, externalReview, codexReview, sessionLifecycle = null }) {
   let structuredLifecycle = codexReview?.sessionLifecycle || sessionLifecycle;
   const invoke = (provider, structuredReview) => runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, structuredLifecycle, (next) => { structuredLifecycle = next; });
-  return persistCumulativeLargeCandidateReview({
+  const certification = await persistCumulativeLargeCandidateReview({
     config,
     taskKey: config.taskKey || `issue-${issue?.number || "unknown"}`,
     candidateIdentity: {
@@ -932,6 +937,7 @@ async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage
     invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
     invokeIntegration: ({ provider, manifest, sections }) => invoke(provider, { phase: "integration", manifest, sections }),
   });
+  return { ...certification, sessionLifecycle: structuredLifecycle };
 }
 
 async function runBundleStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle = null, onLifecycle = null) {

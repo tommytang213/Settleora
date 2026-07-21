@@ -1066,6 +1066,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   iteration.largeCandidateReview = iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
     ? await certifyNormalCumulativeLargeReview(config, iteration, changedFiles)
     : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
+  if (iteration.largeCandidateReview.sessionLifecycle) {
+    iteration.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
+    issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
+  }
   if (iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !iteration.largeCandidateReview.ok) {
     iteration.outcome = "auto_failed";
     iteration.externalReview = { ...iteration.externalReview, status: "blocked", reason: iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete" };
@@ -2953,7 +2957,7 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
   };
   const headSha = iteration.runnerCreatedCommitSha || reviewPackage.summary?.currentHead || (config.dryRun ? null : getRefSha("HEAD"));
   const baseSha = iteration.baseOriginMainSha || reviewPackage.summary?.baseSha || (config.dryRun ? null : getRefSha("origin/main"));
-  return persistCumulativeLargeCandidateReview({
+  const certification = await persistCumulativeLargeCandidateReview({
     config,
     taskKey: config.taskKey || `issue-${iteration.issue?.number || "unknown"}`,
     candidateIdentity: {
@@ -2971,6 +2975,7 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
     invokeSection: ({ provider, section, manifest }) => invoke(provider, { phase: "section", section, manifest }),
     invokeIntegration: ({ provider, manifest, sections }) => invoke(provider, { phase: "integration", manifest, sections }),
   });
+  return { ...certification, sessionLifecycle: structuredLifecycle };
 }
 
 async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {
