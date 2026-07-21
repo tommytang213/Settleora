@@ -78,7 +78,8 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
   } finally {
     closeSync(fd);
   }
-  if (sessionLifecycle?.state) {
+  const invocationSucceeded = result.status === 0 && !result.signal && !result.error;
+  if (sessionLifecycle?.state && invocationSucceeded) {
     const controllerReturn = prepareFreshSessionInvocation(config, {
       state: sessionLifecycle.state,
       newSessionId: `controller-successor:${randomUUID()}`,
