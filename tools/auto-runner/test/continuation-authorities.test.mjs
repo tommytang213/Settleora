@@ -36,6 +36,13 @@ test("ordinary continuation adopts exact effects and waits at real pending state
   assert.equal(second.state.counters.acceptedLogicalTasks, 1);
 });
 
+test("ordinary continuation requires authoritative adoption for stored external mutations", async () => {
+  const state = createOrdinaryContinuationState({ logicalTaskKey: "root", issueNumber: 924, branchName: "feature/test", identity: identity(), phase: "push" });
+  const primed = await continueOrdinaryCandidate(state, { push: async () => ({ ok: true, wait: true }) });
+  const blocked = await continueOrdinaryCandidate({ ...primed.state, phase: "push" }, {});
+  assert.match(blocked.reasonCode, /live_adoption_missing/);
+});
+
 test("ordinary source change invalidates review and mutation effects", async () => {
   let changed = false;
   const handlers = Object.fromEntries(ordinaryContinuationPhases.map((phase) => [phase, async () => {

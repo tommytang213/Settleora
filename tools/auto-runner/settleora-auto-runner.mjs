@@ -1794,12 +1794,14 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const changedFiles = initial.identity.changedFiles;
       context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: identity.baseSha, diffHeadRef: identity.headSha });
       context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
-      return context.externalReview.status === "pass" ? { ok: true, evidence: { status: "passed", evidencePath: context.externalReview.reportPath } } : { ok: false, outcome: "review_convergence_required", reasonCode: context.externalReview.reason || "ordinary_continuation_external_review_non_pass" };
+      const manual = recoveredReviewerManualVerdict(context.externalReview);
+      return context.externalReview.status === "pass" ? { ok: true, evidence: { status: "passed", evidencePath: context.externalReview.reportPath } } : { ok: false, outcome: manual || "review_convergence_required", reasonCode: context.externalReview.reason || `ordinary_continuation_external_review_${manual || "non_pass"}` };
     },
     codex_review: async () => {
       context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: initial.identity.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: identity.baseSha, diffHeadRef: identity.headSha });
       context.review = runReviewPrompt(config, context.reviewPackage);
-      return context.review?.verdict?.verdict === "approve" ? { ok: true, evidence: { status: "passed", evidencePath: context.review.logPath } } : { ok: false, outcome: "review_convergence_required", reasonCode: context.review?.reviewFailureReason || "ordinary_continuation_codex_review_non_pass" };
+      const manual = recoveredReviewerManualVerdict(context.review);
+      return context.review?.verdict?.verdict === "approve" ? { ok: true, evidence: { status: "passed", evidencePath: context.review.logPath } } : { ok: false, outcome: manual || "review_convergence_required", reasonCode: context.review?.reviewFailureReason || `ordinary_continuation_codex_review_${manual || "non_pass"}` };
     },
     structured_review: async () => {
       if (context.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") return { ok: true, evidence: { route: "normal" } };
@@ -1819,6 +1821,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     github_convergence: async () => ({ ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { pr: context.pr?.url } }),
     merge: async () => ({ ok: false, reasonCode: "ordinary_continuation_merge_requires_fresh_github_state" }),
     post_merge_hygiene: async () => ({ ok: false, reasonCode: "ordinary_continuation_post_merge_not_reached" }),
+    adoptEffect: async () => ({ ok: false, reasonCode: "ordinary_continuation_live_effect_requires_canonical_reconciliation" }),
     onCheckpoint: persist,
   });
   logger.info(`Issue #${issue.number}: ordinary continuation advanced to ${result.state?.phase || result.outcome}.`);
@@ -1841,8 +1844,14 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
   };
   const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });
   const loaded = loadLargeCandidateRoutingState(config, seed);
+  if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true };
   if (!loaded.ok) return loaded;
   return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults };
+}
+
+function recoveredReviewerManualVerdict(evidence) {
+  const verdict = evidence?.verdict?.verdict || evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict || null;
+  return verdict === "danger_gate" ? "danger_gate" : verdict === "needs_tommy" ? "blocked_needs_tommy" : null;
 }
 
 function validateRecoveryOnlyStartupEvidence(config, state) {

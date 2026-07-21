@@ -13,6 +13,7 @@ export const ordinaryContinuationPhases = Object.freeze([
   "merge",
   "post_merge_hygiene",
 ]);
+const externallyMutatingPhases = new Set(["push", "pr_create_or_update", "merge", "post_merge_hygiene"]);
 
 export async function continueOrdinaryCandidate(input, handlers = {}) {
   let state = normalizeState(input);
@@ -24,6 +25,11 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
     const adopted = state.effects[phase];
     if (adopted) {
       if (adopted.targetDigest !== target) return blocked(state, `ordinary_continuation_effect_conflict:${phase}`);
+      if (externallyMutatingPhases.has(phase)) {
+        if (typeof handlers.adoptEffect !== "function") return blocked(state, `ordinary_continuation_live_adoption_missing:${phase}`);
+        const live = await handlers.adoptEffect(phase, Object.freeze({ ...state }), adopted);
+        if (!live?.ok || live.targetDigest !== target) return blocked(state, live?.reasonCode || `ordinary_continuation_live_adoption_failed:${phase}`);
+      }
       state = advance(state, index);
       await handlers.onCheckpoint?.(state, { phase, action: "adopted" });
       continue;

@@ -60,8 +60,13 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
   const cwd = config.repoRoot;
   return {
     readBranch: async (branchName) => {
-      const result = git(cwd, ["show-ref", "--verify", "--hash", `refs/heads/${branchName}`]);
-      return { exists: result.status === 0, headSha: result.status === 0 ? result.stdout.trim() : null };
+      const local = git(cwd, ["show-ref", "--verify", "--hash", `refs/heads/${branchName}`]);
+      if (local.status === 0) return { exists: true, headSha: local.stdout.trim(), source: "local" };
+      const remote = git(cwd, ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`]);
+      const remoteHead = remote.status === 0 && remote.stdout.trim() ? remote.stdout.trim().split(/\s+/)[0] : null;
+      if (!remoteHead) return { exists: false, headSha: null };
+      const fetched = git(cwd, ["fetch", "origin", `refs/heads/${branchName}`]);
+      return fetched.status === 0 ? { exists: true, headSha: remoteHead, source: "remote" } : { exists: true, headSha: remoteHead, unavailable: true };
     },
     materializeBranch: async (expected) => {
       const temporary = mkdtempSync(path.join(tmpdir(), "settleora-split-"));
