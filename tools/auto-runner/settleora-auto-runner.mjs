@@ -1818,14 +1818,63 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       context.pr = await openOrUpdatePr(config, issue, state.branch.name, `Recovered exact-head continuation for ${identity.headSha}.`, { effectContext: state.sessionLifecycle });
       return context.pr?.url ? { ok: true, evidence: { url: context.pr.url, number: context.pr.number } } : { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
     },
-    github_convergence: async () => ({ ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { pr: context.pr?.url } }),
-    merge: async () => ({ ok: false, reasonCode: "ordinary_continuation_merge_requires_fresh_github_state" }),
-    post_merge_hygiene: async () => ({ ok: false, reasonCode: "ordinary_continuation_post_merge_not_reached" }),
-    adoptEffect: async () => ({ ok: false, reasonCode: "ordinary_continuation_live_effect_requires_canonical_reconciliation" }),
+    github_convergence: async () => {
+      const prEvidence = context.pr || initial.effects?.pr_create_or_update?.evidence || {};
+      const prNumber = prEvidence.number || Number(String(prEvidence.url || "").split("/").at(-1));
+      if (!Number.isInteger(prNumber)) return { ok: false, reasonCode: "ordinary_continuation_pr_identity_missing" };
+      const recoveryConfig = {
+        ...config,
+        allowExistingPrRecovery: true,
+        existingPrRecovery: {
+          ...(config.existingPrRecovery || {}),
+          [issue.number]: {
+            prNumber,
+            branchName: state.branch.name,
+            expectedHeadSha: identity.headSha,
+            expectedOriginMainSha: identity.baseSha,
+            expectedRepository: config.repositorySlug,
+            checkoutReconstructable: true,
+            allowStateRebuildFromEvidence: true,
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: identity.headSha, baseSha: identity.baseSha, changedFiles: initial.identity.changedFiles, recoveryStateRebuildable: true },
+          },
+        },
+      };
+      const recovered = await recoverExistingPrIfConfigured(recoveryConfig, logger, issue, laneDecision, state, { runId: state.run?.runId || config.runnerRunId });
+      if (recovered?.autoMerge?.result === "merged") return { ok: true, evidence: { mergeSha: recovered.autoMerge.mergeSha, prNumber } };
+      if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
+      return { ok: false, reasonCode: recovered?.autoMerge?.reason || recovered?.reason || "ordinary_continuation_github_convergence_blocked" };
+    },
+    merge: async () => ({ ok: true, evidence: { adoptedFromGithubConvergence: true } }),
+    post_merge_hygiene: async () => ({ ok: true, evidence: { continuation: "existing_completion_hygiene_authority" } }),
+    adoptEffect: async (phase, continuation, adopted) => adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted),
     onCheckpoint: persist,
   });
   logger.info(`Issue #${issue.number}: ordinary continuation advanced to ${result.state?.phase || result.outcome}.`);
   return { ...result, ordinaryContinuation: result.state, largeCandidateReviewRecovery: checkpoint, state };
+}
+
+function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted) {
+  const targetDigest = adopted.targetDigest;
+  if (phase === "push") {
+    const live = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${continuation.branchName}`], { cwd: config.repoRoot, encoding: "utf8" });
+    const head = live.status === 0 && live.stdout.trim() ? live.stdout.trim().split(/\s+/)[0] : null;
+    return head === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_push_live_mismatch" };
+  }
+  if (phase === "pr_create_or_update") {
+    const live = spawnSync("gh", ["pr", "list", "--head", continuation.branchName, "--state", "open", "--json", "number,baseRefName,headRefOid"], { cwd: config.repoRoot, encoding: "utf8" });
+    let prs = []; try { prs = JSON.parse(live.stdout || "[]"); } catch { return { ok: false, reasonCode: "ordinary_continuation_pr_live_unavailable" }; }
+    return live.status === 0 && prs.length === 1 && prs[0].baseRefName === "main" && prs[0].headRefOid === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_pr_live_mismatch" };
+  }
+  if (phase === "merge") {
+    fetchOriginMain(config);
+    const proof = spawnSync("git", ["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot, encoding: "utf8" });
+    return proof.status === 0 ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_merge_live_mismatch" };
+  }
+  if (phase === "post_merge_hygiene") {
+    const live = readIssueLive(config, issue.number);
+    return live.ok && live.issue?.state === "CLOSED" ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_hygiene_live_mismatch" };
+  }
+  return { ok: false, reasonCode: `ordinary_continuation_live_adoption_unsupported:${phase}` };
 }
 
 function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {

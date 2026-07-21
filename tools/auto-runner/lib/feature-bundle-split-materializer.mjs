@@ -19,7 +19,7 @@ export async function materializeFeatureBundleSplit(input, adapter) {
     let branch = liveBranch?.exists
       ? { ...prior, ...liveBranch, ok: true, adopted: true }
       : prior?.headSha
-        ? { ...prior, ok: true, adopted: true }
+        ? { ...prior, ok: true, adopted: true, pushed: false }
         : await adapter.materializeBranch(expected);
     if (!branch?.ok || !branch.headSha || !branch.treeSha) return fail(branch?.reasonCode || "split_materialization_branch_failed", { sliceId: slice.id });
     const verified = await adapter.verifyOwnDelta({ ...expected, ...branch });
