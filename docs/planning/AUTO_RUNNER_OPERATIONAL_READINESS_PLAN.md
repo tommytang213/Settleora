@@ -3,12 +3,12 @@
 Status: implementation acceptance advanced; production profile not activated.
 
 Acceptance-chain reconciliation snapshot: `origin/main` at
-`510942d40d2d512094b9af430ccc40f65a505d0c` after PR #938. The foundation
+`2dec97fe5e2ddf1d3562b70a76825cfdc8ba81b2` after PR #940. The foundation
 issues #800, #889, and #894 remain closed. #913 and #921 are closed under their
 narrow close rules. PR #917 is closed without merge as fully superseded, with
 its source branch retained. #911 completed through PR #915, #902 through PR
-#916, #923/#932 through PR #936, and #928/#929 through PR #938. Follow-ups #924
-and #927 remain open. #910 remains the readiness umbrella and #912 remains the
+#916, #923/#932 through PR #936, #928/#929 through PR #938, and #924 through
+PR #940. Follow-up #927 remains open. #910 remains the readiness umbrella and #912 remains the
 separate manual production activation gate.
 
 This plan records the remaining operational activation work. It does not change
@@ -300,15 +300,14 @@ paths are added.
 The original planning PR and the #913/#921 implementation acceptance chain are
 complete. Current live issues now own the remaining work:
 
-1. Implement #924's large-candidate escalation/split routing against the
-   merged #923/#932 candidate, counter, and logical-task authorities.
-2. Implement #927 authoritative state/counter projection against the merged
+1. Implement #927 authoritative state/counter projection against the merged
    #928 interruption-recovery and #929 proactive-session-rotation interfaces,
+   plus #924's ordinary-continuation and split-materialization evidence,
    without creating a parallel state or controller authority.
-3. Activate the external production profile only through #912's separate
+2. Activate the external production profile only through #912's separate
    manual live-configuration acceptance after all required implementation and
    non-production acceptance gates pass.
-4. Run live canaries only in a separate canary task; do not use #865/#866 unless
+3. Run live canaries only in a separate canary task; do not use #865/#866 unless
    the task explicitly authorizes mutation and fingerprints are checked before
    and after.
 
@@ -326,7 +325,8 @@ Post-acceptance issues added after the original planning task:
 
 - #923: local/GitHub dual-review convergence and nested counters; closed
   through PR #936, merge `58a0164f15a77b3d5338a1c00eb4892693e70970`.
-- #924: large-candidate escalation and safe split routing.
+- #924: large-candidate escalation and safe split routing; closed through PR
+  #940, merge `2dec97fe5e2ddf1d3562b70a76825cfdc8ba81b2`.
 - #927: authoritative status/counter projection and ledger decoupling.
 - #928: reportless compaction/process-interruption recovery; closed through PR
   #938, merge `510942d40d2d512094b9af430ccc40f65a505d0c`.

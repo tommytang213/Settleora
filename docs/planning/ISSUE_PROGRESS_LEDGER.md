@@ -1,5 +1,28 @@
 # Issue Progress Ledger
 
+### Issue #924 and PR #940 — merged completion (2026-07-21)
+
+- PR #940 merged normally at exact reviewed source head
+  `1b7799265508b0613d42c350ac535e55895fadc0` as merge commit/current main
+  `2dec97fe5e2ddf1d3562b70a76825cfdc8ba81b2`; the retained source branch
+  remains at the reviewed head.
+- The merge supplies the shared ordinary post-implementation/startup-recovery
+  continuation authority and deterministic feature-bundle split
+  materialization with existing PR-stack handoff. Review-fix commits persist
+  replacement identity before fallible recertification, and continuations or
+  split PRs do not consume additional accepted logical-task charges.
+- Exact-head evidence: runner `1048/1048`, secret boundary `31/31`, docs,
+  scaffold, doctor, syntax, and diff checks passed; Semgrep 1.167.0 reported
+  zero findings across 568 rules and 1,572 targets; fresh Gemini and local
+  Codex passed; all GitHub checks/scanners passed; GitHub Codex reviewed the
+  exact head; unresolved threads and open code-scanning alerts were zero.
+- Current-main acceptance passed `203/203` across normal, coherent-large,
+  deterministic mixed split/block, and provider/context-limit routing,
+  including review-phase startup recovery and split-to-stack handoff.
+- #924 is closed under its four-path close rule. #910 and #927 remain open;
+  the next implementation is #927, followed by #912's untouched manual
+  production-activation gate.
+
 ### Issues #928/#929 and PR #938 — merged completion (2026-07-21)
 
 - PR #938 merged normally at exact reviewed source head
