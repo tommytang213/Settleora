@@ -32,19 +32,20 @@ export function classifyLargeCandidate(input = {}) {
   const domains = [...new Set(changedFiles.map(classifyPath))].sort();
   const totalChangedLines = finiteCount(input.stats?.additions) + finiteCount(input.stats?.deletions);
   const largeBySize = changedFiles.length >= 40 || totalChangedLines >= 2000;
+  const largeCandidate = largeBySize || changedFiles.length >= 15 || totalChangedLines >= 800;
   const explicitManual = Boolean(input.laneDecision?.manualActionRequired || input.laneDecision?.manualDecisionRequired || input.laneDecision?.genuineManualDecisionRequired || input.laneDecision?.dangerGate || input.laneDecision?.stopLabelPresent);
   const incompatible = incompatibleDomainPairs(domains);
   const laneSplit = Boolean(input.laneDecision?.splitRequired || input.laneDecision?.branchStrategy === "split-required");
   const unrelatedIssues = Array.isArray(input.issueNumbers) && new Set(input.issueNumbers).size > 1 && !input.featureBundle?.architectureConsistent;
   const architectureProof = Boolean(input.featureBundle?.architectureConsistent || input.taskContract?.architectureConsistentLargeBundle);
-  const mixed = laneSplit || unrelatedIssues || (domains.length > 1 && !architectureProof);
+  const mixed = laneSplit || unrelatedIssues || (incompatible.length > 0 && !architectureProof) || (largeCandidate && domains.length > 1 && !architectureProof);
   const coherent = !explicitManual && !mixed && (domains.length <= 1 || architectureProof);
   let state = "external_review_normal_ready";
   let route = "normal";
   if (explicitManual || mixed) {
     state = "external_review_split_required";
     route = "split_or_block";
-  } else if (largeBySize || changedFiles.length >= 15 || totalChangedLines >= 800) {
+  } else if (largeCandidate) {
     state = "external_review_large_bundle_escalation_required";
     route = "large_bundle_escalation";
   }
