@@ -114,6 +114,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
       taskKey: `pr-stack:${plan.stackId}`,
       runId,
       claimIdentity: digestJson({ stackId: plan.stackId, statePath }),
+      chargeMarkerRef: statePath,
       branchName: firstPr?.headRefName,
       baseSha,
       headSha: firstPr?.headRefOid,
