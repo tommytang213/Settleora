@@ -1,6 +1,6 @@
 import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
-import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { laneManifest } from "./lane-policy.mjs";
 import { defaultReviewerBudget, defaultReviewerTiers, mergeReviewerPolicyConfig } from "./reviewer-policy.mjs";
@@ -9,6 +9,7 @@ import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
 import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs";
 import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.mjs";
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
+import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./session-lifecycle.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -57,6 +58,11 @@ export const defaultConfig = Object.freeze({
   },
   allowExistingPrRecovery: false,
   outageResubmission: defaultOutageResubmissionConfig,
+  sessionLifecycle: {
+    enabled: false,
+    allowRecoveryTakeover: false,
+    contextBudget: defaultContextBudgetPolicy,
+  },
 	  prStackExecution: {
 	    enabled: false,
 	    allowRun: false,
@@ -232,6 +238,7 @@ export function parseCliArgs(argv) {
     configPath: null,
     fixtureIssuesPath: null,
     supervisorRunId: null,
+    runnerRunId: null,
     outageRecoveryOnly: false,
     outageRecoveryTarget: null,
     securityFindingsDryRun: false,
@@ -273,6 +280,7 @@ export function parseCliArgs(argv) {
     else if (arg === "--config") args.configPath = readValue(argv, ++index, arg);
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
+    else if (arg === "--runner-run-id") args.runnerRunId = validateRunnerRunId(readValue(argv, ++index, arg));
     else if (arg === "--outage-recovery-only") args.outageRecoveryOnly = true;
     else if (arg === "--outage-target-task-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), taskKey: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-issue") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), issueNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
@@ -337,6 +345,9 @@ export function parseCliArgs(argv) {
   }
   if (args.supervisorRunId && (!args.run || args.dryRun || specialMode)) {
     throw new Error("--supervisor-run-id is only valid with a normal real --run");
+  }
+  if (args.runnerRunId && (!args.supervisorRunId || !args.run || args.dryRun || specialMode)) {
+    throw new Error("--runner-run-id is only valid with a supervised normal real --run");
   }
   if (args.outageRecoveryOnly && (!args.run || args.dryRun || specialMode || args.canary || !args.supervisorRunId)) {
     throw new Error("--outage-recovery-only is only valid for supervised non-canary real --run");
@@ -434,6 +445,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     maxRuntimeMs: cliArgs.maxRuntimeMs ?? fileConfig.maxRuntimeMs ?? defaultConfig.maxRuntimeMs,
     requirePrePrReview: cliArgs.requirePrePrReview,
     supervisorRunId: cliArgs.supervisorRunId || null,
+    runnerRunId: cliArgs.runnerRunId || null,
     outageRecoveryOnly: Boolean(cliArgs.outageRecoveryOnly),
     outageRecoveryTarget: cliArgs.outageRecoveryTarget || null,
   };
@@ -485,6 +497,11 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
+  config.sessionLifecycle = {
+    enabled: config.sessionLifecycle?.enabled === true,
+    allowRecoveryTakeover: config.sessionLifecycle?.allowRecoveryTakeover === true,
+    contextBudget: normalizeContextBudgetPolicy(config.sessionLifecycle?.contextBudget),
+  };
   if (config.outageRecoveryOnly) {
     config.outageRecoveryTarget = normalizeOutageRecoveryCliTarget(config.outageRecoveryTarget || {});
     config.maxIterations = 1;
@@ -515,6 +532,14 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   ]) {
     mkdirSync(dir, { recursive: true });
   }
+  const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
+  if (existsSync(lifecycleRoot)) {
+    const lifecycleRootInfo = lstatSync(lifecycleRoot);
+    if (!lifecycleRootInfo.isDirectory() || lifecycleRootInfo.isSymbolicLink() || (typeof process.getuid === "function" && lifecycleRootInfo.uid !== process.getuid())) throw new Error("Session lifecycle root is untrusted.");
+  } else {
+    mkdirSync(lifecycleRoot, { recursive: true, mode: 0o700 });
+  }
+  chmodSync(lifecycleRoot, 0o700);
   config.canaryEvidenceRoot = path.join(config.logsRoot, "canary");
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
@@ -549,7 +574,7 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
   if (target.prNumber === null || target.prHeadSha === null) throw new Error("Outage recovery-only target requires PR number/head SHA");
   if (target.prNumber !== null && (!Number.isSafeInteger(target.prNumber) || target.prNumber < 1 || target.prNumber > 9999999)) throw new Error("Invalid outage target PR number");
   if (target.prHeadSha !== null && !/^[a-f0-9]{40}$/.test(target.prHeadSha)) throw new Error("Invalid outage target PR head SHA");
-  if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(target.runnerRunId)) throw new Error("Invalid outage target runner run ID");
+  if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?$/.test(target.runnerRunId)) throw new Error("Invalid outage target runner run ID");
   validateSupervisorRunId(target.supervisorRunId);
   for (const [label, digest] of [
     ["original spec digest", target.originalSupervisorSpecDigest],

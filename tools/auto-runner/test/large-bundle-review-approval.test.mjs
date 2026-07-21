@@ -139,9 +139,15 @@ test("stale expired or malformed approval blocks", () => {
   assertBlocked({ expiresAt: "2026-07-01T00:00:00Z" }, {}, "large_bundle_review_no_matching_approval");
   assert.throws(() => normalizeLargeBundleReviewApprovalConfig({ enabled: true, approvals: [{ nope: true }] }), /schemaVersion/);
 });
-test("auto-merge-eligible or non-manual-merge package blocks", () => {
-  assertBlocked({}, { autoMergeEligible: true }, "large_bundle_review_manual_merge_contract_mismatch");
-  assertBlocked({}, { manualMergeRequired: false }, "large_bundle_review_manual_merge_contract_mismatch");
+test("package merge contract must be internally valid and match the exact approval", () => {
+  assertBlocked({}, { autoMergeEligible: true }, "large_bundle_review_merge_contract_invalid");
+  assertBlocked({}, { manualMergeRequired: false }, "large_bundle_review_merge_contract_invalid");
+  assertBlocked({ manualMergeRequired: false, autoMergeEligible: true }, {}, "large_bundle_review_no_matching_approval");
+  const autoRoute = routeReviewer(approvalContext({
+    approvalConfig: exactApprovalConfig({ manualMergeRequired: false, autoMergeEligible: true }),
+    evidence: { manualMergeRequired: false, autoMergeEligible: true },
+  }));
+  assert.equal(autoRoute.tier, "strong_independent");
 });
 test("missing validation blocks", () => assertBlocked({}, { validationPassed: false }, "large_bundle_review_validation_missing"));
 
@@ -164,11 +170,21 @@ test("approval does not enable real-run issue review-fix or existing-PR mutation
   assert.equal(config.allowSystemdEnablement, false);
 });
 
-test("CI security Codex and manual merge gates remain reflected in evidence", () => {
+test("CI security Codex and exact candidate merge gates remain reflected in evidence", () => {
   const route = routeReviewer(approvalContext({ approvalConfig: exactApprovalConfig() }));
   assert.equal(route.largeBundleApproval.manualMergeRequired, true);
   assert.equal(route.largeBundleApproval.autoMergeEligible, false);
   assert.equal(route.strongRequired, true);
+});
+
+test("coherent operator-authorized bundle preserves exact auto-merge contract", () => {
+  const route = routeReviewer(approvalContext({
+    approvalConfig: exactApprovalConfig({ manualMergeRequired: false, autoMergeEligible: true }),
+    evidence: { manualMergeRequired: false, autoMergeEligible: true },
+  }));
+  assert.equal(route.tier, "strong_independent");
+  assert.equal(route.largeBundleApproval.manualMergeRequired, false);
+  assert.equal(route.largeBundleApproval.autoMergeEligible, true);
 });
 
 test("ordinary small-package routing remains unchanged", () => {

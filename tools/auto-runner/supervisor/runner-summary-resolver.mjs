@@ -49,7 +49,7 @@ export function resolveRunnerSummaryForSupervisor({
   }
   const rootRealPath = realpathSync(summariesRoot);
   const names = readdirSync(rootRealPath)
-    .filter((name) => /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z\.json$/.test(name))
+    .filter((name) => /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?\.json$/.test(name))
     .sort();
   if (names.length > maxFiles) {
     return outcome(resolverStatuses.malformedCandidate, diagnostics, {

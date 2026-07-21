@@ -1,5 +1,6 @@
 import { deriveIssueProposals } from "./issue-proposals.mjs";
 import { buildIssueOperationContext, executeIssueMutationPipeline } from "./issue-mutation-pipeline.mjs";
+import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 
 export { buildIssueOperationContext };
 
@@ -24,15 +25,20 @@ export function completeMergedIssueHygiene(config = {}, context = {}, options = 
   const refreshed = refreshCompletionState(context, runner, repositoryContext);
   const closeDecision = evaluateCloseDecision(refreshed.issue, refreshed);
   const completionBody = renderCompletionComment(refreshed, closeDecision);
-  const duplicateComment = hasCompletionComment(refreshed.issue, refreshed);
-  const comment = duplicateComment
-    ? { status: "skipped", reason: "completion_comment_already_present" }
-    : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--body", completionBody]));
+  const existingCompletionBody = findCompletionCommentBody(refreshed.issue, refreshed);
+  const duplicateComment = Boolean(existingCompletionBody);
+  const comment = refreshed.sessionLifecycle
+    ? canonicalCommentComponent(config, refreshed, runner, repositoryContext, refreshed.issue.number, existingCompletionBody || completionBody, "issue_progress_comment")
+    : duplicateComment
+      ? { status: "skipped", reason: "completion_comment_already_present" }
+      : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--body", completionBody]));
   const closure =
     closeDecision.close === true
-      ? commandComponent(runner("gh", ["issue", "close", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--reason", "completed"]))
+      ? refreshed.sessionLifecycle
+        ? canonicalClosureComponent(config, refreshed, runner, repositoryContext)
+        : commandComponent(runner("gh", ["issue", "close", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--reason", "completed"]))
       : { status: "skipped", reason: closeDecision.reason };
-  const labelCleanup = cleanupTransientLabels(refreshed.issue, runner, repositoryContext);
+  const labelCleanup = cleanupTransientLabels(refreshed.issue, runner, repositoryContext, config, refreshed);
   const parentProgress = postParentProgress(config, refreshed, runner, repositoryContext);
   const project = updateProjectStatusIfSupported(config, refreshed, runner);
   const ledger = reconcileLedger(config, refreshed, runner, repositoryContext);
@@ -63,7 +69,7 @@ export function evaluateCloseDecision(issue = {}, context = {}) {
   return { close: true, reason: "explicit_close_rule_satisfied" };
 }
 
-export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 }), repositoryContext = null) {
+export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 }), repositoryContext = null, config = {}, context = {}) {
   if (!repositoryContext?.repositorySlug) {
     return { status: "failed", reason: "repository_context_required", removed: [], attemptedRemove: [], preserved: labelNames(issue.labels) };
   }
@@ -71,6 +77,25 @@ export function cleanupTransientLabels(issue = {}, runner = () => ({ status: 0 }
   const remove = labels.filter((label) => transientRunnerLabels.includes(label));
   const preserve = labels.filter((label) => !transientRunnerLabels.includes(label));
   if (remove.length === 0) return { status: "skipped", reason: "no_transient_labels", removed: [], preserved: preserve };
+  if (context.sessionLifecycle) {
+    const effect = { issueNumber: issue.number, removeLabels: [...remove].sort(), repository: repositoryContext.repositorySlug };
+    const canonical = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "hygiene_component", issueNumber: issue.number, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
+      readLive: (intent) => {
+        const live = runner("gh", ["issue", "view", String(issue.number), "--repo", repositoryContext.repositorySlug, "--json", "number,labels"], { cwd: config.repoRoot });
+        if (live.error || live.status !== 0) return { complete: false };
+        let value; try { value = JSON.parse(live.stdout || "{}"); } catch { return { complete: false }; }
+        if (value.number !== issue.number) return { complete: true, ambiguous: true };
+        const remaining = labelNames(value.labels).filter((label) => remove.includes(label));
+        return remaining.length === 0 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+      },
+      execute: () => {
+        const mutation = runner("gh", ["issue", "edit", String(issue.number), "--repo", repositoryContext.repositorySlug, "--remove-label", remove.join(",")]);
+        if (mutation.error || mutation.status !== 0) throw new Error("Canonical label cleanup did not confirm success");
+        return { ok: true, status: mutation.status };
+      },
+    });
+    return { status: canonical.ok ? "updated" : "failed", ...(canonical.ok ? {} : { reason: canonical.reasonCode }), canonicalEffect: canonical, removed: canonical.ok ? remove : [], attemptedRemove: remove, preserved: preserve, repositorySlug: repositoryContext.repositorySlug, repositoryId: repositoryContext.repositoryId || null, operation: "label_remove", completedAt: new Date().toISOString() };
+  }
   const result = runner("gh", ["issue", "edit", String(issue.number), "--repo", repositoryContext.repositorySlug, "--remove-label", remove.join(",")]);
   return {
     ...commandComponent(result),
@@ -203,9 +228,16 @@ function explicitCloseRuleSatisfied(issue = {}, context = {}) {
   return Boolean(context.closeRuleSatisfied || (context.mergeSha && context.validation?.passed === true));
 }
 
-function hasCompletionComment(issue = {}, context = {}) {
+function findCompletionCommentBody(issue = {}, context = {}) {
   const marker = `settleora-completion:${issue.number}:${context.mergeSha || "unknown"}`;
-  return (issue.comments || []).some((comment) => String(comment.body || "").includes(marker));
+  const sourceHead = context.sourceHeadSha || context.expectedHeadSha || "unknown";
+  const match = (issue.comments || []).find((comment) => {
+    const body = String(comment.body || "");
+    return body.split(/\r?\n/).includes(`Completion marker: ${marker}`)
+      && body.includes(`Source head: \`${sourceHead}\``)
+      && body.includes(`Merge SHA: \`${context.mergeSha || "unknown"}\``);
+  });
+  return match ? String(match.body || "") : null;
 }
 
 function postParentProgress(config, context, runner, repositoryContext) {
@@ -214,16 +246,118 @@ function postParentProgress(config, context, runner, repositoryContext) {
   const parent = readIssue({ number: parentIssue }, runner, repositoryContext);
   const body = renderParentProgressComment({ ...context, parentIssue });
   const marker = `settleora-parent-progress:${parentIssue}:${context.mergeSha || "unknown"}:${context.issue?.number || "unknown"}`;
-  if ((parent.comments || []).some((comment) => String(comment.body || "").includes(marker))) {
+  const bodyDigest = canonicalGithubEvidenceDigest(body);
+  if ((parent.comments || []).some((comment) => {
+    const commentBody = String(comment.body || "");
+    return commentBody.split(/\r?\n/).includes(`Parent progress marker: ${marker}`)
+      && canonicalGithubEvidenceDigest(commentBody) === bodyDigest;
+  })) {
     return { status: "skipped", reason: "parent_progress_already_present", parentIssue };
   }
-  return { ...commandComponent(runner("gh", ["issue", "comment", String(parentIssue), "--repo", repositoryContext.repositorySlug, "--body", body])), parentIssue, repositorySlug: repositoryContext.repositorySlug };
+  const component = context.sessionLifecycle
+    ? canonicalCommentComponent(config, context, runner, repositoryContext, parentIssue, body, "umbrella_update")
+    : commandComponent(runner("gh", ["issue", "comment", String(parentIssue), "--repo", repositoryContext.repositorySlug, "--body", body]));
+  return { ...component, parentIssue, repositorySlug: repositoryContext.repositorySlug };
+}
+
+function canonicalCommentComponent(config, context, runner, repositoryContext, issueNumber, body, effectType) {
+  const marker = body.split(/\r?\n/).find((line) => /(?:Completion|Parent progress) marker:/.test(line)) || `body-sha256:${canonicalGithubEvidenceDigest(body)}`;
+  const effect = { issueNumber, bodyDigest: canonicalGithubEvidenceDigest(body), stableMarker: marker, repository: repositoryContext.repositorySlug };
+  const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType, issueNumber, headSha: context.sourceHeadSha || context.expectedHeadSha, baseSha: context.mergeSha, effect }, {
+    readLive: (intent) => {
+      const [owner, name] = repositoryContext.repositorySlug.split("/");
+      const matches = [];
+      let cursor = null;
+      for (let page = 0; page < 100; page += 1) {
+        const args = ["api", "graphql", "-f", "query=query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){issue(number:$number){number comments(first:100,after:$cursor){nodes{body} pageInfo{hasNextPage endCursor}}}}}", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${issueNumber}`];
+        if (cursor) args.push("-f", `cursor=${cursor}`);
+        const live = runner("gh", args, { cwd: config.repoRoot });
+        if (live.error || live.status !== 0 || !String(live.stdout || "").trim()) return { complete: false };
+        let payload; try { payload = JSON.parse(live.stdout); } catch { return { complete: false }; }
+        if (Array.isArray(payload?.errors) && payload.errors.length > 0) return { complete: false };
+        const issue = payload?.data?.repository?.issue;
+        if (issue?.number !== issueNumber || !Array.isArray(issue?.comments?.nodes) || typeof issue?.comments?.pageInfo?.hasNextPage !== "boolean") return { complete: false };
+        matches.push(...issue.comments.nodes.filter((comment) => String(comment.body || "").includes(marker) && canonicalGithubEvidenceDigest(String(comment.body || "")) === effect.bodyDigest));
+        if (!issue.comments.pageInfo.hasNextPage) break;
+        if (!issue.comments.pageInfo.endCursor) return { complete: false };
+        cursor = issue.comments.pageInfo.endCursor;
+        if (page === 99) return { complete: false };
+      }
+      if (matches.length > 1) return { complete: true, ambiguous: true };
+      return matches.length === 1 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+    },
+    execute: () => {
+      const mutation = runner("gh", ["issue", "comment", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--body", body], { cwd: config.repoRoot });
+      if (mutation.error || mutation.status !== 0) throw new Error("Canonical issue comment did not confirm success");
+      return { ok: true, status: mutation.status };
+    },
+  });
+  return result.ok ? { status: "updated", canonicalEffect: result } : { status: "failed", reason: result.reasonCode, canonicalEffect: result };
+}
+
+function canonicalClosureComponent(config, context, runner, repositoryContext) {
+  const issueNumber = context.issue.number;
+  const effect = { issueNumber, closeReason: "completed", mergeSha: context.mergeSha, sourceHeadSha: context.sourceHeadSha, closeEvidenceDigest: canonicalGithubEvidenceDigest({ closeDecision: context.closeDecision, mergeSha: context.mergeSha, validation: context.validation }) };
+  const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "issue_closure", issueNumber, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
+    readLive: (intent) => {
+      const live = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "number,state,stateReason"], { cwd: config.repoRoot });
+      if (live.error || live.status !== 0) return { complete: false };
+      let issue; try { issue = JSON.parse(live.stdout || "{}"); } catch { return { complete: false }; }
+      const closedAsCompleted = String(issue.state).toUpperCase() === "CLOSED"
+        && String(issue.stateReason).toUpperCase() === "COMPLETED";
+      return closedAsCompleted ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+    },
+    execute: () => {
+      const mutation = runner("gh", ["issue", "close", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--reason", "completed"], { cwd: config.repoRoot });
+      if (mutation.error || mutation.status !== 0) throw new Error("Canonical issue closure did not confirm success");
+      return { ok: true, status: mutation.status };
+    },
+  });
+  return result.ok ? { status: "updated", canonicalEffect: result } : { status: "failed", reason: result.reasonCode, canonicalEffect: result };
 }
 
 function updateProjectStatusIfSupported(config, context, runner) {
   if (!config.projectStatusUpdates?.supported) return { status: "not_updated", reason: "project_status_mapping_not_configured" };
-  if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId) {
-    return { status: "not_updated", reason: "project_status_mapping_incomplete" };
+  if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId || !config.projectStatusUpdates.doneOptionId) {
+    return { status: "failed", reason: "project_status_mapping_incomplete" };
+  }
+  if (context.sessionLifecycle) {
+    const effect = { issueNumber: context.issue.number, projectId: config.projectStatusUpdates.projectId, fieldId: config.projectStatusUpdates.fieldId, optionId: config.projectStatusUpdates.doneOptionId };
+    let projectItemId = null;
+    const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "project_status_update", issueNumber: context.issue.number, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
+      readLive: (intent) => {
+        let cursor = null;
+        const matchingItems = [];
+        for (let page = 0; page < 20; page += 1) {
+          const args = ["api", "graphql", "-f", "query=query($projectId:ID!,$cursor:String){node(id:$projectId){... on ProjectV2{items(first:100,after:$cursor){nodes{id content{... on Issue{number repository{nameWithOwner}}} fieldValues(first:100){nodes{... on ProjectV2ItemFieldSingleSelectValue{optionId field{... on ProjectV2SingleSelectField{id}}}}}} pageInfo{hasNextPage endCursor}}}}}", "-F", `projectId=${config.projectStatusUpdates.projectId}`];
+          if (cursor) args.push("-f", `cursor=${cursor}`);
+          const live = runner("gh", args);
+          if (live.error || live.status !== 0 || !String(live.stdout || "").trim()) return { complete: false };
+          let payload; try { payload = JSON.parse(live.stdout); } catch { return { complete: false }; }
+          if (Array.isArray(payload?.errors) && payload.errors.length > 0) return { complete: false };
+          const items = payload?.data?.node?.items;
+          if (!Array.isArray(items?.nodes) || typeof items?.pageInfo?.hasNextPage !== "boolean") return { complete: false };
+          matchingItems.push(...items.nodes.filter((candidate) => candidate?.content?.number === context.issue.number && candidate?.content?.repository?.nameWithOwner === config.repositorySlug));
+          if (!items.pageInfo.hasNextPage) break;
+          if (!items.pageInfo.endCursor) return { complete: false };
+          cursor = items.pageInfo.endCursor;
+          if (page === 19) return { complete: false };
+        }
+        if (matchingItems.length !== 1) return matchingItems.length > 1 ? { complete: true, ambiguous: true } : { complete: false };
+        const item = matchingItems[0];
+        if (!item.id || !Array.isArray(item.fieldValues?.nodes)) return { complete: false };
+        projectItemId = item.id;
+        const present = item.fieldValues.nodes.some((value) => value?.field?.id === config.projectStatusUpdates.fieldId && value?.optionId === config.projectStatusUpdates.doneOptionId);
+        return present ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+      },
+      execute: () => {
+        if (!projectItemId) throw new Error("Canonical project status update lacks an authoritative item identity");
+        const mutation = runner("gh", ["project", "item-edit", "--id", projectItemId, "--project-id", config.projectStatusUpdates.projectId, "--field-id", config.projectStatusUpdates.fieldId, "--single-select-option-id", config.projectStatusUpdates.doneOptionId]);
+        if (mutation.error || mutation.status !== 0) throw new Error("Canonical project status update did not confirm success");
+        return { ok: true, status: mutation.status };
+      },
+    });
+    return result.ok ? { status: "updated", canonicalEffect: result } : { status: "failed", reason: result.reasonCode, canonicalEffect: result };
   }
   return commandComponent(
     runner("gh", [

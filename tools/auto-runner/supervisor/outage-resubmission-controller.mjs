@@ -18,12 +18,14 @@ import {
   writeOutageResubmissionState,
 } from "../lib/outage-resubmission-state.mjs";
 import { firstIncompleteContinuationAction } from "../lib/recovery-continuation.mjs";
+import { planInterruptionRecovery, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import {
   bindOutageResubmissionToRecoveryState,
   invalidateEvidenceForHeadChange,
   recoveryRequiresExactHeadEvidenceRegeneration,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
+import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
 import { buildRunSpec, generateRunId, sha256Text, canonicalJson, writeImmutableRunSpec } from "./run-spec.mjs";
 import { resolveRunnerSummaryForSupervisor, resolverStatuses } from "./runner-summary-resolver.mjs";
 import { writeSupervisorState } from "./supervisor-state.mjs";
@@ -126,7 +128,6 @@ export function runOutageResubmissionController(input = {}) {
   }
 
   const recovery = input.recoveryState || null;
-
   const source = input.source || {};
   const stateKey = input.outageStateKey || source.outageStateKey || null;
   let existingOutageState = input.outageState || null;
@@ -475,6 +476,25 @@ export function runOutageResubmissionController(input = {}) {
     return result("planned", "dry_run_no_mutation", { events, counts, outageState: dryState, child, recoveryState: recoveryTarget.state });
   }
 
+  if (config.sessionLifecycle?.enabled === true) {
+    if (!input.sessionLifecycleState) return result("blocked", "session_lifecycle_state_missing", { events, counts });
+    if (config.sessionLifecycle.allowRecoveryTakeover !== true) return result("blocked", "session_lifecycle_recovery_takeover_disabled", { events, counts });
+    const lifecycle = consumeSupervisorInterruptionPlanner(input.sessionLifecycleState, {
+      config,
+      recoveryState: recovery,
+      expectedEffects: input.lifecycleEffects || {},
+      evidenceAdapters: input.lifecycleEvidenceAdapters || {},
+    });
+    if (!lifecycle.ok || lifecycle.active) {
+      const reasonCode = lifecycle.reasonCode || "session_lifecycle_supervisor_takeover_blocked";
+      event("session_lifecycle_takeover_blocked", { reasonCode });
+      return result("blocked", reasonCode, { events, counts, sessionLifecycle: lifecycle });
+    }
+    const persistedLifecycle = persistSessionLifecycleState(config, lifecycle.state);
+    if (!persistedLifecycle.ok) return result("blocked", persistedLifecycle.reasonCode, { events, counts, sessionLifecycle: persistedLifecycle });
+    event("session_lifecycle_recovery_planned", { reasonCode: lifecycle.classification?.reasonCode, earliestSafePhase: lifecycle.earliestSafePhase });
+  }
+
   const uncertain = transitionOutageMarker(plannedState, {
     status: "submission_uncertain",
     childSupervisorRunId: child.spec.runId,
@@ -504,6 +524,31 @@ export function runOutageResubmissionController(input = {}) {
   writeOutageResubmissionState(config, confirmed);
   event("child_submission_confirmed", { childSupervisorRunId: child.spec.runId });
   return result("submitted", "child_submission_confirmed", { events, counts, outageState: confirmed, child, submitted, recoveryState: boundRecoveryState });
+}
+
+export function consumeSupervisorInterruptionPlanner(state, options = {}) {
+  if (!options.config || !options.recoveryState) return { ok: false, reasonCode: "authoritative_recovery_evidence_required" };
+  const recoveryState = options.recoveryState;
+  const evidence = collectAuthoritativeRecoveryEvidence(options.config, {
+    repository: state.repository,
+    issueNumber: state.logicalTask.issueNumber,
+    taskKey: state.logicalTask.taskKey,
+    runId: state.logicalTask.runId,
+    claimIdentity: state.logicalTask.claimIdentity,
+    sessionId: state.sessions.current,
+    supervisorRunId: recoveryState.run?.supervisorRunId,
+    branchName: state.branch.name,
+    baseBranch: recoveryState.branch?.baseBranch || "main",
+    baseSha: state.branch.baseSha,
+    headSha: state.branch.headSha,
+    prNumber: recoveryState.pr?.number || null,
+    checkpointDigest: state.checkpoint.digest,
+    checkpointValid: true,
+    authority: state.mutationAuthority,
+  }, options.expectedEffects || {}, options.evidenceAdapters || {});
+  const inputs = plannerInputsFromAuthoritativeEvidence(evidence);
+  if (!inputs.ok) return { ...inputs, authoritativeEvidence: evidence };
+  return planInterruptionRecovery(state, inputs.liveEffects, { supervisorInterrupted: true, checkpointValid: true, ...inputs.interruption });
 }
 
 function terminalizeSourceCompletion({
@@ -1497,7 +1542,7 @@ function isTaskKey(value) {
 }
 
 function isRunnerRunId(value) {
-  return /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(String(value || ""));
+  return /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?$/.test(String(value || ""));
 }
 
 function isSupervisorRunId(value) {

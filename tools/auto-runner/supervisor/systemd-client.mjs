@@ -31,7 +31,7 @@ export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000 } = {})
   return { ok: false, unitName: plan.unitName, state: "submission_failed", status: active?.status ?? null, stderr: active?.stderr || "unit did not become active" };
 }
 
-export function runnerArgvForSpec(spec) {
+export function runnerArgvForSpec(spec, { runnerRunId = null } = {}) {
   const configPath = resolveProfile(spec.profile).runnerConfigPath;
   const argv = [
     process.execPath,
@@ -46,6 +46,7 @@ export function runnerArgvForSpec(spec) {
     "--max-runtime",
     spec.maxRuntime,
   ];
+  if (runnerRunId) argv.splice(argv.indexOf("--config"), 0, "--runner-run-id", runnerRunId);
   if (spec.recoveryOnlyTarget) {
     if (spec.recoveryOnlyTarget.prNumber === null || spec.recoveryOnlyTarget.prHeadSha === null) {
       throw new Error("recovery-only target requires PR number/head SHA");

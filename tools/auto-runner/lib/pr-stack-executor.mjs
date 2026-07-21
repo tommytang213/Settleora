@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { isUtf8 } from "node:buffer";
 import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -29,6 +29,9 @@ import { classifyIssueLane, filterForbiddenChangedFiles, laneManifest } from "./
 import { runCodexPrompt } from "./codex-runner.mjs";
 import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
+import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
+import { findPreEffectIntents } from "./pre-effect-intent.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, transitionSessionLifecycleHead, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -100,7 +103,61 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   const loadedState = loadOrCreateStackState({ config, plan, statePath, adapter });
   if (!loadedState.ok) return fail(loadedState.reasonCode, loadedState.reason, { statePath });
   let state = loadedState.state;
+  const firstPr = state.orderedPrs?.find((pr) => pr.number === state.sessionLifecycle?.branch?.prNumber) || state.orderedPrs?.[0] || plan.orderedPrs[0];
+  const stackRunId = config.runnerRunId || `pr-stack:${plan.stackId}`;
+  const stackIssueNumber = plan.issueNumber ?? firstPr?.issueNumber ?? firstPr?.number;
+  const stackClaimIdentity = digestJson({ stackId: plan.stackId, statePath });
+  if (config.sessionLifecycle?.enabled === true && state.sessionLifecycle) {
+    const lifecycleValidation = validateSessionLifecycleState(state.sessionLifecycle, { repository: plan.repository || config.repositorySlug, issueNumber: stackIssueNumber, taskKey: `pr-stack:${plan.stackId}`, runId: stackRunId, claimIdentity: stackClaimIdentity });
+    const branchMatches = state.sessionLifecycle.branch?.name === firstPr?.headRefName && state.sessionLifecycle.branch?.headSha === firstPr?.headRefOid && state.sessionLifecycle.branch?.prNumber === firstPr?.number;
+    if (!lifecycleValidation.ok || !branchMatches || state.sessionLifecycle.logicalTask?.chargeMarkerRef !== statePath) return fail("pr_stack_lifecycle_identity_mismatch", "persisted PR-stack lifecycle authority does not match the executable stack", { statePath });
+  }
+  if (config.sessionLifecycle?.enabled === true && !state.sessionLifecycle) {
+    const runId = stackRunId;
+    const mainResult = spawnSync("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+    const baseSha = mainResult.status === 0 && validSha(mainResult.stdout.trim()) ? mainResult.stdout.trim() : null;
+    if (!baseSha) return fail("pr_stack_lifecycle_base_unavailable", "unable to bind PR-stack lifecycle authority to origin/main", { statePath });
+    const lifecycle = createSessionLifecycleState({
+      repository: plan.repository || config.repositorySlug,
+      issueNumber: stackIssueNumber,
+      taskKey: `pr-stack:${plan.stackId}`,
+      runId,
+      claimIdentity: stackClaimIdentity,
+      chargeMarkerRef: statePath,
+      branchName: firstPr?.headRefName,
+      baseSha,
+      headSha: firstPr?.headRefOid,
+      prNumber: firstPr?.number,
+      candidateDigest: digestJson(plan),
+      sessionId: `${runId}:controller`,
+      phase: "pr_stack_planning",
+      nextExactAction: "execute_pr_stack",
+      contextPolicy: config.sessionLifecycle.contextBudget,
+    });
+    const persisted = persistSessionLifecycleState(config, lifecycle);
+    if (!persisted.ok) return fail(persisted.reasonCode, "unable to initialize PR-stack lifecycle authority", { statePath });
+    state = sanitizeState({ ...state, sessionLifecycle: persisted.state });
+    writePrStackState(statePath, state);
+  }
   if (state.terminal?.reasonCode === "stack_complete") {
+    const pendingIntents = pendingPrStackCanonicalIntents(config, state);
+    if (!pendingIntents.ok || pendingIntents.intents.length > 0) {
+      const blocked = transitionState(state, {
+        phase: "blocked",
+        terminal: { reasonCode: pendingIntents.reasonCode || "stack_canonical_effect_reconciliation_required", reason: pendingIntents.reason || "canonical effects remain pending reconciliation" },
+        summary: { action: "terminal_effect_reconciliation", pendingIntentIds: pendingIntents.intents?.map((intent) => intent.intentId) || [] },
+      });
+      writePrStackState(statePath, blocked);
+      return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+    }
+    const lifecycleComplete = state.sessionLifecycle?.controller?.phase === "completed"
+      && state.sessionLifecycle?.report?.status === "completed"
+      && state.sessionLifecycle?.mutationAuthority?.status === "terminal";
+    if (config.sessionLifecycle?.enabled === true && !lifecycleComplete) {
+      const completedLifecycle = transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "completed", nextExactAction: "stack_complete" });
+      if (!completedLifecycle.ok) return fail(completedLifecycle.reasonCode, "unable to finalize completed PR-stack lifecycle", { statePath });
+      state = writePrStackState(statePath, sanitizeState({ ...state, sessionLifecycle: completedLifecycle.state })).state;
+    }
     return { ok: true, outcome: "complete", statePath, state: summarizeStackState(state), result: { alreadyComplete: true } };
   }
   plan = rebindPlanToStateHeads(plan, state);
@@ -114,11 +171,14 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   if (typeof adapter.preflightLiveRunner === "function") {
     const preflight = await adapter.preflightLiveRunner({ config, plan, state });
     if (!preflight?.ok) {
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: "blocked",
         terminal: { reasonCode: preflight?.reasonCode || "stack_live_runner_missing", reason: preflight?.reason || "live runner preflight failed" },
         summary: { action: "live_runner_preflight", result: boundedProof(preflight || {}) },
       });
+      const stopped = stopPrStackLifecycle(config, blocked, preflight?.reasonCode || "stack_live_runner_missing");
+      if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+      blocked = stopped.state;
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
     }
@@ -140,12 +200,15 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     lifecycle: "claim",
   });
   if (!protectedAuthorization.ok) {
-    const blocked = transitionState(state, {
+    let blocked = transitionState(state, {
       phase: "blocked",
       terminal: { reasonCode: protectedAuthorization.reasonCode, reason: protectedAuthorization.reason },
       evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, protectedAuthorization),
       summary: { action: "protected_authorization_claim", result: boundedProof(protectedAuthorization) },
     });
+    const stopped = stopPrStackLifecycle(config, blocked, protectedAuthorization.reasonCode);
+    if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+    blocked = stopped.state;
     writePrStackState(statePath, blocked);
     return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
   }
@@ -164,11 +227,14 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   while (true) {
     plan = rebindPlanToStateHeads(plan, state);
     if (dispatchCount >= dispatchLimit) {
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: "blocked",
         terminal: { reasonCode: "stack_dispatch_limit_exceeded", reason: `stack dispatch exceeded bounded action limit ${dispatchLimit}` },
         summary: { action: "dispatch_limit", dispatchCount, dispatchLimit },
       });
+      const stopped = stopPrStackLifecycle(config, blocked, "stack_dispatch_limit_exceeded");
+      if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+      blocked = stopped.state;
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
     }
@@ -185,12 +251,15 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
       operationIntent: { action: action.action, prNumber: action.prNumber || null, expectedHead: action.expectedHead || null },
     });
     if (!consumedAuthorization.ok) {
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: "blocked",
         terminal: { reasonCode: consumedAuthorization.reasonCode, reason: consumedAuthorization.reason },
         evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, consumedAuthorization),
         summary: { action: "protected_authorization_consume", result: boundedProof(consumedAuthorization) },
       });
+      const stopped = stopPrStackLifecycle(config, blocked, consumedAuthorization.reasonCode);
+      if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+      blocked = stopped.state;
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
     }
@@ -208,7 +277,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     const dispatch = await dispatchStackAction({ config, stackConfig, plan, state, action, adapter });
     if (!dispatch.ok) {
       const evidence = dispatch.evidencePatch ? mergeEvidencePatch(state.evidence, dispatch.evidencePatch) : dispatch.evidence || state.evidence;
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: dispatch.waiting ? "waiting" : "blocked",
         terminal: dispatch.waiting ? null : { reasonCode: dispatch.reasonCode, reason: dispatch.reason },
         wait: dispatch.waiting ? { reasonCode: dispatch.reasonCode, action } : null,
@@ -217,8 +286,14 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
         sourceCycles: dispatch.sourceCycles || state.sourceCycles,
         exactHeads: dispatch.exactHeads || state.exactHeads,
         orderedPrs: dispatch.orderedPrs || state.orderedPrs,
+        sessionLifecycle: dispatch.sessionLifecycle || state.sessionLifecycle,
         summary: dispatch.summary || null,
       });
+      if (!dispatch.waiting) {
+        const stopped = stopPrStackLifecycle(config, blocked, dispatch.reasonCode);
+        if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+        blocked = stopped.state;
+      }
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: dispatch.waiting ? "waiting" : "blocked", reasonCode: dispatch.reasonCode, reason: dispatch.reason, statePath, state: summarizeStackState(blocked) };
     }
@@ -236,12 +311,15 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
         operationIntent: { action: "complete", stackId: plan.stackId },
       });
       if (!completionAuthorization.ok) {
-        const blocked = transitionState(state, {
+        let blocked = transitionState(state, {
           phase: "blocked",
           terminal: { reasonCode: completionAuthorization.reasonCode, reason: completionAuthorization.reason },
           evidence: putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization),
           summary: { action: "protected_authorization_complete", result: boundedProof(completionAuthorization) },
         });
+        const stopped = stopPrStackLifecycle(config, blocked, completionAuthorization.reasonCode);
+        if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+        blocked = stopped.state;
         writePrStackState(statePath, blocked);
         return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
       }
@@ -249,11 +327,25 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     const finalEvidence = completionAuthorization?.protectedPlan
       ? putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization.evidence)
       : (dispatch.evidence || state.evidence);
-    const nextState = transitionState(state, {
+    if (dispatch.complete) {
+      const pendingIntents = pendingPrStackCanonicalIntents(config, state);
+      if (!pendingIntents.ok || pendingIntents.intents.length > 0) {
+        const blocked = transitionState(state, {
+          phase: "blocked",
+          terminal: { reasonCode: pendingIntents.reasonCode || "stack_canonical_effect_reconciliation_required", reason: pendingIntents.reason || "canonical effects remain pending reconciliation" },
+          evidence: finalEvidence,
+          summary: { action: "terminal_effect_reconciliation", pendingIntentIds: pendingIntents.intents?.map((intent) => intent.intentId) || [] },
+        });
+        writePrStackState(statePath, blocked);
+        return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
+      }
+    }
+    let nextState = transitionState(state, {
       phase: dispatch.complete ? "completed" : "advanced",
       terminal: dispatch.complete ? { reasonCode: "stack_complete", reason: "all_prs_merged_and_hygiene_complete" } : null,
       wait: null,
       evidence: finalEvidence,
+      sessionLifecycle: dispatch.sessionLifecycle || state.sessionLifecycle,
       mutationMarkers: dispatch.mutationMarkers || state.mutationMarkers,
       activePrNumber: dispatch.activePrNumber ?? state.activePrNumber,
       sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
@@ -262,10 +354,21 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
       orderedPrs: dispatch.orderedPrs || state.orderedPrs,
       summary: dispatch.summary || null,
     });
+    if (config.sessionLifecycle?.enabled === true && nextState.sessionLifecycle) {
+      const lifecyclePr = nextState.orderedPrs.find((pr) => pr.number === nextState.sessionLifecycle.branch.prNumber);
+      if (lifecyclePr?.headRefOid && lifecyclePr.headRefOid !== nextState.sessionLifecycle.branch.headSha) {
+        const reboundLifecycle = transitionSessionLifecycleHead(config, nextState.sessionLifecycle, { branchName: lifecyclePr.headRefName, headSha: lifecyclePr.headRefOid, prNumber: lifecyclePr.number });
+        if (!reboundLifecycle.ok) return fail(reboundLifecycle.reasonCode, "unable to bind PR-stack lifecycle to rebound exact head", { statePath });
+        nextState = sanitizeState({ ...nextState, sessionLifecycle: reboundLifecycle.state });
+      }
+    }
     state = writePrStackState(statePath, nextState).state;
     dispatchCount += 1;
     lastResult = dispatch.result || null;
     if (dispatch.complete) {
+      const completedLifecycle = config.sessionLifecycle?.enabled === true && state.sessionLifecycle ? transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "completed", nextExactAction: "stack_complete" }) : null;
+      if (completedLifecycle && !completedLifecycle.ok) return fail(completedLifecycle.reasonCode, "unable to finalize completed PR-stack lifecycle", { statePath });
+      if (completedLifecycle?.state) state = writePrStackState(statePath, sanitizeState({ ...state, sessionLifecycle: completedLifecycle.state })).state;
       return { ok: true, outcome: "complete", action, dispatchCount, statePath, state: summarizeStackState(state), result: lastResult };
     }
     if (!shouldContinueStackDispatch({ adapter, dispatchCount })) {
@@ -273,11 +376,14 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     }
     const afterProgressDigest = stackDispatchProgressDigest(state);
     if (afterProgressDigest === beforeProgressDigest) {
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: "blocked",
         terminal: { reasonCode: "stack_dispatch_no_progress", reason: "stack dispatch advanced without durable progress" },
         summary: { action: "dispatch_no_progress", dispatchCount, lastAction: action },
       });
+      const stopped = stopPrStackLifecycle(config, blocked, "stack_dispatch_no_progress");
+      if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+      blocked = stopped.state;
       state = writePrStackState(statePath, blocked).state;
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, action, dispatchCount, statePath, state: summarizeStackState(state) };
     }
@@ -1010,6 +1116,7 @@ export function createInitialPrStackState({ plan, adapter = null } = {}) {
     repository: plan.repository,
     issueNumber: plan.issueNumber ?? null,
     trackerIssues: plan.trackerIssues || plan.issues || {},
+    sessionLifecycle: plan.sessionLifecycle || null,
     orderedPrs: plan.orderedPrs.map((pr) => immutablePrIdentity(pr)),
     activePrNumber: plan.activePrNumber || plan.orderedPrs[0]?.number || null,
     currentPhase: "initialized",
@@ -1226,6 +1333,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
       sourceCycleEpoch: { ...(typeof state.sourceCycleEpoch === "object" ? state.sourceCycleEpoch : {}), [pr.number]: reserved.reservation.sourceCycleEpoch },
       exactHeads: rebound.exactHeads,
       orderedPrs: rebound.orderedPrs,
+      sessionLifecycle: result.sessionLifecycle || state.sessionLifecycle,
       summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, reboundExactHead: true, sourceCycleReservation: reserved.summary },
     };
   }
@@ -1238,6 +1346,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
     ok: true,
     evidence: putEvidence(convergenceEvidence, "reviewConverged", pr.number, result),
     mutationMarkers,
+    sessionLifecycle: result.sessionLifecycle || state.sessionLifecycle,
     sourceCycles,
     summary: { action: action.action, prNumber: pr.number, sourceCycleConsumed: newHead !== pr.headRefOid, sourceCycleBudget: budget.summary },
   };
@@ -1577,6 +1686,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         laneDecision: laneDecision.contract,
         sourceCycleBudget: durableBudget,
         sourceCycleOperationContext: sourceCycleOperationContext.context,
+        sessionLifecycle: state?.sessionLifecycle || plan?.sessionLifecycle || null,
         reviewConvergenceState: state?.evidence?.reviewConvergenceState?.[pr.number] || null,
         runBatchFix,
       });
@@ -1701,6 +1811,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         review: reviewEvidence.codex,
         codexMechanicsReviewApproved: reviewEvidence.codexMechanicsReviewApproved === true,
         issueLinkageEvidence: gateEvidence.issueLinkageEvidence || { available: true, linked: true, matchedSources: ["stack-plan"] },
+        sessionLifecycle: state.sessionLifecycle || plan?.sessionLifecycle || null,
       };
       const mergeRunner = repositoryBoundGhRunner(run, repositoryContext.context);
       const result = executeAutoMergeMergeOnly(targetConfig, context, { runner: mergeRunner, inspectState: () => ({ pr: inspection.pr, requiredChecks: inspection.requiredChecks, reviewThreads: inspection.reviewThreads, codeScanningAlerts: inspection.codeScanningAlerts, blockingMarkers: inspection.blockingMarkers || [] }) });
@@ -1714,12 +1825,27 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     async fetchCurrentMain({ config: cfg, state, pr }) {
       return fetchCurrentMainProof({ config: cfg || config, state, pr, runner: run });
     },
-    async retargetPrBase({ pr, newBase, expectedHead, expectedCurrentBase, repositoryContext = null }) {
+    async retargetPrBase({ pr, newBase, expectedHead, expectedCurrentBase, operationIntent = null, repositoryContext = null }) {
       const repo = repositoryContext?.argvRepository || config.repositorySlug || "tommytang213/Settleora";
       const proof = readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner: run, repositoryContext });
       if (!proof.ok) return proof;
-      const result = run("gh", ["pr", "edit", String(pr.number), "--repo", repo, "--base", String(newBase)], { cwd: config.repoRoot });
-      if (result.status !== 0 || result.error) return fail("retarget_failed", boundedText(result.stderr || result.error || result.stdout));
+      const effect = { prNumber: pr.number, expectedHead, expectedCurrentBase, newBase, operationIntentDigest: canonicalGithubEvidenceDigest(operationIntent || {}) };
+      const result = operationIntent?.sessionLifecycle
+        ? executeCanonicalGithubEffectSync(config, operationIntent.sessionLifecycle, { effectType: "pr_retarget", prNumber: pr.number, headSha: expectedHead, baseBranch: expectedCurrentBase, effect }, {
+            readLive: (intent) => {
+              const live = readPrRetargetProof({ config, pr: { ...pr, baseRefName: newBase }, expectedHead, expectedCurrentBase: newBase, runner: run, repositoryContext });
+              if (live.ok) return { complete: true, present: true, identity: intent.identity, effect };
+              const absent = readPrRetargetProof({ config, pr, expectedHead, expectedCurrentBase, runner: run, repositoryContext });
+              return absent.ok ? { complete: true, present: false } : { complete: false };
+            },
+            execute: () => {
+              const mutation = run("gh", ["pr", "edit", String(pr.number), "--repo", repo, "--base", String(newBase)], { cwd: config.repoRoot });
+              if (mutation.status !== 0 || mutation.error) throw new Error("Canonical PR retarget did not confirm success");
+              return { ok: true, status: mutation.status };
+            },
+          })
+        : run("gh", ["pr", "edit", String(pr.number), "--repo", repo, "--base", String(newBase)], { cwd: config.repoRoot });
+      if ((operationIntent?.sessionLifecycle && !result.ok) || (!operationIntent?.sessionLifecycle && (result.status !== 0 || result.error))) return fail("retarget_failed", operationIntent?.sessionLifecycle ? result.reasonCode : boundedText(result.stderr || result.error || result.stdout));
       const after = readPrRetargetProof({ config, pr: { ...pr, baseRefName: newBase }, expectedHead, expectedCurrentBase: newBase, runner: run, repositoryContext });
       if (!after.ok) return after;
       return { ok: true, prNumber: pr.number, newBase, expectedHead, expectedCurrentBase, before: proof.proof, after: after.proof };
@@ -1729,12 +1855,27 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
       if (!current.ok) return current;
       return { ok: true, before: pr.ownDelta, after: current.ownDelta };
     },
-    async markReadyForReview({ pr, expectedHead, repositoryContext = null }) {
+    async markReadyForReview({ pr, expectedHead, operationIntent = null, repositoryContext = null }) {
       const repo = repositoryContext?.argvRepository || config.repositorySlug || "tommytang213/Settleora";
       const before = readPrReadyProof({ config, pr, expectedHead, expectedDraft: true, runner: run, repositoryContext });
       if (!before.ok) return before;
-      const result = run("gh", ["pr", "ready", String(pr.number), "--repo", repo], { cwd: config.repoRoot });
-      if (result.status !== 0 || result.error) return fail("ready_failed", boundedText(result.stderr || result.error || result.stdout));
+      const effect = { prNumber: pr.number, expectedHead, expectedDraftBefore: true, expectedDraftAfter: false, operationIntentDigest: canonicalGithubEvidenceDigest(operationIntent || {}) };
+      const result = operationIntent?.sessionLifecycle
+        ? executeCanonicalGithubEffectSync(config, operationIntent.sessionLifecycle, { effectType: "pr_ready", prNumber: pr.number, headSha: expectedHead, effect }, {
+            readLive: (intent) => {
+              const live = readPrReadyProof({ config, pr: { ...pr, isDraft: false }, expectedHead, expectedDraft: false, runner: run, repositoryContext });
+              if (live.ok) return { complete: true, present: true, identity: intent.identity, effect };
+              const absent = readPrReadyProof({ config, pr, expectedHead, expectedDraft: true, runner: run, repositoryContext });
+              return absent.ok ? { complete: true, present: false } : { complete: false };
+            },
+            execute: () => {
+              const mutation = run("gh", ["pr", "ready", String(pr.number), "--repo", repo], { cwd: config.repoRoot });
+              if (mutation.status !== 0 || mutation.error) throw new Error("Canonical PR ready transition did not confirm success");
+              return { ok: true, status: mutation.status };
+            },
+          })
+        : run("gh", ["pr", "ready", String(pr.number), "--repo", repo], { cwd: config.repoRoot });
+      if ((operationIntent?.sessionLifecycle && !result.ok) || (!operationIntent?.sessionLifecycle && (result.status !== 0 || result.error))) return fail("ready_failed", operationIntent?.sessionLifecycle ? result.reasonCode : boundedText(result.stderr || result.error || result.stdout));
       const after = readPrReadyProof({ config, pr: { ...pr, isDraft: false }, expectedHead, expectedDraft: false, runner: run, repositoryContext });
       if (!after.ok) return after;
       return { ok: true, prNumber: pr.number, expectedHead, before: before.proof, after: after.proof };
@@ -1803,7 +1944,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
   const codexPromptRunner = options.runCodexPrompt || runCodexPrompt;
   const cwd = config.repoRoot || process.cwd();
   return {
-    async runCodexBatchFix({ fixTask, pr, exactHead }) {
+    async runCodexBatchFix({ fixTask, pr, exactHead, sessionLifecycle = null }) {
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
       if (!loopState.ok) return loopState;
       const promptDigest = digestJson(fixTask?.prompt || "");
@@ -1838,19 +1979,32 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       );
       mkdirSync(path.dirname(promptPath), { recursive: true, mode: 0o700 });
       writeFileSync(promptPath, `${fixTask?.prompt || ""}\n`, { mode: 0o600 });
+      if (config.sessionLifecycle?.enabled === true && !sessionLifecycle) {
+        return fail("existing_pr_batch_fix_lifecycle_missing", "PR-stack batch fix requires persisted session lifecycle authority");
+      }
+      const lifecycleInvocation = sessionLifecycle
+        ? {
+            state: sessionLifecycle,
+            newSessionId: `${sessionLifecycle.logicalTask.runId}:pr-stack-batch-fix:${sessionLifecycle.sessions.generation + 1}:${randomUUID()}`,
+            phase: "existing-pr-stack-batch-fix",
+            telemetry: {},
+            mutationJournaled: true,
+          }
+        : null;
       const codex = codexPromptRunner(
         { ...config, repoRoot: proof.worktreePath },
         {
           branchName: pr?.headRefName || pr?.branch || "unknown",
           prompt: fixTask?.prompt || "",
           promptPath,
+          ...(lifecycleInvocation ? { sessionLifecycle: lifecycleInvocation } : {}),
         },
         "existing-pr-stack-batch-fix",
       );
       if (!codex.skipped && (codex.error || codex.status !== 0)) {
-        return fail("existing_pr_batch_fix_codex_failed", codex.error || codex.tail || "Codex batch fix failed");
+        return fail("existing_pr_batch_fix_codex_failed", codex.error || codex.tail || "Codex batch fix failed", { sessionLifecycle: codex.sessionLifecycle?.state || sessionLifecycle });
       }
-      return { ok: true, codex, promptPath };
+      return { ok: true, codex, promptPath, sessionLifecycle: codex.sessionLifecycle?.state || sessionLifecycle };
     },
     async listChangedFiles({ exactHead, allowJournaledDirty = false }) {
       const head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_head_unreadable" });
@@ -1878,7 +2032,9 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       if (untracked.status !== 0 || untracked.error) throw new Error(`git ls-files failed: ${boundedText(untracked.stderr || untracked.error || untracked.stdout)}`);
       return normalizeChangedFiles(`${diff.stdout || ""}\n${staged.stdout || ""}\n${untracked.stdout || ""}`.split(/\r?\n/));
     },
-    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget = null, localLoop = null }) {
+    async validateAndReview({ exactHead, changedFiles, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget = null, localLoop = null, sessionLifecycle = null, codex = null }) {
+      const lifecycleAuthority = validateActiveStackLifecycleAuthority(config, sessionLifecycle);
+      if (!lifecycleAuthority.ok) return lifecycleAuthority;
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead, localLoop });
       if (!loopState.ok) return loopState;
       if (loopState.state.phase === "source_fix_applied") {
@@ -1888,10 +2044,11 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         if (appliedIdentity.identityDigest !== loopState.state.appliedChangedFilesDigest) return fail("existing_pr_local_loop_applied_files_mismatch", "journal-authorized source-fix files changed after application");
       }
       if (["findings_frozen", "source_fix_reserved"].includes(loopState.state.phase)) {
-        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: loopState.state });
-        if (!resumedFix.ok) return resumedFix;
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: loopState.state, sessionLifecycle });
+        if (resumedFix.sessionLifecycle && codex) codex.sessionLifecycle = resumedFix.sessionLifecycle;
+        if (!resumedFix.ok) return { ...resumedFix, sessionLifecycle: resumedFix.sessionLifecycle || sessionLifecycle };
         const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
-        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
+        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state, sessionLifecycle: resumedFix.sessionLifecycle || sessionLifecycle, codex });
       }
       const preCommitHead = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_local_loop_precommit_head_unreadable" });
       if (!preCommitHead.ok) return preCommitHead;
@@ -1997,7 +2154,9 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       const externalReview = await options.runStrongReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, headSha: candidate.newHead, baseSha: base.sha });
       const fullDeltaExternalReview = { ...externalReview, fullCandidatePrDelta: externalReview?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "codex_running", candidateHead: candidate.newHead, candidateDigest: fullCandidatePrDelta.delta.normalizedPatchDigest });
-      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha });
+      const review = await options.runCodexReview({ config: targetConfig, pr, changedFiles: reviewChangedFiles, fixDeltaFiles: changedFiles, fullCandidatePrDelta: fullCandidatePrDelta.delta, validation, externalReview: fullDeltaExternalReview, headSha: candidate.newHead, baseSha: base.sha, sessionLifecycle });
+      if (review?.sessionLifecycle && codex) codex.sessionLifecycle = review.sessionLifecycle;
+      const postReviewSessionLifecycle = review?.sessionLifecycle || codex?.sessionLifecycle || sessionLifecycle;
       const verdict = review?.verdict?.verdict || review?.verdict;
       const fullDeltaCodexReview = { ...review, fullCandidatePrDelta: review?.fullCandidatePrDelta || fullCandidatePrDelta.delta };
       if (externalReview?.status !== "pass" || verdict !== "approve") {
@@ -2028,10 +2187,11 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           findingDigests: [...(loopState.state.findingDigests || []), findingDigest],
           evidenceInvalidated: true,
         });
-        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: frozenState });
-        if (!resumedFix.ok) return resumedFix;
+        const resumedFix = applyFrozenLocalFindingBatch({ config, runner, codexPromptRunner, cwd, pr, statePath: loopState.statePath, state: frozenState, sessionLifecycle });
+        if (resumedFix.sessionLifecycle && codex) codex.sessionLifecycle = resumedFix.sessionLifecycle;
+        if (!resumedFix.ok) return { ...resumedFix, sessionLifecycle: resumedFix.sessionLifecycle || sessionLifecycle };
         const cumulative = await this.listChangedFiles({ exactHead, allowJournaledDirty: resumedFix.state.phase === "source_fix_applied" });
-        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state });
+        return this.validateAndReview({ exactHead, changedFiles: cumulative, laneDecision, pr, findingFingerprints, fingerprintDigest, sourceCycleBudget, localLoop: resumedFix.state, sessionLifecycle: resumedFix.sessionLifecycle || sessionLifecycle, codex });
       }
       const postWorktreeProof = readExactFinalGateWorktreeProof({
         config: targetConfig,
@@ -2116,9 +2276,12 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
           localSourceChangingRoundsConsumed: Math.max(1, Number(loopState.state.localRound || 0) + 1),
         },
         localLoopState: persistLocalCandidateLoopState(loopState.statePath, { ...loopState.state, phase: "local_convergence_passed", candidateHead: candidate.newHead, localRound: Number(loopState.state.localRound || 0) }),
+        sessionLifecycle: postReviewSessionLifecycle,
       };
     },
-    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null, reviewConvergenceState = null }) {
+    async commitAndPush({ exactHead, changedFiles, fixDelta = null, reviewed, pr, fingerprintDigest, markerKey, sourceCycleBudget = null, plan = null, sourceCycleOperationContext = null, reviewConvergenceState = null, sessionLifecycle = null }) {
+      const lifecycleAuthority = validateActiveStackLifecycleAuthority(config, sessionLifecycle);
+      if (!lifecycleAuthority.ok) return lifecycleAuthority;
       const newHead = reviewed?.localCandidate?.newHead || reviewed?.sourceIdentity?.newHead || null;
       if (!validSha(newHead)) return fail("existing_pr_batch_fix_new_head_unreadable", "validated local candidate head is missing");
       const branch = pr?.headRefName || pr?.branch || "";
@@ -2202,6 +2365,7 @@ function transitionState(state, patch = {}) {
     currentPhase: patch.phase || state.currentPhase,
     currentAction: patch.currentAction ?? state.currentAction ?? null,
     activePrNumber: patch.activePrNumber ?? state.activePrNumber,
+    sessionLifecycle: patch.sessionLifecycle || state.sessionLifecycle || null,
     evidence: patch.evidence || state.evidence,
     mutationMarkers: patch.mutationMarkers || state.mutationMarkers,
     sourceCycleReservations: patch.sourceCycleReservations || state.sourceCycleReservations || {},
@@ -2213,6 +2377,29 @@ function transitionState(state, patch = {}) {
     wait: patch.wait === undefined ? state.wait : patch.wait,
     summaries,
   });
+}
+
+function stopPrStackLifecycle(config, state, reasonCode) {
+  if (config.sessionLifecycle?.enabled !== true || !state.sessionLifecycle) return { ok: true, state };
+  const pendingIntents = pendingPrStackCanonicalIntents(config, state);
+  if (!pendingIntents.ok || pendingIntents.intents.length > 0) return { ok: true, state };
+  const stopped = transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "stopped", nextExactAction: reasonCode || "blocked" });
+  if (!stopped.ok) return stopped;
+  return { ok: true, state: sanitizeState({ ...state, sessionLifecycle: stopped.state }) };
+}
+
+function pendingPrStackCanonicalIntents(config, state) {
+  if (config.sessionLifecycle?.enabled !== true || !state.sessionLifecycle) return { ok: true, intents: [] };
+  const lifecycle = state.sessionLifecycle;
+  try {
+    const intents = findPreEffectIntents(config, (intent) => intent.repository === lifecycle.repository
+      && intent.runId === lifecycle.logicalTask?.runId
+      && intent.claimIdentity === lifecycle.logicalTask?.claimIdentity
+      && !["finalized", "failed_closed"].includes(intent.status));
+    return { ok: true, intents };
+  } catch {
+    return { ok: false, reasonCode: "stack_canonical_intent_inventory_unavailable", reason: "canonical effect intent inventory could not be proven terminal", intents: [] };
+  }
 }
 
 function shouldContinueStackDispatch({ adapter, dispatchCount }) {
@@ -2347,6 +2534,7 @@ function persistStackOperationIntent({ config = {}, plan = null, state = {}, pr 
     taskKey: config.taskKey || null,
     runId: config.runId || null,
     supervisorRunId: config.supervisorRunId || null,
+    sessionLifecycle: state.sessionLifecycle || null,
     expectedPreState,
     intendedPostState,
     operationEvidence: operationEvidence ? sanitizeState(operationEvidence) : null,
@@ -3412,9 +3600,10 @@ function waitOrFail(result, fallback) {
       reason: result.reason || fallback,
       evidence: result.evidence,
       evidencePatch: result.evidencePatch,
+      sessionLifecycle: result.sessionLifecycle || null,
     };
   }
-  return fail(result?.reasonCode || fallback, result?.reason || fallback);
+  return fail(result?.reasonCode || fallback, result?.reason || fallback, { sessionLifecycle: result?.sessionLifecycle || null });
 }
 
 function mergeEvidencePatch(evidence = {}, patch = {}) {
@@ -4059,7 +4248,7 @@ function persistAppliedSourceFix({ runner, cwd, statePath, state }) {
   return { ok: true, state: persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_applied", appliedHead: applied.currentHead, appliedChangedFilesDigest: applied.identityDigest, evidenceInvalidated: true }) };
 }
 
-function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPromptRunner = runCodexPrompt, cwd, pr, statePath, state }) {
+function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPromptRunner = runCodexPrompt, cwd, pr, statePath, state, sessionLifecycle = null }) {
   if (!["findings_frozen", "source_fix_reserved"].includes(state.phase) || !state.frozenFindingDigest || !Array.isArray(state.frozenFindings) || !state.frozenFixPrompt) {
     return fail("existing_pr_local_loop_frozen_batch_invalid", "frozen local finding batch is incomplete or contradictory");
   }
@@ -4086,9 +4275,35 @@ function applyFrozenLocalFindingBatch({ config, runner = defaultRunner, codexPro
     return fail("existing_pr_local_loop_unreserved_mutation", "local source changes appeared before the durable fix reservation");
   }
   const reserved = state.phase === "source_fix_reserved" ? state : persistLocalCandidateLoopState(statePath, { ...state, phase: "source_fix_reserved", mutationClaimId: digestJson({ prNumber: pr?.number, candidateHead: state.candidateHead, localRound: state.localRound, frozenFindingDigest: state.frozenFindingDigest }) });
-  const localFix = codexPromptRunner({ ...config, repoRoot: cwd }, { branchName: pr?.headRefName || pr?.branch || "unknown", prompt: reserved.frozenFixPrompt, promptPath: localPromptPath }, "existing-pr-stack-inner-local-fix");
-  if (!localFix.skipped && (localFix.error || localFix.status !== 0)) return fail("existing_pr_local_loop_fix_failed", localFix.error || localFix.tail || "local finding batch fix failed");
-  return persistAppliedSourceFix({ runner, cwd, statePath, state: reserved });
+  const lifecycleInvocation = sessionLifecycle
+    ? {
+        state: sessionLifecycle,
+        newSessionId: `${sessionLifecycle.logicalTask.runId}:pr-stack-inner-local-fix:${sessionLifecycle.sessions.generation + 1}:${randomUUID()}`,
+        phase: "existing-pr-stack-inner-local-fix",
+        telemetry: {},
+        mutationJournaled: true,
+      }
+    : null;
+  const localFix = codexPromptRunner({ ...config, repoRoot: cwd }, {
+    branchName: pr?.headRefName || pr?.branch || "unknown",
+    prompt: reserved.frozenFixPrompt,
+    promptPath: localPromptPath,
+    ...(lifecycleInvocation ? { sessionLifecycle: lifecycleInvocation } : {}),
+  }, "existing-pr-stack-inner-local-fix");
+  if (!localFix.skipped && (localFix.error || localFix.status !== 0)) return fail("existing_pr_local_loop_fix_failed", localFix.error || localFix.tail || "local finding batch fix failed", { sessionLifecycle: localFix.sessionLifecycle?.state || sessionLifecycle });
+  return { ...persistAppliedSourceFix({ runner, cwd, statePath, state: reserved }), sessionLifecycle: localFix.sessionLifecycle?.state || sessionLifecycle };
+}
+
+function validateActiveStackLifecycleAuthority(config, sessionLifecycle) {
+  if (config.sessionLifecycle?.enabled !== true) return { ok: true };
+  if (!sessionLifecycle) return fail("pr_stack_lifecycle_authority_missing", "PR-stack source mutation requires lifecycle authority");
+  const validation = validateSessionLifecycleState(sessionLifecycle);
+  if (!validation.ok) return fail(validation.reasonCode || "pr_stack_lifecycle_authority_invalid", "PR-stack lifecycle authority is invalid");
+  if (sessionLifecycle.mutationAuthority?.status !== "active"
+    || sessionLifecycle.mutationAuthority?.ownerSessionId !== sessionLifecycle.sessions?.current) {
+    return fail("pr_stack_lifecycle_authority_retired", "PR-stack source mutation requires the current active lifecycle owner");
+  }
+  return { ok: true };
 }
 
 function evaluateLocalFixAllowance({ config = {}, sourceCycleBudget = null, localRound }) {

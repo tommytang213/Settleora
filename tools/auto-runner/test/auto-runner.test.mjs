@@ -94,6 +94,7 @@ import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planVa
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
+import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";
 import {
   evaluateReviewFixCanaryFixtureApproval,
   normalizeReviewFixCanaryFixtureConfig,
@@ -5185,6 +5186,23 @@ test("merge-only auto-merge restores source branch after mocked merge auto-delet
   }
 });
 
+test("lifecycle branch restoration is routed through a canonical retained-branch intent", () => {
+  const source = readFileSync("tools/auto-runner/lib/auto-merge-policy.mjs", "utf8");
+  const restoration = source.slice(source.indexOf("function restoreSourceBranchIfDeleted"), source.indexOf("function sourceBranchRestorationConfirmed"));
+  assert.match(restoration, /context\.sessionLifecycle/);
+  assert.match(restoration, /effectType: "branch_retention_verify"/);
+  assert.match(restoration, /executeCanonicalGithubEffectSync/);
+});
+
+test("canonical merge evidence projects review gates without provider payload objects", () => {
+  const source = readFileSync("tools/auto-runner/lib/auto-merge-policy.mjs", "utf8");
+  const mergeEffect = source.slice(source.indexOf("function executeCanonicalMergeEffect"), source.indexOf("function executeCanonicalPrComment"));
+  assert.doesNotMatch(mergeEffect, /externalReview:\s*context\.externalReview/);
+  assert.doesNotMatch(mergeEffect, /codexReview:\s*context\.review/);
+  assert.match(mergeEffect, /externalReview:\s*\{ status:/);
+  assert.match(mergeEffect, /codexReview:\s*\{ verdict:/);
+});
+
 test("merge-only auto-merge blocks completion when source branch restoration is unconfirmed", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-fail-"));
   try {
@@ -6934,7 +6952,7 @@ test("implementation path verifies mutation workspace after task branch creation
   const branchIndex = source.indexOf("createTaskBranch(config, branchName);");
   const guardIndex = source.indexOf("ensureTaskMutationWorkspace(config", branchIndex);
   const promptIndex = source.indexOf("generateTaskPrompt(config, issue, laneDecision, branchName)", branchIndex);
-  const codexIndex = source.indexOf("runCodexPrompt(config, { ...promptInfo, branchName }, \"implementation\")", branchIndex);
+  const codexIndex = source.indexOf("const codexResult = runCodexPrompt(config", branchIndex);
   assert.notEqual(branchIndex, -1);
   assert.notEqual(guardIndex, -1);
   assert.notEqual(promptIndex, -1);
@@ -6942,6 +6960,69 @@ test("implementation path verifies mutation workspace after task branch creation
   assert.ok(branchIndex < guardIndex);
   assert.ok(guardIndex < promptIndex);
   assert.ok(promptIndex < codexIndex);
+});
+
+test("enabled session lifecycle builds and persists an exact implementation invocation", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  assert.match(source, /createSessionLifecycleState\(\{/);
+  assert.match(source, /persistSessionLifecycleState\(config, lifecycle\)/);
+  assert.match(source, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
+});
+
+test("existing-PR recovery creates lifecycle authority before merge execution", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const recovery = source.slice(source.indexOf("async function recoverExistingPrIfConfigured"), source.indexOf("async function generateExistingPrRecoveryEvidence"));
+  const lifecycleIndex = recovery.indexOf("createSessionLifecycleState({");
+  const mergeIndex = recovery.indexOf("executeAutoMerge(config, context");
+  assert.ok(lifecycleIndex >= 0 && mergeIndex > lifecycleIndex);
+  assert.match(recovery, /if \(sessionLifecycle\) issue\.sessionLifecycle = sessionLifecycle/);
+  assert.match(recovery, /sessionLifecycle,/);
+  const iteration = source.slice(source.indexOf("const recovery = await recoverExistingPrIfConfigured"), source.indexOf("const slug = slugify"));
+  assert.match(iteration, /recoveryTerminalEffectConfirmed/);
+  assert.match(iteration, /const recoveryLifecycle = issue\.sessionLifecycle \|\| recovery\.sessionLifecycle/);
+  assert.match(iteration, /transitionSessionLifecyclePhase\(config, recoveryLifecycle/);
+  assert.match(iteration, /autoMergeEffectsConfirmed\(config, recoveryLifecycle, recovery\.autoMerge\)/);
+  assert.match(source, /findPreEffectIntents\(config,[\s\S]*!\["finalized", "failed_closed"\]\.includes\(intent\.status\)/);
+});
+
+test("merged lifecycle terminal effects block failed supported project hygiene", () => {
+  const merged = {
+    result: "merged",
+    mergeReadback: { ok: true },
+    sourceBranchRestoration: { confirmed: true },
+    comments: { pr: { status: 0 } },
+    completionHygiene: {
+      comment: { status: "updated" },
+      closure: { status: "skipped" },
+      labelCleanup: { status: "skipped" },
+      parentProgress: { status: "updated" },
+      ledger: { status: "reused" },
+      project: { status: "failed", reason: "project_status_mapping_incomplete" },
+    },
+  };
+  assert.equal(autoMergeEffectsConfirmed({}, null, merged), false);
+  assert.equal(autoMergeEffectsConfirmed({}, null, {
+    ...merged,
+    completionHygiene: { ...merged.completionHygiene, project: { status: "not_updated", reason: "project_status_mapping_not_configured" } },
+  }), true);
+  assert.equal(autoMergeEffectsConfirmed({}, null, {
+    ...merged,
+    completionHygiene: { ...merged.completionHygiene, project: { status: "not_updated", reason: "project_status_mapping_not_configured" }, ledger: { status: "preview", reason: "followup_issue_creation_disabled" } },
+  }), true);
+  assert.equal(autoMergeEffectsConfirmed({}, null, {
+    ...merged,
+    completionHygiene: { ...merged.completionHygiene, project: { status: "not_updated", reason: "project_status_mapping_not_configured" }, ledger: { status: "preview", reason: "unexpected_preview" } },
+  }), false);
+});
+
+test("feature-bundle results propagate lifecycle authority to terminal issue effects", () => {
+  const runner = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const bundlePath = runner.slice(runner.indexOf("const bundleResult = await runFeatureBundleIteration"), runner.indexOf("const recovery = await recoverExistingPrIfConfigured"));
+  assert.match(bundlePath, /issue\.sessionLifecycle = bundleResult\.sessionLifecycle/);
+  const bundle = readFileSync("tools/auto-runner/lib/feature-bundle-orchestrator.mjs", "utf8");
+  assert.match(bundle, /result\.sessionLifecycle = sessionLifecycle/);
+  assert.match(bundlePath, /finishIssueOutcome[\s\S]*const bundleLifecycle = issue\.sessionLifecycle \|\| bundleResult\.sessionLifecycle/);
+  assert.match(bundlePath, /autoMergeEffectsConfirmed\(config, bundleLifecycle, bundleResult\.autoMerge\)[\s\S]*transitionSessionLifecyclePhase\(config, bundleLifecycle/);
 });
 
 test("stack CLI constructs and injects one live fixed-argv runner", () => {

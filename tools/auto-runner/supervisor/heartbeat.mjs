@@ -2,9 +2,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { defaultLogsRoot } from "../lib/config.mjs";
 import { heartbeatPathForRunId, terminalStates, unitNameForRunId } from "./supervisor-state.mjs";
 import { atomicWriteTrustedJson, ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
+import { validateRunnerRunId, validateSupervisorRunId } from "../lib/run-correlation.mjs";
+import { acquireCheckpointLock } from "../lib/session-lifecycle.mjs";
+import { readSupervisorState } from "./supervisor-state.mjs";
 
 export const defaultHeartbeatIntervalSeconds = 60;
 export const defaultHeartbeatLeaseSeconds = 5 * 60;
+export const heartbeatSchemaVersion = 2;
 
 export function buildHeartbeat({
   runId,
@@ -18,15 +22,21 @@ export function buildHeartbeat({
   reportPath = null,
   reportResolution = null,
   monitoringDelivery = null,
+  startedAt = null,
+  heartbeatGeneration = 1,
   now = new Date(),
 } = {}) {
   const updatedAt = now.toISOString();
   return {
+    schemaVersion: heartbeatSchemaVersion,
     runId,
     runnerRunId,
     state,
     unitName: unitNameForRunId(runId),
     updatedAt,
+    startedAt: startedAt || updatedAt,
+    heartbeatGeneration: Number.isSafeInteger(heartbeatGeneration) && heartbeatGeneration > 0 ? heartbeatGeneration : 1,
+    ownerPid: process.pid,
     leaseExpiresAt: new Date(now.getTime() + defaultHeartbeatLeaseSeconds * 1000).toISOString(),
     heartbeatIntervalSeconds: defaultHeartbeatIntervalSeconds,
     heartbeatLeaseSeconds: defaultHeartbeatLeaseSeconds,
@@ -51,9 +61,28 @@ export function buildHeartbeat({
 }
 
 export function writeHeartbeat(runId, heartbeat, logsRoot = defaultLogsRoot) {
+  validateSupervisorRunId(runId);
+  validateRunnerRunId(heartbeat?.runnerRunId);
+  if (heartbeat.runId !== runId) throw new Error("Heartbeat supervisor identity mismatch");
   const context = ensureTrustedRunPathContext({ runId, logsRoot });
   const heartbeatPath = context.artifactPath(runArtifactKinds.heartbeat);
-  atomicWriteTrustedJson(context, runArtifactKinds.heartbeat, heartbeat);
+  const lock = acquireCheckpointLock(heartbeatPath);
+  if (!lock.ok) throw new Error(lock.reasonCode);
+  try {
+    const current = existsSync(heartbeatPath) ? JSON.parse(readFileSync(heartbeatPath, "utf8")) : null;
+    const supervisorState = readSupervisorState(runId, logsRoot).state;
+    if (supervisorState?.runnerRunId && heartbeat.runnerRunId && supervisorState.runnerRunId !== heartbeat.runnerRunId) throw new Error("Heartbeat owner is no longer authoritative");
+    if (current?.runnerRunId && heartbeat.runnerRunId) {
+      const sameOwner = current.runnerRunId === heartbeat.runnerRunId && current.ownerPid === heartbeat.ownerPid;
+      const authoritativeSuccessor = supervisorState?.runnerRunId === heartbeat.runnerRunId && current.runnerRunId !== heartbeat.runnerRunId;
+      if (!sameOwner && !authoritativeSuccessor) throw new Error("Heartbeat owner mismatch");
+      if (sameOwner && heartbeat.heartbeatGeneration <= current.heartbeatGeneration) throw new Error("Heartbeat generation must advance");
+    }
+    atomicWriteTrustedJson(context, runArtifactKinds.heartbeat, heartbeat);
+  } finally {
+    const released = lock.release();
+    if (!released.ok) throw new Error(released.reasonCode);
+  }
   return { heartbeatPath, heartbeat };
 }
 

@@ -248,6 +248,14 @@ execute shell commands from persisted/provider input.
 Each controller iteration is recovery-first, where reconciling an already
 submitted or uncertain outage child is part of recovering the same source run:
 
+Before that reconciliation can authorize takeover, the supervisor uses the
+same authoritative-evidence adapter as runner startup. It probes the persisted
+owner PID and heartbeat lease and reconciles clean local Git, the remote branch,
+and exact GitHub PR/effect identities. Live ownership or a valid lease blocks;
+disagreement, incomplete reads, identity drift, and marker/live contradictions
+stop fail closed. Callers provide correlation identities, never synthetic
+liveness or completed-effect conclusions.
+
 1. read operator pause/stop control;
 2. verify locks and active state through existing lock policy;
 3. load and strictly validate persisted outage state;
@@ -415,3 +423,20 @@ and summaries must resolve through exact correlation rather than newest-file
 guessing. Recovery must not steal active locks, run a second mutating Codex
 process on the same branch, delete source branches, force-push, or push
 directly to `main`.
+
+The session-lifecycle checkpoint is the coordinated authority for proactive
+Codex rotation and reportless process recovery. A planned rotation is a
+continuation of the accepted logical task: it does not charge another task,
+start a local source-changing round or GitHub fix epoch, or authorize a source
+mutation. The supervisor must persist the checkpoint, retire the current
+session's mutation authority, and validate the successor identity before
+granting the next authority generation. A crash between retirement and grant
+is recovered as an ownerless handoff, never as two active owners.
+
+On startup, process/lease and live Git/GitHub readback outrank report prose.
+A stale `IN_PROGRESS` report with no live owner is stopped/recoverable, while
+a live valid owner prevents takeover. Recovery classifies the interruption,
+validates exact repository/task/run/claim/session identity and checkpoint
+digest, and resumes the earliest safe incomplete phase without replaying
+already observed mutation, commit, push, review request, polling, merge,
+comment, closure, or hygiene effects.

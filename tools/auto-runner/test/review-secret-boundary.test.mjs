@@ -2319,6 +2319,31 @@ test("minimal synthetic aggregate diff passes boundary analysis without real cre
   assert.equal(result.blocked, false);
 });
 
+test("JavaScript credential-named member references are policy metadata rather than credential values", () => {
+  const diff = diffFor("tools/auto-runner/lib/example.mjs", [
+    "+  diagnosticAuthorization: cycleDecision.diagnosticAuthorization,",
+    "-  authorization = prior.authorization;",
+  ]);
+  const result = analyzeReviewSecretBoundary({
+    changedFiles: ["tools/auto-runner/lib/example.mjs"],
+    diff,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.blocked, false);
+  assert.equal(result.allowedReferences.length, 2);
+  assert.ok(result.allowedReferences.every((item) => item.classification === "code_reference"));
+});
+
+test("arbitrary dotted credential assignments remain blocked", () => {
+  const unsafeReference = ["secret", "value", "token"].join(".");
+  const diff = diffFor("tools/auto-runner/lib/example.mjs", [
+    `+API_TOKEN = ${unsafeReference};`,
+  ]);
+  const result = analyzeReviewSecretBoundary({ changedFiles: ["tools/auto-runner/lib/example.mjs"], diff });
+  assert.equal(result.blocked, true);
+  assert.equal(result.blockers[0].classification, "credential_value");
+});
+
 function diffFor(file, lines, { oldStart = 1, newStart = 1 } = {}) {
   return [
     `diff --git a/${file} b/${file}`,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -97,6 +97,7 @@ import {
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
 import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor } from "./lib/recovery-continuation.mjs";
+import { autoMergeEffectsConfirmed } from "./lib/terminal-effects.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -112,6 +113,8 @@ import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
+import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -223,7 +226,7 @@ async function main() {
   if (!trustPolicy.allowed) {
     throw new Error(`Trusted real-run refused: ${trustPolicy.reason}`);
   }
-  const runId = `run-${safeTimestamp()}`;
+  const runId = config.runnerRunId || `run-${safeTimestamp()}`;
   const logger = createLogger(config.logsRoot, runId);
   const recoveryOnlyStartupDiscovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : null;
   const recoveryOnlyStartupEvidenceCheck = recoveryOnlyStartupDiscovery?.found && recoveryOnlyStartupDiscovery.allowed
@@ -611,6 +614,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.ci = bundleResult.ci || null;
     iteration.autoMerge = bundleResult.autoMerge || null;
     iteration.recovery = bundleResult.recovery || recoveryRecorder?.summary();
+    if (bundleResult.sessionLifecycle) {
+      iteration.sessionLifecycle = bundleResult.sessionLifecycle;
+      issue.sessionLifecycle = bundleResult.sessionLifecycle;
+    }
     iteration.runnerCreatedCommitSha = config.dryRun ? null : (bundleResult.stopReason ? null : getRefSha("HEAD"));
     iteration.outcome = bundleResult.outcome || (bundleResult.ok ? "approved_pr_opened" : "auto_failed");
     if (!config.dryRun) {
@@ -622,12 +629,28 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner feature-bundle result for #${issue.number}: ${iteration.outcome}.${detail}${reason}`,
       );
+      const bundleLifecycle = issue.sessionLifecycle || bundleResult.sessionLifecycle;
+      const bundleTerminalEffectsConfirmed = iteration.issueComment?.status === 0 && autoMergeEffectsConfirmed(config, bundleLifecycle, bundleResult.autoMerge);
+      if (bundleLifecycle && bundleTerminalEffectsConfirmed) {
+        const successfulBundleOutcome = ["auto_merged", "approved_pr_opened"].includes(iteration.outcome);
+        const targetPhase = successfulBundleOutcome ? "completed" : "stopped";
+        const terminal = bundleLifecycle.controller?.phase === targetPhase
+          ? { ok: true, state: bundleLifecycle }
+          : transitionSessionLifecyclePhase(config, bundleLifecycle, { phase: targetPhase, nextExactAction: successfulBundleOutcome ? "bundle_complete" : "bundle_stopped" });
+        if (!terminal.ok) throw new Error(terminal.reasonCode);
+        iteration.sessionLifecycle = terminal.state;
+        issue.sessionLifecycle = terminal.state;
+      }
     }
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
 
-  const recovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision);
+  const recovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, null, {
+    runId,
+    index,
+    chargeMarkerRef: iteration.logicalTaskBudget?.statePath,
+  });
   if (recovery) {
     iteration.existingPrRecovery = recovery;
     iteration.autoMerge = recovery.autoMerge;
@@ -639,13 +662,27 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.baseOriginMainSha = recovery.baseOriginMainSha;
     iteration.runnerCreatedCommitSha = recovery.expectedHeadSha;
     iteration.outcome = recovery.autoMerge?.result === "merged" ? "auto_merged" : "auto_failed";
-    if (iteration.outcome !== "auto_merged") {
+    if (iteration.outcome !== "auto_merged" && !recovery.terminalMutationBlocked) {
       iteration.issueComment = finishIssueOutcome(
         config,
         issue,
         iteration.outcome,
         `Auto-runner existing-PR recovery did not auto-merge #${issue.number}.\n\nPR: ${recovery.pr?.url || recovery.pr?.number || "unavailable"}\nReason: ${recovery.autoMerge?.reason || recovery.reason}`,
       );
+    }
+    const recoveryLifecycle = issue.sessionLifecycle || recovery.sessionLifecycle;
+    const recoveryTerminalEffectConfirmed = (iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0) && autoMergeEffectsConfirmed(config, recoveryLifecycle, recovery.autoMerge);
+    if (recoveryLifecycle && recoveryTerminalEffectConfirmed) {
+      const targetPhase = iteration.outcome === "auto_merged" ? "completed" : "stopped";
+      const terminal = recoveryLifecycle.controller?.phase === targetPhase
+        ? { ok: true, state: recoveryLifecycle }
+        : transitionSessionLifecyclePhase(config, recoveryLifecycle, {
+            phase: targetPhase,
+            nextExactAction: iteration.outcome === "auto_merged" ? "existing_pr_recovery_complete" : "existing_pr_recovery_stopped",
+          });
+      if (!terminal.ok) throw new Error(terminal.reasonCode);
+      iteration.sessionLifecycle = terminal.state;
+      issue.sessionLifecycle = terminal.state;
     }
     iteration.finishedAt = new Date().toISOString();
     return iteration;
@@ -686,7 +723,40 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     },
   });
 
+  let lifecycleInvocation = null;
+  if (!config.dryRun && config.sessionLifecycle?.enabled === true) {
+    const controllerSessionId = `${runId}:controller:${index}`;
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: issue.number,
+      taskKey: promptInfo.timestampKey,
+      runId,
+      claimIdentity: `${config.repositorySlug}#${issue.number}`,
+      chargeMarkerRef: iteration.logicalTaskBudget.statePath,
+      sessionId: controllerSessionId,
+      branchName,
+      baseSha: iteration.baseOriginMainSha,
+      headSha: getRefSha("HEAD"),
+      phase: "implementation_or_bundle_slice",
+      nextExactAction: "run_implementation",
+      contextPolicy: config.sessionLifecycle.contextBudget,
+      reservations: recoveryRecorder?.state?.mutationMarkers || {},
+      evidence: recoveryRecorder?.state?.evidence || {},
+      reportPath: promptInfo.reportPath,
+    });
+    const persistedLifecycle = persistSessionLifecycleState(config, lifecycle);
+    if (!persistedLifecycle.ok) throw new Error(persistedLifecycle.reasonCode);
+    lifecycleInvocation = { state: persistedLifecycle.state, newSessionId: `${runId}:implementation:${index}`, phase: "implementation_or_bundle_slice", telemetry: {}, mutationJournaled: true };
+  }
+  if (lifecycleInvocation) promptInfo.sessionLifecycle = lifecycleInvocation;
+  if (lifecycleInvocation) iteration.sessionLifecycle = lifecycleInvocation.state;
+  if (lifecycleInvocation) issue.sessionLifecycle = lifecycleInvocation.state;
   const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
+  if (codexResult.sessionLifecycle?.state && promptInfo.sessionLifecycle) {
+    promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: codexResult.sessionLifecycle.state };
+    iteration.sessionLifecycle = codexResult.sessionLifecycle.state;
+    issue.sessionLifecycle = codexResult.sessionLifecycle.state;
+  }
   iteration.codex = codexResult;
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
     iteration.outcome = "auto_failed";
@@ -787,7 +857,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
 
-  iteration.commit = commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`);
+  iteration.commit = await commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`, { effectContext: promptInfo.sessionLifecycle?.state });
   iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "checkpoint_commit");
   recoveryRecorder?.marker("checkpoint_commit", `issue-${issue.number}-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
@@ -893,6 +963,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome =
@@ -963,7 +1034,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   if (!iteration.review) {
     recoveryRecorder?.advance("codex_mechanics_security_review", "run_codex_mechanics_review");
-    iteration.review = runReviewPrompt(config, iteration.reviewPackage);
+    iteration.review = runReviewPrompt(config, { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null });
+    if (iteration.review.sessionLifecycle) {
+      iteration.sessionLifecycle = iteration.review.sessionLifecycle;
+      issue.sessionLifecycle = iteration.review.sessionLifecycle;
+      if (promptInfo.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: iteration.review.sessionLifecycle };
+    }
     const afterReview = await checkoutFingerprint();
     iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
     if (iteration.reviewMutationGuard.mutationDetected) {
@@ -1019,6 +1095,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
     if (fixAttempt.proceeded) {
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
@@ -1120,6 +1197,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
       });
       iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+      if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
       if (!fixAttempt.proceeded) {
         markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
         iteration.outcome =
@@ -1250,6 +1328,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diagnosticAuthorization: iteration.reviewConvergenceBudget?.diagnosticAuthorization,
     });
     iteration.reviewFixAttempts = [...(iteration.reviewFixAttempts || []), fixAttempt];
+    if (promptInfo.sessionLifecycle?.state) iteration.sessionLifecycle = promptInfo.sessionLifecycle.state;
     if (!fixAttempt.proceeded) {
       markNormalDiagnosticReviewFixTerminal(config, iteration, fixAttempt.reason);
       iteration.outcome = "review_changes_requested_retry_exhausted";
@@ -1314,7 +1393,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   recoveryRecorder?.advance("push", "push_branch");
-  iteration.push = pushBranch(config, branchName);
+  iteration.push = await pushBranch(config, branchName, { effectContext: promptInfo.sessionLifecycle?.state });
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(
@@ -1330,7 +1409,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   recoveryRecorder?.marker("push", `branch-${branchName}`, { target: branchName, correlation: iteration.runnerCreatedCommitSha || runId });
   recoveryRecorder?.advance("pr_create_recover", "open_or_recover_pr");
-  iteration.pr = openOrUpdatePr(config, issue, branchName, prSummary(iteration));
+  iteration.pr = await openOrUpdatePr(config, issue, branchName, prSummary(iteration), { effectContext: promptInfo.sessionLifecycle?.state });
   if (iteration.pr?.url || iteration.pr?.number) {
     recoveryRecorder?.setPr(iteration.pr);
     recoveryRecorder?.marker("pr_create", `issue-${issue.number}`, {
@@ -1392,6 +1471,23 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         correlation: iteration.pr?.url || "",
       });
     }
+  }
+  const ordinaryLifecycle = issue.sessionLifecycle || iteration.sessionLifecycle;
+  const ordinaryTerminalEffectsConfirmed = (iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0)
+    && autoMergeEffectsConfirmed(config, ordinaryLifecycle, iteration.autoMerge);
+  if (ordinaryLifecycle && ordinaryTerminalEffectsConfirmed) {
+    const successfulOutcome = ["auto_merged", "approved_pr_opened"].includes(iteration.outcome);
+    const terminal = transitionSessionLifecyclePhase(config, ordinaryLifecycle, {
+      phase: successfulOutcome ? "completed" : "stopped",
+      nextExactAction: iteration.outcome === "auto_merged"
+        ? "ordinary_auto_merge_complete"
+        : iteration.outcome === "approved_pr_opened"
+          ? "ordinary_pr_opened_complete"
+          : "ordinary_failure_terminalized",
+    });
+    if (!terminal.ok) throw new Error(terminal.reasonCode);
+    iteration.sessionLifecycle = terminal.state;
+    issue.sessionLifecycle = terminal.state;
   }
   recoveryRecorder?.complete(iteration.outcome);
   iteration.recovery = recoveryRecorder?.summary();
@@ -1581,7 +1677,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: "unsupported_early_phase_recovery", state: stopped };
       }
-      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state);
+      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state, { runId: state.runId || state.logicalTask?.runId });
       if (!existingPrRecovery) {
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: "recovery_existing_pr_context_missing", state };
       }
@@ -1613,10 +1709,45 @@ function validateRecoveryOnlyStartupEvidence(config, state) {
   });
 }
 
-async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null) {
+async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null, lifecycleInput = {}) {
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
   if (!recoveryConfig) return null;
+  let sessionLifecycle = recoveryState?.sessionLifecycle || null;
+  if (!config.dryRun && config.sessionLifecycle?.enabled === true && !sessionLifecycle) {
+    const configuredEvidence = recoveryConfig.exactHeadEvidence || {};
+    const lifecycleRunId = lifecycleInput.runId || configuredEvidence.runnerRunId || config.outageRecoveryTarget?.runnerRunId || `existing-pr-${issue.number}`;
+    const lifecycleTaskKey = configuredEvidence.taskKey || config.outageRecoveryTarget?.taskKey || `existing-pr-${issue.number}`;
+    const lifecycleHead = recoveryConfig.expectedHeadSha || configuredEvidence.headSha || config.outageRecoveryTarget?.currentHeadSha;
+    const lifecycleBranch = recoveryConfig.branchName || config.outageRecoveryTarget?.branchName;
+    fetchOriginMain(config);
+    const lifecycleBase = recoveryConfig.expectedOriginMainSha || configuredEvidence.baseSha || config.outageRecoveryTarget?.baseSha || getRefSha("origin/main");
+    if (!/^[a-f0-9]{40}$/.test(String(lifecycleHead || "")) || !/^[a-f0-9]{40}$/.test(String(lifecycleBase || "")) || !lifecycleBranch) {
+      return { reason: "existing_pr_lifecycle_identity_incomplete", terminalMutationBlocked: true, autoMerge: { result: "blocked", reason: "existing_pr_lifecycle_identity_incomplete" } };
+    }
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: issue.number,
+      taskKey: lifecycleTaskKey,
+      runId: lifecycleRunId,
+      claimIdentity: `${config.repositorySlug}#${issue.number}`,
+      chargeMarkerRef: lifecycleInput.chargeMarkerRef || recoveryState?.logicalTaskBudget?.chargeId || `accepted:${lifecycleRunId}:${issue.number}`,
+      sessionId: `${lifecycleRunId}:existing-pr:${lifecycleInput.index || 0}`,
+      branchName: lifecycleBranch,
+      baseSha: lifecycleBase,
+      headSha: lifecycleHead,
+      phase: "exact_head_final_refresh",
+      nextExactAction: "evaluate_existing_pr_merge",
+      contextPolicy: config.sessionLifecycle.contextBudget,
+      reservations: recoveryState?.mutationMarkers || {},
+      evidence: recoveryState?.evidence || {},
+      reportCorrelationKey: lifecycleTaskKey,
+    });
+    const persisted = persistSessionLifecycleState(config, lifecycle);
+    if (!persisted.ok) return { reason: persisted.reasonCode, terminalMutationBlocked: true, autoMerge: { result: "blocked", reason: persisted.reasonCode } };
+    sessionLifecycle = persisted.state;
+  }
+  if (sessionLifecycle) issue.sessionLifecycle = sessionLifecycle;
   const targetCheck = validateRecoveryOnlyExistingPrTarget(config, recoveryConfig);
   if (!targetCheck.ok) {
     return { reason: targetCheck.reason, autoMerge: { result: "blocked", reason: targetCheck.reason } };
@@ -1673,6 +1804,10 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       changedFiles,
       expectedHeadSha,
     });
+    if (generatedRecoveryEvidence.sessionLifecycle) {
+      sessionLifecycle = generatedRecoveryEvidence.sessionLifecycle;
+      issue.sessionLifecycle = sessionLifecycle;
+    }
     exactHeadEvidence = {
       ...exactHeadEvidence,
       repositorySlug: config.repositorySlug,
@@ -1781,6 +1916,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     actualHeadSha: githubState.pr?.headRefOid || null,
     exactHeadEvidence,
     issueLinkageEvidence,
+    sessionLifecycle,
   };
   const strictRecoveryDecision = evaluateExistingPrRecovery({
     allowExistingPrRecovery: config.allowExistingPrRecovery,
@@ -1878,6 +2014,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     baseOriginMainSha,
     expectedHeadSha,
     autoMerge,
+    sessionLifecycle,
   };
 }
 
@@ -1939,13 +2076,14 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
       diffText: readPrDiff(config, pr.number || pr.url),
     });
     const externalReview = await runIntegratedReviewSource(config, reviewPackage, "existing-pr-recovery");
-    const review = externalReview.status === "pass" ? runReviewPrompt(config, reviewPackage) : null;
+    const review = externalReview.status === "pass" ? runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || null }) : null;
     return {
       reason: "recovery_evidence_generated",
       validation,
       reviewPackage,
       externalReview,
       review,
+      sessionLifecycle: review?.sessionLifecycle || issue.sessionLifecycle || null,
     };
   } finally {
     restore();
@@ -2118,9 +2256,9 @@ function createLivePrStackReviewAdapters(config) {
         fullCandidatePrDelta: review.fullCandidatePrDelta || fullCandidatePrDelta,
       };
     },
-    runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta }) => {
+    runCodexReview: async ({ pr, changedFiles, validation, externalReview, headSha, baseSha, fullCandidatePrDelta, sessionLifecycle = null }) => {
       const reviewPackage = await buildPackage({ reviewPhase: "pr-stack-final-codex-exact-head", pr, changedFiles, validation, headSha, baseSha, fullCandidatePrDelta, externalReview });
-      const review = runReviewPrompt(config, reviewPackage);
+      const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle });
       return {
         ...review,
         reviewedHead: review.reviewedHead || headSha,
@@ -2187,6 +2325,7 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     reviewThreads: [],
     codeScanningAlerts: [],
     blockingMarkers: [],
+    sessionLifecycle: iteration.sessionLifecycle || null,
   };
   if (!config.allowAutoMerge) {
     const decision = evaluateAutoMergeDecision(baseContext);
@@ -2261,6 +2400,16 @@ async function runReviewFixCycle(config, context) {
     `${safeTimestamp()}-issue-${context.issue.number}-${slugify(context.issue.title, 40)}-prompt.md`,
   );
   writeFileSync(promptPath, prompt);
+  let reviewFixLifecycle = null;
+  if (context.promptInfo?.sessionLifecycle) {
+    const synchronized = synchronizeSessionLifecycleCounters(config, context.promptInfo.sessionLifecycle.state, context.reviewConvergenceState?.counters || {
+      localSourceChangingRoundsPerEpoch: 0,
+      githubTriggeredFixEpochsPerPr: 0,
+      lifetimeLocalSourceChangingRounds: 0,
+    });
+    if (!synchronized.ok) return { attempted: false, proceeded: false, reason: synchronized.reasonCode };
+    reviewFixLifecycle = { ...context.promptInfo.sessionLifecycle, state: synchronized.state, newSessionId: `${synchronized.state.logicalTask.runId}:review-fix:${randomUUID()}`, phase: "review_fix" };
+  }
   const codex = runCodexPrompt(
     config,
     {
@@ -2268,9 +2417,15 @@ async function runReviewFixCycle(config, context) {
       branchName: context.branchName,
       prompt,
       promptPath,
+      ...(reviewFixLifecycle ? { sessionLifecycle: reviewFixLifecycle } : {}),
     },
     "review-fix",
   );
+  if (codex.sessionLifecycle?.state && context.promptInfo?.sessionLifecycle) {
+    context.promptInfo.sessionLifecycle = { ...reviewFixLifecycle, state: codex.sessionLifecycle.state };
+    context.issue.sessionLifecycle = codex.sessionLifecycle.state;
+    if (context.iteration) context.iteration.sessionLifecycle = codex.sessionLifecycle.state;
+  }
   const changedFilesAfter = listWorkingTreeChangedFiles();
   const forbiddenChangedFilesAfter = filterForbiddenChangedFiles(changedFilesAfter, context.laneDecision);
   const finishBlocked = (reason, extra = {}) => {
@@ -2366,7 +2521,12 @@ async function runReviewFixCycle(config, context) {
     reviewPhase: "post-review-fix-mechanics",
     reviewFixMechanicsContext: postFixContext.context,
   });
-  const reviewAfter = runReviewPrompt(config, reviewPackageAfter);
+  const reviewAfter = runReviewPrompt(config, { ...reviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
+  if (reviewAfter.sessionLifecycle) {
+    context.issue.sessionLifecycle = reviewAfter.sessionLifecycle;
+    context.sessionLifecycle = reviewAfter.sessionLifecycle;
+    if (context.promptInfo.sessionLifecycle) context.promptInfo.sessionLifecycle = { ...context.promptInfo.sessionLifecycle, state: reviewAfter.sessionLifecycle };
+  }
   const afterReview = await checkoutFingerprint();
   const reviewMutationGuardAfter = compareFingerprints(beforeReview, afterReview);
   if (reviewMutationGuardAfter.mutationDetected) {
@@ -2421,12 +2581,33 @@ async function runReviewFixCycle(config, context) {
 }
 
 function finishIssueOutcome(config, issue, outcome, body) {
-  return commentIssueOutcome(config, issue, outcome, body);
+  const result = commentIssueOutcome(config, issue, outcome, body, { effectContext: issue.sessionLifecycle || null });
+  if (issue.sessionLifecycle && !["auto_merged", "approved_pr_opened"].includes(outcome)
+    && result?.status === 0 && !lifecycleHasPendingCanonicalIntents(config, issue.sessionLifecycle)) {
+    const terminal = transitionSessionLifecyclePhase(config, issue.sessionLifecycle, {
+      phase: "stopped",
+      nextExactAction: `terminal_outcome:${outcome}`,
+    });
+    if (!terminal.ok) throw new Error(terminal.reasonCode);
+    issue.sessionLifecycle = terminal.state;
+  }
+  return result;
+}
+
+function lifecycleHasPendingCanonicalIntents(config, lifecycle) {
+  if (!lifecycle) return false;
+  try {
+    return findPreEffectIntents(config, (intent) => intent.runId === lifecycle.logicalTask?.runId
+      && intent.claimIdentity === lifecycle.logicalTask?.claimIdentity
+      && !["finalized", "failed_closed"].includes(intent.status)).length > 0;
+  } catch {
+    return true;
+  }
 }
 
 async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
-  const commit = commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`);
+  const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`, { effectContext: promptInfo?.sessionLifecycle?.state });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
@@ -2457,7 +2638,11 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
     diffHeadRef: "HEAD",
   });
   const externalReview = await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head");
-  const review = runReviewPrompt(config, reviewPackage);
+  const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
+  if (review.sessionLifecycle) {
+    issue.sessionLifecycle = review.sessionLifecycle;
+    if (promptInfo?.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: review.sessionLifecycle };
+  }
   const afterReview = await checkoutFingerprint();
   return {
     changedFiles,

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
@@ -26,6 +27,7 @@ import {
 } from "./git-workspace.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./codex-runner.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters } from "./session-lifecycle.mjs";
 import { collectReport } from "./report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./pr-manager.mjs";
@@ -137,6 +139,16 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       sliceOrder: plan.slices.map((slice) => slice.id),
     },
   });
+  let sessionLifecycle = recovery?.state?.sessionLifecycle || recoveryState?.sessionLifecycle || createBundleSessionLifecycle(config, {
+    issue,
+    plan,
+    runId,
+    branchName: bundleBranchName,
+    baseSha: baseOriginMainSha,
+    headSha: config.dryRun ? baseOriginMainSha : getRefSha("HEAD"),
+    recoveryState: recovery?.state || recoveryState,
+  });
+  result.sessionLifecycle = sessionLifecycle;
   recovery?.advance("implementation_or_bundle_slice", "run_next_bundle_slice");
 
   let checkpointBase = config.dryRun ? "origin/main" : getRefSha("HEAD");
@@ -164,7 +176,15 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     if (!config.dryRun) writeBundleState(config, state);
     recovery?.advance("implementation_or_bundle_slice", `run_bundle_slice:${slice.id}`);
 
-    const codex = runCodexPrompt(config, { ...promptInfo, branchName: bundleBranchName }, `bundle-${slice.sequence}-${slice.id}`);
+    const codex = runCodexPrompt(config, {
+      ...promptInfo,
+      branchName: bundleBranchName,
+      ...(sessionLifecycle ? { sessionLifecycle: bundleLifecycleInvocation(sessionLifecycle, `bundle-${slice.sequence}-${slice.id}`) } : {}),
+    }, `bundle-${slice.sequence}-${slice.id}`);
+    if (codex.sessionLifecycle?.state) {
+      sessionLifecycle = codex.sessionLifecycle.state;
+      result.sessionLifecycle = sessionLifecycle;
+    }
     if (!codex.skipped && (codex.error || codex.status !== 0)) {
       state = markBundleStopped(state, { sliceId: slice.id, reasonCode: "codex_failed", reason: codex.error || `status ${codex.status}` });
       if (!config.dryRun) writeBundleState(config, state);
@@ -212,7 +232,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       return stopBundle(result, "bundle_recovery_failed", "slice_report_missing", `Expected bundle slice report missing: ${promptInfo.reportPath}`);
     }
 
-    const commit = commitExplicitPaths(config, sliceChangedFiles, `${slice.title}`);
+    const commit = await commitExplicitPaths(config, sliceChangedFiles, `${slice.title}`, { effectContext: sessionLifecycle });
     const checkpointSha = config.dryRun ? null : getRefSha("HEAD");
     recovery?.headChanged(checkpointSha, `bundle_slice_commit:${slice.id}`);
     recovery?.marker("checkpoint_commit", `bundle-${plan.id}-${slice.id}-${checkpointSha || "dry-run"}`, {
@@ -310,7 +330,11 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
-  result.review = runReviewPrompt(config, result.reviewPackage);
+  result.review = runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
+  if (result.review.sessionLifecycle) {
+    sessionLifecycle = result.review.sessionLifecycle;
+    result.sessionLifecycle = sessionLifecycle;
+  }
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_codex_review",
   });
@@ -386,12 +410,15 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     reviewPackage: result.reviewPackage,
     prePushGate,
     recovery,
+    sessionLifecycle,
     writeState: (nextState) => {
       state = nextState;
       if (!config.dryRun) writeBundleState(config, state);
     },
   });
   state = convergence.state;
+  sessionLifecycle = convergence.sessionLifecycle || sessionLifecycle;
+  result.sessionLifecycle = sessionLifecycle;
   if (convergence.result) {
     result.validation = convergence.result.validation;
     result.externalReview = convergence.result.externalReview;
@@ -417,14 +444,14 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
 
   recovery?.advance("push", "push_bundle_branch");
-  result.push = pushBranch(config, bundleBranchName);
+  result.push = await pushBranch(config, bundleBranchName, { effectContext: sessionLifecycle });
   if (!config.dryRun && (result.push.error || result.push.status !== 0)) {
     recovery?.stop("bundle_push_failed", result.push.error || `status ${result.push.status}`, "retry_bounded_or_manual");
     return stopBundle(result, "auto_failed", "bundle_push_failed", "Bundle branch push failed.");
   }
   recovery?.marker("push", `branch-${bundleBranchName}`, { target: bundleBranchName, correlation: finalHead || runId });
   recovery?.advance("pr_create_recover", "open_bundle_pr");
-  result.pr = openOrUpdatePr(config, issue, bundleBranchName, bundlePrSummary({ result, state, plan }));
+  result.pr = await openOrUpdatePr(config, issue, bundleBranchName, bundlePrSummary({ result, state, plan }), { effectContext: sessionLifecycle });
   if (result.pr?.url || result.pr?.number) {
     recovery?.setPr(result.pr);
     recovery?.marker("pr_create", `bundle-${plan.id}-issue-${issue.number}`, {
@@ -438,7 +465,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     recovery?.evidence("ciChecks", { status: "recorded", headSha: finalHead, baseSha: baseOriginMainSha, changedFiles: aggregateFiles });
   }
   recovery?.advance("exact_head_final_refresh", "evaluate_bundle_merge_or_pr_state");
-  result.autoMerge = await evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName: bundleBranchName, changedFiles: aggregateFiles, forbidden: aggregateForbidden, laneDecision: planned.laneDecision, autoMergeRunner });
+  result.autoMerge = await evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName: bundleBranchName, changedFiles: aggregateFiles, forbidden: aggregateForbidden, laneDecision: planned.laneDecision, autoMergeRunner, sessionLifecycle });
   result.outcome = result.autoMerge.result === "merged" ? "auto_merged" : "approved_pr_opened";
   if (result.autoMerge.result === "merged") {
     recovery?.marker("merge", `bundle-pr-${result.pr?.number || result.pr?.url}-${finalHead || "head"}`, {
@@ -479,7 +506,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
     const codexNeedsConvergence = !config.dryRun && currentResult.review?.verdict?.verdict && currentResult.review.verdict.verdict !== "approve";
     const gateNeedsConvergence = !prePushGate.ok && prePushGate.outcome === "review_convergence_required";
     if (!codexNeedsConvergence && !gateNeedsConvergence) {
-      return { ok: true, state, result: { ...currentResult, changedFiles, forbiddenChangedFiles, headSha: state.lastVerifiedHead }, prePushGate, attempts };
+      return { ok: true, state, result: { ...currentResult, changedFiles, forbiddenChangedFiles, headSha: state.lastVerifiedHead }, prePushGate, attempts, sessionLifecycle: input.sessionLifecycle };
     }
 
     const source = codexNeedsConvergence ? "codex_mechanics_security_review" : "independent_review";
@@ -497,26 +524,26 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
     });
     writeState(state);
 
-    const budget = evaluateCycleBudget(state.reviewConvergenceState, config, state.reviewConvergenceHistory || []);
-    if (!budget.ok) {
-      input.recovery?.stop(`bundle_review_convergence_${budget.terminalReason || "blocked"}`, budget.reason, "stop_fail_closed");
+    const cycleDecision = evaluateCycleBudget(state.reviewConvergenceState, config, state.reviewConvergenceHistory || []);
+    if (!cycleDecision.ok) {
+      input.recovery?.stop(`bundle_review_convergence_${cycleDecision.terminalReason || "blocked"}`, cycleDecision.reason, "stop_fail_closed");
       return {
         ok: false,
-        outcome: terminalOutcomeForConvergence(budget.terminalReason),
-        reasonCode: budget.terminalReason || "bundle_review_convergence_blocked",
-        reason: budget.reason,
+        outcome: terminalOutcomeForConvergence(cycleDecision.terminalReason),
+        reasonCode: cycleDecision.terminalReason || "bundle_review_convergence_blocked",
+        reason: cycleDecision.reason,
         state,
         attempts,
-        summary: { budget },
+        summary: { budget: cycleDecision },
       };
     }
-    if (budget.transitionedState) {
+    if (cycleDecision.transitionedState) {
       state = {
         ...state,
-        reviewConvergenceState: budget.transitionedState,
+        reviewConvergenceState: cycleDecision.transitionedState,
       };
       writeState(state);
-      budget.transitionedState = state.reviewConvergenceState;
+      cycleDecision.transitionedState = state.reviewConvergenceState;
     }
 
     input.recovery?.advance("review_fix", source === "codex_mechanics_security_review" ? "run_bundle_codex_review_convergence" : "run_bundle_review_convergence");
@@ -534,10 +561,12 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       reviewPackage: currentResult.reviewPackage,
       attemptCount: state.reviewConvergenceState.sourceChangingCycle,
       reviewConvergenceState: state.reviewConvergenceState,
-      diagnosticAuthorization: budget.diagnosticAuthorization,
+      diagnosticAuthorization: cycleDecision.diagnosticAuthorization,
       source,
+      sessionLifecycle: input.sessionLifecycle,
     });
     attempts.push(fixAttempt);
+    if (fixAttempt.sessionLifecycle) input.sessionLifecycle = fixAttempt.sessionLifecycle;
     if (!fixAttempt.proceeded) {
       input.recovery?.stop("bundle_review_convergence_fix_not_proceeded", fixAttempt.reason, terminalNextAction(fixAttempt.reason));
       if (state.reviewConvergenceState?.diagnosticReviewFix?.status === "pending") {
@@ -567,7 +596,9 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       branchName: input.branchName,
       baseSha: input.baseSha,
       fixAttempt,
+      sessionLifecycle: input.sessionLifecycle,
     });
+    if (postFix.sessionLifecycle) input.sessionLifecycle = postFix.sessionLifecycle;
     changedFiles = postFix.changedFiles || changedFiles;
     forbiddenChangedFiles = postFix.forbiddenChangedFiles || forbiddenChangedFiles;
     currentResult = {
@@ -728,7 +759,21 @@ async function runBundleReviewFixCycle(config, context) {
   );
   mkdirSync(path.dirname(promptPath), { recursive: true });
   writeFileSync(promptPath, prompt);
-  const codex = runCodexPrompt(config, { branchName: context.branchName, prompt, promptPath }, "bundle-review-fix");
+  let lifecycleState = context.sessionLifecycle;
+  if (lifecycleState) {
+    const synchronized = synchronizeSessionLifecycleCounters(config, lifecycleState, context.reviewConvergenceState?.counters || {
+      localSourceChangingRoundsPerEpoch: 0, githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 0,
+    });
+    if (!synchronized.ok) return { attempted: false, proceeded: false, reason: synchronized.reasonCode, decision, promptPath };
+    lifecycleState = synchronized.state;
+  }
+  const codex = runCodexPrompt(config, {
+    branchName: context.branchName,
+    prompt,
+    promptPath,
+    ...(lifecycleState ? { sessionLifecycle: bundleLifecycleInvocation(lifecycleState, "bundle-review-fix") } : {}),
+  }, "bundle-review-fix");
+  if (codex.sessionLifecycle?.state) context.sessionLifecycle = codex.sessionLifecycle.state;
   if (!codex.skipped && (codex.error || codex.status !== 0)) {
     return { attempted: true, proceeded: false, reason: "review_fix_codex_failed", decision, promptPath, codex };
   }
@@ -755,12 +800,52 @@ async function runBundleReviewFixCycle(config, context) {
     changedFilesAfter,
     forbiddenChangedFilesAfter,
     validationAfter,
+    sessionLifecycle: codex.sessionLifecycle?.state || context.sessionLifecycle || null,
   };
 }
 
-async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt }) {
+function createBundleSessionLifecycle(config, input) {
+  if (config.dryRun || config.sessionLifecycle?.enabled !== true) return null;
+  const recovery = input.recoveryState || {};
+  const state = createSessionLifecycleState({
+    repository: config.repositorySlug,
+    issueNumber: input.issue.number,
+    taskKey: input.plan.taskKey || recovery.taskKey || "auto-runner",
+    runId: input.runId,
+    claimIdentity: recovery.claim?.identity || `issue-${input.issue.number}`,
+    chargeMarkerRef: recovery.logicalTaskBudget?.chargeId || recovery.mutationMarkers?.logical_task_charge?.key || `accepted:${input.runId}:${input.issue.number}`,
+    branchName: input.branchName,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    sessionId: `${input.runId}:bundle:0`,
+    phase: "implementation_or_bundle_slice",
+    nextExactAction: "run_next_bundle_slice",
+    contextPolicy: config.sessionLifecycle.contextBudget,
+    localSourceChangingRoundsPerEpoch: recovery.reviewConvergence?.counters?.localSourceChangingRoundsPerEpoch || 0,
+    githubTriggeredFixEpochsPerPr: recovery.reviewConvergence?.counters?.githubTriggeredFixEpochsPerPr || 0,
+    lifetimeLocalSourceChangingRounds: recovery.reviewConvergence?.counters?.lifetimeLocalSourceChangingRounds || 0,
+    reservations: recovery.mutationMarkers || {},
+    evidence: recovery.evidence || {},
+    reportCorrelationKey: input.plan.taskKey || recovery.taskKey || "auto-runner",
+  });
+  const persisted = persistSessionLifecycleState(config, state);
+  if (!persisted.ok) throw new Error(persisted.reasonCode);
+  return persisted.state;
+}
+
+function bundleLifecycleInvocation(state, phase) {
+  return {
+    state,
+    newSessionId: `${state.logicalTask.runId}:${phase}:${state.sessions.generation + 1}:${randomUUID()}`,
+    phase,
+    telemetry: {},
+    mutationJournaled: true,
+  };
+}
+
+async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, plan, state, branchName, baseSha, fixAttempt, sessionLifecycle }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
-  const commit = commitExplicitPaths(config, changedFilesBeforeCommit, `Feature bundle issue #${issue.number}: review-fix follow-up`);
+  const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Feature bundle issue #${issue.number}: review-fix follow-up`, { effectContext: fixAttempt.sessionLifecycle || sessionLifecycle });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
@@ -794,7 +879,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     };
   }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
-  const review = runReviewPrompt(config, reviewPackage);
+  const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: fixAttempt.sessionLifecycle || sessionLifecycle || null });
   const codexReviewMutationGuard = compareBundleReviewCheckoutFingerprint(codexReviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_convergence_codex_review",
   });
@@ -807,6 +892,7 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
+    sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
   };
 }
@@ -918,7 +1004,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
   return { packagePath, summary, diff: diff.text };
 }
 
-async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName, changedFiles, forbidden, laneDecision, autoMergeRunner = null }, deps = {}) {
+async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName, changedFiles, forbidden, laneDecision, autoMergeRunner = null, sessionLifecycle = null }, deps = {}) {
   const dependencies = {
     inspectState: deps.inspectState || inspectAutoMergeGithubState,
     executeMerge: deps.executeMerge || executeAutoMerge,
@@ -927,6 +1013,7 @@ async function evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchN
   };
   const baseContext = {
     config,
+    sessionLifecycle,
     issue: { number: issue.number, title: issue.title, state: issue.state || "OPEN", labels: issue.labels || [] },
     laneDecision,
     changedFiles,

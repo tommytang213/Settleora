@@ -7,6 +7,9 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
+import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
+import { findPreEffectIntents, handoffPreEffectIntentAuthority } from "./pre-effect-intent.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -193,7 +196,41 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
-  const state = loaded.state;
+  let state = loaded.state;
+  const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, recovery.interruption || {});
+  if (!lifecycleRecovery.ok) {
+    return {
+      ok: false,
+      outcome: "blocked_recovery_state",
+      reasonCode: lifecycleRecovery.reasonCode,
+      recovery: { ...recovery, lifecycle: lifecycleRecovery },
+    };
+  }
+  if (lifecycleRecovery.terminal) {
+    state = advanceRecoveryPhase(state, {
+      phase: lifecycleRecovery.terminalPhase,
+      firstIncompleteAction: `lifecycle_${lifecycleRecovery.terminalPhase}`,
+      nextSafeAction: `lifecycle_${lifecycleRecovery.terminalPhase}`,
+    });
+    state = { ...state, sessionLifecycle: lifecycleRecovery.state };
+    writeRecoveryState(config, state);
+    return {
+      ok: true,
+      outcome: "terminal_lifecycle_reconciled",
+      reasonCode: lifecycleRecovery.reasonCode,
+      recovery: { ...recovery, lifecycle: lifecycleRecovery, state: summarizeRecoverableState(state) },
+      result: { terminalPhase: lifecycleRecovery.terminalPhase },
+    };
+  }
+  if (lifecycleRecovery.state) state = { ...state, sessionLifecycle: lifecycleRecovery.state };
+  if (lifecycleRecovery.earliestSafePhase && lifecycleRecovery.earliestSafePhase !== state.phase) {
+    state = advanceRecoveryPhase(state, {
+      phase: lifecycleRecovery.earliestSafePhase,
+      firstIncompleteAction: lifecycleRecovery.earliestSafePhase,
+      nextSafeAction: lifecycleRecovery.earliestSafePhase,
+    });
+  }
+  writeRecoveryState(config, state);
   const boundary = firstIncompleteContinuationAction(state);
   if (!boundary.ok) {
     return {
@@ -245,6 +282,135 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     },
     result,
   };
+}
+
+export function consumeStartupInterruptionPlanner(config, recoveryState, interruption = {}, evidenceAdapters = {}) {
+  const identity = {
+    repository: config.repositorySlug,
+    issueNumber: recoveryState.issue?.number,
+    taskKey: recoveryState.taskKey,
+    runId: recoveryState.run?.runId,
+    branchName: recoveryState.branch?.name,
+    baseSha: recoveryState.branch?.baseSha,
+    headSha: recoveryState.branch?.currentHeadSha,
+  };
+  if (config.sessionLifecycle?.enabled !== true) {
+    if (!config.logsRoot) return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
+    const existing = loadSessionLifecycleForRecovery(config, identity);
+    if (existing.ok) return { ok: false, reasonCode: "session_lifecycle_disabled_existing_state" };
+    if (existing.reasonCode !== "session_lifecycle_state_missing") return existing;
+    return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
+  }
+  if (config.sessionLifecycle?.allowRecoveryTakeover !== true) return { ok: false, reasonCode: "session_lifecycle_recovery_takeover_disabled" };
+  const loaded = loadSessionLifecycleForRecovery(config, identity);
+  if (!loaded.ok) return loaded;
+  const taskIntents = findPreEffectIntents(config, (intent) => intent.repository === loaded.state.repository
+    && intent.sourceTaskKey === loaded.state.logicalTask.taskKey
+    && intent.runId === loaded.state.logicalTask.runId
+    && intent.claimIdentity === loaded.state.logicalTask.claimIdentity);
+  const pendingIntents = taskIntents.filter((intent) => !["finalized", "failed_closed"].includes(intent.status));
+  const authoritative = collectAuthoritativeRecoveryEvidence(config, {
+    repository: loaded.state.repository,
+    issueNumber: loaded.state.logicalTask.issueNumber,
+    taskKey: loaded.state.logicalTask.taskKey,
+    runId: loaded.state.logicalTask.runId,
+    claimIdentity: loaded.state.logicalTask.claimIdentity,
+    sessionId: loaded.state.sessions.current,
+    supervisorRunId: recoveryState.run?.supervisorRunId,
+    branchName: loaded.state.branch.name,
+    baseBranch: recoveryState.branch?.baseBranch || "main",
+    baseSha: loaded.state.branch.baseSha,
+    headSha: loaded.state.branch.headSha,
+    prNumber: recoveryState.pr?.number || null,
+    checkpointDigest: loaded.state.checkpoint.digest,
+    checkpointValid: true,
+    authority: loaded.state.mutationAuthority,
+  }, {
+    sourceMutationPresent: hasAnyMutationMarker(recoveryState, "sourceMutation"),
+    commitSha: hasAnyMutationMarker(recoveryState, "checkpoint_commit") ? recoveryState.branch?.currentHeadSha : null,
+    commitMarker: hasAnyMutationMarker(recoveryState, "checkpoint_commit"),
+    pushSha: hasAnyMutationMarker(recoveryState, "push") ? recoveryState.branch?.currentHeadSha : null,
+    pushMarker: hasAnyMutationMarker(recoveryState, "push"),
+    prHeadSha: recoveryState.pr?.headSha || null,
+    mergedHeadSha: recoveryState.pr?.headSha || recoveryState.branch?.currentHeadSha,
+    mergeMarker: hasAnyMutationMarker(recoveryState, "merge"),
+    commentMarker: hasAnyMutationMarker(recoveryState, "issue_comment"),
+    issueClosureMarker: hasAnyMutationMarker(recoveryState, "issue_close"),
+    hygieneMarker: hasAnyMutationMarker(recoveryState, "ledger_hygiene"),
+    issueNumber: recoveryState.issue?.number,
+    // Finalized intents are still authoritative crash-window evidence. A process can
+    // exit after the canonical effect is finalized but before the legacy marker is
+    // persisted, so excluding them would incorrectly rewind already-completed work.
+    preEffectIntentIds: taskIntents.map((intent) => intent.intentId),
+    commentFingerprints: taskIntents.map((intent) => intent.effect?.contentFingerprint).filter(Boolean),
+    commentCanonicalFingerprints: taskIntents.map((intent) => intent.effect?.bodyDigest).filter(Boolean),
+  }, evidenceAdapters);
+  const inputs = plannerInputsFromAuthoritativeEvidence(authoritative);
+  if (!inputs.ok) return { ...inputs, authoritativeEvidence: authoritative };
+  const reconciledLifecycle = reconcileAuthoritativeLifecycleHead(loaded.state, authoritative);
+  if (!reconciledLifecycle.ok) return reconciledLifecycle;
+  let lifecycleState = reconciledLifecycle.state;
+  if (reconciledLifecycle.changed) {
+    const headPersisted = persistSessionLifecycleState(config, lifecycleState);
+    if (!headPersisted.ok) return headPersisted;
+    lifecycleState = headPersisted.state;
+  }
+  const planned = planInterruptionRecovery(lifecycleState, inputs.liveEffects, { ...inputs.interruption, ...interruption });
+  if (!planned.ok) return planned;
+  if (planned.active) return { ok: false, reasonCode: planned.reasonCode };
+  if (planned.terminal) return { ...planned, state: lifecycleState, statePath: loaded.statePath };
+  const pending = persistSessionLifecycleState(config, planned.state);
+  if (!pending.ok) return pending;
+  const successorSessionId = `${planned.state.logicalTask.runId}:recovery:${planned.state.recovery.operationId}`;
+  const completed = completeSessionRotation(pending.state, {
+    requestId: pending.state.mutationAuthority.handoff?.requestId,
+    newSessionId: successorSessionId,
+  });
+  if (!completed.ok) return completed;
+  const authority = assertMutationAuthority(completed.state, successorSessionId);
+  if (!authority.ok) return authority;
+  const persisted = persistSessionLifecycleState(config, completed.state);
+  if (!persisted.ok) return persisted;
+  try {
+    for (const intent of pendingIntents) {
+      const classification = authoritative.intents.find((entry) => entry.intentId === intent.intentId)?.classification;
+      if (intent.sessionId === successorSessionId && intent.authorityGeneration === authority.generation) continue;
+      handoffPreEffectIntentAuthority(config, intent.intentId, { runId: loaded.state.logicalTask.runId, oldSessionId: intent.sessionId, oldAuthorityGeneration: intent.authorityGeneration, newSessionId: successorSessionId, newAuthorityGeneration: authority.generation, status: "active", resetForAuthoritativeAbsence: classification === "effect_absent_execution_uncertain" });
+    }
+  } catch {
+    return { ok: false, reasonCode: "pre_effect_intent_authority_handoff_failed", state: persisted.state };
+  }
+  return { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation, handedOffIntentIds: pendingIntents.map((intent) => intent.intentId) };
+}
+
+export function reconcileAuthoritativeLifecycleHead(state, authoritative) {
+  const liveHead = authoritative?.git?.headSha;
+  let next = state;
+  let changed = false;
+  if (liveHead !== state?.branch?.headSha) {
+    const exactCommit = authoritative?.intents?.some((intent) => intent.effectType === "commit"
+      && (intent.classification === "effect_present_exact_adoptable" || (intent.classification === "effect_confirmed" && intent.confirmedHeadMatches === true)));
+    if (!exactCommit || !/^[a-f0-9]{40}$/.test(String(liveHead || ""))) {
+      return { ok: false, reasonCode: "session_lifecycle_authoritative_head_unproven" };
+    }
+    next = { ...next, branch: { ...next.branch, headSha: liveHead, candidateDigest: null } };
+    changed = true;
+  }
+  const livePr = authoritative?.github?.pr;
+  if (livePr && !next?.branch?.prNumber) {
+    const exactPrCreate = authoritative?.intents?.some((intent) => intent.effectType === "pr_create" && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification));
+    if (!exactPrCreate || !Number.isSafeInteger(livePr.number) || livePr.headRefName !== next.branch.name || livePr.headSha !== next.branch.headSha) {
+      return { ok: false, reasonCode: "session_lifecycle_authoritative_pr_unproven" };
+    }
+    next = { ...next, branch: { ...next.branch, prNumber: livePr.number } };
+    changed = true;
+  }
+  return { ok: true, changed, state: next };
+}
+
+function hasAnyMutationMarker(state, kind) {
+  const markers = state?.mutationMarkers?.[kind];
+  return Boolean(markers && typeof markers === "object" && Object.keys(markers).length > 0);
 }
 
 function selectOwnCallableHandler(handlers, key) {

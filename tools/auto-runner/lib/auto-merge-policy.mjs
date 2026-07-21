@@ -9,6 +9,8 @@ import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { buildIssueOperationContext, completeMergedIssueHygiene } from "./completion-hygiene.mjs";
 import { evaluateCycleBudget } from "./review-convergence-controller.mjs";
+import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
+import { findPreEffectIntents } from "./pre-effect-intent.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -360,7 +362,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {
 
 export function executeAutoMerge(config, context, options = {}) {
   const runner = options.runner || defaultRunner;
-  const decision = evaluateAutoMergeDecision(context);
+  const decision = confirmedLifecycleMergeDecision({ ...context, config }) || evaluateAutoMergeDecision(context);
   const wait = normalizeAutoMergeWait(config.autoMergeWait);
   if (!decision.eligible && shouldWaitForAutoMergeDecision(decision) && wait.maxAttempts > 1) {
     return executeAutoMergeWithWait(config, context, { ...options, runner, wait, firstDecision: decision });
@@ -391,7 +393,7 @@ export function executeAutoMerge(config, context, options = {}) {
     const origin = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
     finalContext.currentOriginMainSha = origin.status === 0 && !origin.error ? origin.stdout.trim() : finalContext.currentOriginMainSha;
   }
-  const finalDecision = evaluateAutoMergeDecision(finalContext);
+  const finalDecision = confirmedLifecycleMergeDecision({ ...finalContext, config }) || evaluateAutoMergeDecision(finalContext);
   if (!finalDecision.eligible) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
     return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
@@ -401,9 +403,11 @@ export function executeAutoMerge(config, context, options = {}) {
     const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
-  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
-  if (merge.error || merge.status !== 0) {
-    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
+  const merge = finalContext.sessionLifecycle
+    ? executeCanonicalMergeEffect(config, finalContext, { runner, repositorySlug, prNumber, finalDecision })
+    : runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+  if ((finalContext.sessionLifecycle && !merge.ok) || (!finalContext.sessionLifecycle && (merge.error || merge.status !== 0))) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: finalContext.sessionLifecycle ? merge.reasonCode : bounded(merge.stderr || merge.stdout || merge.error) };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
 
@@ -443,7 +447,10 @@ export function executeAutoMerge(config, context, options = {}) {
       runner: (command, args) => runner(command, args, { cwd: config.repoRoot }),
     },
   );
-  const prComment = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", mergeSummaryBody(finalContext, mergeSha)], { cwd: config.repoRoot });
+  const summaryBody = mergeSummaryBody(finalContext, mergeSha);
+  const prComment = finalContext.sessionLifecycle
+    ? executeCanonicalPrComment(config, finalContext, { runner, repositorySlug, prNumber: Number(prNumber), mergeSha, body: summaryBody })
+    : runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", summaryBody], { cwd: config.repoRoot });
   const merged = {
     ...finalDecision,
     attempted: true,
@@ -469,9 +476,87 @@ export function executeAutoMerge(config, context, options = {}) {
   return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
 }
 
+function confirmedLifecycleMergeDecision(context = {}) {
+  const expectedHeadSha = context.expectedHeadSha || context.pr?.expectedHeadSha;
+  if (!context.sessionLifecycle || String(context.pr?.state).toUpperCase() !== "MERGED" || context.pr?.headRefOid !== expectedHeadSha) return null;
+  const logical = context.sessionLifecycle.logicalTask;
+  const matchingIntent = findPreEffectIntents(context.config || {}, (intent) => intent.effectType === "merge"
+    && intent.repository === context.sessionLifecycle.repository
+    && intent.runId === logical?.runId
+    && intent.claimIdentity === logical?.claimIdentity
+    && intent.effect?.prNumber === Number(context.pr?.number || context.prNumber)
+    && intent.effect?.expectedHeadSha === expectedHeadSha
+    && intent.status !== "failed_closed");
+  if (matchingIntent.length !== 1) return null;
+  return { eligible: true, attempted: false, result: "eligible", reason: "canonical_merge_already_confirmed", expectedHeadSha };
+}
+
+function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, prNumber, finalDecision }) {
+  const baseSha = context.expectedOriginMainSha || context.baseSha || context.currentOriginMainSha;
+  const gateEvidenceDigest = canonicalGithubEvidenceDigest({
+    expectedHeadSha: finalDecision.expectedHeadSha,
+    baseSha,
+    requiredChecks: (context.requiredChecks || []).map((check) => ({ name: bounded(check.name), status: bounded(check.status), conclusion: bounded(check.conclusion) })),
+    reviewThreads: (context.reviewThreads || []).map((thread) => ({ id: bounded(thread.id), resolved: thread.isResolved === true })),
+    codeScanningAlerts: (context.codeScanningAlerts || []).map((alert) => ({ number: Number.isSafeInteger(alert.number) ? alert.number : null, state: bounded(alert.state), rule: bounded(alert.rule?.id || alert.ruleId) })),
+    validation: { passed: context.validation?.passed === true, headSha: bounded(context.validation?.headSha), baseSha: bounded(context.validation?.baseSha), changedFilesDigest: bounded(context.validation?.changedFilesDigest) },
+    externalReview: { status: bounded(context.externalReview?.status), verdict: bounded(context.externalReview?.verdict), reviewedHead: bounded(context.externalReview?.reviewedHead), changedFilesDigest: bounded(context.externalReview?.changedFilesDigest) },
+    codexReview: { verdict: bounded(context.review?.verdict?.verdict || context.review?.status), reviewedHead: bounded(context.review?.reviewedHead), changedFilesDigest: bounded(context.review?.changedFilesDigest) },
+  });
+  const effect = { prNumber: Number(prNumber), expectedHeadSha: finalDecision.expectedHeadSha, expectedBaseSha: baseSha, baseBranch: context.pr?.baseRefName || context.baseRefName || "main", mergeMethod: "merge", gateEvidenceDigest, retainSourceBranch: true };
+  return executeCanonicalGithubEffectSync(config, context.sessionLifecycle, {
+    effectType: "merge", prNumber: Number(prNumber), headSha: finalDecision.expectedHeadSha, baseSha, baseBranch: effect.baseBranch, effect,
+  }, {
+    readLive: (intent) => {
+      const view = runner("gh", ["pr", "view", String(prNumber), "--repo", repositorySlug, "--json", "number,state,headRefOid,baseRefName,mergeCommit"], { cwd: config.repoRoot });
+      if (view.error || view.status !== 0) return { complete: false };
+      let pr; try { pr = JSON.parse(view.stdout || "{}"); } catch { return { complete: false }; }
+      if (Number(pr.number) !== Number(prNumber) || pr.headRefOid !== effect.expectedHeadSha || pr.baseRefName !== effect.baseBranch) return { complete: true, present: true, identity: intent.identity, effect: { ...effect, expectedHeadSha: pr.headRefOid || "unknown" } };
+      if (String(pr.state).toUpperCase() === "MERGED" && pr.mergeCommit?.oid) {
+        const commit = runner("gh", ["api", `repos/${repositorySlug}/git/commits/${pr.mergeCommit.oid}`], { cwd: config.repoRoot });
+        if (commit.error || commit.status !== 0) return { complete: false };
+        let mergeCommit; try { mergeCommit = JSON.parse(commit.stdout || "{}"); } catch { return { complete: false }; }
+        if (mergeCommit.parents?.[0]?.sha !== effect.expectedBaseSha || mergeCommit.parents?.[1]?.sha !== effect.expectedHeadSha) {
+          return { complete: true, present: true, identity: intent.identity, effect: { ...effect, expectedBaseSha: mergeCommit.parents?.[0]?.sha || "unknown" } };
+        }
+        return { complete: true, present: true, identity: intent.identity, effect };
+      }
+      if (String(pr.state).toUpperCase() === "OPEN") return { complete: true, present: false };
+      return { complete: true, ambiguous: true };
+    },
+    execute: () => {
+      const result = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+      if (result.error || result.status !== 0) throw new Error("Exact-head merge command did not confirm success");
+      return { ok: true, status: result.status };
+    },
+  });
+}
+
+function executeCanonicalPrComment(config, context, { runner, repositorySlug, prNumber, mergeSha, body }) {
+  const stableFingerprint = `settleora-auto-merge:${prNumber}:${mergeSha}`;
+  const markedBody = `${body}\n\n<!-- ${stableFingerprint} -->`;
+  const effect = { prNumber, mergeSha, bodyDigest: canonicalGithubEvidenceDigest(markedBody), stableFingerprint };
+  const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "comment", prNumber, headSha: context.expectedHeadSha, baseSha: mergeSha, effect }, {
+    readLive: (intent) => {
+      const view = runner("gh", ["pr", "view", String(prNumber), "--repo", repositorySlug, "--json", "number,comments"], { cwd: config.repoRoot });
+      if (view.error || view.status !== 0) return { complete: false };
+      let pr; try { pr = JSON.parse(view.stdout || "{}"); } catch { return { complete: false }; }
+      const matches = (pr.comments || []).filter((comment) => String(comment.body || "").includes(`<!-- ${stableFingerprint} -->`) && canonicalGithubEvidenceDigest(String(comment.body || "")) === effect.bodyDigest);
+      if (matches.length > 1) return { complete: true, ambiguous: true };
+      return matches.length === 1 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+    },
+    execute: () => {
+      const result = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", markedBody], { cwd: config.repoRoot });
+      if (result.error || result.status !== 0) throw new Error("Canonical PR merge comment did not confirm success");
+      return { ok: true, status: result.status };
+    },
+  });
+  return result.ok ? { status: 0, error: null, canonicalEffect: result } : { status: 1, error: result.reasonCode, canonicalEffect: result };
+}
+
 export function executeAutoMergeMergeOnly(config, context, options = {}) {
   const runner = options.runner || defaultRunner;
-  const decision = evaluateAutoMergeDecision(context);
+  const decision = confirmedLifecycleMergeDecision({ ...context, config }) || evaluateAutoMergeDecision(context);
   const wait = normalizeAutoMergeWait(config.autoMergeWait);
   if (!decision.eligible && shouldWaitForAutoMergeDecision(decision) && wait.maxAttempts > 1) {
     return executeAutoMergeWithWait(config, context, { ...options, runner, wait, firstDecision: decision, mergeOnly: true });
@@ -503,7 +588,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
     const origin = runner("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot });
     finalContext.currentOriginMainSha = origin.status === 0 && !origin.error ? origin.stdout.trim() : finalContext.currentOriginMainSha;
   }
-  const finalDecision = evaluateAutoMergeDecision(finalContext);
+  const finalDecision = confirmedLifecycleMergeDecision({ ...finalContext, config }) || evaluateAutoMergeDecision(finalContext);
   if (!finalDecision.eligible) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
     return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
@@ -513,9 +598,11 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
     const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
-  const merge = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
-  if (merge.error || merge.status !== 0) {
-    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: bounded(merge.stderr || merge.stdout || merge.error) };
+  const merge = finalContext.sessionLifecycle
+    ? executeCanonicalMergeEffect(config, finalContext, { runner, repositorySlug, prNumber, finalDecision })
+    : runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
+  if ((finalContext.sessionLifecycle && !merge.ok) || (!finalContext.sessionLifecycle && (merge.error || merge.status !== 0))) {
+    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: finalContext.sessionLifecycle ? merge.reasonCode : bounded(merge.stderr || merge.stdout || merge.error) };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
 
@@ -1077,6 +1164,26 @@ function restoreSourceBranchIfDeleted(config, context, runner) {
     if (existingHead !== headSha) return { ok: false, planned: false, executed: false, confirmed: false, reasonCode: "source_branch_head_mismatch", reason: "source_branch_head_mismatch" };
     return { ok: true, planned: false, executed: false, confirmed: true, branchExists: true, reason: "source_branch_exists", branchName, headSha };
   }
+  if (context.sessionLifecycle) {
+    const effect = { branchName, expectedHeadSha: headSha };
+    const canonical = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "branch_retention_verify", headSha, effect }, {
+      readLive: (intent) => {
+        const read = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
+        if (read.status !== 0 || read.error) return { complete: false };
+        const liveHead = remoteBranchHead(read.stdout, fullRef);
+        return liveHead === headSha ? { complete: true, present: true, identity: intent.identity, effect }
+          : liveHead ? { complete: true, ambiguous: true } : { complete: true, present: false };
+      },
+      execute: () => {
+        const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
+        if (push.status !== 0 || push.error) throw new Error("Canonical source branch restoration failed");
+        return { ok: true, status: push.status };
+      },
+    });
+    return canonical.ok
+      ? { ok: true, planned: true, executed: canonical.action === "executed", confirmed: true, branchExists: true, branchName, headSha, canonicalEffect: canonical }
+      : { ok: false, planned: true, executed: false, confirmed: false, reasonCode: canonical.reasonCode, canonicalEffect: canonical };
+  }
   const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
   if (push.status !== 0 || push.error) return { ok: false, planned: true, executed: false, confirmed: false, reasonCode: "source_branch_restore_push_failed", status: push.status, stderr: bounded(push.stderr || push.error || "") };
   const confirm = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
@@ -1254,6 +1361,7 @@ function independentReviewSummaryLine(context) {
 }
 
 function commandStatus(result) {
+  if (typeof result?.ok === "boolean") return { status: result.ok ? 0 : 1, error: result.ok ? null : result.reasonCode || "canonical_effect_incomplete" };
   return { status: result.status, error: result.error || null };
 }
 

@@ -14,6 +14,7 @@ import {
 } from "../lib/completion-hygiene.mjs";
 import { executeAutoMerge } from "../lib/auto-merge-policy.mjs";
 import { digestChangedFiles } from "../lib/config.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 
 const headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const baseSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -21,6 +22,13 @@ const mergeSha = "cccccccccccccccccccccccccccccccccccccccc";
 
 function logsRoot() {
   return mkdtempSync(path.join(tmpdir(), "settleora-completion-"));
+}
+
+function lifecycleFor(config) {
+  const state = createSessionLifecycleState({ repository: "tommytang213/Settleora", issueNumber: 891, taskKey: "task", runId: "run", claimIdentity: "claim", chargeMarkerRef: "charge", sessionId: "session", branchName: "feature/test", baseSha, headSha, phase: "hygiene", nextExactAction: "complete_hygiene" });
+  const persisted = persistSessionLifecycleState(config, state);
+  assert.equal(persisted.ok, true);
+  return persisted.state;
 }
 
 function narrowIssue(overrides = {}) {
@@ -69,7 +77,14 @@ function runnerWith(fixtures = {}) {
       return { status: 0, stdout: JSON.stringify(issue) };
     }
     if (command === "gh" && args[0] === "pr" && args[1] === "view") {
-      return { status: 0, stdout: JSON.stringify(fixtures.pr || { number: 100, url: "https://github.com/tommytang213/Settleora/pull/100", headRefOid: headSha, mergeCommit: { oid: mergeSha } }) };
+      const pr = typeof fixtures.pr === "function" ? fixtures.pr() : fixtures.pr;
+      return { status: 0, stdout: JSON.stringify(pr || { number: 100, url: "https://github.com/tommytang213/Settleora/pull/100", headRefOid: headSha, mergeCommit: { oid: mergeSha } }) };
+    }
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql" && args.some((arg) => String(arg).includes("repository(owner:$owner"))) {
+      const numberArg = args.find((arg) => String(arg).startsWith("number="));
+      const number = Number(String(numberArg || "number=0").slice("number=".length));
+      const issue = number === 800 ? fixtures.parentIssue || { number: 800, comments: [] } : fixtures.issue || narrowIssue();
+      return { status: 0, stdout: JSON.stringify({ data: { repository: { issue: { number, comments: { nodes: issue.comments || [], pageInfo: { hasNextPage: false, endCursor: null } } } } } }) };
     }
     return { status: 0, stdout: "" };
   };
@@ -112,13 +127,42 @@ test("merge success remains merged when closure/comment/label/project/ledger hyg
 });
 
 test("retry does not duplicate completion comments or closure", () => {
-  const marker = `settleora-completion:891:${mergeSha}`;
-  const issue = narrowIssue({ state: "CLOSED", comments: [{ body: marker }] });
+  const issue = narrowIssue({ state: "CLOSED" });
+  const initial = context({ issue });
+  issue.comments = [{ body: renderCompletionComment(initial, evaluateCloseDecision(issue, initial)) }];
   const runner = runnerWith({ issue });
   const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ issue }), { runner });
   assert.equal(result.comment.status, "skipped");
   assert.equal(result.closure.status, "skipped");
   assert.equal(result.closure.reason, "issue_already_closed");
+});
+
+test("retry after closure dedupes immutable completion evidence despite changed close rationale", () => {
+  const openIssue = narrowIssue({ state: "OPEN" });
+  const initial = context({ issue: openIssue, closeRuleSatisfied: true });
+  const closedIssue = narrowIssue({ state: "CLOSED", comments: [{ body: renderCompletionComment(initial, evaluateCloseDecision(openIssue, initial)) }] });
+  const runner = runnerWith({ issue: closedIssue });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ issue: closedIssue }), { runner });
+  assert.equal(result.comment.status, "skipped");
+  assert.equal(result.closure.reason, "issue_already_closed");
+});
+
+test("predictable completion marker with wrong body is not adopted", () => {
+  const marker = `settleora-completion:891:${mergeSha}`;
+  const issue = narrowIssue({ comments: [{ body: `forged\n${marker}` }] });
+  const runner = runnerWith({ issue });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ issue }), { runner });
+  assert.equal(result.comment.status, "updated");
+  assert.ok(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment"));
+});
+
+test("predictable parent progress marker with wrong body is not adopted", () => {
+  const marker = `settleora-parent-progress:800:${mergeSha}:891`;
+  const parentIssue = { number: 800, title: "Umbrella", state: "OPEN", labels: [], body: "", comments: [{ body: `forged\nParent progress marker: ${marker}` }] };
+  const runner = runnerWith({ parentIssue });
+  const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context(), { runner });
+  assert.equal(result.parentProgress.status, "updated");
+  assert.ok(runner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment" && call.args[2] === "800"));
 });
 
 test("transient labels are removed while durable labels remain", () => {
@@ -132,6 +176,25 @@ test("transient labels are removed while durable labels remain", () => {
     runner.calls.find((call) => call.command === "gh" && call.args[0] === "issue" && call.args[1] === "edit")?.args.slice(0, 5),
     ["issue", "edit", "891", "--repo", "tommytang213/Settleora"],
   );
+});
+
+test("session lifecycle label cleanup persists intent and confirms live absence", () => {
+  let labels = narrowIssue().labels;
+  const runner = (command, args) => {
+    if (command === "gh" && args[0] === "issue" && args[1] === "view") return { status: 0, stdout: JSON.stringify({ number: 891, labels }) };
+    if (command === "gh" && args[0] === "issue" && args[1] === "edit") {
+      const removed = args[args.indexOf("--remove-label") + 1].split(",");
+      labels = labels.filter((label) => !removed.includes(label));
+      return { status: 0, stdout: "" };
+    }
+    return { status: 0, stdout: "" };
+  };
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora" };
+  const sessionLifecycle = lifecycleFor(config);
+  const result = cleanupTransientLabels(narrowIssue(), runner, { repositorySlug: "tommytang213/Settleora", repositoryId: "repo-1" }, config, { sessionLifecycle, sourceHeadSha: headSha, mergeSha });
+  assert.equal(result.status, "updated");
+  assert.equal(result.canonicalEffect.status, "finalized");
+  assert.equal(labels.includes("auto-claimed"), false);
 });
 
 test("parent progress shows completed, remaining, blockers, future, manual, and keep-open rationale", () => {
@@ -198,6 +261,8 @@ test("historical summaries/status/events remain readable and sanitized in commen
 
 test("ordinary merge path invokes the completion pipeline safely", () => {
   const repositorySlug = "tommytang213/Settleora";
+  const mergeConfig = { repositorySlug, allowAutoMerge: true, autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"], requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"] }, repoRoot: "/workspace/repos/Settleora", logsRoot: logsRoot(), run: true, allowFollowupIssueCreation: false, githubHost: "github.com" };
+  const sessionLifecycle = lifecycleFor(mergeConfig);
   const changedFiles = ["tools/auto-runner/lib/example.mjs"];
   const digest = digestChangedFiles(changedFiles);
   const contextBase = {
@@ -206,6 +271,7 @@ test("ordinary merge path invokes the completion pipeline safely", () => {
       allowAutoMerge: true,
       autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"], requiredChecks: ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"] },
     },
+    sessionLifecycle,
     issue: narrowIssue({ labels: ["area:infra", "workflow", "auto-ready"] }),
     laneDecision: {
       lane: "workflow-docs-tooling",
@@ -254,23 +320,27 @@ test("ordinary merge path invokes the completion pipeline safely", () => {
     codeScanningAlerts: [],
     blockingMarkers: [],
   };
+  let merged = false;
+  const mergedPr = {
+    number: 100,
+    state: "MERGED",
+    baseRefName: "main",
+    headRefOid: headSha,
+    mergeCommit: { oid: mergeSha },
+    mergedAt: "2026-07-13T08:01:00Z",
+    headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: repositorySlug },
+    headRepositoryOwner: { login: "tommytang213" },
+    isCrossRepository: false,
+  };
   const runner = runnerWith({
     "git rev-parse origin/main": { status: 0, stdout: baseSha },
     "git ls-remote --heads": { status: 0, stdout: `${headSha}\trefs/heads/feature/auto-891-example\n` },
-    pr: {
-      number: 100,
-      state: "MERGED",
-      baseRefName: "main",
-      headRefOid: headSha,
-      mergeCommit: { oid: mergeSha },
-      mergedAt: "2026-07-13T08:01:00Z",
-      headRepository: { id: "repo-1", name: "Settleora", nameWithOwner: repositorySlug },
-      headRepositoryOwner: { login: "tommytang213" },
-      isCrossRepository: false,
-    },
+    "gh pr merge": () => { merged = true; return { status: 0, stdout: "" }; },
+    [`gh api repos/${repositorySlug}/git/commits/${mergeSha}`]: { status: 0, stdout: JSON.stringify({ parents: [{ sha: baseSha }, { sha: headSha }] }) },
+    pr: () => merged ? mergedPr : contextBase.pr,
   });
   const result = executeAutoMerge(
-    { ...contextBase.config, repoRoot: "/workspace/repos/Settleora", logsRoot: logsRoot(), run: true, allowFollowupIssueCreation: false, githubHost: "github.com" },
+    mergeConfig,
     contextBase,
     { runner, inspectState: () => ({}) },
   );
@@ -305,7 +375,7 @@ test("ordinary merge path invokes the completion pipeline safely", () => {
     ["pr", "merge", "100", "--repo", repositorySlug, "--merge", "--match-head-commit", headSha],
   );
   assert.deepEqual(
-    runner.calls.find((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "view")?.args,
+    runner.calls.find((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "view" && call.args.includes("number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository"))?.args,
     ["pr", "view", "100", "--repo", repositorySlug, "--json", "number,state,baseRefName,headRefOid,mergeCommit,mergedAt,headRepository,headRepositoryOwner,isCrossRepository"],
   );
   assert.deepEqual(
@@ -316,12 +386,112 @@ test("ordinary merge path invokes the completion pipeline safely", () => {
     assert.equal(call.args.includes("--repo"), true, `${call.command} ${call.args.join(" ")}`);
     assert.equal(call.args[call.args.indexOf("--repo") + 1], repositorySlug, `${call.command} ${call.args.join(" ")}`);
   }
+  const recovered = executeAutoMerge(
+    mergeConfig,
+    { ...contextBase, pr: { ...contextBase.pr, state: "MERGED" } },
+    { runner, inspectState: () => ({}) },
+  );
+  assert.equal(recovered.result, "merged", JSON.stringify({ reason: recovered.reason, recovered }, null, 2));
+  assert.equal(recovered.completionHygiene.status, "merged");
+  assert.equal(runner.calls.filter((call) => call.command === "gh" && call.args[0] === "pr" && call.args[1] === "merge").length, 1);
 });
 
 test("feature-bundle context can use the same completion pipeline", () => {
   const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context({ bundle: { id: "issue-892-bundle-v1" } }), { runner: runnerWith() });
   assert.equal(result.status, "merged");
   assert.equal(result.closeDecision.close, true);
+});
+
+test("session lifecycle completion canonically updates project work and durably processes ledger reconciliation", () => {
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false, projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1", doneOptionId: "done" } };
+  const sessionLifecycle = lifecycleFor(config);
+  const baseContext = context({ parentIssue: null, remainingGates: ["post-merge acceptance"], sessionLifecycle });
+  const closeDecision = evaluateCloseDecision(baseContext.issue, baseContext);
+  const completionBody = renderCompletionComment(baseContext, closeDecision);
+  const lifecycleContext = {
+    ...baseContext,
+    issue: { ...baseContext.issue, labels: ["area:infra"], comments: [{ body: completionBody }] },
+  };
+  const baseLifecycleRunner = runnerWith({ issue: lifecycleContext.issue });
+  let projectUpdated = false;
+  const lifecycleRunner = (command, args, options) => {
+    if (command === "gh" && args[0] === "project" && args[1] === "item-edit") projectUpdated = true;
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql" && args.some((arg) => String(arg).includes("node(id:$projectId)"))) {
+      return { status: 0, stdout: JSON.stringify({ data: { node: { items: { nodes: [{ id: "PVTI_1", content: { number: lifecycleContext.issue.number, repository: { nameWithOwner: "tommytang213/Settleora" } }, fieldValues: { nodes: projectUpdated ? [{ optionId: "done", field: { id: "PVTF_1" } }] : [] } }], pageInfo: { hasNextPage: false, endCursor: null } } } } }), stderr: "", error: null };
+    }
+    return baseLifecycleRunner(command, args, options);
+  };
+  const result = completeMergedIssueHygiene(
+    config,
+    lifecycleContext,
+    { runner: lifecycleRunner },
+  );
+  assert.equal(result.status, "merged");
+  assert.equal(result.project.status, "updated");
+  assert.equal(result.project.canonicalEffect.ok, true);
+  assert.equal(result.ledger.status, "preview");
+  assert.equal(result.ledger.reason, "followup_issue_creation_disabled");
+  assert.equal(result.ledger.proposal.correlationKey.includes("ledger"), true);
+  assert.equal(baseLifecycleRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment" && call.args[2] === "891"), false);
+});
+
+test("canonical completion comment recovery exhausts comment pagination before mutating", () => {
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false };
+  const sessionLifecycle = lifecycleFor(config);
+  const baseContext = context({ parentIssue: null, sessionLifecycle });
+  const completionBody = renderCompletionComment(baseContext, evaluateCloseDecision(baseContext.issue, baseContext));
+  const baseRunner = runnerWith({ issue: baseContext.issue });
+  const runner = (command, args, options) => {
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql" && args.some((arg) => String(arg).includes("repository(owner:$owner"))) {
+      const cursor = args.find((arg) => String(arg).startsWith("cursor="));
+      const nodes = cursor ? [{ body: completionBody }] : Array.from({ length: 100 }, (_, index) => ({ body: `older-${index}` }));
+      return { status: 0, stdout: JSON.stringify({ data: { repository: { issue: { number: 891, comments: { nodes, pageInfo: { hasNextPage: !cursor, endCursor: cursor ? null : "page-2" } } } } } }) };
+    }
+    return baseRunner(command, args, options);
+  };
+  const result = completeMergedIssueHygiene(config, baseContext, { runner });
+  assert.equal(result.comment.status, "updated");
+  assert.equal(result.comment.canonicalEffect.ok, true);
+  assert.equal(baseRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment"), false);
+});
+
+test("canonical project lookup selects the repository-bound item across pages", () => {
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false, projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1", doneOptionId: "done" } };
+  const sessionLifecycle = lifecycleFor(config);
+  const baseContext = context({ parentIssue: null, remainingGates: ["acceptance"], sessionLifecycle });
+  const baseRunner = runnerWith({ issue: baseContext.issue });
+  const editedIds = [];
+  let projectUpdated = false;
+  const runner = (command, args, options) => {
+    if (command === "gh" && args[0] === "project" && args[1] === "item-edit") {
+      editedIds.push(args[args.indexOf("--id") + 1]);
+      projectUpdated = true;
+      return { status: 0, stdout: "" };
+    }
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql" && args.some((arg) => String(arg).includes("node(id:$projectId)"))) {
+      const cursor = args.find((arg) => String(arg).startsWith("cursor="));
+      const item = cursor
+        ? { id: "PVTI_RIGHT", content: { number: 891, repository: { nameWithOwner: "tommytang213/Settleora" } }, fieldValues: { nodes: projectUpdated ? [{ optionId: "done", field: { id: "PVTF_1" } }] : [] } }
+        : { id: "PVTI_WRONG", content: { number: 891, repository: { nameWithOwner: "other/Repository" } }, fieldValues: { nodes: [] } };
+      return { status: 0, stdout: JSON.stringify({ data: { node: { items: { nodes: [item], pageInfo: { hasNextPage: !cursor, endCursor: cursor ? null : "page-2" } } } } }) };
+    }
+    return baseRunner(command, args, options);
+  };
+  const result = completeMergedIssueHygiene(config, baseContext, { runner });
+  assert.equal(result.project.status, "updated");
+  assert.deepEqual(editedIds, ["PVTI_RIGHT"]);
+});
+
+test("incomplete project mapping does not register or mutate a status update", () => {
+  const runner = runnerWith();
+  const result = completeMergedIssueHygiene(
+    { logsRoot: logsRoot(), projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1" } },
+    context(),
+    { runner },
+  );
+  assert.equal(result.project.status, "failed");
+  assert.equal(result.project.reason, "project_status_mapping_incomplete");
+  assert.equal(runner.calls.some((call) => call.args[0] === "project" && call.args[1] === "item-edit"), false);
 });
 
 test("completion hygiene requires a repository context before issue commands", () => {

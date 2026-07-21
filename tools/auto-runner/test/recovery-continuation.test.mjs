@@ -3,6 +3,7 @@ import test from "node:test";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createSessionLifecycleState, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -21,16 +22,84 @@ import {
   nextBundleSliceFromCheckpoint,
   planIdempotentGithubMutation,
   recoveryStatusSummary,
+  reconcileAuthoritativeLifecycleHead,
   projectStartupRecoveryIssueIdentity,
   shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
+  consumeStartupInterruptionPlanner,
 } from "../lib/recovery-continuation.mjs";
+
+test("disabled lifecycle preserves legacy startup continuation before takeover gating", () => {
+  assert.deepEqual(
+    consumeStartupInterruptionPlanner({ sessionLifecycle: { enabled: false, allowRecoveryTakeover: false } }, {}),
+    { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" },
+  );
+  assert.equal(
+    consumeStartupInterruptionPlanner({ sessionLifecycle: { enabled: true, allowRecoveryTakeover: false } }, {}).reasonCode,
+    "session_lifecycle_recovery_takeover_disabled",
+  );
+});
+
+test("disabled lifecycle refuses legacy fallback when a lifecycle checkpoint exists", () => {
+  const config = tempConfig({ repositorySlug: "tommytang213/Settleora", sessionLifecycle: { enabled: false, allowRecoveryTakeover: false } });
+  try {
+    const recovery = state();
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      claimIdentity: "claim-893",
+      chargeMarkerRef: "charge-893",
+      sessionId: "session-893",
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+      phase: "push",
+      nextExactAction: "push",
+    });
+    assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
+    assert.equal(consumeStartupInterruptionPlanner(config, recovery).reasonCode, "session_lifecycle_disabled_existing_state");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("successor lifecycle adopts only an exact authoritatively proven commit head", () => {
+  const oldHead = "a".repeat(40);
+  const newHead = "b".repeat(40);
+  const lifecycle = { branch: { headSha: oldHead, candidateDigest: "c".repeat(64) } };
+  const adopted = reconcileAuthoritativeLifecycleHead(lifecycle, {
+    git: { headSha: newHead },
+    intents: [{ effectType: "commit", classification: "effect_present_exact_adoptable" }],
+  });
+  assert.equal(adopted.ok, true);
+  assert.equal(adopted.changed, true);
+  assert.equal(adopted.state.branch.headSha, newHead);
+  assert.equal(adopted.state.branch.candidateDigest, null);
+  assert.equal(reconcileAuthoritativeLifecycleHead(lifecycle, { git: { headSha: newHead }, intents: [] }).reasonCode, "session_lifecycle_authoritative_head_unproven");
+});
+
+test("successor lifecycle adopts an exactly discovered PR after the create checkpoint window", () => {
+  const headSha = "a".repeat(40);
+  const lifecycle = { branch: { name: "feature/recovery", headSha, prNumber: null, candidateDigest: null } };
+  const adopted = reconcileAuthoritativeLifecycleHead(lifecycle, {
+    git: { headSha },
+    github: { pr: { number: 938, headRefName: lifecycle.branch.name, headSha } },
+    intents: [{ effectType: "pr_create", classification: "effect_present_exact_adoptable" }],
+  });
+  assert.equal(adopted.ok, true);
+  assert.equal(adopted.changed, true);
+  assert.equal(adopted.state.branch.prNumber, 938);
+  assert.equal(reconcileAuthoritativeLifecycleHead(lifecycle, { git: { headSha }, github: { pr: { number: 938, headRefName: lifecycle.branch.name, headSha } }, intents: [] }).reasonCode, "session_lifecycle_authoritative_pr_unproven");
+});
 
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-recovery-continuation-"));
   return {
     logsRoot,
     allowExistingPrRecovery: false,
+    sessionLifecycle: { allowRecoveryTakeover: true },
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
     ...extra,
   };

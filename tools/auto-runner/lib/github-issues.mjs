@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 
 function runGh(args) {
   const result = spawnSync("gh", args, { encoding: "utf8", windowsHide: true });
@@ -180,7 +181,7 @@ export function readIssueLive(config, issueNumber) {
   }
 }
 
-export function commentIssueOutcome(config, issue, outcome, body) {
+export function commentIssueOutcome(config, issue, outcome, body, { effectContext = null } = {}) {
   const mutations = outcomeToMutations(outcome);
   const boundedBody = body.length > 4000 ? `${body.slice(0, 3900)}\n\n[truncated]` : body;
   if (config.dryRun) {
@@ -190,6 +191,39 @@ export function commentIssueOutcome(config, issue, outcome, body) {
       outcome,
       preview: { ...mutations, comment: boundedBody },
     };
+  }
+  if (effectContext) {
+    const executeLabelEffect = (labelEffect) => executeCanonicalGithubEffectSync(config, effectContext, { effectType: "hygiene_component", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: labelEffect }, {
+      readLive: (intent) => {
+        const live = readIssueLive(config, issue.number);
+        if (!live.ok) return { complete: false };
+        const current = new Set(live.issue.labels || []);
+        return { complete: true, present: labelEffect.addLabels.every((label) => current.has(label)) && labelEffect.removeLabels.every((label) => !current.has(label)), identity: intent.identity, effect: labelEffect };
+      },
+      execute: () => {
+        if (labelEffect.addLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--add-label", labelEffect.addLabels.join(",")]), `Unable to add terminal outcome labels for issue #${issue.number}`);
+        if (labelEffect.removeLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--remove-label", labelEffect.removeLabels.join(",")]), `Unable to remove active runner labels for issue #${issue.number}`);
+        return { status: 0 };
+      },
+    });
+    if (mutations.addLabels.length > 0) {
+      const added = executeLabelEffect({ issueNumber: issue.number, addLabels: mutations.addLabels, removeLabels: [], outcome, operation: "add" });
+      if (!added.ok) return { skipped: false, status: 1, reason: added.reasonCode };
+    }
+    if (mutations.removeLabels.length > 0) {
+      const removed = executeLabelEffect({ issueNumber: issue.number, addLabels: [], removeLabels: mutations.removeLabels, outcome, operation: "remove" });
+      if (!removed.ok) return { skipped: false, status: 1, reason: removed.reasonCode };
+    }
+    const commentEffect = { issueNumber: issue.number, bodyDigest: canonicalGithubEvidenceDigest(boundedBody), outcome };
+    const comment = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "comment", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: commentEffect }, {
+      readLive: (intent) => {
+        const result = runGh(["api", "--paginate", "--slurp", `repos/${config.repositorySlug}/issues/${issue.number}/comments?per_page=100`]);
+        if (result.status !== 0) return { complete: false };
+        try { return { complete: true, present: JSON.parse(result.stdout || "[]").flat().some((entry) => entry.body === boundedBody), identity: intent.identity, effect: commentEffect }; } catch { return { complete: false }; }
+      },
+      execute: () => runGh(["issue", "comment", String(issue.number), "--body", boundedBody]),
+    });
+    return { skipped: false, status: comment.ok ? 0 : 1, reason: comment.ok ? null : comment.reasonCode };
   }
   if (mutations.addLabels.length > 0) {
     assertGhSuccess(

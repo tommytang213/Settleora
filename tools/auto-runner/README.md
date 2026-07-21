@@ -1,5 +1,28 @@
 # Settleora Auto-Runner Tooling
 
+## Canonical mutation consumer contract
+
+When session lifecycle authority is enabled, production mutation consumers use
+one durable pre-effect contract for Git commits and pushes, PR creation and
+transitions, exact-head merge, comments and review replies, issue closure, and
+component-wise post-merge/docs hygiene. Each consumer persists its exact
+intent before mutation, revalidates the active run/session/generation and
+task-charge identity, reads authoritative Git or GitHub state, executes only
+when the effect is safely absent, reads the exact result back, and then
+atomically confirms or adopts it. An unavailable read or an uncertain command
+result remains pending for later reconciliation; it is never converted into a
+terminal marker that could hide a successful crash-window effect.
+
+Ordinary implementation, feature-bundle, review-fix, existing-PR stack, and
+docs-hygiene state may all carry the same lifecycle authority. Stack state
+preserves that authority through retarget, ready, merge, and final hygiene.
+Startup/supervisor recovery discovers only owner-trusted pending intent files
+and recognizes the persisted identities for commit, push, PR transition,
+merge, comment/reply, closure, hygiene, and branch retention. Duplicate-like,
+wrong-head, wrong-base, wrong-issue/PR, or contradictory live candidates fail
+closed. Legacy mutation markers remain compatibility projections and cannot
+adopt a crash window.
+
 This directory contains the DevBox-native unattended Codex auto-runner skeleton.
 It is issue-label driven and writes all mutable runtime state under
 `/workspace/logs/settleora-auto-runner/`.
@@ -68,6 +91,42 @@ post-merge expectation evidence tied to older heads. Startup checks this
 recovery root before polling unrelated issues; with recovery capability
 default-off it fails closed for operator review instead of adopting arbitrary
 work.
+
+Session rotation and reportless-interruption decisions use the coordinated
+version-1 authority in `lib/session-lifecycle.mjs`, persisted under
+`/workspace/logs/settleora-auto-runner/session-lifecycle/`. It preserves the
+same logical-task charge, claim, branch/PR/candidate identity, convergence
+counters, findings, reservations, evidence, pending checks, report
+correlation, phase, and next action. Rotation first retires the old session
+and leaves mutation authority ownerless; only a validated successor handoff
+can acquire the next authority generation.
+
+The default context policy checkpoints at 60 percent, requires rotation at 75
+percent, and treats 90 percent or failed compaction as emergency pressure.
+Reported provider telemetry is combined with bounded deterministic byte-based
+estimation and a conservative fallback window. Missing optional telemetry
+therefore schedules checkpoints at long phase boundaries rather than
+disabling rotation. A two-turn cooldown prevents ordinary rotation loops;
+emergency rotation may bypass it only after a complete checkpoint. An
+unjournaled mutation always blocks rotation.
+
+Reportless recovery distinguishes remote compaction failure, provider stream
+disconnect, main-process exit without a trusted terminal report,
+wrapper/supervisor interruption, host restart/process loss, partial
+report/checkpoint write, and ambiguous/contradictory state. Process and lease
+readback outrank a stale `IN_PROGRESS` report. A live owner blocks takeover;
+dead-owner recovery validates the checkpoint and exact identities, marks the
+old session retired, and resumes from the earliest safe incomplete phase.
+Observed commit, push, merge, comment, and reservation effects are never
+replayed. Corrupt, mismatched, unsupported, or contradictory state stops
+fail-closed.
+
+Startup and supervisor recovery share one versioned authoritative-evidence
+adapter. Production reads come from the runner-lock PID, durable supervisor
+heartbeat lease, clean local Git state, remote branch head, and exact live
+GitHub issue/PR/check/comment state. Process/lease disagreement, partial reads,
+dirty Git, or marker/live-effect drift fails closed. Canonical evidence is
+bounded and sanitized; callers cannot supply synthetic liveness conclusions.
 
 Review convergence has one durable two-loop counter authority in that task/PR
 lineage. `localSourceChangingRoundsPerEpoch` blocks at 50 and increments only
@@ -618,10 +677,12 @@ head, changed-file digest, raw diff digest, provider-bound digest, true diff
 stats, normalized domain set, task key or expiry, manual-merge-required
 contract, auto-merge-ineligible contract, validation evidence, and clear
 secret-boundary evidence. A passing approval may convert only a size-based
-`block_split_or_escalate` route to `strong_independent`; it does not enable
-auto-merge, trusted real runs, issue creation, review-fix mutation, existing-PR
-mutation, stale-claim stealing, systemd, CI/security waivers, Codex review
-waivers, or manual merge waivers.
+`block_split_or_escalate` route to `strong_independent`. Its merge flags must
+exactly match the candidate task contract: coherent operator-authorized bundles
+may remain auto-merge eligible, while genuine manual/danger contracts remain
+manual. The approval does not itself enable auto-merge, trusted real runs,
+issue creation, review-fix mutation, existing-PR mutation, stale-claim
+stealing, systemd, CI/security waivers, or Codex review waivers.
 
 External config activation example:
 
