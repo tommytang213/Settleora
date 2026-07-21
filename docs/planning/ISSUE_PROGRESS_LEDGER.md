@@ -1,10 +1,14 @@
 # Issue Progress Ledger
 
-### Issues #928/#929 — session lifecycle implementation candidate (2026-07-20)
+### Issues #928/#929 and PR #938 — merged completion (2026-07-21)
 
-- Current candidate branch:
-  `feature/auto-runner-session-lifecycle-20260720-2110`, based on exact
-  `origin/main` `b221ff32fb896d3488d06f53da714aec1e2d7ec2`.
+- PR #938 merged normally at exact reviewed source head
+  `b056862581d7184a2796e2cdf3cfa1777eac6de1` as merge commit
+  `510942d40d2d512094b9af430ccc40f65a505d0c`. Its parents are prior `main`
+  `b221ff32fb896d3488d06f53da714aec1e2d7ec2` and the exact source head.
+- Post-merge proof: fetched `origin/main` equals the merge SHA, the merge and
+  source head are ancestors of current `main`, and the retained source branch
+  remains at the exact reviewed head.
 - #929 slice adds versioned proactive context budgeting, deterministic
   fallback telemetry, warning/mandatory/emergency thresholds, checkpoint-first
   rotation, ownerless handoff, successor generation validation, cooldown, and
@@ -17,9 +21,18 @@
   #932 owns accepted logical-task charging; #927 projects sanitized state;
   #924 owns large-candidate routing; #910 remains the umbrella; #912 remains
   the untouched production activation gate.
-- This entry records an implementation candidate, not completion. #928/#929
-  remain open until the PR merges and their required non-production acceptance
-  and post-merge current-main proofs satisfy the live close rules.
+- Exact-head evidence: the full runner suite passed `1012/1012`, secret-boundary
+  tests passed `31/31`, docs/scaffold/doctor/syntax/diff checks passed, local
+  Semgrep found zero findings, fresh Gemini and local Codex passed, GitHub
+  Codex found no major issues, all Scaffold/CodeQL/Semgrep CE and OSS/Trivy
+  gates passed, and unresolved review threads were zero.
+- Production-shaped deterministic acceptance covered the seven recovery
+  classifications, terminal lifecycle/effect adoption without replay,
+  proactive threshold rotation, bounded disk-first handoff, mixed-queue
+  continuation, and long-run/50-cycle exact-once behavior.
+- #928 and #929 are closed under their narrow close rules. #910 remains open;
+  #924 and #927 remain open for their separate implementation/acceptance scope;
+  and #912 remains the untouched manual production-activation gate.
 
 
 ## Purpose
