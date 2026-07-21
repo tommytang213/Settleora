@@ -75,7 +75,7 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
 function reconcileDurableIntents(config, intentIds, git, github, diagnostics, contradictions, ambiguities) {
   if (!Array.isArray(intentIds) || intentIds.length === 0) return [];
   const results = [];
-  for (const intentId of intentIds.slice(0, 50)) {
+  for (const intentId of intentIds) {
     let intent;
     try { intent = loadPreEffectIntent(config, intentId); } catch { diagnostics.push("pre_effect_intent_read_failed"); continue; }
     if (!intent) { diagnostics.push("pre_effect_intent_missing"); continue; }
@@ -120,7 +120,7 @@ function liveEvidenceForIntent(intent, git, github) {
     else if (intent.effectType === "hygiene_component") present = Array.isArray(github.issueLabels)
       && (e.addLabels || []).every((label) => github.issueLabels.includes(label))
       && (e.removeLabels || []).every((label) => !github.issueLabels.includes(label));
-    else if (intent.effectType === "issue_closure") present = github.issue?.state === "CLOSED";
+    else if (intent.effectType === "issue_closure") present = github.issue?.state === "CLOSED" && github.issue?.stateReason === "COMPLETED";
     else if (intent.effectType === "branch_retention_verify") present = git?.complete && git.remoteHeadSha === e.expectedHeadSha;
     else present = (github.hygiene || []).includes(intent.fingerprint);
   }
@@ -230,12 +230,12 @@ function defaultGitRead(config, identity) {
 }
 
 function defaultGithubRead(config, identity) {
-  const issueResult = spawnSync("gh", ["issue", "view", String(identity.issueNumber), "--repo", config.repositorySlug, "--json", "number,state"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+  const issueResult = spawnSync("gh", ["issue", "view", String(identity.issueNumber), "--repo", config.repositorySlug, "--json", "number,state,stateReason"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
   if (issueResult.status !== 0) return { complete: false, source: "gh_cli" };
   const issue = JSON.parse(issueResult.stdout);
   const issueComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${identity.issueNumber}/comments?per_page=100`, { channel: "issue", targetNumber: identity.issueNumber });
   if (!issueComments.complete) return { complete: false, source: "gh_cli" };
-  if (!identity.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue: { number: issue.number, state: issue.state }, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
+  if (!identity.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue: { number: issue.number, state: issue.state, stateReason: issue.stateReason }, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
   const result = spawnSync("gh", ["pr", "view", String(identity.prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
   if (result.status !== 0) return { complete: false, source: "gh_cli" };
   const pr = JSON.parse(result.stdout);
@@ -250,7 +250,7 @@ function defaultGithubRead(config, identity) {
     try { mergeParentShas = JSON.parse(mergeCommit.stdout || "{}").parents?.map((parent) => parent.sha).filter(sha40).slice(0, 2) || []; }
     catch { return { complete: false, source: "gh_cli_merge_commit_parse_failed" }; }
   }
-  return { complete: true, source: "gh_cli", pr: { number: pr.number, state: pr.state, baseRefName: pr.baseRefName, headRefName: pr.headRefName, headSha: pr.headRefOid, draft: pr.isDraft, mergeable: pr.mergeable, mergeStateStatus: pr.mergeStateStatus, mergeSha: pr.mergeCommit?.oid || null, mergeParentShas }, comments, issue: { number: issue.number, state: issue.state }, checks: checks(pr.statusCheckRollup), hygiene: [] };
+  return { complete: true, source: "gh_cli", pr: { number: pr.number, state: pr.state, baseRefName: pr.baseRefName, headRefName: pr.headRefName, headSha: pr.headRefOid, draft: pr.isDraft, mergeable: pr.mergeable, mergeStateStatus: pr.mergeStateStatus, mergeSha: pr.mergeCommit?.oid || null, mergeParentShas }, comments, issue: { number: issue.number, state: issue.state, stateReason: issue.stateReason }, checks: checks(pr.statusCheckRollup), hygiene: [] };
 }
 
 function readAllGithubComments(config, endpoint, target = {}) {
@@ -309,7 +309,7 @@ function sanitizeAuthority(v = {}) { return { ownerSessionId: bounded(v.ownerSes
 function sanitizeProcess(v = {}) { return { complete: v.complete === true, pid: Number.isSafeInteger(v.pid) ? v.pid : null, ownerRunId: bounded(v.ownerRunId, 160), alive: typeof v.alive === "boolean" ? v.alive : null, source: bounded(v.source, 80) }; }
 function sanitizeLease(v = {}) { return { complete: v.complete === true, runId: bounded(v.runId, 120), runnerRunId: bounded(v.runnerRunId, 160), heartbeatAt: iso(v.heartbeatAt), expiresAt: iso(v.expiresAt), valid: typeof v.valid === "boolean" ? v.valid : null, source: bounded(v.source, 80) }; }
 function sanitizeGit(v = {}) { return { complete: v.complete === true, source: bounded(v.source, 80), branchName: bounded(v.branchName, 240), baseSha: sha40(v.baseSha), headSha: sha40(v.headSha), remoteHeadSha: sha40(v.remoteHeadSha), worktreeClean: v.worktreeClean === true, indexClean: v.indexClean === true, untrackedClean: v.untrackedClean === true, stagedTreeSha: sha40(v.stagedTreeSha), stagedPaths: Array.isArray(v.stagedPaths) ? v.stagedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], unstagedPaths: Array.isArray(v.unstagedPaths) ? v.unstagedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], untrackedPaths: Array.isArray(v.untrackedPaths) ? v.untrackedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], commit: v.commit && { sha: sha40(v.commit.sha), treeSha: sha40(v.commit.treeSha), parentSha: sha40(v.commit.parentSha), parentShas: Array.isArray(v.commit.parentShas) ? v.commit.parentShas.filter(sha40).slice(0, 8) : [], messageFingerprint: digest64(v.commit.messageFingerprint) } }; }
-function sanitizeGithub(v = {}, expected = {}) { const fingerprints = new Set([expected.commentFingerprint, ...(expected.commentFingerprints || [])].filter(digest64)); const canonicalFingerprints = new Set([expected.commentCanonicalFingerprint, ...(expected.commentCanonicalFingerprints || [])].filter(digest64)); const comments = Array.isArray(v.comments) ? v.comments.map((c) => ({ id: bounded(c.id, 120), fingerprint: digest64(c.fingerprint), canonicalFingerprint: digest64(c.canonicalFingerprint), channel: bounded(c.channel, 30), targetNumber: Number.isSafeInteger(c.targetNumber) ? c.targetNumber : null })).filter((c) => (expected.commentId && c.id === expected.commentId) || fingerprints.has(c.fingerprint) || canonicalFingerprints.has(c.canonicalFingerprint)).slice(0, 50) : []; return { complete: v.complete === true, source: bounded(v.source, 80), pr: v.pr ? { number: v.pr.number, state: bounded(v.pr.state, 20), baseRefName: bounded(v.pr.baseRefName, 120), headRefName: bounded(v.pr.headRefName, 240), headSha: sha40(v.pr.headSha), draft: v.pr.draft === true, mergeable: bounded(v.pr.mergeable, 40), mergeStateStatus: bounded(v.pr.mergeStateStatus, 40), mergeSha: sha40(v.pr.mergeSha), mergeParentShas: Array.isArray(v.pr.mergeParentShas) ? v.pr.mergeParentShas.filter(sha40).slice(0, 2) : [] } : null, comments, issue: v.issue ? { number: v.issue.number, state: bounded(v.issue.state, 20) } : null, checks: v.checks && { state: bounded(v.checks.state, 30), pending: Number.isSafeInteger(v.checks.pending) ? v.checks.pending : 0, failed: Number.isSafeInteger(v.checks.failed) ? v.checks.failed : 0 }, hygiene: Array.isArray(v.hygiene) ? v.hygiene.filter(digest64).slice(0, 50) : [] }; }
+function sanitizeGithub(v = {}, expected = {}) { const fingerprints = new Set([expected.commentFingerprint, ...(expected.commentFingerprints || [])].filter(digest64)); const canonicalFingerprints = new Set([expected.commentCanonicalFingerprint, ...(expected.commentCanonicalFingerprints || [])].filter(digest64)); const comments = Array.isArray(v.comments) ? v.comments.map((c) => ({ id: bounded(c.id, 120), fingerprint: digest64(c.fingerprint), canonicalFingerprint: digest64(c.canonicalFingerprint), channel: bounded(c.channel, 30), targetNumber: Number.isSafeInteger(c.targetNumber) ? c.targetNumber : null })).filter((c) => (expected.commentId && c.id === expected.commentId) || fingerprints.has(c.fingerprint) || canonicalFingerprints.has(c.canonicalFingerprint)).slice(0, 50) : []; return { complete: v.complete === true, source: bounded(v.source, 80), pr: v.pr ? { number: v.pr.number, state: bounded(v.pr.state, 20), baseRefName: bounded(v.pr.baseRefName, 120), headRefName: bounded(v.pr.headRefName, 240), headSha: sha40(v.pr.headSha), draft: v.pr.draft === true, mergeable: bounded(v.pr.mergeable, 40), mergeStateStatus: bounded(v.pr.mergeStateStatus, 40), mergeSha: sha40(v.pr.mergeSha), mergeParentShas: Array.isArray(v.pr.mergeParentShas) ? v.pr.mergeParentShas.filter(sha40).slice(0, 2) : [] } : null, comments, issue: v.issue ? { number: v.issue.number, state: bounded(v.issue.state, 20), stateReason: bounded(v.issue.stateReason, 20) } : null, checks: v.checks && { state: bounded(v.checks.state, 30), pending: Number.isSafeInteger(v.checks.pending) ? v.checks.pending : 0, failed: Number.isSafeInteger(v.checks.failed) ? v.checks.failed : 0 }, hygiene: Array.isArray(v.hygiene) ? v.hygiene.filter(digest64).slice(0, 50) : [] }; }
 function commentIdentity(comment = {}, target = {}) { return { id: bounded(comment.id, 120), fingerprint: fingerprint(comment.body || ""), canonicalFingerprint: canonicalGithubEvidenceDigest(String(comment.body || "")), channel: bounded(target.channel, 30), targetNumber: Number.isSafeInteger(target.targetNumber) ? target.targetNumber : null }; }
 function commentMatchesIntent(comment, intent) {
   const effect = intent.effect || {};
