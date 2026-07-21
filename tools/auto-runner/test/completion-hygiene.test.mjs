@@ -380,7 +380,7 @@ test("feature-bundle context can use the same completion pipeline", () => {
   assert.equal(result.closeDecision.close, true);
 });
 
-test("session lifecycle completion defers noncanonical ledger work without blocking terminal state", () => {
+test("session lifecycle completion defers project work and durably processes ledger reconciliation", () => {
   const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false, projectStatusUpdates: { supported: true, projectId: "PVT_1", fieldId: "PVTF_1", doneOptionId: "done" } };
   const sessionLifecycle = lifecycleFor(config);
   const baseContext = context({ parentIssue: null, remainingGates: ["post-merge acceptance"], sessionLifecycle });
@@ -390,17 +390,20 @@ test("session lifecycle completion defers noncanonical ledger work without block
     ...baseContext,
     issue: { ...baseContext.issue, labels: ["area:infra"], comments: [{ body: completionBody }] },
   };
+  const lifecycleRunner = runnerWith({ issue: lifecycleContext.issue });
   const result = completeMergedIssueHygiene(
     config,
     lifecycleContext,
-    { runner: runnerWith({ issue: lifecycleContext.issue }) },
+    { runner: lifecycleRunner },
   );
   assert.equal(result.status, "merged");
-  assert.equal(result.project.reason, "canonical_project_hygiene_required");
-  assert.equal(result.ledger.status, "skipped");
-  assert.equal(result.ledger.skipped, true);
-  assert.equal(result.ledger.reason, "canonical_docs_hygiene_deferred");
+  assert.equal(result.project.status, "skipped");
+  assert.equal(result.project.skipped, true);
+  assert.equal(result.project.reason, "canonical_project_hygiene_deferred");
+  assert.equal(result.ledger.status, "preview");
+  assert.equal(result.ledger.reason, "followup_issue_creation_disabled");
   assert.equal(result.ledger.proposal.correlationKey.includes("ledger"), true);
+  assert.equal(lifecycleRunner.calls.some((call) => call.args[0] === "issue" && call.args[1] === "comment" && call.args[2] === "891"), false);
 });
 
 test("completion hygiene requires a repository context before issue commands", () => {

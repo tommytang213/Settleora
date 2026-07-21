@@ -25,9 +25,10 @@ export function completeMergedIssueHygiene(config = {}, context = {}, options = 
   const refreshed = refreshCompletionState(context, runner, repositoryContext);
   const closeDecision = evaluateCloseDecision(refreshed.issue, refreshed);
   const completionBody = renderCompletionComment(refreshed, closeDecision);
-  const duplicateComment = hasCompletionComment(refreshed.issue, refreshed, completionBody);
+  const existingCompletionBody = findCompletionCommentBody(refreshed.issue, refreshed);
+  const duplicateComment = Boolean(existingCompletionBody);
   const comment = refreshed.sessionLifecycle
-    ? canonicalCommentComponent(config, refreshed, runner, repositoryContext, refreshed.issue.number, completionBody, "issue_progress_comment")
+    ? canonicalCommentComponent(config, refreshed, runner, repositoryContext, refreshed.issue.number, existingCompletionBody || completionBody, "issue_progress_comment")
     : duplicateComment
       ? { status: "skipped", reason: "completion_comment_already_present" }
       : commandComponent(runner("gh", ["issue", "comment", String(refreshed.issue.number), "--repo", repositoryContext.repositorySlug, "--body", completionBody]));
@@ -227,15 +228,16 @@ function explicitCloseRuleSatisfied(issue = {}, context = {}) {
   return Boolean(context.closeRuleSatisfied || (context.mergeSha && context.validation?.passed === true));
 }
 
-function hasCompletionComment(issue = {}, context = {}) {
+function findCompletionCommentBody(issue = {}, context = {}) {
   const marker = `settleora-completion:${issue.number}:${context.mergeSha || "unknown"}`;
   const sourceHead = context.sourceHeadSha || context.expectedHeadSha || "unknown";
-  return (issue.comments || []).some((comment) => {
+  const match = (issue.comments || []).find((comment) => {
     const body = String(comment.body || "");
     return body.split(/\r?\n/).includes(`Completion marker: ${marker}`)
       && body.includes(`Source head: \`${sourceHead}\``)
       && body.includes(`Merge SHA: \`${context.mergeSha || "unknown"}\``);
   });
+  return match ? String(match.body || "") : null;
 }
 
 function postParentProgress(config, context, runner, repositoryContext) {
@@ -305,7 +307,7 @@ function updateProjectStatusIfSupported(config, context, runner) {
   if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId) {
     return { status: "not_updated", reason: "project_status_mapping_incomplete" };
   }
-  if (context.sessionLifecycle) return { status: "failed", reason: "canonical_project_hygiene_required" };
+  if (context.sessionLifecycle) return { status: "skipped", skipped: true, reason: "canonical_project_hygiene_deferred" };
   return commandComponent(
     runner("gh", [
       "project",
@@ -325,14 +327,6 @@ function updateProjectStatusIfSupported(config, context, runner) {
 function reconcileLedger(config, context, runner, repositoryContext) {
   const proposalResult = buildLedgerReconciliationProposal(context);
   if (proposalResult.skipped || !proposalResult.ok) return proposalResult;
-  if (context.sessionLifecycle) {
-    return {
-      status: "skipped",
-      skipped: true,
-      reason: "canonical_docs_hygiene_deferred",
-      proposal: proposalResult.proposal,
-    };
-  }
   const result = executeIssueMutationPipeline(
     { ...config, maxFollowupIssuesPerRun: 1 },
     [proposalResult.proposal],
