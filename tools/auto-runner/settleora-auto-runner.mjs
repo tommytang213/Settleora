@@ -116,7 +116,7 @@ import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
-import { continueOrdinaryCandidate, createOrdinaryContinuationState } from "./lib/ordinary-candidate-continuation.mjs";
+import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches } from "./lib/ordinary-candidate-continuation.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -1783,6 +1783,18 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     phase: "candidate_reconciliation",
     counters: { acceptedLogicalTasks: 1, sourceRounds: state.reviewConvergenceState?.counters?.lifetimeLocalSourceChangingRounds || 0, githubEpochs: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0 },
   });
+  const actualChangedFiles = listChangedFiles(initial.identity.baseSha, initial.identity.headSha);
+  const actualIdentity = {
+    baseSha: initial.identity.baseSha,
+    headSha: initial.identity.headSha,
+    treeSha: getRefSha(`${initial.identity.headSha}^{tree}`),
+    diffDigest: createHash("sha256").update(getBoundedDiff(initial.identity.baseSha, initial.identity.headSha).text).digest("hex"),
+    changedFiles: actualChangedFiles,
+    changedFilesDigest: createHash("sha256").update(JSON.stringify([...actualChangedFiles].sort())).digest("hex"),
+  };
+  if (!ordinaryCandidateIdentityMatches(initial.identity, actualIdentity)) {
+    return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_candidate_identity_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
+  }
   const context = {
     issue,
     laneDecision,

@@ -69,6 +69,16 @@ export function createOrdinaryContinuationState({ logicalTaskKey, executionKey =
   return normalizeState({ version: 1, logicalTaskKey, executionKey, issueNumber, branchName, identity, phase, effects, counters });
 }
 
+export function ordinaryCandidateIdentityMatches(persisted, actual) {
+  if (!validIdentity(persisted) || !validIdentity(actual)) return false;
+  return persisted.baseSha === actual.baseSha
+    && persisted.headSha === actual.headSha
+    && persisted.treeSha === actual.treeSha
+    && persisted.diffDigest === actual.diffDigest
+    && JSON.stringify([...persisted.changedFiles].sort()) === JSON.stringify([...actual.changedFiles].sort())
+    && (!persisted.changedFilesDigest || persisted.changedFilesDigest === actual.changedFilesDigest);
+}
+
 function normalizeState(value = {}) {
   if (value.version !== 1 || !value.logicalTaskKey || !value.issueNumber || !value.branchName || !validIdentity(value.identity)) {
     return { ...value, phase: "invalid", effects: {}, counters: {} };

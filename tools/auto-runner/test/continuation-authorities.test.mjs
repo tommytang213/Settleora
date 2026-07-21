@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
+import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
 import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, validateSplitMaterializationInput } from "../lib/feature-bundle-split-materializer.mjs";
 
 const sha = (value) => createHash("sha1").update(value).digest("hex");
@@ -78,6 +78,16 @@ test("ordinary continuation rejects corrupt identity, missing handlers, and conf
   assert.match(missing.reasonCode, /handler_missing/);
   const conflict = await continueOrdinaryCandidate({ ...state, effects: { candidate_reconciliation: { targetDigest: "wrong" } } }, {});
   assert.match(conflict.reasonCode, /effect_conflict/);
+});
+
+test("ordinary candidate identity rejects stale tree, diff, and changed-file coverage", () => {
+  const exact = { ...identity(), changedFilesDigest: digest(["a.mjs"]) };
+  assert.equal(ordinaryCandidateIdentityMatches(exact, exact), true);
+  for (const changed of [
+    { treeSha: sha("other-tree") },
+    { diffDigest: digest("other-diff") },
+    { changedFiles: ["a.mjs", "omitted.mjs"], changedFilesDigest: digest(["a.mjs", "omitted.mjs"]) },
+  ]) assert.equal(ordinaryCandidateIdentityMatches(exact, { ...exact, ...changed }), false);
 });
 
 function splitInput(dependent = false) {
