@@ -30,6 +30,7 @@ import { runCodexPrompt } from "./codex-runner.mjs";
 import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -101,6 +102,33 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   const loadedState = loadOrCreateStackState({ config, plan, statePath, adapter });
   if (!loadedState.ok) return fail(loadedState.reasonCode, loadedState.reason, { statePath });
   let state = loadedState.state;
+  if (config.sessionLifecycle?.enabled === true && !state.sessionLifecycle) {
+    const firstPr = plan.orderedPrs[0];
+    const runId = config.runnerRunId || `pr-stack:${plan.stackId}`;
+    const mainResult = spawnSync("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+    const baseSha = mainResult.status === 0 && validSha(mainResult.stdout.trim()) ? mainResult.stdout.trim() : null;
+    if (!baseSha) return fail("pr_stack_lifecycle_base_unavailable", "unable to bind PR-stack lifecycle authority to origin/main", { statePath });
+    const lifecycle = createSessionLifecycleState({
+      repository: plan.repository || config.repositorySlug,
+      issueNumber: plan.issueNumber ?? firstPr?.issueNumber ?? null,
+      taskKey: `pr-stack:${plan.stackId}`,
+      runId,
+      claimIdentity: digestJson({ stackId: plan.stackId, statePath }),
+      branchName: firstPr?.headRefName,
+      baseSha,
+      headSha: firstPr?.headRefOid,
+      prNumber: firstPr?.number,
+      candidateDigest: digestJson(plan),
+      sessionId: `${runId}:controller`,
+      phase: "pr_stack_planning",
+      nextExactAction: "execute_pr_stack",
+      contextPolicy: config.sessionLifecycle.contextBudget,
+    });
+    const persisted = persistSessionLifecycleState(config, lifecycle);
+    if (!persisted.ok) return fail(persisted.reasonCode, "unable to initialize PR-stack lifecycle authority", { statePath });
+    state = sanitizeState({ ...state, sessionLifecycle: persisted.state });
+    writePrStackState(statePath, state);
+  }
   if (state.terminal?.reasonCode === "stack_complete") {
     return { ok: true, outcome: "complete", statePath, state: summarizeStackState(state), result: { alreadyComplete: true } };
   }

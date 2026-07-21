@@ -714,10 +714,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   if (lifecycleInvocation) promptInfo.sessionLifecycle = lifecycleInvocation;
   if (lifecycleInvocation) iteration.sessionLifecycle = lifecycleInvocation.state;
+  if (lifecycleInvocation) issue.sessionLifecycle = lifecycleInvocation.state;
   const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
   if (codexResult.sessionLifecycle?.state && promptInfo.sessionLifecycle) {
     promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: codexResult.sessionLifecycle.state };
     iteration.sessionLifecycle = codexResult.sessionLifecycle.state;
+    issue.sessionLifecycle = codexResult.sessionLifecycle.state;
   }
   iteration.codex = codexResult;
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
@@ -2472,7 +2474,7 @@ async function runReviewFixCycle(config, context) {
 }
 
 function finishIssueOutcome(config, issue, outcome, body) {
-  return commentIssueOutcome(config, issue, outcome, body);
+  return commentIssueOutcome(config, issue, outcome, body, { effectContext: issue.sessionLifecycle || null });
 }
 
 async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {
