@@ -51,7 +51,7 @@ import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
-import { certifyCompleteCumulativeLargeReview } from "./lib/large-candidate-review-routing.mjs";
+import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision } from "./lib/large-candidate-review-routing.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -934,6 +934,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     summary: iteration.externalReview.reason,
   });
   if (iteration.externalReview.status === "blocked") {
+    if (iteration.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
+      iteration.largeCandidateReview = persistNormalLargeCandidateSplit(config, iteration, changedFiles);
+      iteration.outcome = "blocked_needs_tommy";
+      recoveryRecorder?.stop(iteration.largeCandidateReview.reasonCode, "Mixed candidate lacks a proven semantics-preserving split.", "minimum_scope_architecture_decision_required");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
     recoveryRecorder?.advance("review_fix", "run_external_review_fix");
     if (!config.dryRun) {
       const budget = evaluateNormalReviewConvergenceBudget(config, iteration, {
@@ -1056,7 +1063,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       return iteration;
     }
   }
-  iteration.largeCandidateReview = certifyNormalCumulativeLargeReview(config, iteration, changedFiles);
+  iteration.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, changedFiles);
   if (iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !iteration.largeCandidateReview.ok) {
     iteration.outcome = "auto_failed";
     iteration.externalReview = { ...iteration.externalReview, status: "blocked", reason: iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete" };
@@ -2909,7 +2916,7 @@ async function writeReviewPackage(config, payload) {
     changedFiles: payload.changedFiles,
     currentHead: payload.headSha || (config.dryRun ? null : getRefSha("HEAD")),
     baseSha: payload.baseSha || payload.baseRefSha || payload.baseOriginMainSha || (config.dryRun ? null : getRefSha("origin/main")),
-    treeSha: payload.headSha || (config.dryRun ? null : getRefSha("HEAD^{tree}")),
+    treeSha: config.dryRun ? payload.headSha || null : getRefSha("HEAD^{tree}"),
     rawDiffSha256: createHash("sha256").update(diff.text).digest("hex"),
     validation: payload.validation,
     report: payload.report,
@@ -2933,11 +2940,13 @@ async function runIntegratedReviewSource(config, reviewPackage, phase) {
   return runGeminiIntegratedReview(config, reviewPackage);
 }
 
-function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
+async function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
   const reviewPackage = iteration.reviewPackage || {};
   const headSha = iteration.runnerCreatedCommitSha || reviewPackage.summary?.currentHead || (config.dryRun ? null : getRefSha("HEAD"));
   const baseSha = iteration.baseOriginMainSha || reviewPackage.summary?.baseSha || (config.dryRun ? null : getRefSha("origin/main"));
-  return certifyCompleteCumulativeLargeReview({
+  return persistCumulativeLargeCandidateReview({
+    config,
+    taskKey: config.taskKey || `issue-${iteration.issue?.number || "unknown"}`,
     candidateIdentity: {
       repository: config.repositorySlug || "tommytang213/Settleora",
       baseSha,
@@ -2950,6 +2959,25 @@ function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
     integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     externalReview: iteration.externalReview,
     codexReview: iteration.review,
+  });
+}
+
+function persistNormalLargeCandidateSplit(config, iteration, changedFiles) {
+  const summary = iteration.reviewPackage?.summary || {};
+  return persistLargeCandidateSplitDecision({
+    config,
+    taskKey: config.taskKey || `issue-${iteration.issue?.number || "unknown"}`,
+    candidateIdentity: {
+      repository: config.repositorySlug || "tommytang213/Settleora",
+      baseSha: iteration.baseOriginMainSha || summary.baseSha,
+      headSha: iteration.runnerCreatedCommitSha || summary.currentHead,
+      treeSha: summary.treeSha,
+      diffDigest: summary.rawDiffSha256,
+      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+    },
+    classification: iteration.externalReview.route.largeCandidateRouting,
+    changedFiles,
+    slices: iteration.featureBundle?.slices || [],
   });
 }
 

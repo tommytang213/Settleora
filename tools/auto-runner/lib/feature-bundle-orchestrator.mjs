@@ -34,7 +34,7 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
-import { certifyCompleteCumulativeLargeReview } from "./large-candidate-review-routing.mjs";
+import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision } from "./large-candidate-review-routing.mjs";
 import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
@@ -322,6 +322,10 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   });
   const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
+  if (result.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
+    result.largeCandidateReview = persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview });
+    return stopBundle(result, "blocked_needs_tommy", result.largeCandidateReview.reasonCode, "Mixed bundle requires a proven semantics-preserving split or the minimum architecture decision.");
+  }
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_external_review",
   });
@@ -344,7 +348,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     return stopForBundleReviewMutation({ config, result, state, recovery, guard: codexReviewMutationGuard, phase: "bundle_codex_review" });
   }
   result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard);
-  result.largeCandidateReview = certifyLargeBundleCumulativeReview({ config, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review });
+  result.largeCandidateReview = await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review });
   if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
     return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
   }
@@ -897,14 +901,16 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
-    largeCandidateReview: certifyLargeBundleCumulativeReview({ config, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review }),
+    largeCandidateReview: await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review }),
     sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
   };
 }
 
-function certifyLargeBundleCumulativeReview({ config, reviewPackage, changedFiles, headSha, baseSha, externalReview, codexReview }) {
-  return certifyCompleteCumulativeLargeReview({
+async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha, baseSha, externalReview, codexReview }) {
+  return persistCumulativeLargeCandidateReview({
+    config,
+    taskKey: config.taskKey || `issue-${issue?.number || "unknown"}`,
     candidateIdentity: {
       repository: config.repositorySlug || "tommytang213/Settleora",
       baseSha,
@@ -917,6 +923,26 @@ function certifyLargeBundleCumulativeReview({ config, reviewPackage, changedFile
     integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     externalReview,
     codexReview,
+  });
+}
+
+function persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage, changedFiles, headSha, baseSha, externalReview }) {
+  const slices = (plan?.slices || []).map((slice) => ({
+    ...slice,
+    changedFiles: slice.changedFiles || slice.allowedPaths || [],
+    issueNumber: slice.issueNumber || issue.number,
+    taskKey: slice.taskKey || `${config.taskKey || `issue-${issue.number}`}:${slice.id}`,
+    allowedPathsProven: slice.allowedPathsProven === true,
+    semanticOwnDeltaProven: slice.semanticOwnDeltaProven === true,
+    dependsOn: slice.dependsOn || [],
+  }));
+  return persistLargeCandidateSplitDecision({
+    config,
+    taskKey: config.taskKey || `issue-${issue.number}`,
+    candidateIdentity: { repository: config.repositorySlug || "tommytang213/Settleora", baseSha, headSha, treeSha: reviewPackage.summary?.treeSha, diffDigest: reviewPackage.summary?.rawDiffSha256, changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex") },
+    classification: externalReview.route.largeCandidateRouting,
+    changedFiles,
+    slices,
   });
 }
 
@@ -1009,6 +1035,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
   const diff = config.dryRun ? { text: "", truncated: false } : getBoundedDiff("origin/main", "HEAD");
   const packagePath = path.join(config.logsRoot, "reviews", `${safeTimestamp()}-issue-${issue.number}-feature-bundle.json`);
   const summary = {
+    repository: config.repositorySlug || "tommytang213/Settleora",
     reviewPhase: "feature-bundle-final",
     issue: { number: issue.number, title: issue.title, labels: issue.labels || [], url: issue.url || null },
     bundle: summarizeBundleState(state),

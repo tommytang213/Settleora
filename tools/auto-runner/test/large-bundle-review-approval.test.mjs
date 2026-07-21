@@ -16,6 +16,8 @@ import {
   largeCandidateStateIsReviewPass,
   migrateLargeCandidateRoutingState,
   planLargeCandidateSplit,
+  persistCumulativeLargeCandidateReview,
+  persistLargeCandidateSplitDecision,
   loadLargeCandidateRoutingState,
   runStructuredLargeCandidateReview,
   validateLargeCandidateReviewEvidence,
@@ -224,4 +226,35 @@ test("restart during structured review resumes without duplicate provider calls"
   const result = await runStructuredLargeCandidateReview({ state, manifest, reviewers: ["gemini", "codex-local"], invokeSection: async ({ section }) => { calls += 1; return { id: section.id, status: "pass", manifestDigest: manifest.manifestDigest, findings: [] }; }, invokeIntegration: async () => { calls += 1; return { status: "pass", manifestDigest: manifest.manifestDigest, findings: [] }; } });
   assert.equal(result.ok, true);
   assert.equal(calls, manifest.sections.length + 1);
+});
+
+test("runtime cumulative review persists complete section and integration evidence across restart", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-large-runtime-"));
+  const boundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  const attestation = { attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: boundaries };
+  try {
+    const input = { config: { logsRoot }, taskKey: "runtime", candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs", "services/api/runtime.mjs"], integrationBoundaries: boundaries, externalReview: { ...attestation, status: "pass", verdict: "pass" }, codexReview: { ...attestation, verdict: { verdict: "approve", findings: [] } } };
+    const first = await persistCumulativeLargeCandidateReview(input);
+    assert.equal(first.ok, true);
+    assert.equal(first.state.routeState, "external_review_complete");
+    assert.equal(first.state.reviewerResults.every((review) => review.integration?.status === "pass"), true);
+    const resumed = await persistCumulativeLargeCandidateReview(input);
+    assert.equal(resumed.ok, true);
+    assert.equal(resumed.statePath, first.statePath);
+    assert.equal(resumed.state.countersConsumed.logicalTasks, 0);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
+test("runtime context limit persists exact uncovered scope and split routing persists a manual packet", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-large-context-"));
+  try {
+    const limited = await persistCumulativeLargeCandidateReview({ config: { logsRoot }, taskKey: "context", candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs"], externalReview: { status: "blocked", reason: "MAX_TOKENS context limit" }, codexReview: null });
+    assert.equal(limited.state.routeState, "external_review_context_limit_blocked");
+    assert.deepEqual(limited.state.uncoveredScope.paths, ["tools/auto-runner/a.mjs"]);
+    const classification = classifyLargeCandidate({ changedFiles: ["services/api/Auth/session.mjs", "services/api/Settlement/bill.mjs"] });
+    const split = persistLargeCandidateSplitDecision({ config: { logsRoot }, taskKey: "split", candidateIdentity, classification, changedFiles: ["services/api/Auth/session.mjs", "services/api/Settlement/bill.mjs"] });
+    assert.equal(split.ok, false);
+    assert.equal(split.state.routeState, "external_review_split_required");
+    assert.equal(split.execution, "manual_scope_decision_required");
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });

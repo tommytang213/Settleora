@@ -164,6 +164,56 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
   return freeze({ ...completed, state: { ...current, routeState: completed.state, reviewerVerdict: completed.ok ? "pass" : null } });
 }
 
+export async function persistCumulativeLargeCandidateReview({ config, taskKey, candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview } = {}) {
+  const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries });
+  if (!built.ok) return built;
+  const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification: { state: "external_review_large_bundle_in_progress" }, coverageManifest: built.manifest });
+  const loaded = loadLargeCandidateRoutingState(config, seed);
+  const state = loaded.ok ? invalidateLargeCandidateEvidence(loaded.state, candidateIdentity) : seed;
+  const evidence = { gemini: externalReview, "codex-local": codexReview };
+  const limitedProvider = ["gemini", "codex-local"].find((provider) => providerContextLimited(evidence[provider]));
+  if (limitedProvider) {
+    const blockedState = blockLargeCandidateForContextLimit({ state: { ...state, coverageManifest: built.manifest }, uncoveredPaths: built.manifest.changedFiles, uncoveredSections: built.manifest.sections.map((section) => section.id), provider: limitedProvider, deterministicSplitPossible: false });
+    const persisted = writeLargeCandidateRoutingState(config, blockedState);
+    return freeze({ ok: false, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted), reasonCode: "provider_context_limit" });
+  }
+  const reviewed = await runStructuredLargeCandidateReview({
+    state,
+    manifest: built.manifest,
+    reviewers: ["gemini", "codex-local"],
+    invokeSection: async ({ provider, section, manifest }) => cumulativeSectionEvidence(evidence[provider], provider, section, manifest),
+    invokeIntegration: async ({ provider, manifest }) => cumulativeIntegrationEvidence(evidence[provider], provider, manifest),
+  });
+  const persisted = writeLargeCandidateRoutingState(config, reviewed.state || state);
+  return freeze({ ...reviewed, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
+}
+
+export function persistLargeCandidateSplitDecision({ config, taskKey, candidateIdentity, classification, changedFiles, slices = [] } = {}) {
+  const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification });
+  const splitPlan = planLargeCandidateSplit({ classification, changedFiles, slices });
+  const persisted = writeLargeCandidateRoutingState(config, { ...seed, routeState: "external_review_split_required", splitPlan, reviewerVerdict: null });
+  return freeze({ ...splitPlan, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
+}
+
+function cumulativeSectionEvidence(evidence, provider, section, manifest) {
+  const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest.integrationBoundaries);
+  return { id: section.id, status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [] };
+}
+
+function cumulativeIntegrationEvidence(evidence, provider, manifest) {
+  const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest.integrationBoundaries);
+  return { status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [] };
+}
+
+function cumulativeEvidencePasses(evidence, provider, identity, boundaries) {
+  const verdictPass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  return verdictPass && sameCandidateIdentity(evidence?.attestedCandidateIdentity, identity)
+    && digest(normalizeFiles(evidence?.attestedIntegrationBoundaries)) === digest(normalizeFiles((boundaries || []).map((entry) => entry.path)));
+}
+
+function cumulativeFindings(evidence) { return evidence?.findings || evidence?.verdict?.findings || []; }
+function providerContextLimited(evidence) { return /context|token|truncat|over.?budget/i.test(`${evidence?.reason || ""} ${evidence?.reviewFailureReason || ""}`); }
+
 export function migrateLargeCandidateRoutingState(input = {}) {
   const routeState = historicalStates.get(input.routeState || input.status) || input.routeState || input.status;
   const initial = createLargeCandidateRoutingState({ ...input, classification: { state: largeCandidateRoutingStates.includes(routeState) ? routeState : "external_review_coverage_incomplete" }, coverageManifest: input.coverageManifest, splitPlan: input.splitPlan, updatedAt: input.updatedAt });
