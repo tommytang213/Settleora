@@ -1735,7 +1735,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
       }
-      if (["external_review", "codex_mechanics_security_review"].includes(boundary.phase)) {
+      if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary });

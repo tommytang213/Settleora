@@ -92,6 +92,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);
+  assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
 });
 
 test("only the controller-owning production runner path grants outage resubmission capability", () => {
