@@ -14,6 +14,7 @@ import {
 } from "../lib/completion-hygiene.mjs";
 import { executeAutoMerge } from "../lib/auto-merge-policy.mjs";
 import { digestChangedFiles } from "../lib/config.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 
 const headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const baseSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -21,6 +22,13 @@ const mergeSha = "cccccccccccccccccccccccccccccccccccccccc";
 
 function logsRoot() {
   return mkdtempSync(path.join(tmpdir(), "settleora-completion-"));
+}
+
+function lifecycleFor(config) {
+  const state = createSessionLifecycleState({ repository: "tommytang213/Settleora", issueNumber: 891, taskKey: "task", runId: "run", claimIdentity: "claim", chargeMarkerRef: "charge", sessionId: "session", branchName: "feature/test", baseSha, headSha, phase: "hygiene", nextExactAction: "complete_hygiene" });
+  const persisted = persistSessionLifecycleState(config, state);
+  assert.equal(persisted.ok, true);
+  return persisted.state;
 }
 
 function narrowIssue(overrides = {}) {
@@ -174,8 +182,9 @@ test("session lifecycle label cleanup persists intent and confirms live absence"
     }
     return { status: 0, stdout: "" };
   };
-  const sessionLifecycle = { repository: "tommytang213/Settleora", logicalTask: { taskKey: "task", runId: "run", claimIdentity: "claim", chargeMarkerRef: "charge" }, mutationAuthority: { ownerSessionId: "session", generation: 1, status: "active" }, branch: { name: "feature/test", baseSha, headSha, candidateDigest: "candidate" } };
-  const result = cleanupTransientLabels(narrowIssue(), runner, { repositorySlug: "tommytang213/Settleora", repositoryId: "repo-1" }, { logsRoot: logsRoot() }, { sessionLifecycle, sourceHeadSha: headSha, mergeSha });
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora" };
+  const sessionLifecycle = lifecycleFor(config);
+  const result = cleanupTransientLabels(narrowIssue(), runner, { repositorySlug: "tommytang213/Settleora", repositoryId: "repo-1" }, config, { sessionLifecycle, sourceHeadSha: headSha, mergeSha });
   assert.equal(result.status, "updated");
   assert.equal(result.canonicalEffect.status, "finalized");
   assert.equal(labels.includes("auto-claimed"), false);
@@ -372,7 +381,8 @@ test("feature-bundle context can use the same completion pipeline", () => {
 });
 
 test("session lifecycle completion keeps durable ledger reconciliation and normal project capability checks", () => {
-  const sessionLifecycle = { repository: "tommytang213/Settleora", logicalTask: { taskKey: "task", runId: "run", claimIdentity: "claim", chargeMarkerRef: "charge" }, mutationAuthority: { ownerSessionId: "session", generation: 1, status: "active" }, branch: { name: "feature/test", baseSha, headSha, candidateDigest: "candidate" } };
+  const config = { logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", allowFollowupIssueCreation: false };
+  const sessionLifecycle = lifecycleFor(config);
   const baseContext = context({ parentIssue: null, remainingGates: ["post-merge acceptance"], sessionLifecycle });
   const closeDecision = evaluateCloseDecision(baseContext.issue, baseContext);
   const completionBody = renderCompletionComment(baseContext, closeDecision);
@@ -381,7 +391,7 @@ test("session lifecycle completion keeps durable ledger reconciliation and norma
     issue: { ...baseContext.issue, labels: ["area:infra"], comments: [{ body: completionBody }] },
   };
   const result = completeMergedIssueHygiene(
-    { logsRoot: logsRoot(), allowFollowupIssueCreation: false },
+    config,
     lifecycleContext,
     { runner: runnerWith({ issue: lifecycleContext.issue }) },
   );

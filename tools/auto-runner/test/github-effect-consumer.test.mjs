@@ -4,12 +4,15 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { executeCanonicalGithubEffect, executeCanonicalGithubEffectSync } from "../lib/github-effect-consumer.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 
 const sha = (char) => char.repeat(40);
 function fixture() {
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-github-effect-"));
-  const state = { repository: "owner/repo", logicalTask: { taskKey: "task", runId: "run", claimIdentity: "claim", chargeMarkerRef: "charge" }, mutationAuthority: { ownerSessionId: "session", generation: 1, status: "active" }, branch: { name: "feature/test", baseSha: sha("a"), headSha: sha("b"), candidateDigest: "candidate" } };
-  return { config: { logsRoot }, state };
+  const config = { logsRoot, repositorySlug: "owner/repo" };
+  const persisted = persistSessionLifecycleState(config, createSessionLifecycleState({ repository: "owner/repo", issueNumber: 1, taskKey: "task", runId: "run", claimIdentity: "claim", chargeMarkerRef: "charge", sessionId: "session", branchName: "feature/test", baseSha: sha("a"), headSha: sha("b"), phase: "effect", nextExactAction: "execute" }));
+  assert.equal(persisted.ok, true);
+  return { config, state: persisted.state };
 }
 
 for (const [effectType, target] of [
