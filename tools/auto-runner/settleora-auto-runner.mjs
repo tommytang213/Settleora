@@ -113,6 +113,7 @@ import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnab
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
+import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -627,7 +628,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner feature-bundle result for #${issue.number}: ${iteration.outcome}.${detail}${reason}`,
       );
-      const bundleTerminalEffectsConfirmed = iteration.issueComment?.status === 0 && autoMergeEffectsConfirmed(bundleResult.autoMerge);
+      const bundleTerminalEffectsConfirmed = iteration.issueComment?.status === 0 && autoMergeEffectsConfirmed(config, bundleResult.sessionLifecycle, bundleResult.autoMerge);
       if (bundleResult.sessionLifecycle && bundleTerminalEffectsConfirmed) {
         const successfulBundleOutcome = ["auto_merged", "approved_pr_opened"].includes(iteration.outcome);
         const terminal = transitionSessionLifecyclePhase(config, bundleResult.sessionLifecycle, { phase: successfulBundleOutcome ? "completed" : "stopped", nextExactAction: successfulBundleOutcome ? "bundle_complete" : "bundle_stopped" });
@@ -665,7 +666,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       );
     }
     const recoveryLifecycle = recovery.sessionLifecycle || issue.sessionLifecycle;
-    const recoveryTerminalEffectConfirmed = (iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0) && autoMergeEffectsConfirmed(recovery.autoMerge);
+    const recoveryTerminalEffectConfirmed = (iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0) && autoMergeEffectsConfirmed(config, recoveryLifecycle, recovery.autoMerge);
     if (recoveryLifecycle && recoveryTerminalEffectConfirmed) {
       const terminal = transitionSessionLifecyclePhase(config, recoveryLifecycle, {
         phase: iteration.outcome === "auto_merged" ? "completed" : "stopped",
@@ -2543,7 +2544,8 @@ function finishIssueOutcome(config, issue, outcome, body) {
   return commentIssueOutcome(config, issue, outcome, body, { effectContext: issue.sessionLifecycle || null });
 }
 
-function autoMergeEffectsConfirmed(autoMerge = {}) {
+function autoMergeEffectsConfirmed(config, lifecycle, autoMerge = {}) {
+  if (lifecycleHasPendingCanonicalIntents(config, lifecycle)) return false;
   if (autoMerge.result !== "merged") return true;
   const hygiene = autoMerge.completionHygiene || {};
   const mutationComponents = [hygiene.comment, hygiene.closure, hygiene.labelCleanup, hygiene.parentProgress, hygiene.project, hygiene.ledger];
@@ -2552,6 +2554,17 @@ function autoMergeEffectsConfirmed(autoMerge = {}) {
     && autoMerge.sourceBranchRestoration?.confirmed === true
     && autoMerge.comments?.pr?.status === 0
     && mutationComponents.every(completeStatus);
+}
+
+function lifecycleHasPendingCanonicalIntents(config, lifecycle) {
+  if (!lifecycle) return false;
+  try {
+    return findPreEffectIntents(config, (intent) => intent.runId === lifecycle.logicalTask?.runId
+      && intent.claimIdentity === lifecycle.logicalTask?.claimIdentity
+      && !["finalized", "failed_closed"].includes(intent.status)).length > 0;
+  } catch {
+    return true;
+  }
 }
 
 async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt }) {

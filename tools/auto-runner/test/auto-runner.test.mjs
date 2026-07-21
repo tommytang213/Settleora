@@ -6979,7 +6979,8 @@ test("existing-PR recovery creates lifecycle authority before merge execution", 
   const iteration = source.slice(source.indexOf("const recovery = await recoverExistingPrIfConfigured"), source.indexOf("const slug = slugify"));
   assert.match(iteration, /recoveryTerminalEffectConfirmed/);
   assert.match(iteration, /transitionSessionLifecyclePhase\(config, recoveryLifecycle/);
-  assert.match(iteration, /autoMergeEffectsConfirmed\(recovery\.autoMerge\)/);
+  assert.match(iteration, /autoMergeEffectsConfirmed\(config, recoveryLifecycle, recovery\.autoMerge\)/);
+  assert.match(source, /findPreEffectIntents\(config,[\s\S]*!\["finalized", "failed_closed"\]\.includes\(intent\.status\)/);
 });
 
 test("feature-bundle results propagate lifecycle authority to terminal issue effects", () => {
@@ -6988,7 +6989,7 @@ test("feature-bundle results propagate lifecycle authority to terminal issue eff
   assert.match(bundlePath, /issue\.sessionLifecycle = bundleResult\.sessionLifecycle/);
   const bundle = readFileSync("tools/auto-runner/lib/feature-bundle-orchestrator.mjs", "utf8");
   assert.match(bundle, /result\.sessionLifecycle = sessionLifecycle/);
-  assert.match(bundlePath, /finishIssueOutcome[\s\S]*autoMergeEffectsConfirmed\(bundleResult\.autoMerge\)[\s\S]*transitionSessionLifecyclePhase\(config, bundleResult\.sessionLifecycle/);
+  assert.match(bundlePath, /finishIssueOutcome[\s\S]*autoMergeEffectsConfirmed\(config, bundleResult\.sessionLifecycle, bundleResult\.autoMerge\)[\s\S]*transitionSessionLifecyclePhase\(config, bundleResult\.sessionLifecycle/);
 });
 
 test("stack CLI constructs and injects one live fixed-argv runner", () => {
