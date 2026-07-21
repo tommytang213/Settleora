@@ -2323,6 +2323,8 @@ async function runReviewFixCycle(config, context) {
   );
   if (codex.sessionLifecycle?.state && context.promptInfo?.sessionLifecycle) {
     context.promptInfo.sessionLifecycle = { ...reviewFixLifecycle, state: codex.sessionLifecycle.state };
+    context.issue.sessionLifecycle = codex.sessionLifecycle.state;
+    if (context.iteration) context.iteration.sessionLifecycle = codex.sessionLifecycle.state;
   }
   const changedFilesAfter = listWorkingTreeChangedFiles();
   const forbiddenChangedFilesAfter = filterForbiddenChangedFiles(changedFilesAfter, context.laneDecision);

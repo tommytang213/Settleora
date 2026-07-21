@@ -384,6 +384,7 @@ test("production invocation sources wire lifecycle through feature bundle and re
   assert.match(feature, /sessionLifecycle: bundleLifecycleInvocation\(lifecycleState/);
   assert.match(feature, /context\.sessionLifecycle = codex\.sessionLifecycle\.state/);
   assert.match(runner, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
+  assert.match(runner, /context\.issue\.sessionLifecycle = codex\.sessionLifecycle\.state/);
   assert.match(codexRunner, /controller-successor/);
   assert.match(codexRunner, /sessionLifecycle = controllerReturn/);
   assert.match(startup, /consumeStartupInterruptionPlanner\(config, state/);
