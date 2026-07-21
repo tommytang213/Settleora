@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import {
   normalizeContextBudgetPolicy,
   parseProcStartIdentity,
   persistSessionLifecycleState,
+  sessionLifecyclePath,
   planInterruptionRecovery,
   prepareFreshSessionInvocation,
   validateSessionLifecycleState,
@@ -178,6 +179,20 @@ test("process start identity parses proc stat commands containing spaces", () =>
   const fields = ["S", ...Array.from({ length: 18 }, (_value, index) => String(index + 1)), "987654", "21"];
   assert.equal(parseProcStartIdentity(`123 (runner worker name) ${fields.join(" ")}\n`), "987654");
   assert.equal(parseProcStartIdentity("123 malformed"), null);
+});
+
+test("checkpoint persistence reclaims a lock whose exact process owner is dead", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "session-lifecycle-dead-lock-"));
+  const config = { logsRoot: root, repositorySlug: "owner/repo" };
+  const first = persistSessionLifecycleState(config, fixture());
+  assert.equal(first.ok, true);
+  const lockPath = `${sessionLifecyclePath(config, first.state)}.lock`;
+  writeFileSync(lockPath, `${JSON.stringify({ pid: 2147483647, processStart: "1", token: "00000000-0000-4000-8000-000000000000" })}\n`, { mode: 0o600 });
+  const next = structuredClone(first.state);
+  next.controller.nextExactAction = "recovered_after_dead_lock";
+  const recovered = persistSessionLifecycleState(config, next);
+  assert.equal(recovered.ok, true);
+  assert.equal(recovered.state.controller.nextExactAction, "recovered_after_dead_lock");
 });
 
 test("startup recovery resolves one checkpoint without guessing claim identity", () => {

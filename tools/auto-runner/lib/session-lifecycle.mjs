@@ -215,18 +215,24 @@ function persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest
 function acquireCheckpointLock(statePath) {
   const lockPath = `${statePath}.lock`;
   const ownerPath = `${lockPath}.${process.pid}.${Date.now()}.owner`;
-  const owner = { pid: process.pid, processStart: processStartIdentity(process.pid) };
+  const owner = { pid: process.pid, processStart: processStartIdentity(process.pid), token: randomUUID() };
   let linked = false;
   if (!owner.processStart) return fail("session_lifecycle_checkpoint_lock_identity_unavailable");
   try {
     writeFileSync(ownerPath, `${JSON.stringify(owner)}\n`, { flag: "wx", mode: 0o600 });
-    try {
-      linkSync(ownerPath, lockPath);
-      linked = true;
-      return { ok: true, release: () => releaseCheckpointLock(lockPath, ownerPath) };
-    } catch (error) {
-      return fail(error?.code === "EEXIST" ? "session_lifecycle_checkpoint_write_locked" : "session_lifecycle_checkpoint_lock_failed");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        linkSync(ownerPath, lockPath);
+        stabilizeCheckpointLock();
+        if (!checkpointLockMatches(lockPath, owner)) return fail("session_lifecycle_checkpoint_lock_raced");
+        linked = true;
+        return { ok: true, release: () => releaseCheckpointLock(lockPath, ownerPath, owner) };
+      } catch (error) {
+        if (error?.code !== "EEXIST") return fail("session_lifecycle_checkpoint_lock_failed");
+        if (attempt > 0 || !reclaimInactiveCheckpointLock(lockPath)) return fail("session_lifecycle_checkpoint_write_locked");
+      }
     }
+    return fail("session_lifecycle_checkpoint_write_locked");
   } finally {
     if (!linked && existsSync(ownerPath)) {
       try { unlinkSync(ownerPath); } catch { /* owner-only orphan is non-authoritative */ }
@@ -234,14 +240,53 @@ function acquireCheckpointLock(statePath) {
   }
 }
 
-function releaseCheckpointLock(lockPath, ownerPath) {
+function releaseCheckpointLock(lockPath, ownerPath, owner) {
   try {
+    if (!checkpointLockMatches(lockPath, owner)) return fail("session_lifecycle_checkpoint_lock_cleanup_failed");
     unlinkSync(lockPath);
     unlinkSync(ownerPath);
     return { ok: true };
   } catch {
     return fail("session_lifecycle_checkpoint_lock_cleanup_failed");
   }
+}
+
+function reclaimInactiveCheckpointLock(lockPath) {
+  let observed;
+  try { observed = JSON.parse(readFileSync(lockPath, "utf8")); } catch { return false; }
+  if (!validCheckpointLockOwner(observed) || processStartIdentity(observed.pid) === observed.processStart) return false;
+  const quarantinePath = `${lockPath}.${process.pid}.${Date.now()}.${randomUUID()}.stale`;
+  try {
+    renameSync(lockPath, quarantinePath);
+    const movedMatches = checkpointLockMatches(quarantinePath, observed);
+    if (!movedMatches) {
+      try { linkSync(quarantinePath, lockPath); } catch { /* another stabilized contender owns the lock path */ }
+      return false;
+    }
+    unlinkSync(quarantinePath);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (existsSync(quarantinePath)) {
+      try { unlinkSync(quarantinePath); } catch { /* fail-closed acquisition result preserves the live lock path */ }
+    }
+  }
+}
+
+function checkpointLockMatches(lockPath, owner) {
+  try {
+    const current = JSON.parse(readFileSync(lockPath, "utf8"));
+    return validCheckpointLockOwner(current) && current.pid === owner.pid && current.processStart === owner.processStart && current.token === owner.token;
+  } catch { return false; }
+}
+
+function validCheckpointLockOwner(owner) {
+  return Number.isSafeInteger(owner?.pid) && owner.pid > 0 && /^\d+$/.test(owner?.processStart || "") && typeof owner?.token === "string" && /^[0-9a-f-]{36}$/.test(owner.token);
+}
+
+function stabilizeCheckpointLock() {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
 }
 
 function processStartIdentity(pid) {
