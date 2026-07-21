@@ -15,7 +15,7 @@ export async function materializeFeatureBundleSplit(input, adapter) {
     if (prior && prior.expectedDigest !== expected.expectedDigest) return fail("split_materialization_state_conflict", { sliceId: slice.id });
     const liveBranch = await adapter.readBranch(expected.branchName);
     if (liveBranch?.exists && liveBranch.headSha !== prior?.headSha) return fail("split_materialization_branch_conflict", { sliceId: slice.id, branchName: expected.branchName });
-    let branch = prior?.headSha ? prior : await adapter.materializeBranch(expected);
+    let branch = prior?.headSha ? { ...prior, ok: true, adopted: true } : await adapter.materializeBranch(expected);
     if (!branch?.ok || !branch.headSha || !branch.treeSha) return fail(branch?.reasonCode || "split_materialization_branch_failed", { sliceId: slice.id });
     const verified = await adapter.verifyOwnDelta({ ...expected, ...branch });
     if (!verified?.ok || verified.changedFilesDigest !== slice.changedFilesDigest || verified.semanticOwnDeltaProven !== true) return fail(verified?.reasonCode || "split_materialization_semantic_mismatch", { sliceId: slice.id });
