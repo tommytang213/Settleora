@@ -34,7 +34,7 @@ import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } 
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 import { runGeminiIntegratedReview } from "./gemini-reviewer.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
-import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings } from "./large-candidate-review-routing.mjs";
+import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./large-candidate-review-routing.mjs";
 import {
   accountConvergenceEvent,
   buildLiveReviewConvergenceContext,
@@ -363,6 +363,8 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     result.sessionLifecycle = sessionLifecycle;
   }
   if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
+    const manualVerdict = structuredLargeCandidateManualVerdict(result.largeCandidateReview);
+    if (manualVerdict) return stopBundle(result, manualVerdict === "danger_gate" ? "danger_gate" : "blocked_needs_tommy", `structured_review_${manualVerdict}`, "Structured reviewer required a manual decision; no fix cycle or push was attempted.");
     if (!routeBundleStructuredFindingsToConvergence(result)) {
       return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
     }
@@ -667,6 +669,13 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
       reviewMutationGuard: postFix.reviewMutationGuard,
     };
     if (postFix.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !postFix.largeCandidateReview?.ok) {
+      const manualVerdict = structuredLargeCandidateManualVerdict(postFix.largeCandidateReview);
+      if (manualVerdict) {
+        const outcome = manualVerdict === "danger_gate" ? "danger_gate" : "blocked_needs_tommy";
+        state = markBundleStopped(state, { reasonCode: `structured_review_${manualVerdict}`, reason: "Structured reviewer required a manual decision." });
+        writeState(state);
+        return { ok: false, outcome, reasonCode: `structured_review_${manualVerdict}`, reason: "Structured reviewer required a manual decision; no further mutation or push was attempted.", state, attempts, summary: { largeCandidateReview: postFix.largeCandidateReview } };
+      }
       if (routeBundleStructuredFindingsToConvergence(postFix)) {
         currentResult = {
           ...currentResult,
@@ -1009,7 +1018,8 @@ async function runBundleStructuredReviewCall(config, reviewPackage, provider, st
   if (evidence?.sessionLifecycle && onLifecycle) onLifecycle(evidence.sessionLifecycle);
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: bundleStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries };
+  const reviewerVerdict = provider === "gemini" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", reviewerVerdict, manifestDigest: structuredReview.manifest.manifestDigest, findings: bundleStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries };
 }
 
 function bundleStructuredFindings(evidence) {

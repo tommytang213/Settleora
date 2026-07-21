@@ -37,7 +37,7 @@ export function classifyLargeCandidate(input = {}) {
   const laneSplit = Boolean(input.laneDecision?.splitRequired || input.laneDecision?.branchStrategy === "split-required");
   const unrelatedIssues = Array.isArray(input.issueNumbers) && new Set(input.issueNumbers).size > 1 && !input.featureBundle?.architectureConsistent;
   const architectureProof = Boolean(input.featureBundle?.architectureConsistent || input.taskContract?.architectureConsistentLargeBundle);
-  const mixed = laneSplit || unrelatedIssues || (incompatible.length > 0 && !architectureProof);
+  const mixed = laneSplit || unrelatedIssues || (domains.length > 1 && !architectureProof);
   const coherent = !explicitManual && !mixed && (domains.length <= 1 || architectureProof);
   let state = "external_review_normal_ready";
   let route = "normal";
@@ -211,6 +211,16 @@ export function structuredLargeCandidateFindings(reviewResult, provider) {
     ...(result.sections || []).flatMap((section) => section.findings || []),
     ...(result.integration?.findings || []),
   ]);
+}
+
+export function structuredLargeCandidateManualVerdict(reviewResult) {
+  const verdicts = (reviewResult?.state?.reviewerResults || []).flatMap((result) => [
+    ...(result.sections || []).map((section) => section.reviewerVerdict),
+    result.integration?.reviewerVerdict,
+  ]);
+  if (verdicts.includes("danger_gate")) return "danger_gate";
+  if (verdicts.includes("needs_tommy")) return "needs_tommy";
+  return null;
 }
 
 export function persistLargeCandidateSplitDecision({ config, taskKey, candidateIdentity, classification, changedFiles, slices = [] } = {}) {

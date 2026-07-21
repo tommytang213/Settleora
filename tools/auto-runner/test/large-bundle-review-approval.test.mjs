@@ -22,6 +22,7 @@ import {
   loadLargeCandidateRoutingState,
   runStructuredLargeCandidateReview,
   structuredLargeCandidateFindings,
+  structuredLargeCandidateManualVerdict,
   validateLargeCandidateReviewEvidence,
   validateLargeCandidateRoutingState,
   writeLargeCandidateRoutingState,
@@ -46,6 +47,21 @@ test("coherent architecture-consistent feature bundle escalates", () => {
   const result = classifyLargeCandidate({ changedFiles: [...workflowFiles(20), "scripts/ai/example.mjs"], stats: { additions: 2100 }, featureBundle: { architectureConsistent: true } });
   assert.equal(result.route, "large_bundle_escalation");
   assert.equal(result.coherent, true);
+});
+
+test("every multi-domain large candidate without architecture proof splits even when no named pair matches", () => {
+  const result = classifyLargeCandidate({
+    changedFiles: ["services/api/Domain/Auth/Session.cs", "services/api/Domain/Settlements/Request.cs"],
+    stats: { additions: 900 },
+  });
+  assert.equal(result.coherent, false);
+  assert.equal(result.route, "split_or_block");
+});
+
+test("structured manual and danger verdicts remain terminal evidence", () => {
+  const review = { state: { reviewerResults: [{ sections: [{ reviewerVerdict: "needs_tommy" }], integration: { reviewerVerdict: "danger_gate" } }] } };
+  assert.equal(structuredLargeCandidateManualVerdict(review), "danger_gate");
+  assert.equal(structuredLargeCandidateManualVerdict({ state: { reviewerResults: [{ sections: [{ reviewerVerdict: "needs_tommy" }] }] } }), "needs_tommy");
 });
 
 test("production reviewer routing honors feature-bundle architecture proof", () => {

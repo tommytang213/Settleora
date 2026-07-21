@@ -51,7 +51,7 @@ import { bindValidationEvidence, planValidation, runValidationPlan } from "./lib
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./lib/pr-manager.mjs";
 import { writeRecentSummary, writeRunSummary } from "./lib/summary-writer.mjs";
 import { reviewerReadinessSummary } from "./lib/reviewer-policy.mjs";
-import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings } from "./lib/large-candidate-review-routing.mjs";
+import { persistCumulativeLargeCandidateReview, persistLargeCandidateSplitDecision, structuredLargeCandidateFindings, structuredLargeCandidateManualVerdict } from "./lib/large-candidate-review-routing.mjs";
 import { runGeminiIntegratedReview, runGeminiReviewerSmokeTest } from "./lib/gemini-reviewer.mjs";
 import { runReviewFixCanaryFixtureReview } from "./lib/review-fix-fixture.mjs";
 import {
@@ -1079,6 +1079,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
   }
   if (iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !iteration.largeCandidateReview.ok) {
+    const manualVerdict = structuredLargeCandidateManualVerdict(iteration.largeCandidateReview);
+    if (manualVerdict) {
+      iteration.outcome = manualVerdict === "danger_gate" ? "danger_gate" : "blocked_needs_tommy";
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Structured large-candidate review returned ${manualVerdict}; no fix cycle or push was attempted.`);
+      recoveryRecorder?.stop(`structured_review_${manualVerdict}`, "Structured reviewer required a manual decision.", "manual_review_decision_required");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
     if (routeNormalStructuredFindingsToConvergence(iteration)) {
       recoveryRecorder?.advance("review_fix", "route_structured_large_candidate_findings");
     } else {
@@ -3014,6 +3022,14 @@ async function refreshNormalLargeCandidateReviewAfterFix(config, iteration, chan
     stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "structured_post_fix_review_mutated_checkout");
     return false;
   }
+  const manualVerdict = structuredLargeCandidateManualVerdict(iteration.largeCandidateReview);
+  if (manualVerdict) {
+    iteration.outcome = manualVerdict === "danger_gate" ? "danger_gate" : "blocked_needs_tommy";
+    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Post-fix structured review returned ${manualVerdict}; no further mutation or push was attempted.`);
+    recoveryRecorder?.stop(`structured_review_${manualVerdict}`, "Structured reviewer required a manual decision.", "manual_review_decision_required");
+    iteration.finishedAt = new Date().toISOString();
+    return false;
+  }
   if (iteration.largeCandidateReview.sessionLifecycle) {
     iteration.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
     issue.sessionLifecycle = iteration.largeCandidateReview.sessionLifecycle;
@@ -3076,7 +3092,8 @@ async function runNormalStructuredReviewCall(config, reviewPackage, provider, st
   const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
-  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: normalStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries, nextSessionLifecycle: evidence?.sessionLifecycle || null };
+  const reviewerVerdict = provider === "gemini" ? evidence?.verdict || evidence?.sanitizedResponseSummary?.verdict : evidence?.verdict?.verdict;
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", reviewerVerdict, manifestDigest: structuredReview.manifest.manifestDigest, findings: normalStructuredFindings(evidence), evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest, attestedCandidateIdentity: evidence?.attestedCandidateIdentity, attestedIntegrationBoundaries: evidence?.attestedIntegrationBoundaries, nextSessionLifecycle: evidence?.sessionLifecycle || null };
 }
 
 function normalStructuredFindings(evidence) {

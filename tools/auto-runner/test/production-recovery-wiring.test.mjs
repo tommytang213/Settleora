@@ -215,6 +215,8 @@ test("large review recovery re-requires binding and reviewer prompts carry bound
   assert.match(bundle, /phase: "bundle_convergence_structured_review"/);
   assert.match(bundle, /executionAuthorityProven: slice\.executionAuthorityProven === true/);
   assert.doesNotMatch(bundle, /executionAuthorityProven: false/);
+  assert.match(runner, /structuredLargeCandidateManualVerdict\(iteration\.largeCandidateReview\)/);
+  assert.match(bundle, /structuredLargeCandidateManualVerdict\(result\.largeCandidateReview\)/);
 });
 
 test("stack local-fix recovery threads one injected Codex execution authority", () => {
