@@ -152,6 +152,9 @@ export function validateSessionLifecycleState(state, expected = {}) {
   const authority = state.mutationAuthority;
   if (!authority || authority.generation !== state.sessions.generation || (authority.status === "active" && authority.ownerSessionId !== state.sessions.current) || state.sessions.retired.includes(authority.ownerSessionId) || (authority.status === "terminal" && authority.ownerSessionId !== null)) return fail("session_lifecycle_authority_contradictory");
   if (!["active", "retired_pending_successor", "recovery_pending", "terminal"].includes(authority.status)) return fail("session_lifecycle_authority_status_invalid");
+  const terminalPhase = terminalPhases.has(state.controller?.phase);
+  const terminalReport = ["completed", "stopped"].includes(state.report?.status);
+  if (terminalPhase !== terminalReport || terminalPhase !== (authority.status === "terminal") || (terminalPhase && state.report.status !== state.controller.phase)) return fail("session_lifecycle_terminal_state_contradictory");
   for (const key of ["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]) if (!Number.isSafeInteger(state.controller?.[key]) || state.controller[key] < 0) return fail("session_lifecycle_counter_invalid");
   try { normalizeContextBudgetPolicy(state.context?.policy); } catch { return fail("session_lifecycle_policy_invalid"); }
   if (state.report?.correlationKey !== state.logicalTask.taskKey) return fail("session_lifecycle_report_correlation_mismatch");

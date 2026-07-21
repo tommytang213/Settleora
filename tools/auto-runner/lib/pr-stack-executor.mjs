@@ -139,7 +139,10 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     writePrStackState(statePath, state);
   }
   if (state.terminal?.reasonCode === "stack_complete") {
-    if (config.sessionLifecycle?.enabled === true && state.sessionLifecycle?.controller?.phase !== "completed") {
+    const lifecycleComplete = state.sessionLifecycle?.controller?.phase === "completed"
+      && state.sessionLifecycle?.report?.status === "completed"
+      && state.sessionLifecycle?.mutationAuthority?.status === "terminal";
+    if (config.sessionLifecycle?.enabled === true && !lifecycleComplete) {
       const completedLifecycle = transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "completed", nextExactAction: "stack_complete" });
       if (!completedLifecycle.ok) return fail(completedLifecycle.reasonCode, "unable to finalize completed PR-stack lifecycle", { statePath });
       state = writePrStackState(statePath, sanitizeState({ ...state, sessionLifecycle: completedLifecycle.state })).state;
@@ -157,11 +160,14 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   if (typeof adapter.preflightLiveRunner === "function") {
     const preflight = await adapter.preflightLiveRunner({ config, plan, state });
     if (!preflight?.ok) {
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: "blocked",
         terminal: { reasonCode: preflight?.reasonCode || "stack_live_runner_missing", reason: preflight?.reason || "live runner preflight failed" },
         summary: { action: "live_runner_preflight", result: boundedProof(preflight || {}) },
       });
+      const stopped = stopPrStackLifecycle(config, blocked, preflight?.reasonCode || "stack_live_runner_missing");
+      if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+      blocked = stopped.state;
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
     }
@@ -183,12 +189,15 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     lifecycle: "claim",
   });
   if (!protectedAuthorization.ok) {
-    const blocked = transitionState(state, {
+    let blocked = transitionState(state, {
       phase: "blocked",
       terminal: { reasonCode: protectedAuthorization.reasonCode, reason: protectedAuthorization.reason },
       evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, protectedAuthorization),
       summary: { action: "protected_authorization_claim", result: boundedProof(protectedAuthorization) },
     });
+    const stopped = stopPrStackLifecycle(config, blocked, protectedAuthorization.reasonCode);
+    if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+    blocked = stopped.state;
     writePrStackState(statePath, blocked);
     return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
   }
@@ -207,11 +216,14 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   while (true) {
     plan = rebindPlanToStateHeads(plan, state);
     if (dispatchCount >= dispatchLimit) {
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: "blocked",
         terminal: { reasonCode: "stack_dispatch_limit_exceeded", reason: `stack dispatch exceeded bounded action limit ${dispatchLimit}` },
         summary: { action: "dispatch_limit", dispatchCount, dispatchLimit },
       });
+      const stopped = stopPrStackLifecycle(config, blocked, "stack_dispatch_limit_exceeded");
+      if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+      blocked = stopped.state;
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
     }
@@ -228,12 +240,15 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
       operationIntent: { action: action.action, prNumber: action.prNumber || null, expectedHead: action.expectedHead || null },
     });
     if (!consumedAuthorization.ok) {
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: "blocked",
         terminal: { reasonCode: consumedAuthorization.reasonCode, reason: consumedAuthorization.reason },
         evidence: putEvidence(state.evidence, "protectedAuthorization", plan.stackId, consumedAuthorization),
         summary: { action: "protected_authorization_consume", result: boundedProof(consumedAuthorization) },
       });
+      const stopped = stopPrStackLifecycle(config, blocked, consumedAuthorization.reasonCode);
+      if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+      blocked = stopped.state;
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
     }
@@ -251,7 +266,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     const dispatch = await dispatchStackAction({ config, stackConfig, plan, state, action, adapter });
     if (!dispatch.ok) {
       const evidence = dispatch.evidencePatch ? mergeEvidencePatch(state.evidence, dispatch.evidencePatch) : dispatch.evidence || state.evidence;
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: dispatch.waiting ? "waiting" : "blocked",
         terminal: dispatch.waiting ? null : { reasonCode: dispatch.reasonCode, reason: dispatch.reason },
         wait: dispatch.waiting ? { reasonCode: dispatch.reasonCode, action } : null,
@@ -262,6 +277,11 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
         orderedPrs: dispatch.orderedPrs || state.orderedPrs,
         summary: dispatch.summary || null,
       });
+      if (!dispatch.waiting) {
+        const stopped = stopPrStackLifecycle(config, blocked, dispatch.reasonCode);
+        if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+        blocked = stopped.state;
+      }
       writePrStackState(statePath, blocked);
       return { ok: false, outcome: dispatch.waiting ? "waiting" : "blocked", reasonCode: dispatch.reasonCode, reason: dispatch.reason, statePath, state: summarizeStackState(blocked) };
     }
@@ -279,12 +299,15 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
         operationIntent: { action: "complete", stackId: plan.stackId },
       });
       if (!completionAuthorization.ok) {
-        const blocked = transitionState(state, {
+        let blocked = transitionState(state, {
           phase: "blocked",
           terminal: { reasonCode: completionAuthorization.reasonCode, reason: completionAuthorization.reason },
           evidence: putEvidence(dispatch.evidence || state.evidence, "protectedAuthorization", plan.stackId, completionAuthorization),
           summary: { action: "protected_authorization_complete", result: boundedProof(completionAuthorization) },
         });
+        const stopped = stopPrStackLifecycle(config, blocked, completionAuthorization.reasonCode);
+        if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+        blocked = stopped.state;
         writePrStackState(statePath, blocked);
         return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, statePath, state: summarizeStackState(blocked) };
       }
@@ -327,11 +350,14 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     }
     const afterProgressDigest = stackDispatchProgressDigest(state);
     if (afterProgressDigest === beforeProgressDigest) {
-      const blocked = transitionState(state, {
+      let blocked = transitionState(state, {
         phase: "blocked",
         terminal: { reasonCode: "stack_dispatch_no_progress", reason: "stack dispatch advanced without durable progress" },
         summary: { action: "dispatch_no_progress", dispatchCount, lastAction: action },
       });
+      const stopped = stopPrStackLifecycle(config, blocked, "stack_dispatch_no_progress");
+      if (!stopped.ok) return fail(stopped.reasonCode, "unable to stop blocked PR-stack lifecycle", { statePath });
+      blocked = stopped.state;
       state = writePrStackState(statePath, blocked).state;
       return { ok: false, outcome: "blocked", reasonCode: blocked.terminal.reasonCode, reason: blocked.terminal.reason, action, dispatchCount, statePath, state: summarizeStackState(state) };
     }
@@ -2299,6 +2325,13 @@ function transitionState(state, patch = {}) {
     wait: patch.wait === undefined ? state.wait : patch.wait,
     summaries,
   });
+}
+
+function stopPrStackLifecycle(config, state, reasonCode) {
+  if (config.sessionLifecycle?.enabled !== true || !state.sessionLifecycle) return { ok: true, state };
+  const stopped = transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "stopped", nextExactAction: reasonCode || "blocked" });
+  if (!stopped.ok) return stopped;
+  return { ok: true, state: sanitizeState({ ...state, sessionLifecycle: stopped.state }) };
 }
 
 function shouldContinueStackDispatch({ adapter, dispatchCount }) {

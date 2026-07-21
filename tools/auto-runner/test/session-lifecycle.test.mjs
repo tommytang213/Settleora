@@ -22,6 +22,7 @@ import {
   sessionLifecyclePath,
   planInterruptionRecovery,
   prepareFreshSessionInvocation,
+  transitionSessionLifecyclePhase,
   validateSessionLifecycleState,
 } from "../lib/session-lifecycle.mjs";
 import { consumeSupervisorInterruptionPlanner } from "../supervisor/outage-resubmission-controller.mjs";
@@ -44,6 +45,24 @@ test("warning schedules checkpoint without changing counters or authority", () =
   assert.equal(result.action, "persist_checkpoint");
   assert.equal(state.controller.localSourceChangingRoundsPerEpoch, 3);
   assert.equal(assertMutationAuthority(state, "session-1").ok, true);
+});
+
+test("terminal phases retire mutation authority and reject contradictory state", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "session-lifecycle-terminal-"));
+  const config = { logsRoot: root, repositorySlug: "owner/repo" };
+  const initial = fixture();
+  const persisted = persistSessionLifecycleState(config, initial);
+  assert.equal(persisted.ok, true);
+  const completed = transitionSessionLifecyclePhase(config, persisted.state, { phase: "completed", nextExactAction: "done" });
+  assert.equal(completed.ok, true);
+  assert.equal(completed.state.report.status, "completed");
+  assert.equal(completed.state.mutationAuthority.status, "terminal");
+  assert.equal(completed.state.mutationAuthority.ownerSessionId, null);
+  assert.equal(assertMutationAuthority(completed.state, "session-1").ok, false);
+  const contradictory = structuredClone(completed.state);
+  contradictory.mutationAuthority = { ownerSessionId: "session-1", generation: 1, status: "active", handoff: null };
+  contradictory.checkpoint.digest = null;
+  assert.equal(validateSessionLifecycleState(contradictory).reasonCode, "session_lifecycle_terminal_state_contradictory");
 });
 
 test("mandatory pressure rotates before a long operation", () => {
