@@ -52,7 +52,7 @@ export async function runSupervisorWorker(
     runnerConfigSha256: verified.config.sha256,
     maxTasks: verified.spec.maxTasks,
     maxRuntime: verified.spec.maxRuntime,
-    runnerRunId: `run-${safeTimestamp()}`,
+    runnerRunId: `run-${safeTimestamp()}-${runId.slice(-12)}`,
     startedAt: new Date().toISOString(),
   };
   writeSupervisorState(runId, statePatch, logsRoot);

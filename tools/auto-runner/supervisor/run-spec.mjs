@@ -280,7 +280,7 @@ function normalizeOptionalSupervisorRunId(value) {
 function normalizeOptionalRunnerRunId(value) {
   if (value === null || value === undefined) return null;
   const normalized = String(value || "").trim();
-  if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(normalized)) throw new Error("parentRunnerRunId is invalid");
+  if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?$/.test(normalized)) throw new Error("parentRunnerRunId is invalid");
   return normalized;
 }
 

@@ -1,5 +1,5 @@
 export const supervisorRunIdPattern = /^supervised-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}$/;
-export const runnerRunIdPattern = /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/;
+export const runnerRunIdPattern = /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?$/;
 
 export function validateSupervisorRunId(runId) {
   const value = String(runId || "");

@@ -1542,7 +1542,7 @@ function isTaskKey(value) {
 }
 
 function isRunnerRunId(value) {
-  return /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$/.test(String(value || ""));
+  return /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?$/.test(String(value || ""));
 }
 
 function isSupervisorRunId(value) {
