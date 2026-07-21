@@ -14,8 +14,12 @@ export async function materializeFeatureBundleSplit(input, adapter) {
     const prior = state.slices[slice.id];
     if (prior && prior.expectedDigest !== expected.expectedDigest) return fail("split_materialization_state_conflict", { sliceId: slice.id });
     const liveBranch = await adapter.readBranch(expected.branchName);
-    if (liveBranch?.exists && liveBranch.headSha !== prior?.headSha) return fail("split_materialization_branch_conflict", { sliceId: slice.id, branchName: expected.branchName });
-    let branch = prior?.headSha ? { ...prior, ok: true, adopted: true } : await adapter.materializeBranch(expected);
+    if (liveBranch?.exists && prior?.headSha && liveBranch.headSha !== prior.headSha) return fail("split_materialization_branch_conflict", { sliceId: slice.id, branchName: expected.branchName });
+    let branch = liveBranch?.exists
+      ? { ...prior, ...liveBranch, ok: true, adopted: true }
+      : prior?.headSha
+        ? { ...prior, ok: true, adopted: true }
+        : await adapter.materializeBranch(expected);
     if (!branch?.ok || !branch.headSha || !branch.treeSha) return fail(branch?.reasonCode || "split_materialization_branch_failed", { sliceId: slice.id });
     const verified = await adapter.verifyOwnDelta({ ...expected, ...branch });
     if (!verified?.ok || verified.changedFilesDigest !== slice.changedFilesDigest || verified.semanticOwnDeltaProven !== true) return fail(verified?.reasonCode || "split_materialization_semantic_mismatch", { sliceId: slice.id });
@@ -61,12 +65,15 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
   return {
     readBranch: async (branchName) => {
       const local = git(cwd, ["show-ref", "--verify", "--hash", `refs/heads/${branchName}`]);
-      if (local.status === 0) return { exists: true, headSha: local.stdout.trim(), source: "local" };
+      if (local.status === 0) {
+        const headSha = local.stdout.trim();
+        return { exists: true, headSha, treeSha: git(cwd, ["rev-parse", `${headSha}^{tree}`]).stdout.trim(), source: "local" };
+      }
       const remote = git(cwd, ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`]);
       const remoteHead = remote.status === 0 && remote.stdout.trim() ? remote.stdout.trim().split(/\s+/)[0] : null;
       if (!remoteHead) return { exists: false, headSha: null };
       const fetched = git(cwd, ["fetch", "origin", `refs/heads/${branchName}`]);
-      return fetched.status === 0 ? { exists: true, headSha: remoteHead, source: "remote" } : { exists: true, headSha: remoteHead, unavailable: true };
+      return fetched.status === 0 ? { exists: true, headSha: remoteHead, treeSha: git(cwd, ["rev-parse", `${remoteHead}^{tree}`]).stdout.trim(), source: "remote" } : { exists: true, headSha: remoteHead, unavailable: true };
     },
     materializeBranch: async (expected) => {
       const temporary = mkdtempSync(path.join(tmpdir(), "settleora-split-"));
@@ -95,7 +102,11 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
       if (files.status !== 0) return fail("split_materialization_diff_unavailable");
       const changedFiles = files.stdout.trim().split(/\r?\n/).filter(Boolean).sort();
       const actualDigest = digest(changedFiles);
-      return { ok: actualDigest === expected.changedFilesDigest, reasonCode: actualDigest === expected.changedFilesDigest ? null : "split_materialization_changed_files_mismatch", changedFilesDigest: actualDigest, semanticOwnDeltaProven: actualDigest === expected.changedFilesDigest, ownDelta: { fileSet: changedFiles, fileSetDigest: actualDigest } };
+      const sourcePatch = git(cwd, ["diff", "--binary", expected.commitRange.fromExclusive, expected.commitRange.toInclusive]);
+      const materializedPatch = git(cwd, ["diff", "--binary", expected.baseHeadSha, expected.headSha]);
+      const patchMatches = sourcePatch.status === 0 && materializedPatch.status === 0 && digest(sourcePatch.stdout) === digest(materializedPatch.stdout);
+      const ok = actualDigest === expected.changedFilesDigest && patchMatches;
+      return { ok, reasonCode: ok ? null : actualDigest !== expected.changedFilesDigest ? "split_materialization_changed_files_mismatch" : "split_materialization_semantic_mismatch", changedFilesDigest: actualDigest, semanticOwnDeltaProven: ok, ownDelta: { fileSet: changedFiles, fileSetDigest: actualDigest, normalizedPatchDigest: patchMatches ? digest(materializedPatch.stdout) : null } };
     },
     pushBranch: async (expected) => {
       const result = git(cwd, ["push", "origin", `${expected.headSha}:refs/heads/${expected.branchName}`]);

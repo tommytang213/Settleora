@@ -81,7 +81,7 @@ function splitInput(dependent = false) {
 function adapter(events, checkpointState = null) {
   let nextPr = 100;
   return {
-    readBranch: async (name) => ({ exists: Boolean(checkpointState?.slices?.[name === "split/a" ? "a" : "b"]?.headSha), headSha: checkpointState?.slices?.[name === "split/a" ? "a" : "b"]?.headSha }),
+    readBranch: async (name) => { const record = checkpointState?.slices?.[name === "split/a" ? "a" : "b"]; return { exists: Boolean(record?.headSha), headSha: record?.headSha, treeSha: record?.treeSha }; },
     materializeBranch: async (value) => { events.push(`branch:${value.id}`); return { ok: true, headSha: sha(`head:${value.id}`), treeSha: sha(`tree:${value.id}`) }; },
     verifyOwnDelta: async (value) => ({ ok: true, changedFilesDigest: value.changedFilesDigest, semanticOwnDeltaProven: true, ownDelta: { fileSetDigest: value.changedFilesDigest } }),
     pushBranch: async (value) => { events.push(`push:${value.id}`); return { ok: true }; },
@@ -112,6 +112,16 @@ test("split materialization adopts a persisted branch after interruption", async
   };
   const resumed = { ...input, state: persisted };
   const result = await materializeFeatureBundleSplit(resumed, adapter(events, persisted));
+  assert.equal(result.ok, true);
+  assert.equal(events.includes("branch:a"), false);
+  assert.equal(events.includes("push:a"), true);
+});
+
+test("split materialization verifies and adopts a checkpointless live branch", async () => {
+  const events = [];
+  const input = splitInput();
+  const live = { slices: { a: { headSha: sha("head:a"), treeSha: sha("tree:a") } } };
+  const result = await materializeFeatureBundleSplit(input, adapter(events, live));
   assert.equal(result.ok, true);
   assert.equal(events.includes("branch:a"), false);
   assert.equal(events.includes("push:a"), true);
