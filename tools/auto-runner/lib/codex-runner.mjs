@@ -80,7 +80,7 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
   if (sessionLifecycle?.state) {
     const controllerReturn = prepareFreshSessionInvocation(config, {
       state: sessionLifecycle.state,
-      newSessionId: `${promptInfo.sessionLifecycle.state.sessions.current}:controller-successor:${randomUUID()}`,
+      newSessionId: `controller-successor:${randomUUID()}`,
       phase: `${purpose}_complete`,
       telemetry: {},
       mutationJournaled: true,

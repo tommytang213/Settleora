@@ -1459,6 +1459,18 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       });
     }
   }
+  const ordinaryLifecycle = issue.sessionLifecycle || iteration.sessionLifecycle;
+  const ordinaryTerminalEffectsConfirmed = (iteration.outcome === "auto_merged" || iteration.issueComment?.status === 0)
+    && autoMergeEffectsConfirmed(config, ordinaryLifecycle, iteration.autoMerge);
+  if (ordinaryLifecycle && ordinaryTerminalEffectsConfirmed) {
+    const terminal = transitionSessionLifecyclePhase(config, ordinaryLifecycle, {
+      phase: "completed",
+      nextExactAction: iteration.outcome === "auto_merged" ? "ordinary_auto_merge_complete" : "ordinary_pr_opened_complete",
+    });
+    if (!terminal.ok) throw new Error(terminal.reasonCode);
+    iteration.sessionLifecycle = terminal.state;
+    issue.sessionLifecycle = terminal.state;
+  }
   recoveryRecorder?.complete(iteration.outcome);
   iteration.recovery = recoveryRecorder?.summary();
   iteration.finishedAt = new Date().toISOString();
