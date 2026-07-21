@@ -1148,6 +1148,26 @@ function restoreSourceBranchIfDeleted(config, context, runner) {
     if (existingHead !== headSha) return { ok: false, planned: false, executed: false, confirmed: false, reasonCode: "source_branch_head_mismatch", reason: "source_branch_head_mismatch" };
     return { ok: true, planned: false, executed: false, confirmed: true, branchExists: true, reason: "source_branch_exists", branchName, headSha };
   }
+  if (context.sessionLifecycle) {
+    const effect = { branchName, expectedHeadSha: headSha };
+    const canonical = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "branch_retention_verify", headSha, effect }, {
+      readLive: (intent) => {
+        const read = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
+        if (read.status !== 0 || read.error) return { complete: false };
+        const liveHead = remoteBranchHead(read.stdout, fullRef);
+        return liveHead === headSha ? { complete: true, present: true, identity: intent.identity, effect }
+          : liveHead ? { complete: true, ambiguous: true } : { complete: true, present: false };
+      },
+      execute: () => {
+        const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
+        if (push.status !== 0 || push.error) throw new Error("Canonical source branch restoration failed");
+        return { ok: true, status: push.status };
+      },
+    });
+    return canonical.ok
+      ? { ok: true, planned: true, executed: canonical.action === "executed", confirmed: true, branchExists: true, branchName, headSha, canonicalEffect: canonical }
+      : { ok: false, planned: true, executed: false, confirmed: false, reasonCode: canonical.reasonCode, canonicalEffect: canonical };
+  }
   const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
   if (push.status !== 0 || push.error) return { ok: false, planned: true, executed: false, confirmed: false, reasonCode: "source_branch_restore_push_failed", status: push.status, stderr: bounded(push.stderr || push.error || "") };
   const confirm = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });

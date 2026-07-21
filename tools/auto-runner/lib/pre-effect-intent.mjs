@@ -35,8 +35,11 @@ export function preparePreEffectIntent(config, input, { now = new Date(), intent
     updatedAt: now.toISOString(),
     diagnostics: [],
   };
-  persist(config, value, true);
-  return value;
+  ensureTrustedRoot(intentRoot(config));
+  return withIntentLock(config, value.intentId, () => {
+    persist(config, value, true);
+    return value;
+  });
 }
 
 export function transitionPreEffectIntent(config, intent, status, { diagnostics = [], now = new Date() } = {}) {

@@ -5185,6 +5185,14 @@ test("merge-only auto-merge restores source branch after mocked merge auto-delet
   }
 });
 
+test("lifecycle branch restoration is routed through a canonical retained-branch intent", () => {
+  const source = readFileSync("tools/auto-runner/lib/auto-merge-policy.mjs", "utf8");
+  const restoration = source.slice(source.indexOf("function restoreSourceBranchIfDeleted"), source.indexOf("function sourceBranchRestorationConfirmed"));
+  assert.match(restoration, /context\.sessionLifecycle/);
+  assert.match(restoration, /effectType: "branch_retention_verify"/);
+  assert.match(restoration, /executeCanonicalGithubEffectSync/);
+});
+
 test("merge-only auto-merge blocks completion when source branch restoration is unconfirmed", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-only-restore-fail-"));
   try {
