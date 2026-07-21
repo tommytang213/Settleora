@@ -171,9 +171,10 @@ async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
     readLive: (stored) => {
       const live = readBranchPrs(config, branchName);
       if (!live.complete) return { complete: false };
-      if (live.prs.length === 0) return { complete: true, present: false };
-      const matches = live.prs.filter((pr) => pr.state === "OPEN" && pr.headRefName === branchName && pr.headRefOid === headSha && pr.baseRefName === "main" && pr.isDraft === false && digest(pr.title || "") === effect.titleDigest && digest(pr.body || "") === effect.bodyDigest);
-      if (matches.length !== 1 || live.prs.length !== 1) return matches.length > 1 ? { complete: true, ambiguous: true } : { complete: true, present: true, identity: stored.identity, effect: { ...effect, sourceHeadSha: live.prs[0]?.headRefOid || "unknown" } };
+      const openPrs = live.prs.filter((pr) => pr.state === "OPEN");
+      if (openPrs.length === 0) return { complete: true, present: false };
+      const matches = openPrs.filter((pr) => pr.headRefName === branchName && pr.headRefOid === headSha && pr.baseRefName === "main" && pr.isDraft === false && digest(pr.title || "") === effect.titleDigest && digest(pr.body || "") === effect.bodyDigest);
+      if (matches.length !== 1) return matches.length > 1 ? { complete: true, ambiguous: true } : { complete: true, present: true, identity: stored.identity, effect: { ...effect, sourceHeadSha: openPrs[0]?.headRefOid || "unknown" } };
       adoptedPr = matches[0];
       return { complete: true, present: true, identity: stored.identity, effect };
     },
