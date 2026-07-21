@@ -406,6 +406,13 @@ test("production invocation sources wire lifecycle through feature bundle and re
   assert.match(runner, /context\.issue\.sessionLifecycle = codex\.sessionLifecycle\.state/);
   assert.match(codexRunner, /controller-successor/);
   assert.match(codexRunner, /sessionLifecycle = controllerReturn/);
+  const prStack = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
+  const convergence = readFileSync(new URL("../lib/review-convergence-controller.mjs", import.meta.url), "utf8");
+  assert.match(prStack, /sessionLifecycle: state\?\.sessionLifecycle \|\| plan\?\.sessionLifecycle \|\| null/);
+  assert.match(prStack, /newSessionId: `\$\{sessionLifecycle\.logicalTask\.runId\}:pr-stack-batch-fix:/);
+  assert.match(prStack, /sessionLifecycle: lifecycleInvocation/);
+  assert.match(prStack, /sessionLifecycle: codex\.sessionLifecycle\?\.state \|\| sessionLifecycle/);
+  assert.match(convergence, /sessionLifecycle: codex\.sessionLifecycle \|\| null/);
   assert.match(startup, /consumeStartupInterruptionPlanner\(config, state/);
   assert.match(startup, /repository: loaded\.state\.repository/);
   assert.match(startup, /branchName: loaded\.state\.branch\.name/);

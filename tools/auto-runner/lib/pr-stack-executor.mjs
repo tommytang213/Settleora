@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { isUtf8 } from "node:buffer";
 import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -344,6 +344,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
       terminal: dispatch.complete ? { reasonCode: "stack_complete", reason: "all_prs_merged_and_hygiene_complete" } : null,
       wait: null,
       evidence: finalEvidence,
+      sessionLifecycle: dispatch.sessionLifecycle || state.sessionLifecycle,
       mutationMarkers: dispatch.mutationMarkers || state.mutationMarkers,
       activePrNumber: dispatch.activePrNumber ?? state.activePrNumber,
       sourceCycleReservations: dispatch.sourceCycleReservations || state.sourceCycleReservations,
@@ -1331,6 +1332,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
       sourceCycleEpoch: { ...(typeof state.sourceCycleEpoch === "object" ? state.sourceCycleEpoch : {}), [pr.number]: reserved.reservation.sourceCycleEpoch },
       exactHeads: rebound.exactHeads,
       orderedPrs: rebound.orderedPrs,
+      sessionLifecycle: result.sessionLifecycle || state.sessionLifecycle,
       summary: { action: action.action, prNumber: pr.number, oldHead: pr.headRefOid, newHead, sourceCycleConsumed: true, reboundExactHead: true, sourceCycleReservation: reserved.summary },
     };
   }
@@ -1343,6 +1345,7 @@ async function dispatchConvergePr({ config, plan, state, action, pr, adapter }) 
     ok: true,
     evidence: putEvidence(convergenceEvidence, "reviewConverged", pr.number, result),
     mutationMarkers,
+    sessionLifecycle: result.sessionLifecycle || state.sessionLifecycle,
     sourceCycles,
     summary: { action: action.action, prNumber: pr.number, sourceCycleConsumed: newHead !== pr.headRefOid, sourceCycleBudget: budget.summary },
   };
@@ -1682,6 +1685,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
         laneDecision: laneDecision.contract,
         sourceCycleBudget: durableBudget,
         sourceCycleOperationContext: sourceCycleOperationContext.context,
+        sessionLifecycle: state?.sessionLifecycle || plan?.sessionLifecycle || null,
         reviewConvergenceState: state?.evidence?.reviewConvergenceState?.[pr.number] || null,
         runBatchFix,
       });
@@ -1939,7 +1943,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
   const codexPromptRunner = options.runCodexPrompt || runCodexPrompt;
   const cwd = config.repoRoot || process.cwd();
   return {
-    async runCodexBatchFix({ fixTask, pr, exactHead }) {
+    async runCodexBatchFix({ fixTask, pr, exactHead, sessionLifecycle = null }) {
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
       if (!loopState.ok) return loopState;
       const promptDigest = digestJson(fixTask?.prompt || "");
@@ -1974,19 +1978,32 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       );
       mkdirSync(path.dirname(promptPath), { recursive: true, mode: 0o700 });
       writeFileSync(promptPath, `${fixTask?.prompt || ""}\n`, { mode: 0o600 });
+      if (config.sessionLifecycle?.enabled === true && !sessionLifecycle) {
+        return fail("existing_pr_batch_fix_lifecycle_missing", "PR-stack batch fix requires persisted session lifecycle authority");
+      }
+      const lifecycleInvocation = sessionLifecycle
+        ? {
+            state: sessionLifecycle,
+            newSessionId: `${sessionLifecycle.logicalTask.runId}:pr-stack-batch-fix:${sessionLifecycle.sessions.generation + 1}:${randomUUID()}`,
+            phase: "existing-pr-stack-batch-fix",
+            telemetry: {},
+            mutationJournaled: true,
+          }
+        : null;
       const codex = codexPromptRunner(
         { ...config, repoRoot: proof.worktreePath },
         {
           branchName: pr?.headRefName || pr?.branch || "unknown",
           prompt: fixTask?.prompt || "",
           promptPath,
+          ...(lifecycleInvocation ? { sessionLifecycle: lifecycleInvocation } : {}),
         },
         "existing-pr-stack-batch-fix",
       );
       if (!codex.skipped && (codex.error || codex.status !== 0)) {
         return fail("existing_pr_batch_fix_codex_failed", codex.error || codex.tail || "Codex batch fix failed");
       }
-      return { ok: true, codex, promptPath };
+      return { ok: true, codex, promptPath, sessionLifecycle: codex.sessionLifecycle?.state || sessionLifecycle };
     },
     async listChangedFiles({ exactHead, allowJournaledDirty = false }) {
       const head = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "existing_pr_batch_fix_head_unreadable" });

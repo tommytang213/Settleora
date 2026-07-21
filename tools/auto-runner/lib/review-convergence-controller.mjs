@@ -812,6 +812,7 @@ export async function runExistingPrBatchFix(input = {}, adapters = {}) {
     externalReview: marker.externalReview,
     review: marker.review,
     sourceIdentity: marker.sourceIdentity,
+    sessionLifecycle: codex.sessionLifecycle || null,
     mutationMarker: marker,
     durableMutationMarkers: { [markerKey]: marker },
   };
