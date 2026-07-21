@@ -243,6 +243,9 @@ test("production split adapter cherry-picks an exact checkpoint range in a tempo
     assert.equal(branch.ok, true);
     const verified = await adapter.verifyOwnDelta({ ...expected, ...branch });
     assert.equal(verified.ok, true);
+    for (const field of ["fileSetDigest", "diffstatDigest", "numstatDigest", "stablePatchId", "normalizedPatchDigest"]) assert.ok(verified.ownDelta[field], field);
+    assert.equal(verified.ownDelta.forwardPatchApplies, true);
+    assert.equal(verified.ownDelta.reversePatchApplies, true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

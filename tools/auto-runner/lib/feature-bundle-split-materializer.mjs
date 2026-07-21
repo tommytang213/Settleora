@@ -113,8 +113,9 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
       const sourcePatch = git(cwd, ["diff", "--binary", expected.commitRange.fromExclusive, expected.commitRange.toInclusive]);
       const materializedPatch = git(cwd, ["diff", "--binary", expected.baseHeadSha, expected.headSha]);
       const patchMatches = sourcePatch.status === 0 && materializedPatch.status === 0 && digest(sourcePatch.stdout) === digest(materializedPatch.stdout);
-      const ok = actualDigest === expected.changedFilesDigest && patchMatches;
-      return { ok, reasonCode: ok ? null : actualDigest !== expected.changedFilesDigest ? "split_materialization_changed_files_mismatch" : "split_materialization_semantic_mismatch", changedFilesDigest: actualDigest, semanticOwnDeltaProven: ok, ownDelta: { fileSet: changedFiles, fileSetDigest: actualDigest, normalizedPatchDigest: patchMatches ? digest(materializedPatch.stdout) : null } };
+      const ownDelta = patchMatches ? buildSplitOwnDelta(cwd, expected, changedFiles, materializedPatch.stdout) : null;
+      const ok = actualDigest === expected.changedFilesDigest && patchMatches && ownDelta?.forwardPatchApplies === true && ownDelta?.reversePatchApplies === true && Boolean(ownDelta?.stablePatchId);
+      return { ok, reasonCode: ok ? null : actualDigest !== expected.changedFilesDigest ? "split_materialization_changed_files_mismatch" : "split_materialization_semantic_mismatch", changedFilesDigest: actualDigest, semanticOwnDeltaProven: ok, ownDelta };
     },
     pushBranch: async (expected) => {
       const result = git(cwd, ["push", "origin", `${expected.headSha}:refs/heads/${expected.branchName}`]);
@@ -155,6 +156,34 @@ function expectedSlice(input, slice, materialized) {
 function normalizeState(state, input) { return state?.version === 1 ? { ...state, slices: { ...(state.slices || {}) } } : { version: 1, logicalTaskKey: input.logicalTaskKey, sourceHeadSha: input.headSha, baseSha: input.baseSha, phase: "materializing", slices: {} }; }
 function put(state, id, value) { return { ...state, slices: { ...state.slices, [id]: bounded(value) } }; }
 function topological(slices) { const pending = [...slices], result = [], done = new Set(); while (pending.length) { const index = pending.findIndex((slice) => slice.dependsOn.every((id) => done.has(id))); if (index < 0) return null; const [slice] = pending.splice(index, 1); result.push(slice); done.add(slice.id); } return result; }
+function buildSplitOwnDelta(cwd, expected, fileSet, patchText) {
+  const numstatResult = git(cwd, ["diff", "--numstat", expected.baseHeadSha, expected.headSha]);
+  const patchIdResult = spawnSync("git", ["patch-id", "--stable"], { cwd, encoding: "utf8", input: patchText, windowsHide: true });
+  const stablePatchId = patchIdResult.status === 0 ? patchIdResult.stdout.trim().split(/\s+/)[0] : null;
+  const stats = summarizeSplitPatch(patchText);
+  const numstat = parseSplitNumstat(numstatResult.stdout);
+  const normalizedPatch = String(patchText).replace(/^index [0-9a-f]+\.\.[0-9a-f]+.*$/gim, "index <normalized>").replace(/\r\n/g, "\n").trim();
+  return {
+    schemaVersion: 1,
+    fileSet,
+    fileSetDigest: digest(fileSet),
+    changedFiles: fileSet,
+    changedFileCount: fileSet.length,
+    changedFilesDigest: digest(fileSet),
+    diffstat: { files: fileSet.length, additions: stats.additions, deletions: stats.deletions },
+    diffstatDigest: digest({ files: fileSet.length, additions: stats.additions, deletions: stats.deletions }),
+    numstat,
+    numstatDigest: digest(numstat),
+    stablePatchId: /^[a-f0-9]{40}$/i.test(stablePatchId || "") ? stablePatchId : null,
+    normalizedPatchDigest: digest(normalizedPatch),
+    rawDiffHash: createHash("sha256").update(patchText).digest("hex"),
+    forwardPatchApplies: splitPatchApplies(cwd, expected.baseHeadSha, patchText, false),
+    reversePatchApplies: splitPatchApplies(cwd, expected.headSha, patchText, true),
+  };
+}
+function summarizeSplitPatch(value) { let additions = 0, deletions = 0, current = false; for (const line of String(value).split(/\r?\n/)) { if (line.startsWith("diff --git ")) { current = true; continue; } if (!current || line.startsWith("+++") || line.startsWith("---")) continue; if (line.startsWith("+")) additions += 1; else if (line.startsWith("-")) deletions += 1; } return { additions, deletions }; }
+function parseSplitNumstat(value) { const entries = {}; for (const line of String(value || "").split(/\r?\n/)) { if (!line.trim()) continue; const [added, deleted, file] = line.split("\t"); if (file) entries[file] = { added: added === "-" ? null : Number(added), deleted: deleted === "-" ? null : Number(deleted) }; } return entries; }
+function splitPatchApplies(cwd, ref, patchText, reverse) { const temporary = mkdtempSync(path.join(tmpdir(), "settleora-split-proof-")); let added = false; try { const worktree = git(cwd, ["worktree", "add", "--detach", temporary, ref]); if (worktree.status !== 0) return false; added = true; const args = ["apply", "--check"]; if (reverse) args.push("--reverse"); const result = spawnSync("git", args, { cwd: temporary, encoding: "utf8", input: patchText, windowsHide: true }); return result.status === 0 && !result.error; } finally { if (added) git(cwd, ["worktree", "remove", temporary]); rmSync(temporary, { recursive: true, force: true }); } }
 function digest(value) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function bounded(value) { const text = JSON.stringify(value); return text.length <= 32_768 ? JSON.parse(text) : { truncated: true, sha256: createHash("sha256").update(text).digest("hex") }; }
 function fail(reasonCode, evidence = {}) { return { ok: false, outcome: "blocked", reasonCode, evidence }; }
