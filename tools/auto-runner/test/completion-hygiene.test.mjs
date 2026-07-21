@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -244,6 +244,13 @@ test("project fields are updated only with a tested supported mapping", () => {
 test("source branch is never deleted by completion hygiene", () => {
   const result = completeMergedIssueHygiene({ logsRoot: logsRoot() }, context(), { runner: runnerWith() });
   assert.equal(result.sourceBranchDeleted, false);
+});
+
+test("finalized exact merge intents remain eligible for post-merge hygiene recovery", () => {
+  const source = readFileSync("tools/auto-runner/lib/auto-merge-policy.mjs", "utf8");
+  const recovery = source.slice(source.indexOf("function confirmedLifecycleMergeDecision"), source.indexOf("function executeCanonicalMergeEffect"));
+  assert.match(recovery, /intent\.status !== "failed_closed"/);
+  assert.doesNotMatch(recovery, /\["finalized", "failed_closed"\]/);
 });
 
 test("historical summaries/status/events remain readable and sanitized in comments", () => {

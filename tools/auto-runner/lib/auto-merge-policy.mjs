@@ -486,7 +486,7 @@ function confirmedLifecycleMergeDecision(context = {}) {
     && intent.claimIdentity === logical?.claimIdentity
     && intent.effect?.prNumber === Number(context.pr?.number || context.prNumber)
     && intent.effect?.expectedHeadSha === expectedHeadSha
-    && !["finalized", "failed_closed"].includes(intent.status));
+    && intent.status !== "failed_closed");
   if (matchingIntent.length !== 1) return null;
   return { eligible: true, attempted: false, result: "eligible", reason: "canonical_merge_already_confirmed", expectedHeadSha };
 }
