@@ -30,7 +30,7 @@ import { runCodexPrompt } from "./codex-runner.mjs";
 import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -102,18 +102,26 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   const loadedState = loadOrCreateStackState({ config, plan, statePath, adapter });
   if (!loadedState.ok) return fail(loadedState.reasonCode, loadedState.reason, { statePath });
   let state = loadedState.state;
+  const firstPr = plan.orderedPrs[0];
+  const stackRunId = config.runnerRunId || `pr-stack:${plan.stackId}`;
+  const stackIssueNumber = plan.issueNumber ?? firstPr?.issueNumber ?? firstPr?.number;
+  const stackClaimIdentity = digestJson({ stackId: plan.stackId, statePath });
+  if (config.sessionLifecycle?.enabled === true && state.sessionLifecycle) {
+    const lifecycleValidation = validateSessionLifecycleState(state.sessionLifecycle, { repository: plan.repository || config.repositorySlug, issueNumber: stackIssueNumber, taskKey: `pr-stack:${plan.stackId}`, runId: stackRunId, claimIdentity: stackClaimIdentity });
+    const branchMatches = state.sessionLifecycle.branch?.name === firstPr?.headRefName && state.sessionLifecycle.branch?.headSha === firstPr?.headRefOid && state.sessionLifecycle.branch?.prNumber === firstPr?.number;
+    if (!lifecycleValidation.ok || !branchMatches || state.sessionLifecycle.logicalTask?.chargeMarkerRef !== statePath) return fail("pr_stack_lifecycle_identity_mismatch", "persisted PR-stack lifecycle authority does not match the executable stack", { statePath });
+  }
   if (config.sessionLifecycle?.enabled === true && !state.sessionLifecycle) {
-    const firstPr = plan.orderedPrs[0];
-    const runId = config.runnerRunId || `pr-stack:${plan.stackId}`;
+    const runId = stackRunId;
     const mainResult = spawnSync("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
     const baseSha = mainResult.status === 0 && validSha(mainResult.stdout.trim()) ? mainResult.stdout.trim() : null;
     if (!baseSha) return fail("pr_stack_lifecycle_base_unavailable", "unable to bind PR-stack lifecycle authority to origin/main", { statePath });
     const lifecycle = createSessionLifecycleState({
       repository: plan.repository || config.repositorySlug,
-      issueNumber: plan.issueNumber ?? firstPr?.issueNumber ?? null,
+      issueNumber: stackIssueNumber,
       taskKey: `pr-stack:${plan.stackId}`,
       runId,
-      claimIdentity: digestJson({ stackId: plan.stackId, statePath }),
+      claimIdentity: stackClaimIdentity,
       chargeMarkerRef: statePath,
       branchName: firstPr?.headRefName,
       baseSha,
@@ -131,6 +139,11 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     writePrStackState(statePath, state);
   }
   if (state.terminal?.reasonCode === "stack_complete") {
+    if (config.sessionLifecycle?.enabled === true && state.sessionLifecycle?.controller?.phase !== "completed") {
+      const completedLifecycle = transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "completed", nextExactAction: "stack_complete" });
+      if (!completedLifecycle.ok) return fail(completedLifecycle.reasonCode, "unable to finalize completed PR-stack lifecycle", { statePath });
+      state = writePrStackState(statePath, sanitizeState({ ...state, sessionLifecycle: completedLifecycle.state })).state;
+    }
     return { ok: true, outcome: "complete", statePath, state: summarizeStackState(state), result: { alreadyComplete: true } };
   }
   plan = rebindPlanToStateHeads(plan, state);
@@ -296,6 +309,9 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
     dispatchCount += 1;
     lastResult = dispatch.result || null;
     if (dispatch.complete) {
+      const completedLifecycle = config.sessionLifecycle?.enabled === true && state.sessionLifecycle ? transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "completed", nextExactAction: "stack_complete" }) : null;
+      if (completedLifecycle && !completedLifecycle.ok) return fail(completedLifecycle.reasonCode, "unable to finalize completed PR-stack lifecycle", { statePath });
+      if (completedLifecycle?.state) state = writePrStackState(statePath, sanitizeState({ ...state, sessionLifecycle: completedLifecycle.state })).state;
       return { ok: true, outcome: "complete", action, dispatchCount, statePath, state: summarizeStackState(state), result: lastResult };
     }
     if (!shouldContinueStackDispatch({ adapter, dispatchCount })) {

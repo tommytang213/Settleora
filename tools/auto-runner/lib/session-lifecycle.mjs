@@ -406,6 +406,16 @@ export function synchronizeSessionLifecycleCounters(config, state, counters = {}
   return persistSessionLifecycleState(config, next);
 }
 
+export function transitionSessionLifecyclePhase(config, state, { phase, nextExactAction } = {}) {
+  const validation = validateSessionLifecycleState(state);
+  if (!validation.ok) return validation;
+  const next = structuredClone(state);
+  next.controller.phase = bounded(phase, 120);
+  next.controller.nextExactAction = bounded(nextExactAction, 500);
+  refreshDigest(next);
+  return persistSessionLifecycleState(config, next);
+}
+
 export function prepareFreshSessionInvocation(config, { state, telemetry = {}, phase, newSessionId, mutationJournaled = true } = {}) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;
