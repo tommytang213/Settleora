@@ -220,7 +220,7 @@ activation remains separate/manual under #912.
   explicit `--run-pr-stack --config <absolute-path> --stack-plan
   <absolute-path>` entry. It is mutually exclusive with normal issue polling,
   canary, security-finding, smoke, preflight, status/control, and
-  review-package modes. It consumes an immutable 2-4 PR plan, calls
+  review-package modes. It consumes an immutable 1-4 PR plan, calls
   `nextStackAction(...)`, persists before and after each external mutation,
   records mutation markers for exact-once retarget/ready/merge/hygiene
   behavior, and returns durable wait reasons for GitHub Codex, checks,

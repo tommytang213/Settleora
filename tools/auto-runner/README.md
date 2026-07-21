@@ -290,7 +290,7 @@ the stack capabilities for existing PR convergence, exact-head review
 requests, CI/scanner polling, exact-head merge, base retarget, ready
 transition, semantic proof, and final hygiene. Forbidden capabilities remain
 false. Plans are immutable stack identities with repository, stack ID, issue
-IDs, and 2-4 ordered PR entries including expected bases, branches, heads,
+IDs, and 1-4 ordered PR entries including expected bases, branches, heads,
 parent relationship, and own-delta evidence. Read-only fixture plans,
 repository mismatches, duplicate PRs, invalid relationships, PR #917, missing
 evidence, stale heads, corrupt state, and production-profile activation fail

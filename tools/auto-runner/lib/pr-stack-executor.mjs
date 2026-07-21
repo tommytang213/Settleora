@@ -612,8 +612,8 @@ export function validateExecutableStackPlan(config = {}, plan = {}, { stackConfi
   if (plan.repository !== (config.repositorySlug || "tommytang213/Settleora")) return fail("stack_repository_mismatch", "plan repository does not match config");
   if (!validStackId(plan.stackId)) return fail("stack_id_invalid", "stack ID is missing or malformed");
   if (!Array.isArray(plan.orderedPrs)) return fail("stack_ordered_prs_missing", "orderedPrs must be an array");
-  if (plan.orderedPrs.length < 2 || plan.orderedPrs.length > Math.min(stackConfig.maxStackSize, 4)) {
-    return fail("stack_size_invalid", "executable stack must contain 2-4 PR entries");
+  if (plan.orderedPrs.length < 1 || plan.orderedPrs.length > Math.min(stackConfig.maxStackSize, 4)) {
+    return fail("stack_size_invalid", "executable stack must contain 1-4 PR entries");
   }
 	  const numbers = new Set();
 	  const protectedNumbers = [];
@@ -1202,7 +1202,7 @@ export function validatePrStackState(state = {}, plan = null) {
   if (state.stateVersion !== prStackStateVersion) return fail("stack_state_unknown_version", "unknown stack state schema version");
   if (!validStackId(state.stackId)) return fail("stack_state_identity_missing", "stack state stackId missing");
   if (!state.repository || typeof state.repository !== "string") return fail("stack_state_repository_missing", "stack state repository missing");
-  if (!Array.isArray(state.orderedPrs) || state.orderedPrs.length < 2 || state.orderedPrs.length > 4) return fail("stack_state_prs_invalid", "stack state PR list invalid");
+  if (!Array.isArray(state.orderedPrs) || state.orderedPrs.length < 1 || state.orderedPrs.length > 4) return fail("stack_state_prs_invalid", "stack state PR list invalid");
   const seen = new Set();
   for (const pr of state.orderedPrs) {
     if (!Number.isInteger(pr.number) || seen.has(pr.number)) return fail("stack_state_pr_identity_invalid", "stack state PR identity invalid");
