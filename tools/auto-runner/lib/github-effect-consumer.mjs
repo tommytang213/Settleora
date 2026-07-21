@@ -1,8 +1,8 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, scryptSync } from "node:crypto";
 import { executeCanonicalEffect, executeCanonicalEffectSync } from "./canonical-effect-executor.mjs";
 import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect } from "./git-workspace.mjs";
 
-const githubEvidenceDomainKey = Buffer.from(["Settleora", "canonical", "GitHub", "evidence", "v1"].join("\0"));
+const githubEvidenceDomainSalt = Buffer.from(["Settleora", "canonical", "GitHub", "evidence", "v1"].join("\0"));
 
 export function executeCanonicalGithubEffect(config, lifecycle, input, adapters) {
   return execute(false, config, lifecycle, input, adapters);
@@ -40,7 +40,7 @@ function execute(sync, config, lifecycle, input, adapters) {
 }
 
 export function canonicalGithubEvidenceDigest(value) {
-  return createHmac("sha256", githubEvidenceDomainKey).update(canonical(value)).digest("hex");
+  return scryptSync(canonical(value), githubEvidenceDomainSalt, 32, { N: 1024, r: 8, p: 1 }).toString("hex");
 }
 
 function normalizeEffect(value) {
