@@ -62,10 +62,8 @@ export function buildHeartbeat({
 
 export function writeHeartbeat(runId, heartbeat, logsRoot = defaultLogsRoot) {
   validateSupervisorRunId(runId);
-  if (!heartbeat?.terminal) {
-    validateRunnerRunId(heartbeat?.runnerRunId);
-    if (heartbeat.runId !== runId) throw new Error("Active heartbeat supervisor identity mismatch");
-  }
+  validateRunnerRunId(heartbeat?.runnerRunId);
+  if (heartbeat.runId !== runId) throw new Error("Heartbeat supervisor identity mismatch");
   const context = ensureTrustedRunPathContext({ runId, logsRoot });
   const heartbeatPath = context.artifactPath(runArtifactKinds.heartbeat);
   const lock = acquireCheckpointLock(heartbeatPath);

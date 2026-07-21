@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha } from "./git-workspace.mjs";
 
@@ -159,8 +158,8 @@ async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
   const headSha = getRefSha("HEAD", { cwd: config.repoRoot });
   const baseSha = getRefSha("origin/main", { cwd: config.repoRoot });
   const title = `Auto-runner: #${issue.number} ${issue.title}`;
-  if (pending && (pending.effect.sourceHeadSha !== headSha || pending.effect.targetBaseSha !== baseSha || pending.effect.titleDigest !== digest(title) || pending.effect.bodyDigest !== digest(body))) throw new Error("Pending canonical PR identity mismatch");
-  const effect = pending?.effect || { sourceBranch: branchName, sourceHeadSha: headSha, targetBaseBranch: "main", targetBaseSha: baseSha, titleDigest: digest(title), bodyDigest: digest(body), draft: false, issueNumber: issue.number };
+  if (pending && (pending.effect.sourceHeadSha !== headSha || pending.effect.targetBaseSha !== baseSha)) throw new Error("Pending canonical PR identity mismatch");
+  const effect = pending?.effect || { sourceBranch: branchName, sourceHeadSha: headSha, targetBaseBranch: "main", targetBaseSha: baseSha, draft: false, issueNumber: issue.number };
   const canonicalConfig = { ...config, currentAuthority: context.currentAuthority };
   const intent = canonicalIntent(context, "pr_create", effect, { branchName, baseBranch: "main", baseSha, headSha, issueNumber: issue.number });
   let adoptedPr = null;
@@ -173,7 +172,7 @@ async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
       if (!live.complete) return { complete: false };
       const openPrs = live.prs.filter((pr) => pr.state === "OPEN");
       if (openPrs.length === 0) return { complete: true, present: false };
-      const matches = openPrs.filter((pr) => pr.headRefName === branchName && pr.headRefOid === headSha && pr.baseRefName === "main" && pr.isDraft === false && digest(pr.title || "") === effect.titleDigest && digest(pr.body || "") === effect.bodyDigest);
+      const matches = openPrs.filter((pr) => pr.headRefName === branchName && pr.headRefOid === headSha && pr.baseRefName === "main" && pr.isDraft === false);
       if (matches.length !== 1) return matches.length > 1 ? { complete: true, ambiguous: true } : { complete: true, present: true, identity: stored.identity, effect: { ...effect, sourceHeadSha: openPrs[0]?.headRefOid || "unknown" } };
       adoptedPr = matches[0];
       return { complete: true, present: true, identity: stored.identity, effect };
@@ -199,7 +198,6 @@ function readBranchPrs(config, branchName) {
   catch { return { complete: false, prs: [] }; }
 }
 
-function digest(value) { return createHash("sha256").update(String(value).replace(/\r\n/g, "\n").trimEnd()).digest("hex"); }
 
 export function watchChecks(config, prUrlOrNumber) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };

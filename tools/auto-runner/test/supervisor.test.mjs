@@ -797,15 +797,14 @@ test("heartbeat defaults, stale detection, terminal state, and sanitization", ()
   assert.equal(sanitized.body, "[redacted]");
 });
 
-test("active heartbeat persistence requires exact runner identity while terminal legacy remains readable", () => {
+test("heartbeat persistence requires exact runner identity for active and terminal writes", () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-heartbeat-identity-"));
   const runId = generateRunId(new Date("2026-07-20T14:45:00Z"));
   try {
     const legacyActive = buildHeartbeat({ runId, state: "running", maxTasks: 1, maxRuntime: "3h" });
     assert.throws(() => writeHeartbeat(runId, legacyActive, logsRoot), /Invalid runner run ID/);
     const terminalLegacy = buildHeartbeat({ runId, state: "completed", maxTasks: 1, maxRuntime: "3h" });
-    writeHeartbeat(runId, terminalLegacy, logsRoot);
-    assert.equal(readHeartbeat(runId, logsRoot).heartbeat.runnerRunId, null);
+    assert.throws(() => writeHeartbeat(runId, terminalLegacy, logsRoot), /Invalid runner run ID/);
   } finally {
     rmSync(logsRoot, { recursive: true, force: true });
   }
