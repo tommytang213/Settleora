@@ -489,7 +489,7 @@ test("incomplete project mapping does not register or mutate a status update", (
     context(),
     { runner },
   );
-  assert.equal(result.project.status, "not_updated");
+  assert.equal(result.project.status, "failed");
   assert.equal(result.project.reason, "project_status_mapping_incomplete");
   assert.equal(runner.calls.some((call) => call.args[0] === "project" && call.args[1] === "item-edit"), false);
 });

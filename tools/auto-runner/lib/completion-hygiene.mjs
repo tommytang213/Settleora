@@ -319,7 +319,7 @@ function canonicalClosureComponent(config, context, runner, repositoryContext) {
 function updateProjectStatusIfSupported(config, context, runner) {
   if (!config.projectStatusUpdates?.supported) return { status: "not_updated", reason: "project_status_mapping_not_configured" };
   if (!config.projectStatusUpdates.projectId || !config.projectStatusUpdates.fieldId || !config.projectStatusUpdates.doneOptionId) {
-    return { status: "not_updated", reason: "project_status_mapping_incomplete" };
+    return { status: "failed", reason: "project_status_mapping_incomplete" };
   }
   if (context.sessionLifecycle) {
     const effect = { issueNumber: context.issue.number, projectId: config.projectStatusUpdates.projectId, fieldId: config.projectStatusUpdates.fieldId, optionId: config.projectStatusUpdates.doneOptionId };
