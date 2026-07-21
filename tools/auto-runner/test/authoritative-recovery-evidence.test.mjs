@@ -55,6 +55,12 @@ test("exact prepared commit intent permits only its matching staged index", () =
   const unrelated = collectAuthoritativeRecoveryEvidence({ ...config, logsRoot }, identity, { preEffectIntentIds: [intent.intentId] }, adapters({ git: { worktreeClean: false, indexClean: false, stagedTreeSha: treeSha, stagedPaths: ["a.txt"], unstagedPaths: ["other.txt"], untrackedClean: true } }));
   assert.equal(unrelated.ok, false);
 });
+test("authoritative Git evidence preserves bounded untracked paths for prepared commit recovery", () => {
+  const untrackedPaths = ["new-file.txt", ...Array.from({ length: 205 }, (_value, index) => `extra-${index}.txt`)];
+  const e = collect({ git: { worktreeClean: false, untrackedClean: false, untrackedPaths } });
+  assert.deepEqual(e.git.untrackedPaths, untrackedPaths.slice(0, 200));
+  assert.equal(e.git.untrackedPaths.includes("new-file.txt"), true);
+});
 test("push succeeded before marker write is adopted", () => { const e = collect({}, { pushSha: sha }); assert.equal(e.effects.push.present, true); });
 test("PR head already updated is adopted", () => { const e = collect({}, { prHeadSha: sha }); assert.equal(e.effects.prHead.present, true); });
 test("merge succeeded before marker write resumes only with exact base and head parents", () => { const pr = { number: 42, state: "MERGED", baseRefName: "main", headRefName: identity.branchName, headSha: sha, draft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", mergeSha: base, mergeParentShas: [identity.baseSha, sha] }; const e = collect({ github: { pr } }, { mergeSha: base, mergedHeadSha: sha }); assert.equal(e.effects.merge.present, true); const wrong = collect({ github: { pr: { ...pr, mergeParentShas: ["f".repeat(40), sha] } } }, { mergeSha: base, mergedHeadSha: sha }); assert.equal(wrong.effects.merge.present, false); });
