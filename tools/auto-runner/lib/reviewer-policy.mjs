@@ -242,21 +242,21 @@ export function routeReviewer({
     files.length > 0 &&
     files.every((file) => /^apps\/mobile\/(lib|test)\/ui(?:\/|$)/.test(file));
 
+  const largeClassification = classifyLargeCandidate({ changedFiles: files, laneDecision, stats: { additions, deletions } });
+  if (largeClassification.route === "split_or_block") {
+    return decision("block_split_or_escalate", "Mixed or unsafe candidate requires a deterministic split or an exact manual scope decision.", {
+      sensitiveFiles, domains, normalizedDomainSet, totalChangedLines, changedFileCount: files.length, block: true, largeCandidateRouting: largeClassification,
+    });
+  }
+  if (largeClassification.route === "large_bundle_escalation" && largeClassification.coherent) {
+    const laneRequiredTier = normalizeLaneRequiredTier(laneDecision?.reviewerTier, laneDecision);
+    return decision(maxReviewerTier("strong_independent", laneRequiredTier), "Coherent large candidate automatically escalates to complete strong cumulative review.", {
+      sensitiveFiles, domains, normalizedDomainSet, totalChangedLines, changedFileCount: files.length, strongRequired: true, largeCandidateRouting: largeClassification,
+      largeBundleApproval: { ok: false, matched: false, reason: "large_bundle_approval_not_routine_prerequisite" },
+    });
+  }
+
   if (huge) {
-    const classification = classifyLargeCandidate({ changedFiles: files, laneDecision, stats: { additions, deletions } });
-    if (classification.route === "large_bundle_escalation" && classification.coherent) {
-      const laneRequiredTier = normalizeLaneRequiredTier(laneDecision?.reviewerTier, laneDecision);
-      return decision(maxReviewerTier("strong_independent", laneRequiredTier), "Coherent large candidate automatically escalates to complete strong cumulative review.", {
-        sensitiveFiles,
-        domains,
-        normalizedDomainSet,
-        totalChangedLines,
-        changedFileCount: files.length,
-        strongRequired: true,
-        largeCandidateRouting: classification,
-        largeBundleApproval: { ok: false, matched: false, reason: "large_bundle_approval_not_routine_prerequisite" },
-      });
-    }
     const approval = evaluateLargeBundleReviewApproval({
       approvalConfig: largeBundleReviewApproval,
       changedFiles: files,
@@ -288,7 +288,7 @@ export function routeReviewer({
       totalChangedLines,
       changedFileCount: files.length,
       block: true,
-      largeCandidateRouting: classification,
+      largeCandidateRouting: largeClassification,
       largeBundleApproval: approval.evidence,
     });
   }

@@ -9,6 +9,7 @@ import {
   blockLargeCandidateForContextLimit,
   buildLargeCandidateCoverageManifest,
   classifyLargeCandidate,
+  certifyCompleteCumulativeLargeReview,
   createLargeCandidateRoutingState,
   invalidateLargeCandidateEvidence,
   largeCandidateRoutingStates,
@@ -47,6 +48,12 @@ test("size alone does not require manual merge", () => {
   const result = classifyLargeCandidate({ changedFiles: workflowFiles(), stats: { additions: 5000 }, laneDecision: { lane: "workflow-docs-tooling" } });
   assert.equal(result.explicitManual, false);
   assert.equal(result.route, "large_bundle_escalation");
+});
+
+test("15-file candidates enter mandatory large routing", () => {
+  const route = routeReviewer({ changedFiles: workflowFiles(15), stats: { additions: 100 }, laneDecision: { lane: "workflow-docs-tooling" } });
+  assert.equal(route.tier, "strong_independent");
+  assert.equal(route.largeCandidateRouting.route, "large_bundle_escalation");
 });
 
 for (const [name, files] of [
@@ -97,6 +104,15 @@ test("both reviewers bind to identical identity and final integration", () => {
   const result = validateLargeCandidateReviewEvidence({ manifest, reviewerResults: [reviewFixture(manifest, "gemini"), reviewFixture(manifest, "codex-local")] });
   assert.equal(result.ok, true);
   assert.equal(result.state, "external_review_complete");
+});
+
+test("cumulative certification requires exact reviewed integration boundaries", () => {
+  const externalReview = { status: "pass", verdict: "pass" };
+  const codexReview = { verdict: { verdict: "approve", findings: [] } };
+  const missing = certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs"], integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"], externalReview, codexReview });
+  assert.equal(missing.reasonCode, "integration_boundary_attestation_missing");
+  const complete = certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs"], integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"], reviewedIntegrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"], externalReview, codexReview });
+  assert.equal(complete.ok, true);
 });
 
 for (const [name, mutate, reason] of [

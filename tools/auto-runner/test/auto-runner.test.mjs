@@ -2106,7 +2106,7 @@ test("sensitive domain uses strong integrated Gemini review when lane metadata r
     let prompt = "";
     const result = await runGeminiIntegratedReview(geminiIntegratedConfig(tempRoot), workflowReviewPackage({
       changedFiles: ["services/api/Auth/SessionRuntime.cs"],
-      laneDecision: { lane: "auth-session-security", dangerGate: true, reviewerTier: "strong_independent" },
+      laneDecision: { lane: "auth-session-security", reviewerTier: "strong_independent" },
       diff: "diff --git a/services/api/Auth/SessionRuntime.cs b/services/api/Auth/SessionRuntime.cs\n",
     }), {
       env: { GEMINI_API_KEY: "super-secret-key" },
@@ -2349,7 +2349,6 @@ test("strong Gemini profile uses stable model override instead of provider defau
         laneDecision: {
           lane: "api-domain-runtime",
           allowedToImplement: true,
-          dangerGate: true,
           reviewerTier: "strong_independent",
         },
       }),
@@ -2391,7 +2390,6 @@ test("integrated Gemini provider 404 blocks without fallback and stays sanitized
         laneDecision: {
           lane: "api-domain-runtime",
           allowedToImplement: true,
-          dangerGate: true,
           reviewerTier: "strong_independent",
         },
       }),

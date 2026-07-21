@@ -2913,6 +2913,7 @@ async function writeReviewPackage(config, payload) {
     report: payload.report,
     externalReview: payload.externalReview || null,
     fullCandidatePrDelta: payload.fullCandidatePrDelta || null,
+    integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     reviewFixMechanicsContext: payload.reviewFixMechanicsContext || null,
     diffTruncated: diff.truncated,
   };
@@ -2945,6 +2946,7 @@ function certifyNormalCumulativeLargeReview(config, iteration, changedFiles) {
     },
     changedFiles,
     integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    reviewedIntegrationBoundaries: reviewPackage.summary?.integrationBoundaries || [],
     externalReview: iteration.externalReview,
     codexReview: iteration.review,
   });

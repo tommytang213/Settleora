@@ -915,6 +915,7 @@ function certifyLargeBundleCumulativeReview({ config, reviewPackage, changedFile
     },
     changedFiles,
     integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"],
+    reviewedIntegrationBoundaries: reviewPackage?.summary?.integrationBoundaries || [],
     externalReview,
     codexReview,
   });
@@ -1020,6 +1021,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     baseSha,
     validation,
     externalReviewRequired: requiresIndependentAiReview(laneDecision),
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"],
     diffTruncated: diff.truncated,
   };
   mkdirSync(path.dirname(packagePath), { recursive: true });

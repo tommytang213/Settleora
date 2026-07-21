@@ -170,7 +170,8 @@ export function migrateLargeCandidateRoutingState(input = {}) {
   return freeze({ ...initial, reviewerVerdict: input.reviewerVerdict ?? initial.reviewerVerdict, reviewerResults: Array.isArray(input.reviewerResults) ? input.reviewerResults : initial.reviewerResults, uncoveredScope: input.uncoveredScope ?? initial.uncoveredScope, mutationMarkers: input.mutationMarkers && typeof input.mutationMarkers === "object" ? input.mutationMarkers : initial.mutationMarkers, countersConsumed: input.countersConsumed && typeof input.countersConsumed === "object" ? input.countersConsumed : initial.countersConsumed });
 }
 
-export function certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview } = {}) {
+export function certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles, integrationBoundaries = [], reviewedIntegrationBoundaries = [], externalReview, codexReview } = {}) {
+  if (digest(normalizeFiles(integrationBoundaries)) !== digest(normalizeFiles(reviewedIntegrationBoundaries))) return blocked("integration_boundary_attestation_missing");
   const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries, sectioningRequired: false });
   if (!built.ok) return built;
   const manifest = built.manifest;
