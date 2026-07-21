@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -110,7 +110,7 @@ export function createSessionLifecycleState(input = {}) {
       lifetimeLocalSourceChangingRounds: nonnegativeInteger(input.lifetimeLocalSourceChangingRounds) || 0,
     },
     context: { policy: normalizeContextBudgetPolicy(input.contextPolicy), snapshot: null, reason: null, lastRotationTurn: null, rotations: 0 },
-    checkpoint: { status: "ready", digest: null, writtenAt: now },
+    checkpoint: { status: "ready", digest: null, parentDigest: null, writtenAt: now },
     reservations: sanitizePersistedEvidence(input.reservations || {}),
     findings: sanitizePersistedEvidence(input.findings || {}),
     evidence: sanitizePersistedEvidence(input.evidence || {}),
@@ -161,20 +161,22 @@ export function validateSessionLifecycleState(state, expected = {}) {
 }
 
 export function persistSessionLifecycleState(config, state) {
+  const expectedDigest = state.checkpoint?.parentDigest || state.checkpoint?.digest;
   const next = sanitizePersistedEvidence({ ...state, timestamps: { ...state.timestamps, updatedAt: new Date().toISOString() } });
-  next.checkpoint = { ...next.checkpoint, status: "ready", writtenAt: next.timestamps.updatedAt, digest: null };
+  next.checkpoint = { ...next.checkpoint, status: "ready", writtenAt: next.timestamps.updatedAt, digest: null, parentDigest: null };
   next.checkpoint.digest = checkpointDigest(next);
   const validation = validateSessionLifecycleState(next);
   if (!validation.ok) return validation;
   const statePath = sessionLifecyclePath(config, next);
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
-  const lockPath = `${statePath}.lock`;
-  let lockFd;
-  try {
-    lockFd = openSync(lockPath, "wx", 0o600);
-  } catch (error) {
-    return fail(error?.code === "EEXIST" ? "session_lifecycle_checkpoint_write_locked" : "session_lifecycle_checkpoint_lock_failed");
-  }
+  const acquired = acquireCheckpointLock(statePath);
+  if (!acquired.ok) return acquired;
+  const result = persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest);
+  const released = acquired.release();
+  return released.ok ? result : released;
+}
+
+function persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest) {
   const tmp = `${statePath}.${process.pid}.${Date.now()}.tmp`;
   try {
     if (existsSync(statePath)) {
@@ -182,6 +184,7 @@ export function persistSessionLifecycleState(config, state) {
       try { current = JSON.parse(readFileSync(statePath, "utf8")); } catch { return fail("session_lifecycle_state_corrupt"); }
       const currentValidation = validateSessionLifecycleState(current);
       if (!currentValidation.ok) return currentValidation;
+      if (current.checkpoint.digest !== expectedDigest) return fail("session_lifecycle_checkpoint_compare_and_swap_failed");
       const sameGeneration = current.sessions.generation === state.sessions.generation
         && current.sessions.current === state.sessions.current
         && current.mutationAuthority.generation === state.mutationAuthority.generation
@@ -199,9 +202,54 @@ export function persistSessionLifecycleState(config, state) {
     return { ok: true, state: next, statePath };
   } finally {
     if (existsSync(tmp)) unlinkSync(tmp);
-    closeSync(lockFd);
-    unlinkSync(lockPath);
   }
+}
+
+function acquireCheckpointLock(statePath) {
+  const lockPath = `${statePath}.lock`;
+  const ownerPath = `${lockPath}.${process.pid}.${Date.now()}.owner`;
+  const owner = { pid: process.pid, processStart: processStartIdentity(process.pid) };
+  let linked = false;
+  if (!owner.processStart) return fail("session_lifecycle_checkpoint_lock_identity_unavailable");
+  try {
+    writeFileSync(ownerPath, `${JSON.stringify(owner)}\n`, { flag: "wx", mode: 0o600 });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        linkSync(ownerPath, lockPath);
+        linked = true;
+        return { ok: true, release: () => releaseCheckpointLock(lockPath, ownerPath) };
+      } catch (error) {
+        if (error?.code !== "EEXIST") return fail("session_lifecycle_checkpoint_lock_failed");
+        let existing;
+        try { existing = JSON.parse(readFileSync(lockPath, "utf8")); } catch { return fail("session_lifecycle_checkpoint_write_locked"); }
+        if (processStartIdentity(existing.pid) === existing.processStart) return fail("session_lifecycle_checkpoint_write_locked");
+        try { unlinkSync(lockPath); } catch { return fail("session_lifecycle_checkpoint_stale_lock_recovery_failed"); }
+      }
+    }
+    return fail("session_lifecycle_checkpoint_write_locked");
+  } finally {
+    if (!linked && existsSync(ownerPath)) {
+      try { unlinkSync(ownerPath); } catch { /* owner-only orphan is non-authoritative */ }
+    }
+  }
+}
+
+function releaseCheckpointLock(lockPath, ownerPath) {
+  try {
+    unlinkSync(lockPath);
+    unlinkSync(ownerPath);
+    return { ok: true };
+  } catch {
+    return fail("session_lifecycle_checkpoint_lock_cleanup_failed");
+  }
+}
+
+function processStartIdentity(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return null;
+  try {
+    const fields = readFileSync(`/proc/${pid}/stat`, "utf8").trim().split(/\s+/);
+    return /^\d+$/.test(fields[21] || "") ? fields[21] : null;
+  } catch { return null; }
 }
 
 export function loadSessionLifecycleState(config, identity) {
@@ -370,7 +418,7 @@ function checkpointDigest(state) {
   if (copy.timestamps) copy.timestamps.updatedAt = null;
   return digest(JSON.stringify(copy));
 }
-function refreshDigest(state) { state.timestamps.updatedAt = new Date().toISOString(); state.checkpoint.digest = null; state.checkpoint.digest = checkpointDigest(state); }
+function refreshDigest(state) { state.timestamps.updatedAt = new Date().toISOString(); state.checkpoint.parentDigest = state.checkpoint.digest; state.checkpoint.digest = null; state.checkpoint.digest = checkpointDigest(state); }
 function classification(interruptionClass, recoverable, nextAction) { return { ok: recoverable, active: false, recoverable, interruptionClass, reasonCode: `interruption_${interruptionClass}`, nextAction }; }
 function fail(reasonCode, nextAction = "stop_fail_closed", extra = {}) { return { ok: false, reasonCode, nextAction, ...extra }; }
 function digest(value) { return createHash("sha256").update(String(value)).digest("hex"); }

@@ -155,6 +155,24 @@ test("checkpoint persistence rejects a retired generation racing its successor",
   assert.equal(reloaded.state.sessions.generation, 2);
 });
 
+test("checkpoint persistence rejects a stale writer from the same authority generation", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "session-lifecycle-same-generation-cas-"));
+  const config = { logsRoot: root, repositorySlug: "owner/repo" };
+  const first = persistSessionLifecycleState(config, fixture());
+  assert.equal(first.ok, true);
+  const newer = structuredClone(first.state);
+  newer.controller.nextExactAction = "newer_action";
+  const written = persistSessionLifecycleState(config, newer);
+  assert.equal(written.ok, true);
+  const stale = structuredClone(first.state);
+  stale.controller.nextExactAction = "stale_action";
+  const rejected = persistSessionLifecycleState(config, stale);
+  assert.equal(rejected.reasonCode, "session_lifecycle_checkpoint_compare_and_swap_failed");
+  assert.equal(loadSessionLifecycleState(config, {
+    repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1", claimIdentity: "claim-1",
+  }).state.controller.nextExactAction, "newer_action");
+});
+
 test("startup recovery resolves one checkpoint without guessing claim identity", () => {
   const root = mkdtempSync(path.join(tmpdir(), "session-recovery-lookup-"));
   const config = { logsRoot: root, repositorySlug: "owner/repo" };
