@@ -3028,15 +3028,16 @@ function routeNormalStructuredFindingsToConvergence(iteration) {
   if (gemini.length > 0) iteration.externalReview = {
     ...iteration.externalReview,
     status: "blocked",
-    verdict: "changes_requested",
-    findings: gemini,
-    reason: "structured_large_candidate_findings",
+    verdict: "fail",
+    sanitizedResponseSummary: { verdict: "fail", findings: gemini },
+    reason: "blocked_external_reviewer_non_pass",
   };
   if (codex.length > 0) iteration.review = {
     ...iteration.review,
     verdict: {
       ...(iteration.review?.verdict || {}),
-      verdict: "request_changes",
+      verdict: "changes_requested",
+      recommended_next_action: "run_safe_fix_cycle",
       blocking_findings: codex,
     },
   };

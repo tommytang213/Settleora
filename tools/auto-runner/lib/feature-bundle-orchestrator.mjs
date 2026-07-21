@@ -505,15 +505,16 @@ function routeBundleStructuredFindingsToConvergence(result) {
   if (gemini.length > 0) result.externalReview = {
     ...result.externalReview,
     status: "blocked",
-    verdict: "changes_requested",
-    findings: gemini,
-    reason: "structured_large_candidate_findings",
+    verdict: "fail",
+    sanitizedResponseSummary: { verdict: "fail", findings: gemini },
+    reason: "blocked_external_reviewer_non_pass",
   };
   if (codex.length > 0) result.review = {
     ...result.review,
     verdict: {
       ...(result.review?.verdict || {}),
-      verdict: "request_changes",
+      verdict: "changes_requested",
+      recommended_next_action: "run_safe_fix_cycle",
       blocking_findings: codex,
     },
   };
@@ -656,9 +657,12 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
     };
     if (postFix.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !postFix.largeCandidateReview?.ok) {
       if (routeBundleStructuredFindingsToConvergence(postFix)) {
-        result.externalReview = postFix.externalReview;
-        result.review = postFix.review;
-        result.largeCandidateReview = postFix.largeCandidateReview;
+        currentResult = {
+          ...currentResult,
+          externalReview: postFix.externalReview,
+          review: postFix.review,
+          largeCandidateReview: postFix.largeCandidateReview,
+        };
         continue;
       }
       state = markBundleStopped(state, { reasonCode: postFix.largeCandidateReview?.reasonCode || "large_candidate_review_incomplete", reason: "Post-fix structured large-candidate certification failed." });

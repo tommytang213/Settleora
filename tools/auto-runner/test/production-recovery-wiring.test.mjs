@@ -185,6 +185,8 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.equal((source.match(/refreshNormalLargeCandidateReviewAfterFix\(config, iteration, changedFiles, issue, recoveryRecorder\)/g) || []).length, 4);
   assert.match(source, /Post-fix cumulative large-candidate review is incomplete/);
   assert.match(source, /routeNormalStructuredFindingsToConvergence\(iteration\)/);
+  assert.match(source, /sanitizedResponseSummary: \{ verdict: "fail", findings: gemini \}/);
+  assert.match(source, /recommended_next_action: "run_safe_fix_cycle"/);
   assert.match(source, /reviewConvergenceState: iteration\.reviewConvergenceState/);
   assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
 });

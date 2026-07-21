@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { routeReviewer } from "../lib/reviewer-policy.mjs";
+import { extractReviewFixTrigger } from "../lib/review-fix-policy.mjs";
 import {
   blockLargeCandidateForContextLimit,
   buildLargeCandidateCoverageManifest,
@@ -161,6 +162,14 @@ test("blocked structured findings remain available for production convergence ro
   }] } }, "codex-local");
   assert.equal(findings.length, 1);
   assert.equal(findings[0].summary, "repair routing");
+});
+
+test("structured reviewer adapters satisfy the existing convergence trigger contract", () => {
+  const finding = { severity: "high", path: "tools/auto-runner/a.mjs", summary: "repair routing" };
+  const gemini = extractReviewFixTrigger({ externalReview: { status: "blocked", reason: "blocked_external_reviewer_non_pass", sanitizedResponseSummary: { verdict: "fail", findings: [finding] } } });
+  const codex = extractReviewFixTrigger({ review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: [finding] } } });
+  assert.equal(gemini.actionable, true);
+  assert.equal(codex.actionable, true);
 });
 
 test("source identity change invalidates all evidence", () => {
