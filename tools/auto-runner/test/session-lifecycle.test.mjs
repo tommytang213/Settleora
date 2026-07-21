@@ -444,6 +444,8 @@ test("production invocation sources wire lifecycle through feature bundle and re
   assert.match(runner, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
   assert.match(runner, /context\.issue\.sessionLifecycle = codex\.sessionLifecycle\.state/);
   assert.match(runner, /promptInfo\.sessionLifecycle = \{ \.\.\.promptInfo\.sessionLifecycle, state: iteration\.review\.sessionLifecycle \}/);
+  assert.match(runner, /context\.promptInfo\.sessionLifecycle = \{ \.\.\.context\.promptInfo\.sessionLifecycle, state: reviewAfter\.sessionLifecycle \}/);
+  assert.match(runner, /promptInfo\.sessionLifecycle = \{ \.\.\.promptInfo\.sessionLifecycle, state: review\.sessionLifecycle \}/);
   assert.match(runner, /sessionLifecycle = generatedRecoveryEvidence\.sessionLifecycle/);
   assert.match(codexRunner, /controller-successor/);
   assert.match(codexRunner, /sessionLifecycle = controllerReturn/);

@@ -2514,7 +2514,11 @@ async function runReviewFixCycle(config, context) {
     reviewFixMechanicsContext: postFixContext.context,
   });
   const reviewAfter = runReviewPrompt(config, { ...reviewPackageAfter, sessionLifecycle: context.issue.sessionLifecycle || context.sessionLifecycle || null });
-  if (reviewAfter.sessionLifecycle) context.issue.sessionLifecycle = reviewAfter.sessionLifecycle;
+  if (reviewAfter.sessionLifecycle) {
+    context.issue.sessionLifecycle = reviewAfter.sessionLifecycle;
+    context.sessionLifecycle = reviewAfter.sessionLifecycle;
+    if (context.promptInfo.sessionLifecycle) context.promptInfo.sessionLifecycle = { ...context.promptInfo.sessionLifecycle, state: reviewAfter.sessionLifecycle };
+  }
   const afterReview = await checkoutFingerprint();
   const reviewMutationGuardAfter = compareFingerprints(beforeReview, afterReview);
   if (reviewMutationGuardAfter.mutationDetected) {
@@ -2639,6 +2643,10 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
   });
   const externalReview = await runIntegratedReviewSource(config, reviewPackage, "post-review-fix-exact-head");
   const review = runReviewPrompt(config, { ...reviewPackage, sessionLifecycle: issue.sessionLifecycle || promptInfo?.sessionLifecycle?.state || null });
+  if (review.sessionLifecycle) {
+    issue.sessionLifecycle = review.sessionLifecycle;
+    if (promptInfo?.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: review.sessionLifecycle };
+  }
   const afterReview = await checkoutFingerprint();
   return {
     changedFiles,
