@@ -93,12 +93,13 @@ export function validateLargeCandidateReviewEvidence({ manifest, reviewerResults
 
 export function planLargeCandidateSplit({ classification, changedFiles = [], slices = [] } = {}) {
   if (classification?.route !== "split_or_block") return freeze({ ok: false, state: "external_review_split_required", reasonCode: "split_not_required" });
+  if (classification?.explicitManual) return manualSplitBlock(classification, normalizeFiles(changedFiles), "explicit_manual_or_danger_gate");
   const files = normalizeFiles(changedFiles);
   if (!Array.isArray(slices) || slices.length < 2 || slices.length > 4) return manualSplitBlock(classification, files, "split_semantic_proof_missing");
   const assignments = slices.flatMap((slice) => (slice.changedFiles || []).map((changedPath) => [changedPath, slice.id]));
   const assignedFiles = assignments.map(([changedPath]) => changedPath).sort();
   if (new Set(assignedFiles).size !== assignedFiles.length || digest(assignedFiles) !== digest(files)) return manualSplitBlock(classification, files, "split_file_ownership_ambiguous");
-  if (slices.some((slice) => !slice.id || !slice.issueNumber || !slice.taskKey || !slice.allowedPathsProven || !slice.semanticOwnDeltaProven || !Array.isArray(slice.dependsOn))) return manualSplitBlock(classification, files, "split_contract_or_semantic_proof_missing");
+  if (slices.some((slice) => !slice.id || !slice.issueNumber || !slice.taskKey || !slice.allowedPathsProven || !slice.semanticOwnDeltaProven || !slice.executionAuthorityProven || !Array.isArray(slice.dependsOn))) return manualSplitBlock(classification, files, "split_contract_or_semantic_proof_missing");
   const ids = slices.map((slice) => slice.id);
   const taskKeys = slices.map((slice) => slice.taskKey);
   if (new Set(ids).size !== ids.length || new Set(taskKeys).size !== taskKeys.length) return manualSplitBlock(classification, files, "split_identity_duplicate");
@@ -110,7 +111,7 @@ export function planLargeCandidateSplit({ classification, changedFiles = [], sli
 
 export function createLargeCandidateRoutingState(input = {}) {
   const classification = input.classification || classifyLargeCandidate(input);
-  return freeze({ stateVersion: largeCandidateRoutingStateVersion, taskKey: bounded(input.taskKey), candidateIdentity: normalizeCandidateIdentity(input.candidateIdentity).value || null, routeState: classification.state, reviewerVerdict: null, coverageManifest: input.coverageManifest || null, reviewerResults: [], splitPlan: input.splitPlan || null, uncoveredScope: [], mutationMarkers: {}, countersConsumed: { logicalTasks: 0, localSourceRounds: 0, githubEpochs: 0 }, updatedAt: input.updatedAt || new Date(0).toISOString() });
+  return freeze({ stateVersion: largeCandidateRoutingStateVersion, taskKey: bounded(input.taskKey), candidateIdentity: normalizeCandidateIdentity(input.candidateIdentity).value || null, routeState: classification.state, reviewerVerdict: null, coverageManifest: input.coverageManifest || null, reviewerResults: [], splitPlan: input.splitPlan || null, uncoveredScope: [], runtimeStructuredRequired: input.runtimeStructuredRequired === true, mutationMarkers: {}, countersConsumed: { logicalTasks: 0, localSourceRounds: 0, githubEpochs: 0 }, updatedAt: input.updatedAt || new Date(0).toISOString() });
 }
 
 export function largeCandidateRoutingStatePath(config, stateOrKey) {
@@ -151,13 +152,22 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
     for (const section of manifest.sections) {
       if (result.sections.some((entry) => entry.id === section.id && entry.status === "pass" && entry.manifestDigest === manifest.manifestDigest)) continue;
       const sectionResult = await invokeSection({ provider, section, manifest });
+      if (current.runtimeStructuredRequired && !validPromptBinding(sectionResult)) return freeze({ ok: false, state: current, reasonCode: "review_section_prompt_binding_missing" });
       result = { ...result, sections: [...result.sections.filter((entry) => entry.id !== section.id), sectionResult] };
       current = { ...current, reviewerResults: [...current.reviewerResults.filter((entry) => entry.provider !== provider), result] };
       if (onCheckpoint) current = await onCheckpoint(current, { provider, phase: "section", sectionId: section.id }) || current;
-      if (sectionResult.status !== "pass") return freeze({ ok: false, state: current, reasonCode: "review_section_not_passed" });
+      if (sectionResult.status !== "pass") {
+        if (sectionResult.contextLimited) {
+          const remaining = manifest.sections.slice(manifest.sections.findIndex((entry) => entry.id === section.id));
+          const blockedState = blockLargeCandidateForContextLimit({ state: current, uncoveredPaths: remaining.flatMap((entry) => entry.changedPaths), uncoveredSections: remaining.map((entry) => entry.id), provider, evidenceCode: sectionResult.reasonCode || "provider_context_limit", deterministicSplitPossible: false });
+          return freeze({ ok: false, state: onCheckpoint ? await onCheckpoint(blockedState, { provider, phase: "context_limit", sectionId: section.id }) : blockedState, reasonCode: "provider_context_limit" });
+        }
+        return freeze({ ok: false, state: current, reasonCode: "review_section_not_passed" });
+      }
     }
     if (manifest.requiresFinalIntegration && result.integration?.manifestDigest !== manifest.manifestDigest) {
       result = { ...result, integration: await invokeIntegration({ provider, manifest, sections: result.sections }) };
+      if (current.runtimeStructuredRequired && !validPromptBinding(result.integration)) return freeze({ ok: false, state: current, reasonCode: "review_integration_prompt_binding_missing" });
       current = { ...current, reviewerResults: [...current.reviewerResults.filter((entry) => entry.provider !== provider), result] };
       if (onCheckpoint) current = await onCheckpoint(current, { provider, phase: "integration" }) || current;
     }
@@ -171,7 +181,7 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
 export async function persistCumulativeLargeCandidateReview({ config, taskKey, candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview, invokeSection = null, invokeIntegration = null } = {}) {
   const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries });
   if (!built.ok) return built;
-  const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification: { state: "external_review_large_bundle_in_progress" }, coverageManifest: built.manifest });
+  const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification: { state: "external_review_large_bundle_in_progress" }, coverageManifest: built.manifest, runtimeStructuredRequired: true });
   const loaded = loadLargeCandidateRoutingState(config, seed);
   const state = loaded.ok ? invalidateLargeCandidateEvidence(loaded.state, candidateIdentity) : seed;
   const evidence = { gemini: externalReview, "codex-local": codexReview };
@@ -202,27 +212,29 @@ export function persistLargeCandidateSplitDecision({ config, taskKey, candidateI
 
 function cumulativeSectionEvidence(evidence, provider, section, manifest) {
   const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest);
-  return { id: section.id, status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [] };
+  return { id: section.id, status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
 }
 
 function cumulativeIntegrationEvidence(evidence, provider, manifest) {
   const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest);
-  return { status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [] };
+  return { status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [], attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
 }
 
 function cumulativeEvidencePasses(evidence, provider, identity, manifest) {
   const verdictPass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   return verdictPass && sameCandidateIdentity(evidence?.attestedCandidateIdentity, identity)
+    && evidence?.attestationSource === "provider_prompt_binding" && hash(evidence?.providerPromptBindingDigest)
     && digest(normalizeFiles(evidence?.attestedIntegrationBoundaries)) === digest(normalizeFiles(manifest?.declaredIntegrationBoundaries));
 }
 
 function cumulativeFindings(evidence) { return evidence?.findings || evidence?.verdict?.findings || []; }
+function validPromptBinding(evidence) { return evidence?.attestationSource === "provider_prompt_binding" && Boolean(hash(evidence?.providerPromptBindingDigest)); }
 function providerContextLimited(evidence) { return /context|token|truncat|over.?budget/i.test(`${evidence?.reason || ""} ${evidence?.reviewFailureReason || ""}`); }
 
 export function migrateLargeCandidateRoutingState(input = {}) {
   const routeState = historicalStates.get(input.routeState || input.status) || input.routeState || input.status;
   const initial = createLargeCandidateRoutingState({ ...input, classification: { state: largeCandidateRoutingStates.includes(routeState) ? routeState : "external_review_coverage_incomplete" }, coverageManifest: input.coverageManifest, splitPlan: input.splitPlan, updatedAt: input.updatedAt });
-  return freeze({ ...initial, reviewerVerdict: input.reviewerVerdict ?? initial.reviewerVerdict, reviewerResults: Array.isArray(input.reviewerResults) ? input.reviewerResults : initial.reviewerResults, uncoveredScope: input.uncoveredScope ?? initial.uncoveredScope, mutationMarkers: input.mutationMarkers && typeof input.mutationMarkers === "object" ? input.mutationMarkers : initial.mutationMarkers, countersConsumed: input.countersConsumed && typeof input.countersConsumed === "object" ? input.countersConsumed : initial.countersConsumed });
+  return freeze({ ...initial, reviewerVerdict: input.reviewerVerdict ?? initial.reviewerVerdict, reviewerResults: Array.isArray(input.reviewerResults) ? input.reviewerResults : initial.reviewerResults, uncoveredScope: input.uncoveredScope ?? initial.uncoveredScope, runtimeStructuredRequired: input.runtimeStructuredRequired === true, mutationMarkers: input.mutationMarkers && typeof input.mutationMarkers === "object" ? input.mutationMarkers : initial.mutationMarkers, countersConsumed: input.countersConsumed && typeof input.countersConsumed === "object" ? input.countersConsumed : initial.countersConsumed });
 }
 
 export function certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview } = {}) {

@@ -154,8 +154,8 @@ test("deterministic semantics-preserving split succeeds", () => {
   const changedFiles = ["services/api/auth/a.mjs", "services/api/money/b.mjs"];
   const classification = classifyLargeCandidate({ changedFiles, stats: { additions: 2200 } });
   const plan = planLargeCandidateSplit({ classification, changedFiles, slices: [
-    { id: "auth", issueNumber: 1, taskKey: "20260721-0001", changedFiles: [changedFiles[0]], allowedPathsProven: true, semanticOwnDeltaProven: true, dependsOn: [] },
-    { id: "money", issueNumber: 2, taskKey: "20260721-0002", changedFiles: [changedFiles[1]], allowedPathsProven: true, semanticOwnDeltaProven: true, dependsOn: ["auth"] },
+    { id: "auth", issueNumber: 1, taskKey: "20260721-0001", changedFiles: [changedFiles[0]], allowedPathsProven: true, semanticOwnDeltaProven: true, executionAuthorityProven: true, dependsOn: [] },
+    { id: "money", issueNumber: 2, taskKey: "20260721-0002", changedFiles: [changedFiles[1]], allowedPathsProven: true, semanticOwnDeltaProven: true, executionAuthorityProven: true, dependsOn: ["auth"] },
   ] });
   assert.equal(plan.ok, true);
   assert.equal(plan.execution, "deterministic_split");
@@ -210,8 +210,8 @@ test("split plans reject unknown self cyclic and duplicate dependencies", () => 
   const changedFiles = ["services/api/auth/a.mjs", "services/api/money/b.mjs"];
   const classification = classifyLargeCandidate({ changedFiles, stats: { additions: 2200 } });
   const base = [
-    { id: "a", issueNumber: 1, taskKey: "20260721-0001", changedFiles: [changedFiles[0]], allowedPathsProven: true, semanticOwnDeltaProven: true, dependsOn: ["b"] },
-    { id: "b", issueNumber: 2, taskKey: "20260721-0002", changedFiles: [changedFiles[1]], allowedPathsProven: true, semanticOwnDeltaProven: true, dependsOn: ["a"] },
+    { id: "a", issueNumber: 1, taskKey: "20260721-0001", changedFiles: [changedFiles[0]], allowedPathsProven: true, semanticOwnDeltaProven: true, executionAuthorityProven: true, dependsOn: ["b"] },
+    { id: "b", issueNumber: 2, taskKey: "20260721-0002", changedFiles: [changedFiles[1]], allowedPathsProven: true, semanticOwnDeltaProven: true, executionAuthorityProven: true, dependsOn: ["a"] },
   ];
   assert.equal(planLargeCandidateSplit({ classification, changedFiles, slices: base }).reasonCode, "split_dependency_cycle");
   assert.equal(planLargeCandidateSplit({ classification, changedFiles, slices: [{ ...base[0], dependsOn: ["a"] }, { ...base[1], dependsOn: [] }] }).reasonCode, "split_dependency_invalid");
@@ -231,7 +231,7 @@ test("restart during structured review resumes without duplicate provider calls"
 test("runtime cumulative review persists complete section and integration evidence across restart", async () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-large-runtime-"));
   const boundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
-  const attestation = { attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: boundaries };
+  const attestation = { attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: boundaries, attestationSource: "provider_prompt_binding", providerPromptBindingDigest: h("prompt") };
   try {
     const input = { config: { logsRoot }, taskKey: "runtime", candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs", "services/api/runtime.mjs"], integrationBoundaries: boundaries, externalReview: { ...attestation, status: "pass", verdict: "pass" }, codexReview: { ...attestation, verdict: { verdict: "approve", findings: [] } } };
     const first = await persistCumulativeLargeCandidateReview(input);
@@ -249,7 +249,7 @@ test("changed integration boundaries remain covered as changed paths without att
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-large-boundary-"));
   const changedFiles = ["tools/auto-runner/settleora-auto-runner.mjs", "services/api/runtime.mjs"];
   const boundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
-  const attestation = { attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: boundaries };
+  const attestation = { attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: boundaries, attestationSource: "provider_prompt_binding", providerPromptBindingDigest: h("prompt") };
   try {
     const result = await persistCumulativeLargeCandidateReview({ config: { logsRoot }, taskKey: "boundary", candidateIdentity, changedFiles, integrationBoundaries: boundaries, externalReview: { ...attestation, status: "pass", verdict: "pass" }, codexReview: { ...attestation, verdict: { verdict: "approve", findings: [] } } });
     assert.equal(result.ok, true);

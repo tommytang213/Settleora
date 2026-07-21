@@ -324,10 +324,6 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
   if (result.externalReview?.route?.largeCandidateRouting?.route === "split_or_block") {
     result.largeCandidateReview = persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview });
-    if (result.largeCandidateReview.ok) {
-      result.splitContinuation = { status: "ready", execution: "deterministic_split", planDigest: result.largeCandidateReview.planDigest, slices: result.largeCandidateReview.slices, nextAction: "resume_dependent_stack_slices_in_order" };
-      return stopBundle(result, "split_required", "deterministic_split_continuation_ready", "A proven deterministic split is ready for dependent-stack continuation without a manual decision.");
-    }
     return stopBundle(result, "blocked_needs_tommy", result.largeCandidateReview.reasonCode, "Mixed bundle requires a proven semantics-preserving split or the minimum architecture decision.");
   }
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
@@ -936,7 +932,8 @@ async function runBundleStructuredReviewCall(config, reviewPackage, provider, st
   const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], manifestDigest: structuredReview.manifest.manifestDigest } } };
   const evidence = provider === "gemini" ? await runGeminiIntegratedReview(config, scopedPackage) : runReviewPrompt(config, scopedPackage);
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
-  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null };
+  const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
 }
 
 function persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage, changedFiles, headSha, baseSha, externalReview }) {
@@ -947,6 +944,7 @@ function persistBundleLargeCandidateSplit(config, { issue, plan, reviewPackage, 
     taskKey: slice.taskKey || `${config.taskKey || `issue-${issue.number}`}:${slice.id}`,
     allowedPathsProven: slice.allowedPathsProven === true,
     semanticOwnDeltaProven: slice.semanticOwnDeltaProven === true,
+    executionAuthorityProven: false,
     dependsOn: slice.dependsOn || [],
   }));
   return persistLargeCandidateSplitDecision({

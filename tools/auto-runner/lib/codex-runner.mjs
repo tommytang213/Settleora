@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, openSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { digestChangedFiles } from "./config.mjs";
@@ -208,6 +208,8 @@ export function runReviewPrompt(config, packageInfo) {
     finalResult.attestedIntegrationBoundaries = Array.isArray(packageInfo.summary?.integrationBoundaries)
       ? packageInfo.summary.integrationBoundaries
       : [];
+    finalResult.attestationSource = "provider_prompt_binding";
+    finalResult.providerPromptBindingDigest = createHash("sha256").update(prompt).digest("hex");
   }
   return finalResult;
 }

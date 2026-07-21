@@ -720,6 +720,9 @@ function buildIntegratedReviewPrompt(summary, diff) {
       rawDiffSha256: summary.rawDiffSha256 || summary.diffSha256 || null,
       providerBoundDiffSha256: summary.providerBoundDiffSha256 || null,
       secretBoundary: summary.secretBoundary || null,
+      candidateIdentity: { repository: summary.repository || null, baseSha: summary.baseSha || null, headSha: summary.currentHead || null, treeSha: summary.treeSha || null },
+      integrationBoundaries: summary.integrationBoundaries || [],
+      structuredReview: summary.structuredReview || null,
       nonGoals: [
         "No GitHub mutation from reviewer output.",
         "No auth/session/security runtime, storage/privacy, money, schema, OpenAPI, generated-client, Docker, CI, deployment, OCR, sync/import/export, mobile release, public/admin exposure, or production changes.",
@@ -898,6 +901,8 @@ function attachIntegratedAttestations(result) {
       changedFilesDigest: result.changedFilesDigest,
     },
     attestedIntegrationBoundaries: result.integrationBoundaries,
+    attestationSource: "provider_prompt_binding",
+    providerPromptBindingDigest: result.packageDigest,
   };
 }
 

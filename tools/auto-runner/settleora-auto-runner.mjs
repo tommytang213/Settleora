@@ -2968,7 +2968,8 @@ async function runNormalStructuredReviewCall(config, reviewPackage, provider, st
   const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], manifestDigest: structuredReview.manifest.manifestDigest } } };
   const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
   const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
-  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null };
+  const reasonCode = evidence?.reason || evidence?.reviewFailureReason || null;
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null, reasonCode, contextLimited: /context|token|truncat|over.?budget/i.test(reasonCode || ""), attestationSource: evidence?.attestationSource, providerPromptBindingDigest: evidence?.providerPromptBindingDigest };
 }
 
 function persistNormalLargeCandidateSplit(config, iteration, changedFiles) {
