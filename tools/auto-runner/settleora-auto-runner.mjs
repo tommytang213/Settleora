@@ -1063,7 +1063,9 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       return iteration;
     }
   }
-  iteration.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, changedFiles);
+  iteration.largeCandidateReview = iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
+    ? await certifyNormalCumulativeLargeReview(config, iteration, changedFiles)
+    : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
   if (iteration.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !iteration.largeCandidateReview.ok) {
     iteration.outcome = "auto_failed";
     iteration.externalReview = { ...iteration.externalReview, status: "blocked", reason: iteration.largeCandidateReview.reasonCode || "large_candidate_review_incomplete" };

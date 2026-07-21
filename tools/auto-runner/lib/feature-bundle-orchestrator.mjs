@@ -348,7 +348,9 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     return stopForBundleReviewMutation({ config, result, state, recovery, guard: codexReviewMutationGuard, phase: "bundle_codex_review" });
   }
   result.reviewMutationGuard = mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard);
-  result.largeCandidateReview = await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review });
+  result.largeCandidateReview = result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
+    ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage: result.reviewPackage, changedFiles: aggregateFiles, headSha: finalHead, baseSha: baseOriginMainSha, externalReview: result.externalReview, codexReview: result.review })
+    : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" };
   if (result.externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation" && !result.largeCandidateReview.ok) {
     return stopBundle(result, "auto_failed", result.largeCandidateReview.reasonCode || "large_candidate_review_incomplete", "Complete cumulative large-candidate dual review evidence was not established.");
   }
@@ -901,7 +903,9 @@ async function commitBundleReviewFixAndRerunExactHeadReviews(config, { issue, la
     reviewPackage,
     externalReview,
     review,
-    largeCandidateReview: await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review }),
+    largeCandidateReview: externalReview?.route?.largeCandidateRouting?.route === "large_bundle_escalation"
+      ? await certifyLargeBundleCumulativeReview({ config, issue, reviewPackage, changedFiles, headSha: runnerCreatedCommitSha, baseSha, externalReview, codexReview: review })
+      : { ok: true, state: "external_review_complete", verdict: "pass", route: "normal" },
     sessionLifecycle: review.sessionLifecycle || fixAttempt.sessionLifecycle || sessionLifecycle || null,
     reviewMutationGuard: mergeBundleReviewMutationGuards(externalReviewMutationGuard, codexReviewMutationGuard),
   };
