@@ -2946,7 +2946,7 @@ async function writeReviewPackage(config, payload) {
 
 function integrationBoundaryMaterial(repoRoot = process.cwd(), paths) {
   return paths.map((relativePath) => {
-    const content = readFileSync(path.join(repoRoot, relativePath), "utf8").slice(0, 40_000);
+    const content = readFileSync(path.join(repoRoot, relativePath), "utf8");
     return { path: relativePath, sha256: createHash("sha256").update(content).digest("hex"), content };
   });
 }

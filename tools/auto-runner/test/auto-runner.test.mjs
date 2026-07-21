@@ -6656,6 +6656,26 @@ test("persisted Codex review evidence retains its bounded completion timestamp",
   assert.equal(sanitized.rawOutput, undefined);
 });
 
+test("Codex prompt attestation requires the reviewer-returned base to match the package base", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-base-binding-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const reviewer = writeFakeReviewer(tempRoot, [`printf '%s\\n' ${shellArg(reviewVerdictJson())}`]);
+    const common = { dryRun: false, logsRoot, repoRoot: process.cwd(), reviewerCommand: reviewer };
+    const matching = runReviewPrompt(common, { summary: { repository: "tommytang213/Settleora", baseSha: "e".repeat(40) } });
+    const mismatched = runReviewPrompt(common, { summary: { repository: "tommytang213/Settleora", baseSha: "d".repeat(40) } });
+
+    assert.equal(matching.attestationSource, "provider_prompt_binding");
+    assert.equal(matching.attestedCandidateIdentity.baseSha, "e".repeat(40));
+    assert.equal(mismatched.reviewedBaseSha, "e".repeat(40));
+    assert.equal(mismatched.attestationSource, undefined);
+    assert.equal(mismatched.attestedCandidateIdentity, undefined);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("review prompt rejects conflicting stdout and stderr verdicts without fallback", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-conflict-"));
   try {

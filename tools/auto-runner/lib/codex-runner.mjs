@@ -196,7 +196,11 @@ export function runReviewPrompt(config, packageInfo) {
     verdict: selected.verdict,
     sessionLifecycle,
   };
-  const validBoundProcessResult = finalResult.status === 0 && !finalResult.signal && !finalResult.error && ["passed", "completed"].includes(finalResult.reviewStatus);
+  const validBoundProcessResult = finalResult.status === 0
+    && !finalResult.signal
+    && !finalResult.error
+    && ["passed", "completed"].includes(finalResult.reviewStatus)
+    && finalResult.reviewedBaseSha === finalResult.baseSha;
   if (validBoundProcessResult && ["approve", "changes_requested", "needs_tommy", "danger_gate"].includes(finalResult.verdict?.verdict)) {
     finalResult.attestedCandidateIdentity = {
       repository: packageInfo.summary?.repository || null,
