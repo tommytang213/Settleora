@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import { digestChangedFiles } from "./config.mjs";
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
@@ -66,6 +66,7 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
     ].join("\n"),
   );
   const fd = openSync(logPath, "a");
+  const invocationStartedAt = Date.now();
   let result;
   try {
     result = spawnSync(command.command, [], {
@@ -82,7 +83,14 @@ export function runCodexPrompt(config, promptInfo, purpose = "implementation") {
       state: sessionLifecycle.state,
       newSessionId: `controller-successor:${randomUUID()}`,
       phase: `${purpose}_complete`,
-      telemetry: {},
+      telemetry: {
+        ...(promptInfo.sessionLifecycle?.telemetry || {}),
+        modelVisibleBytes: Buffer.byteLength(String(promptInfo.prompt || ""), "utf8"),
+        bytesSinceResponse: statSync(logPath).size,
+        elapsedMs: Date.now() - invocationStartedAt,
+        providerStatus: result.error ? "disconnected" : "ok",
+        observedAt: new Date().toISOString(),
+      },
       mutationJournaled: true,
     });
     if (!controllerReturn.ok) {
