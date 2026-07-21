@@ -139,6 +139,8 @@ export async function runSupervisorWorker(
     maxRuntime: verified.spec.maxRuntime,
     reportPath: reportResolution.reportPath || null,
     reportResolution: sanitizeReportResolution(reportResolution),
+    startedAt: statePatch.startedAt,
+    heartbeatGeneration,
   });
   writeHeartbeat(runId, terminalHeartbeat, logsRoot);
   recordMonitoringEvent(terminalDecision.state, terminalHeartbeat, { logsRoot });

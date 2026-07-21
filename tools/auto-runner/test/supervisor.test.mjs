@@ -960,6 +960,11 @@ test("supervisor core has no network delivery or raw-path regression shapes", ()
   assert.doesNotMatch(joined, /newestSummaryPath|mtime|birthtime/);
 });
 
+test("terminal heartbeat preserves start time and monotonic generation", () => {
+  const worker = readFileSync("tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs", "utf8");
+  assert.match(worker, /const terminalHeartbeat = buildHeartbeat\(\{[\s\S]*?startedAt: statePatch\.startedAt,[\s\S]*?heartbeatGeneration,[\s\S]*?\}\);/);
+});
+
 function snapshotSupervisorFiles() {
   const root = "/workspace/logs/settleora-auto-runner/supervisor";
   const result = spawnSync("find", [root, "-type", "f"], { encoding: "utf8" });
