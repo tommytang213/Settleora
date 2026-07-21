@@ -64,8 +64,9 @@ export function buildLargeCandidateCoverageManifest(input = {}) {
       sectionMap.get(domain).push(changedPath);
     }
   const sections = [...sectionMap].sort(([a], [b]) => a.localeCompare(b)).map(([domain, paths], index) => freeze({ id: `section-${index + 1}-${domain}`, domain, changedPaths: [...paths].sort() }));
-  const integrationBoundaries = normalizeFiles(input.integrationBoundaries || []).filter((entry) => !changedFiles.includes(entry)).map((entry) => freeze({ path: entry, reasonCode: "required_unchanged_integration_boundary" }));
-  const manifest = { schemaVersion: 1, candidateIdentity: identity.value, changedFiles, changedFilesDigest: digest(changedFiles), sections, integrationBoundaries, requiresFinalIntegration: input.sectioningRequired !== false && sections.length > 1, manifestDigest: null };
+  const declaredIntegrationBoundaries = normalizeFiles(input.integrationBoundaries || []);
+  const integrationBoundaries = declaredIntegrationBoundaries.filter((entry) => !changedFiles.includes(entry)).map((entry) => freeze({ path: entry, reasonCode: "required_unchanged_integration_boundary" }));
+  const manifest = { schemaVersion: 1, candidateIdentity: identity.value, changedFiles, changedFilesDigest: digest(changedFiles), sections, declaredIntegrationBoundaries, integrationBoundaries, requiresFinalIntegration: input.sectioningRequired !== false && sections.length > 1, manifestDigest: null };
   manifest.manifestDigest = digest({ ...manifest, manifestDigest: null });
   return freeze({ ok: true, state: "external_review_large_bundle_in_progress", manifest });
 }
@@ -141,7 +142,7 @@ export function loadLargeCandidateRoutingState(config, stateOrKey) {
   }
 }
 
-export async function runStructuredLargeCandidateReview({ state, manifest, reviewers, invokeSection, invokeIntegration }) {
+export async function runStructuredLargeCandidateReview({ state, manifest, reviewers, invokeSection, invokeIntegration, onCheckpoint = null }) {
   let current = invalidateLargeCandidateEvidence(state, manifest?.candidateIdentity);
   current = { ...current, routeState: "external_review_large_bundle_in_progress", coverageManifest: manifest, reviewerResults: Array.isArray(current.reviewerResults) ? current.reviewerResults : [] };
   for (const provider of reviewers || ["gemini", "codex-local"]) {
@@ -152,10 +153,13 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
       const sectionResult = await invokeSection({ provider, section, manifest });
       result = { ...result, sections: [...result.sections.filter((entry) => entry.id !== section.id), sectionResult] };
       current = { ...current, reviewerResults: [...current.reviewerResults.filter((entry) => entry.provider !== provider), result] };
+      if (onCheckpoint) current = await onCheckpoint(current, { provider, phase: "section", sectionId: section.id }) || current;
       if (sectionResult.status !== "pass") return freeze({ ok: false, state: current, reasonCode: "review_section_not_passed" });
     }
     if (manifest.requiresFinalIntegration && result.integration?.manifestDigest !== manifest.manifestDigest) {
       result = { ...result, integration: await invokeIntegration({ provider, manifest, sections: result.sections }) };
+      current = { ...current, reviewerResults: [...current.reviewerResults.filter((entry) => entry.provider !== provider), result] };
+      if (onCheckpoint) current = await onCheckpoint(current, { provider, phase: "integration" }) || current;
     }
     result = { ...result, verdict: result.sections.every((entry) => entry.status === "pass") && (!manifest.requiresFinalIntegration || result.integration?.status === "pass") ? "pass" : "blocked" };
     current = { ...current, reviewerResults: [...current.reviewerResults.filter((entry) => entry.provider !== provider), result] };
@@ -164,7 +168,7 @@ export async function runStructuredLargeCandidateReview({ state, manifest, revie
   return freeze({ ...completed, state: { ...current, routeState: completed.state, reviewerVerdict: completed.ok ? "pass" : null } });
 }
 
-export async function persistCumulativeLargeCandidateReview({ config, taskKey, candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview } = {}) {
+export async function persistCumulativeLargeCandidateReview({ config, taskKey, candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview, invokeSection = null, invokeIntegration = null } = {}) {
   const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries });
   if (!built.ok) return built;
   const seed = createLargeCandidateRoutingState({ taskKey, candidateIdentity, changedFiles, classification: { state: "external_review_large_bundle_in_progress" }, coverageManifest: built.manifest });
@@ -181,8 +185,9 @@ export async function persistCumulativeLargeCandidateReview({ config, taskKey, c
     state,
     manifest: built.manifest,
     reviewers: ["gemini", "codex-local"],
-    invokeSection: async ({ provider, section, manifest }) => cumulativeSectionEvidence(evidence[provider], provider, section, manifest),
-    invokeIntegration: async ({ provider, manifest }) => cumulativeIntegrationEvidence(evidence[provider], provider, manifest),
+    invokeSection: invokeSection || (async ({ provider, section, manifest }) => cumulativeSectionEvidence(evidence[provider], provider, section, manifest)),
+    invokeIntegration: invokeIntegration || (async ({ provider, manifest }) => cumulativeIntegrationEvidence(evidence[provider], provider, manifest)),
+    onCheckpoint: async (checkpoint) => writeLargeCandidateRoutingState(config, checkpoint),
   });
   const persisted = writeLargeCandidateRoutingState(config, reviewed.state || state);
   return freeze({ ...reviewed, state: persisted, statePath: largeCandidateRoutingStatePath(config, persisted) });
@@ -196,19 +201,19 @@ export function persistLargeCandidateSplitDecision({ config, taskKey, candidateI
 }
 
 function cumulativeSectionEvidence(evidence, provider, section, manifest) {
-  const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest.integrationBoundaries);
+  const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest);
   return { id: section.id, status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [] };
 }
 
 function cumulativeIntegrationEvidence(evidence, provider, manifest) {
-  const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest.integrationBoundaries);
+  const pass = cumulativeEvidencePasses(evidence, provider, manifest.candidateIdentity, manifest);
   return { status: pass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: pass ? cumulativeFindings(evidence) : [] };
 }
 
-function cumulativeEvidencePasses(evidence, provider, identity, boundaries) {
+function cumulativeEvidencePasses(evidence, provider, identity, manifest) {
   const verdictPass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
   return verdictPass && sameCandidateIdentity(evidence?.attestedCandidateIdentity, identity)
-    && digest(normalizeFiles(evidence?.attestedIntegrationBoundaries)) === digest(normalizeFiles((boundaries || []).map((entry) => entry.path)));
+    && digest(normalizeFiles(evidence?.attestedIntegrationBoundaries)) === digest(normalizeFiles(manifest?.declaredIntegrationBoundaries));
 }
 
 function cumulativeFindings(evidence) { return evidence?.findings || evidence?.verdict?.findings || []; }

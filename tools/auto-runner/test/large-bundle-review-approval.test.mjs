@@ -245,6 +245,28 @@ test("runtime cumulative review persists complete section and integration eviden
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
+test("changed integration boundaries remain covered as changed paths without attestation mismatch", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-large-boundary-"));
+  const changedFiles = ["tools/auto-runner/settleora-auto-runner.mjs", "services/api/runtime.mjs"];
+  const boundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  const attestation = { attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: boundaries };
+  try {
+    const result = await persistCumulativeLargeCandidateReview({ config: { logsRoot }, taskKey: "boundary", candidateIdentity, changedFiles, integrationBoundaries: boundaries, externalReview: { ...attestation, status: "pass", verdict: "pass" }, codexReview: { ...attestation, verdict: { verdict: "approve", findings: [] } } });
+    assert.equal(result.ok, true);
+    assert.equal(result.state.coverageManifest.changedFiles.includes(boundaries[0]), true);
+    assert.equal(result.state.coverageManifest.integrationBoundaries.length, 0);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
+test("structured executor checkpoints immediately after each provider result", async () => {
+  const { manifest } = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs", "services/api/runtime.mjs"] });
+  const checkpoints = [];
+  const result = await runStructuredLargeCandidateReview({ state: createLargeCandidateRoutingState({ candidateIdentity }), manifest, reviewers: ["gemini", "codex-local"], invokeSection: async ({ section }) => ({ id: section.id, status: "pass", manifestDigest: manifest.manifestDigest, findings: [] }), invokeIntegration: async () => ({ status: "pass", manifestDigest: manifest.manifestDigest, findings: [] }), onCheckpoint: async (state, marker) => { checkpoints.push(marker); return state; } });
+  assert.equal(result.ok, true);
+  assert.equal(checkpoints.filter((entry) => entry.phase === "section").length, manifest.sections.length * 2);
+  assert.equal(checkpoints.filter((entry) => entry.phase === "integration").length, 2);
+});
+
 test("runtime context limit persists exact uncovered scope and split routing persists a manual packet", async () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-large-context-"));
   try {

@@ -2959,7 +2959,16 @@ async function certifyNormalCumulativeLargeReview(config, iteration, changedFile
     integrationBoundaries: ["tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     externalReview: iteration.externalReview,
     codexReview: iteration.review,
+    invokeSection: ({ provider, section, manifest }) => runNormalStructuredReviewCall(config, reviewPackage, provider, { phase: "section", section, manifest }, iteration.sessionLifecycle),
+    invokeIntegration: ({ provider, manifest }) => runNormalStructuredReviewCall(config, reviewPackage, provider, { phase: "integration", manifest }, iteration.sessionLifecycle),
   });
+}
+
+async function runNormalStructuredReviewCall(config, reviewPackage, provider, structuredReview, sessionLifecycle) {
+  const scopedPackage = { ...reviewPackage, summary: { ...reviewPackage.summary, structuredReview: { phase: structuredReview.phase, sectionId: structuredReview.section?.id || null, changedPaths: structuredReview.section?.changedPaths || [], manifestDigest: structuredReview.manifest.manifestDigest } } };
+  const evidence = provider === "gemini" ? await runIntegratedReviewSource(config, scopedPackage, `large-${structuredReview.phase}`) : runReviewPrompt(config, { ...scopedPackage, sessionLifecycle });
+  const pass = provider === "gemini" ? evidence?.status === "pass" && evidence?.verdict === "pass" : evidence?.verdict?.verdict === "approve";
+  return { ...(structuredReview.section ? { id: structuredReview.section.id } : {}), status: pass ? "pass" : "blocked", manifestDigest: structuredReview.manifest.manifestDigest, findings: evidence?.findings || evidence?.verdict?.findings || [], evidencePath: evidence?.reportPath || evidence?.logPath || null };
 }
 
 function persistNormalLargeCandidateSplit(config, iteration, changedFiles) {
