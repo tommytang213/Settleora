@@ -2783,6 +2783,14 @@ async function runReviewFixCycle(config, context) {
     report: context.report,
   });
   const externalReviewAfter = await runIntegratedReviewSource(config, integratedReviewPackageAfter, "post-fix");
+  const externalMutationGuardAfter = compareFingerprints(beforeReview, await checkoutFingerprint());
+  if (externalMutationGuardAfter.mutationDetected) {
+    return finishBlocked("review_fix_post_fix_external_review_mutated_checkout", {
+      validationAfter: summarizeValidation(validationAfter),
+      externalReviewAfter: summarizeExternalReview(externalReviewAfter),
+      externalMutationGuardAfter,
+    });
+  }
   if (externalReviewAfter.status === "blocked") {
     return finishBlocked("review_fix_integrated_review_still_blocking", {
       validationAfter: summarizeValidation(validationAfter),

@@ -154,6 +154,7 @@ test("review mutation guards precede recovery and split side effects", () => {
     "ordinary_continuation_structured_review_mutated_checkout",
     "ordinary_continuation_reviewer_checkpoint_missing",
     "external_review_mutated_checkout",
+    "review_fix_post_fix_external_review_mutated_checkout",
   ]) assert.match(runner, new RegExp(reason));
   assert.match(runner, /initial\.effects\?\.external_review\?\.evidence\?\.review/);
   assert.match(runner, /initial\.effects\?\.codex_review\?\.evidence\?\.review/);
