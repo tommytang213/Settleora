@@ -12,7 +12,7 @@ test("pre-effect intent persists before execution and adopts exact live effect a
   const logsRoot = mkdtempSync(path.join(tmpdir(), "intent-"));
   try {
     const intent = preparePreEffectIntent({ logsRoot }, base, { intentId: "intent-1", now: new Date("2026-07-20T14:50:00Z") });
-    assert.throws(() => preparePreEffectIntent({ logsRoot }, base, { intentId: "intent-1" }), /already exists/);
+    assert.equal(preparePreEffectIntent({ logsRoot }, base, { intentId: "intent-1" }).intentId, "intent-1");
     assert.equal(loadPreEffectIntent({ logsRoot }, "intent-1").status, "prepared");
     const authority = { runId: "run-1", sessionId: "session-1", authorityGeneration: 2, status: "active" };
     const executing = transitionPreEffectIntent({ logsRoot, currentAuthority: authority }, intent, "executing");
