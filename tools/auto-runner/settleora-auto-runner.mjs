@@ -112,7 +112,7 @@ import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters } from "./lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -627,6 +627,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         iteration.outcome,
         `Auto-runner feature-bundle result for #${issue.number}: ${iteration.outcome}.${detail}${reason}`,
       );
+      if (bundleResult.sessionLifecycle && iteration.issueComment?.status === 0) {
+        const terminal = transitionSessionLifecyclePhase(config, bundleResult.sessionLifecycle, { phase: "completed", nextExactAction: "bundle_complete" });
+        if (!terminal.ok) throw new Error(terminal.reasonCode);
+        iteration.sessionLifecycle = terminal.state;
+        issue.sessionLifecycle = terminal.state;
+      }
     }
     iteration.finishedAt = new Date().toISOString();
     return iteration;
@@ -648,7 +654,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.baseOriginMainSha = recovery.baseOriginMainSha;
     iteration.runnerCreatedCommitSha = recovery.expectedHeadSha;
     iteration.outcome = recovery.autoMerge?.result === "merged" ? "auto_merged" : "auto_failed";
-    if (iteration.outcome !== "auto_merged") {
+    if (iteration.outcome !== "auto_merged" && !recovery.terminalMutationBlocked) {
       iteration.issueComment = finishIssueOutcome(
         config,
         issue,
@@ -1663,6 +1669,41 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
   if (!recoveryConfig) return null;
+  let sessionLifecycle = recoveryState?.sessionLifecycle || null;
+  if (!config.dryRun && config.sessionLifecycle?.enabled === true && !sessionLifecycle) {
+    const configuredEvidence = recoveryConfig.exactHeadEvidence || {};
+    const lifecycleRunId = lifecycleInput.runId || configuredEvidence.runnerRunId || config.outageRecoveryTarget?.runnerRunId || `existing-pr-${issue.number}`;
+    const lifecycleTaskKey = configuredEvidence.taskKey || config.outageRecoveryTarget?.taskKey || `existing-pr-${issue.number}`;
+    const lifecycleHead = recoveryConfig.expectedHeadSha || configuredEvidence.headSha || config.outageRecoveryTarget?.currentHeadSha;
+    const lifecycleBranch = recoveryConfig.branchName || config.outageRecoveryTarget?.branchName;
+    fetchOriginMain(config);
+    const lifecycleBase = recoveryConfig.expectedOriginMainSha || configuredEvidence.baseSha || config.outageRecoveryTarget?.baseSha || getRefSha("origin/main");
+    if (!/^[a-f0-9]{40}$/.test(String(lifecycleHead || "")) || !/^[a-f0-9]{40}$/.test(String(lifecycleBase || "")) || !lifecycleBranch) {
+      return { reason: "existing_pr_lifecycle_identity_incomplete", terminalMutationBlocked: true, autoMerge: { result: "blocked", reason: "existing_pr_lifecycle_identity_incomplete" } };
+    }
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: issue.number,
+      taskKey: lifecycleTaskKey,
+      runId: lifecycleRunId,
+      claimIdentity: `${config.repositorySlug}#${issue.number}`,
+      chargeMarkerRef: lifecycleInput.chargeMarkerRef || recoveryState?.logicalTaskBudget?.chargeId || `accepted:${lifecycleRunId}:${issue.number}`,
+      sessionId: `${lifecycleRunId}:existing-pr:${lifecycleInput.index || 0}`,
+      branchName: lifecycleBranch,
+      baseSha: lifecycleBase,
+      headSha: lifecycleHead,
+      phase: "exact_head_final_refresh",
+      nextExactAction: "evaluate_existing_pr_merge",
+      contextPolicy: config.sessionLifecycle.contextBudget,
+      reservations: recoveryState?.mutationMarkers || {},
+      evidence: recoveryState?.evidence || {},
+      reportCorrelationKey: lifecycleTaskKey,
+    });
+    const persisted = persistSessionLifecycleState(config, lifecycle);
+    if (!persisted.ok) return { reason: persisted.reasonCode, terminalMutationBlocked: true, autoMerge: { result: "blocked", reason: persisted.reasonCode } };
+    sessionLifecycle = persisted.state;
+  }
+  if (sessionLifecycle) issue.sessionLifecycle = sessionLifecycle;
   const targetCheck = validateRecoveryOnlyExistingPrTarget(config, recoveryConfig);
   if (!targetCheck.ok) {
     return { reason: targetCheck.reason, autoMerge: { result: "blocked", reason: targetCheck.reason } };
@@ -1759,32 +1800,6 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
-  let sessionLifecycle = recoveryState?.sessionLifecycle || null;
-  if (!config.dryRun && config.sessionLifecycle?.enabled === true && !sessionLifecycle) {
-    const lifecycleRunId = lifecycleInput.runId || exactHeadEvidence.runnerRunId || config.outageRecoveryTarget?.runnerRunId || `existing-pr-${issue.number}`;
-    const lifecycle = createSessionLifecycleState({
-      repository: config.repositorySlug,
-      issueNumber: issue.number,
-      taskKey: exactHeadEvidence.taskKey || config.outageRecoveryTarget?.taskKey || `existing-pr-${issue.number}`,
-      runId: lifecycleRunId,
-      claimIdentity: `${config.repositorySlug}#${issue.number}`,
-      chargeMarkerRef: lifecycleInput.chargeMarkerRef || recoveryState?.logicalTaskBudget?.chargeId || `accepted:${lifecycleRunId}:${issue.number}`,
-      sessionId: `${lifecycleRunId}:existing-pr:${lifecycleInput.index || 0}`,
-      branchName: githubState.pr?.headRefName || recoveryConfig.branchName,
-      baseSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
-      headSha: expectedHeadSha,
-      phase: "exact_head_final_refresh",
-      nextExactAction: "evaluate_existing_pr_merge",
-      contextPolicy: config.sessionLifecycle.contextBudget,
-      reservations: recoveryState?.mutationMarkers || {},
-      evidence: recoveryState?.evidence || {},
-      reportCorrelationKey: exactHeadEvidence.taskKey || config.outageRecoveryTarget?.taskKey || `existing-pr-${issue.number}`,
-    });
-    const persisted = persistSessionLifecycleState(config, lifecycle);
-    if (!persisted.ok) return { reason: persisted.reasonCode, autoMerge: { result: "blocked", reason: persisted.reasonCode } };
-    sessionLifecycle = persisted.state;
-  }
-  if (sessionLifecycle) issue.sessionLifecycle = sessionLifecycle;
   const context = {
     config,
     issue: githubState.issue || { ...issue, state: issue.state || "OPEN", labels: issue.labels || [] },

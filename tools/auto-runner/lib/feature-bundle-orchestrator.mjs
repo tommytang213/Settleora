@@ -27,7 +27,7 @@ import {
 } from "./git-workspace.mjs";
 import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./codex-runner.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
+import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters } from "./session-lifecycle.mjs";
 import { collectReport } from "./report-collector.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { inspectPreReviewPrOwnership, openOrUpdatePr, pushBranch, watchChecks } from "./pr-manager.mjs";
@@ -469,12 +469,6 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       correlation: result.autoMerge.mergeSha || finalHead || runId,
     });
     recovery?.advance("post_merge_current_main_checks_scanner_reconciliation", "reconcile_current_main");
-  }
-  if (sessionLifecycle && config.sessionLifecycle?.enabled === true) {
-    const terminalLifecycle = transitionSessionLifecyclePhase(config, sessionLifecycle, { phase: "completed", nextExactAction: "bundle_complete" });
-    if (!terminalLifecycle.ok) return stopBundle(result, "auto_failed", terminalLifecycle.reasonCode, "Bundle lifecycle terminalization failed.");
-    sessionLifecycle = terminalLifecycle.state;
-    result.sessionLifecycle = sessionLifecycle;
   }
   recovery?.complete(result.outcome);
   result.recovery = recovery?.summary();

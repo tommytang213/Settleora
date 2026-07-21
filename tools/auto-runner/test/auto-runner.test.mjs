@@ -6984,7 +6984,7 @@ test("feature-bundle results propagate lifecycle authority to terminal issue eff
   assert.match(bundlePath, /issue\.sessionLifecycle = bundleResult\.sessionLifecycle/);
   const bundle = readFileSync("tools/auto-runner/lib/feature-bundle-orchestrator.mjs", "utf8");
   assert.match(bundle, /result\.sessionLifecycle = sessionLifecycle/);
-  assert.match(bundle, /transitionSessionLifecyclePhase\(config, sessionLifecycle, \{ phase: "completed"/);
+  assert.match(bundlePath, /finishIssueOutcome[\s\S]*transitionSessionLifecyclePhase\(config, bundleResult\.sessionLifecycle, \{ phase: "completed"/);
 });
 
 test("stack CLI constructs and injects one live fixed-argv runner", () => {
