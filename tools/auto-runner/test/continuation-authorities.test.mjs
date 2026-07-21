@@ -152,6 +152,20 @@ test("split materialization republishes a persisted branch proven absent remotel
   assert.equal(events.includes("push:a"), true);
 });
 
+test("split materialization republishes a persisted local branch missing remotely", async () => {
+  const events = [];
+  const input = splitInput();
+  const persisted = {
+    version: 1, logicalTaskKey: input.logicalTaskKey, sourceHeadSha: input.headSha, baseSha: input.baseSha, phase: "materializing",
+    slices: { a: { id: "a", branchName: "split/a", expectedDigest: validateExpectedDigest(input, input.slices[0], "main"), headSha: sha("head:a"), treeSha: sha("tree:a"), changedFilesDigest: digest(["a.mjs"]), pushed: true, phase: "pushed" } },
+  };
+  const custom = adapter(events, persisted);
+  custom.readBranch = async (name) => name === "split/a" ? { complete: true, exists: true, headSha: sha("head:a"), treeSha: sha("tree:a"), remoteExists: false } : { complete: true, exists: false, remoteExists: false };
+  const result = await materializeFeatureBundleSplit({ ...input, state: persisted }, custom);
+  assert.equal(result.ok, true);
+  assert.equal(events.includes("push:a"), true);
+});
+
 test("split proof blocks ambiguity, missing authority, cycles, and semantic mismatch before unsafe effects", async () => {
   assert.equal(validateSplitMaterializationInput({ ...splitInput(), executionAuthorityProven: false }).reasonCode, "split_execution_authority_missing");
   const ambiguous = splitInput(); ambiguous.slices[1].changedFiles = ["a.mjs"];

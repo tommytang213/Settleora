@@ -15,9 +15,10 @@ export async function materializeFeatureBundleSplit(input, adapter) {
     if (prior && prior.expectedDigest !== expected.expectedDigest) return fail("split_materialization_state_conflict", { sliceId: slice.id });
     const liveBranch = await adapter.readBranch(expected.branchName);
     if (liveBranch?.complete === false || liveBranch?.unavailable) return fail("split_materialization_branch_read_unavailable", { sliceId: slice.id });
+    if (liveBranch?.conflict) return fail("split_materialization_branch_conflict", { sliceId: slice.id, branchName: expected.branchName });
     if (liveBranch?.exists && prior?.headSha && liveBranch.headSha !== prior.headSha) return fail("split_materialization_branch_conflict", { sliceId: slice.id, branchName: expected.branchName });
     let branch = liveBranch?.exists
-      ? { ...prior, ...liveBranch, ok: true, adopted: true }
+      ? { ...prior, ...liveBranch, pushed: liveBranch.remoteExists === false ? false : prior?.pushed, ok: true, adopted: true }
       : prior?.headSha
         ? { ...prior, ok: true, adopted: true, pushed: false }
         : await adapter.materializeBranch(expected);
@@ -67,16 +68,15 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
   return {
     readBranch: async (branchName) => {
       const local = git(cwd, ["show-ref", "--verify", "--hash", `refs/heads/${branchName}`]);
-      if (local.status === 0) {
-        const headSha = local.stdout.trim();
-        return { complete: true, exists: true, headSha, treeSha: git(cwd, ["rev-parse", `${headSha}^{tree}`]).stdout.trim(), source: "local" };
-      }
       const remote = git(cwd, ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`]);
       if (remote.status !== 0 || remote.error) return { complete: false, exists: false, unavailable: true };
       const remoteHead = remote.status === 0 && remote.stdout.trim() ? remote.stdout.trim().split(/\s+/)[0] : null;
-      if (!remoteHead) return { complete: true, exists: false, headSha: null };
+      const localHead = local.status === 0 ? local.stdout.trim() : null;
+      if (localHead && remoteHead && localHead !== remoteHead) return { complete: true, exists: true, conflict: true, headSha: localHead, remoteHead };
+      if (localHead) return { complete: true, exists: true, headSha: localHead, treeSha: git(cwd, ["rev-parse", `${localHead}^{tree}`]).stdout.trim(), remoteExists: Boolean(remoteHead), source: remoteHead ? "local+remote" : "local" };
+      if (!remoteHead) return { complete: true, exists: false, headSha: null, remoteExists: false };
       const fetched = git(cwd, ["fetch", "origin", `refs/heads/${branchName}`]);
-      return fetched.status === 0 ? { complete: true, exists: true, headSha: remoteHead, treeSha: git(cwd, ["rev-parse", `${remoteHead}^{tree}`]).stdout.trim(), source: "remote" } : { complete: false, exists: true, headSha: remoteHead, unavailable: true };
+      return fetched.status === 0 ? { complete: true, exists: true, headSha: remoteHead, treeSha: git(cwd, ["rev-parse", `${remoteHead}^{tree}`]).stdout.trim(), remoteExists: true, source: "remote" } : { complete: false, exists: true, headSha: remoteHead, unavailable: true };
     },
     materializeBranch: async (expected) => {
       const temporary = mkdtempSync(path.join(tmpdir(), "settleora-split-"));
