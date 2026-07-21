@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { executeCanonicalEffect, executeCanonicalEffectSync } from "./canonical-effect-executor.mjs";
 import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect } from "./git-workspace.mjs";
 
@@ -38,7 +38,7 @@ function execute(sync, config, lifecycle, input, adapters) {
 }
 
 export function canonicalGithubEvidenceDigest(value) {
-  return createHash("sha256").update(canonical(value)).digest("hex");
+  return createHmac("sha256", "Settleora canonical GitHub evidence v1").update(canonical(value)).digest("hex");
 }
 
 function normalizeEffect(value) {
