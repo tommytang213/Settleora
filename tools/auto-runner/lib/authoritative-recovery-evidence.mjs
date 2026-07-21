@@ -116,7 +116,9 @@ function liveEvidenceForIntent(intent, git, github) {
       && github.pr?.mergeParentShas?.[0] === e.expectedBaseSha
       && github.pr?.mergeParentShas?.[1] === (e.expectedHeadSha || e.headSha);
     else if (["comment", "review_reply", "issue_progress_comment", "umbrella_update", "review_trigger"].includes(intent.effectType)) present = (github.comments || []).some((c) => c.fingerprint === e.contentFingerprint || c.canonicalFingerprint === e.bodyDigest);
-    else if (intent.effectType === "hygiene_component") present = Array.isArray(github.issueLabels) && (e.removeLabels || []).every((label) => !github.issueLabels.includes(label));
+    else if (intent.effectType === "hygiene_component") present = Array.isArray(github.issueLabels)
+      && (e.addLabels || []).every((label) => github.issueLabels.includes(label))
+      && (e.removeLabels || []).every((label) => !github.issueLabels.includes(label));
     else if (intent.effectType === "issue_closure") present = github.issue?.state === "CLOSED";
     else if (intent.effectType === "branch_retention_verify") present = git?.complete && git.remoteHeadSha === e.expectedHeadSha;
     else present = (github.hygiene || []).includes(intent.fingerprint);

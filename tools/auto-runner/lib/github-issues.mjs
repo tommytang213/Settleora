@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
+import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 
 function runGh(args) {
   const result = spawnSync("gh", args, { encoding: "utf8", windowsHide: true });
@@ -193,7 +193,7 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
     };
   }
   if (effectContext) {
-    const labelEffect = { addLabels: mutations.addLabels, removeLabels: mutations.removeLabels, outcome };
+    const labelEffect = { issueNumber: issue.number, addLabels: mutations.addLabels, removeLabels: mutations.removeLabels, outcome };
     const labels = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "hygiene_component", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: labelEffect }, {
       readLive: (intent) => {
         const live = readIssueLive(config, issue.number);
@@ -208,7 +208,7 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
       },
     });
     if (!labels.ok) return { skipped: false, status: 1, reason: labels.reasonCode };
-    const commentEffect = { body: boundedBody, outcome };
+    const commentEffect = { issueNumber: issue.number, bodyDigest: canonicalGithubEvidenceDigest(boundedBody), outcome };
     const comment = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "comment", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: commentEffect }, {
       readLive: (intent) => {
         const result = runGh(["api", "--paginate", "--slurp", `repos/${config.repositorySlug}/issues/${issue.number}/comments?per_page=100`]);
