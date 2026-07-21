@@ -1138,6 +1138,7 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     validation,
     externalReviewRequired: requiresIndependentAiReview(laneDecision),
     integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    integrationBoundaryMaterial: bundleIntegrationBoundaryMaterial(config.repoRoot, ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"]),
     rawDiffSha256: createHash("sha256").update(diff.text).digest("hex"),
     diffTruncated: diff.truncated,
   };

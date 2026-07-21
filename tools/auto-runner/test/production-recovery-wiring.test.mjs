@@ -207,7 +207,7 @@ test("large review recovery re-requires binding and reviewer prompts carry bound
   assert.match(routing, /runtimeStructuredRequired: true \} : seed/);
   assert.match(gemini, /integrationBoundaryMaterial: summary\.integrationBoundaryMaterial \|\| \[\]/);
   assert.match(runner, /integrationBoundaryMaterial: integrationBoundaryMaterial/);
-  assert.match(bundle, /integrationBoundaryMaterial: bundleIntegrationBoundaryMaterial/);
+  assert.match(bundle, /function writeBundleReviewPackage[\s\S]*?integrationBoundaries:[\s\S]*?integrationBoundaryMaterial: bundleIntegrationBoundaryMaterial[\s\S]*?writeFileSync\(packagePath/);
 });
 
 test("stack local-fix recovery threads one injected Codex execution authority", () => {
