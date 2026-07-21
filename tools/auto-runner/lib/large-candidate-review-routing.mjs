@@ -170,11 +170,15 @@ export function migrateLargeCandidateRoutingState(input = {}) {
   return freeze({ ...initial, reviewerVerdict: input.reviewerVerdict ?? initial.reviewerVerdict, reviewerResults: Array.isArray(input.reviewerResults) ? input.reviewerResults : initial.reviewerResults, uncoveredScope: input.uncoveredScope ?? initial.uncoveredScope, mutationMarkers: input.mutationMarkers && typeof input.mutationMarkers === "object" ? input.mutationMarkers : initial.mutationMarkers, countersConsumed: input.countersConsumed && typeof input.countersConsumed === "object" ? input.countersConsumed : initial.countersConsumed });
 }
 
-export function certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles, integrationBoundaries = [], reviewedIntegrationBoundaries = [], externalReview, codexReview } = {}) {
-  if (digest(normalizeFiles(integrationBoundaries)) !== digest(normalizeFiles(reviewedIntegrationBoundaries))) return blocked("integration_boundary_attestation_missing");
+export function certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles, integrationBoundaries = [], externalReview, codexReview } = {}) {
   const built = buildLargeCandidateCoverageManifest({ candidateIdentity, changedFiles, integrationBoundaries, sectioningRequired: false });
   if (!built.ok) return built;
   const manifest = built.manifest;
+  if (!sameCandidateIdentity(externalReview?.attestedCandidateIdentity, manifest.candidateIdentity)
+    || !sameCandidateIdentity(codexReview?.attestedCandidateIdentity, manifest.candidateIdentity)) return blocked("reviewer_candidate_attestation_missing_or_mismatched");
+  const expectedBoundaries = digest(normalizeFiles(integrationBoundaries));
+  if (digest(normalizeFiles(externalReview?.attestedIntegrationBoundaries)) !== expectedBoundaries
+    || digest(normalizeFiles(codexReview?.attestedIntegrationBoundaries)) !== expectedBoundaries) return blocked("integration_boundary_attestation_missing");
   const section = manifest.sections[0];
   const externalPass = externalReview?.status === "pass" && (!externalReview.verdict || externalReview.verdict === "pass");
   const codexPass = codexReview?.verdict?.verdict === "approve" || codexReview?.verdict === "pass";
@@ -183,6 +187,11 @@ export function certifyCompleteCumulativeLargeReview({ candidateIdentity, change
     { provider: "codex-local", candidateIdentity: manifest.candidateIdentity, manifestDigest: manifest.manifestDigest, verdict: codexPass ? "pass" : "blocked", sections: [{ id: section.id, status: codexPass ? "pass" : "blocked", manifestDigest: manifest.manifestDigest, findings: codexReview?.verdict?.findings || codexReview?.findings || [] }], integration: null },
   ];
   return { ...validateLargeCandidateReviewEvidence({ manifest, reviewerResults: results }), manifest, reviewerResults: results };
+}
+
+function sameCandidateIdentity(actual, expected) {
+  const normalized = normalizeCandidateIdentity(actual);
+  return normalized.ok && sameIdentity(normalized.value, expected);
 }
 
 export function validateLargeCandidateRoutingState(state = {}) {

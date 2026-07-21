@@ -910,12 +910,11 @@ function certifyLargeBundleCumulativeReview({ config, reviewPackage, changedFile
       baseSha,
       headSha,
       treeSha: config.dryRun ? headSha : getRefSha("HEAD^{tree}"),
-      diffDigest: createHash("sha256").update(String(reviewPackage?.diff || "")).digest("hex"),
+      diffDigest: reviewPackage?.summary?.rawDiffSha256 || createHash("sha256").update(String(reviewPackage?.diff || "")).digest("hex"),
       changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
     },
     changedFiles,
-    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"],
-    reviewedIntegrationBoundaries: reviewPackage?.summary?.integrationBoundaries || [],
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
     externalReview,
     codexReview,
   });
@@ -1019,9 +1018,11 @@ function writeBundleReviewPackage(config, { issue, laneDecision, plan, state, ch
     changedFiles,
     currentHead: headSha,
     baseSha,
+    treeSha: config.dryRun ? headSha : getRefSha("HEAD^{tree}"),
     validation,
     externalReviewRequired: requiresIndependentAiReview(laneDecision),
-    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"],
+    integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs", "tools/auto-runner/lib/review-convergence-controller.mjs", "tools/auto-runner/lib/auto-merge-policy.mjs"],
+    rawDiffSha256: createHash("sha256").update(diff.text).digest("hex"),
     diffTruncated: diff.truncated,
   };
   mkdirSync(path.dirname(packagePath), { recursive: true });

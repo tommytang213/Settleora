@@ -107,11 +107,13 @@ test("both reviewers bind to identical identity and final integration", () => {
 });
 
 test("cumulative certification requires exact reviewed integration boundaries", () => {
-  const externalReview = { status: "pass", verdict: "pass" };
-  const codexReview = { verdict: { verdict: "approve", findings: [] } };
+  const externalReview = { status: "pass", verdict: "pass", attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: [] };
+  const codexReview = { verdict: { verdict: "approve", findings: [] }, attestedCandidateIdentity: candidateIdentity, attestedIntegrationBoundaries: [] };
   const missing = certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs"], integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"], externalReview, codexReview });
   assert.equal(missing.reasonCode, "integration_boundary_attestation_missing");
-  const complete = certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs"], integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"], reviewedIntegrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"], externalReview, codexReview });
+  externalReview.attestedIntegrationBoundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  codexReview.attestedIntegrationBoundaries = ["tools/auto-runner/settleora-auto-runner.mjs"];
+  const complete = certifyCompleteCumulativeLargeReview({ candidateIdentity, changedFiles: ["tools/auto-runner/a.mjs"], integrationBoundaries: ["tools/auto-runner/settleora-auto-runner.mjs"], externalReview, codexReview });
   assert.equal(complete.ok, true);
 });
 

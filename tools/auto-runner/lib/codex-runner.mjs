@@ -168,7 +168,7 @@ export function runReviewPrompt(config, packageInfo) {
     sessionLifecycle = attemptResult.sessionLifecycle || sessionLifecycle;
     if (!isRetryableReviewAttempt(attemptResult) || attempt === retry.maxAttempts) break;
   }
-  return {
+  const finalResult = {
     skipped: false,
     promptPath,
     command: command.command,
@@ -196,6 +196,20 @@ export function runReviewPrompt(config, packageInfo) {
     verdict: selected.verdict,
     sessionLifecycle,
   };
+  if (finalResult.verdict?.verdict === "approve") {
+    finalResult.attestedCandidateIdentity = {
+      repository: packageInfo.summary?.repository || null,
+      baseSha: finalResult.baseSha,
+      headSha: finalResult.reviewedHead,
+      treeSha: packageInfo.summary?.treeSha || null,
+      diffDigest: packageInfo.summary?.rawDiffSha256 || null,
+      changedFilesDigest: finalResult.changedFilesDigest,
+    };
+    finalResult.attestedIntegrationBoundaries = Array.isArray(packageInfo.summary?.integrationBoundaries)
+      ? packageInfo.summary.integrationBoundaries
+      : [];
+  }
+  return finalResult;
 }
 
 function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecycle = null) {

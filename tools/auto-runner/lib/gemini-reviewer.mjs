@@ -125,6 +125,9 @@ export async function runGeminiIntegratedReview(config, packageInfo, options = {
     diffStats: effectiveDiffStats,
     secretBoundary: sanitizeBoundaryForEvidence(secretBoundary),
     baseSha,
+    treeSha: summary.treeSha || null,
+    repository: summary.repository || null,
+    integrationBoundaries: Array.isArray(summary.integrationBoundaries) ? summary.integrationBoundaries : [],
     verdictSchemaVersion: 1,
     reviewedHead,
     issueNumber: summary.issue?.number || null,
@@ -875,6 +878,17 @@ function finishIntegrated(config, result, startedAtMs, reason, options = {}) {
     reason: result.reason || reason,
     elapsedMs: Date.now() - startedAtMs,
   };
+  if (final.status === "pass") {
+    final.attestedCandidateIdentity = {
+      repository: final.repository,
+      baseSha: final.baseSha,
+      headSha: final.reviewedHead,
+      treeSha: final.treeSha,
+      diffDigest: final.rawDiffSha256,
+      changedFilesDigest: final.changedFilesDigest,
+    };
+    final.attestedIntegrationBoundaries = final.integrationBoundaries;
+  }
   if (!final.reportPath || options.rewriteReport) {
     final.reportPath = writeIntegratedReport(config, final);
   }
