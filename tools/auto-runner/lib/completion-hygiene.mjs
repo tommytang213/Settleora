@@ -284,10 +284,12 @@ function canonicalClosureComponent(config, context, runner, repositoryContext) {
   const effect = { issueNumber, closeReason: "completed", mergeSha: context.mergeSha, sourceHeadSha: context.sourceHeadSha, closeEvidenceDigest: canonicalGithubEvidenceDigest({ closeDecision: context.closeDecision, mergeSha: context.mergeSha, validation: context.validation }) };
   const result = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "issue_closure", issueNumber, headSha: context.sourceHeadSha, baseSha: context.mergeSha, effect }, {
     readLive: (intent) => {
-      const live = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "number,state"], { cwd: config.repoRoot });
+      const live = runner("gh", ["issue", "view", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--json", "number,state,stateReason"], { cwd: config.repoRoot });
       if (live.error || live.status !== 0) return { complete: false };
       let issue; try { issue = JSON.parse(live.stdout || "{}"); } catch { return { complete: false }; }
-      return String(issue.state).toUpperCase() === "CLOSED" ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
+      const closedAsCompleted = String(issue.state).toUpperCase() === "CLOSED"
+        && String(issue.stateReason).toUpperCase() === "COMPLETED";
+      return closedAsCompleted ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
     },
     execute: () => {
       const mutation = runner("gh", ["issue", "close", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--reason", "completed"], { cwd: config.repoRoot });
