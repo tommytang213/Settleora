@@ -171,7 +171,8 @@ export function persistSessionLifecycleState(config, state) {
   const validation = validateSessionLifecycleState(next);
   if (!validation.ok) return validation;
   const statePath = sessionLifecyclePath(config, next);
-  mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
+  const rootValidation = ensureTrustedLifecycleRoot(path.dirname(statePath));
+  if (!rootValidation.ok) return rootValidation;
   const acquired = acquireCheckpointLock(statePath);
   if (!acquired.ok) return acquired;
   let result;
@@ -184,6 +185,17 @@ export function persistSessionLifecycleState(config, state) {
       : result || released;
   }
   return result;
+}
+
+function ensureTrustedLifecycleRoot(root) {
+  try {
+    if (!existsSync(root)) mkdirSync(root, { recursive: true, mode: 0o700 });
+    const info = lstatSync(root);
+    if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || (typeof process.getuid === "function" && info.uid !== process.getuid())) return fail("session_lifecycle_recovery_root_untrusted");
+    return { ok: true };
+  } catch {
+    return fail("session_lifecycle_recovery_root_untrusted");
+  }
 }
 
 function persistSessionLifecycleUnderLock(statePath, next, state, expectedDigest) {

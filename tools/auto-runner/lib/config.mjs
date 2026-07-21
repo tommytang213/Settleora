@@ -533,7 +533,12 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     mkdirSync(dir, { recursive: true });
   }
   const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
-  mkdirSync(lifecycleRoot, { recursive: true, mode: 0o700 });
+  if (existsSync(lifecycleRoot)) {
+    const lifecycleRootInfo = lstatSync(lifecycleRoot);
+    if (!lifecycleRootInfo.isDirectory() || lifecycleRootInfo.isSymbolicLink() || (typeof process.getuid === "function" && lifecycleRootInfo.uid !== process.getuid())) throw new Error("Session lifecycle root is untrusted.");
+  } else {
+    mkdirSync(lifecycleRoot, { recursive: true, mode: 0o700 });
+  }
   chmodSync(lifecycleRoot, 0o700);
   config.canaryEvidenceRoot = path.join(config.logsRoot, "canary");
 
