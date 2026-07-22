@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { getRunnerStatus, writeActiveRunState } from "../lib/control-plane.mjs";
 import {
   assertBoundedProjection,
   buildOperationalStatusProjection,
@@ -110,6 +114,9 @@ test("corrupt, multiple-active, contradictory repository, PR, and stale-head fix
     { github: { repositorySlug: "other/repo" }, reason: "repository_identity_conflict" },
     { local: { task: { prNumber: 7 } }, reason: "pr_identity_conflict" },
     { local: { active: true, task: { headSha: "e".repeat(40) } }, reason: "stale_head_identity_conflict" },
+    { local: { active: true, task: { branch: "other-branch" } }, reason: "active_repository_branch_identity_conflict" },
+    { local: { ...await adapters().local.read(), review: { exactHead: "e".repeat(40) } }, reason: "stale_exact_head_evidence" },
+    { repository: { ...await adapters().repository.read(), headSha: "e".repeat(40) }, reason: "active_repository_head_identity_conflict" },
   ];
   for (const fixture of cases) {
     const model = await buildOperationalStatusProjection(adapters({ [Object.keys(fixture)[0]]: fixture[Object.keys(fixture)[0]] }), { now: () => new Date(0) });
@@ -122,9 +129,21 @@ test("corrupt, multiple-active, contradictory repository, PR, and stale-head fix
 
 test("positive allowlist excludes secrets, prompts, provider payloads, OCR content, raw logs and paths", async () => {
   const poisoned = adapters();
-  poisoned.local = { read: async () => ({ ...await adapters().local.read(), secret: "test-api-key-for-review", rawPrompt: "hidden", providerResponse: "private", ocrText: "receipt", arbitraryPath: "/workspace/private", evidence: [{ kind: "validation", path: "/workspace/private", rawLog: "test-token-for-review" }] }) };
+  poisoned.local = { read: async () => ({ ...await adapters().local.read(), secret: "test-api-key-for-review", rawPrompt: "hidden", providerResponse: "private", ocrText: "receipt", arbitraryPath: "/workspace/private", nextSafeAction: "/home/operator/private/session.txt", recovery: { nextSafeAction: "https://provider.invalid/private" }, evidence: [{ kind: "validation", path: "/workspace/private", rawLog: "test-token-for-review" }] }) };
   const encoded = JSON.stringify(await buildOperationalStatusProjection(poisoned, { now: () => new Date(0) }));
-  for (const forbidden of ["test-api-key-for-review", "hidden", "private", "receipt", "/workspace/"]) assert.equal(encoded.includes(forbidden), false, forbidden);
+  for (const forbidden of ["test-api-key-for-review", "hidden", "private", "receipt", "/workspace/", "/home/", "https://"]) assert.equal(encoded.includes(forbidden), false, forbidden);
+});
+
+test("active-run persistence retains the bounded operational projection from the full iteration", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-projection-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  const config = { logsRoot, maxIterations: 3, maxRuntimeMs: 60_000 };
+  const summary = { runId: "run-927", startedAt: new Date().toISOString(), iterations: [{ logicalTaskBudget: { acceptedLogicalTaskCount: 1, logicalTaskKey: "task-927", charged: true }, reviewConvergenceState: { twoLoop: { localSourceChangingRoundsPerEpoch: 2, githubTriggeredFixEpochsPerPr: 1, lifetimeLocalSourceChangingRounds: 9 } }, recovery: { state: { phase: "validation", nextSafeAction: "run_tests" } } }] };
+  const activePath = writeActiveRunState(config, summary);
+  const persisted = JSON.parse(readFileSync(activePath, "utf8"));
+  assert.equal(persisted.operationalProjection.counters.acceptedTaskBudget.consumed, 1);
+  assert.equal(persisted.operationalProjection.counters.localSourceChangingRoundsPerEpoch, 2);
+  assert.equal(getRunnerStatus(config).operationalProjection.recovery.nextSafeAction, "run_tests");
 });
 
 test("output bounds reject unbounded models", async () => {

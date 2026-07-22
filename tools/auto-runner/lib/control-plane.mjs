@@ -32,6 +32,7 @@ export function writeActiveRunState(config, summary, extra = {}) {
     logPath: summary.logPath || null,
     summaryPath: extra.summaryPath || null,
     latestIteration: summarizeIteration((summary.iterations || []).at(-1)),
+    operationalProjection: summarizeOperationalIteration((summary.iterations || []).at(-1), summary),
     control: readControlState(config).control,
     ...extra,
   });
@@ -143,7 +144,8 @@ export function getRunnerStatus(config) {
   const completedIterations = source?.completedIterations ?? (source?.iterations || []).length ?? null;
   const outcomeCounts = source?.outcomeCounts || countIterationOutcomes(source?.iterations || []);
   const failedOrBlockedIterations = source?.failedOrBlockedIterations ?? outcomeCounts.failed + outcomeCounts.blocked;
-  const latestIteration = source?.latestIteration || summarizeIteration((source?.iterations || []).at(-1));
+  const latestRawIteration = (source?.iterations || []).at(-1) || null;
+  const latestIteration = source?.latestIteration || summarizeIteration(latestRawIteration);
   return sanitize({
     generatedAt: new Date().toISOString(),
     active: Boolean(lock.active || active.active),
@@ -173,7 +175,7 @@ export function getRunnerStatus(config) {
     currentOrLastIssue: latestIteration?.issue || null,
     currentOrLastPr: latestIteration?.pr || null,
     latestTerminalOutcome: latestIteration?.outcome || null,
-    operationalProjection: summarizeOperationalIteration(latestIteration, source),
+    operationalProjection: source?.operationalProjection || summarizeOperationalIteration(latestRawIteration, source),
     attemptedIssueNumbers: source?.attemptedIssueNumbers || [],
     attemptedIssueCount: source?.attemptedIssueCount || 0,
     processedIssueNumbers: source?.processedIssueNumbers || [],

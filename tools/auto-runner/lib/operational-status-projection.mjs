@@ -40,7 +40,7 @@ export async function buildOperationalStatusProjection(adapters = {}, options = 
   const model = {
     schemaVersion: operationalStatusSchemaVersion,
     generatedAt: iso(now()),
-    status: failClosed.length ? "blocked" : bounded(local.value?.status || (local.value?.active ? "active" : "idle")),
+    status: failClosed.length ? "blocked" : boundedReason(local.value?.status || (local.value?.active ? "active" : "idle")),
     authority: {
       live: "repository_and_github",
       local: "owner_only_operational_state",
@@ -60,7 +60,7 @@ export async function buildOperationalStatusProjection(adapters = {}, options = 
     ledger: ledgerState,
     evidence: projectEvidence(local.value),
     blockers: boundedList([...(local.value?.blockers || []), ...failClosed], boundedReason),
-    nextSafeAction: failClosed.length ? "inspect_projection_reason_codes" : bounded(local.value?.nextSafeAction || "reconcile_live_state"),
+    nextSafeAction: failClosed.length ? "inspect_projection_reason_codes" : boundedReason(local.value?.nextSafeAction || "reconcile_live_state"),
     inventory: operationalStateInventory,
     storageDecision: {
       backend: "versioned_json_jsonl",
@@ -131,7 +131,7 @@ export function ledgerHygieneDecision(transition = {}) {
 export function assertBoundedProjection(model) {
   const encoded = JSON.stringify(model);
   if (Buffer.byteLength(encoded) > operationalStatusMaxBytes) throw new Error("operational_status_json_too_large");
-  if (/bearer\s|api[_-]?key|authorization|rawprompt|rawprovider|ocrtext|\/workspace\//i.test(encoded)) {
+  if (/bearer\s|api[_-]?key|authorization|rawprompt|rawprovider|ocrtext|https?:\\?\/\\?\/|[a-z]:\\\\|(?:^|["\s])\/(?:home|workspace|tmp|var|etc|opt)\//i.test(encoded)) {
     throw new Error("operational_status_secret_or_path_boundary_violation");
   }
   return true;
@@ -158,11 +158,16 @@ function reconcileConflicts(repository, github, local) {
   if (local?.identityConflict) reasons.push("local_identity_conflict");
   if (repository?.repositorySlug && github?.repositorySlug && repository.repositorySlug !== github.repositorySlug) reasons.push("repository_identity_conflict");
   if (github?.pr?.number && local?.task?.prNumber && Number(github.pr.number) !== Number(local.task.prNumber)) reasons.push("pr_identity_conflict");
+  const liveHead = validSha(github?.pr?.headSha) || validSha(repository?.headSha);
+  const reviewHead = validSha(local?.review?.exactHead);
+  if (reviewHead && liveHead && reviewHead !== liveHead) reasons.push("stale_exact_head_evidence");
+  if (local?.active === true && local?.task?.branch && repository?.currentBranch && local.task.branch !== repository.currentBranch) reasons.push("active_repository_branch_identity_conflict");
+  if (local?.active === true && github?.pr?.headRefName && repository?.currentBranch === github.pr.headRefName && validSha(repository?.headSha) && validSha(github.pr.headSha) && repository.headSha !== github.pr.headSha) reasons.push("active_repository_head_identity_conflict");
   return reasons;
 }
 
 function projectRepository(value = {}) {
-  return { classification: "authoritative", repositorySlug: bounded(value.repositorySlug), currentBranch: bounded(value.currentBranch), headSha: validSha(value.headSha), originMainSha: validSha(value.originMainSha), clean: typeof value.clean === "boolean" ? value.clean : null };
+  return { classification: "authoritative", repositorySlug: repositorySlug(value.repositorySlug), currentBranch: refName(value.currentBranch), headSha: validSha(value.headSha), originMainSha: validSha(value.originMainSha), clean: typeof value.clean === "boolean" ? value.clean : null };
 }
 
 function projectTask(local = {}, github = {}, repository = {}) {
@@ -172,15 +177,15 @@ function projectTask(local = {}, github = {}, repository = {}) {
   return { classification: "authoritative", logicalTaskKey: identifier(task.logicalTaskKey), runId: identifier(task.runId), issueNumber: integer(issue.number ?? task.issueNumber), issueState: enumValue(issue.state, ["OPEN", "CLOSED"]), branch: refName(pr.headRefName || task.branch || repository.currentBranch), baseBranch: refName(pr.baseRefName || task.baseBranch), headSha: validSha(pr.headSha || task.headSha || repository.headSha), treeSha: validSha(task.treeSha), prNumber: integer(pr.number ?? task.prNumber), prState: enumValue(pr.state, ["OPEN", "CLOSED", "MERGED"]), manualGate: Boolean(task.manualGate || issue.manualGate), dangerGate: Boolean(task.dangerGate || issue.dangerGate) };
 }
 
-function projectLifecycle(local = {}) { return { classification: "authoritative", phase: bounded(local.lifecycle?.phase), continuationState: bounded(local.lifecycle?.continuationState), ownerPosture: bounded(local.lifecycle?.ownerPosture), terminalPosture: bounded(local.lifecycle?.terminalPosture) }; }
-function projectCounters(local = {}) { const c = local.counters || {}; const b = c.acceptedTaskBudget || {}; return { acceptedTaskBudget: { classification: "authoritative", configured: integer(b.configured), consumed: integer(b.consumed), remaining: integer(b.remaining), chargeIdentity: identifier(b.chargeIdentity), chargeStatus: bounded(b.chargeStatus) }, localSourceChangingRoundsPerEpoch: counter(c.localSourceChangingRoundsPerEpoch, "authoritative"), githubTriggeredFixEpochsPerPr: counter(c.githubTriggeredFixEpochsPerPr, "authoritative"), lifetimeLocalSourceChangingRounds: counter(c.lifetimeLocalSourceChangingRounds, "telemetryOnly") }; }
-function projectSession(local = {}) { const s = local.session || {}; return { classification: "authoritative", generation: integer(s.generation), phase: bounded(s.phase), rotationReason: bounded(s.rotationReason), contextPressure: enumValue(s.contextPressure, ["normal", "elevated", "high", "critical", "unknown"]), continuationState: bounded(s.continuationState), ownerPosture: bounded(s.ownerPosture), terminalPosture: bounded(s.terminalPosture) }; }
-function projectRecovery(local = {}) { const r = local.recovery || {}; return { classification: "authoritative", outcomeClass: bounded(r.outcomeClass), classification: bounded(r.classification), phase: bounded(r.phase), nextSafeAction: bounded(r.nextSafeAction), reasonCode: boundedReason(r.reasonCode) }; }
-function projectReview(local = {}, liveHead) { const r = local.review || {}; return { classification: "authoritative_when_exact_head_bound", exactHead: liveHead, validationStatus: bounded(r.validationStatus), geminiStatus: bounded(r.geminiStatus), localCodexStatus: bounded(r.localCodexStatus), githubCodexStatus: bounded(r.githubCodexStatus), ciStatus: bounded(r.ciStatus), scannerStatus: bounded(r.scannerStatus), unresolvedThreads: integer(r.unresolvedThreads), openAlerts: integer(r.openAlerts), stale: Boolean(r.exactHead && liveHead && r.exactHead !== liveHead) }; }
-function projectLargeCandidate(local = {}) { const l = local.largeCandidate || {}; return { classification: "authoritative", route: bounded(l.route), coverageStatus: bounded(l.coverageStatus), integrationStatus: bounded(l.integrationStatus), uncoveredScopeIds: boundedList(l.uncoveredScopeIds, identifier), splitState: bounded(l.splitState), stackState: bounded(l.stackState), handoffState: bounded(l.handoffState) }; }
-function projectEffects(local = {}) { const e = local.effects || {}; return { classification: "authoritative", pendingIntentCount: integer(e.pendingIntentCount), confirmedEffectCount: integer(e.confirmedEffectCount), adoptedEffectCount: integer(e.adoptedEffectCount), nextEffectType: bounded(e.nextEffectType) }; }
-function projectSupervisor(local = {}) { const s = local.supervisor || {}; return { classification: "authoritative", runId: identifier(s.runId), state: bounded(s.state), heartbeatPosture: bounded(s.heartbeatPosture), leasePosture: bounded(s.leasePosture), reportCorrelation: identifier(s.reportCorrelation) }; }
-function projectEvidence(local = {}) { return boundedList(local.evidence, (entry) => ({ kind: bounded(entry?.kind), digest: digest(entry?.digest), status: bounded(entry?.status), exactHead: validSha(entry?.exactHead) })); }
+function projectLifecycle(local = {}) { return { classification: "authoritative", phase: boundedReason(local.lifecycle?.phase), continuationState: boundedReason(local.lifecycle?.continuationState), ownerPosture: boundedReason(local.lifecycle?.ownerPosture), terminalPosture: boundedReason(local.lifecycle?.terminalPosture) }; }
+function projectCounters(local = {}) { const c = local.counters || {}; const b = c.acceptedTaskBudget || {}; return { acceptedTaskBudget: { classification: "authoritative", configured: integer(b.configured), consumed: integer(b.consumed), remaining: integer(b.remaining), chargeIdentity: identifier(b.chargeIdentity), chargeStatus: boundedReason(b.chargeStatus) }, localSourceChangingRoundsPerEpoch: counter(c.localSourceChangingRoundsPerEpoch, "authoritative"), githubTriggeredFixEpochsPerPr: counter(c.githubTriggeredFixEpochsPerPr, "authoritative"), lifetimeLocalSourceChangingRounds: counter(c.lifetimeLocalSourceChangingRounds, "telemetryOnly") }; }
+function projectSession(local = {}) { const s = local.session || {}; return { classification: "authoritative", generation: integer(s.generation), phase: boundedReason(s.phase), rotationReason: boundedReason(s.rotationReason), contextPressure: enumValue(s.contextPressure, ["normal", "elevated", "high", "critical", "unknown"]), continuationState: boundedReason(s.continuationState), ownerPosture: boundedReason(s.ownerPosture), terminalPosture: boundedReason(s.terminalPosture) }; }
+function projectRecovery(local = {}) { const r = local.recovery || {}; return { classification: "authoritative", outcomeClass: boundedReason(r.outcomeClass), classification: boundedReason(r.classification), phase: boundedReason(r.phase), nextSafeAction: boundedReason(r.nextSafeAction), reasonCode: boundedReason(r.reasonCode) }; }
+function projectReview(local = {}, liveHead) { const r = local.review || {}; return { classification: "authoritative_when_exact_head_bound", exactHead: liveHead, validationStatus: boundedReason(r.validationStatus), geminiStatus: boundedReason(r.geminiStatus), localCodexStatus: boundedReason(r.localCodexStatus), githubCodexStatus: boundedReason(r.githubCodexStatus), ciStatus: boundedReason(r.ciStatus), scannerStatus: boundedReason(r.scannerStatus), unresolvedThreads: integer(r.unresolvedThreads), openAlerts: integer(r.openAlerts), stale: Boolean(r.exactHead && liveHead && r.exactHead !== liveHead) }; }
+function projectLargeCandidate(local = {}) { const l = local.largeCandidate || {}; return { classification: "authoritative", route: boundedReason(l.route), coverageStatus: boundedReason(l.coverageStatus), integrationStatus: boundedReason(l.integrationStatus), uncoveredScopeIds: boundedList(l.uncoveredScopeIds, identifier), splitState: boundedReason(l.splitState), stackState: boundedReason(l.stackState), handoffState: boundedReason(l.handoffState) }; }
+function projectEffects(local = {}) { const e = local.effects || {}; return { classification: "authoritative", pendingIntentCount: integer(e.pendingIntentCount), confirmedEffectCount: integer(e.confirmedEffectCount), adoptedEffectCount: integer(e.adoptedEffectCount), nextEffectType: boundedReason(e.nextEffectType) }; }
+function projectSupervisor(local = {}) { const s = local.supervisor || {}; return { classification: "authoritative", runId: identifier(s.runId), state: boundedReason(s.state), heartbeatPosture: boundedReason(s.heartbeatPosture), leasePosture: boundedReason(s.leasePosture), reportCorrelation: identifier(s.reportCorrelation) }; }
+function projectEvidence(local = {}) { return boundedList(local.evidence, (entry) => ({ kind: boundedReason(entry?.kind), digest: digest(entry?.digest), status: boundedReason(entry?.status), exactHead: validSha(entry?.exactHead) })); }
 function classifyLedger(ledger = {}, github = {}, repository = {}) { const observed = validSha(ledger.observedMainSha); const current = validSha(repository.originMainSha); const stale = Boolean(ledger.stale || (observed && current && observed !== current) || (ledger.issueState && github.issue?.state && ledger.issueState !== github.issue.state)); return { classification: "derived", consistency: stale ? "stale" : "consistent_or_unproven", observedMainSha: observed, authoritativeFor: [], forbiddenInfluence: ["selection", "completion", "closure", "recovery", "merge", "duplicate_suppression"] }; }
 function counter(raw, classification) { return { classification, value: integer(typeof raw === "object" ? raw?.value : raw), limit: integer(typeof raw === "object" ? raw?.limit : null), blocking: classification === "authoritative" }; }
 function bounded(value) { return typeof value === "string" && value ? value.replace(/[\r\n\t]/g, " ").slice(0, maxString) : null; }
@@ -188,6 +193,7 @@ function boundedReason(value) { const text = bounded(value); return text && /^[a
 function boundedList(value, mapper) { return Array.isArray(value) ? value.slice(0, maxItems).map(mapper).filter((item) => item !== null && item !== undefined) : []; }
 function identifier(value) { const text = bounded(value); return text && /^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(text) ? text : null; }
 function refName(value) { const text = bounded(value); return text && /^[a-z0-9][a-z0-9._/-]{0,199}$/i.test(text) && !text.includes("..") ? text : null; }
+function repositorySlug(value) { const text = bounded(value); return text && /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(text) ? text : null; }
 function integer(value) { return Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : null; }
 function validSha(value) { return typeof value === "string" && shaPattern.test(value) ? value : null; }
 function enumValue(value, allowed) { const normalized = typeof value === "string" ? value.toUpperCase() : null; return allowed.includes(normalized) ? normalized : null; }
