@@ -1310,3 +1310,42 @@ packets, exact-candidate invalidation, and atomic recovery state. Route state is
 separate from reviewer verdict: required, in-progress, split, context-blocked,
 coverage-incomplete, malformed, partial, or stale state can never pass review
 or merge gates.
+
+# Canonical operational status export
+
+The control CLI provides one bounded, read-only handoff model in JSON or
+Markdown. Both formats are generated from the same `operational_status_v1`
+normalized model:
+
+```bash
+node tools/auto-runner/settleora-auto-runnerctl.mjs export-status --json
+node tools/auto-runner/settleora-auto-runnerctl.mjs export-status --markdown
+```
+
+The export reads repository, GitHub, trusted owner-only operational state, and
+the derived ledger through separate adapters. Repository/GitHub readback wins;
+local state explains in-flight phase, counters, recovery, session, review,
+split, stack, and effect posture but cannot override a changed live identity.
+Contradictory repository/PR/head identity, multiple active local authorities,
+or unreadable state produces bounded fail-closed reason codes. Reading never
+repairs locks, advances recovery, schedules work, writes dedupe markers, or
+performs GitHub/repository mutations.
+
+The positive allowlist excludes raw prompts/provider responses, logs, diffs,
+OCR/user content, secrets, environment/config values, endpoints, and absolute
+storage paths. Arrays, strings, evidence references, and the complete output
+are bounded; `lifetimeLocalSourceChangingRounds` is labeled telemetry-only and
+is never a gate. The repository ledger is always labeled derived and has no
+authority over selection, completion, closure, recovery, merge, or duplicate
+suppression.
+
+Operational state remains atomic versioned JSON/JSONL under the owner-only log
+root. The inventory has correlation-scoped single writers and file-oriented
+immutable evidence, with no cross-record transaction or indexed-query need;
+SQLite/WAL is therefore not justified.
+
+Ledger hygiene is milestone/batched only: implementation merge, material issue
+or umbrella posture, manual/activation gate posture, major acceptance, or an
+explicit scheduled reconciliation. Wait, retry, heartbeat, check polling,
+source cycles, session rotation, and control transitions never request a
+ledger-only PR.

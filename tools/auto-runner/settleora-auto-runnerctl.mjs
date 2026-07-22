@@ -30,6 +30,7 @@ import {
 import { loadConfig } from "./lib/config.mjs";
 import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
 import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
+import { buildOperationalStatusProjection, renderOperationalStatusMarkdown } from "./lib/operational-status-projection.mjs";
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
@@ -40,8 +41,17 @@ async function main() {
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
+  if (cli.command === "export-status" && cli.json && cli.markdown) throw new Error("export-status accepts exactly one output format");
+  if (cli.command !== "export-status" && cli.markdown) throw new Error("--markdown is supported only by export-status");
   if (cli.command === "list") {
     print({ ok: true, runs: listSupervisorRuns(config.logsRoot) }, cli.json);
+    return;
+  }
+  if (cli.command === "export-status") {
+    const projection = await buildOperationalStatusProjection(createProjectionAdapters(config));
+    if (cli.markdown) process.stdout.write(renderOperationalStatusMarkdown(projection));
+    else console.log(JSON.stringify(projection, null, 2));
+    process.exitCode = projection.status === "blocked" ? 2 : 0;
     return;
   }
   const runId = resolveRunSelection(cli, config.logsRoot);
@@ -278,12 +288,14 @@ function parseCtlArgs(argv) {
     mode: "canary",
     maxTasksDelta: null,
     maxRuntimeDeltaMs: null,
+    markdown: false,
   };
   if (!cli.command) throw new Error("Missing command");
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--dry-run") cli.dryRun = true;
     else if (arg === "--json") cli.json = true;
+    else if (arg === "--markdown") cli.markdown = true;
     else if (arg === "--latest") cli.latest = true;
     else if (arg === "--run") cli.runId = readValue(argv, ++index, arg);
     else if (arg === "--profile") cli.profile = readValue(argv, ++index, arg);
@@ -314,12 +326,88 @@ function parseCtlArgs(argv) {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
-  if (!["submit", "status", "list", "report", "health", "pause", "stop-after-current", "extend"].includes(cli.command)) {
+  if (!["submit", "status", "list", "report", "health", "pause", "stop-after-current", "extend", "export-status"].includes(cli.command)) {
     throw new Error(`Unknown command: ${cli.command}`);
   }
   if (["status", "report"].includes(cli.command) && !cli.runId && !cli.latest) cli.latest = true;
   if (["health", "pause", "stop-after-current", "extend"].includes(cli.command) && !cli.runId) throw new Error(`${cli.command} requires --run <run-id>`);
   return cli;
+}
+
+export function createProjectionAdapters(config, deps = {}) {
+  const run = deps.spawnSync || spawnSync;
+  const statusReader = deps.getRunnerStatus || getRunnerStatus;
+  let cachedStatus;
+  const runnerStatus = () => (cachedStatus ||= statusReader(config));
+  const gitRead = (args) => {
+    const result = run("git", args, { cwd: config.repoRoot, encoding: "utf8" });
+    return result.status === 0 && !result.error ? { ok: true, value: String(result.stdout || "").trim() } : { ok: false };
+  };
+  return {
+    repository: { read: () => {
+      const branch = gitRead(["branch", "--show-current"]);
+      const head = gitRead(["rev-parse", "HEAD"]);
+      const main = gitRead(["rev-parse", "origin/main"]);
+      const status = gitRead(["status", "--porcelain=v1"]);
+      if ([branch, head, main, status].some((entry) => !entry.ok)) return { ok: false, reasonCode: "repository_read_failed" };
+      return { repositorySlug: config.repositorySlug, currentBranch: branch.value, headSha: head.value, originMainSha: main.value, clean: status.value === "" };
+    } },
+    github: { read: () => readProjectionGithub(config, runnerStatus(), run) },
+    local: { read: () => projectRunnerStatus(runnerStatus()) },
+    ledger: { read: () => ({ observedMainSha: null, stale: null }) },
+  };
+}
+
+function readProjectionGithub(config, status, run) {
+  const issueNumber = status.currentOrLastIssue?.number;
+  const prNumber = status.currentOrLastPr?.number;
+  const result = { repositorySlug: config.repositorySlug };
+  if (Number.isSafeInteger(Number(issueNumber)) && Number(issueNumber) > 0) {
+    const issue = readGhJson(run, config, ["issue", "view", String(issueNumber), "--repo", config.repositorySlug, "--json", "number,state,labels"]);
+    if (!issue) return { ok: false, reasonCode: "github_issue_read_failed" };
+    result.issue = { number: issue.number, state: issue.state, manualGate: (issue.labels || []).some((label) => ["manual-gate", "needs-tommy"].includes(label.name)), dangerGate: (issue.labels || []).some((label) => label.name === "danger-gate") };
+  }
+  if (Number.isSafeInteger(Number(prNumber)) && Number(prNumber) > 0) {
+    const pr = readGhJson(run, config, ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,headRefName,headRefOid,baseRefName"]);
+    if (!pr) return { ok: false, reasonCode: "github_pr_read_failed" };
+    result.pr = { number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName };
+  }
+  return result;
+}
+
+function readGhJson(run, config, args) {
+  const response = run("gh", args, { cwd: config.repoRoot, encoding: "utf8" });
+  if (response.status !== 0 || response.error) return null;
+  try { return JSON.parse(response.stdout || "{}"); } catch { return null; }
+}
+
+function projectRunnerStatus(status = {}) {
+  const issue = status.currentOrLastIssue || {};
+  const pr = status.currentOrLastPr || {};
+  const projection = status.operationalProjection || {};
+  return {
+    active: status.active === true,
+    status: status.active ? "active" : status.latestTerminalOutcome || "idle",
+    task: {
+      logicalTaskKey: projection.counters?.acceptedTaskBudget?.chargeIdentity || status.activeRunId || null,
+      runId: status.activeRunId || null,
+      issueNumber: issue.number || null,
+      branch: pr.headRefName || null,
+      baseBranch: pr.baseRefName || "main",
+      headSha: pr.headSha || null,
+      prNumber: pr.number || null,
+    },
+    lifecycle: projection.lifecycle || { phase: status.stopReason || null, terminalPosture: status.latestTerminalOutcome || null },
+    counters: projection.counters || {},
+    recovery: projection.recovery || {},
+    session: projection.session || {},
+    review: projection.review || {},
+    largeCandidate: projection.largeCandidate || {},
+    effects: projection.effects || {},
+    supervisor: status.supervisor || {},
+    blockers: status.blockers || [],
+    nextSafeAction: projection.nextSafeAction || null,
+  };
 }
 
 function resolveRunSelection(cli, logsRoot) {

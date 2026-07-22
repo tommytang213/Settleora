@@ -173,6 +173,7 @@ export function getRunnerStatus(config) {
     currentOrLastIssue: latestIteration?.issue || null,
     currentOrLastPr: latestIteration?.pr || null,
     latestTerminalOutcome: latestIteration?.outcome || null,
+    operationalProjection: summarizeOperationalIteration(latestIteration, source),
     attemptedIssueNumbers: source?.attemptedIssueNumbers || [],
     attemptedIssueCount: source?.attemptedIssueCount || 0,
     processedIssueNumbers: source?.processedIssueNumbers || [],
@@ -189,6 +190,83 @@ export function getRunnerStatus(config) {
     },
     control: control.malformed ? { malformed: true, error: control.error } : control.control || null,
     outageResubmission: buildOutageResubmissionStatus(config),
+  });
+}
+
+function summarizeOperationalIteration(iteration = {}, run = {}) {
+  const convergence = iteration.reviewConvergenceState || iteration.reviewConvergence || {};
+  const counters = convergence.twoLoop || convergence.counters || iteration.twoLoopCounters || {};
+  const budget = iteration.logicalTaskBudget || {};
+  const recovery = iteration.recovery?.state || iteration.recovery || {};
+  const session = iteration.sessionLifecycle || {};
+  const controller = session.controller || {};
+  const large = iteration.largeCandidateReview?.state || iteration.largeCandidateReview || {};
+  const split = iteration.featureBundleSplit || iteration.splitMaterialization || large.split || {};
+  const stack = iteration.prStackExecution || iteration.stackExecution || {};
+  return sanitize({
+    lifecycle: {
+      phase: recovery.phase || controller.phase || iteration.phase || null,
+      continuationState: iteration.ordinaryCandidateContinuation?.phase || recovery.continuation?.phase || null,
+      ownerPosture: session.authority?.status || session.owner?.status || null,
+      terminalPosture: session.terminal?.status || iteration.outcome || null,
+    },
+    counters: {
+      acceptedTaskBudget: {
+        configured: run.maxIterations ?? run.requestedMaxIterations ?? null,
+        consumed: budget.acceptedLogicalTaskCount ?? run.acceptedLogicalTaskCount ?? null,
+        remaining: Number.isSafeInteger(run.maxIterations) && Number.isSafeInteger(budget.acceptedLogicalTaskCount)
+          ? Math.max(0, run.maxIterations - budget.acceptedLogicalTaskCount)
+          : null,
+        chargeIdentity: budget.chargeId || budget.logicalTaskKey || null,
+        chargeStatus: budget.charged ? "charged" : budget.duplicate ? "already_charged" : budget.reasonCode || null,
+      },
+      localSourceChangingRoundsPerEpoch: counters.localSourceChangingRoundsPerEpoch ?? convergence.localSourceChangingRoundsPerEpoch ?? null,
+      githubTriggeredFixEpochsPerPr: counters.githubTriggeredFixEpochsPerPr ?? convergence.githubTriggeredFixEpochsPerPr ?? null,
+      lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds ?? convergence.lifetimeLocalSourceChangingRounds ?? null,
+    },
+    recovery: {
+      outcomeClass: recovery.attemptClass || recovery.outcomeClass || null,
+      classification: iteration.recovery?.classification || recovery.classification || null,
+      phase: recovery.phase || null,
+      nextSafeAction: recovery.nextSafeAction || iteration.recovery?.nextAction || null,
+      reasonCode: iteration.recovery?.reasonCode || recovery.blocker || null,
+    },
+    session: {
+      generation: session.authority?.generation ?? session.generation ?? null,
+      phase: controller.phase || session.phase || null,
+      rotationReason: session.rotation?.reason || session.rotationReason || null,
+      contextPressure: session.context?.pressureCategory || session.contextPressure || "unknown",
+      continuationState: session.continuation?.status || null,
+      ownerPosture: session.authority?.status || null,
+      terminalPosture: session.terminal?.status || null,
+    },
+    review: {
+      exactHead: iteration.runnerCreatedCommitSha || iteration.expectedHeadSha || iteration.pr?.headSha || null,
+      validationStatus: iteration.validation?.passed === true ? "pass" : iteration.validation ? "failed" : null,
+      geminiStatus: iteration.externalReview?.reviewStatus || iteration.externalReview?.status || null,
+      localCodexStatus: iteration.review?.verdict?.verdict || iteration.review?.reviewStatus || null,
+      githubCodexStatus: iteration.autoMerge?.githubCodexReview?.status || null,
+      ciStatus: iteration.autoMerge?.checks?.ok === true ? "pass" : iteration.autoMerge?.checks?.status || null,
+      scannerStatus: iteration.autoMerge?.scanners?.status || null,
+      unresolvedThreads: iteration.autoMerge?.unresolvedThreadCount ?? null,
+      openAlerts: iteration.autoMerge?.openAlertCount ?? null,
+    },
+    largeCandidate: {
+      route: large.route || iteration.externalReview?.route?.largeCandidateRouting?.route || null,
+      coverageStatus: large.coverage?.status || large.coverageStatus || null,
+      integrationStatus: large.integration?.status || large.integrationStatus || null,
+      uncoveredScopeIds: large.uncoveredScopeIds || large.contextLimit?.uncoveredScopeIds || [],
+      splitState: split.status || split.phase || null,
+      stackState: stack.status || stack.phase || null,
+      handoffState: split.stackHandoff?.status || stack.handoff?.status || null,
+    },
+    effects: {
+      pendingIntentCount: recovery.pendingIntentCount ?? null,
+      confirmedEffectCount: recovery.confirmedEffectCount ?? null,
+      adoptedEffectCount: recovery.adoptedEffectCount ?? null,
+      nextEffectType: recovery.nextEffectType || null,
+    },
+    nextSafeAction: recovery.nextSafeAction || controller.nextExactAction || iteration.nextSafeAction || null,
   });
 }
 

@@ -1538,3 +1538,26 @@ resume through recovery/session rotation or a proven deterministic split
 without consuming a source-changing round or logical-task charge. Any candidate
 identity change invalidates all route, coverage, section, integration, and
 verdict evidence.
+
+## Operational projection and ledger boundary
+
+`settleora-auto-runnerctl.mjs export-status --json|--markdown` is the canonical
+read-only operator/GPT handoff. A single versioned normalized model reconciles
+live Git/repository and GitHub adapters with trusted local operational adapters;
+Markdown is rendered from that model. Live identity outranks local compatibility
+fields and the planning ledger. Ambiguity, corrupt reads, multiple active
+authorities, PR mismatch, repository mismatch, and stale head fail closed with
+bounded reason codes and no read repair or mutation.
+
+The model explicitly classifies live/local values as authoritative, evidence as
+immutable and head-correlated, the planning ledger as derived, and lifetime
+source-changing rounds as telemetry-only. The authoritative blocking counters
+remain the #923 per-epoch local rounds and per-PR GitHub fix epochs; accepted
+logical-task charging remains #932 authority. Recovery (#928), session rotation
+(#929), and large-route/split/stack (#924) values are projected without changing
+their policies.
+
+Repository ledger updates are milestone/batched documentation. Ephemeral waits,
+retries, heartbeats, polls, source cycles, rotations, and control transitions do
+not schedule ledger work. The ledger never selects work or influences completion,
+closure, recovery, merge, or duplicate suppression.

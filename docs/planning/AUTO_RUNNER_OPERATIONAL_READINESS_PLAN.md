@@ -300,7 +300,7 @@ paths are added.
 The original planning PR and the #913/#921 implementation acceptance chain are
 complete. Current live issues now own the remaining work:
 
-1. Implement #927 authoritative state/counter projection against the merged
+1. Converge and merge the #927 authoritative state/counter projection against the merged
    #928 interruption-recovery and #929 proactive-session-rotation interfaces,
    plus #924's ordinary-continuation and split-materialization evidence,
    without creating a parallel state or controller authority.
@@ -328,6 +328,15 @@ Post-acceptance issues added after the original planning task:
 - #924: large-candidate escalation and safe split routing; closed through PR
   #940, merge `2dec97fe5e2ddf1d3562b70a76825cfdc8ba81b2`.
 - #927: authoritative status/counter projection and ledger decoupling.
+
+The #927 implementation candidate adds `operational_status_v1`, one bounded
+JSON/Markdown read-only export, explicit live/local/evidence/derived authority
+classes, fail-closed identity reconciliation, the state-class inventory, and a
+pure milestone-versus-ephemeral ledger policy. Atomic versioned JSON/JSONL is
+retained: the measured topology is correlation-scoped and single-writer with no
+transactional cross-record or indexed-query requirement. This is a candidate
+checkpoint only; #927 remains open until exact-head review/CI, merge, and
+current-main acceptance prove its close rule.
 - #928: reportless compaction/process-interruption recovery; closed through PR
   #938, merge `510942d40d2d512094b9af430ccc40f65a505d0c`.
 - #929: proactive context budgeting and fresh-session rotation; closed through
