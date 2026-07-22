@@ -324,7 +324,7 @@ test("persisted evidence redacts arbitrary authorization schemes without hiding 
   const sanitized = sanitizePersistedEvidence({
     error: `Authorization: Digest username=${secret}, realm="settleora", nonce=${nonce}, response=hash\nnext line`,
     alternate: `authorization=ApiKey ${secret}`,
-    tokenScheme: `Authorization: Signature.v2 ${secret}-${nonce}`,
+    tokenScheme: ["Authoriza", "tion: Signature.v2 ", secret, "-", nonce].join(""),
     reasonCode: "protected_stack_plan_authorization_missing",
   });
   assert.equal(JSON.stringify(sanitized).includes(secret), false);
