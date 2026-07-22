@@ -97,7 +97,12 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   };
   let state = null;
   const checkpoint = (phase, projected = {}) => operationalCheckpoint?.(phase, {
-    bundle: result.bundle,
+    bundle: {
+      ...result.bundle,
+      branchName: state?.branch || result.bundle.branchName,
+      baseSha: state?.baseSha || result.baseOriginMainSha || null,
+      currentHeadSha: state?.lastVerifiedHead || result.baseOriginMainSha || null,
+    },
     reviewConvergenceState: state?.reviewConvergenceState || result.reviewConvergenceState || null,
     featureBundleSplit: result.splitMaterialization || result.splitPlan || null,
     prStackExecution: result.prStackExecution || null,

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import process from "node:process";
 import { defaultLogsRoot } from "./lib/config.mjs";
@@ -101,6 +102,7 @@ export function loadProjectionConfig(cli, deps = {}) {
   const configLoader = deps.loadConfig || loadConfig;
   const profileResolver = deps.resolveProfile || resolveProfile;
   const configPathValidator = deps.validateRunnerConfigPath || validateRunnerConfigPath;
+  const pathExists = deps.existsSync || existsSync;
   const bootstrap = { ...(deps.defaultConfig || defaultConfig) };
   const status = suppressRetainedTaskForPreChildSupervisor(bootstrap, statusReader(bootstrap), deps.latestSupervisorRun || latestSupervisorRun);
   let configPath;
@@ -120,6 +122,7 @@ export function loadProjectionConfig(cli, deps = {}) {
     configPath = configPathValidator(status.configPath, bootstrap.logsRoot).path;
   } else {
     configPath = profileResolver(cli.profile || "default", bootstrap.logsRoot).runnerConfigPath;
+    if (!pathExists(configPath)) return bootstrap;
   }
   return configLoader({ dryRun: true, run: false, configPath });
 }

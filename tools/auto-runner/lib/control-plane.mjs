@@ -244,10 +244,10 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
     : null;
   return sanitize({
     taskIdentity: {
-      branch: iteration.branchName || iteration.branch?.name || iteration.pr?.headRefName || null,
+      branch: iteration.branchName || iteration.branch?.name || iteration.bundle?.branchName || iteration.pr?.headRefName || null,
       baseBranch: iteration.baseBranchName || iteration.pr?.baseRefName || null,
-      baseSha: iteration.baseOriginMainSha || null,
-      headSha: iteration.runnerCreatedCommitSha || iteration.expectedHeadSha || iteration.pr?.headSha || iteration.pr?.headRefOid || null,
+      baseSha: iteration.baseOriginMainSha || iteration.bundle?.baseSha || null,
+      headSha: iteration.runnerCreatedCommitSha || iteration.expectedHeadSha || iteration.bundle?.currentHeadSha || iteration.pr?.headSha || iteration.pr?.headRefOid || null,
       prNumber: iteration.pr?.number || null,
     },
     lifecycle: {

@@ -196,9 +196,20 @@ test("projection config comes from the verified supervisor spec or trusted reque
     getRunnerStatus: () => ({}),
     latestSupervisorRun: () => null,
     resolveProfile: (profile) => ({ runnerConfigPath: `/trusted/configs/${profile}.json` }),
+    existsSync: () => true,
     loadConfig: (args) => args,
   });
   assert.equal(fallback.configPath, "/trusted/configs/canary.json");
+
+  const idle = loadProjectionConfig({ profile: "default" }, {
+    defaultConfig: { logsRoot: "/trusted", repositorySlug: "tommytang213/Settleora", autoMergePolicy: { requiredChecks: ["safe-default"] } },
+    getRunnerStatus: () => ({}),
+    latestSupervisorRun: () => null,
+    resolveProfile: () => ({ runnerConfigPath: "/trusted/configs/missing.json" }),
+    existsSync: () => false,
+    loadConfig: () => { throw new Error("must not load a missing idle profile"); },
+  });
+  assert.deepEqual(idle.autoMergePolicy.requiredChecks, ["safe-default"]);
 });
 
 test("production supervisor correlation failures propagate as fail-closed reason codes", async () => {
@@ -586,6 +597,24 @@ test("a live lock-only PR-stack run is an authoritative owner with its trusted c
   assert.equal(loaded.args.configPath, configPath);
   assert.equal(loaded.args.stackPlanPath, stackPlanPath);
   assert.equal(loaded.capabilities.prStackTrustedRoot, logsRoot);
+});
+
+test("in-flight bundle checkpoints preserve expected branch, base, and head identity", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-bundle-checkpoint-identity-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  const config = { logsRoot, maxIterations: 1, maxRuntimeMs: 60_000 };
+  const activePath = writeActiveRunState(config, {
+    runId: "run-bundle-identity",
+    startedAt: new Date().toISOString(),
+    iterations: [{
+      phase: "feature_bundle_external_review",
+      bundle: { branchName: "feature-bundle/auto-927", baseSha: main, currentHeadSha: head },
+    }],
+  });
+  const projection = JSON.parse(readFileSync(activePath, "utf8")).operationalProjection;
+  assert.equal(projection.taskIdentity.branch, "feature-bundle/auto-927");
+  assert.equal(projection.taskIdentity.baseSha, main);
+  assert.equal(projection.taskIdentity.headSha, head);
 });
 
 test("active ownership fails closed when either authority identity is missing", () => {
