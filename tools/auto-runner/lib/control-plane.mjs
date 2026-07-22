@@ -4,6 +4,12 @@ import { processAppearsActive } from "./state-store.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { buildOutageResubmissionStatus } from "../supervisor/outage-resubmission-controller.mjs";
 import { githubTriggeredFixEpochsPerPrLimit, localSourceChangingRoundsPerEpochLimit } from "./review-convergence-controller.mjs";
+import {
+  loadExecutableStackPlan,
+  loadPrStackState,
+  normalizePrStackExecutionConfig,
+  resolveStackStatePath,
+} from "./pr-stack-executor.mjs";
 
 const controlFileName = "runner-control.json";
 const activeRunFileName = "active-run.json";
@@ -148,6 +154,7 @@ export function getRunnerStatus(config) {
     typeof lock.parsed?.configPath === "string" &&
     typeof lock.parsed?.stackPlanPath === "string"
   );
+  const lockOnlyStack = lockOnlyPrStackAuthority ? readLockOnlyPrStackProjection(config, lock.parsed) : { ok: true, issue: null, pr: null };
   const runnerAuthorityActive = Boolean(lock.active || active.active);
   const retainedTimestamp = Date.parse(active.parsed?.lastHeartbeatAt || active.parsed?.finishedAt || active.parsed?.startedAt || 0);
   const summaryTimestamp = Date.parse(latestSummary?.summary?.finishedAt || latestSummary?.summary?.lastHeartbeatAt || latestSummary?.summary?.startedAt || 0);
@@ -179,6 +186,8 @@ export function getRunnerStatus(config) {
       activeStateMalformed: active.malformed === true,
       controlMalformed: control.malformed === true,
       summaryMalformed: latestSummary?.malformed === true,
+      stackAuthorityMalformed: lockOnlyStack.ok === false,
+      stackAuthorityReason: lockOnlyStack.ok === false ? lockOnlyStack.reasonCode : null,
       activeOwnerConflict: Boolean(!lockOnlyPrStackAuthority && (lock.active || active.active) && (
         !lock.parsed?.runId || !active.parsed?.runId || lock.parsed.runId !== active.parsed.runId
       )),
@@ -205,8 +214,8 @@ export function getRunnerStatus(config) {
       Number.isFinite(maxIterations) && Number.isFinite(completedIterations)
         ? Math.max(0, maxIterations - completedIterations)
         : null,
-    currentOrLastIssue: latestIteration?.issue || null,
-    currentOrLastPr: latestIteration?.pr || null,
+    currentOrLastIssue: lockOnlyStack.issue || latestIteration?.issue || null,
+    currentOrLastPr: lockOnlyStack.pr || latestIteration?.pr || null,
     latestTerminalOutcome: latestIteration?.outcome || null,
     operationalProjection: source?.operationalProjection || summarizeOperationalIteration(latestRawIteration, source),
     attemptedIssueNumbers: source?.attemptedIssueNumbers || [],
@@ -226,6 +235,41 @@ export function getRunnerStatus(config) {
     control: control.malformed ? { malformed: true, error: control.error } : control.control || null,
     outageResubmission: buildOutageResubmissionStatus(config),
   });
+}
+
+function readLockOnlyPrStackProjection(config, lock) {
+  const stackConfig = normalizePrStackExecutionConfig(config);
+  const loadedPlan = loadExecutableStackPlan(config, lock.stackPlanPath, { stackConfig });
+  if (!loadedPlan.ok) return { ok: false, reasonCode: loadedPlan.reasonCode || "stack_plan_read_failed", issue: null, pr: null };
+  const plan = loadedPlan.plan;
+  let state = null;
+  try {
+    const statePath = resolveStackStatePath(config, stackConfig, loadedPlan.planPath);
+    if (existsSync(statePath)) {
+      const loadedState = loadPrStackState(statePath, plan);
+      if (!loadedState.ok) return { ok: false, reasonCode: loadedState.reasonCode || "stack_state_read_failed", issue: null, pr: null };
+      state = loadedState.state;
+    }
+  } catch {
+    return { ok: false, reasonCode: "stack_state_read_failed", issue: null, pr: null };
+  }
+  const activePrNumber = state?.activePrNumber ?? plan.activePrNumber ?? plan.orderedPrs?.[0]?.number ?? null;
+  const sourcePr = (state?.orderedPrs || plan.orderedPrs || []).find((entry) => entry.number === activePrNumber) || null;
+  if (!sourcePr) return { ok: false, reasonCode: "stack_active_pr_identity_missing", issue: null, pr: null };
+  const headSha = state?.exactHeads?.[activePrNumber] || sourcePr.headRefOid || null;
+  return {
+    ok: true,
+    issue: Number.isSafeInteger(plan.issueNumber) && plan.issueNumber > 0 ? { number: plan.issueNumber } : null,
+    pr: {
+      number: sourcePr.number,
+      title: sourcePr.title || null,
+      baseRefName: sourcePr.baseRefName,
+      headRefName: sourcePr.headRefName,
+      headRefOid: headSha,
+      headSha,
+      state: sourcePr.state || "OPEN",
+    },
+  };
 }
 
 function summarizeOperationalIteration(iteration = {}, run = {}) {

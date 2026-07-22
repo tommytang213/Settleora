@@ -695,13 +695,42 @@ test("a live lock-only PR-stack run is an authoritative owner with its trusted c
   mkdirSync(path.join(logsRoot, "locks"), { recursive: true });
   const configPath = path.join(logsRoot, "live-stack-acceptance", "20260722-1019", "config.json");
   const stackPlanPath = path.join(logsRoot, "live-stack-acceptance", "20260722-1019", "stack-plan.json");
+  mkdirSync(path.dirname(stackPlanPath), { recursive: true, mode: 0o700 });
+  writeFileSync(stackPlanPath, JSON.stringify({
+    repository: "tommytang213/Settleora",
+    stackId: "stack-927",
+    issueNumber: 927,
+    activePrNumber: 942,
+    orderedPrs: [{ number: 942, title: "Projection", baseRefName: "main", headRefName: "feature/auto-927", headRefOid: head }],
+  }), { mode: 0o600 });
   writeFileSync(path.join(logsRoot, "locks", "settleora-auto-runner.lock"), JSON.stringify({ pid: process.pid, runId: "pr-stack-20260722-1019", mode: "pr-stack-run", configPath, stackPlanPath }));
-  const status = getRunnerStatus({ logsRoot });
+  const status = getRunnerStatus({
+    logsRoot,
+    repositorySlug: "tommytang213/Settleora",
+    prStackExecution: {
+      enabled: true,
+      allowRun: true,
+      capabilities: {
+        existingPrConvergence: true,
+        exactHeadReviewRequest: true,
+        ciScannerPolling: true,
+        exactHeadMerge: true,
+        baseRetarget: true,
+        readyTransition: true,
+        semanticProof: true,
+        finalHygiene: true,
+      },
+    },
+  });
   assert.equal(status.active, true);
   assert.equal(status.activeRunId, "pr-stack-20260722-1019");
   assert.equal(status.authorityHealth.activeOwnerConflict, false);
   assert.equal(status.authorityHealth.lockOnlyPrStackAuthority, true);
+  assert.equal(status.authorityHealth.stackAuthorityMalformed, false, status.authorityHealth.stackAuthorityReason);
   assert.equal(status.configPath, configPath);
+  assert.equal(status.currentOrLastIssue.number, 927);
+  assert.equal(status.currentOrLastPr.number, 942);
+  assert.equal(status.currentOrLastPr.headSha, head);
   const projected = projectRunnerStatus({ ...status, operationalProjection: { lifecycle: { phase: null }, largeCandidate: { stackState: null } } });
   assert.equal(projected.lifecycle.phase, "pr_stack_running");
   assert.equal(projected.largeCandidate.stackState, "running");

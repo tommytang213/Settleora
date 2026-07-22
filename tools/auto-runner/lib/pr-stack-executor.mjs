@@ -3458,7 +3458,7 @@ function pruneHeadBoundMutationMarkers(markers = {}, prNumber, oldHead) {
   );
 }
 
-function resolveStackStatePath(config, stackConfig, planPath) {
+export function resolveStackStatePath(config, stackConfig, planPath) {
   if (stackConfig.statePath) {
     if (!path.isAbsolute(stackConfig.statePath)) throw new Error("prStackExecution.statePath must be absolute");
     const resolved = path.resolve(stackConfig.statePath);
