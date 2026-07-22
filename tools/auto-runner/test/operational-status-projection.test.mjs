@@ -704,7 +704,7 @@ test("a live lock-only PR-stack run is an authoritative owner with its trusted c
     orderedPrs: [{ number: 942, title: "Projection", baseRefName: "main", headRefName: "feature/auto-927", headRefOid: head }],
   }), { mode: 0o600 });
   writeFileSync(path.join(logsRoot, "locks", "settleora-auto-runner.lock"), JSON.stringify({ pid: process.pid, runId: "pr-stack-20260722-1019", mode: "pr-stack-run", configPath, stackPlanPath }));
-  const status = getRunnerStatus({
+  const runtimeConfig = {
     logsRoot,
     repositorySlug: "tommytang213/Settleora",
     prStackExecution: {
@@ -721,7 +721,8 @@ test("a live lock-only PR-stack run is an authoritative owner with its trusted c
         finalHygiene: true,
       },
     },
-  });
+  };
+  const status = getRunnerStatus(runtimeConfig);
   assert.equal(status.active, true);
   assert.equal(status.activeRunId, "pr-stack-20260722-1019");
   assert.equal(status.authorityHealth.activeOwnerConflict, false);
@@ -744,6 +745,15 @@ test("a live lock-only PR-stack run is an authoritative owner with its trusted c
   assert.equal(loaded.args.configPath, configPath);
   assert.equal(loaded.args.stackPlanPath, stackPlanPath);
   assert.equal(loaded.capabilities.prStackTrustedRoot, logsRoot);
+
+  writeFileSync(stackPlanPath, JSON.stringify({
+    repository: "tommytang213/Settleora",
+    stackId: "stack-927-missing-issue",
+    orderedPrs: [{ number: 942, title: "Projection", baseRefName: "main", headRefName: "feature/auto-927", headRefOid: head }],
+  }), { mode: 0o600 });
+  const missingIssue = getRunnerStatus(runtimeConfig);
+  assert.equal(missingIssue.authorityHealth.stackAuthorityMalformed, true);
+  assert.equal(missingIssue.authorityHealth.stackAuthorityReason, "stack_active_issue_identity_missing");
 });
 
 test("in-flight bundle checkpoints preserve expected branch, base, and head identity", () => {

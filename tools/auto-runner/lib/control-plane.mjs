@@ -256,10 +256,13 @@ function readLockOnlyPrStackProjection(config, lock) {
   const activePrNumber = state?.activePrNumber ?? plan.activePrNumber ?? plan.orderedPrs?.[0]?.number ?? null;
   const sourcePr = (state?.orderedPrs || plan.orderedPrs || []).find((entry) => entry.number === activePrNumber) || null;
   if (!sourcePr) return { ok: false, reasonCode: "stack_active_pr_identity_missing", issue: null, pr: null };
+  if (!Number.isSafeInteger(plan.issueNumber) || plan.issueNumber <= 0) {
+    return { ok: false, reasonCode: "stack_active_issue_identity_missing", issue: null, pr: null };
+  }
   const headSha = state?.exactHeads?.[activePrNumber] || sourcePr.headRefOid || null;
   return {
     ok: true,
-    issue: Number.isSafeInteger(plan.issueNumber) && plan.issueNumber > 0 ? { number: plan.issueNumber } : null,
+    issue: { number: plan.issueNumber },
     pr: {
       number: sourcePr.number,
       title: sourcePr.title || null,
