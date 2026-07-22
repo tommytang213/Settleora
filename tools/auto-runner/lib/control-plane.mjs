@@ -194,6 +194,8 @@ export function getRunnerStatus(config) {
 }
 
 function summarizeOperationalIteration(iteration = {}, run = {}) {
+  iteration ||= {};
+  run ||= {};
   const convergence = iteration.reviewConvergenceState || iteration.reviewConvergence || {};
   const counters = convergence.twoLoop || convergence.counters || iteration.twoLoopCounters || {};
   const budget = iteration.logicalTaskBudget || {};
