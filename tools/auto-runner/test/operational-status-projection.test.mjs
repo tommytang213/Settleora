@@ -143,6 +143,26 @@ test("source-failure projection excludes the just-frozen batch from prior no-pro
   assert.notEqual(model.sourceFailure.classification, "no_progress_or_oscillation");
 });
 
+test("active-run persistence and runner-status adapter forward bounded source-failure posture", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-source-failure-projection-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  const batch = {
+    contractVersion: 1,
+    batchIdentity: "c".repeat(64),
+    findingSetSignature: "d".repeat(64),
+    candidate: { baseSha: main, headSha: head, treeSha: "e".repeat(40), diffDigest: "f".repeat(64), changedFiles: ["tools/auto-runner/a.mjs"] },
+    findings: [{ sourceKind: "local_validation", classification: "retryable_infrastructure", retryable: true }],
+  };
+  const summary = { runId: "run-source-failure", startedAt: new Date().toISOString(), iterations: [{ phase: "local_validation", ordinaryContinuation: { phase: "local_validation", sourceFailureBatch: batch, sourceFailureHistory: [{ batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }] } }] };
+  const activePath = writeActiveRunState({ logsRoot, maxIterations: 1, maxRuntimeMs: 60_000 }, summary);
+  const persisted = JSON.parse(readFileSync(activePath, "utf8"));
+  assert.equal(persisted.operationalProjection.sourceFailure.classification, "retryable_infrastructure");
+  assert.equal(persisted.operationalProjection.sourceFailure.nextSafeAction, "retry_bounded");
+  const projected = projectRunnerStatus({ active: true, activeRunId: summary.runId, operationalProjection: persisted.operationalProjection });
+  assert.equal(projected.sourceFailure.classification, "retryable_infrastructure");
+  assert.equal(projected.sourceFailure.frozenBatchIdentity, batch.batchIdentity);
+});
+
 test("reads are side-effect-free and invoke each injected adapter exactly once", async () => {
   const calls = [];
   const base = adapters();
