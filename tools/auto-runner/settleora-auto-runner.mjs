@@ -2000,6 +2000,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       sourceFailureFixIntent: null,
       sourceFailureBatch: null,
     };
+    state = synchronizeRecoveredSourceChange(state, initial, "ordinary_source_failure_fix_adopted");
     await writeRecoveryState(config, { ...state, ordinaryContinuation: initial });
   }
   const context = {
@@ -2013,7 +2014,10 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     largeCandidateReview: ordinaryStructuredReviewCheckpoint(initial.effects?.structured_review?.evidence),
     pr: null,
   };
-  const persist = async (ordinaryContinuation) => writeRecoveryState(config, { ...state, ordinaryContinuation });
+  const persist = async (ordinaryContinuation) => {
+    state = synchronizeRecoveredSourceChange(state, ordinaryContinuation, "ordinary_source_failure_fix_committed");
+    return writeRecoveryState(config, { ...state, ordinaryContinuation });
+  };
   const result = await continueOrdinaryCandidate(initial, {
     candidate_reconciliation: async (continuation) => {
       const candidate = continuation.identity;
@@ -2216,7 +2220,17 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     onCheckpoint: persist,
   });
   logger.info(`Issue #${issue.number}: ordinary continuation advanced to ${result.state?.phase || result.outcome}.`);
+  state = synchronizeRecoveredSourceChange(state, result.state, "ordinary_source_failure_fix_committed");
   return { ...result, ordinaryContinuation: result.state, largeCandidateReviewRecovery: checkpoint, state };
+}
+
+function synchronizeRecoveredSourceChange(state, ordinaryContinuation, reasonCode) {
+  const convergence = state.reviewConvergenceState;
+  const newHead = ordinaryContinuation?.identity?.headSha;
+  if (!convergence?.pr?.exactHead || !newHead || convergence.pr.exactHead === newHead) return state;
+  const accounted = accountConvergenceEvent(convergence, { kind: "source_changed", newHead, reasonCode });
+  if (!accounted.consumedSourceCycle) return { ...state, reviewConvergenceState: accounted.state };
+  return { ...state, reviewConvergenceState: accounted.state };
 }
 
 function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {

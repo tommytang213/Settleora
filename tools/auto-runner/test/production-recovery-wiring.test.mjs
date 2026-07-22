@@ -226,6 +226,8 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /recommended_next_action: "run_safe_fix_cycle"/);
   assert.match(source, /reviewConvergenceState: iteration\.reviewConvergenceState/);
   assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
+  assert.match(source, /synchronizeRecoveredSourceChange\(state, ordinaryContinuation, "ordinary_source_failure_fix_committed"\)/);
+  assert.match(source, /accountConvergenceEvent\(convergence, \{ kind: "source_changed", newHead, reasonCode \}\)/);
 });
 
 test("valid non-pass reviewers retain prompt binding for structured convergence", () => {

@@ -120,6 +120,29 @@ test("live GitHub checks override a retained CI snapshot on the same head", asyn
   assert.equal(model.review.sourceHeads.ci, head);
 });
 
+test("source-failure projection excludes the just-frozen batch from prior no-progress history", async () => {
+  const base = adapters();
+  const local = await base.local.read();
+  const batch = {
+    schemaVersion: 1,
+    batchIdentity: "c".repeat(64),
+    findingSetSignature: "d".repeat(64),
+    candidate: { baseSha: main, headSha: head, treeSha: "e".repeat(40), diffDigest: "f".repeat(64), changedFiles: ["tools/auto-runner/a.mjs"] },
+    findings: [{ sourceKind: "local_validation", classification: "source_fix_safe", fingerprint: "1".repeat(64) }],
+  };
+  const model = await buildOperationalStatusProjection(adapters({
+    local: {
+      ...local,
+      ordinaryContinuation: {
+        phase: "local_validation",
+        sourceFailureBatch: batch,
+        sourceFailureHistory: [{ batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }],
+      },
+    },
+  }), { now: () => new Date(0) });
+  assert.notEqual(model.sourceFailure.classification, "no_progress_or_oscillation");
+});
+
 test("reads are side-effect-free and invoke each injected adapter exactly once", async () => {
   const calls = [];
   const base = adapters();

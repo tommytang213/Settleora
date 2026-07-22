@@ -216,7 +216,9 @@ function projectRecovery(local = {}) { const r = local.recovery || {}; return { 
 function projectSourceFailure(local = {}) {
   const continuation = local.ordinaryContinuation || {};
   const batch = continuation.sourceFailureBatch || null;
-  const decision = batch ? evaluateSourceFailureBatch(batch, continuation.sourceFailureHistory || []) : null;
+  const priorHistory = [...(continuation.sourceFailureHistory || [])];
+  if (batch && priorHistory.at(-1)?.batchIdentity === batch.batchIdentity) priorHistory.pop();
+  const decision = batch ? evaluateSourceFailureBatch(batch, priorHistory) : null;
   const s = local.sourceFailure || continuation.sourceFailure || (batch ? {
     classification: decision?.classification,
     originSources: [...new Set((batch.findings || []).map((finding) => finding.sourceKind))],
