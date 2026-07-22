@@ -1,17 +1,20 @@
 # Issue Progress Ledger
 
-### Issue #944 — active source-failure convergence implementation (2026-07-22)
+### Issue #944 and PR #945 — merged source-failure convergence (2026-07-22)
 
-- Exact branch `feature/auto-944-source-failure-convergence-20260722-2212` is
-  based on reconciled `origin/main`
-  `f3db3432ae420f659b4cf380676f83442361075d`.
+- PR #945 merged normally at exact reviewed source head
+  `b38adcb1a12c66140936b526797fc8090cd77a92` as merge commit/current-main
+  acceptance head `2db4d4af13e8b56edb2452d95fc3360c3295bc77`; the source branch is retained.
 - Scope is runner/docs tooling only: a normalized local/CI/scanner/reviewer
   failure contract, shared ordinary-continuation source-fix routing, durable
   no-progress/status projection, and ordinary mobile Android debug APK proof.
-- This is an active checkpoint, not merge evidence. #944 remains open pending
-  exact-head PR convergence, merge, current-main acceptance, and hygiene. #910
-  and #912 remain open; #912 remains manual-gated and unactivated. PR #917
-  remains closed without merge and untouched.
+- Exact-head and current-main acceptance passed: runner `1124/1124`, secret
+  boundary `31/31`, Flutter analyze and `843/843` tests, Android debug APK,
+  GitHub scaffold/CodeQL/Semgrep/Trivy, zero unresolved review threads, and zero
+  open code-scanning alerts. #944 closed with the merge at
+  `2026-07-22T19:45:17Z` and should remain closed because its close rule is
+  satisfied. #910 remains open for #912; #912 remains manual-gated and
+  unactivated. PR #917 remains closed without merge and untouched.
 
 ### Issue #927 and PR #942 — merged completion (2026-07-22)
 

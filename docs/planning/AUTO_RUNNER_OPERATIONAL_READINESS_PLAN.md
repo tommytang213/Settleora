@@ -2,20 +2,21 @@
 
 Status: implementation acceptance advanced; production profile not activated.
 
-Issue #944 is the active pre-activation implementation milestone. It extends
-the merged #923/#924/#928/#929/#932 authorities with bounded recursive
-source-failure convergence and adds an Android debug APK build to ordinary
-`mobile-application` validation. It does not activate #912 or change any
+Issue #944 completed through PR #945. The merged implementation extends the
+#923/#924/#928/#929/#932 authorities with bounded recursive source-failure
+convergence and adds an Android debug APK build to ordinary
+`mobile-application` validation. It did not activate #912 or change any
 external profile, deployment, credential, or scanner-disposition authority.
 
 Acceptance-chain reconciliation snapshot: `origin/main` at
-`960a4d9a09c55c728b01738d9ff1d778cf04e928` after PR #942. The foundation
+`2db4d4af13e8b56edb2452d95fc3360c3295bc77` after PR #945. The foundation
 issues #800, #889, and #894 remain closed. #913 and #921 are closed under their
 narrow close rules. PR #917 is closed without merge as fully superseded, with
 its source branch retained. #911 completed through PR #915, #902 through PR
 #916, #923/#932 through PR #936, #928/#929 through PR #938, #924 through
-PR #940, and #927 through PR #942. #910 remains the readiness umbrella and
-#912 remains the separate manual production activation gate.
+PR #940, #927 through PR #942, and #944 through PR #945. #910 remains the
+readiness umbrella and #912 remains the separate manual production activation
+gate.
 
 This plan records the remaining operational activation work. It does not change
 runner behavior, enable external profiles, mutate canaries, dismiss alerts, run
