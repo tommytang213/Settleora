@@ -144,6 +144,19 @@ test("credential-shaped values are rejected from allowlisted output fields", asy
   poisoned.local = { read: async () => ({ ...baseLocal, status: token, task: { ...baseLocal.task, logicalTaskKey: token, branch: `feature/${token}` }, lifecycle: { phase: token }, blockers: [token], nextSafeAction: token, evidence: [{ kind: token, status: token }] }) };
   const encoded = JSON.stringify(await buildOperationalStatusProjection(poisoned, { now: () => new Date(0) }));
   assert.equal(encoded.includes(token), false);
+  const unprefixed = "Ab3defghijklmnopqrstuvwxyz0123456789";
+  const entropyPoisoned = adapters();
+  entropyPoisoned.local = { read: async () => ({ ...baseLocal, nextSafeAction: unprefixed, task: { ...baseLocal.task, logicalTaskKey: unprefixed } }) };
+  assert.equal(JSON.stringify(await buildOperationalStatusProjection(entropyPoisoned, { now: () => new Date(0) })).includes(unprefixed), false);
+});
+
+test("missing numeric values remain unknown and recovery authority is not overwritten", async () => {
+  const baseLocal = await adapters().local.read();
+  const model = await buildOperationalStatusProjection(adapters({ local: { ...baseLocal, counters: { localSourceChangingRoundsPerEpoch: { value: 1 } }, recovery: {} } }), { now: () => new Date(0) });
+  assert.equal(model.counters.localSourceChangingRoundsPerEpoch.limit, null);
+  assert.equal(model.counters.acceptedTaskBudget.configured, null);
+  assert.equal(model.recovery.authority, "authoritative");
+  assert.equal(model.recovery.classification, null);
 });
 
 test("active-run persistence retains the bounded operational projection from the full iteration", () => {
