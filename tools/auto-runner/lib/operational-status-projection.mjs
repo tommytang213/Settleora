@@ -170,9 +170,9 @@ function reconcileConflicts(repository, github, local) {
     ["validation", "validationStatus", "validationHead"],
     ["gemini", "geminiStatus", "geminiHead"],
     ["local_codex", "localCodexStatus", "localCodexHead"],
-    ["github_codex", "githubCodexStatus", "githubCodexHead"],
-    ["scanner", "scannerStatus", "scannerHead"],
   ];
+  if (!github?.pr?.review) claimedReviewSources.push(["github_codex", "githubCodexStatus", "githubCodexHead"]);
+  if (!github?.pr?.scanner) claimedReviewSources.push(["scanner", "scannerStatus", "scannerHead"]);
   if (!github?.pr?.checks) claimedReviewSources.push(["ci", "ciStatus", "ciHead"]);
   for (const [source, statusKey, headKey] of claimedReviewSources) {
     if (!local?.review?.[statusKey]) continue;
@@ -207,13 +207,15 @@ function projectReview(local = {}, github = {}, liveHead) {
   const exactHead = validSha(r.exactHead);
   const heads = {
     validation: validSha(r.validationHead), gemini: validSha(r.geminiHead), localCodex: validSha(r.localCodexHead),
-    githubCodex: validSha(r.githubCodexHead), ci: github.pr?.checks ? validSha(github.pr?.headSha) : validSha(r.ciHead), scanner: validSha(r.scannerHead),
+    githubCodex: github.pr?.review ? validSha(github.pr?.review?.headSha) : validSha(r.githubCodexHead),
+    ci: github.pr?.checks ? validSha(github.pr?.headSha) : validSha(r.ciHead),
+    scanner: github.pr?.scanner ? validSha(github.pr?.scanner?.headSha) : validSha(r.scannerHead),
   };
   const current = (name) => Boolean(heads[name] && liveHead && heads[name] === liveHead);
   const bound = Boolean(exactHead && liveHead && exactHead === liveHead);
   const claimed = {
     validation: r.validationStatus, gemini: r.geminiStatus, localCodex: r.localCodexStatus,
-    githubCodex: r.githubCodexStatus, ci: github.pr?.checks ? github.pr.checks.status : r.ciStatus, scanner: r.scannerStatus,
+    githubCodex: github.pr?.review?.status || r.githubCodexStatus, ci: github.pr?.checks ? github.pr.checks.status : r.ciStatus, scanner: github.pr?.scanner?.status || r.scannerStatus,
   };
   const missingSources = Object.entries(heads).filter(([name, sourceHead]) => claimed[name] && !sourceHead).map(([name]) => name);
   const staleSources = Object.entries(heads).filter(([, sourceHead]) => sourceHead && liveHead && sourceHead !== liveHead).map(([name]) => name);
@@ -222,11 +224,11 @@ function projectReview(local = {}, github = {}, liveHead) {
     validationStatus: current("validation") ? boundedReason(r.validationStatus) : null,
     geminiStatus: current("gemini") ? boundedReason(r.geminiStatus) : null,
     localCodexStatus: current("localCodex") ? boundedReason(r.localCodexStatus) : null,
-    githubCodexStatus: current("githubCodex") ? boundedReason(r.githubCodexStatus) : null,
+    githubCodexStatus: current("githubCodex") ? boundedReason(github.pr?.review?.status || r.githubCodexStatus) : null,
     ciStatus: github.pr?.checks ? boundedReason(github.pr.checks.status) : current("ci") ? boundedReason(r.ciStatus) : null,
-    scannerStatus: current("scanner") ? boundedReason(r.scannerStatus) : null,
-    unresolvedThreads: current("githubCodex") ? integer(r.unresolvedThreads) : null,
-    openAlerts: current("scanner") ? integer(r.openAlerts) : null,
+    scannerStatus: current("scanner") ? boundedReason(github.pr?.scanner?.status || r.scannerStatus) : null,
+    unresolvedThreads: current("githubCodex") ? integer(github.pr?.review?.unresolvedThreads ?? r.unresolvedThreads) : null,
+    openAlerts: current("scanner") ? integer(github.pr?.scanner?.openAlerts ?? r.openAlerts) : null,
     missingSources, staleSources, stale: Boolean((exactHead && liveHead && exactHead !== liveHead) || missingSources.length || staleSources.length), bound,
   };
 }

@@ -446,15 +446,44 @@ function readProjectionGithub(config, status, run) {
   const result = { repositorySlug: config.repositorySlug };
   if (Number.isSafeInteger(Number(issueNumber)) && Number(issueNumber) > 0) {
     const issue = readGhJson(run, config, ["issue", "view", String(issueNumber), "--repo", config.repositorySlug, "--json", "number,state,labels"]);
-    if (!issue) return { ok: false, reasonCode: "github_issue_read_failed" };
+    if (!issue || Number(issue.number) !== Number(issueNumber) || !["OPEN", "CLOSED"].includes(String(issue.state).toUpperCase()) || !Array.isArray(issue.labels)) return { ok: false, reasonCode: "github_issue_read_failed" };
     result.issue = { number: issue.number, state: issue.state, manualGate: (issue.labels || []).some((label) => ["manual-gate", "needs-tommy"].includes(label.name)), dangerGate: (issue.labels || []).some((label) => label.name === "danger-gate") };
   }
   if (Number.isSafeInteger(Number(prNumber)) && Number(prNumber) > 0) {
     const pr = readGhJson(run, config, ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,headRefName,headRefOid,baseRefName,statusCheckRollup"]);
-    if (!pr) return { ok: false, reasonCode: "github_pr_read_failed" };
-    result.pr = { number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName, checks: summarizeLiveChecks(pr.statusCheckRollup, config.autoMergePolicy) };
+    if (!validProjectionPr(pr, prNumber)) return { ok: false, reasonCode: "github_pr_read_failed" };
+    const [owner, name] = String(config.repositorySlug).split("/");
+    const query = "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}pageInfo{hasNextPage}}}}}";
+    const threads = readGhJson(run, config, ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${prNumber}`, "-f", `query=${query}`]);
+    const threadConnection = threads?.data?.repository?.pullRequest?.reviewThreads;
+    if (!Array.isArray(threadConnection?.nodes) || threadConnection.pageInfo?.hasNextPage === true) return { ok: false, reasonCode: "github_review_threads_read_failed" };
+    const reviews = readGhJson(run, config, ["api", `repos/${config.repositorySlug}/pulls/${prNumber}/reviews?per_page=100`]);
+    if (!Array.isArray(reviews) || reviews.length >= 100) return { ok: false, reasonCode: "github_reviews_read_failed" };
+    const alerts = readGhJson(run, config, ["api", "--method", "GET", `repos/${config.repositorySlug}/code-scanning/alerts`, "-f", `ref=refs/heads/${pr.headRefName}`, "-f", "state=open", "-f", "per_page=100"]);
+    if (!Array.isArray(alerts) || alerts.length >= 100) return { ok: false, reasonCode: "github_code_scanning_alerts_read_failed" };
+    const exactCodexReviews = reviews.filter((review) => review?.commit_id === pr.headRefOid && /codex/i.test(review?.user?.login || ""));
+    result.pr = {
+      number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName,
+      checks: summarizeLiveChecks(pr.statusCheckRollup, config.autoMergePolicy),
+      review: { status: exactCodexReviews.length ? "complete" : "pending", headSha: pr.headRefOid, unresolvedThreads: threadConnection.nodes.filter((thread) => thread?.isResolved !== true).length },
+      scanner: { status: alerts.length === 0 ? "pass" : "open_alerts", headSha: pr.headRefOid, openAlerts: alerts.length },
+    };
   }
   return result;
+}
+
+function validProjectionPr(pr, expectedNumber) {
+  return Boolean(pr
+    && Number(pr.number) === Number(expectedNumber)
+    && ["OPEN", "CLOSED", "MERGED"].includes(String(pr.state).toUpperCase())
+    && safeProjectionRef(pr.headRefName)
+    && safeProjectionRef(pr.baseRefName)
+    && /^[0-9a-f]{40}$/.test(pr.headRefOid || "")
+    && Array.isArray(pr.statusCheckRollup));
+}
+
+function safeProjectionRef(value) {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9._/-]{0,199}$/i.test(value) && !value.includes("..");
 }
 
 function suppressRetainedTaskForPreChildSupervisor(config, status, latestReader = latestSupervisorRun) {
