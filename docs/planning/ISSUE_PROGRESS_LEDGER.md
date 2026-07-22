@@ -1,5 +1,30 @@
 # Issue Progress Ledger
 
+### Issue #927 and PR #942 — merged completion (2026-07-22)
+
+- PR #942 merged normally at exact reviewed source head
+  `2a536d23b3961353819a821b16ef9376a6fa76d4` as merge commit/current main
+  `960a4d9a09c55c728b01738d9ff1d778cf04e928`; the source branch remains
+  retained at the reviewed head.
+- The merge supplies canonical bounded `operational_status_v1` JSON/Markdown
+  exports from one normalized model, trusted live/local/evidence/derived
+  reconciliation, the state-class inventory, and milestone/batched ledger
+  policy. Routine transitions cannot request ledger-only work, and stale ledger
+  text remains non-authoritative.
+- Exact-head evidence: auto-runner `1095/1095`, secret boundary `31/31`, docs,
+  scaffold, doctor, syntax, and diff checks passed; Semgrep 1.167.0 reported
+  zero findings across 568 rules and 1,574 targets; fresh Gemini and local
+  Codex passed; GitHub Codex reported no issues on the exact head; all GitHub
+  checks/scanners passed; unresolved threads and relevant alerts were zero.
+- Current-main acceptance passed projection `43/43`, production recovery
+  wiring `17/17`, and secret boundary `31/31`. The live CLI emitted bounded
+  read-only JSON/Markdown and correctly failed closed on retained historical
+  local authority.
+- Atomic versioned JSON/JSONL remains the measured storage backend; no
+  transactional cross-record or indexed-query need justified SQLite/WAL.
+- #927 is closed. #910 remains open, with #912 as the separate untouched manual
+  production-activation gate.
+
 ### Issue #924 and PR #940 — merged completion (2026-07-21)
 
 - PR #940 merged normally at exact reviewed source head
@@ -19,15 +44,8 @@
 - Current-main acceptance passed `203/203` across normal, coherent-large,
   deterministic mixed split/block, and provider/context-limit routing,
   including review-phase startup recovery and split-to-stack handoff.
-- #924 is closed under its four-path close rule. #910 and #927 remain open;
-  the next implementation is #927, followed by #912's untouched manual
-  production-activation gate.
-- #927 now has a focused implementation candidate for the versioned read-only
-  operational projection, state inventory, stale-ledger reconciliation, and
-  milestone/batched ledger policy. JSON/JSONL remains the evidence-based local
-  backend; no database migration is justified. This is derived planning status,
-  not completion evidence: #927 remains open until the candidate converges,
-  merges, and passes current-main acceptance.
+- #924 is closed under its four-path close rule. Its next implementation gate,
+  #927, is now also closed through PR #942; #912 remains untouched and manual.
 
 ### Issues #928/#929 and PR #938 — merged completion (2026-07-21)
 
