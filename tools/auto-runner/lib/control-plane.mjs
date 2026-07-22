@@ -220,6 +220,9 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
   const large = iteration.largeCandidateReview?.state || iteration.largeCandidateReview || {};
   const split = iteration.featureBundleSplit || iteration.splitMaterialization || large.split || {};
   const stack = iteration.prStackExecution || iteration.stackExecution || {};
+  const latestWaitAttempt = Array.isArray(iteration.autoMerge?.waitAttempts)
+    ? [...iteration.autoMerge.waitAttempts].reverse().find((attempt) => attempt?.checks && attempt?.prHeadSha)
+    : null;
   return sanitize({
     lifecycle: {
       phase: iteration.phase || recovery.phase || controller.phase || null,
@@ -246,7 +249,7 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
       classification: iteration.recovery?.classification || recovery.classification || null,
       phase: recovery.phase || null,
       nextSafeAction: recovery.nextSafeAction || iteration.recovery?.nextAction || null,
-      reasonCode: iteration.recovery?.reasonCode || recovery.blocker || null,
+      reasonCode: iteration.recovery?.reasonCode || recovery.stopReason?.reasonCode || recovery.blocker || null,
     },
     session: {
       generation: session.authority?.generation ?? session.generation ?? null,
@@ -274,8 +277,8 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
       localCodexHead: iteration.review?.reviewedHead || iteration.review?.headSha || null,
       githubCodexStatus: iteration.autoMerge?.githubCodexReview?.status || null,
       githubCodexHead: iteration.autoMerge?.githubCodexReview?.headSha || iteration.autoMerge?.githubCodexReview?.reviewedHead || null,
-      ciStatus: iteration.autoMerge?.checks?.ok === true ? "pass" : iteration.autoMerge?.checks?.status || null,
-      ciHead: iteration.autoMerge?.checks?.headSha || null,
+      ciStatus: latestWaitAttempt?.checks?.ok === true ? "pass" : latestWaitAttempt?.checks?.status || null,
+      ciHead: latestWaitAttempt?.prHeadSha || null,
       scannerStatus: iteration.autoMerge?.scanners?.status || null,
       scannerHead: iteration.autoMerge?.scanners?.headSha || null,
       unresolvedThreads: iteration.autoMerge?.unresolvedThreadCount ?? null,
