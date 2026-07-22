@@ -182,7 +182,7 @@ test("production adapters preserve pre-PR checkpoint branch and head identity", 
 test("production projection selects a submitted supervisor before its child runner starts", async () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-supervisor-submitted-"));
   const supervisorRunId = "supervised-20260722T044700Z-abcdef123456";
-  writeSupervisorState(supervisorRunId, { state: "submitted", createdAt: new Date().toISOString(), runnerRunId: null }, logsRoot);
+  writeSupervisorState(supervisorRunId, { state: "submitted", createdAt: new Date().toISOString(), runnerRunId: "run-allocated-before-child-state" }, logsRoot);
   const spawnSync = (command, args) => {
     if (command === "git" && args[1] === "branch") return { status: 0, stdout: "main\n" };
     if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
@@ -192,12 +192,13 @@ test("production projection selects a submitted supervisor before its child runn
   };
   const production = createProjectionAdapters({ logsRoot, repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, {
     spawnSync,
-    getRunnerStatus: () => ({ active: false, supervisorRunId: "supervised-20260721T010000Z-111111111111", operationalProjection: {} }),
+    getRunnerStatus: () => ({ active: false, activeRunId: "run-retained-before-submission", supervisorRunId: "supervised-20260721T010000Z-111111111111", operationalProjection: {} }),
   });
   const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
   assert.equal(model.supervisor.runId, supervisorRunId);
   assert.equal(model.supervisor.state, "submitted");
   assert.equal(model.task.runId, null);
+  assert.equal(model.task.logicalTaskKey, null);
   assert.equal(model.task.issueNumber, null);
 });
 
@@ -222,7 +223,7 @@ test("an active foreground runner ignores unrelated historical supervisor state"
 
 test("an inactive foreground summary ignores unrelated historical supervisor state", async () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-inactive-foreground-"));
-  writeSupervisorState("supervised-20260722T044800Z-abcdef123456", { state: "completed", createdAt: new Date().toISOString(), runnerRunId: "run-old-supervised" }, logsRoot);
+  writeSupervisorState("supervised-20260722T044800Z-abcdef123456", { state: "completed", createdAt: "2026-07-22T04:48:00.000Z", updatedAt: "2026-07-22T04:49:00.000Z", runnerRunId: "run-old-supervised" }, logsRoot);
   const spawnSync = (command, args) => {
     if (command === "git" && args[1] === "branch") return { status: 0, stdout: "main\n" };
     if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
@@ -232,7 +233,7 @@ test("an inactive foreground summary ignores unrelated historical supervisor sta
   };
   const production = createProjectionAdapters({ logsRoot, repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, {
     spawnSync,
-    getRunnerStatus: () => ({ active: false, activeRunId: "run-final-foreground", supervisorRunId: null, latestTerminalOutcome: "completed", operationalProjection: {} }),
+    getRunnerStatus: () => ({ active: false, activeRunId: "run-final-foreground", supervisorRunId: null, latestTerminalOutcome: "completed", lastEventAt: "2026-07-22T05:00:00.000Z", operationalProjection: {} }),
   });
   const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
   assert.equal(model.status, "completed");

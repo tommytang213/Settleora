@@ -422,8 +422,11 @@ function readProjectionGithub(config, status, run) {
 function suppressRetainedTaskForPreChildSupervisor(config, status) {
   if (status.active) return status;
   const latest = latestSupervisorRun(config.logsRoot);
-  if (!latest?.runId || latest.runnerRunId || latest.runId === status.supervisorRunId) return status;
-  return { ...status, supervisorRunId: latest.runId, currentOrLastIssue: null, currentOrLastPr: null, operationalProjection: { status: latest.state || "submitted", lifecycle: { phase: latest.state || "submitted" } } };
+  if (!latest?.runId || latest.runId === status.supervisorRunId) return status;
+  const latestAt = Date.parse(latest.updatedAt || latest.createdAt || 0);
+  const retainedAt = Date.parse(status.lastEventAt || 0);
+  if (Number.isFinite(retainedAt) && (!Number.isFinite(latestAt) || latestAt <= retainedAt)) return status;
+  return { ...status, activeRunId: null, supervisorRunId: latest.runId, currentOrLastIssue: null, currentOrLastPr: null, operationalProjection: { status: latest.state || "submitted", lifecycle: { phase: latest.state || "submitted" } } };
 }
 
 function summarizeLiveChecks(checks) {
