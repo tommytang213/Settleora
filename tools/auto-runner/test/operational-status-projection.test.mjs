@@ -186,15 +186,16 @@ test("production GitHub projection enforces required-check and neutral policies"
   assert.equal(live.review.scannerStatus, "open_alerts");
   assert.equal(live.review.openAlerts, 1);
   assert.equal((await modelFor(successes, [{ commit_id: head, user: { login: "friendly-codex-reviewer" } }])).review.githubCodexStatus, "pending");
-  for (const blockingReview of [
-    { commit_id: head, user: { login: "chatgpt-codex-connector[bot]" }, state: "CHANGES_REQUESTED", body: "" },
-    { commit_id: head, user: { login: "chatgpt-codex-connector[bot]" }, state: "COMMENTED", body: "P2 suggestion requires correction" },
-  ]) {
-    const blocked = await modelFor(successes, [blockingReview]);
-    assert.equal(blocked.review.githubCodexStatus, "changes_requested");
-    assert.equal(blocked.status, "blocked");
-    assert.ok(blocked.blockers.includes("github_codex_changes_requested"));
-  }
+  const blocked = await modelFor(successes, [{ commit_id: head, user: { login: "chatgpt-codex-connector[bot]" }, state: "CHANGES_REQUESTED", body: "" }]);
+  assert.equal(blocked.review.githubCodexStatus, "changes_requested");
+  assert.equal(blocked.status, "blocked");
+  assert.ok(blocked.blockers.includes("github_codex_changes_requested"));
+  const passingSummary = await modelFor(successes, [{ commit_id: head, user: { login: "chatgpt-codex-connector[bot]" }, state: "COMMENTED", body: "No P1/P2 findings or suggestions." }]);
+  assert.equal(passingSummary.review.githubCodexStatus, "complete");
+  assert.equal(passingSummary.blockers.includes("github_codex_changes_requested"), false);
+  assert.ok(passingSummary.blockers.includes("github_unresolved_review_threads"));
+  assert.ok(passingSummary.blockers.includes("github_code_scanning_alerts_open"));
+  assert.ok((await modelFor(successes.slice(1))).blockers.includes("github_required_checks_missing"));
 });
 
 test("production GitHub projection rejects incomplete PR identity before local fallback", async () => {
