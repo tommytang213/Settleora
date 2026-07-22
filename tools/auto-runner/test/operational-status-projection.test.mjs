@@ -268,6 +268,32 @@ test("active-run persistence projects CI from the latest correlated wait attempt
   assert.equal(review.ciHead, head);
 });
 
+test("inactive status binds run identity and path to the selected final summary", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-final-summary-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  mkdirSync(path.join(logsRoot, "summaries"), { recursive: true });
+  writeFileSync(path.join(logsRoot, "state", "active-run.json"), JSON.stringify({
+    pid: 99999999,
+    runId: "run-retained",
+    startedAt: "2026-07-22T00:00:00.000Z",
+    summaryPath: path.join(logsRoot, "summaries", "run-retained.json"),
+    iterations: [{ issue: { number: 1 } }],
+  }));
+  const finalSummaryPath = path.join(logsRoot, "summaries", "run-final.json");
+  writeFileSync(finalSummaryPath, JSON.stringify({
+    runId: "run-final",
+    startedAt: "2026-07-22T01:00:00.000Z",
+    finishedAt: "2026-07-22T02:00:00.000Z",
+    iterations: [{ issue: { number: 927 }, outcome: "completed" }],
+  }));
+
+  const status = getRunnerStatus({ logsRoot });
+  assert.equal(status.active, false);
+  assert.equal(status.activeRunId, "run-final");
+  assert.equal(status.paths.summary, finalSummaryPath);
+  assert.equal(status.currentOrLastIssue.number, 927);
+});
+
 test("a live lock rejects a differently identified stale active-run record", () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-owner-conflict-"));
   mkdirSync(path.join(logsRoot, "state"), { recursive: true });

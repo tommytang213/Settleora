@@ -141,6 +141,9 @@ export function getRunnerStatus(config) {
   const control = readControlState(config);
   const latestSummary = readLatestRunSummary(config);
   const source = active.active ? active.parsed : latestSummary?.summary || active.parsed || null;
+  const selectedSummaryPath = active.active
+    ? active.parsed?.summaryPath || null
+    : latestSummary?.path || active.parsed?.summaryPath || null;
   const startedAt = source?.startedAt || null;
   const maxRuntimeMs = source?.maxRuntimeMs ?? active.parsed?.maxRuntimeMs ?? null;
   const elapsedMs = startedAt ? Math.max(0, Date.now() - Date.parse(startedAt)) : null;
@@ -154,7 +157,7 @@ export function getRunnerStatus(config) {
   return sanitize({
     generatedAt: new Date().toISOString(),
     active: Boolean(lock.active || active.active),
-    activeRunId: active.parsed?.runId || (lock.active ? lock.parsed?.runId : null),
+    activeRunId: source?.runId || (lock.active ? lock.parsed?.runId : null),
     lock,
     authorityHealth: {
       lockMalformed: lock.malformed === true,
@@ -196,7 +199,7 @@ export function getRunnerStatus(config) {
     stopReason: source?.stopReason || null,
     lastEventAt: latestIteration?.finishedAt || latestIteration?.startedAt || source?.lastHeartbeatAt || source?.finishedAt || source?.startedAt || null,
     paths: {
-      summary: active.parsed?.summaryPath || latestSummary?.path || null,
+      summary: selectedSummaryPath,
       markdownSummary: latestSummary?.markdownPath || null,
       log: source?.logPath || null,
       activeState: active.path,
