@@ -3,13 +3,13 @@
 Status: implementation acceptance advanced; production profile not activated.
 
 Acceptance-chain reconciliation snapshot: `origin/main` at
-`2dec97fe5e2ddf1d3562b70a76825cfdc8ba81b2` after PR #940. The foundation
+`960a4d9a09c55c728b01738d9ff1d778cf04e928` after PR #942. The foundation
 issues #800, #889, and #894 remain closed. #913 and #921 are closed under their
 narrow close rules. PR #917 is closed without merge as fully superseded, with
 its source branch retained. #911 completed through PR #915, #902 through PR
-#916, #923/#932 through PR #936, #928/#929 through PR #938, and #924 through
-PR #940. Follow-up #927 remains open. #910 remains the readiness umbrella and #912 remains the
-separate manual production activation gate.
+#916, #923/#932 through PR #936, #928/#929 through PR #938, #924 through
+PR #940, and #927 through PR #942. #910 remains the readiness umbrella and
+#912 remains the separate manual production activation gate.
 
 This plan records the remaining operational activation work. It does not change
 runner behavior, enable external profiles, mutate canaries, dismiss alerts, run
@@ -300,14 +300,10 @@ paths are added.
 The original planning PR and the #913/#921 implementation acceptance chain are
 complete. Current live issues now own the remaining work:
 
-1. Converge and merge the #927 authoritative state/counter projection against the merged
-   #928 interruption-recovery and #929 proactive-session-rotation interfaces,
-   plus #924's ordinary-continuation and split-materialization evidence,
-   without creating a parallel state or controller authority.
-2. Activate the external production profile only through #912's separate
+1. Activate the external production profile only through #912's separate
    manual live-configuration acceptance after all required implementation and
    non-production acceptance gates pass.
-3. Run live canaries only in a separate canary task; do not use #865/#866 unless
+2. Run live canaries only in a separate canary task; do not use #865/#866 unless
    the task explicitly authorizes mutation and fingerprints are checked before
    and after.
 
@@ -327,16 +323,16 @@ Post-acceptance issues added after the original planning task:
   through PR #936, merge `58a0164f15a77b3d5338a1c00eb4892693e70970`.
 - #924: large-candidate escalation and safe split routing; closed through PR
   #940, merge `2dec97fe5e2ddf1d3562b70a76825cfdc8ba81b2`.
-- #927: authoritative status/counter projection and ledger decoupling.
+- #927: authoritative status/counter projection and ledger decoupling; closed
+  through PR #942, merge `960a4d9a09c55c728b01738d9ff1d778cf04e928`.
 
-The #927 implementation candidate adds `operational_status_v1`, one bounded
+The #927 implementation adds `operational_status_v1`, one bounded
 JSON/Markdown read-only export, explicit live/local/evidence/derived authority
 classes, fail-closed identity reconciliation, the state-class inventory, and a
 pure milestone-versus-ephemeral ledger policy. Atomic versioned JSON/JSONL is
 retained: the measured topology is correlation-scoped and single-writer with no
-transactional cross-record or indexed-query requirement. This is a candidate
-checkpoint only; #927 remains open until exact-head review/CI, merge, and
-current-main acceptance prove its close rule.
+transactional cross-record or indexed-query requirement. Exact-head and
+current-main acceptance completed through PR #942; #927 is closed.
 - #928: reportless compaction/process-interruption recovery; closed through PR
   #938, merge `510942d40d2d512094b9af430ccc40f65a505d0c`.
 - #929: proactive context budgeting and fresh-session rotation; closed through
@@ -375,7 +371,7 @@ Operational readiness is complete only when:
 
 ## Next Task
 
-Proceed through the current remaining sequence above, beginning with the
-post-acceptance controller/accounting/recovery issues. Do not repeat completed
-#911/#902 implementation. External production-profile activation remains last
-and manual under #912.
+#910 remains open for the one remaining readiness gate: #912. External
+production-profile activation remains manual, unactivated, and permitted only
+through a separately authorized #912 task; do not repeat completed
+implementation work.
