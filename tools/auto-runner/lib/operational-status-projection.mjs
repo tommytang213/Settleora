@@ -166,6 +166,20 @@ function reconcileConflicts(repository, github, local) {
   const hasReviewEvidence = ["validationStatus", "geminiStatus", "localCodexStatus", "githubCodexStatus", "ciStatus", "scannerStatus"].some((key) => local?.review?.[key]);
   if (hasReviewEvidence && !reviewHead) reasons.push("review_exact_head_missing");
   if (reviewHead && liveHead && reviewHead !== liveHead) reasons.push("stale_exact_head_evidence");
+  const claimedReviewSources = [
+    ["validation", "validationStatus", "validationHead"],
+    ["gemini", "geminiStatus", "geminiHead"],
+    ["local_codex", "localCodexStatus", "localCodexHead"],
+    ["github_codex", "githubCodexStatus", "githubCodexHead"],
+    ["scanner", "scannerStatus", "scannerHead"],
+  ];
+  if (!github?.pr?.checks) claimedReviewSources.push(["ci", "ciStatus", "ciHead"]);
+  for (const [source, statusKey, headKey] of claimedReviewSources) {
+    if (!local?.review?.[statusKey]) continue;
+    const sourceHead = validSha(local?.review?.[headKey]);
+    if (!sourceHead) reasons.push(`${source}_exact_head_missing`);
+    else if (liveHead && sourceHead !== liveHead) reasons.push(`${source}_stale_exact_head_evidence`);
+  }
   if (local?.active === true && local?.task?.branch && repository?.currentBranch && local.task.branch !== repository.currentBranch) reasons.push("active_repository_branch_identity_conflict");
   if (local?.active === true && validSha(local?.task?.headSha) && validSha(repository?.headSha) && local.task.headSha !== repository.headSha) reasons.push("active_repository_head_identity_conflict");
   if (local?.active === true && validSha(local?.task?.baseSha) && validSha(repository?.originMainSha) && local.task.baseSha !== repository.originMainSha) reasons.push("active_repository_base_identity_conflict");
@@ -197,6 +211,11 @@ function projectReview(local = {}, github = {}, liveHead) {
   };
   const current = (name) => Boolean(heads[name] && liveHead && heads[name] === liveHead);
   const bound = Boolean(exactHead && liveHead && exactHead === liveHead);
+  const claimed = {
+    validation: r.validationStatus, gemini: r.geminiStatus, localCodex: r.localCodexStatus,
+    githubCodex: r.githubCodexStatus, ci: github.pr?.checks ? github.pr.checks.status : r.ciStatus, scanner: r.scannerStatus,
+  };
+  const missingSources = Object.entries(heads).filter(([name, sourceHead]) => claimed[name] && !sourceHead).map(([name]) => name);
   const staleSources = Object.entries(heads).filter(([, sourceHead]) => sourceHead && liveHead && sourceHead !== liveHead).map(([name]) => name);
   return {
     classification: "authoritative_when_exact_head_bound", exactHead, liveHead, sourceHeads: heads,
@@ -208,7 +227,7 @@ function projectReview(local = {}, github = {}, liveHead) {
     scannerStatus: current("scanner") ? boundedReason(r.scannerStatus) : null,
     unresolvedThreads: current("githubCodex") ? integer(r.unresolvedThreads) : null,
     openAlerts: current("scanner") ? integer(r.openAlerts) : null,
-    staleSources, stale: Boolean((exactHead && liveHead && exactHead !== liveHead) || staleSources.length), bound,
+    missingSources, staleSources, stale: Boolean((exactHead && liveHead && exactHead !== liveHead) || missingSources.length || staleSources.length), bound,
   };
 }
 function projectLargeCandidate(local = {}) { const l = local.largeCandidate || {}; return { classification: "authoritative", route: boundedReason(l.route), coverageStatus: boundedReason(l.coverageStatus), integrationStatus: boundedReason(l.integrationStatus), uncoveredScopeIds: boundedList(l.uncoveredScopeIds, identifier), splitState: boundedReason(l.splitState), stackState: boundedReason(l.stackState), handoffState: boundedReason(l.handoffState) }; }

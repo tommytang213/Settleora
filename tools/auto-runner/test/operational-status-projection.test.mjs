@@ -88,6 +88,24 @@ test("each review result is independently exact-head bound", async () => {
   assert.equal(model.review.geminiStatus, null);
   assert.equal(model.review.localCodexStatus, "pass");
   assert.deepEqual(model.review.staleSources, ["validation", "gemini"]);
+  assert.equal(model.status, "blocked");
+  assert.ok(model.blockers.includes("validation_stale_exact_head_evidence"));
+  assert.ok(model.blockers.includes("gemini_stale_exact_head_evidence"));
+  assert.equal(model.nextSafeAction, "inspect_projection_reason_codes");
+});
+
+test("each claimed review result requires its own exact-head identity", async () => {
+  const baseLocal = await adapters().local.read();
+  const model = await buildOperationalStatusProjection(adapters({
+    local: { ...baseLocal, review: { ...baseLocal.review, localCodexHead: null, scannerHead: "invalid" } },
+  }), { now: () => new Date(0) });
+  assert.equal(model.status, "blocked");
+  assert.deepEqual(model.review.missingSources, ["localCodex", "scanner"]);
+  assert.equal(model.review.localCodexStatus, null);
+  assert.equal(model.review.scannerStatus, null);
+  assert.ok(model.blockers.includes("local_codex_exact_head_missing"));
+  assert.ok(model.blockers.includes("scanner_exact_head_missing"));
+  assert.equal(model.nextSafeAction, "inspect_projection_reason_codes");
 });
 
 test("live GitHub checks override a retained CI snapshot on the same head", async () => {
