@@ -92,9 +92,9 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
   const calls = [];
   const spawnSync = (command, args) => {
     calls.push([command, ...args]);
-    if (command === "git" && args[0] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
-    if (command === "git" && args[0] === "rev-parse") return { status: 0, stdout: `${head}\n` };
-    if (command === "git" && args[0] === "status") return { status: 0, stdout: "" };
+    if (command === "git" && args[0] === "--no-optional-locks" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
+    if (command === "git" && args[0] === "--no-optional-locks" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
+    if (command === "git" && args[0] === "--no-optional-locks" && args[1] === "status") return { status: 0, stdout: "" };
     if (args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
     if (args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: head, baseRefName: "main" }) };
     return { status: 1, stdout: "" };
@@ -102,7 +102,7 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
   const config = { repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" };
   const production = createProjectionAdapters(config, { spawnSync, getRunnerStatus: () => ({ active: true, activeRunId: "20260722-1019", currentOrLastIssue: { number: 927 }, currentOrLastPr: { number: 942, headSha: head }, operationalProjection: {} }) });
   await buildOperationalStatusProjection(production, { now: () => new Date(0) });
-  assert.deepEqual(calls.map((call) => call.slice(0, 2)).sort(), [["gh", "issue"], ["gh", "pr"], ["git", "branch"], ["git", "rev-parse"], ["git", "rev-parse"], ["git", "status"]].sort());
+  assert.deepEqual(calls.map((call) => call.slice(0, 3)).sort(), [["gh", "issue", "view"], ["gh", "pr", "view"], ["git", "--no-optional-locks", "branch"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "status"]].sort());
   const forbidden = new Set(["add", "commit", "push", "merge", "edit", "comment", "close", "create", "delete"]);
   assert.equal(calls.some((call) => call.some((token) => forbidden.has(token))), false);
 });
@@ -113,6 +113,9 @@ test("corrupt, multiple-active, contradictory repository, PR, and stale-head fix
     { local: { identityConflict: true }, reason: "local_identity_conflict" },
     { github: { repositorySlug: "other/repo" }, reason: "repository_identity_conflict" },
     { local: { task: { prNumber: 7 } }, reason: "pr_identity_conflict" },
+    { local: { task: { issueNumber: 7 } }, reason: "issue_identity_conflict" },
+    { local: { task: { branch: "other-branch" } }, reason: "pr_branch_identity_conflict" },
+    { local: { task: { baseBranch: "other-base" } }, reason: "pr_base_branch_identity_conflict" },
     { local: { active: true, task: { headSha: "e".repeat(40) } }, reason: "stale_head_identity_conflict" },
     { local: { active: true, task: { branch: "other-branch" } }, reason: "active_repository_branch_identity_conflict" },
     { local: { ...await adapters().local.read(), review: { exactHead: "e".repeat(40) } }, reason: "stale_exact_head_evidence" },
@@ -132,6 +135,15 @@ test("positive allowlist excludes secrets, prompts, provider payloads, OCR conte
   poisoned.local = { read: async () => ({ ...await adapters().local.read(), secret: "test-api-key-for-review", rawPrompt: "hidden", providerResponse: "private", ocrText: "receipt", arbitraryPath: "/workspace/private", nextSafeAction: "/home/operator/private/session.txt", recovery: { nextSafeAction: "https://provider.invalid/private" }, evidence: [{ kind: "validation", path: "/workspace/private", rawLog: "test-token-for-review" }] }) };
   const encoded = JSON.stringify(await buildOperationalStatusProjection(poisoned, { now: () => new Date(0) }));
   for (const forbidden of ["test-api-key-for-review", "hidden", "private", "receipt", "/workspace/", "/home/", "https://"]) assert.equal(encoded.includes(forbidden), false, forbidden);
+});
+
+test("credential-shaped values are rejected from allowlisted output fields", async () => {
+  const token = "ghp_abcdefghijklmnopqrstuvwxyz123456";
+  const baseLocal = await adapters().local.read();
+  const poisoned = adapters();
+  poisoned.local = { read: async () => ({ ...baseLocal, status: token, task: { ...baseLocal.task, logicalTaskKey: token, branch: `feature/${token}` }, lifecycle: { phase: token }, blockers: [token], nextSafeAction: token, evidence: [{ kind: token, status: token }] }) };
+  const encoded = JSON.stringify(await buildOperationalStatusProjection(poisoned, { now: () => new Date(0) }));
+  assert.equal(encoded.includes(token), false);
 });
 
 test("active-run persistence retains the bounded operational projection from the full iteration", () => {

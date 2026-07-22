@@ -340,7 +340,7 @@ export function createProjectionAdapters(config, deps = {}) {
   let cachedStatus;
   const runnerStatus = () => (cachedStatus ||= statusReader(config));
   const gitRead = (args) => {
-    const result = run("git", args, { cwd: config.repoRoot, encoding: "utf8" });
+    const result = run("git", ["--no-optional-locks", ...args], { cwd: config.repoRoot, encoding: "utf8" });
     return result.status === 0 && !result.error ? { ok: true, value: String(result.stdout || "").trim() } : { ok: false };
   };
   return {

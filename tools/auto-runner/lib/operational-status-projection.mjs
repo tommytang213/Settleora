@@ -131,7 +131,7 @@ export function ledgerHygieneDecision(transition = {}) {
 export function assertBoundedProjection(model) {
   const encoded = JSON.stringify(model);
   if (Buffer.byteLength(encoded) > operationalStatusMaxBytes) throw new Error("operational_status_json_too_large");
-  if (/bearer\s|api[_-]?key|authorization|rawprompt|rawprovider|ocrtext|https?:\\?\/\\?\/|[a-z]:\\\\|(?:^|["\s])\/(?:home|workspace|tmp|var|etc|opt)\//i.test(encoded)) {
+  if (/bearer\s|api[_-]?key|authorization|rawprompt|rawprovider|ocrtext|github_pat_|gh[pousr]_|xox[baprs]-|sk-[a-z0-9_-]{8,}|akia[0-9a-z]{12,}|ya29\.|https?:\\?\/\\?\/|[a-z]:\\\\|(?:^|["\s])\/(?:home|workspace|tmp|var|etc|opt)\//i.test(encoded)) {
     throw new Error("operational_status_secret_or_path_boundary_violation");
   }
   return true;
@@ -157,7 +157,10 @@ function reconcileConflicts(repository, github, local) {
   if ((local?.activeAuthorities?.length || 0) > 1) reasons.push("multiple_active_local_authorities");
   if (local?.identityConflict) reasons.push("local_identity_conflict");
   if (repository?.repositorySlug && github?.repositorySlug && repository.repositorySlug !== github.repositorySlug) reasons.push("repository_identity_conflict");
+  if (github?.issue?.number && local?.task?.issueNumber && Number(github.issue.number) !== Number(local.task.issueNumber)) reasons.push("issue_identity_conflict");
   if (github?.pr?.number && local?.task?.prNumber && Number(github.pr.number) !== Number(local.task.prNumber)) reasons.push("pr_identity_conflict");
+  if (github?.pr?.headRefName && local?.task?.branch && github.pr.headRefName !== local.task.branch) reasons.push("pr_branch_identity_conflict");
+  if (github?.pr?.baseRefName && local?.task?.baseBranch && github.pr.baseRefName !== local.task.baseBranch) reasons.push("pr_base_branch_identity_conflict");
   const liveHead = validSha(github?.pr?.headSha) || validSha(repository?.headSha);
   const reviewHead = validSha(local?.review?.exactHead);
   if (reviewHead && liveHead && reviewHead !== liveHead) reasons.push("stale_exact_head_evidence");
@@ -189,11 +192,12 @@ function projectEvidence(local = {}) { return boundedList(local.evidence, (entry
 function classifyLedger(ledger = {}, github = {}, repository = {}) { const observed = validSha(ledger.observedMainSha); const current = validSha(repository.originMainSha); const stale = Boolean(ledger.stale || (observed && current && observed !== current) || (ledger.issueState && github.issue?.state && ledger.issueState !== github.issue.state)); return { classification: "derived", consistency: stale ? "stale" : "consistent_or_unproven", observedMainSha: observed, authoritativeFor: [], forbiddenInfluence: ["selection", "completion", "closure", "recovery", "merge", "duplicate_suppression"] }; }
 function counter(raw, classification) { return { classification, value: integer(typeof raw === "object" ? raw?.value : raw), limit: integer(typeof raw === "object" ? raw?.limit : null), blocking: classification === "authoritative" }; }
 function bounded(value) { return typeof value === "string" && value ? value.replace(/[\r\n\t]/g, " ").slice(0, maxString) : null; }
-function boundedReason(value) { const text = bounded(value); return text && /^[a-z0-9_:-]+$/i.test(text) ? text : "redacted_reason"; }
+function boundedReason(value) { const text = bounded(value); return text && /^[a-z0-9_:-]+$/i.test(text) && !credentialShaped(text) ? text : "redacted_reason"; }
 function boundedList(value, mapper) { return Array.isArray(value) ? value.slice(0, maxItems).map(mapper).filter((item) => item !== null && item !== undefined) : []; }
-function identifier(value) { const text = bounded(value); return text && /^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(text) ? text : null; }
-function refName(value) { const text = bounded(value); return text && /^[a-z0-9][a-z0-9._/-]{0,199}$/i.test(text) && !text.includes("..") ? text : null; }
-function repositorySlug(value) { const text = bounded(value); return text && /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(text) ? text : null; }
+function identifier(value) { const text = bounded(value); return text && /^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(text) && !credentialShaped(text) ? text : null; }
+function refName(value) { const text = bounded(value); return text && /^[a-z0-9][a-z0-9._/-]{0,199}$/i.test(text) && !text.includes("..") && !credentialShaped(text) ? text : null; }
+function repositorySlug(value) { const text = bounded(value); return text && /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(text) && !credentialShaped(text) ? text : null; }
+function credentialShaped(value) { return /github_pat_|gh[pousr]_|xox[baprs]-|sk-[a-z0-9_-]{8,}|akia[0-9a-z]{12,}|ya29\./i.test(value); }
 function integer(value) { return Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? Number(value) : null; }
 function validSha(value) { return typeof value === "string" && shaPattern.test(value) ? value : null; }
 function enumValue(value, allowed) { const normalized = typeof value === "string" ? value.toUpperCase() : null; return allowed.includes(normalized) ? normalized : null; }
