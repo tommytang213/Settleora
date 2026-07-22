@@ -204,10 +204,10 @@ export function getRunnerStatus(config) {
     processedIssueNumbers: source?.processedIssueNumbers || [],
     processedIssueCount: source?.processedIssueCount || 0,
     stopReason: source?.stopReason || null,
-    lastEventAt: latestIteration?.finishedAt || latestIteration?.startedAt || source?.lastHeartbeatAt || source?.finishedAt || source?.startedAt || null,
+    lastEventAt: source?.lastHeartbeatAt || latestIteration?.finishedAt || latestIteration?.startedAt || source?.finishedAt || source?.startedAt || null,
     paths: {
       summary: selectedSummaryPath,
-      markdownSummary: latestSummary?.markdownPath || null,
+      markdownSummary: useLatestSummary ? latestSummary.markdownPath : null,
       log: source?.logPath || null,
       activeState: active.path,
       lock: lock.path,

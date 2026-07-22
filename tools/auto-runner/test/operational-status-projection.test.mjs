@@ -390,6 +390,7 @@ test("inactive status binds run identity and path to the selected final summary"
   assert.equal(status.active, false);
   assert.equal(status.activeRunId, "run-final");
   assert.equal(status.paths.summary, finalSummaryPath);
+  assert.equal(status.paths.markdownSummary, finalSummaryPath.replace(/\.json$/, ".md"));
   assert.equal(status.currentOrLastIssue.number, 927);
 });
 
@@ -417,7 +418,9 @@ test("a newer interrupted checkpoint outranks an older completed summary", () =>
   assert.equal(status.activeRunId, "run-interrupted");
   assert.equal(status.currentOrLastIssue.number, 927);
   assert.equal(status.operationalProjection.lifecycle.phase, "local_validation");
+  assert.equal(status.lastEventAt, "2026-07-22T03:00:00.000Z");
   assert.equal(status.paths.summary, null);
+  assert.equal(status.paths.markdownSummary, null);
 });
 
 test("a live lock rejects a differently identified stale active-run record", () => {
@@ -458,6 +461,7 @@ test("a live matching lock keeps its checkpoint authoritative over unrelated sum
   assert.equal(status.currentOrLastIssue.number, 927);
   assert.equal(status.operationalProjection.lifecycle.phase, "implementation");
   assert.equal(status.paths.summary, null);
+  assert.equal(status.paths.markdownSummary, null);
 });
 
 test("active ownership fails closed when either authority identity is missing", () => {
