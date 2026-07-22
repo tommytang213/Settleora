@@ -64,6 +64,9 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
         };
         await handlers.onCheckpoint?.(state, { phase, action: "github_source_fix_epoch_reserved", fingerprints: novel });
       }
+      if (state.counters.localSourceChangingRoundsPerEpoch >= 50) {
+        return blocked(state, "local_source_changing_round_limit_exhausted");
+      }
       if (typeof handlers.source_failure_fix !== "function") return blocked(state, "ordinary_continuation_source_failure_fix_handler_missing");
       const intent = { batchIdentity: batch.batchIdentity, candidateHead: state.identity.headSha, status: "prepared" };
       state = { ...state, sourceFailureFixIntent: intent };

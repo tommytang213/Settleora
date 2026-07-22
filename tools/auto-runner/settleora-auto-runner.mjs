@@ -1912,7 +1912,14 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     counters: { acceptedLogicalTasks: 1, sourceRounds: state.reviewConvergenceState?.counters?.lifetimeLocalSourceChangingRounds || 0, githubEpochs: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0 },
   });
   fetchOriginMain(config);
-  if (getCurrentBranch() !== initial.branchName || getRefSha("HEAD") !== initial.identity.headSha || getRefSha("origin/main") !== initial.identity.baseSha || getStatusShort() !== "") {
+  const liveHeadAtRecovery = getRefSha("HEAD");
+  const preparedFixCanBeAdopted = Boolean(
+    initial.sourceFailureFixIntent?.status === "prepared"
+    && initial.sourceFailureFixIntent?.candidateHead === initial.identity.headSha
+    && liveHeadAtRecovery !== initial.identity.headSha
+    && spawnSync("git", ["merge-base", "--is-ancestor", initial.identity.headSha, liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).status === 0
+  );
+  if (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== initial.identity.baseSha || getStatusShort() !== "") {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
   const actualChangedFiles = listChangedFiles(initial.identity.baseSha, initial.identity.headSha);

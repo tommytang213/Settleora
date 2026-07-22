@@ -352,3 +352,10 @@ test("projection adapters prefer terminal summaries and normalize legacy check c
   assert.match(ctl, /deps\.loadProjectionConfig \|\| loadProjectionConfig/);
   assert.match(ctl, /status: status\.active \? "active" : projection\.status \|\| status\.latestTerminalOutcome/);
 });
+
+test("ordinary source-fix recovery admits only an exact descendant prepared commit for adoption", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /initial\.sourceFailureFixIntent\?\.status === "prepared"/);
+  assert.match(runner, /\["merge-base", "--is-ancestor", initial\.identity\.headSha, liveHeadAtRecovery\]/);
+  assert.match(runner, /preparedFixCanBeAdopted/);
+});

@@ -109,6 +109,25 @@ test("ordinary continuation persists fix intent and can adopt a completed fix af
   assert.equal(result.state.identity.headSha, sha("f"));
 });
 
+test("ordinary continuation blocks the fifty-first local source-changing round", async () => {
+  const state = createOrdinaryContinuationState({
+    logicalTaskKey: "944",
+    issueNumber: 944,
+    branchName: "feature/auto-944-x",
+    identity: identity(),
+    phase: "local_validation",
+    counters: { localSourceChangingRoundsPerEpoch: 50, lifetimeLocalSourceChangingRounds: 50 },
+  });
+  let fixes = 0;
+  const result = await continueOrdinaryCandidate(state, {
+    local_validation: async () => ({ ok: true, sourceFailures: [{ sourceKind: "local_validation", structuredEvidence: true, failureType: "source", diagnostic: "test failed", identity: identity(), inContract: true }] }),
+    source_failure_fix: async () => { fixes += 1; return { ok: true, sourceChanged: true, identity: identity("f") }; },
+    onCheckpoint: async () => {},
+  });
+  assert.equal(result.reasonCode, "local_source_changing_round_limit_exhausted");
+  assert.equal(fixes, 0);
+});
+
 test("ordinary mobile profile adds one Android APK proof and retains external unsupported platforms", () => {
   const lane = { lane: "mobile-application", canonicalLane: "mobile-application", validationProfile: "mobile" };
   const requirements = inferMobileBuildPlatformRequirements(["apps/mobile/lib/example.dart"], lane);
