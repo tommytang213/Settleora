@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { getRunnerStatus, writeActiveRunState } from "../lib/control-plane.mjs";
+import { sanitizePersistedEvidence } from "../lib/evidence-sanitizer.mjs";
 import {
   assertBoundedProjection,
   buildOperationalStatusProjection,
@@ -266,6 +267,35 @@ test("active-run persistence projects CI from the latest correlated wait attempt
   const review = JSON.parse(readFileSync(activePath, "utf8")).operationalProjection.review;
   assert.equal(review.ciStatus, "pass");
   assert.equal(review.ciHead, head);
+});
+
+test("persisted evidence redacts arbitrary authorization schemes without hiding reason codes", () => {
+  const secret = "credential-material-927";
+  const sanitized = sanitizePersistedEvidence({
+    error: `Authorization: Digest ${secret}`,
+    alternate: `authorization=ApiKey ${secret}`,
+    reasonCode: "protected_stack_plan_authorization_missing",
+  });
+  assert.equal(JSON.stringify(sanitized).includes(secret), false);
+  assert.equal(sanitized.reasonCode, "protected_stack_plan_authorization_missing");
+});
+
+test("production split and stack checkpoint state shapes remain visible", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-split-stack-state-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  const config = { logsRoot, maxIterations: 1, maxRuntimeMs: 60_000 };
+  const activePath = writeActiveRunState(config, {
+    runId: "run-split-stack",
+    startedAt: new Date().toISOString(),
+    iterations: [{
+      featureBundleSplit: { state: { phase: "materializing" } },
+      prStackExecution: { state: "handoff" },
+    }],
+  });
+  const large = JSON.parse(readFileSync(activePath, "utf8")).operationalProjection.largeCandidate;
+  assert.equal(large.splitState, "materializing");
+  assert.equal(large.stackState, "handoff");
+  assert.equal(large.handoffState, "handoff");
 });
 
 test("inactive status binds run identity and path to the selected final summary", () => {

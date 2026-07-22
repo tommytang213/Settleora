@@ -294,9 +294,9 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
       coverageStatus: large.coverage?.status || large.coverageStatus || null,
       integrationStatus: large.integration?.status || large.integrationStatus || null,
       uncoveredScopeIds: large.uncoveredScopeIds || large.contextLimit?.uncoveredScopeIds || [],
-      splitState: split.status || split.phase || null,
-      stackState: stack.status || stack.phase || null,
-      handoffState: split.stackHandoff?.status || stack.handoff?.status || null,
+      splitState: split.status || (typeof split.state === "string" ? split.state : split.state?.phase) || split.phase || null,
+      stackState: stack.status || (typeof stack.state === "string" ? stack.state : stack.state?.phase) || stack.phase || null,
+      handoffState: split.stackHandoff?.status || stack.handoff?.status || (stack.state === "handoff" ? "handoff" : null),
     },
     effects: {
       pendingIntentCount: recovery.pendingIntentCount ?? null,
