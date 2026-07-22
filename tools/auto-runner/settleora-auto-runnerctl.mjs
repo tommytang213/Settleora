@@ -390,6 +390,7 @@ function readProjectionSupervisor(config, status) {
   if (state.runId !== runId || (heartbeat && heartbeat.runId !== runId)) return { ok: false, reasonCode: "supervisor_identity_conflict" };
   if (status.active && !state.runnerRunId) return { ok: false, reasonCode: "active_supervisor_runner_correlation_missing" };
   if (status.active && !heartbeat) return { ok: false, reasonCode: "active_supervisor_heartbeat_missing" };
+  if (status.active && !heartbeat?.runnerRunId) return { ok: false, reasonCode: "active_supervisor_heartbeat_runner_correlation_missing" };
   if (status.active && heartbeatResult.stale) return { ok: false, reasonCode: "active_supervisor_heartbeat_stale" };
   if (status.active && heartbeat?.terminal) return { ok: false, reasonCode: "active_supervisor_terminal_conflict" };
   if (status.activeRunId && state.runnerRunId && status.activeRunId !== state.runnerRunId) return { ok: false, reasonCode: "supervisor_runner_identity_conflict" };
