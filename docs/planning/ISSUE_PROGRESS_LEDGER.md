@@ -11,9 +11,10 @@
 - Exact-head and current-main acceptance passed: runner `1124/1124`, secret
   boundary `31/31`, Flutter analyze and `843/843` tests, Android debug APK,
   GitHub scaffold/CodeQL/Semgrep/Trivy, zero unresolved review threads, and zero
-  open code-scanning alerts. #910 remains open for #912; #912 remains
-  manual-gated and unactivated. PR #917 remains closed without merge and
-  untouched.
+  open code-scanning alerts. #944 closed with the merge at
+  `2026-07-22T19:45:17Z` and should remain closed because its close rule is
+  satisfied. #910 remains open for #912; #912 remains manual-gated and
+  unactivated. PR #917 remains closed without merge and untouched.
 
 ### Issue #927 and PR #942 — merged completion (2026-07-22)
 
