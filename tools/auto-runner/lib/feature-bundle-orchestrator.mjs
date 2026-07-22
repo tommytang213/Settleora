@@ -266,6 +266,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       baseSha: checkpointBase,
       changedFiles: sliceChangedFiles,
       profile: slice.validationProfile,
+      laneDecision: slice.laneDecision || planned.laneDecision,
     });
     state = markBundleSliceCompleted(state, {
       sliceId: slice.id,
@@ -309,6 +310,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     baseSha: baseOriginMainSha,
     changedFiles: aggregateFiles,
     profile: planned.laneDecision.validationProfile,
+    laneDecision: planned.laneDecision,
   });
   recovery?.evidence("localValidation", {
     status: finalValidation.passed ? "passed" : "failed",
@@ -738,6 +740,7 @@ export async function runBundleReviewConvergence(config, input, deps = {}) {
         baseSha: input.baseSha,
         changedFiles,
         profile: input.laneDecision.validationProfile,
+        laneDecision: input.laneDecision,
       }),
       externalReview: postFix.externalReview,
       review: postFix.review,

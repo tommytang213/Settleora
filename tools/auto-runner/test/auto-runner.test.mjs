@@ -91,7 +91,7 @@ import {
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
-import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
+import { bindValidationEvidence, inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
@@ -4826,6 +4826,26 @@ test("client-ui-low-risk lane with exact mobile UI paths allows merge decision",
   );
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "all_auto_merge_gates_passed");
+});
+
+test("mobile-application low-risk validation binding preserves lane-derived platform evidence", () => {
+  const laneDecision = { lane: "mobile-application", validationProfile: "mobile-ui-low-risk" };
+  const checkId = mobileBuildPlatformChecks.androidFlutterBuildApkDebug;
+  const evidence = bindValidationEvidence({ passed: true, results: [{ command: "flutter build apk --debug", status: 0, error: null, platformBuildCheckId: checkId }] }, {
+    headSha: "a".repeat(40),
+    baseSha: "b".repeat(40),
+    changedFiles: ["apps/mobile/lib/example.dart"],
+    profile: laneDecision.validationProfile,
+    laneDecision,
+  });
+  assert.deepEqual(evidence.mobileBuildPlatformEvidence.platforms, ["android"]);
+  assert.deepEqual(evidence.mobileBuildPlatformEvidence.localCheckIds, [checkId]);
+  assert.deepEqual(evidence.mobileBuildPlatformEvidence.externalCheckIds, [
+    mobileBuildPlatformChecks.iosExternalBuild,
+    mobileBuildPlatformChecks.macosExternalBuild,
+    mobileBuildPlatformChecks.windowsExternalBuild,
+  ]);
+  assert.equal(evidence.mobileBuildPlatformEvidence.localChecks[0].passed, true);
 });
 
 test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mismatched independent review", () => {

@@ -1040,6 +1040,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     baseSha: iteration.baseOriginMainSha,
     changedFiles,
     profile: laneDecision.validationProfile,
+    laneDecision,
   });
   recoveryRecorder?.evidence("localValidation", {
     status: "passed",
@@ -1180,6 +1181,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       baseSha: iteration.baseOriginMainSha,
       changedFiles,
       profile: laneDecision.validationProfile,
+      laneDecision,
     });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
@@ -1334,6 +1336,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         baseSha: iteration.baseOriginMainSha,
         changedFiles,
         profile: laneDecision.validationProfile,
+        laneDecision,
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
@@ -1456,6 +1459,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         baseSha: iteration.baseOriginMainSha,
         changedFiles,
         profile: laneDecision.validationProfile,
+        laneDecision,
       });
       iteration.commitAfterReviewFix = postFix.commit;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
@@ -1585,6 +1589,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       baseSha: iteration.baseOriginMainSha,
       changedFiles,
       profile: laneDecision.validationProfile,
+      laneDecision,
     });
     iteration.commitAfterReviewFix = postFix.commit;
     iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
@@ -2038,7 +2043,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const changedFiles = listChangedFiles(candidate.baseSha, candidate.headSha);
       const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
       if (forbidden.length) return { ok: false, reasonCode: "ordinary_continuation_scope_mismatch" };
-      context.validation = bindValidationEvidence(runValidationPlan(config, planValidation(changedFiles, laneDecision)), { headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles, profile: laneDecision.validationProfile });
+      context.validation = bindValidationEvidence(runValidationPlan(config, planValidation(changedFiles, laneDecision)), { headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles, profile: laneDecision.validationProfile, laneDecision });
       operationalCheckpoint?.("ordinary_recovery_local_validation_complete", { validation: context.validation });
       return context.validation.passed
         ? { ok: true, evidence: { changedFilesDigest: context.validation.changedFilesDigest } }
@@ -2612,6 +2617,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
             baseSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
             changedFiles,
             profile: laneDecision.validationProfile,
+            laneDecision,
           },
         )
       : { passed: false, recovered: true },
