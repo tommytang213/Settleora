@@ -79,10 +79,17 @@ export function validationCommandCwd(config = {}, item = {}) {
   return config.repoRoot;
 }
 
-export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile }) {
+export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile, laneDecision = {} }) {
   const files = [...(changedFiles || [])].map(String).sort();
   const changedFilesDigest = digestChangedFiles(files);
-  const requirements = inferMobileBuildPlatformRequirements(files);
+  const effectiveLaneDecision = Object.keys(laneDecision).length > 0
+    ? laneDecision
+    : profile === "mobile"
+      ? { lane: "mobile-application" }
+      : profile === "mobile-build-config"
+        ? { lane: "mobile-build-config" }
+        : {};
+  const requirements = inferMobileBuildPlatformRequirements(files, effectiveLaneDecision);
   const localChecks = (validation?.results || [])
     .filter((result) => result.platformBuildCheckId)
     .map((result) => ({

@@ -856,7 +856,7 @@ function evaluateValidationEvidence(input, { expectedHeadSha, expectedBaseSha, c
 
 function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedBaseSha, changedFiles, laneDecision }) {
   const canonicalLane = laneDecision.canonicalLane || laneDecision.lane;
-  if (canonicalLane !== "mobile-build-config") return { ok: true };
+  if (!["mobile-application", "mobile-build-config"].includes(canonicalLane)) return { ok: true };
   const requirements = inferMobileBuildPlatformRequirements(changedFiles, laneDecision);
   if (requirements.localCheckIds.length === 0 && requirements.externalCheckIds.length === 0) return { ok: true };
   const validationEvidence = input.validation?.mobileBuildPlatformEvidence || {};

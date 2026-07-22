@@ -118,6 +118,7 @@ import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-
 import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
 import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches } from "./lib/ordinary-candidate-continuation.mjs";
+import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -869,12 +870,54 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   });
   checkpoint(iteration);
   if (!iteration.validation.passed) {
-    iteration.outcome = "validation_failed";
-    iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, validationFailureBody(issue, iteration.validation));
-    recoveryRecorder?.attempt("retryable_infrastructure", "checkpoint_validation_failed", "checkpoint_validation_failed");
-    recoveryRecorder?.stop("checkpoint_validation_failed", "Validation failed.", "retry_bounded_or_manual");
-    iteration.finishedAt = new Date().toISOString();
-    return iteration;
+    iteration.commit = await commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: initial candidate before source classification`, { effectContext: promptInfo.sessionLifecycle?.state });
+    iteration.runnerCreatedCommitSha = config.dryRun ? getRefSha("HEAD") : getRefSha("HEAD");
+    recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "validation_failure_candidate_commit");
+    const initialIdentity = {
+      baseSha: iteration.baseOriginMainSha,
+      headSha: iteration.runnerCreatedCommitSha,
+      treeSha: getRefSha("HEAD^{tree}"),
+      diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
+      changedFiles,
+      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+    };
+    const failures = sourceFailuresFromValidation(iteration.validation, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: config.taskKey || promptInfo.timestampKey, branchName, identity: initialIdentity, profile: laneDecision.validationProfile, inContract: true });
+    const batch = freezeSourceFailureBatch(failures, initialIdentity);
+    const decision = evaluateSourceFailureBatch(batch, iteration.sourceFailureHistory || []);
+    iteration.sourceFailureBatch = batch;
+    iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, candidate: batch.candidate }];
+    checkpoint(iteration);
+    if (!decision.sourceFixEligible) {
+      iteration.outcome = "validation_failed";
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, validationFailureBody(issue, iteration.validation));
+      recoveryRecorder?.stop("checkpoint_validation_not_source_fix_safe", "Validation failure was not safely classified as source-caused.", "stop_fail_closed");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    recoveryRecorder?.marker("source_failure_fix_intent", batch.batchIdentity, { target: branchName, correlation: runId });
+    const findings = batch.findings.map((failure) => ({ provider: failure.sourceKind, severity: "high", path: failure.path || changedFiles[0] || "", title: "Post-Codex local validation failure", body: failure.diagnosticExcerpt || failure.diagnosticDigest, safelyFixable: true }));
+    const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles, forbiddenChangedFiles: forbidden, validation: iteration.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: findings } }, iteration });
+    if (!fixAttempt.proceeded) {
+      iteration.outcome = "validation_failed";
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner source-failure fix stopped safely: ${fixAttempt.reason}.`);
+      recoveryRecorder?.stop("source_failure_fix_not_proceeded", fixAttempt.reason, "stop_fail_closed");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, recoveryRecorder, branchName });
+    if (!postFix.runnerCreatedCommitSha || !postFix.validation?.passed || postFix.forbiddenChangedFiles?.length) {
+      iteration.outcome = "validation_failed";
+      iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, "Auto-runner source-failure replacement candidate did not pass complete recertification.");
+      recoveryRecorder?.stop("source_failure_recertification_failed", "Replacement candidate failed validation or scope proof.", "stop_fail_closed");
+      iteration.finishedAt = new Date().toISOString();
+      return iteration;
+    }
+    iteration.sourceFailureCandidateCommitted = true;
+    iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+    iteration.validation = postFix.validation;
+    changedFiles = postFix.changedFiles;
+    iteration.changedFiles = changedFiles;
+    forbidden = postFix.forbiddenChangedFiles;
   }
 
   iteration.report = collectReport(config, promptInfo);
@@ -905,8 +948,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
 
-  iteration.commit = await commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`, { effectContext: promptInfo.sessionLifecycle?.state });
-  iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  if (!iteration.sourceFailureCandidateCommitted) {
+    iteration.commit = await commitExplicitPaths(config, changedFiles, `Auto-runner issue #${issue.number}: ${issue.title}`, { effectContext: promptInfo.sessionLifecycle?.state });
+    iteration.runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
+  }
   recoveryRecorder?.headChanged(iteration.runnerCreatedCommitSha, "checkpoint_commit");
   recoveryRecorder?.marker("checkpoint_commit", `issue-${issue.number}-${iteration.runnerCreatedCommitSha || "dry-run"}`, {
     target: branchName,
@@ -1909,7 +1954,49 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (forbidden.length) return { ok: false, reasonCode: "ordinary_continuation_scope_mismatch" };
       context.validation = bindValidationEvidence(runValidationPlan(config, planValidation(changedFiles, laneDecision)), { headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles, profile: laneDecision.validationProfile });
       operationalCheckpoint?.("ordinary_recovery_local_validation_complete", { validation: context.validation });
-      return context.validation.passed ? { ok: true, evidence: { changedFilesDigest: context.validation.changedFilesDigest } } : { ok: false, reasonCode: "ordinary_continuation_validation_failed" };
+      return context.validation.passed
+        ? { ok: true, evidence: { changedFilesDigest: context.validation.changedFilesDigest } }
+        : { ok: true, sourceFailures: sourceFailuresFromValidation(context.validation, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: continuation.logicalTaskKey, branchName: continuation.branchName, identity: candidate, profile: laneDecision.validationProfile, inContract: true }) };
+    },
+    adopt_source_failure_fix: async (continuation, { intent }) => {
+      if (intent?.candidateHead !== continuation.identity.headSha || getStatusShort() !== "") return { ok: false, reasonCode: "source_failure_fix_not_adoptable" };
+      const liveHead = getRefSha("HEAD");
+      if (liveHead === continuation.identity.headSha) return { ok: false, reasonCode: "source_failure_fix_not_applied" };
+      const changedFiles = listChangedFiles(continuation.identity.baseSha, liveHead);
+      if (filterForbiddenChangedFiles(changedFiles, laneDecision).length > 0) return { ok: false, reasonCode: "source_failure_fix_adoption_out_of_contract" };
+      return { ok: true, sourceChanged: true, identity: ordinaryIdentityForHead(continuation.identity.baseSha, liveHead), evidence: { adoptedCommit: liveHead, batchIdentity: intent.batchIdentity } };
+    },
+    source_failure_fix: async (continuation, { batch, intent }) => {
+      operationalCheckpoint?.("ordinary_recovery_source_failure_fix_intent", { batchIdentity: batch.batchIdentity, candidateHead: continuation.identity.headSha });
+      const findings = batch.findings.map((finding) => ({
+        provider: finding.sourceKind,
+        severity: "high",
+        path: finding.path || continuation.identity.changedFiles[0] || "",
+        title: `${finding.sourceKind} source failure`,
+        body: finding.diagnosticExcerpt || finding.diagnosticDigest,
+        safelyFixable: true,
+      }));
+      const promptInfo = { promptPath: null, ...(state.sessionLifecycle ? { sessionLifecycle: { state: state.sessionLifecycle } } : {}) };
+      const fixAttempt = await runReviewFixCycle(config, {
+        issue,
+        laneDecision,
+        branchName: continuation.branchName,
+        promptInfo,
+        changedFiles: continuation.identity.changedFiles,
+        forbiddenChangedFiles: [],
+        validation: context.validation,
+        report: { found: true, recovered: true },
+        externalReview: null,
+        review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: findings } },
+        reviewConvergenceState: state.reviewConvergenceState,
+      });
+      if (!fixAttempt.proceeded) return { ok: false, reasonCode: fixAttempt.reason || "source_failure_fix_not_proceeded" };
+      const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, branchName: continuation.branchName });
+      if (!postFix.runnerCreatedCommitSha || postFix.runnerCreatedCommitSha === continuation.identity.headSha || postFix.forbiddenChangedFiles?.length) {
+        return { ok: false, reasonCode: "source_failure_fix_candidate_invalid" };
+      }
+      operationalCheckpoint?.("ordinary_recovery_source_failure_fix_complete", { batchIdentity: batch.batchIdentity, newHead: postFix.runnerCreatedCommitSha });
+      return { ok: true, sourceChanged: true, identity: ordinaryIdentityForHead(continuation.identity.baseSha, postFix.runnerCreatedCommitSha), evidence: { commit: postFix.runnerCreatedCommitSha, batchIdentity: intent.batchIdentity } };
     },
     external_review: async (continuation) => {
       operationalCheckpoint?.("ordinary_recovery_external_review");
@@ -2030,6 +2117,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         return { ok: true, evidence: compactOrdinaryMergeEvidence(recovered.autoMerge, prNumber) };
       }
       if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
+      const sourceFailures = sourceFailuresFromGithubEvidence(recovered?.githubState || {}, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: continuation.logicalTaskKey, branchName: continuation.branchName, prNumber, identity: candidate, inContract: true });
+      if (sourceFailures.length > 0) return { ok: true, sourceFailures };
       return { ok: false, reasonCode: recovered?.autoMerge?.reason || recovered?.reason || "ordinary_continuation_github_convergence_blocked" };
     },
     merge: async () => ({ ok: true, evidence: { adoptedFromGithubConvergence: true } }),
@@ -2079,6 +2168,18 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
       : { ok: false, reasonCode: "ordinary_continuation_hygiene_effects_unconfirmed" };
   }
   return { ok: false, reasonCode: `ordinary_continuation_live_adoption_unsupported:${phase}` };
+}
+
+function ordinaryIdentityForHead(baseSha, headSha) {
+  const changedFiles = listChangedFiles(baseSha, headSha);
+  return {
+    baseSha,
+    headSha,
+    treeSha: getRefSha(`${headSha}^{tree}`),
+    diffDigest: createHash("sha256").update(getBoundedDiff(baseSha, headSha).text).digest("hex"),
+    changedFiles,
+    changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+  };
 }
 
 function compactOrdinaryMergeEvidence(autoMerge, prNumber) {
@@ -2487,6 +2588,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       generatedRecoveryEvidence,
       baseOriginMainSha,
       expectedHeadSha,
+      githubState,
       autoMerge: blocked,
     };
   }
@@ -2503,6 +2605,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       generatedRecoveryEvidence,
       baseOriginMainSha,
       expectedHeadSha,
+      githubState,
       autoMerge: blocked,
     };
   }

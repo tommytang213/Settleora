@@ -6,6 +6,7 @@ import {
   freezeSourceFailureBatch,
   normalizeSourceFailure,
   sourceFailureStatusProjection,
+  sourceFailuresFromGithubEvidence,
 } from "../lib/source-failure-convergence.mjs";
 import { continueOrdinaryCandidate, createOrdinaryContinuationState } from "../lib/ordinary-candidate-continuation.mjs";
 import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation } from "../lib/validation-planner.mjs";
@@ -42,6 +43,20 @@ test("scanner findings require exact structured identity and reject suppression"
   assert.equal(classifySourceFailure({ ...base, requestedAction: "suppress_rule" }).classification, "manual_action_required");
   assert.equal(classifySourceFailure({ ...base, path: null }).classification, "unsafe_or_ambiguous");
   assert.equal(classifySourceFailure({ ...base, headSha: sha("f"), identity: { headSha: sha("b") }, path: null }).classification, "unsafe_or_ambiguous");
+  const staleBatch = freezeSourceFailureBatch([{ ...base, headSha: sha("f") }], identity());
+  assert.equal(staleBatch.findings[0].classification, "unsafe_or_ambiguous");
+});
+
+test("GitHub CI and scanner adapters require structured exact-head evidence", () => {
+  const findings = sourceFailuresFromGithubEvidence({
+    requiredChecks: [{ name: "tests", status: "failure", step: "node test", command: "npm test", sanitizedLogExcerpt: "Assertion failed", failureType: "source" }],
+    codeScanningAlerts: [{ state: "open", tool: "CodeQL", ruleId: "js/xss", path: "tools/auto-runner/lib/x.mjs", line: 4, headSha: sha("b") }],
+  }, { identity: identity(), inContract: true });
+  const batch = freezeSourceFailureBatch(findings, identity());
+  assert.equal(batch.findings.length, 2);
+  assert.ok(batch.findings.every((finding) => finding.classification === "source_fix_safe"));
+  const unstructured = freezeSourceFailureBatch(sourceFailuresFromGithubEvidence({ requiredChecks: [{ name: "tests", status: "failure" }] }, { identity: identity() }), identity());
+  assert.equal(unstructured.findings[0].classification, "unsafe_or_ambiguous");
 });
 
 test("freezes and deduplicates one batch and durably stops identical no-progress", () => {
@@ -74,8 +89,24 @@ test("ordinary continuation routes validation source failure through one focused
   assert.equal(result.outcome, "complete");
   assert.deepEqual(calls.slice(0, 4), ["validate:b", "fix:local_validation", "validate:f", "external_review"]);
   assert.equal(result.state.counters.acceptedLogicalTasks, 1);
-  assert.equal(result.state.counters.sourceRounds, 1);
+  assert.equal(result.state.counters.localSourceChangingRoundsPerEpoch, 1);
+  assert.equal(result.state.counters.lifetimeLocalSourceChangingRounds, 1);
   assert.ok(calls.indexOf("push") > calls.indexOf("codex_review"));
+});
+
+test("ordinary continuation persists fix intent and can adopt a completed fix after restart", async () => {
+  const state = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/auto-944-x", identity: identity(), phase: "local_validation" });
+  const checkpoints = [];
+  const result = await continueOrdinaryCandidate(state, {
+    local_validation: async (current) => current.identity.headSha === sha("f") ? ({ ok: true }) : ({ ok: true, sourceFailures: [{ sourceKind: "local_validation", structuredEvidence: true, failureType: "source", diagnostic: "test failed assertion", identity: current.identity }] }),
+    adopt_source_failure_fix: async (_current, { intent }) => ({ ok: true, sourceChanged: true, identity: identity("f"), evidence: { adopted: intent.batchIdentity } }),
+    source_failure_fix: async () => { throw new Error("must not replay"); },
+    external_review: async () => ({ ok: true, wait: true }),
+    onCheckpoint: async (_current, event) => checkpoints.push(event.action),
+  });
+  assert.equal(result.outcome, "waiting");
+  assert.ok(checkpoints.includes("source_failure_fix_intent_prepared"));
+  assert.equal(result.state.identity.headSha, sha("f"));
 });
 
 test("ordinary mobile profile adds one Android APK proof and retains external unsupported platforms", () => {

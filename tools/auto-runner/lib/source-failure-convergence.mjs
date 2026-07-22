@@ -42,12 +42,13 @@ export function normalizeSourceFailure(input = {}) {
     branchName: boundedToken(input.branchName, 240),
     prNumber: positiveInteger(input.prNumber),
     identity,
-    commandId: boundedToken(input.commandId || input.command || input.profile, 300),
+    commandId: boundedIdentifier(input.commandId || input.profile, 160),
     toolId: boundedToken(input.toolId || input.tool, 80),
     ruleId: boundedToken(input.ruleId || input.rule, 160),
     path,
     line,
     diagnosticDigest,
+    diagnosticExcerpt: boundedDiagnostic(input.diagnostic || input.description || input.message || ""),
     classification,
     sourceFixEligible: classification === "source_fix_safe",
     retryable: classification === "retryable_infrastructure" || classification === "retryable_provider",
@@ -85,16 +86,27 @@ export function classifySourceFailure(input = {}) {
 }
 
 export function freezeSourceFailureBatch(findings = [], identity = {}) {
-  const normalized = findings.map((finding) => normalizeSourceFailure({ ...finding, identity: finding.identity || identity }));
+  const candidate = normalizeIdentity(identity);
+  const normalized = findings.map((finding) => {
+    const suppliedHead = finding.headSha || finding.identity?.headSha || null;
+    const stale = suppliedHead && suppliedHead !== candidate.headSha;
+    return normalizeSourceFailure({
+      ...finding,
+      identity: candidate,
+      headSha: candidate.headSha,
+      ...(stale ? { classification: "unsafe_or_ambiguous", reasonCode: "source_failure_stale_candidate_head", nextAction: "stop_fail_closed" } : {}),
+    });
+  });
   const byFingerprint = new Map(normalized.map((finding) => [finding.fingerprint, finding]));
   const frozen = [...byFingerprint.values()].sort((a, b) => a.fingerprint.localeCompare(b.fingerprint));
-  const candidate = normalizeIdentity(identity);
   const batchIdentity = digest({ contractVersion: sourceFailureContractVersion, candidate, fingerprints: frozen.map((finding) => finding.fingerprint) });
   return Object.freeze({ contractVersion: sourceFailureContractVersion, batchIdentity, candidate, findings: Object.freeze(frozen) });
 }
 
 export function evaluateSourceFailureBatch(batch, history = [], limits = {}) {
   if (!batch || batch.contractVersion !== sourceFailureContractVersion || !batch.batchIdentity) return result("unsafe_or_ambiguous");
+  const repeats = history.filter((entry) => entry.batchIdentity === batch.batchIdentity && entry.candidate?.headSha === batch.candidate?.headSha).length;
+  if (repeats >= (limits.identicalBatchWithoutHeadChange ?? 2)) return result("no_progress_or_oscillation");
   const actionable = batch.findings.filter((finding) => finding.classification === "source_fix_safe");
   const blocking = batch.findings.find((finding) => !["source_fix_safe", "pending", "retryable_infrastructure", "retryable_provider", "terminal_success"].includes(finding.classification));
   if (blocking) return { ...result(blocking.classification), finding: blocking };
@@ -104,8 +116,6 @@ export function evaluateSourceFailureBatch(batch, history = [], limits = {}) {
     if (batch.findings.some((finding) => finding.classification === "pending")) return result("pending");
     return result("terminal_success");
   }
-  const repeats = history.filter((entry) => entry.batchIdentity === batch.batchIdentity && entry.candidate?.headSha === batch.candidate?.headSha).length;
-  if (repeats >= (limits.identicalBatchWithoutHeadChange ?? 2)) return result("no_progress_or_oscillation");
   return { ...result("source_fix_safe"), actionable };
 }
 
@@ -128,6 +138,59 @@ export function sourceFailureStatusProjection({ batch = null, decision = null, r
   });
 }
 
+export function sourceFailuresFromValidation(validation = {}, context = {}) {
+  if (validation.passed === true) return [];
+  const failed = (validation.results || []).find((entry) => entry?.error || entry?.status !== 0);
+  if (!failed) return [{ ...context, sourceKind: "local_validation", structuredEvidence: false, diagnostic: "validation failed without a bounded command result" }];
+  const diagnostic = [failed.error, failed.stderr, failed.stdout].filter(Boolean).join(" ").slice(0, 2_000);
+  return [{
+    ...context,
+    sourceKind: "local_validation",
+    structuredEvidence: typeof failed.command === "string" && (Number.isInteger(failed.status) || Boolean(failed.error)),
+    commandId: validation.profile || context.profile || "validation",
+    diagnostic,
+    failureType: sourceDefect.test(diagnostic) ? "source" : null,
+    status: failed.status,
+  }];
+}
+
+export function sourceFailuresFromGithubEvidence(evidence = {}, context = {}) {
+  const failures = [];
+  for (const check of evidence.requiredChecks || []) {
+    const status = String(check.status || check.conclusion || "").toLowerCase();
+    if (["success", "completed_success", "neutral", "skipped"].includes(status)) continue;
+    failures.push({
+      ...context,
+      sourceKind: "github_check",
+      structuredEvidence: Boolean(check.name && (check.step || check.command) && check.sanitizedLogExcerpt),
+      status,
+      commandId: check.name,
+      diagnostic: check.sanitizedLogExcerpt || check.reason || check.name || "check failed without structured diagnostics",
+      failureType: check.failureType || null,
+      inContract: check.scopeAllowed !== false,
+    });
+  }
+  for (const alert of evidence.codeScanningAlerts || []) {
+    if (String(alert.state || "open").toLowerCase() !== "open") continue;
+    const tool = String(alert.tool?.name || alert.tool || alert.sourceKind || "").toLowerCase();
+    const sourceKind = tool.includes("codeql") ? "codeql" : tool.includes("semgrep") ? "semgrep" : tool.includes("trivy") ? "trivy" : "unsupported";
+    failures.push({
+      ...context,
+      sourceKind,
+      structuredEvidence: sourceKind !== "unsupported",
+      toolId: tool,
+      ruleId: alert.rule?.id || alert.ruleId,
+      path: alert.mostRecentInstance?.location?.path || alert.path,
+      line: alert.mostRecentInstance?.location?.startLine || alert.line,
+      headSha: alert.commitSha || alert.headSha || context.identity?.headSha,
+      diagnostic: alert.rule?.description || alert.description || "structured code-scanning alert",
+      requestedAction: alert.requestedAction || "source_fix",
+      inContract: alert.scopeAllowed !== false,
+    });
+  }
+  return failures;
+}
+
 function result(classification) { return { classification, sourceFixEligible: classification === "source_fix_safe", retryable: classification.startsWith("retryable_"), reasonCode: defaultReason(classification), nextAction: nextAction(classification) }; }
 function defaultReason(value) { return `source_failure_${value}`; }
 function nextAction(value) { return ({ source_fix_safe: "run_focused_source_fix", retryable_infrastructure: "retry_bounded", retryable_provider: "wait_or_retry_provider_bounded", pending: "wait", terminal_success: "continue", no_progress_or_oscillation: "stop_fail_closed" })[value] || "stop_fail_closed"; }
@@ -136,6 +199,8 @@ function validSha(value) { return /^[a-f0-9]{40}$/.test(String(value || "")); }
 function validDigest(value) { return /^[a-f0-9]{64}$/.test(String(value || "")); }
 function positiveInteger(value) { return Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null; }
 function boundedToken(value, max) { const text = boundedText(value, max); return text || null; }
+function boundedIdentifier(value, max) { const text = boundedText(value, max); return /^[A-Za-z0-9_.:/ -]+$/.test(text) ? text : text ? `sha256:${digest(text)}` : null; }
+function boundedDiagnostic(value) { return boundedText(value, 1_200).replace(/(?:authorization|password|passwd|secret|token|api[-_ ]?key)\s*[:=]\s*\S+/gi, "$1=[redacted]").replace(/https?:\/\/\S+[?&][^\s]+/g, "[signed-url-redacted]"); }
 function boundedText(value, max) { return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/(?:gh[opsu]_|github_pat_|AIza|sk-)[A-Za-z0-9_-]+/g, "[redacted]").replace(/\s+/g, " ").trim().slice(0, max); }
 function boundedPath(value) { const path = boundedText(value, 300).replace(/\\/g, "/"); return path && !path.startsWith("/") && !path.includes("..") ? path : null; }
 function boundedObject(value) { if (value == null) return null; const text = JSON.stringify(value); return text.length <= 2_000 ? JSON.parse(text) : { digest: digest(text), truncated: true }; }

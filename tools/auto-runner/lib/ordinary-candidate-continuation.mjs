@@ -51,11 +51,31 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
         if (decision.classification === "pending" || decision.retryable) return { ok: true, outcome: "waiting", reasonCode: decision.reasonCode, state };
         return { ok: false, outcome: "blocked", reasonCode: decision.reasonCode, state };
       }
+      if (phase === "github_convergence") {
+        const processed = new Set(state.processedGithubFindingFingerprints || []);
+        const fingerprints = batch.findings.map((finding) => finding.fingerprint);
+        const novel = fingerprints.filter((fingerprint) => !processed.has(fingerprint));
+        if (novel.length === 0) return blocked(state, "ordinary_continuation_duplicate_github_source_failure_batch");
+        if (state.counters.githubTriggeredFixEpochsPerPr >= 50) return blocked(state, "github_triggered_fix_epoch_limit_exhausted");
+        state = {
+          ...state,
+          counters: { ...state.counters, githubTriggeredFixEpochsPerPr: state.counters.githubTriggeredFixEpochsPerPr + 1, localSourceChangingRoundsPerEpoch: 0 },
+          processedGithubFindingFingerprints: [...processed, ...novel].sort(),
+        };
+        await handlers.onCheckpoint?.(state, { phase, action: "github_source_fix_epoch_reserved", fingerprints: novel });
+      }
       if (typeof handlers.source_failure_fix !== "function") return blocked(state, "ordinary_continuation_source_failure_fix_handler_missing");
-      const fixed = await handlers.source_failure_fix(Object.freeze({ ...state }), { batch, decision, originatingPhase: phase });
+      const intent = { batchIdentity: batch.batchIdentity, candidateHead: state.identity.headSha, status: "prepared" };
+      state = { ...state, sourceFailureFixIntent: intent };
+      await handlers.onCheckpoint?.(state, { phase, action: "source_failure_fix_intent_prepared", batch, decision });
+      let fixed = null;
+      if (typeof handlers.adopt_source_failure_fix === "function") {
+        fixed = await handlers.adopt_source_failure_fix(Object.freeze({ ...state }), { batch, decision, originatingPhase: phase, intent });
+      }
+      if (!fixed?.ok) fixed = await handlers.source_failure_fix(Object.freeze({ ...state }), { batch, decision, originatingPhase: phase, intent });
       if (!fixed?.ok || fixed.sourceChanged !== true || !validIdentity(fixed.identity)) return blocked(state, fixed?.reasonCode || "ordinary_continuation_source_failure_fix_failed");
       state = invalidateForSourceChange(state, fixed.identity);
-      state = { ...state, sourceFailureBatch: null, lastSourceFailureFix: bounded(fixed.evidence) };
+      state = { ...state, sourceFailureBatch: null, sourceFailureFixIntent: null, lastSourceFailureFix: bounded(fixed.evidence) };
       await handlers.onCheckpoint?.(state, { phase, action: "source_failure_fixed", batchIdentity: batch.batchIdentity });
       return continueOrdinaryCandidate(state, handlers);
     }
@@ -110,16 +130,33 @@ function normalizeState(value = {}) {
     identity: { ...value.identity, changedFiles: [...value.identity.changedFiles].sort() },
     phase: String(value.phase || ordinaryContinuationPhases[0]),
     effects: value.effects && typeof value.effects === "object" ? { ...value.effects } : {},
-    counters: { acceptedLogicalTasks: Number(value.counters?.acceptedLogicalTasks ?? 1), sourceRounds: Number(value.counters?.sourceRounds ?? 0), githubEpochs: Number(value.counters?.githubEpochs ?? 0) },
+    counters: {
+      acceptedLogicalTasks: Number(value.counters?.acceptedLogicalTasks ?? 1),
+      localSourceChangingRoundsPerEpoch: Number(value.counters?.localSourceChangingRoundsPerEpoch ?? value.counters?.sourceRounds ?? 0),
+      githubTriggeredFixEpochsPerPr: Number(value.counters?.githubTriggeredFixEpochsPerPr ?? value.counters?.githubEpochs ?? 0),
+      lifetimeLocalSourceChangingRounds: Number(value.counters?.lifetimeLocalSourceChangingRounds ?? value.counters?.sourceRounds ?? 0),
+    },
     sourceFailureBatch: value.sourceFailureBatch || null,
     sourceFailureHistory: Array.isArray(value.sourceFailureHistory) ? value.sourceFailureHistory.slice(-100) : [],
     lastSourceFailureFix: value.lastSourceFailureFix || null,
+    sourceFailureFixIntent: value.sourceFailureFixIntent || null,
+    processedGithubFindingFingerprints: Array.isArray(value.processedGithubFindingFingerprints) ? [...new Set(value.processedGithubFindingFingerprints)].sort() : [],
   };
 }
 
 function invalidateForSourceChange(state, identity) {
   if (!validIdentity(identity)) return { ...state, phase: "invalid" };
-  return { ...state, identity: { ...identity, changedFiles: [...identity.changedFiles].sort() }, phase: "local_validation", effects: pick(state.effects, ["candidate_reconciliation"]), counters: { ...state.counters, sourceRounds: state.counters.sourceRounds + 1 } };
+  return {
+    ...state,
+    identity: { ...identity, changedFiles: [...identity.changedFiles].sort() },
+    phase: "local_validation",
+    effects: pick(state.effects, ["candidate_reconciliation"]),
+    counters: {
+      ...state.counters,
+      localSourceChangingRoundsPerEpoch: state.counters.localSourceChangingRoundsPerEpoch + 1,
+      lifetimeLocalSourceChangingRounds: state.counters.lifetimeLocalSourceChangingRounds + 1,
+    },
+  };
 }
 
 function advance(state, index) { return { ...state, phase: ordinaryContinuationPhases[index + 1] || "complete" }; }
