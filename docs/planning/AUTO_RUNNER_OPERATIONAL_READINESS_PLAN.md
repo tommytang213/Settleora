@@ -371,7 +371,7 @@ Operational readiness is complete only when:
 
 ## Next Task
 
-Proceed through the current remaining sequence above, beginning with the
-post-acceptance controller/accounting/recovery issues. Do not repeat completed
-#911/#902 implementation. External production-profile activation remains last
-and manual under #912.
+#910 remains open for the one remaining readiness gate: #912. External
+production-profile activation remains manual, unactivated, and permitted only
+through a separately authorized #912 task; do not repeat completed
+implementation work.
