@@ -48,7 +48,7 @@ test("scanner findings require exact structured identity and reject suppression"
 });
 
 test("scanner REST field names preserve authoritative path and line", () => {
-  const [finding] = sourceFailuresFromGithubEvidence({ codeScanningAlerts: [{ state: "open", tool: { name: "CodeQL" }, rule: { id: "js/x", description: "finding" }, most_recent_instance: { location: { path: "tools/auto-runner/lib/x.mjs", start_line: 12 } }, headSha: sha("b") }] }, { identity: identity(), inContract: true });
+  const [finding] = sourceFailuresFromGithubEvidence({ codeScanningAlerts: [{ state: "open", tool: { name: "CodeQL" }, rule: { id: "js/x", description: "finding" }, most_recent_instance: { commit_sha: sha("b"), location: { path: "tools/auto-runner/lib/x.mjs", start_line: 12 } } }] }, { identity: identity(), inContract: true });
   assert.equal(finding.path, "tools/auto-runner/lib/x.mjs");
   assert.equal(finding.line, 12);
 });

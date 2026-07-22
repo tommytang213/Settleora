@@ -183,7 +183,7 @@ export function sourceFailuresFromGithubEvidence(evidence = {}, context = {}) {
       ruleId: alert.rule?.id || alert.ruleId,
       path: alert.most_recent_instance?.location?.path || alert.mostRecentInstance?.location?.path || alert.path,
       line: alert.most_recent_instance?.location?.start_line || alert.mostRecentInstance?.location?.startLine || alert.line,
-      headSha: alert.commitSha || alert.headSha || context.identity?.headSha,
+      headSha: alert.most_recent_instance?.commit_sha || alert.mostRecentInstance?.commitSha || alert.commitSha || alert.headSha,
       diagnostic: alert.rule?.description || alert.description || "structured code-scanning alert",
       requestedAction: alert.requestedAction || "source_fix",
       inContract: alert.scopeAllowed !== false,

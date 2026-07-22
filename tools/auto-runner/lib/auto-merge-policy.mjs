@@ -880,19 +880,7 @@ function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedB
     if (!check) return { ok: false, reason: `mobile_platform_local_check_missing:${checkId}` };
     if (check.passed !== true || check.status !== 0) return { ok: false, reason: `mobile_platform_local_check_failed:${checkId}` };
   }
-  const externalEvidence = Array.isArray(input.externalPlatformBuildEvidence)
-    ? input.externalPlatformBuildEvidence
-    : (input.requiredChecks || [])
-      .filter((check) => requirements.externalCheckIds.includes(check.name))
-      .map((check) => ({
-        checkId: check.name,
-        status: check.status,
-        conclusion: check.conclusion,
-        headSha: expectedHeadSha,
-        baseSha: expectedBaseSha,
-        changedFilesDigest: digestChangedFiles(changedFiles),
-        platforms: requirements.platforms,
-      }));
+  const externalEvidence = Array.isArray(input.externalPlatformBuildEvidence) ? input.externalPlatformBuildEvidence : [];
   for (const checkId of requirements.externalCheckIds) {
     const check = externalEvidence.find((item) => item.checkId === checkId);
     if (!check) return { ok: false, reason: `mobile_platform_external_check_missing:${checkId}` };

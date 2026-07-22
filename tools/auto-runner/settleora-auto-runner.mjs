@@ -1918,6 +1918,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     && initial.sourceFailureFixIntent?.candidateHead === initial.identity.headSha
     && liveHeadAtRecovery !== initial.identity.headSha
     && spawnSync("git", ["merge-base", "--is-ancestor", initial.identity.headSha, liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).status === 0
+    && spawnSync("git", ["rev-list", "--count", `${initial.identity.headSha}..${liveHeadAtRecovery}`], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === "1"
+    && spawnSync("git", ["show", "-s", "--format=%s", liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === `Auto-runner issue #${issue.number}: source-fix ${initial.sourceFailureFixIntent?.batchIdentity?.slice(0, 16)}`
   );
   if (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== initial.identity.baseSha || getStatusShort() !== "") {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
@@ -2016,7 +2018,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         reviewConvergenceState: state.reviewConvergenceState,
       });
       if (!fixAttempt.proceeded) return { ok: false, reasonCode: fixAttempt.reason || "source_failure_fix_not_proceeded" };
-      const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, branchName: continuation.branchName });
+      const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, branchName: continuation.branchName, commitMessage: `Auto-runner issue #${issue.number}: source-fix ${batch.batchIdentity.slice(0, 16)}` });
       if (!postFix.runnerCreatedCommitSha || postFix.runnerCreatedCommitSha === continuation.identity.headSha || postFix.forbiddenChangedFiles?.length) {
         return { ok: false, reasonCode: "source_failure_fix_candidate_invalid" };
       }
@@ -3250,9 +3252,9 @@ function lifecycleHasPendingCanonicalIntents(config, lifecycle) {
   }
 }
 
-async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt, recoveryRecorder, branchName, headChangeCheckpoint }) {
+async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report, fixAttempt, recoveryRecorder, branchName, headChangeCheckpoint, commitMessage = null }) {
   const changedFilesBeforeCommit = fixAttempt.changedFilesAfter || [];
-  const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, `Auto-runner issue #${issue.number}: review-fix follow-up`, { effectContext: promptInfo?.sessionLifecycle?.state });
+  const commit = await commitExplicitPaths(config, changedFilesBeforeCommit, commitMessage || `Auto-runner issue #${issue.number}: review-fix follow-up`, { effectContext: promptInfo?.sessionLifecycle?.state });
   const runnerCreatedCommitSha = config.dryRun ? null : getRefSha("HEAD");
   if (runnerCreatedCommitSha) {
     if (headChangeCheckpoint) await headChangeCheckpoint(runnerCreatedCommitSha);
