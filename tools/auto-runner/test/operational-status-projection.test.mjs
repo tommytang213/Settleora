@@ -172,6 +172,17 @@ test("projection config comes from the verified supervisor spec or trusted reque
   assert.deepEqual(loaded.autoMergePolicy.requiredChecks, ["Active policy"]);
   assert.equal(calls[0][0], "spec");
 
+  const foreground = loadProjectionConfig({ profile: "default" }, {
+    getRunnerStatus: () => ({ active: true, configPath: "/trusted/configs/foreground.json" }),
+    validateRunnerConfigPath: (configPath, logsRoot) => {
+      calls.push(["foreground", configPath, logsRoot]);
+      return { path: configPath };
+    },
+    loadConfig: (args) => args,
+  });
+  assert.equal(foreground.configPath, "/trusted/configs/foreground.json");
+  assert.equal(calls.at(-1)[0], "foreground");
+
   const fallback = loadProjectionConfig({ profile: "canary" }, {
     getRunnerStatus: () => ({}),
     resolveProfile: (profile) => ({ runnerConfigPath: `/trusted/configs/${profile}.json` }),

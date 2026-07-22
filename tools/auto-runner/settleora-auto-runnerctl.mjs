@@ -11,6 +11,7 @@ import {
   resolveProfile,
   specPathForRunId,
   readAndVerifyRunSpec,
+  validateRunnerConfigPath,
   writeImmutableRunSpec,
   sha256Text,
   canonicalJson,
@@ -99,12 +100,15 @@ export function loadProjectionConfig(cli, deps = {}) {
   const specReader = deps.readAndVerifyRunSpec || readAndVerifyRunSpec;
   const configLoader = deps.loadConfig || loadConfig;
   const profileResolver = deps.resolveProfile || resolveProfile;
+  const configPathValidator = deps.validateRunnerConfigPath || validateRunnerConfigPath;
   const bootstrap = { ...defaultConfig };
   const status = statusReader(bootstrap);
   let configPath;
   if (status.supervisorRunId) {
     const verified = specReader(status.supervisorRunId, null, bootstrap.logsRoot);
     configPath = verified.config.path;
+  } else if (status.active === true && status.configPath) {
+    configPath = configPathValidator(status.configPath, bootstrap.logsRoot).path;
   } else {
     configPath = profileResolver(cli.profile || "default", bootstrap.logsRoot).runnerConfigPath;
   }
