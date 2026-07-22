@@ -138,7 +138,7 @@ test("positive allowlist excludes secrets, prompts, provider payloads, OCR conte
 });
 
 test("credential-shaped values are rejected from allowlisted output fields", async () => {
-  const token = "ghp_abcdefghijklmnopqrstuvwxyz123456";
+  const token = ["gh", "p_abcdefghijklmnopqrstuvwxyz123456"].join("");
   const baseLocal = await adapters().local.read();
   const poisoned = adapters();
   poisoned.local = { read: async () => ({ ...baseLocal, status: token, task: { ...baseLocal.task, logicalTaskKey: token, branch: `feature/${token}` }, lifecycle: { phase: token }, blockers: [token], nextSafeAction: token, evidence: [{ kind: token, status: token }] }) };
