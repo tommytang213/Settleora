@@ -426,6 +426,7 @@ function summarizePr(pr, headSha = null, mergeSha = null) {
     title: pr.title || null,
     url: pr.url || null,
     headRefName: pr.headRefName || null,
+    baseRefName: pr.baseRefName || null,
     headSha: pr.headRefOid || headSha || null,
     mergeSha: pr.mergeCommit?.oid || mergeSha || null,
   });

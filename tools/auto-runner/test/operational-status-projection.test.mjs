@@ -119,6 +119,7 @@ test("corrupt, multiple-active, contradictory repository, PR, and stale-head fix
     { local: { active: true, task: { headSha: "e".repeat(40) } }, reason: "stale_head_identity_conflict" },
     { local: { active: true, task: { branch: "other-branch" } }, reason: "active_repository_branch_identity_conflict" },
     { local: { ...await adapters().local.read(), review: { exactHead: "e".repeat(40) } }, reason: "stale_exact_head_evidence" },
+    { local: { ...await adapters().local.read(), review: { validationStatus: "pass" } }, reason: "review_exact_head_missing" },
     { repository: { ...await adapters().repository.read(), headSha: "e".repeat(40) }, reason: "active_repository_head_identity_conflict" },
   ];
   for (const fixture of cases) {
@@ -163,12 +164,14 @@ test("active-run persistence retains the bounded operational projection from the
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-projection-"));
   mkdirSync(path.join(logsRoot, "state"), { recursive: true });
   const config = { logsRoot, maxIterations: 3, maxRuntimeMs: 60_000 };
-  const summary = { runId: "run-927", startedAt: new Date().toISOString(), iterations: [{ logicalTaskBudget: { acceptedLogicalTaskCount: 1, logicalTaskKey: "task-927", charged: true }, reviewConvergenceState: { twoLoop: { localSourceChangingRoundsPerEpoch: 2, githubTriggeredFixEpochsPerPr: 1, lifetimeLocalSourceChangingRounds: 9 } }, recovery: { state: { phase: "validation", nextSafeAction: "run_tests" } } }] };
+  const summary = { runId: "run-927", startedAt: new Date().toISOString(), iterations: [{ pr: { number: 42, headRefName: "feature/stack-b", baseRefName: "feature/stack-a", headRefOid: head }, logicalTaskBudget: { acceptedLogicalTaskCount: 1, logicalTaskKey: "task-927", charged: true }, reviewConvergenceState: { twoLoop: { localSourceChangingRoundsPerEpoch: 2, githubTriggeredFixEpochsPerPr: 1, lifetimeLocalSourceChangingRounds: 9 } }, recovery: { state: { phase: "validation", nextSafeAction: "run_tests" } } }] };
   const activePath = writeActiveRunState(config, summary);
   const persisted = JSON.parse(readFileSync(activePath, "utf8"));
   assert.equal(persisted.operationalProjection.counters.acceptedTaskBudget.consumed, 1);
   assert.equal(persisted.operationalProjection.counters.localSourceChangingRoundsPerEpoch, 2);
-  assert.equal(getRunnerStatus(config).operationalProjection.recovery.nextSafeAction, "run_tests");
+  const status = getRunnerStatus(config);
+  assert.equal(status.operationalProjection.recovery.nextSafeAction, "run_tests");
+  assert.equal(status.currentOrLastPr.baseRefName, "feature/stack-a");
 });
 
 test("output bounds reject unbounded models", async () => {

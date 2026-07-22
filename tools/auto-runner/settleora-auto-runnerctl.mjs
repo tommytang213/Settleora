@@ -393,7 +393,7 @@ function projectRunnerStatus(status = {}) {
       runId: status.activeRunId || null,
       issueNumber: issue.number || null,
       branch: pr.headRefName || null,
-      baseBranch: pr.baseRefName || "main",
+      baseBranch: pr.baseRefName || null,
       headSha: pr.headSha || null,
       prNumber: pr.number || null,
     },
