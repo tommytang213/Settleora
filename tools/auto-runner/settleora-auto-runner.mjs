@@ -317,7 +317,8 @@ async function main() {
         break;
       }
       Object.assign(summary, trackerSnapshot(issueTracker));
-      const iteration = await runIteration(config, logger, runId, index, issueTracker, chargedRecoveryAtCap, (current) => writeCurrentIterationState(config, summary, current));
+      config.operationalIterationCheckpoint = (current) => writeCurrentIterationState(config, summary, current);
+      const iteration = await runIteration(config, logger, runId, index, issueTracker, chargedRecoveryAtCap);
       const canaryEvidence = writeCanaryEvidence(config, iteration);
       if (canaryEvidence) {
         iteration.canaryEvidence = canaryEvidence;
@@ -368,7 +369,8 @@ function isFatalRunStopReason(stopReason) {
   return typeof stopReason === "string" && stopReason.startsWith("recoverable-work-blocked:");
 }
 
-async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker(), startupRecoveryOverride = null, checkpoint = () => {}) {
+async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker(), startupRecoveryOverride = null) {
+  const checkpoint = config.operationalIterationCheckpoint || (() => {});
   const iteration = {
     runId,
     index,
