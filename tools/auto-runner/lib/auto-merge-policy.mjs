@@ -1075,7 +1075,7 @@ function flattenCheckRollup(rollup) {
   }));
 }
 
-function detectBlockingMarkers(comments, reviews) {
+export function detectBlockingMarkers(comments, reviews) {
   const text = [...comments, ...reviews].map((item) => `${item.body || ""} ${item.state || ""}`).join("\n");
   const markers = [];
   if (/\b(needs-tommy|danger-gate|blocked|manual gate|do not merge|changes requested)\b/i.test(text)) {

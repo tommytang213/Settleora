@@ -34,7 +34,7 @@ import { defaultConfig, loadConfig } from "./lib/config.mjs";
 import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
 import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
 import { buildOperationalStatusProjection, renderOperationalStatusMarkdown } from "./lib/operational-status-projection.mjs";
-import { summarizeCheckStatus } from "./lib/auto-merge-policy.mjs";
+import { detectBlockingMarkers, summarizeCheckStatus } from "./lib/auto-merge-policy.mjs";
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
@@ -485,6 +485,8 @@ function readProjectionGithub(config, status, run) {
     if (!Array.isArray(threadConnection?.nodes) || threadConnection.pageInfo?.hasNextPage === true) return { ok: false, reasonCode: "github_review_threads_read_failed" };
     const reviews = readGhJson(run, config, ["api", `repos/${config.repositorySlug}/pulls/${prNumber}/reviews?per_page=100`]);
     if (!Array.isArray(reviews) || reviews.length >= 100) return { ok: false, reasonCode: "github_reviews_read_failed" };
+    const comments = readGhJson(run, config, ["api", `repos/${config.repositorySlug}/issues/${prNumber}/comments?per_page=100`]);
+    if (!Array.isArray(comments) || comments.length >= 100) return { ok: false, reasonCode: "github_comments_read_failed" };
     const alerts = readGhJson(run, config, ["api", "--method", "GET", `repos/${config.repositorySlug}/code-scanning/alerts`, "-f", `ref=refs/heads/${pr.headRefName}`, "-f", "state=open", "-f", "per_page=100"]);
     if (!Array.isArray(alerts) || alerts.length >= 100) return { ok: false, reasonCode: "github_code_scanning_alerts_read_failed" };
     const confirmedPr = readGhJson(run, config, prArgs);
@@ -495,6 +497,7 @@ function readProjectionGithub(config, status, run) {
       number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName,
       checks: summarizeLiveChecks(pr.statusCheckRollup, config.autoMergePolicy),
       review: { status: blockingCodexReview ? "changes_requested" : exactCodexReviews.length ? "complete" : "pending", headSha: pr.headRefOid, unresolvedThreads: threadConnection.nodes.filter((thread) => thread?.isResolved !== true).length },
+      blockingMarker: detectBlockingMarkers(comments, reviews).length > 0,
       scanner: { status: alerts.length === 0 ? "pass" : "open_alerts", headSha: pr.headRefOid, openAlerts: alerts.length },
     };
   }

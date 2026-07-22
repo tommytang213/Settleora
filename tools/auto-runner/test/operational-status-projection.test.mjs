@@ -142,6 +142,7 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
     if (args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
     if (args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: head, baseRefName: "main", statusCheckRollup: [] }) };
     if (args[0] === "api" && args[1] === "graphql") return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } } } } } }) };
+    if (args[0] === "api" && String(args[1]).includes("/comments")) return { status: 0, stdout: "[]" };
     if (args[0] === "api" && String(args[1]).includes("/reviews")) return { status: 0, stdout: JSON.stringify([{ commit_id: head, user: { login: "chatgpt-codex-connector[bot]" } }]) };
     if (args[0] === "api" && args[1] === "--method") return { status: 0, stdout: "[]" };
     return { status: 1, stdout: "" };
@@ -151,7 +152,7 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
   const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
   assert.equal(model.supervisor.heartbeatPosture, "fresh");
   assert.equal(model.ledger.consistency, "stale");
-  assert.deepEqual(calls.map((call) => call.slice(0, 3)).sort(), [["gh", "issue", "view"], ["gh", "pr", "view"], ["gh", "pr", "view"], ["gh", "api", "graphql"], ["gh", "api", "repos/tommytang213/Settleora/pulls/942/reviews?per_page=100"], ["gh", "api", "--method"], ["git", "--no-optional-locks", "branch"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "show"], ["git", "--no-optional-locks", "status"]].sort());
+  assert.deepEqual(calls.map((call) => call.slice(0, 3)).sort(), [["gh", "issue", "view"], ["gh", "pr", "view"], ["gh", "pr", "view"], ["gh", "api", "graphql"], ["gh", "api", "repos/tommytang213/Settleora/pulls/942/reviews?per_page=100"], ["gh", "api", "repos/tommytang213/Settleora/issues/942/comments?per_page=100"], ["gh", "api", "--method"], ["git", "--no-optional-locks", "branch"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "show"], ["git", "--no-optional-locks", "status"]].sort());
   const forbidden = new Set(["add", "commit", "push", "merge", "edit", "comment", "close", "create", "delete"]);
   assert.equal(calls.some((call) => call.some((token) => forbidden.has(token))), false);
 });
@@ -179,7 +180,7 @@ test("production repository projection rejects detached HEAD", async () => {
 
 test("production GitHub projection enforces required-check and neutral policies", async () => {
   const required = ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"];
-  const modelFor = async (checks, reviews = [{ commit_id: head, user: { login: "chatgpt-codex-connector[bot]" } }, { commit_id: head, user: { login: "friendly-codex-reviewer" } }]) => {
+  const modelFor = async (checks, reviews = [{ commit_id: head, user: { login: "chatgpt-codex-connector[bot]" } }, { commit_id: head, user: { login: "friendly-codex-reviewer" } }], comments = []) => {
     const spawnSync = (command, args) => {
       if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
       if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${args.at(-1) === "origin/main" ? main : head}\n` };
@@ -188,6 +189,7 @@ test("production GitHub projection enforces required-check and neutral policies"
       if (command === "gh" && args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
       if (command === "gh" && args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: head, baseRefName: "main", statusCheckRollup: checks }) };
       if (command === "gh" && args[0] === "api" && args[1] === "graphql") return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [{ isResolved: false }], pageInfo: { hasNextPage: false } } } } } }) };
+      if (command === "gh" && args[0] === "api" && String(args[1]).includes("/comments")) return { status: 0, stdout: JSON.stringify(comments) };
       if (command === "gh" && args[0] === "api" && String(args[1]).includes("/reviews")) return { status: 0, stdout: JSON.stringify(reviews) };
       if (command === "gh" && args[0] === "api" && args[1] === "--method") return { status: 0, stdout: JSON.stringify([{ state: "open" }]) };
       return { status: 1, stdout: "" };
@@ -217,6 +219,7 @@ test("production GitHub projection enforces required-check and neutral policies"
   assert.ok(passingSummary.blockers.includes("github_unresolved_review_threads"));
   assert.ok(passingSummary.blockers.includes("github_code_scanning_alerts_open"));
   assert.ok((await modelFor(successes.slice(1))).blockers.includes("github_required_checks_missing"));
+  assert.ok((await modelFor(successes, undefined, [{ body: "do not merge" }])).blockers.includes("github_blocking_comment_or_review_marker"));
 });
 
 test("production GitHub projection rejects incomplete PR identity before local fallback", async () => {
@@ -246,6 +249,7 @@ test("production GitHub projection rejects PR head drift across its bounded live
     if (command === "gh" && args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
     if (command === "gh" && args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: ++prReads === 1 ? head : main, baseRefName: "main", statusCheckRollup: [] }) };
     if (command === "gh" && args[0] === "api" && args[1] === "graphql") return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } } } } } }) };
+    if (command === "gh" && args[0] === "api" && String(args[1]).includes("/comments")) return { status: 0, stdout: "[]" };
     if (command === "gh" && args[0] === "api" && String(args[1]).includes("/reviews")) return { status: 0, stdout: "[]" };
     if (command === "gh" && args[0] === "api" && args[1] === "--method") return { status: 0, stdout: "[]" };
     return { status: 1, stdout: "" };
