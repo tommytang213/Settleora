@@ -393,6 +393,33 @@ test("inactive status binds run identity and path to the selected final summary"
   assert.equal(status.currentOrLastIssue.number, 927);
 });
 
+test("a newer interrupted checkpoint outranks an older completed summary", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-interrupted-checkpoint-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  mkdirSync(path.join(logsRoot, "summaries"), { recursive: true });
+  writeFileSync(path.join(logsRoot, "state", "active-run.json"), JSON.stringify({
+    pid: 99999999,
+    runId: "run-interrupted",
+    startedAt: "2026-07-22T02:00:00.000Z",
+    lastHeartbeatAt: "2026-07-22T03:00:00.000Z",
+    currentIteration: { issue: { number: 927 } },
+    operationalProjection: { lifecycle: { phase: "local_validation" } },
+  }));
+  writeFileSync(path.join(logsRoot, "summaries", "run-completed.json"), JSON.stringify({
+    runId: "run-completed",
+    startedAt: "2026-07-22T00:00:00.000Z",
+    finishedAt: "2026-07-22T01:00:00.000Z",
+    iterations: [{ issue: { number: 910 }, outcome: "completed" }],
+  }));
+
+  const status = getRunnerStatus({ logsRoot });
+  assert.equal(status.active, false);
+  assert.equal(status.activeRunId, "run-interrupted");
+  assert.equal(status.currentOrLastIssue.number, 927);
+  assert.equal(status.operationalProjection.lifecycle.phase, "local_validation");
+  assert.equal(status.paths.summary, null);
+});
+
 test("a live lock rejects a differently identified stale active-run record", () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-owner-conflict-"));
   mkdirSync(path.join(logsRoot, "state"), { recursive: true });

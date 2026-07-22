@@ -140,10 +140,16 @@ export function getRunnerStatus(config) {
   const active = readActiveRun(config);
   const control = readControlState(config);
   const latestSummary = readLatestRunSummary(config);
-  const source = active.active ? active.parsed : latestSummary?.summary || active.parsed || null;
+  const retainedTimestamp = Date.parse(active.parsed?.lastHeartbeatAt || active.parsed?.finishedAt || active.parsed?.startedAt || 0);
+  const summaryTimestamp = Date.parse(latestSummary?.summary?.finishedAt || latestSummary?.summary?.lastHeartbeatAt || latestSummary?.summary?.startedAt || 0);
+  const retainedInactiveCheckpointIsNewer = Boolean(active.parsed && (
+    !latestSummary?.summary || (Number.isFinite(retainedTimestamp) && (!Number.isFinite(summaryTimestamp) || retainedTimestamp > summaryTimestamp))
+  ));
+  const useLatestSummary = !active.active && !retainedInactiveCheckpointIsNewer && Boolean(latestSummary?.summary);
+  const source = active.active ? active.parsed : useLatestSummary ? latestSummary.summary : active.parsed || null;
   const selectedSummaryPath = active.active
     ? active.parsed?.summaryPath || null
-    : latestSummary?.path || active.parsed?.summaryPath || null;
+    : useLatestSummary ? latestSummary.path : active.parsed?.summaryPath || null;
   const startedAt = source?.startedAt || null;
   const maxRuntimeMs = source?.maxRuntimeMs ?? active.parsed?.maxRuntimeMs ?? null;
   const elapsedMs = startedAt ? Math.max(0, Date.now() - Date.parse(startedAt)) : null;
