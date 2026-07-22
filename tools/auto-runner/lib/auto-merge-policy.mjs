@@ -1117,8 +1117,14 @@ function enrichFailedCheckEvidence(config, checks, run) {
     const result = run("gh", ["run", "view", match[1], "--job", match[2], "--log-failed"], { cwd: config.repoRoot });
     if (result.error || result.status !== 0) return check;
     const sanitized = sanitizePersistedEvidence(String(result.stdout || "").slice(0, 12_000));
-    return { ...check, step: "failed-job-log", sanitizedLogExcerpt: String(sanitized || "").slice(0, 2_000), failureType: /assert|test failed|compiler|compilation|lint|build failed|syntax error|analysis issues?/i.test(String(sanitized || "")) ? "source" : null };
+    return { ...check, step: "failed-job-log", sanitizedLogExcerpt: String(sanitized || "").slice(0, 2_000), failureType: classifyFailedCheckLogFailureType(sanitized) };
   });
+}
+
+export function classifyFailedCheckLogFailureType(value) {
+  const text = String(value || "");
+  if (/timeout|timed out|rate limit|temporar(?:y|ily)|network|connection reset|service unavailable|runner unavailable|dependency (?:download|registry|mirror)/i.test(text)) return null;
+  return /assert|test failed|compiler|compilation|lint|build failed|syntax error|analysis issues?/i.test(text) ? "source" : null;
 }
 
 export function detectBlockingMarkers(comments, reviews) {

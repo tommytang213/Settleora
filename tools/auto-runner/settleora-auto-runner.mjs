@@ -889,6 +889,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }];
     checkpoint(iteration);
     if (!decision.sourceFixEligible) {
+      if (decision.retryable) {
+        iteration.outcome = "validation_retryable";
+        recoveryRecorder?.attempt(decision.classification, decision.reasonCode, "Bounded retry required for transient local validation failure.");
+        recoveryRecorder?.stop(decision.reasonCode, "Transient local validation failure retained for bounded recovery.", decision.nextAction);
+        iteration.finishedAt = new Date().toISOString();
+        return iteration;
+      }
       iteration.outcome = "validation_failed";
       iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, validationFailureBody(issue, iteration.validation));
       recoveryRecorder?.stop("checkpoint_validation_not_source_fix_safe", "Validation failure was not safely classified as source-caused.", "stop_fail_closed");

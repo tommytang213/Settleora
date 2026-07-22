@@ -12,6 +12,7 @@ import {
 import { continueOrdinaryCandidate, createOrdinaryContinuationState } from "../lib/ordinary-candidate-continuation.mjs";
 import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation } from "../lib/validation-planner.mjs";
 import { evaluateReviewFixMutationDecision, evaluateSourceFailureFixMutationDecision } from "../lib/review-fix-policy.mjs";
+import { classifyFailedCheckLogFailureType } from "../lib/auto-merge-policy.mjs";
 
 const sha = (character) => character.repeat(40);
 const digest = (character) => character.repeat(64);
@@ -40,6 +41,12 @@ test("classifies pending transient auth actionable and ambiguous CI without gues
   assert.equal(classifySourceFailure({ sourceKind: "github_check", status: "failure", structuredEvidence: false }).classification, "unsafe_or_ambiguous");
   const [inferred] = sourceFailuresFromValidation({ passed: false, profile: "workflow-tooling", results: [{ command: "npm test", status: 1, stderr: "dependency download timeout; build failed with exit code 1" }] }, { identity: identity(), inContract: true });
   assert.equal(freezeSourceFailureBatch([inferred], identity()).findings[0].classification, "retryable_infrastructure");
+});
+
+test("GitHub failed-check log hints keep transient infrastructure ahead of broad source text", () => {
+  assert.equal(classifyFailedCheckLogFailureType("dependency download timeout; build failed"), null);
+  assert.equal(classifyFailedCheckLogFailureType("network connection reset after compiler failed"), null);
+  assert.equal(classifyFailedCheckLogFailureType("test failed: expected 2 but received 3"), "source");
 });
 
 test("scanner findings require exact structured identity and reject suppression", () => {
