@@ -333,7 +333,7 @@ test("projection checkpoints retain recovery, implementation, convergence, split
   assert.match(bundle, /checkpoint\("feature_bundle_split_materialization"[\s\S]*?materializeFeatureBundleSplit[\s\S]*?checkpoint\("feature_bundle_split_materialization_complete"/);
   assert.match(bundle, /checkpoint\("feature_bundle_pr_stack_handoff"\)[\s\S]*?runPrStackExecution[\s\S]*?checkpoint\("feature_bundle_pr_stack_handoff_complete"\)/);
   assert.match(control, /iteration\.pr\?\.headRefOid[\s\S]*?iteration\.validation\?\.headSha[\s\S]*?iteration\.externalReview\?\.reviewedHead/);
-  assert.match(control, /activeOwnerConflict: Boolean\(\(lock\.active \|\| active\.active\)[\s\S]*?!lock\.parsed\?\.runId[\s\S]*?!active\.parsed\?\.runId[\s\S]*?lock\.parsed\.runId !== active\.parsed\.runId/);
+  assert.match(control, /activeOwnerConflict: Boolean\(!lockOnlyPrStackAuthority && \(lock\.active \|\| active\.active\)[\s\S]*?!lock\.parsed\?\.runId[\s\S]*?!active\.parsed\?\.runId[\s\S]*?lock\.parsed\.runId !== active\.parsed\.runId/);
   assert.doesNotMatch(control, /(?:ciHead|scannerHead):[^\n]*expectedHeadSha/);
 });
 
@@ -341,12 +341,13 @@ test("projection adapters prefer terminal summaries and normalize legacy check c
   const control = readFileSync(new URL("../lib/control-plane.mjs", import.meta.url), "utf8");
   const ctl = readFileSync(new URL("../settleora-auto-runnerctl.mjs", import.meta.url), "utf8");
   assert.match(control, /const retainedInactiveCheckpointIsNewer = Boolean\(active\.parsed/);
-  assert.match(control, /const source = runnerAuthorityActive \? active\.parsed : useLatestSummary \? latestSummary\.summary : active\.parsed \|\| null/);
+  assert.match(control, /const source = lockOnlyPrStackAuthority \? lock\.parsed : runnerAuthorityActive \? active\.parsed : useLatestSummary \? latestSummary\.summary : active\.parsed \|\| null/);
   assert.match(ctl, /\["PENDING", "EXPECTED"\]\.includes\(check\.state\)/);
   assert.match(ctl, /name: check\.name \|\| check\.context \|\| "unknown"/);
   assert.match(ctl, /summarizeCheckStatus\(normalized, policy\)/);
   assert.match(ctl, /specReader\(status\.supervisorRunId, null, bootstrap\.logsRoot\)/);
   assert.match(ctl, /configPathValidator\(status\.configPath, bootstrap\.logsRoot\)\.path/);
+  assert.match(ctl, /status\.authorityHealth\?\.lockOnlyPrStackAuthority === true/);
   assert.match(ctl, /loadProjectionConfig\(cli\)/);
   assert.match(ctl, /status: status\.active \? "active" : projection\.status \|\| status\.latestTerminalOutcome/);
 });

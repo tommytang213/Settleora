@@ -533,6 +533,31 @@ test("a live matching lock keeps its checkpoint authoritative over unrelated sum
   assert.equal(status.paths.markdownSummary, null);
 });
 
+test("a live lock-only PR-stack run is an authoritative owner with its trusted config", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-lock-only-stack-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  mkdirSync(path.join(logsRoot, "locks"), { recursive: true });
+  const configPath = path.join(logsRoot, "live-stack-acceptance", "20260722-1019", "config.json");
+  const stackPlanPath = path.join(logsRoot, "live-stack-acceptance", "20260722-1019", "stack-plan.json");
+  writeFileSync(path.join(logsRoot, "locks", "settleora-auto-runner.lock"), JSON.stringify({ pid: process.pid, runId: "pr-stack-20260722-1019", mode: "pr-stack-run", configPath, stackPlanPath }));
+  const status = getRunnerStatus({ logsRoot });
+  assert.equal(status.active, true);
+  assert.equal(status.activeRunId, "pr-stack-20260722-1019");
+  assert.equal(status.authorityHealth.activeOwnerConflict, false);
+  assert.equal(status.authorityHealth.lockOnlyPrStackAuthority, true);
+  assert.equal(status.configPath, configPath);
+
+  const loaded = loadProjectionConfig({ profile: "default" }, {
+    defaultConfig: { logsRoot },
+    getRunnerStatus: () => status,
+    loadConfig: (args, capabilities) => ({ args, capabilities }),
+  });
+  assert.equal(loaded.args.runPrStack, true);
+  assert.equal(loaded.args.configPath, configPath);
+  assert.equal(loaded.args.stackPlanPath, stackPlanPath);
+  assert.equal(loaded.capabilities.prStackTrustedRoot, logsRoot);
+});
+
 test("active ownership fails closed when either authority identity is missing", () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-owner-missing-"));
   mkdirSync(path.join(logsRoot, "state"), { recursive: true });

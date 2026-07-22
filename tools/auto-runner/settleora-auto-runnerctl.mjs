@@ -101,12 +101,21 @@ export function loadProjectionConfig(cli, deps = {}) {
   const configLoader = deps.loadConfig || loadConfig;
   const profileResolver = deps.resolveProfile || resolveProfile;
   const configPathValidator = deps.validateRunnerConfigPath || validateRunnerConfigPath;
-  const bootstrap = { ...defaultConfig };
+  const bootstrap = { ...(deps.defaultConfig || defaultConfig) };
   const status = statusReader(bootstrap);
   let configPath;
   if (status.supervisorRunId) {
     const verified = specReader(status.supervisorRunId, null, bootstrap.logsRoot);
     configPath = verified.config.path;
+  } else if (status.authorityHealth?.lockOnlyPrStackAuthority === true) {
+    configPath = status.configPath;
+    return configLoader({
+      dryRun: true,
+      run: false,
+      runPrStack: true,
+      configPath,
+      stackPlanPath: status.lock?.parsed?.stackPlanPath,
+    }, { prStackTrustedRoot: bootstrap.logsRoot });
   } else if (status.active === true && status.configPath) {
     configPath = configPathValidator(status.configPath, bootstrap.logsRoot).path;
   } else {
@@ -487,12 +496,12 @@ function projectRunnerStatus(status = {}) {
       headSha: pr.headSha || taskIdentity.headSha || null,
       prNumber: pr.number || taskIdentity.prNumber || null,
     },
-    lifecycle: projection.lifecycle || { phase: status.stopReason || null, terminalPosture: status.latestTerminalOutcome || null },
+    lifecycle: projection.lifecycle || { phase: status.authorityHealth?.lockOnlyPrStackAuthority ? "pr_stack_running" : status.stopReason || null, terminalPosture: status.latestTerminalOutcome || null },
     counters: projection.counters || {},
     recovery: projection.recovery || {},
     session: projection.session || {},
     review: projection.review || {},
-    largeCandidate: projection.largeCandidate || {},
+    largeCandidate: projection.largeCandidate || (status.authorityHealth?.lockOnlyPrStackAuthority ? { stackState: "running" } : {}),
     effects: projection.effects || {},
     supervisor: status.supervisor || {},
     blockers: status.blockers || [],

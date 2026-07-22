@@ -140,6 +140,14 @@ export function getRunnerStatus(config) {
   const active = readActiveRun(config);
   const control = readControlState(config);
   const latestSummary = readLatestRunSummary(config);
+  const lockOnlyPrStackAuthority = Boolean(
+    lock.active &&
+    !active.active &&
+    /^pr-stack-[A-Za-z0-9._:-]+$/.test(lock.parsed?.runId || "") &&
+    lock.parsed?.mode === "pr-stack-run" &&
+    typeof lock.parsed?.configPath === "string" &&
+    typeof lock.parsed?.stackPlanPath === "string"
+  );
   const runnerAuthorityActive = Boolean(lock.active || active.active);
   const retainedTimestamp = Date.parse(active.parsed?.lastHeartbeatAt || active.parsed?.finishedAt || active.parsed?.startedAt || 0);
   const summaryTimestamp = Date.parse(latestSummary?.summary?.finishedAt || latestSummary?.summary?.lastHeartbeatAt || latestSummary?.summary?.startedAt || 0);
@@ -147,7 +155,7 @@ export function getRunnerStatus(config) {
     !latestSummary?.summary || (Number.isFinite(retainedTimestamp) && (!Number.isFinite(summaryTimestamp) || retainedTimestamp > summaryTimestamp))
   ));
   const useLatestSummary = !runnerAuthorityActive && !retainedInactiveCheckpointIsNewer && Boolean(latestSummary?.summary);
-  const source = runnerAuthorityActive ? active.parsed : useLatestSummary ? latestSummary.summary : active.parsed || null;
+  const source = lockOnlyPrStackAuthority ? lock.parsed : runnerAuthorityActive ? active.parsed : useLatestSummary ? latestSummary.summary : active.parsed || null;
   const selectedSummaryPath = runnerAuthorityActive
     ? active.parsed?.summaryPath || null
     : useLatestSummary ? latestSummary.path : active.parsed?.summaryPath || null;
@@ -170,9 +178,10 @@ export function getRunnerStatus(config) {
       lockMalformed: lock.malformed === true,
       activeStateMalformed: active.malformed === true,
       controlMalformed: control.malformed === true,
-      activeOwnerConflict: Boolean((lock.active || active.active) && (
+      activeOwnerConflict: Boolean(!lockOnlyPrStackAuthority && (lock.active || active.active) && (
         !lock.parsed?.runId || !active.parsed?.runId || lock.parsed.runId !== active.parsed.runId
       )),
+      lockOnlyPrStackAuthority,
     },
     mode: source?.mode || null,
     supervisorRunId: source?.supervisorRunId || null,
