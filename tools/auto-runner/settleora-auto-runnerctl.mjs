@@ -339,7 +339,7 @@ export function createProjectionAdapters(config, deps = {}) {
   const statusReader = deps.getRunnerStatus || getRunnerStatus;
   const supervisorReader = deps.readSupervisorProjection || readProjectionSupervisor;
   let cachedStatus;
-  const runnerStatus = () => (cachedStatus ||= statusReader(config));
+  const runnerStatus = () => (cachedStatus ||= suppressRetainedTaskForPreChildSupervisor(config, statusReader(config)));
   const gitRead = (args) => {
     const result = run("git", ["--no-optional-locks", ...args], { cwd: config.repoRoot, encoding: "utf8" });
     return result.status === 0 && !result.error ? { ok: true, value: String(result.stdout || "").trim() } : { ok: false };
@@ -414,11 +414,25 @@ function readProjectionGithub(config, status, run) {
     result.issue = { number: issue.number, state: issue.state, manualGate: (issue.labels || []).some((label) => ["manual-gate", "needs-tommy"].includes(label.name)), dangerGate: (issue.labels || []).some((label) => label.name === "danger-gate") };
   }
   if (Number.isSafeInteger(Number(prNumber)) && Number(prNumber) > 0) {
-    const pr = readGhJson(run, config, ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,headRefName,headRefOid,baseRefName"]);
+    const pr = readGhJson(run, config, ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,headRefName,headRefOid,baseRefName,statusCheckRollup"]);
     if (!pr) return { ok: false, reasonCode: "github_pr_read_failed" };
-    result.pr = { number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName };
+    result.pr = { number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName, checks: summarizeLiveChecks(pr.statusCheckRollup) };
   }
   return result;
+}
+
+function suppressRetainedTaskForPreChildSupervisor(config, status) {
+  if (status.active) return status;
+  const latest = latestSupervisorRun(config.logsRoot);
+  if (!latest?.runId || latest.runnerRunId || latest.runId === status.supervisorRunId) return status;
+  return { ...status, supervisorRunId: null, currentOrLastIssue: null, currentOrLastPr: null, operationalProjection: { status: latest.state || "submitted", lifecycle: { phase: latest.state || "submitted" } } };
+}
+
+function summarizeLiveChecks(checks) {
+  if (!Array.isArray(checks)) return null;
+  if (checks.some((check) => check.status && check.status !== "COMPLETED")) return { status: "pending" };
+  if (checks.some((check) => check.conclusion && !["SUCCESS", "SKIPPED", "NEUTRAL"].includes(check.conclusion))) return { status: "failed" };
+  return { status: checks.length ? "pass" : "missing" };
 }
 
 function readGhJson(run, config, args) {

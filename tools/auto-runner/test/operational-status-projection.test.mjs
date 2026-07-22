@@ -89,6 +89,18 @@ test("each review result is independently exact-head bound", async () => {
   assert.deepEqual(model.review.staleSources, ["validation", "gemini"]);
 });
 
+test("live GitHub checks override a retained CI snapshot on the same head", async () => {
+  const base = adapters();
+  const github = await base.github.read();
+  const local = await base.local.read();
+  const model = await buildOperationalStatusProjection(adapters({
+    github: { ...github, pr: { ...github.pr, checks: { status: "pass" } } },
+    local: { ...local, review: { ...local.review, ciStatus: "pending" } },
+  }), { now: () => new Date(0) });
+  assert.equal(model.review.ciStatus, "pass");
+  assert.equal(model.review.sourceHeads.ci, head);
+});
+
 test("reads are side-effect-free and invoke each injected adapter exactly once", async () => {
   const calls = [];
   const base = adapters();
@@ -155,6 +167,8 @@ test("production projection selects a submitted supervisor before its child runn
   const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
   assert.equal(model.supervisor.runId, supervisorRunId);
   assert.equal(model.supervisor.state, "submitted");
+  assert.equal(model.task.runId, null);
+  assert.equal(model.task.issueNumber, null);
 });
 
 test("an active foreground runner ignores unrelated historical supervisor state", async () => {

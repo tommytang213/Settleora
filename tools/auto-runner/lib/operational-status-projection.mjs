@@ -53,7 +53,7 @@ export async function buildOperationalStatusProjection(adapters = {}, options = 
     counters: projectCounters(local.value),
     session: projectSession(local.value),
     recovery: projectRecovery(local.value),
-    review: projectReview(local.value, liveHead),
+    review: projectReview(local.value, github.value, liveHead),
     largeCandidate: projectLargeCandidate(local.value),
     effects: projectEffects(local.value),
     supervisor: projectSupervisor(local.value),
@@ -186,12 +186,12 @@ function projectLifecycle(local = {}) { return { classification: "authoritative"
 function projectCounters(local = {}) { const c = local.counters || {}; const b = c.acceptedTaskBudget || {}; return { acceptedTaskBudget: { classification: "authoritative", configured: integer(b.configured), consumed: integer(b.consumed), remaining: integer(b.remaining), chargeIdentity: digest(b.chargeIdentity) || identifier(b.chargeIdentity), chargeStatus: boundedReason(b.chargeStatus) }, localSourceChangingRoundsPerEpoch: counter(c.localSourceChangingRoundsPerEpoch, "authoritative"), githubTriggeredFixEpochsPerPr: counter(c.githubTriggeredFixEpochsPerPr, "authoritative"), lifetimeLocalSourceChangingRounds: counter(c.lifetimeLocalSourceChangingRounds, "telemetryOnly") }; }
 function projectSession(local = {}) { const s = local.session || {}; return { classification: "authoritative", generation: integer(s.generation), phase: boundedReason(s.phase), rotationReason: boundedReason(s.rotationReason), contextPressure: enumValue(s.contextPressure, ["normal", "elevated", "high", "critical", "unknown"]), continuationState: boundedReason(s.continuationState), ownerPosture: boundedReason(s.ownerPosture), terminalPosture: boundedReason(s.terminalPosture) }; }
 function projectRecovery(local = {}) { const r = local.recovery || {}; return { authority: "authoritative", outcomeClass: boundedReason(r.outcomeClass), classification: boundedReason(r.classification), phase: boundedReason(r.phase), nextSafeAction: boundedReason(r.nextSafeAction), reasonCode: boundedReason(r.reasonCode) }; }
-function projectReview(local = {}, liveHead) {
+function projectReview(local = {}, github = {}, liveHead) {
   const r = local.review || {};
   const exactHead = validSha(r.exactHead);
   const heads = {
     validation: validSha(r.validationHead), gemini: validSha(r.geminiHead), localCodex: validSha(r.localCodexHead),
-    githubCodex: validSha(r.githubCodexHead), ci: validSha(r.ciHead), scanner: validSha(r.scannerHead),
+    githubCodex: validSha(r.githubCodexHead), ci: github.pr?.checks ? validSha(github.pr?.headSha) : validSha(r.ciHead), scanner: validSha(r.scannerHead),
   };
   const current = (name) => Boolean(heads[name] && liveHead && heads[name] === liveHead);
   const bound = Boolean(exactHead && liveHead && exactHead === liveHead);
@@ -202,7 +202,7 @@ function projectReview(local = {}, liveHead) {
     geminiStatus: current("gemini") ? boundedReason(r.geminiStatus) : null,
     localCodexStatus: current("localCodex") ? boundedReason(r.localCodexStatus) : null,
     githubCodexStatus: current("githubCodex") ? boundedReason(r.githubCodexStatus) : null,
-    ciStatus: current("ci") ? boundedReason(r.ciStatus) : null,
+    ciStatus: github.pr?.checks ? boundedReason(github.pr.checks.status) : current("ci") ? boundedReason(r.ciStatus) : null,
     scannerStatus: current("scanner") ? boundedReason(r.scannerStatus) : null,
     unresolvedThreads: current("githubCodex") ? integer(r.unresolvedThreads) : null,
     openAlerts: current("scanner") ? integer(r.openAlerts) : null,
