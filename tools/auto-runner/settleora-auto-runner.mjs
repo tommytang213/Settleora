@@ -1803,7 +1803,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
         if (checkpoint.ok) {
-          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary });
+          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
         }
       }
       if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
@@ -1840,7 +1840,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   });
 }
 
-async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary }) {
+async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null }) {
   const identity = checkpoint.candidateIdentity;
   const initial = state.ordinaryContinuation || createOrdinaryContinuationState({
     logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
@@ -1887,41 +1887,49 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       return { ok: true, evidence: candidate };
     },
     local_validation: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_local_validation");
       const candidate = continuation.identity;
       const changedFiles = listChangedFiles(candidate.baseSha, candidate.headSha);
       const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
       if (forbidden.length) return { ok: false, reasonCode: "ordinary_continuation_scope_mismatch" };
       context.validation = bindValidationEvidence(runValidationPlan(config, planValidation(changedFiles, laneDecision)), { headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles, profile: laneDecision.validationProfile });
+      operationalCheckpoint?.("ordinary_recovery_local_validation_complete", { validation: context.validation });
       return context.validation.passed ? { ok: true, evidence: { changedFilesDigest: context.validation.changedFilesDigest } } : { ok: false, reasonCode: "ordinary_continuation_validation_failed" };
     },
     external_review: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_external_review");
       const candidate = continuation.identity;
       const before = await checkoutFingerprint();
       const changedFiles = candidate.changedFiles;
       context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
       context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
+      operationalCheckpoint?.("ordinary_recovery_external_review_complete", { externalReview: context.externalReview });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_external_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.externalReview);
       if (manual) return { ok: false, outcome: manual, reasonCode: context.externalReview.reason || `ordinary_continuation_external_review_${manual}` };
       return { ok: true, evidence: { status: context.externalReview.status === "pass" ? "passed" : "changes_requested", evidencePath: context.externalReview.reportPath, review: ordinaryReviewerCheckpoint(context.externalReview, "external") } };
     },
     codex_review: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_local_codex_review");
       const candidate = continuation.identity;
       const before = await checkoutFingerprint();
       context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
       context.review = runReviewPrompt(config, context.reviewPackage);
+      operationalCheckpoint?.("ordinary_recovery_local_codex_review_complete", { review: context.review });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_codex_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.review);
       if (manual) return { ok: false, outcome: manual, reasonCode: context.review?.reviewFailureReason || `ordinary_continuation_codex_review_${manual}` };
       return { ok: true, evidence: { status: context.review?.verdict?.verdict === "approve" ? "passed" : "changes_requested", evidencePath: context.review.logPath, review: ordinaryReviewerCheckpoint(context.review, "codex") } };
     },
     structured_review: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_structured_review");
       const candidate = continuation.identity;
       if (!context.externalReview || !context.review) return { ok: false, reasonCode: "ordinary_continuation_reviewer_checkpoint_missing" };
       if (context.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") return { ok: true, evidence: { route: "normal" } };
       const before = await checkoutFingerprint();
       const iteration = { issue, baseOriginMainSha: candidate.baseSha, runnerCreatedCommitSha: candidate.headSha, reviewPackage: context.reviewPackage, externalReview: context.externalReview, review: context.review };
       context.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, candidate.changedFiles);
+      operationalCheckpoint?.("ordinary_recovery_structured_review_complete", { largeCandidateReview: context.largeCandidateReview });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_structured_review_mutated_checkout" };
       const manual = structuredLargeCandidateManualVerdict(context.largeCandidateReview);
       const findings = ordinaryStructuredFindings(context.largeCandidateReview);
@@ -1933,6 +1941,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const promptInfo = { promptPath: null, ...(state.sessionLifecycle ? { sessionLifecycle: { state: state.sessionLifecycle } } : {}) };
       const structuredFindings = context.largeCandidateReview?.ok === false ? ordinaryStructuredFindings(context.largeCandidateReview) : [];
       const reviewForFix = structuredFindings.length ? { ...context.review, verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: structuredFindings } } : context.review;
+      operationalCheckpoint?.("ordinary_recovery_review_convergence");
       const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName: state.branch.name, promptInfo, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: context.validation, report: { found: true, recovered: true }, externalReview: context.externalReview, review: reviewForFix, largeCandidateReview: context.largeCandidateReview, reviewConvergenceState: state.reviewConvergenceState });
       if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
@@ -1957,19 +1966,25 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       });
       if (postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass" || postFix.review?.verdict?.verdict !== "approve" || postFix.forbiddenChangedFiles?.length) return { ok: false, outcome: "review_convergence_required", reasonCode: "ordinary_continuation_post_fix_recertification_failed" };
       const changedFiles = postFix.changedFiles;
+      operationalCheckpoint?.("ordinary_recovery_review_convergence_complete", { validation: postFix.validation, externalReview: postFix.externalReview, review: postFix.review });
       const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, postFix.runnerCreatedCommitSha).text).digest("hex"), changedFiles };
       return { ok: true, sourceChanged: true, identity: next };
     },
     push: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_push");
       const candidate = continuation.identity;
       const pushed = await pushBranch(config, state.branch.name, { effectContext: state.sessionLifecycle });
+      operationalCheckpoint?.("ordinary_recovery_push_complete", { push: pushed });
       return pushed.status === 0 ? { ok: true, evidence: { headSha: candidate.headSha } } : { ok: false, reasonCode: "ordinary_continuation_push_failed" };
     },
     pr_create_or_update: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_pr_create_recover");
       context.pr = await openOrUpdatePr(config, issue, state.branch.name, `Recovered exact-head continuation for ${continuation.identity.headSha}.`, { effectContext: state.sessionLifecycle });
+      operationalCheckpoint?.("ordinary_recovery_pr_create_recover_complete", { pr: context.pr });
       return context.pr?.url ? { ok: true, evidence: { url: context.pr.url, number: context.pr.number } } : { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
     },
     github_convergence: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_github_convergence");
       const candidate = continuation.identity;
       const prEvidence = context.pr || initial.effects?.pr_create_or_update?.evidence || {};
       const prNumber = prEvidence.number || Number(String(prEvidence.url || "").split("/").at(-1));
@@ -1991,7 +2006,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           },
         },
       };
-      const recovered = await recoverExistingPrIfConfigured(recoveryConfig, logger, issue, laneDecision, state, { runId: state.run?.runId || config.runnerRunId });
+      const recovered = await recoverExistingPrIfConfigured(recoveryConfig, logger, issue, laneDecision, state, { runId: state.run?.runId || config.runnerRunId, operationalCheckpoint });
+      operationalCheckpoint?.("ordinary_recovery_github_convergence_complete", { autoMerge: recovered?.autoMerge || null, pr: recovered?.pr || context.pr });
       if (recovered?.autoMerge?.result === "merged") {
         if (!autoMergeEffectsConfirmed(config, state.sessionLifecycle, recovered.autoMerge)) {
           return { ok: false, reasonCode: "ordinary_continuation_merge_hygiene_unconfirmed" };

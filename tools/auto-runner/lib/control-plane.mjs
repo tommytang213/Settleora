@@ -3,6 +3,7 @@ import path from "node:path";
 import { processAppearsActive } from "./state-store.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { buildOutageResubmissionStatus } from "../supervisor/outage-resubmission-controller.mjs";
+import { githubTriggeredFixEpochsPerPrLimit, localSourceChangingRoundsPerEpochLimit } from "./review-convergence-controller.mjs";
 
 const controlFileName = "runner-control.json";
 const activeRunFileName = "active-run.json";
@@ -229,8 +230,8 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
         chargeIdentity: budget.chargeId || budget.logicalTaskKey || null,
         chargeStatus: budget.charged ? "charged" : budget.duplicate ? "already_charged" : budget.reasonCode || null,
       },
-      localSourceChangingRoundsPerEpoch: counters.localSourceChangingRoundsPerEpoch ?? convergence.localSourceChangingRoundsPerEpoch ?? null,
-      githubTriggeredFixEpochsPerPr: counters.githubTriggeredFixEpochsPerPr ?? convergence.githubTriggeredFixEpochsPerPr ?? null,
+      localSourceChangingRoundsPerEpoch: { value: counters.localSourceChangingRoundsPerEpoch ?? convergence.localSourceChangingRoundsPerEpoch ?? null, limit: localSourceChangingRoundsPerEpochLimit },
+      githubTriggeredFixEpochsPerPr: { value: counters.githubTriggeredFixEpochsPerPr ?? convergence.githubTriggeredFixEpochsPerPr ?? null, limit: githubTriggeredFixEpochsPerPrLimit },
       lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds ?? convergence.lifetimeLocalSourceChangingRounds ?? null,
     },
     recovery: {

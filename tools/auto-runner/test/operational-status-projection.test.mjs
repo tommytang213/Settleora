@@ -186,7 +186,8 @@ test("active-run persistence retains the bounded operational projection from the
   const activePath = writeActiveRunState(config, summary);
   const persisted = JSON.parse(readFileSync(activePath, "utf8"));
   assert.equal(persisted.operationalProjection.counters.acceptedTaskBudget.consumed, 1);
-  assert.equal(persisted.operationalProjection.counters.localSourceChangingRoundsPerEpoch, 2);
+  assert.deepEqual(persisted.operationalProjection.counters.localSourceChangingRoundsPerEpoch, { value: 2, limit: 50 });
+  assert.deepEqual(persisted.operationalProjection.counters.githubTriggeredFixEpochsPerPr, { value: 1, limit: 50 });
   const status = getRunnerStatus(config);
   assert.equal(status.operationalProjection.recovery.nextSafeAction, "run_tests");
   assert.equal(status.currentOrLastPr.baseRefName, "feature/stack-a");

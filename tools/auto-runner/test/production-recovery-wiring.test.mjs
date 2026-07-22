@@ -319,4 +319,6 @@ test("delegated bundle and existing-PR recovery phases use the owning iteration 
   assert.match(runner, /resumeStartupRecovery\(config, logger, runId, index, startupRecovery, operationalCheckpoint\)/);
   assert.match(runner, /runFeatureBundleIteration\(config, logger,[\s\S]*?recoveryState: state,[\s\S]*?operationalCheckpoint,/);
   assert.match(runner, /recoverExistingPrIfConfigured\(config, logger, issue, laneDecision, state,[\s\S]*?operationalCheckpoint,/);
+  assert.match(runner, /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?operationalCheckpoint/);
+  assert.match(runner, /recoverExistingPrIfConfigured\(recoveryConfig, logger, issue, laneDecision, state,[\s\S]*?operationalCheckpoint/);
 });
