@@ -65,12 +65,13 @@ export function classifySourceFailure(input = {}) {
   const status = String(input.status || input.conclusion || "").toLowerCase();
   const text = boundedText(input.diagnostic || input.description || input.message || input.reasonCode || "", 2_000);
   if (status === "success" || status === "passed" || input.passed === true) return result("terminal_success");
-  if (pending.test(`${status} ${text}`)) return result("pending");
+  if (/^(queued|pending|in_progress|waiting)$/.test(status)) return result("pending");
   if (auth.test(text)) return result("credential_or_auth_required");
   if (manual.test(text)) return result("manual_action_required");
-  if (transient.test(text)) return result(input.sourceKind === "local_validation" ? "retryable_infrastructure" : "retryable_provider");
   if (input.inContract === false) return result("out_of_contract");
   if (input.structuredEvidence !== true) return result("unsafe_or_ambiguous");
+  if (input.failureType === "source" && ["github_check", "local_validation"].includes(input.sourceKind)) return result("source_fix_safe");
+  if (transient.test(text)) return result(input.sourceKind === "local_validation" ? "retryable_infrastructure" : "retryable_provider");
   if (["codeql", "semgrep", "trivy"].includes(input.sourceKind)) {
     if (!boundedPath(input.path) || !boundedToken(input.ruleId || input.rule, 160) || !validSha(input.headSha || input.identity?.headSha)) {
       return result("unsafe_or_ambiguous");

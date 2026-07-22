@@ -86,6 +86,7 @@ import {
 } from "../lib/control-plane.mjs";
 import {
   buildPostReviewFixMechanicsContext,
+  buildReviewFixPrompt,
   evaluateReviewFixMutationDecision,
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
@@ -7163,6 +7164,16 @@ test("production source-failure paths forward recovery decisions and bound initi
   assert.match(runnerSource, /source_failure_fix: async \(continuation, \{ batch, decision, intent \}\)/);
   assert.match(runnerSource, /localSourceChangingRoundsPerEpoch \|\| 0\) >= 50/);
   assert.match(runnerSource, /accountNormalReviewFixCommit\(iteration, postFix\.runnerCreatedCommitSha, "recursive_source_failure_fix_commit"\)/);
+});
+
+test("review-fix prompt respects exact authorized non-tooling lane paths", () => {
+  const prompt = buildReviewFixPrompt({
+    issue: { number: 944, title: "mobile source fix" }, branchName: "feature/auto-944-x",
+    laneDecision: { lane: "mobile-application", allowedPaths: ["apps/mobile/lib/**"], contract: { autoMergeEligible: true, manualMergeRequired: false } },
+    changedFiles: ["apps/mobile/lib/example.dart"], validation: { passed: false }, trigger: { source: "local_validation", findings: [] },
+  });
+  assert.match(prompt, /unless both the active lane and the exact allowedPaths/);
+  assert.doesNotMatch(prompt, /public\/admin exposure, mobile,/);
 });
 
 function createTempGitRepo() {

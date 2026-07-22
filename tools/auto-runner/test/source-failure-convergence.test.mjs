@@ -33,6 +33,7 @@ test("normalizes bounded sanitized exact-candidate source failures", () => {
 test("classifies pending transient auth actionable and ambiguous CI without guessing from red", () => {
   assert.equal(classifySourceFailure({ sourceKind: "github_check", status: "queued" }).classification, "pending");
   assert.equal(classifySourceFailure({ sourceKind: "github_check", structuredEvidence: true, diagnostic: "hosted runner lost network" }).classification, "retryable_provider");
+  assert.equal(classifySourceFailure({ sourceKind: "local_validation", status: 1, structuredEvidence: true, failureType: "source", diagnostic: "TimeoutException with pending timers after a deterministic test assertion" }).classification, "source_fix_safe");
   assert.equal(classifySourceFailure({ sourceKind: "github_check", structuredEvidence: true, diagnostic: "missing secret for registry" }).classification, "credential_or_auth_required");
   assert.equal(classifySourceFailure({ sourceKind: "github_check", structuredEvidence: true, failureType: "source", diagnostic: "compiler error" }).classification, "source_fix_safe");
   assert.equal(classifySourceFailure({ sourceKind: "github_check", status: "failure", structuredEvidence: false }).classification, "unsafe_or_ambiguous");
