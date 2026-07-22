@@ -382,6 +382,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     runIssueState: trackerSnapshot(issueTracker),
   };
   checkpoint(iteration);
+  const operationalCheckpoint = (phase, projected = {}) => {
+    iteration.phase = phase;
+    Object.assign(iteration, projected);
+    checkpoint(iteration);
+  };
 
   const startupRecovery = startupRecoveryOverride || (config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config));
   if (startupRecovery.found) {
@@ -405,7 +410,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.phase = "startup_recovery";
     checkpoint(iteration);
     const continuation = startupRecovery.allowed
-      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
+      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint)
       : await executeStartupContinuation(config, startupRecovery);
     iteration.recovery = continuation.recovery || startupRecovery;
     iteration.issueSource = "startup_recovery";
@@ -611,11 +616,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       laneDecision,
       recoveryState: recoveryRecorder?.state || null,
       autoMergeRunner,
-      operationalCheckpoint: (phase, projected = {}) => {
-        iteration.phase = phase;
-        Object.assign(iteration, projected);
-        checkpoint(iteration);
-      },
+      operationalCheckpoint,
       controlCheck: () => {
         const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
         return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -675,11 +676,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     runId,
     index,
     chargeMarkerRef: iteration.logicalTaskBudget?.statePath,
-    operationalCheckpoint: (phase, projected = {}) => {
-      iteration.phase = phase;
-      Object.assign(iteration, projected);
-      checkpoint(iteration);
-    },
+    operationalCheckpoint,
   });
   if (recovery) {
     iteration.existingPrRecovery = recovery;
@@ -1766,7 +1763,7 @@ function createProductionRecoveryRecorder(config, input) {
   };
 }
 
-async function resumeStartupRecovery(config, logger, runId, index, startupRecovery) {
+async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null) {
   return executeStartupContinuation(config, startupRecovery, {
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
     default: async ({ state, boundary }) => {
@@ -1795,6 +1792,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           branchName: state.branch.name,
           recoveryState: state,
           autoMergeRunner,
+          operationalCheckpoint,
           controlCheck: () => {
             const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
             return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -1823,7 +1821,10 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: "unsupported_early_phase_recovery", state: stopped };
       }
-      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state, { runId: state.runId || state.logicalTask?.runId });
+      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state, {
+        runId: state.runId || state.logicalTask?.runId,
+        operationalCheckpoint,
+      });
       if (!existingPrRecovery) {
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: "recovery_existing_pr_context_missing", state };
       }
