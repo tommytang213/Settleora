@@ -371,9 +371,9 @@ function readProjectionLedger(gitRead, status) {
   const issueNumber = Number(status.currentOrLastIssue?.number);
   if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) return { issueState: null, stale: null };
   const bounded = ledger.value.slice(0, 16 * 1024);
-  const escaped = String(issueNumber).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const open = new RegExp(`#${escaped}[^\\n]{0,180}\\b(?:remains|is|stays) open\\b`, "i").test(bounded);
-  const closed = new RegExp(`#${escaped}[^\\n]{0,180}\\b(?:is |was )?closed\\b`, "i").test(bounded);
+  const relevantLines = bounded.split("\n").filter((line) => [...line.matchAll(/#([1-9]\d{0,8})\b/g)].some((match) => Number(match[1]) === issueNumber)).map((line) => line.slice(0, 240));
+  const open = relevantLines.some((line) => /\b(?:remains|is|stays) open\b/i.test(line));
+  const closed = relevantLines.some((line) => /\b(?:is |was )?closed\b/i.test(line));
   if (open && closed) return { ok: false, reasonCode: "ledger_issue_posture_ambiguous" };
   return { issueState: open ? "OPEN" : closed ? "CLOSED" : null, stale: null };
 }
