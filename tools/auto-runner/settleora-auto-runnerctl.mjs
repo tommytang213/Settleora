@@ -447,6 +447,7 @@ function projectRunnerStatus(status = {}) {
   const issue = status.currentOrLastIssue || {};
   const pr = status.currentOrLastPr || {};
   const projection = status.operationalProjection || {};
+  const taskIdentity = projection.taskIdentity || {};
   return {
     active: status.active === true,
     status: status.active ? "active" : projection.status || status.latestTerminalOutcome || "idle",
@@ -454,10 +455,11 @@ function projectRunnerStatus(status = {}) {
       logicalTaskKey: projection.counters?.acceptedTaskBudget?.chargeIdentity || status.activeRunId || null,
       runId: status.activeRunId || null,
       issueNumber: issue.number || null,
-      branch: pr.headRefName || null,
-      baseBranch: pr.baseRefName || null,
-      headSha: pr.headSha || null,
-      prNumber: pr.number || null,
+      branch: pr.headRefName || taskIdentity.branch || null,
+      baseBranch: pr.baseRefName || taskIdentity.baseBranch || null,
+      baseSha: taskIdentity.baseSha || null,
+      headSha: pr.headSha || taskIdentity.headSha || null,
+      prNumber: pr.number || taskIdentity.prNumber || null,
     },
     lifecycle: projection.lifecycle || { phase: status.stopReason || null, terminalPosture: status.latestTerminalOutcome || null },
     counters: projection.counters || {},

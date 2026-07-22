@@ -227,6 +227,13 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
     ? [...iteration.autoMerge.waitAttempts].reverse().find((attempt) => attempt?.checks && attempt?.prHeadSha)
     : null;
   return sanitize({
+    taskIdentity: {
+      branch: iteration.branchName || iteration.branch?.name || iteration.pr?.headRefName || null,
+      baseBranch: iteration.baseBranchName || iteration.pr?.baseRefName || null,
+      baseSha: iteration.baseOriginMainSha || null,
+      headSha: iteration.runnerCreatedCommitSha || iteration.expectedHeadSha || iteration.pr?.headSha || iteration.pr?.headRefOid || null,
+      prNumber: iteration.pr?.number || null,
+    },
     lifecycle: {
       phase: iteration.phase || recovery.phase || controller.phase || null,
       continuationState: iteration.ordinaryCandidateContinuation?.phase || recovery.continuation?.phase || null,

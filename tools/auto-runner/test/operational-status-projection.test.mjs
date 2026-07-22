@@ -150,6 +150,35 @@ test("production supervisor correlation failures propagate as fail-closed reason
   assert.ok(model.blockers.includes("active_supervisor_heartbeat_stale"));
 });
 
+test("production adapters preserve pre-PR checkpoint branch and head identity", async () => {
+  const switchedHead = "d".repeat(40);
+  const spawnSync = (command, args) => {
+    if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/switched\n" };
+    if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${args.at(-1) === "origin/main" ? main : switchedHead}\n` };
+    if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+    if (command === "git" && args[1] === "show") return { status: 0, stdout: "" };
+    if (command === "gh" && args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
+    return { status: 1, stdout: "" };
+  };
+  const production = createProjectionAdapters({ repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, {
+    spawnSync,
+    getRunnerStatus: () => ({
+      active: true,
+      activeRunId: "run-pre-pr",
+      currentOrLastIssue: { number: 927 },
+      currentOrLastPr: null,
+      operationalProjection: { taskIdentity: { branch: "feature/expected", baseSha: main, headSha: head } },
+    }),
+    readSupervisorProjection: () => ({ ok: true, value: {} }),
+  });
+  const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
+  assert.equal(model.task.branch, "feature/expected");
+  assert.equal(model.task.headSha, head);
+  assert.equal(model.status, "blocked");
+  assert.ok(model.blockers.includes("active_repository_branch_identity_conflict"));
+  assert.ok(model.blockers.includes("active_repository_head_identity_conflict"));
+});
+
 test("production projection selects a submitted supervisor before its child runner starts", async () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-supervisor-submitted-"));
   const supervisorRunId = "supervised-20260722T044700Z-abcdef123456";
@@ -271,13 +300,31 @@ test("active-run persistence projects CI from the latest correlated wait attempt
 
 test("persisted evidence redacts arbitrary authorization schemes without hiding reason codes", () => {
   const secret = "credential-material-927";
+  const nonce = "nonce-material-927";
   const sanitized = sanitizePersistedEvidence({
-    error: `Authorization: Digest ${secret}`,
+    error: `Authorization: Digest username=${secret}, realm="settleora", nonce=${nonce}, response=hash\nnext line`,
     alternate: `authorization=ApiKey ${secret}`,
     reasonCode: "protected_stack_plan_authorization_missing",
   });
   assert.equal(JSON.stringify(sanitized).includes(secret), false);
+  assert.equal(JSON.stringify(sanitized).includes(nonce), false);
+  assert.match(sanitized.error, /next line/);
   assert.equal(sanitized.reasonCode, "protected_stack_plan_authorization_missing");
+});
+
+test("charged task digests and pre-PR candidate identity remain authoritative", async () => {
+  const chargeId = "c".repeat(64);
+  const baseLocal = await adapters().local.read();
+  const model = await buildOperationalStatusProjection(adapters({
+    github: { repositorySlug: "tommytang213/Settleora", issue: { number: 927, state: "OPEN" }, pr: null },
+    local: {
+      ...baseLocal,
+      task: { ...baseLocal.task, logicalTaskKey: chargeId, prNumber: null, branch: "feature/expected", baseSha: main, headSha: head },
+    },
+  }), { now: () => new Date(0) });
+  assert.equal(model.task.logicalTaskKey, chargeId);
+  assert.equal(model.status, "blocked");
+  assert.ok(model.blockers.includes("active_repository_branch_identity_conflict"));
 });
 
 test("production split and stack checkpoint state shapes remain visible", () => {

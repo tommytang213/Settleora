@@ -167,6 +167,8 @@ function reconcileConflicts(repository, github, local) {
   if (hasReviewEvidence && !reviewHead) reasons.push("review_exact_head_missing");
   if (reviewHead && liveHead && reviewHead !== liveHead) reasons.push("stale_exact_head_evidence");
   if (local?.active === true && local?.task?.branch && repository?.currentBranch && local.task.branch !== repository.currentBranch) reasons.push("active_repository_branch_identity_conflict");
+  if (local?.active === true && validSha(local?.task?.headSha) && validSha(repository?.headSha) && local.task.headSha !== repository.headSha) reasons.push("active_repository_head_identity_conflict");
+  if (local?.active === true && validSha(local?.task?.baseSha) && validSha(repository?.originMainSha) && local.task.baseSha !== repository.originMainSha) reasons.push("active_repository_base_identity_conflict");
   if (local?.active === true && github?.pr?.headRefName && repository?.currentBranch === github.pr.headRefName && validSha(repository?.headSha) && validSha(github.pr.headSha) && repository.headSha !== github.pr.headSha) reasons.push("active_repository_head_identity_conflict");
   return reasons;
 }
@@ -179,7 +181,7 @@ function projectTask(local = {}, github = {}, repository = {}) {
   const task = local.task || {};
   const pr = github.pr || {};
   const issue = github.issue || {};
-  return { classification: "authoritative", logicalTaskKey: identifier(task.logicalTaskKey), runId: identifier(task.runId), issueNumber: integer(issue.number ?? task.issueNumber), issueState: enumValue(issue.state, ["OPEN", "CLOSED"]), branch: refName(pr.headRefName || task.branch || repository.currentBranch), baseBranch: refName(pr.baseRefName || task.baseBranch), headSha: validSha(pr.headSha || task.headSha || repository.headSha), treeSha: validSha(task.treeSha), prNumber: integer(pr.number ?? task.prNumber), prState: enumValue(pr.state, ["OPEN", "CLOSED", "MERGED"]), manualGate: Boolean(task.manualGate || issue.manualGate), dangerGate: Boolean(task.dangerGate || issue.dangerGate) };
+  return { classification: "authoritative", logicalTaskKey: digest(task.logicalTaskKey) || identifier(task.logicalTaskKey), runId: identifier(task.runId), issueNumber: integer(issue.number ?? task.issueNumber), issueState: enumValue(issue.state, ["OPEN", "CLOSED"]), branch: refName(pr.headRefName || task.branch || repository.currentBranch), baseBranch: refName(pr.baseRefName || task.baseBranch), baseSha: validSha(task.baseSha), headSha: validSha(pr.headSha || task.headSha || repository.headSha), treeSha: validSha(task.treeSha), prNumber: integer(pr.number ?? task.prNumber), prState: enumValue(pr.state, ["OPEN", "CLOSED", "MERGED"]), manualGate: Boolean(task.manualGate || issue.manualGate), dangerGate: Boolean(task.dangerGate || issue.dangerGate) };
 }
 
 function projectLifecycle(local = {}) { return { classification: "authoritative", phase: boundedReason(local.lifecycle?.phase), continuationState: boundedReason(local.lifecycle?.continuationState), ownerPosture: boundedReason(local.lifecycle?.ownerPosture), terminalPosture: boundedReason(local.lifecycle?.terminalPosture) }; }
