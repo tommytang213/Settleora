@@ -388,7 +388,7 @@ export function executeAutoMerge(config, context, options = {}) {
   const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
   const defaultInspectState = (cfg, ctx) => inspectAutoMergeGithubState(
     { ...(ctx.config || {}), ...cfg, repositorySlug: cfg.repositorySlug || ctx.config?.repositorySlug },
-    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber },
+    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber, laneDecision: ctx.laneDecision },
     { runner },
   );
   const refreshed = (options.inspectState || defaultInspectState)(config, context);
@@ -583,7 +583,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
   const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
   const defaultInspectState = (cfg, ctx) => inspectAutoMergeGithubState(
     { ...(ctx.config || {}), ...cfg, repositorySlug: cfg.repositorySlug || ctx.config?.repositorySlug },
-    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber },
+    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber, laneDecision: ctx.laneDecision },
     { runner },
   );
   const refreshed = (options.inspectState || defaultInspectState)(config, context);
@@ -654,7 +654,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
 
 function executeAutoMergeWithWait(config, initialContext, options) {
   const runner = options.runner || defaultRunner;
-  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber }, { runner }));
+  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber, laneDecision: ctx.laneDecision }, { runner }));
   const sleep = options.sleep || sleepSync;
   const wait = options.wait;
   const attempts = [];
