@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { evaluateSourceFailureBatch, freezeSourceFailureBatch } from "./source-failure-convergence.mjs";
 
 export const ordinaryContinuationPhases = Object.freeze([
   "candidate_reconciliation",
@@ -41,6 +42,23 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
     if (!result || result.ok === false) {
       return { ok: false, outcome: result?.outcome || "blocked", reasonCode: result?.reasonCode || `ordinary_continuation_${phase}_blocked`, state };
     }
+    if (Array.isArray(result.sourceFailures) && result.sourceFailures.length > 0) {
+      const batch = freezeSourceFailureBatch(result.sourceFailures, state.identity);
+      const decision = evaluateSourceFailureBatch(batch, state.sourceFailureHistory || []);
+      state = { ...state, sourceFailureBatch: batch, sourceFailureHistory: [...(state.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, candidate: batch.candidate }].slice(-100) };
+      await handlers.onCheckpoint?.(state, { phase, action: "source_failure_batch_frozen", batch, decision });
+      if (!decision.sourceFixEligible) {
+        if (decision.classification === "pending" || decision.retryable) return { ok: true, outcome: "waiting", reasonCode: decision.reasonCode, state };
+        return { ok: false, outcome: "blocked", reasonCode: decision.reasonCode, state };
+      }
+      if (typeof handlers.source_failure_fix !== "function") return blocked(state, "ordinary_continuation_source_failure_fix_handler_missing");
+      const fixed = await handlers.source_failure_fix(Object.freeze({ ...state }), { batch, decision, originatingPhase: phase });
+      if (!fixed?.ok || fixed.sourceChanged !== true || !validIdentity(fixed.identity)) return blocked(state, fixed?.reasonCode || "ordinary_continuation_source_failure_fix_failed");
+      state = invalidateForSourceChange(state, fixed.identity);
+      state = { ...state, sourceFailureBatch: null, lastSourceFailureFix: bounded(fixed.evidence) };
+      await handlers.onCheckpoint?.(state, { phase, action: "source_failure_fixed", batchIdentity: batch.batchIdentity });
+      return continueOrdinaryCandidate(state, handlers);
+    }
     if (result.wait === true && result.completed !== true) {
       await handlers.onCheckpoint?.(state, { phase, action: "waiting" });
       return { ok: true, outcome: "waiting", reasonCode: result.reasonCode || `${phase}_pending`, state };
@@ -66,7 +84,7 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
 
 export function createOrdinaryContinuationState({ logicalTaskKey, executionKey = null, issueNumber, branchName, identity, phase = "candidate_reconciliation", effects = {}, counters = {} }) {
   if (!logicalTaskKey || !issueNumber || !branchName || !validIdentity(identity)) throw new Error("ordinary continuation identity is incomplete");
-  return normalizeState({ version: 1, logicalTaskKey, executionKey, issueNumber, branchName, identity, phase, effects, counters });
+  return normalizeState({ version: 1, logicalTaskKey, executionKey, issueNumber, branchName, identity, phase, effects, counters, sourceFailureHistory: [] });
 }
 
 export function ordinaryCandidateIdentityMatches(persisted, actual) {
@@ -93,6 +111,9 @@ function normalizeState(value = {}) {
     phase: String(value.phase || ordinaryContinuationPhases[0]),
     effects: value.effects && typeof value.effects === "object" ? { ...value.effects } : {},
     counters: { acceptedLogicalTasks: Number(value.counters?.acceptedLogicalTasks ?? 1), sourceRounds: Number(value.counters?.sourceRounds ?? 0), githubEpochs: Number(value.counters?.githubEpochs ?? 0) },
+    sourceFailureBatch: value.sourceFailureBatch || null,
+    sourceFailureHistory: Array.isArray(value.sourceFailureHistory) ? value.sourceFailureHistory.slice(-100) : [],
+    lastSourceFailureFix: value.lastSourceFailureFix || null,
   };
 }
 

@@ -1,5 +1,24 @@
 # Settleora Auto-Runner Tooling
 
+## Recursive source-failure convergence
+
+`source-failure-convergence.mjs` defines the versioned, bounded record used by
+ordinary continuation for local validation, GitHub checks, CodeQL, Semgrep,
+Trivy, Gemini, local Codex, and GitHub Codex findings. Records are sanitized,
+exact-candidate bound, fingerprinted, frozen, and deduplicated; raw provider
+payloads, logs, prompts, diffs, environment data, credentials, and scanner
+artifacts are not persisted.
+
+Only structured in-contract `source_fix_safe` batches enter the shared focused
+source-fix handler. A new source identity invalidates prior evidence and
+restarts full validation plus fresh independent and local Codex review before
+push. Pending/transient failures wait or retry without mutation; auth, manual,
+unsupported, out-of-contract, ambiguous, suppression/dismissal, and repeated
+no-progress batches stop fail-closed. Existing two-loop counters and the one
+accepted logical-task charge remain authoritative. Ordinary
+`mobile-application` validation also runs the fixed trusted Android debug APK
+build; unsupported platforms remain exact-head external proof.
+
 ## Post-implementation continuation authorities
 
 Ordinary post-implementation work uses one durable continuation authority from exact candidate reconciliation through validation, dual and structured review, convergence, push/PR recovery, GitHub gates, merge, and post-merge hygiene. Startup recovery re-enters that authority at the earliest incomplete exact-head phase; loading a large-review checkpoint is not a terminal success.

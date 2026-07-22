@@ -1,5 +1,23 @@
 # Autonomous Codex Runner
 
+## Shared recursive source-failure authority
+
+Post-implementation failures do not gain a separate controller or accounting
+system. Local validation, GitHub checks, CodeQL, Semgrep, Trivy, Gemini, local
+Codex, and GitHub Codex use one bounded normalized finding contract. Structured
+exact-head evidence is sanitized, fingerprinted, frozen, deduplicated, and
+classified before action; an unstructured red status is
+`unsafe_or_ambiguous`, never an inferred source fix.
+
+An actionable in-contract batch may invoke only the focused source-fix handler.
+The resulting normal candidate invalidates all head-bound evidence and restarts
+complete local validation, fresh strong-independent review, and fresh local
+Codex mechanics/integration/recovery/security review before push to the same
+PR. Pending/transient failures wait or retry. Credentials/auth, manual
+authority, unsupported evidence, out-of-contract changes, scanner weakening,
+and deterministic no-progress/oscillation stop fail-closed. Fix rounds reuse
+the #923 counters and never add a #932 accepted-task charge.
+
 ## Post-implementation continuation authorities
 
 The ordinary issue path and startup recovery share an idempotent continuation spanning exact candidate reconciliation, validation, independent and local/structured review, convergence, push, PR recovery, GitHub convergence, exact-head merge, and post-merge hygiene. Durable exact-target effects are adopted rather than replayed, a source change invalidates review and downstream effects, and the accepted logical-task charge remains the root task charge across execution/session continuations.

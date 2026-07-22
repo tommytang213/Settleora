@@ -1,5 +1,18 @@
 # Issue Progress Ledger
 
+### Issue #944 — active source-failure convergence implementation (2026-07-22)
+
+- Exact branch `feature/auto-944-source-failure-convergence-20260722-2212` is
+  based on reconciled `origin/main`
+  `f3db3432ae420f659b4cf380676f83442361075d`.
+- Scope is runner/docs tooling only: a normalized local/CI/scanner/reviewer
+  failure contract, shared ordinary-continuation source-fix routing, durable
+  no-progress/status projection, and ordinary mobile Android debug APK proof.
+- This is an active checkpoint, not merge evidence. #944 remains open pending
+  exact-head PR convergence, merge, current-main acceptance, and hygiene. #910
+  and #912 remain open; #912 remains manual-gated and unactivated. PR #917
+  remains closed without merge and untouched.
+
 ### Issue #927 and PR #942 — merged completion (2026-07-22)
 
 - PR #942 merged normally at exact reviewed source head

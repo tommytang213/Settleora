@@ -113,7 +113,7 @@ export function bindValidationEvidence(validation, { headSha, baseSha, changedFi
 
 export function inferMobileBuildPlatformRequirements(changedFiles = [], laneDecision = {}) {
   const lane = laneDecision.canonicalLane || laneDecision.lane;
-  if (lane && lane !== "mobile-build-config") {
+  if (lane && !["mobile-application", "mobile-build-config"].includes(lane)) {
     return emptyMobileBuildPlatformRequirements();
   }
   const files = [...(changedFiles || [])].map((file) => String(file || "")).filter(Boolean).sort();
@@ -154,6 +154,17 @@ export function inferMobileBuildPlatformRequirements(changedFiles = [], laneDeci
     addMacosExternal();
     addWindowsExternal();
   };
+
+  // Ordinary Flutter application changes must prove that the current app can
+  // actually be packaged on the supported Linux runner. Native platforms that
+  // cannot be built here remain exact-head external requirements.
+  if (lane === "mobile-application") {
+    localChecks.add(mobileBuildPlatformChecks.androidFlutterBuildApkDebug);
+    platformSet.add("android");
+    externalChecks.add(mobileBuildPlatformChecks.iosExternalBuild);
+    externalChecks.add(mobileBuildPlatformChecks.macosExternalBuild);
+    externalChecks.add(mobileBuildPlatformChecks.windowsExternalBuild);
+  }
 
   for (const file of files) {
     if (/^apps\/mobile\/(?:pubspec\.yaml|pubspec\.lock|assets\/|l10n\/)/.test(file)) addCrossPlatformDependencyProof();
