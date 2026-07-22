@@ -100,7 +100,7 @@ test("ordinary source change invalidates review and mutation effects", async () 
   const state = createOrdinaryContinuationState({ logicalTaskKey: "root", issueNumber: 924, branchName: "feature/test", identity: identity() });
   const result = await continueOrdinaryCandidate(state, handlers);
   assert.equal(result.ok, true);
-  assert.equal(result.state.counters.sourceRounds, 1);
+  assert.equal(result.state.counters.localSourceChangingRoundsPerEpoch, 1);
   assert.equal(result.state.counters.acceptedLogicalTasks, 1);
   assert.deepEqual(result.state.identity.changedFiles, ["a.mjs", "b.mjs"]);
 });
@@ -121,7 +121,7 @@ test("ordinary continuation crash recovery invalidates identity after every revi
     const changed = await continueOrdinaryCandidate(state, handlers);
     assert.equal(changed.outcome, "complete");
     assert.equal(changed.state.identity.headSha, replacement.headSha);
-    assert.equal(changed.state.counters.sourceRounds, 1);
+    assert.equal(changed.state.counters.localSourceChangingRoundsPerEpoch, 1);
     const restarted = await continueOrdinaryCandidate({ ...changed.state, phase: "local_validation", effects: {} }, handlers);
     assert.equal(restarted.outcome, "complete");
     assert.equal(restarted.state.identity.headSha, replacement.headSha);
