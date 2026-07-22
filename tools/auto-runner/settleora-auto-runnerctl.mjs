@@ -337,6 +337,7 @@ function parseCtlArgs(argv) {
 export function createProjectionAdapters(config, deps = {}) {
   const run = deps.spawnSync || spawnSync;
   const statusReader = deps.getRunnerStatus || getRunnerStatus;
+  const supervisorReader = deps.readSupervisorProjection || readProjectionSupervisor;
   let cachedStatus;
   const runnerStatus = () => (cachedStatus ||= statusReader(config));
   const gitRead = (args) => {
@@ -353,9 +354,43 @@ export function createProjectionAdapters(config, deps = {}) {
       return { repositorySlug: config.repositorySlug, currentBranch: branch.value, headSha: head.value, originMainSha: main.value, clean: status.value === "" };
     } },
     github: { read: () => readProjectionGithub(config, runnerStatus(), run) },
-    local: { read: () => projectRunnerStatus(runnerStatus()) },
-    ledger: { read: () => ({ observedMainSha: null, stale: null }) },
+    local: { read: () => {
+      const projected = projectRunnerStatus(runnerStatus());
+      const supervisor = supervisorReader(config, runnerStatus());
+      if (supervisor?.ok === false) return supervisor;
+      projected.supervisor = supervisor?.value || {};
+      return projected;
+    } },
+    ledger: { read: () => readProjectionLedger(gitRead, runnerStatus()) },
   };
+}
+
+function readProjectionLedger(gitRead, status) {
+  const ledger = gitRead(["show", "HEAD:docs/planning/ISSUE_PROGRESS_LEDGER.md"]);
+  if (!ledger.ok) return { ok: false, reasonCode: "ledger_read_failed" };
+  const issueNumber = Number(status.currentOrLastIssue?.number);
+  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) return { issueState: null, stale: null };
+  const bounded = ledger.value.slice(0, 16 * 1024);
+  const escaped = String(issueNumber).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const open = new RegExp(`#${escaped}[^\\n]{0,180}\\b(?:remains|is|stays) open\\b`, "i").test(bounded);
+  const closed = new RegExp(`#${escaped}[^\\n]{0,180}\\b(?:is |was )?closed\\b`, "i").test(bounded);
+  if (open && closed) return { ok: false, reasonCode: "ledger_issue_posture_ambiguous" };
+  return { issueState: open ? "OPEN" : closed ? "CLOSED" : null, stale: null };
+}
+
+function readProjectionSupervisor(config, status) {
+  const runId = status.supervisorRunId;
+  if (!runId) return { ok: true, value: {} };
+  const stateResult = readSupervisorState(runId, config.logsRoot);
+  if (!stateResult.found || !stateResult.state) return { ok: false, reasonCode: "supervisor_state_read_failed" };
+  let heartbeatResult;
+  try { heartbeatResult = readHeartbeat(runId, config.logsRoot); } catch { return { ok: false, reasonCode: "supervisor_heartbeat_read_failed" }; }
+  const state = stateResult.state;
+  const heartbeat = heartbeatResult.heartbeat;
+  if (state.runId !== runId || (heartbeat && heartbeat.runId !== runId)) return { ok: false, reasonCode: "supervisor_identity_conflict" };
+  if (status.activeRunId && state.runnerRunId && status.activeRunId !== state.runnerRunId) return { ok: false, reasonCode: "supervisor_runner_identity_conflict" };
+  if (heartbeat?.runnerRunId && state.runnerRunId && heartbeat.runnerRunId !== state.runnerRunId) return { ok: false, reasonCode: "supervisor_heartbeat_identity_conflict" };
+  return { ok: true, value: { runId, state: state.state, heartbeatPosture: !heartbeat ? "missing" : heartbeat.terminal ? "terminal" : heartbeatResult.stale ? "stale" : "fresh", leasePosture: !heartbeat ? "missing" : heartbeat.terminal ? "terminal" : heartbeatResult.stale ? "expired" : "valid", reportCorrelation: state.runnerRunId || null } };
 }
 
 function readProjectionGithub(config, status, run) {
