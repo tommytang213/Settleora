@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { evaluateSourceFailureBatch } from "./source-failure-convergence.mjs";
 
 export const operationalStatusSchemaVersion = 1;
 export const operationalStatusMaxBytes = 64 * 1024;
@@ -53,6 +54,7 @@ export async function buildOperationalStatusProjection(adapters = {}, options = 
     counters: projectCounters(local.value),
     session: projectSession(local.value),
     recovery: projectRecovery(local.value),
+    sourceFailure: projectSourceFailure(local.value),
     review: projectReview(local.value, github.value, liveHead),
     largeCandidate: projectLargeCandidate(local.value),
     effects: projectEffects(local.value),
@@ -105,6 +107,7 @@ export function renderOperationalStatusMarkdown(model) {
     "## Recovery, session, and review",
     "",
     `- Recovery: ${model.recovery.classification || "none"}; ${model.recovery.nextSafeAction || "none"}`,
+    `- Source failure: ${model.sourceFailure.classification || "none"}; batch ${model.sourceFailure.frozenBatchIdentity || "none"}; recertification ${model.sourceFailure.recertificationPhase || "none"}`,
     `- Session: generation ${value(model.session.generation)}, phase ${model.session.phase || "none"}, pressure ${model.session.contextPressure || "none"}`,
     `- Review exact head: ${model.review.exactHead || "none"}; validation ${model.review.validationStatus || "unknown"}; Gemini ${model.review.geminiStatus || "unknown"}; local Codex ${model.review.localCodexStatus || "unknown"}; CI ${model.review.ciStatus || "unknown"}`,
     "",
@@ -210,6 +213,33 @@ function projectLifecycle(local = {}) { return { classification: "authoritative"
 function projectCounters(local = {}) { const c = local.counters || {}; const b = c.acceptedTaskBudget || {}; return { acceptedTaskBudget: { classification: "authoritative", configured: integer(b.configured), consumed: integer(b.consumed), remaining: integer(b.remaining), chargeIdentity: digest(b.chargeIdentity) || identifier(b.chargeIdentity), chargeStatus: boundedReason(b.chargeStatus) }, localSourceChangingRoundsPerEpoch: counter(c.localSourceChangingRoundsPerEpoch, "authoritative"), githubTriggeredFixEpochsPerPr: counter(c.githubTriggeredFixEpochsPerPr, "authoritative"), lifetimeLocalSourceChangingRounds: counter(c.lifetimeLocalSourceChangingRounds, "telemetryOnly") }; }
 function projectSession(local = {}) { const s = local.session || {}; return { classification: "authoritative", generation: integer(s.generation), phase: boundedReason(s.phase), rotationReason: boundedReason(s.rotationReason), contextPressure: enumValue(s.contextPressure, ["normal", "elevated", "high", "critical", "unknown"]), continuationState: boundedReason(s.continuationState), ownerPosture: boundedReason(s.ownerPosture), terminalPosture: boundedReason(s.terminalPosture) }; }
 function projectRecovery(local = {}) { const r = local.recovery || {}; return { authority: "authoritative", outcomeClass: boundedReason(r.outcomeClass), classification: boundedReason(r.classification), phase: boundedReason(r.phase), nextSafeAction: boundedReason(r.nextSafeAction), reasonCode: boundedReason(r.reasonCode) }; }
+function projectSourceFailure(local = {}) {
+  const continuation = local.ordinaryContinuation || {};
+  const batch = continuation.sourceFailureBatch || null;
+  const priorHistory = [...(continuation.sourceFailureHistory || [])];
+  if (batch && priorHistory.at(-1)?.batchIdentity === batch.batchIdentity) priorHistory.pop();
+  const decision = batch ? evaluateSourceFailureBatch(batch, priorHistory) : null;
+  const s = local.sourceFailure || continuation.sourceFailure || (batch ? {
+    classification: decision?.classification,
+    originSources: [...new Set((batch.findings || []).map((finding) => finding.sourceKind))],
+    frozenBatchIdentity: batch.batchIdentity,
+    exactCandidate: batch.candidate,
+    retryable: decision?.retryable,
+    recertificationPhase: continuation.phase,
+    hardStopReason: decision && !decision.sourceFixEligible && !decision.retryable && decision.classification !== "pending" ? decision.reasonCode : null,
+    nextSafeAction: decision?.nextAction,
+  } : {});
+  return {
+    classification: boundedReason(s.classification),
+    originSources: boundedList(s.originSources, identifier),
+    frozenBatchIdentity: digest(s.frozenBatchIdentity),
+    exactCandidateHead: validSha(s.exactCandidate?.headSha),
+    retryable: s.retryable === true,
+    recertificationPhase: boundedReason(s.recertificationPhase),
+    hardStopReason: boundedReason(s.hardStopReason),
+    nextSafeAction: boundedReason(s.nextSafeAction),
+  };
+}
 function projectReview(local = {}, github = {}, liveHead) {
   const r = local.review || {};
   const exactHead = validSha(r.exactHead);

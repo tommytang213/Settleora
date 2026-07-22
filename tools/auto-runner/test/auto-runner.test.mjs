@@ -86,11 +86,12 @@ import {
 } from "../lib/control-plane.mjs";
 import {
   buildPostReviewFixMechanicsContext,
+  buildReviewFixPrompt,
   evaluateReviewFixMutationDecision,
   extractReviewFixTrigger,
   normalizeReviewFixMutationConfig,
 } from "../lib/review-fix-policy.mjs";
-import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
+import { bindValidationEvidence, inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
@@ -4735,6 +4736,23 @@ test("mobile-build-config similarly named platform checks do not satisfy canonic
   assert.equal(decision.reason, `mobile_platform_external_check_missing:${mobileBuildPlatformChecks.iosExternalBuild}`);
 });
 
+test("exact canonical GitHub platform checks populate production external evidence", () => {
+  const filePath = "apps/mobile/ios/Runner/Info.plist";
+  const laneDecision = autoMergeLane({
+    lane: "mobile-build-config", canonicalLane: "mobile-build-config", reviewerTier: "strong_independent",
+    branchStrategy: "focused", allowedPaths: [filePath], laneManifestAllowedPaths: ["apps/mobile/ios/**"],
+    validationProfile: "mobile-build-config", implementationSensitivity: "high",
+    laneManifest: { id: "mobile-build-config", decisionType: "runnable", autoMergeAllowed: true },
+    contract: { allowedPaths: [filePath], validationProfile: "mobile-build-config", manualMergeRequired: false, autoMergeEligible: true },
+  });
+  const checkId = mobileBuildPlatformChecks.iosExternalBuild;
+  const context = autoMergeContext({
+    laneDecision, changedFiles: [filePath], branchName: "focused/auto-911-test", pr: { headRefName: "focused/auto-911-test" },
+    externalPlatformBuildEvidence: [], requiredChecks: [{ name: checkId, status: "COMPLETED", conclusion: "SUCCESS" }],
+  });
+  assert.notEqual(evaluateAutoMergeDecision(context).reason, `mobile_platform_external_check_missing:${checkId}`);
+});
+
 test("api-domain auto-merge cannot carry manual-gated API domains through broad service paths", () => {
   const forbiddenPaths = [
     "services/api/Auth/SessionRuntime.cs",
@@ -4808,6 +4826,26 @@ test("client-ui-low-risk lane with exact mobile UI paths allows merge decision",
   );
   assert.equal(decision.eligible, true);
   assert.equal(decision.reason, "all_auto_merge_gates_passed");
+});
+
+test("mobile-application low-risk validation binding preserves lane-derived platform evidence", () => {
+  const laneDecision = { lane: "mobile-application", validationProfile: "mobile-ui-low-risk" };
+  const checkId = mobileBuildPlatformChecks.androidFlutterBuildApkDebug;
+  const evidence = bindValidationEvidence({ passed: true, results: [{ command: "flutter build apk --debug", status: 0, error: null, platformBuildCheckId: checkId }] }, {
+    headSha: "a".repeat(40),
+    baseSha: "b".repeat(40),
+    changedFiles: ["apps/mobile/lib/example.dart"],
+    profile: laneDecision.validationProfile,
+    laneDecision,
+  });
+  assert.deepEqual(evidence.mobileBuildPlatformEvidence.platforms, ["android"]);
+  assert.deepEqual(evidence.mobileBuildPlatformEvidence.localCheckIds, [checkId]);
+  assert.deepEqual(evidence.mobileBuildPlatformEvidence.externalCheckIds, [
+    mobileBuildPlatformChecks.iosExternalBuild,
+    mobileBuildPlatformChecks.macosExternalBuild,
+    mobileBuildPlatformChecks.windowsExternalBuild,
+  ]);
+  assert.equal(evidence.mobileBuildPlatformEvidence.localChecks[0].passed, true);
 });
 
 test("client-ui-low-risk real-code auto-merge blocks skipped missing stale or mismatched independent review", () => {
@@ -5500,6 +5538,24 @@ test("auto-merge wait expires fail-closed when checks remain pending beyond the 
     assert.equal(result.reason, "auto_merge_wait_expired:required_checks_pending");
     assert.equal(result.waitAttempts.length, 3);
     assert.deepEqual(result.waitAttempts[2].pendingCheckNames, ["CodeQL"]);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("auto-merge wait returns the final exact-head inspection when pending checks become source failures", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-wait-failed-final-state-"));
+  try {
+    const failedChecks = autoMergeRequiredChecks({ CodeQL: { status: "COMPLETED", conclusion: "FAILURE", commandId: "codeql", diagnostic: "test failed assertion", structuredEvidence: true } });
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 2, delayMs: 0 } },
+      autoMergeContext({ requiredChecks: autoMergeRequiredChecks({ CodeQL: { status: "IN_PROGRESS", conclusion: null } }) }),
+      { runner: createAutoMergeRunner([]), sleep: () => {}, inspectState: () => ({ pr: { mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", headRefOid: "head123", baseRefName: "main" }, requiredChecks: failedChecks, reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [] }) },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason, "required_checks_not_successful");
+    assert.equal(result.finalGithubState.inspectedHeadSha, "head123");
+    assert.deepEqual(result.finalGithubState.requiredChecks, failedChecks);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -7100,8 +7156,8 @@ test("production auto-merge inspection callers pass explicit live runner authori
   const runnerSource = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const recoveryIndex = runnerSource.indexOf("async function recoverExistingPrIfConfigured");
   const recoveryRunnerIndex = runnerSource.indexOf("const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);", recoveryIndex);
-  const recoveryInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner })", recoveryIndex);
-  const recoveryWaitIndex = runnerSource.indexOf("inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner })", recoveryIndex);
+  const recoveryInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl, laneDecision }, { runner: autoMergeRunner })", recoveryIndex);
+  const recoveryWaitIndex = runnerSource.indexOf("inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url, laneDecision }, { runner: autoMergeRunner })", recoveryIndex);
   assert.notEqual(recoveryRunnerIndex, -1);
   assert.notEqual(recoveryInspectIndex, -1);
   assert.notEqual(recoveryWaitIndex, -1);
@@ -7110,7 +7166,7 @@ test("production auto-merge inspection callers pass explicit live runner authori
 
   const normalIndex = runnerSource.indexOf("async function evaluateOrExecuteAutoMerge");
   const normalRunnerIndex = runnerSource.indexOf("const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);", normalIndex);
-  const normalInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url }, { runner: autoMergeRunner })", normalIndex);
+  const normalInspectIndex = runnerSource.indexOf("inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url, laneDecision: iteration.laneDecision }, { runner: autoMergeRunner })", normalIndex);
   const normalExecuteIndex = runnerSource.indexOf("}, { runner: autoMergeRunner });", normalInspectIndex);
   assert.notEqual(normalRunnerIndex, -1);
   assert.notEqual(normalInspectIndex, -1);
@@ -7121,6 +7177,23 @@ test("production auto-merge inspection callers pass explicit live runner authori
   const policySource = readFileSync("tools/auto-runner/lib/auto-merge-policy.mjs", "utf8");
   const waitIndex = policySource.indexOf("function executeAutoMergeWithWait");
   assert.match(policySource.slice(waitIndex, waitIndex + 700), /inspectAutoMergeGithubState\(cfg,[\s\S]*\{ runner \}/);
+});
+
+test("production source-failure paths forward recovery decisions and bound initial recursion", () => {
+  const runnerSource = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  assert.match(runnerSource, /source_failure_fix: async \(continuation, \{ batch, decision, intent \}\)/);
+  assert.match(runnerSource, /localSourceChangingRoundsPerEpoch \|\| 0\) >= 50/);
+  assert.match(runnerSource, /accountNormalReviewFixCommit\(iteration, postFix\.runnerCreatedCommitSha, "recursive_source_failure_fix_commit"\)/);
+});
+
+test("review-fix prompt respects exact authorized non-tooling lane paths", () => {
+  const prompt = buildReviewFixPrompt({
+    issue: { number: 944, title: "mobile source fix" }, branchName: "feature/auto-944-x",
+    laneDecision: { lane: "mobile-application", allowedPaths: ["apps/mobile/lib/**"], contract: { autoMergeEligible: true, manualMergeRequired: false } },
+    changedFiles: ["apps/mobile/lib/example.dart"], validation: { passed: false }, trigger: { source: "local_validation", findings: [] },
+  });
+  assert.match(prompt, /unless both the active lane and the exact allowedPaths/);
+  assert.doesNotMatch(prompt, /public\/admin exposure, mobile,/);
 });
 
 function createTempGitRepo() {

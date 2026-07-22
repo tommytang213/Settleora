@@ -384,6 +384,37 @@ export function evaluateReviewFixContractPaths({ laneDecision = {}, changedFiles
   return { ok: true, reason: "contract_paths_ok" };
 }
 
+export function evaluateSourceFailureFixMutationDecision(input = {}) {
+  const config = input.config || {};
+  const laneDecision = input.laneDecision || {};
+  const sourceFixContext = input.sourceFailureFix || {};
+  const batch = sourceFixContext.batch || null;
+  const decision = sourceFixContext.decision || null;
+  const changedFiles = Array.isArray(input.changedFiles) ? input.changedFiles : [];
+  const forbidden = Array.isArray(input.forbiddenChangedFiles) ? input.forbiddenChangedFiles : [];
+  const labels = (input.issue?.labels || []).map((label) => typeof label === "string" ? label : label?.name).filter(Boolean);
+  const normalized = config.reviewFixMutation || normalizeReviewFixMutationConfig(config);
+  const block = (reason) => ({ allowed: false, reason, mode: "source_failure_fix" });
+  if (!normalized.enabled || !config.allowReviewFixMutation || !config.configPath) return block("source_failure_fix_mutation_disabled_by_config");
+  if (!batch || batch.contractVersion !== 1 || !/^[a-f0-9]{64}$/.test(batch.batchIdentity || "") || !Array.isArray(batch.findings) || batch.findings.length === 0) return block("source_failure_fix_batch_invalid");
+  if (!decision?.sourceFixEligible || decision.classification !== "source_fix_safe") return block("source_failure_fix_batch_not_safe");
+  const identity = batch.candidate || {};
+  if (![identity.baseSha, identity.headSha, identity.treeSha].every((value) => /^[a-f0-9]{40}$/.test(value || "")) || !/^[a-f0-9]{64}$/.test(identity.diffDigest || "") || !Array.isArray(identity.changedFiles)) return block("source_failure_fix_candidate_identity_invalid");
+  if (identity.headSha !== sourceFixContext.candidateHead || identity.baseSha !== sourceFixContext.baseSha) return block("source_failure_fix_candidate_identity_mismatch");
+  if (JSON.stringify([...identity.changedFiles].sort()) !== JSON.stringify([...changedFiles].sort())) return block("source_failure_fix_changed_files_mismatch");
+  if (batch.findings.some((finding) => finding.classification !== "source_fix_safe" || finding.sourceFixEligible !== true || finding.identity?.headSha !== identity.headSha || !finding.repository || !finding.issueNumber || !finding.taskKey || !finding.branchName || finding.repository !== config.repositorySlug || finding.issueNumber !== input.issue?.number || finding.branchName !== input.branchName || (["local_validation", "github_check"].includes(finding.sourceKind) && !finding.commandId) || (finding.sourceKind === "local_validation" && finding.commandId !== laneDecision.validationProfile))) return block("source_failure_fix_finding_not_authorized");
+  if (batch.findings.some((finding) => /(suppress|disable|exclude|skip (?:the )?tests?|hand.?edit generated|ignore scanner|remove check|weaken workflow|expand dependenc)/i.test(finding.diagnosticExcerpt || ""))) return block("source_failure_fix_unsafe_remediation_requested");
+  if (!laneDecision.allowedToImplement || !reviewFixMutationLanes.includes(laneDecision.lane)) return block("lane_not_source_failure_fix_approved");
+  if (!laneDecision.autoMergeEligible || laneDecision.contract?.autoMergeEligible !== true || laneDecision.manualMergeRequired || laneDecision.contract?.manualMergeRequired !== false) return block("source_failure_fix_manual_or_non_auto_contract");
+  if (laneDecision.dangerGate || (laneDecision.dangerReasons || []).length > 0) return block("danger_gate_scope");
+  const stopLabel = labels.find((label) => reviewFixStopLabels.includes(label));
+  if (stopLabel) return block(`issue_stop_label:${stopLabel}`);
+  if (forbidden.length > 0) return block(`forbidden_changed_files:${forbidden.join(",")}`);
+  const paths = evaluateReviewFixContractPaths({ laneDecision, changedFiles });
+  if (!paths.ok) return block(paths.reason);
+  return { allowed: true, reason: "source_failure_fix_mutation_gates_passed", mode: "source_failure_fix", validationPassedBeforeFix: input.validation?.passed === true, failedValidationExplicitlyAuthorized: input.validation?.passed === false, cycleBudget: { normalized: normalized.maxSourceChangingCycles, hardMaximum: normalized.hardMaxSourceChangingCycles } };
+}
+
 export function evaluateReviewFixStrongGates({ laneDecision = {}, validation = {}, review = {}, externalReview = {}, mergePolicy = {}, trigger = null } = {}) {
   if (!reviewFixSensitiveLanes.includes(laneDecision.lane)) return { ok: true, reason: "standard_lane_gates_ok" };
   if (validation?.passed !== true || validation.profile === "docs-only") return { ok: false, reason: "sensitive_lane_requires_strong_validation" };
@@ -476,7 +507,8 @@ export function buildReviewFixPrompt({ issue, laneDecision, branchName, changedF
     "- Edit only files inside the exact issue allowedPaths listed above.",
     "- Fix only the review findings below.",
     "- Do not do broad refactors, unrelated cleanup, formatting churn, hidden scope expansion, generated-client edits, or dependency changes.",
-    "- Do not touch secrets, .env files, local provider config, authorization headers, runtime product code, API behavior, auth/session/security, storage/privacy, money/settlement, schema/migrations, OpenAPI, generated clients, Docker, deployment, public/admin exposure, mobile, OCR, sync, import, export, backup, or restore behavior.",
+    "- Never touch secrets, .env files, local provider config, authorization headers, signing, production activation, deployment, or public/admin exposure.",
+    "- Runtime, API, mobile, auth/session/security, storage/privacy, money/settlement, schema/migrations, OpenAPI/generated-client, Docker, OCR, sync, import/export, backup, and restore files remain prohibited unless both the active lane and the exact allowedPaths above explicitly authorize that domain; do not expand beyond those paths.",
     "- Do not push, open/update PRs, comment on GitHub, merge, delete branches, or run live provider calls.",
     "- Preserve the no `git add .` rule. The runner stages explicit paths only after validation and review pass.",
     "",

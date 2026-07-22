@@ -1,5 +1,15 @@
 # Detached Auto-Runner Supervisor
 
+## Source-failure status and recovery
+
+The supervisor projects the bounded `operational_status_v1` source-failure
+posture: classification, origin sources, frozen batch identity, exact
+candidate, local/GitHub counters, retry posture, last fix result,
+recertification phase, hard-stop reason, and next safe action. It never needs
+raw CI/scanner payloads. Restart adopts persisted batch/fix effects by identity
+and must not duplicate fix invocations, commits, pushes, reviews, task charges,
+or hygiene effects.
+
 This document defines the repository-side foundation for running the existing
 Settleora auto-runner as a detached DevBox background job. It does not install
 or enable a service, enable user lingering, deploy monitoring, or approve any

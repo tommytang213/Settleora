@@ -4,6 +4,7 @@ import { processAppearsActive } from "./state-store.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { buildOutageResubmissionStatus } from "../supervisor/outage-resubmission-controller.mjs";
 import { githubTriggeredFixEpochsPerPrLimit, localSourceChangingRoundsPerEpochLimit } from "./review-convergence-controller.mjs";
+import { evaluateSourceFailureBatch } from "./source-failure-convergence.mjs";
 import {
   loadExecutableStackPlan,
   loadPrStackState,
@@ -298,6 +299,11 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
   const latestWaitAttempt = Array.isArray(iteration.autoMerge?.waitAttempts)
     ? [...iteration.autoMerge.waitAttempts].reverse().find((attempt) => attempt?.checks && attempt?.prHeadSha)
     : null;
+  const continuation = iteration.ordinaryContinuation || iteration.ordinaryCandidateContinuation || {};
+  const sourceFailureBatch = continuation.sourceFailureBatch || iteration.sourceFailureBatch || null;
+  const sourceFailureHistory = [...(continuation.sourceFailureHistory || iteration.sourceFailureHistory || [])];
+  if (sourceFailureBatch && sourceFailureHistory.at(-1)?.batchIdentity === sourceFailureBatch.batchIdentity) sourceFailureHistory.pop();
+  const sourceFailureDecision = sourceFailureBatch ? evaluateSourceFailureBatch(sourceFailureBatch, sourceFailureHistory) : null;
   return sanitize({
     taskIdentity: {
       branch: iteration.branchName || iteration.branch?.name || iteration.bundle?.branchName || iteration.pr?.headRefName || null,
@@ -333,6 +339,16 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
       nextSafeAction: recovery.nextSafeAction || iteration.recovery?.nextAction || null,
       reasonCode: iteration.recovery?.reasonCode || recovery.stopReason?.reasonCode || recovery.blocker || null,
     },
+    sourceFailure: sourceFailureBatch ? {
+      classification: sourceFailureDecision?.classification || null,
+      originSources: [...new Set((sourceFailureBatch.findings || []).map((finding) => finding.sourceKind))],
+      frozenBatchIdentity: sourceFailureBatch.batchIdentity || null,
+      exactCandidate: sourceFailureBatch.candidate || null,
+      retryable: sourceFailureDecision?.retryable === true,
+      recertificationPhase: continuation.phase || iteration.phase || null,
+      hardStopReason: sourceFailureDecision && !sourceFailureDecision.sourceFixEligible && !sourceFailureDecision.retryable && sourceFailureDecision.classification !== "pending" ? sourceFailureDecision.reasonCode : null,
+      nextSafeAction: sourceFailureDecision?.nextAction || null,
+    } : iteration.sourceFailure || {},
     session: {
       generation: session.authority?.generation ?? session.generation ?? null,
       phase: controller.phase || session.phase || null,

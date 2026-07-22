@@ -4,7 +4,7 @@ import path from "node:path";
 import { safeTimestamp } from "./logger.mjs";
 import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { digestChangedFiles } from "./config.mjs";
-import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
+import { filterForbiddenChangedFiles, pathViolatesPolicy } from "./lane-policy.mjs";
 import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { buildIssueOperationContext, completeMergedIssueHygiene } from "./completion-hygiene.mjs";
@@ -261,7 +261,7 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
   return { evidencePath };
 }
 
-export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {}, options = {}) {
+export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, laneDecision } = {}, options = {}) {
   const runner = options.runner || (config.dryRun ? defaultRunner : null);
   const commandEvidence = [];
   const run = (command, args, runnerOptions = {}) => {
@@ -347,12 +347,16 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {
   if (issueView.error || issueView.status !== 0) blockingMarkers.push("issue_view_failed");
 
   const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers, run);
-  const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers, run);
+  const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers, run)
+    .map((alert) => {
+      const alertPath = alert?.most_recent_instance?.location?.path || alert?.mostRecentInstance?.location?.path || alert?.path;
+      return { ...alert, scopeAllowed: Boolean(alertPath) && !pathViolatesPolicy(alertPath, laneDecision || {}) };
+    });
   blockingMarkers.push(...detectBlockingMarkers(pr.comments || [], pr.reviews || []));
   return {
     pr,
     issue: currentIssue,
-    requiredChecks: flattenCheckRollup(pr.statusCheckRollup || []),
+    requiredChecks: enrichFailedCheckEvidence(config, flattenCheckRollup(pr.statusCheckRollup || []), run),
     reviewThreads,
     codeScanningAlerts,
     blockingMarkers,
@@ -384,7 +388,7 @@ export function executeAutoMerge(config, context, options = {}) {
   const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
   const defaultInspectState = (cfg, ctx) => inspectAutoMergeGithubState(
     { ...(ctx.config || {}), ...cfg, repositorySlug: cfg.repositorySlug || ctx.config?.repositorySlug },
-    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber },
+    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber, laneDecision: ctx.laneDecision },
     { runner },
   );
   const refreshed = (options.inspectState || defaultInspectState)(config, context);
@@ -396,7 +400,7 @@ export function executeAutoMerge(config, context, options = {}) {
   const finalDecision = confirmedLifecycleMergeDecision({ ...finalContext, config }) || evaluateAutoMergeDecision(finalContext);
   if (!finalDecision.eligible) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
-    return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
+    return { ...raced, finalGithubState: exactHeadGithubInspection(finalContext), evidence: writeAutoMergeEvidence(config, raced, finalContext) };
   }
   const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug || context.config?.repositorySlug);
   if (!repositorySlug) {
@@ -579,7 +583,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
   const prNumber = context.pr?.number || context.prNumber || context.pr?.url;
   const defaultInspectState = (cfg, ctx) => inspectAutoMergeGithubState(
     { ...(ctx.config || {}), ...cfg, repositorySlug: cfg.repositorySlug || ctx.config?.repositorySlug },
-    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber },
+    { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url || ctx.prNumber, laneDecision: ctx.laneDecision },
     { runner },
   );
   const refreshed = (options.inspectState || defaultInspectState)(config, context);
@@ -591,7 +595,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
   const finalDecision = confirmedLifecycleMergeDecision({ ...finalContext, config }) || evaluateAutoMergeDecision(finalContext);
   if (!finalDecision.eligible) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
-    return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
+    return { ...raced, finalGithubState: exactHeadGithubInspection(finalContext), evidence: writeAutoMergeEvidence(config, raced, finalContext) };
   }
   const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug || context.config?.repositorySlug);
   if (!repositorySlug) {
@@ -650,7 +654,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
 
 function executeAutoMergeWithWait(config, initialContext, options) {
   const runner = options.runner || defaultRunner;
-  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber }, { runner }));
+  const inspectState = options.inspectState || ((cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.url || ctx.pr?.number || ctx.prNumber, laneDecision: ctx.laneDecision }, { runner }));
   const sleep = options.sleep || sleepSync;
   const wait = options.wait;
   const attempts = [];
@@ -666,7 +670,7 @@ function executeAutoMergeWithWait(config, initialContext, options) {
     if (decision.eligible) {
       const execute = options.mergeOnly === true ? executeAutoMergeMergeOnly : executeAutoMerge;
       const result = execute(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
-      return { ...result, waitAttempts: attempts };
+      return { ...result, waitAttempts: attempts, finalGithubState: result.finalGithubState || exactHeadGithubInspection(context) };
     }
     if (!shouldWaitForAutoMergeDecision(decision) || attempt === wait.maxAttempts) break;
     sleep(wait.delayMs);
@@ -686,7 +690,20 @@ function executeAutoMergeWithWait(config, initialContext, options) {
     reason: timedOut ? `auto_merge_wait_expired:${decision.reason}` : decision.reason,
     waitAttempts: attempts,
   };
-  return { ...finalDecision, evidence: writeAutoMergeEvidence(config, finalDecision, context) };
+  return { ...finalDecision, finalGithubState: exactHeadGithubInspection(context), evidence: writeAutoMergeEvidence(config, finalDecision, context) };
+}
+
+function exactHeadGithubInspection(context = {}) {
+  return {
+    inspectedHeadSha: context.pr?.headRefOid || context.actualHeadSha || null,
+    inspectedBaseRefName: context.pr?.baseRefName || null,
+    inspectedBaseSha: context.currentOriginMainSha || context.expectedOriginMainSha || null,
+    pr: context.pr ? { number: context.pr.number, state: context.pr.state, headRefOid: context.pr.headRefOid, baseRefName: context.pr.baseRefName, mergeable: context.pr.mergeable, mergeStateStatus: context.pr.mergeStateStatus } : null,
+    requiredChecks: Array.isArray(context.requiredChecks) ? context.requiredChecks : [],
+    reviewThreads: Array.isArray(context.reviewThreads) ? context.reviewThreads : [],
+    codeScanningAlerts: Array.isArray(context.codeScanningAlerts) ? context.codeScanningAlerts : [],
+    blockingMarkers: Array.isArray(context.blockingMarkers) ? context.blockingMarkers : [],
+  };
 }
 
 function legacyLabelCleanupResult(labelCleanup = {}) {
@@ -856,7 +873,7 @@ function evaluateValidationEvidence(input, { expectedHeadSha, expectedBaseSha, c
 
 function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedBaseSha, changedFiles, laneDecision }) {
   const canonicalLane = laneDecision.canonicalLane || laneDecision.lane;
-  if (canonicalLane !== "mobile-build-config") return { ok: true };
+  if (!["mobile-application", "mobile-build-config"].includes(canonicalLane)) return { ok: true };
   const requirements = inferMobileBuildPlatformRequirements(changedFiles, laneDecision);
   if (requirements.localCheckIds.length === 0 && requirements.externalCheckIds.length === 0) return { ok: true };
   const validationEvidence = input.validation?.mobileBuildPlatformEvidence || {};
@@ -880,7 +897,23 @@ function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedB
     if (!check) return { ok: false, reason: `mobile_platform_local_check_missing:${checkId}` };
     if (check.passed !== true || check.status !== 0) return { ok: false, reason: `mobile_platform_local_check_failed:${checkId}` };
   }
-  const externalEvidence = Array.isArray(input.externalPlatformBuildEvidence) ? input.externalPlatformBuildEvidence : [];
+  const explicitExternalEvidence = Array.isArray(input.externalPlatformBuildEvidence) ? input.externalPlatformBuildEvidence : [];
+  const exactHeadChecks = Array.isArray(input.requiredChecks) ? input.requiredChecks : [];
+  const externalEvidence = requirements.externalCheckIds.map((checkId) => {
+    const explicit = explicitExternalEvidence.find((item) => item.checkId === checkId);
+    if (explicit) return explicit;
+    const githubCheck = exactHeadChecks.find((item) => item.name === checkId);
+    if (!githubCheck) return null;
+    return {
+      checkId,
+      status: githubCheck.status,
+      conclusion: githubCheck.conclusion,
+      headSha: expectedHeadSha,
+      baseSha: expectedBaseSha,
+      changedFilesDigest: digestChangedFiles(changedFiles),
+      platforms: requirements.platforms,
+    };
+  }).filter(Boolean);
   for (const checkId of requirements.externalCheckIds) {
     const check = externalEvidence.find((item) => item.checkId === checkId);
     if (!check) return { ok: false, reason: `mobile_platform_external_check_missing:${checkId}` };
@@ -1072,7 +1105,26 @@ function flattenCheckRollup(rollup) {
     name: check.name || check.context || "unknown",
     status: check.status || (check.state === "SUCCESS" ? "COMPLETED" : check.state),
     conclusion: check.conclusion || check.state,
+    detailsUrl: check.detailsUrl || null,
   }));
+}
+
+function enrichFailedCheckEvidence(config, checks, run) {
+  return checks.map((check) => {
+    if (!["failure", "timed_out", "cancelled", "action_required"].includes(String(check.conclusion || "").toLowerCase())) return check;
+    const match = String(check.detailsUrl || "").match(/\/actions\/runs\/(\d+)\/job\/(\d+)(?:$|[?#])/);
+    if (!match) return check;
+    const result = run("gh", ["run", "view", match[1], "--job", match[2], "--log-failed"], { cwd: config.repoRoot });
+    if (result.error || result.status !== 0) return check;
+    const sanitized = sanitizePersistedEvidence(String(result.stdout || "").slice(0, 12_000));
+    return { ...check, step: "failed-job-log", sanitizedLogExcerpt: String(sanitized || "").slice(0, 2_000), failureType: classifyFailedCheckLogFailureType(sanitized) };
+  });
+}
+
+export function classifyFailedCheckLogFailureType(value) {
+  const text = String(value || "");
+  if (/timeout|timed out|rate limit|temporar(?:y|ily)|network|connection reset|service unavailable|runner unavailable|dependency (?:download|registry|mirror)/i.test(text)) return null;
+  return /assert|test failed|compiler|compilation|lint|build failed|syntax error|analysis issues?/i.test(text) ? "source" : null;
 }
 
 export function detectBlockingMarkers(comments, reviews) {

@@ -1,5 +1,37 @@
 # Settleora Auto-Runner Tooling
 
+## Recursive source-failure convergence
+
+`source-failure-convergence.mjs` defines the versioned, bounded record used by
+ordinary continuation for local validation, GitHub checks, CodeQL, Semgrep,
+Trivy, Gemini, local Codex, and GitHub Codex findings. Records are sanitized,
+exact-candidate bound, fingerprinted, frozen, and deduplicated; raw provider
+payloads, logs, prompts, diffs, environment data, credentials, and scanner
+artifacts are not persisted.
+
+Only structured in-contract `source_fix_safe` batches enter the shared focused
+source-fix handler. A new source identity invalidates prior evidence and
+restarts full validation plus fresh independent and local Codex review before
+push. Pending/transient failures wait or retry without mutation; auth, manual,
+unsupported, out-of-contract, ambiguous, suppression/dismissal, and repeated
+no-progress batches stop fail-closed. Existing two-loop counters and the one
+accepted logical-task charge remain authoritative. Ordinary
+`mobile-application` validation also runs the fixed trusted Android debug APK
+build; unsupported platforms remain exact-head external proof.
+
+Failed validation is authorized through a distinct source-failure mutation
+decision; ordinary review-fix authorization still requires a passing
+candidate. GitHub wait results retain a bounded final exact-head inspection so
+a pending check that later fails can enter this classifier. GitHub finding
+fingerprints remain prepared, not consumed, until a replacement commit is
+confirmed; crash recovery resumes the same reserved epoch and adopts the
+new-head effect before recertification.
+If a focused repair exposes another actionable validation defect, the new
+candidate is committed and re-enters the same bounded classifier instead of
+terminating after one round. Canonically named platform checks are translated
+from the exact-head GitHub inspection, and scanner alert paths must satisfy
+both the task contract and lane manifest before a fix epoch is authorized.
+
 ## Post-implementation continuation authorities
 
 Ordinary post-implementation work uses one durable continuation authority from exact candidate reconciliation through validation, dual and structured review, convergence, push/PR recovery, GitHub gates, merge, and post-merge hygiene. Startup recovery re-enters that authority at the earliest incomplete exact-head phase; loading a large-review checkpoint is not a terminal success.

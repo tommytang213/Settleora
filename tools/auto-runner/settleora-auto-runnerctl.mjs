@@ -578,6 +578,7 @@ export function projectRunnerStatus(status = {}) {
     },
     counters: projection.counters || {},
     recovery: projection.recovery || {},
+    sourceFailure: projection.sourceFailure || {},
     session: projection.session || {},
     review: projection.review || {},
     largeCandidate: {

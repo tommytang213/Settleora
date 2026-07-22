@@ -79,10 +79,17 @@ export function validationCommandCwd(config = {}, item = {}) {
   return config.repoRoot;
 }
 
-export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile }) {
+export function bindValidationEvidence(validation, { headSha, baseSha, changedFiles, profile, laneDecision = {} }) {
   const files = [...(changedFiles || [])].map(String).sort();
   const changedFilesDigest = digestChangedFiles(files);
-  const requirements = inferMobileBuildPlatformRequirements(files);
+  const effectiveLaneDecision = Object.keys(laneDecision).length > 0
+    ? laneDecision
+    : profile === "mobile"
+      ? { lane: "mobile-application" }
+      : profile === "mobile-build-config"
+        ? { lane: "mobile-build-config" }
+        : {};
+  const requirements = inferMobileBuildPlatformRequirements(files, effectiveLaneDecision);
   const localChecks = (validation?.results || [])
     .filter((result) => result.platformBuildCheckId)
     .map((result) => ({
@@ -113,7 +120,7 @@ export function bindValidationEvidence(validation, { headSha, baseSha, changedFi
 
 export function inferMobileBuildPlatformRequirements(changedFiles = [], laneDecision = {}) {
   const lane = laneDecision.canonicalLane || laneDecision.lane;
-  if (lane && lane !== "mobile-build-config") {
+  if (lane && !["mobile-application", "mobile-build-config"].includes(lane)) {
     return emptyMobileBuildPlatformRequirements();
   }
   const files = [...(changedFiles || [])].map((file) => String(file || "")).filter(Boolean).sort();
@@ -154,6 +161,17 @@ export function inferMobileBuildPlatformRequirements(changedFiles = [], laneDeci
     addMacosExternal();
     addWindowsExternal();
   };
+
+  // Ordinary Flutter application changes must prove that the current app can
+  // actually be packaged on the supported Linux runner. Native platforms that
+  // cannot be built here remain exact-head external requirements.
+  if (lane === "mobile-application") {
+    localChecks.add(mobileBuildPlatformChecks.androidFlutterBuildApkDebug);
+    platformSet.add("android");
+    externalChecks.add(mobileBuildPlatformChecks.iosExternalBuild);
+    externalChecks.add(mobileBuildPlatformChecks.macosExternalBuild);
+    externalChecks.add(mobileBuildPlatformChecks.windowsExternalBuild);
+  }
 
   for (const file of files) {
     if (/^apps\/mobile\/(?:pubspec\.yaml|pubspec\.lock|assets\/|l10n\/)/.test(file)) addCrossPlatformDependencyProof();

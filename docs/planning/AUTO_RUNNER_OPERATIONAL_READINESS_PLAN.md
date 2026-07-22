@@ -2,6 +2,12 @@
 
 Status: implementation acceptance advanced; production profile not activated.
 
+Issue #944 is the active pre-activation implementation milestone. It extends
+the merged #923/#924/#928/#929/#932 authorities with bounded recursive
+source-failure convergence and adds an Android debug APK build to ordinary
+`mobile-application` validation. It does not activate #912 or change any
+external profile, deployment, credential, or scanner-disposition authority.
+
 Acceptance-chain reconciliation snapshot: `origin/main` at
 `960a4d9a09c55c728b01738d9ff1d778cf04e928` after PR #942. The foundation
 issues #800, #889, and #894 remain closed. #913 and #921 are closed under their

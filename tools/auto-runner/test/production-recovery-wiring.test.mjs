@@ -226,6 +226,15 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /recommended_next_action: "run_safe_fix_cycle"/);
   assert.match(source, /reviewConvergenceState: iteration\.reviewConvergenceState/);
   assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
+  assert.match(source, /synchronizeRecoveredSourceChange\(state, ordinaryContinuation, "ordinary_source_failure_fix_committed"\)/);
+  assert.match(source, /accountConvergenceEvent\(convergence, \{ kind: "source_changed", newHead, reasonCode \}\)/);
+  assert.match(source, /if \(decision\.retryable\) \{[\s\S]*iteration\.outcome = "validation_retryable";[\s\S]*decision\.nextAction/);
+  assert.match(source, /counters: ordinaryCountersFromReviewConvergence\(iteration\.reviewConvergenceState\)/);
+  assert.match(source, /recoveryRecorder\.annotate\(\{ ordinaryContinuation: continuation \}\)/);
+  assert.match(source, /boundary\.phase === "checkpoint_validation_commit"[\s\S]*reconstructInitialValidationFailureCheckpoint/);
+  assert.match(source, /initial_validation_failure_commit_reconstruction_ambiguous/);
+  assert.match(source, /commitMessage: `Auto-runner issue #\$\{issue\.number\}: source-fix \$\{batch\.batchIdentity\.slice\(0, 16\)\}`/);
+  assert.match(source, /if \(replacementDecision\.retryable\) \{[\s\S]*iteration\.outcome = "validation_retryable";[\s\S]*replacementDecision\.nextAction/);
 });
 
 test("valid non-pass reviewers retain prompt binding for structured convergence", () => {
@@ -351,4 +360,11 @@ test("projection adapters prefer terminal summaries and normalize legacy check c
   assert.match(ctl, /buildStatusExport\(cli\)/);
   assert.match(ctl, /deps\.loadProjectionConfig \|\| loadProjectionConfig/);
   assert.match(ctl, /status: status\.active \? "active" : projection\.status \|\| status\.latestTerminalOutcome/);
+});
+
+test("ordinary source-fix recovery admits only an exact descendant prepared commit for adoption", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /initial\.sourceFailureFixIntent\?\.status === "prepared"/);
+  assert.match(runner, /\["merge-base", "--is-ancestor", initial\.identity\.headSha, liveHeadAtRecovery\]/);
+  assert.match(runner, /preparedFixCanBeAdopted/);
 });
