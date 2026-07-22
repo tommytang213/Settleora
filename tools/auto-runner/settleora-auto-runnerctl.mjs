@@ -102,7 +102,7 @@ export function loadProjectionConfig(cli, deps = {}) {
   const profileResolver = deps.resolveProfile || resolveProfile;
   const configPathValidator = deps.validateRunnerConfigPath || validateRunnerConfigPath;
   const bootstrap = { ...(deps.defaultConfig || defaultConfig) };
-  const status = statusReader(bootstrap);
+  const status = suppressRetainedTaskForPreChildSupervisor(bootstrap, statusReader(bootstrap), deps.latestSupervisorRun || latestSupervisorRun);
   let configPath;
   if (status.supervisorRunId) {
     const verified = specReader(status.supervisorRunId, null, bootstrap.logsRoot);
@@ -451,9 +451,9 @@ function readProjectionGithub(config, status, run) {
   return result;
 }
 
-function suppressRetainedTaskForPreChildSupervisor(config, status) {
+function suppressRetainedTaskForPreChildSupervisor(config, status, latestReader = latestSupervisorRun) {
   if (status.active) return status;
-  const latest = latestSupervisorRun(config.logsRoot);
+  const latest = latestReader(config.logsRoot);
   if (!latest?.runId || latest.runId === status.supervisorRunId) return status;
   const latestAt = Date.parse(latest.updatedAt || latest.createdAt || 0);
   const retainedAt = Date.parse(status.lastEventAt || 0);

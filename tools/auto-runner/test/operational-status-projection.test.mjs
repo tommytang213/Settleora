@@ -162,6 +162,7 @@ test("projection config comes from the verified supervisor spec or trusted reque
   const calls = [];
   const loaded = loadProjectionConfig({ profile: "default" }, {
     getRunnerStatus: () => ({ supervisorRunId: "20260722-1019-supervisor" }),
+    latestSupervisorRun: () => null,
     readAndVerifyRunSpec: (runId, digest, logsRoot) => {
       calls.push(["spec", runId, digest, logsRoot]);
       return { config: { path: "/trusted/configs/active.json" } };
@@ -171,6 +172,14 @@ test("projection config comes from the verified supervisor spec or trusted reque
   assert.equal(loaded.configPath, "/trusted/configs/active.json");
   assert.deepEqual(loaded.autoMergePolicy.requiredChecks, ["Active policy"]);
   assert.equal(calls[0][0], "spec");
+
+  const preChild = loadProjectionConfig({ profile: "default" }, {
+    getRunnerStatus: () => ({ active: false, supervisorRunId: "old-supervisor", lastEventAt: "2026-07-22T01:00:00.000Z" }),
+    latestSupervisorRun: () => ({ runId: "new-supervisor", state: "submitted", updatedAt: "2026-07-22T02:00:00.000Z" }),
+    readAndVerifyRunSpec: (runId) => ({ config: { path: `/trusted/configs/${runId}.json` } }),
+    loadConfig: (args) => args,
+  });
+  assert.equal(preChild.configPath, "/trusted/configs/new-supervisor.json");
 
   const foreground = loadProjectionConfig({ profile: "default" }, {
     getRunnerStatus: () => ({ active: true, configPath: "/trusted/configs/foreground.json" }),
@@ -185,6 +194,7 @@ test("projection config comes from the verified supervisor spec or trusted reque
 
   const fallback = loadProjectionConfig({ profile: "canary" }, {
     getRunnerStatus: () => ({}),
+    latestSupervisorRun: () => null,
     resolveProfile: (profile) => ({ runnerConfigPath: `/trusted/configs/${profile}.json` }),
     loadConfig: (args) => args,
   });
