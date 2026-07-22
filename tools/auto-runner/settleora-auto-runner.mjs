@@ -94,6 +94,7 @@ import {
   renderRunsText,
   renderStatusText,
   writeActiveRunState,
+  writeCurrentIterationState,
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
@@ -316,6 +317,7 @@ async function main() {
         break;
       }
       Object.assign(summary, trackerSnapshot(issueTracker));
+      config.operationalIterationCheckpoint = (current) => writeCurrentIterationState(config, summary, current);
       const iteration = await runIteration(config, logger, runId, index, issueTracker, chargedRecoveryAtCap);
       const canaryEvidence = writeCanaryEvidence(config, iteration);
       if (canaryEvidence) {
@@ -368,6 +370,7 @@ function isFatalRunStopReason(stopReason) {
 }
 
 async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker(), startupRecoveryOverride = null) {
+  const checkpoint = config.operationalIterationCheckpoint || (() => {});
   const iteration = {
     runId,
     index,
@@ -377,6 +380,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     outcome: null,
     systemicStop: null,
     runIssueState: trackerSnapshot(issueTracker),
+  };
+  checkpoint(iteration);
+  const operationalCheckpoint = (phase, projected = {}) => {
+    iteration.phase = phase;
+    Object.assign(iteration, projected);
+    checkpoint(iteration);
   };
 
   const startupRecovery = startupRecoveryOverride || (config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config));
@@ -388,6 +397,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       ? chargeStartupRecoveryLogicalTask(config, runId, startupRecovery)
       : { ok: true, charged: false, skipped: true, reasonCode: "startup_recovery_not_allowed" };
     iteration.logicalTaskBudget = recoveryBudget;
+    checkpoint(iteration);
     if (!recoveryBudget.ok) {
       iteration.recovery = startupRecovery;
       iteration.issueSource = "startup_recovery";
@@ -397,8 +407,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
+    iteration.recovery = startupRecovery;
+    iteration.issueSource = "startup_recovery";
+    iteration.issue = Number.isSafeInteger(startupRecovery.state?.issue?.number)
+      ? { number: startupRecovery.state.issue.number }
+      : Number.isSafeInteger(startupRecovery.state?.issueNumber)
+        ? { number: startupRecovery.state.issueNumber }
+        : null;
+    iteration.branchName = startupRecovery.state?.branchName || startupRecovery.state?.branch?.name || null;
+    iteration.baseOriginMainSha = startupRecovery.state?.baseSha || null;
+    iteration.runnerCreatedCommitSha = startupRecovery.state?.currentHeadSha || null;
+    iteration.pr = startupRecovery.state?.pr || null;
+    iteration.phase = "startup_recovery";
+    checkpoint(iteration);
     const continuation = startupRecovery.allowed
-      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
+      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint)
       : await executeStartupContinuation(config, startupRecovery);
     iteration.recovery = continuation.recovery || startupRecovery;
     iteration.issueSource = "startup_recovery";
@@ -406,6 +429,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       ? projectStartupRecoveryIssueIdentity(startupRecovery, continuation)
       : null;
     iteration.issue = recoveryIssue?.ok ? recoveryIssue.issue : null;
+    checkpoint(iteration);
     iteration.existingPrRecovery = continuation.result?.existingPrRecovery || null;
     iteration.bundle = continuation.result?.bundle || null;
     iteration.autoMerge = continuation.result?.autoMerge || null;
@@ -424,6 +448,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         ? `recoverable-work-stopped:${recoveryReasonCode}`
         : null;
     iteration.finishedAt = new Date().toISOString();
+    checkpoint(iteration);
     logger.info(
       startupRecovery.allowed
         ? `Recoverable auto-runner state for issue #${startupRecovery.state?.issueNumber} executed phase ${iteration.recovery?.executedPhase || "unknown"}.`
@@ -490,6 +515,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     url: issue.url,
     labels: issue.labels,
   };
+  checkpoint(iteration);
   logger.info(`Iteration ${index}: selected issue #${issue.number} ${issue.title}`);
 
   let recoveryRecorder = createProductionRecoveryRecorder(config, {
@@ -545,6 +571,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         claimIdentity: `${config.repositorySlug}#${issue.number}`,
         acceptedAt,
       });
+  checkpoint(iteration);
   if (!iteration.logicalTaskBudget.ok) {
     iteration.outcome = "blocked_logical_task_budget";
     iteration.systemicStop = `logical-task-budget:${iteration.logicalTaskBudget.reasonCode}`;
@@ -591,6 +618,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   if ((issue.labels || []).includes("auto-bundle")) {
     const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
+    iteration.phase = "feature_bundle";
+    checkpoint(iteration);
     const bundleResult = await runFeatureBundleIteration(config, logger, {
       runId,
       index,
@@ -598,6 +627,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       laneDecision,
       recoveryState: recoveryRecorder?.state || null,
       autoMergeRunner,
+      operationalCheckpoint,
       controlCheck: () => {
         const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
         return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -622,6 +652,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     }
     iteration.runnerCreatedCommitSha = config.dryRun ? null : (bundleResult.stopReason ? null : getRefSha("HEAD"));
     iteration.outcome = bundleResult.outcome || (bundleResult.ok ? "approved_pr_opened" : "auto_failed");
+    iteration.phase = "feature_bundle_complete";
+    checkpoint(iteration);
     if (!config.dryRun) {
       const detail = bundleResult.pr?.url ? `\n\nPR: ${bundleResult.pr.url}` : "";
       const reason = bundleResult.stopReason?.reason ? `\nReason: ${bundleResult.stopReason.reason}` : "";
@@ -645,13 +677,17 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       }
     }
     iteration.finishedAt = new Date().toISOString();
+    checkpoint(iteration);
     return iteration;
   }
 
+  iteration.phase = "existing_pr_recovery";
+  checkpoint(iteration);
   const recovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, null, {
     runId,
     index,
     chargeMarkerRef: iteration.logicalTaskBudget?.statePath,
+    operationalCheckpoint,
   });
   if (recovery) {
     iteration.existingPrRecovery = recovery;
@@ -664,6 +700,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.baseOriginMainSha = recovery.baseOriginMainSha;
     iteration.runnerCreatedCommitSha = recovery.expectedHeadSha;
     iteration.outcome = recovery.autoMerge?.result === "merged" ? "auto_merged" : "auto_failed";
+    iteration.phase = "existing_pr_recovery_complete";
+    checkpoint(iteration);
     if (iteration.outcome !== "auto_merged" && !recovery.terminalMutationBlocked) {
       iteration.issueComment = finishIssueOutcome(
         config,
@@ -753,6 +791,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   if (lifecycleInvocation) promptInfo.sessionLifecycle = lifecycleInvocation;
   if (lifecycleInvocation) iteration.sessionLifecycle = lifecycleInvocation.state;
   if (lifecycleInvocation) issue.sessionLifecycle = lifecycleInvocation.state;
+  iteration.phase = "implementation";
+  checkpoint(iteration);
   const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
   if (codexResult.sessionLifecycle?.state && promptInfo.sessionLifecycle) {
     promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: codexResult.sessionLifecycle.state };
@@ -760,6 +800,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     issue.sessionLifecycle = codexResult.sessionLifecycle.state;
   }
   iteration.codex = codexResult;
+  iteration.phase = "implementation_complete";
+  checkpoint(iteration);
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, codexFailureBody(issue, codexResult));
@@ -814,7 +856,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   const validationPlan = planValidation(changedFiles, laneDecision);
+  iteration.phase = "local_validation";
+  checkpoint(iteration);
   iteration.validation = runValidationPlan(config, validationPlan);
+  iteration.phase = "local_validation_complete";
   recoveryRecorder?.evidence("localValidation", {
     status: iteration.validation.passed ? "passed" : "failed",
     headSha: config.dryRun ? null : getRefSha("HEAD"),
@@ -822,6 +867,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFiles,
     summary: "checkpoint validation",
   });
+  checkpoint(iteration);
   if (!iteration.validation.passed) {
     iteration.outcome = "validation_failed";
     iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, validationFailureBody(issue, iteration.validation));
@@ -911,6 +957,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFilesDigest: iteration.validation.changedFilesDigest,
     summary: "exact-head validation",
   });
+  checkpoint(iteration);
 
   if (recoveryRecorder) {
     const identity = {
@@ -943,8 +990,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     diffBaseRef: "origin/main",
     diffHeadRef: "HEAD",
   });
+  iteration.phase = "external_review";
+  checkpoint(iteration);
   iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  iteration.phase = "external_review_complete";
   iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
+  checkpoint(iteration);
   if (iteration.reviewMutationGuard.mutationDetected) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner blocked #${issue.number} because external pre-PR review mutated the checkout.`);
@@ -1049,6 +1100,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+    checkpoint(iteration);
     if (iteration.reviewMutationGuard?.mutationDetected) {
       return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_fix_review_mutated_checkout");
     }
@@ -1071,12 +1123,16 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   if (!iteration.review) {
     recoveryRecorder?.advance("codex_mechanics_security_review", "run_codex_mechanics_review");
+    iteration.phase = "local_codex_review";
+    checkpoint(iteration);
     iteration.review = runReviewPrompt(config, { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null });
+    iteration.phase = "local_codex_review_complete";
     if (iteration.review.sessionLifecycle) {
       iteration.sessionLifecycle = iteration.review.sessionLifecycle;
       issue.sessionLifecycle = iteration.review.sessionLifecycle;
       if (promptInfo.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: iteration.review.sessionLifecycle };
     }
+    checkpoint(iteration);
     const afterReview = await checkoutFingerprint();
     iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
     if (iteration.reviewMutationGuard.mutationDetected) {
@@ -1197,6 +1253,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
+      checkpoint(iteration);
       if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
@@ -1318,6 +1375,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
+      checkpoint(iteration);
       if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
@@ -1446,6 +1504,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
+    checkpoint(iteration);
     if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
     if (iteration.reviewMutationGuard?.mutationDetected) {
@@ -1470,7 +1529,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   recoveryRecorder?.advance("push", "push_branch");
+  iteration.phase = "push";
+  checkpoint(iteration);
   iteration.push = await pushBranch(config, branchName, { effectContext: promptInfo.sessionLifecycle?.state });
+  iteration.phase = "push_complete";
+  checkpoint(iteration);
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(
@@ -1486,7 +1549,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   recoveryRecorder?.marker("push", `branch-${branchName}`, { target: branchName, correlation: iteration.runnerCreatedCommitSha || runId });
   recoveryRecorder?.advance("pr_create_recover", "open_or_recover_pr");
+  iteration.phase = "pr_create_recover";
+  checkpoint(iteration);
   iteration.pr = await openOrUpdatePr(config, issue, branchName, prSummary(iteration), { effectContext: promptInfo.sessionLifecycle?.state });
+  iteration.phase = "pr_create_recover_complete";
+  checkpoint(iteration);
   if (iteration.pr?.url || iteration.pr?.number) {
     recoveryRecorder?.setPr(iteration.pr);
     recoveryRecorder?.marker("pr_create", `issue-${issue.number}`, {
@@ -1496,7 +1563,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   if (!config.dryRun && iteration.pr.url) {
     recoveryRecorder?.advance("ci_wait", "wait_for_checks");
+    iteration.phase = "ci_wait";
+    checkpoint(iteration);
     iteration.ci = watchChecks(config, iteration.pr.url);
+    iteration.phase = "ci_wait_complete";
+    checkpoint(iteration);
     recoveryRecorder?.evidence("ciChecks", {
       status: "recorded",
       headSha: iteration.runnerCreatedCommitSha,
@@ -1506,6 +1577,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
   }
   recoveryRecorder?.advance("exact_head_final_refresh", "evaluate_merge_or_pr_state");
+  iteration.phase = "exact_head_final_refresh";
+  checkpoint(iteration);
   iteration.autoMerge = await evaluateOrExecuteAutoMerge(config, {
     issue,
     iteration,
@@ -1513,6 +1586,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFiles,
     forbidden,
   });
+  iteration.phase = "exact_head_final_refresh_complete";
+  checkpoint(iteration);
   if (iteration.autoMerge.result === "merged") {
     recoveryRecorder?.advance("merge", "merge_confirmed");
     recoveryRecorder?.marker("merge", `pr-${iteration.pr?.number || iteration.pr?.url}-${iteration.runnerCreatedCommitSha || "head"}`, {
@@ -1703,7 +1778,7 @@ function createProductionRecoveryRecorder(config, input) {
   };
 }
 
-async function resumeStartupRecovery(config, logger, runId, index, startupRecovery) {
+async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null) {
   return executeStartupContinuation(config, startupRecovery, {
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
     default: async ({ state, boundary }) => {
@@ -1732,6 +1807,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           branchName: state.branch.name,
           recoveryState: state,
           autoMergeRunner,
+          operationalCheckpoint,
           controlCheck: () => {
             const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
             return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -1742,7 +1818,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
         if (checkpoint.ok) {
-          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary });
+          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
         }
       }
       if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
@@ -1760,7 +1836,10 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: "unsupported_early_phase_recovery", state: stopped };
       }
-      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state, { runId: state.runId || state.logicalTask?.runId });
+      const existingPrRecovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, state, {
+        runId: state.runId || state.logicalTask?.runId,
+        operationalCheckpoint,
+      });
       if (!existingPrRecovery) {
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: "recovery_existing_pr_context_missing", state };
       }
@@ -1776,7 +1855,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   });
 }
 
-async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary }) {
+async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null }) {
   const identity = checkpoint.candidateIdentity;
   const initial = state.ordinaryContinuation || createOrdinaryContinuationState({
     logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
@@ -1823,41 +1902,49 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       return { ok: true, evidence: candidate };
     },
     local_validation: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_local_validation");
       const candidate = continuation.identity;
       const changedFiles = listChangedFiles(candidate.baseSha, candidate.headSha);
       const forbidden = filterForbiddenChangedFiles(changedFiles, laneDecision);
       if (forbidden.length) return { ok: false, reasonCode: "ordinary_continuation_scope_mismatch" };
       context.validation = bindValidationEvidence(runValidationPlan(config, planValidation(changedFiles, laneDecision)), { headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles, profile: laneDecision.validationProfile });
+      operationalCheckpoint?.("ordinary_recovery_local_validation_complete", { validation: context.validation });
       return context.validation.passed ? { ok: true, evidence: { changedFilesDigest: context.validation.changedFilesDigest } } : { ok: false, reasonCode: "ordinary_continuation_validation_failed" };
     },
     external_review: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_external_review");
       const candidate = continuation.identity;
       const before = await checkoutFingerprint();
       const changedFiles = candidate.changedFiles;
       context.reviewPackage = await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
       context.externalReview = await runIntegratedReviewSource(config, context.reviewPackage, "startup-recovery");
+      operationalCheckpoint?.("ordinary_recovery_external_review_complete", { externalReview: context.externalReview });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_external_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.externalReview);
       if (manual) return { ok: false, outcome: manual, reasonCode: context.externalReview.reason || `ordinary_continuation_external_review_${manual}` };
       return { ok: true, evidence: { status: context.externalReview.status === "pass" ? "passed" : "changes_requested", evidencePath: context.externalReview.reportPath, review: ordinaryReviewerCheckpoint(context.externalReview, "external") } };
     },
     codex_review: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_local_codex_review");
       const candidate = continuation.identity;
       const before = await checkoutFingerprint();
       context.reviewPackage ||= await writeReviewPackage(config, { issue, promptInfo: { promptPath: null }, laneDecision, changedFiles: candidate.changedFiles, validation: context.validation || state.evidence?.localValidation, report: { found: true, recovered: true }, diffBaseRef: candidate.baseSha, diffHeadRef: candidate.headSha });
       context.review = runReviewPrompt(config, context.reviewPackage);
+      operationalCheckpoint?.("ordinary_recovery_local_codex_review_complete", { review: context.review });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_codex_review_mutated_checkout" };
       const manual = recoveredReviewerManualVerdict(context.review);
       if (manual) return { ok: false, outcome: manual, reasonCode: context.review?.reviewFailureReason || `ordinary_continuation_codex_review_${manual}` };
       return { ok: true, evidence: { status: context.review?.verdict?.verdict === "approve" ? "passed" : "changes_requested", evidencePath: context.review.logPath, review: ordinaryReviewerCheckpoint(context.review, "codex") } };
     },
     structured_review: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_structured_review");
       const candidate = continuation.identity;
       if (!context.externalReview || !context.review) return { ok: false, reasonCode: "ordinary_continuation_reviewer_checkpoint_missing" };
       if (context.externalReview?.route?.largeCandidateRouting?.route !== "large_bundle_escalation") return { ok: true, evidence: { route: "normal" } };
       const before = await checkoutFingerprint();
       const iteration = { issue, baseOriginMainSha: candidate.baseSha, runnerCreatedCommitSha: candidate.headSha, reviewPackage: context.reviewPackage, externalReview: context.externalReview, review: context.review };
       context.largeCandidateReview = await certifyNormalCumulativeLargeReview(config, iteration, candidate.changedFiles);
+      operationalCheckpoint?.("ordinary_recovery_structured_review_complete", { largeCandidateReview: context.largeCandidateReview });
       if (compareFingerprints(before, await checkoutFingerprint()).mutationDetected) return { ok: false, reasonCode: "ordinary_continuation_structured_review_mutated_checkout" };
       const manual = structuredLargeCandidateManualVerdict(context.largeCandidateReview);
       const findings = ordinaryStructuredFindings(context.largeCandidateReview);
@@ -1869,6 +1956,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const promptInfo = { promptPath: null, ...(state.sessionLifecycle ? { sessionLifecycle: { state: state.sessionLifecycle } } : {}) };
       const structuredFindings = context.largeCandidateReview?.ok === false ? ordinaryStructuredFindings(context.largeCandidateReview) : [];
       const reviewForFix = structuredFindings.length ? { ...context.review, verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: structuredFindings } } : context.review;
+      operationalCheckpoint?.("ordinary_recovery_review_convergence");
       const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName: state.branch.name, promptInfo, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: context.validation, report: { found: true, recovered: true }, externalReview: context.externalReview, review: reviewForFix, largeCandidateReview: context.largeCandidateReview, reviewConvergenceState: state.reviewConvergenceState });
       if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
@@ -1893,19 +1981,25 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       });
       if (postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass" || postFix.review?.verdict?.verdict !== "approve" || postFix.forbiddenChangedFiles?.length) return { ok: false, outcome: "review_convergence_required", reasonCode: "ordinary_continuation_post_fix_recertification_failed" };
       const changedFiles = postFix.changedFiles;
+      operationalCheckpoint?.("ordinary_recovery_review_convergence_complete", { validation: postFix.validation, externalReview: postFix.externalReview, review: postFix.review });
       const next = { baseSha: candidate.baseSha, headSha: postFix.runnerCreatedCommitSha, treeSha: getRefSha(`${postFix.runnerCreatedCommitSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, postFix.runnerCreatedCommitSha).text).digest("hex"), changedFiles };
       return { ok: true, sourceChanged: true, identity: next };
     },
     push: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_push");
       const candidate = continuation.identity;
       const pushed = await pushBranch(config, state.branch.name, { effectContext: state.sessionLifecycle });
+      operationalCheckpoint?.("ordinary_recovery_push_complete", { push: pushed });
       return pushed.status === 0 ? { ok: true, evidence: { headSha: candidate.headSha } } : { ok: false, reasonCode: "ordinary_continuation_push_failed" };
     },
     pr_create_or_update: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_pr_create_recover");
       context.pr = await openOrUpdatePr(config, issue, state.branch.name, `Recovered exact-head continuation for ${continuation.identity.headSha}.`, { effectContext: state.sessionLifecycle });
+      operationalCheckpoint?.("ordinary_recovery_pr_create_recover_complete", { pr: context.pr });
       return context.pr?.url ? { ok: true, evidence: { url: context.pr.url, number: context.pr.number } } : { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
     },
     github_convergence: async (continuation) => {
+      operationalCheckpoint?.("ordinary_recovery_github_convergence");
       const candidate = continuation.identity;
       const prEvidence = context.pr || initial.effects?.pr_create_or_update?.evidence || {};
       const prNumber = prEvidence.number || Number(String(prEvidence.url || "").split("/").at(-1));
@@ -1927,7 +2021,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           },
         },
       };
-      const recovered = await recoverExistingPrIfConfigured(recoveryConfig, logger, issue, laneDecision, state, { runId: state.run?.runId || config.runnerRunId });
+      const recovered = await recoverExistingPrIfConfigured(recoveryConfig, logger, issue, laneDecision, state, { runId: state.run?.runId || config.runnerRunId, operationalCheckpoint });
+      operationalCheckpoint?.("ordinary_recovery_github_convergence_complete", { autoMerge: recovered?.autoMerge || null, pr: recovered?.pr || context.pr });
       if (recovered?.autoMerge?.result === "merged") {
         if (!autoMergeEffectsConfirmed(config, state.sessionLifecycle, recovered.autoMerge)) {
           return { ok: false, reasonCode: "ordinary_continuation_merge_hygiene_unconfirmed" };
@@ -2113,6 +2208,7 @@ function validateRecoveryOnlyStartupEvidence(config, state) {
 }
 
 async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null, lifecycleInput = {}) {
+  const operationalCheckpoint = (phase, projected = {}) => lifecycleInput.operationalCheckpoint?.(phase, projected);
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
   if (!recoveryConfig) return null;
@@ -2162,7 +2258,9 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   fetchOriginMain(config);
   const baseOriginMainSha = getRefSha("origin/main");
   const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
+  operationalCheckpoint("existing_pr_live_reconciliation");
   const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner });
+  operationalCheckpoint("existing_pr_live_reconciliation_complete", { pr: githubState.pr || null });
   const prNumber = githubState.pr?.number || recoveryConfig.prNumber || recoveryConfig.prUrl;
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
     ? recoveryConfig.changedFiles
@@ -2200,12 +2298,18 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   }
   let generatedRecoveryEvidence = null;
   if (shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)) {
+    operationalCheckpoint("existing_pr_evidence_regeneration");
     generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {
       issue,
       laneDecision,
       pr: prMetadata,
       changedFiles,
       expectedHeadSha,
+    });
+    operationalCheckpoint("existing_pr_evidence_regeneration_complete", {
+      validation: generatedRecoveryEvidence.validation || null,
+      review: generatedRecoveryEvidence.review || null,
+      externalReview: generatedRecoveryEvidence.externalReview || null,
     });
     if (generatedRecoveryEvidence.sessionLifecycle) {
       sessionLifecycle = generatedRecoveryEvidence.sessionLifecycle;
@@ -2402,10 +2506,12 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       autoMerge: blocked,
     };
   }
+  operationalCheckpoint("existing_pr_merge_evaluation", { pr: context.pr, validation: context.validation, review: context.review, externalReview: context.externalReview });
   const autoMerge = executeAutoMerge(config, context, {
     runner: autoMergeRunner,
     inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner }),
   });
+  operationalCheckpoint("existing_pr_merge_evaluation_complete", { autoMerge });
   return {
     reason: recoveryDecision.reason,
     pr: context.pr,

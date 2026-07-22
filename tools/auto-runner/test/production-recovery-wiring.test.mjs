@@ -282,3 +282,73 @@ test("charged startup recovery is resumed before the accepted-task cap stops new
   assert.match(source, /iteration\.issueSource === "startup_recovery" && summary\.acceptedLogicalTaskCount >= config\.maxIterations\) \{\n\s+chargedRecoveryCapBypassConsumed = true;/);
   assert.doesNotMatch(source, /summary\.acceptedLogicalTaskCount < config\.maxIterations; index/);
 });
+
+test("operational projection checkpoints bracket long-running ordinary candidate phases", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  for (const [phase, operation] of [
+    ["local_validation", "iteration.validation = runValidationPlan"],
+    ["external_review", "iteration.externalReview = await runIntegratedReviewSource"],
+    ["local_codex_review", "iteration.review = runReviewPrompt"],
+    ["push", "iteration.push = await pushBranch"],
+    ["pr_create_recover", "iteration.pr = await openOrUpdatePr"],
+    ["ci_wait", "iteration.ci = watchChecks"],
+    ["exact_head_final_refresh", "iteration.autoMerge = await evaluateOrExecuteAutoMerge"],
+  ]) {
+    const operationOffset = runner.indexOf(operation);
+    assert.notEqual(operationOffset, -1, `missing operation: ${operation}`);
+    const phaseOffset = runner.lastIndexOf(`iteration.phase = "${phase}";`, operationOffset);
+    const preCheckpoint = runner.indexOf("checkpoint(iteration);", phaseOffset);
+    const postCheckpoint = runner.indexOf("checkpoint(iteration);", operationOffset);
+    assert.ok(phaseOffset >= 0 && preCheckpoint > phaseOffset && preCheckpoint < operationOffset, `missing pre-operation checkpoint for ${phase}`);
+    assert.ok(postCheckpoint > operationOffset && postCheckpoint - operationOffset < 1_800, `missing completion checkpoint for ${phase}`);
+  }
+});
+
+test("delegated bundle and existing-PR recovery phases use the owning iteration checkpoint", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  assert.match(runner, /const operationalCheckpoint = \(phase, projected = \{\}\) => \{[\s\S]*?checkpoint\(iteration\);/);
+  assert.match(runner, /runFeatureBundleIteration\([\s\S]*?operationalCheckpoint,/);
+  assert.match(runner, /recoverExistingPrIfConfigured\([\s\S]*?operationalCheckpoint,/);
+  for (const phase of ["slice_validation", "external_review", "local_codex_review", "push", "pr_create_recover", "ci_wait", "exact_head_final_refresh"]) {
+    assert.match(bundle, new RegExp(`checkpoint\\(\"feature_bundle_${phase}`), `missing bundle checkpoint for ${phase}`);
+  }
+  for (const phase of ["live_reconciliation", "evidence_regeneration", "merge_evaluation"]) {
+    assert.match(runner, new RegExp(`operationalCheckpoint\\(\"existing_pr_${phase}`), `missing recovery checkpoint for ${phase}`);
+  }
+  assert.match(runner, /resumeStartupRecovery\(config, logger, runId, index, startupRecovery, operationalCheckpoint\)/);
+  assert.match(runner, /runFeatureBundleIteration\(config, logger,[\s\S]*?recoveryState: state,[\s\S]*?operationalCheckpoint,/);
+  assert.match(runner, /recoverExistingPrIfConfigured\(config, logger, issue, laneDecision, state,[\s\S]*?operationalCheckpoint,/);
+  assert.match(runner, /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?operationalCheckpoint/);
+  assert.match(runner, /recoverExistingPrIfConfigured\(recoveryConfig, logger, issue, laneDecision, state,[\s\S]*?operationalCheckpoint/);
+});
+
+test("projection checkpoints retain recovery, implementation, convergence, split, and stack authority", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const control = readFileSync(new URL("../lib/control-plane.mjs", import.meta.url), "utf8");
+  assert.match(runner, /iteration\.recovery = startupRecovery;[\s\S]*?iteration\.runnerCreatedCommitSha = startupRecovery\.state\?\.currentHeadSha[\s\S]*?iteration\.phase = "startup_recovery";/);
+  assert.match(runner, /iteration\.phase = "implementation";[\s\S]*?runCodexPrompt\(config,[\s\S]*?iteration\.phase = "implementation_complete";/);
+  assert.match(bundle, /reviewConvergenceState: state\?\.reviewConvergenceState \|\| result\.reviewConvergenceState \|\| null/);
+  assert.match(bundle, /checkpoint\("feature_bundle_split_materialization"[\s\S]*?materializeFeatureBundleSplit[\s\S]*?checkpoint\("feature_bundle_split_materialization_complete"/);
+  assert.match(bundle, /checkpoint\("feature_bundle_pr_stack_handoff"\)[\s\S]*?runPrStackExecution[\s\S]*?checkpoint\("feature_bundle_pr_stack_handoff_complete"\)/);
+  assert.match(control, /iteration\.pr\?\.headRefOid[\s\S]*?iteration\.validation\?\.headSha[\s\S]*?iteration\.externalReview\?\.reviewedHead/);
+  assert.match(control, /activeOwnerConflict: Boolean\(!lockOnlyPrStackAuthority && \(lock\.active \|\| active\.active\)[\s\S]*?!lock\.parsed\?\.runId[\s\S]*?!active\.parsed\?\.runId[\s\S]*?lock\.parsed\.runId !== active\.parsed\.runId/);
+  assert.doesNotMatch(control, /(?:ciHead|scannerHead):[^\n]*expectedHeadSha/);
+});
+
+test("projection adapters prefer terminal summaries and normalize legacy check contexts", () => {
+  const control = readFileSync(new URL("../lib/control-plane.mjs", import.meta.url), "utf8");
+  const ctl = readFileSync(new URL("../settleora-auto-runnerctl.mjs", import.meta.url), "utf8");
+  assert.match(control, /const retainedInactiveCheckpointIsNewer = Boolean\(active\.parsed/);
+  assert.match(control, /const source = lockOnlyPrStackAuthority \? lock\.parsed : runnerAuthorityActive \? active\.parsed : useLatestSummary \? latestSummary\.summary : active\.parsed \|\| null/);
+  assert.match(ctl, /\["PENDING", "EXPECTED"\]\.includes\(check\.state\)/);
+  assert.match(ctl, /name: check\.name \|\| check\.context \|\| "unknown"/);
+  assert.match(ctl, /summarizeCheckStatus\(normalized, policy\)/);
+  assert.match(ctl, /specReader\(status\.supervisorRunId, null, bootstrap\.logsRoot\)/);
+  assert.match(ctl, /configPathValidator\(status\.configPath, bootstrap\.logsRoot\)\.path/);
+  assert.match(ctl, /status\.authorityHealth\?\.lockOnlyPrStackAuthority === true/);
+  assert.match(ctl, /buildStatusExport\(cli\)/);
+  assert.match(ctl, /deps\.loadProjectionConfig \|\| loadProjectionConfig/);
+  assert.match(ctl, /status: status\.active \? "active" : projection\.status \|\| status\.latestTerminalOutcome/);
+});

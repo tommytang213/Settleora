@@ -69,7 +69,7 @@ import {
   writeRecoveryState,
 } from "./recovery-state.mjs";
 
-export async function runFeatureBundleIteration(config, logger, { runId, index, issue, laneDecision, branchName = null, controlCheck = null, recoveryState = null, autoMergeRunner = null }) {
+export async function runFeatureBundleIteration(config, logger, { runId, index, issue, laneDecision, branchName = null, controlCheck = null, recoveryState = null, autoMergeRunner = null, operationalCheckpoint = null }) {
   const planned = planFeatureBundleIssue(issue);
   if (!planned.ok) {
     return {
@@ -95,11 +95,23 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     },
     laneDecision: planned.laneDecision,
   };
+  let state = null;
+  const checkpoint = (phase, projected = {}) => operationalCheckpoint?.(phase, {
+    bundle: {
+      ...result.bundle,
+      branchName: state?.branch || result.bundle.branchName,
+      baseSha: state?.baseSha || result.baseOriginMainSha || null,
+      currentHeadSha: state?.lastVerifiedHead || result.baseOriginMainSha || null,
+    },
+    reviewConvergenceState: state?.reviewConvergenceState || result.reviewConvergenceState || null,
+    featureBundleSplit: result.splitMaterialization || result.splitPlan || null,
+    prStackExecution: result.prStackExecution || null,
+    ...projected,
+  });
 
   fetchOriginMain(config);
   const baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
   result.baseOriginMainSha = baseOriginMainSha;
-  let state = null;
   if (!config.dryRun) {
     const loaded = recoverExistingBundleCheckout(config, { plan, baseOriginMainSha });
     if (loaded.ok) {
@@ -180,11 +192,13 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     if (!config.dryRun) writeBundleState(config, state);
     recovery?.advance("implementation_or_bundle_slice", `run_bundle_slice:${slice.id}`);
 
+    checkpoint("feature_bundle_slice_implementation");
     const codex = runCodexPrompt(config, {
       ...promptInfo,
       branchName: bundleBranchName,
       ...(sessionLifecycle ? { sessionLifecycle: bundleLifecycleInvocation(sessionLifecycle, `bundle-${slice.sequence}-${slice.id}`) } : {}),
     }, `bundle-${slice.sequence}-${slice.id}`);
+    checkpoint("feature_bundle_slice_implementation_complete");
     if (codex.sessionLifecycle?.state) {
       sessionLifecycle = codex.sessionLifecycle.state;
       result.sessionLifecycle = sessionLifecycle;
@@ -213,7 +227,9 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
 
     recovery?.advance("checkpoint_validation_commit", `validate_bundle_slice:${slice.id}`);
     const validationPlan = planValidation(sliceChangedFiles, { ...planned.laneDecision, validationProfile: slice.validationProfile });
+    checkpoint("feature_bundle_slice_validation");
     const validation = runValidationPlan(config, validationPlan);
+    checkpoint("feature_bundle_slice_validation_complete", { validation });
     recovery?.evidence("localValidation", {
       status: validation.passed ? "passed" : "failed",
       headSha: config.dryRun ? null : getRefSha("HEAD"),
@@ -236,7 +252,9 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       return stopBundle(result, "bundle_recovery_failed", "slice_report_missing", `Expected bundle slice report missing: ${promptInfo.reportPath}`);
     }
 
+    checkpoint("feature_bundle_slice_commit");
     const commit = await commitExplicitPaths(config, sliceChangedFiles, `${slice.title}`, { effectContext: sessionLifecycle });
+    checkpoint("feature_bundle_slice_commit_complete");
     const checkpointSha = config.dryRun ? null : getRefSha("HEAD");
     recovery?.headChanged(checkpointSha, `bundle_slice_commit:${slice.id}`);
     recovery?.marker("checkpoint_commit", `bundle-${plan.id}-${slice.id}-${checkpointSha || "dry-run"}`, {
@@ -285,6 +303,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
   recovery?.advance("aggregate_validation", "run_bundle_aggregate_validation");
   const finalValidationPlan = planValidation(aggregateFiles, planned.laneDecision);
+  checkpoint("feature_bundle_aggregate_validation");
   const finalValidation = bindValidationEvidence(runValidationPlan(config, finalValidationPlan), {
     headSha: finalHead,
     baseSha: baseOriginMainSha,
@@ -300,6 +319,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     summary: "bundle aggregate validation",
   });
   result.validation = finalValidation;
+  checkpoint("feature_bundle_aggregate_validation_complete", { validation: result.validation });
   if (!finalValidation.passed) {
     recovery?.stop("bundle_final_validation_failed", "Final aggregate validation failed.", "retry_bounded_or_manual");
     return stopBundle(result, "validation_failed", "bundle_final_validation_failed", "Final aggregate bundle validation failed.", {
@@ -324,7 +344,9 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     baseSha: baseOriginMainSha,
   });
   const reviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
+  checkpoint("feature_bundle_external_review", { validation: result.validation });
   result.externalReview = await runGeminiIntegratedReview(config, result.reviewPackage);
+  checkpoint("feature_bundle_external_review_complete", { externalReview: result.externalReview });
   const externalReviewMutationGuard = compareBundleReviewCheckoutFingerprint(reviewFingerprintBefore, captureBundleReviewCheckoutFingerprint(config), {
     phase: "bundle_external_review",
   });
@@ -350,14 +372,22 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
             const planPath = path.join(config.logsRoot, "pr-stacks", `${stackPlan.stackId.replace(/[^A-Za-z0-9_.-]/g, "-")}.json`);
             mkdirSync(path.dirname(planPath), { recursive: true, mode: 0o700 });
             writeFileSync(planPath, `${JSON.stringify(stackPlan, null, 2)}\n`, { mode: 0o600 });
+            result.prStackExecution = { stackId: stackPlan.stackId, state: "handoff", currentPrIndex: groupIndex, totalPrs: group.length };
+            checkpoint("feature_bundle_pr_stack_handoff");
             const execution = await runPrStackExecution(config, { stackPlanPath: planPath });
+            result.prStackExecution = { stackId: stackPlan.stackId, state: execution.outcome || (execution.ok ? "complete" : "blocked"), currentPrIndex: groupIndex, totalPrs: group.length };
+            checkpoint("feature_bundle_pr_stack_handoff_complete");
             if (!execution.ok && execution.outcome !== "waiting") return { ...execution, stackId: stackPlan.stackId, planPath };
             executions.push({ ...execution, stackId: stackPlan.stackId, planPath });
           }
           return { ok: true, outcome: executions.some((entry) => entry.outcome === "waiting") ? "waiting" : "complete", executions };
         },
       });
+      checkpoint("feature_bundle_split_materialization", {
+        featureBundleSplit: { planDigest: result.largeCandidateReview.planDigest, state: "materializing" },
+      });
       result.splitMaterialization = await materializeFeatureBundleSplit(splitInput, adapter);
+      checkpoint("feature_bundle_split_materialization_complete");
       if (!result.splitMaterialization.ok) return stopBundle(result, "blocked", result.splitMaterialization.reasonCode, "Deterministic split materialization failed closed before PR-stack convergence.");
       result.outcome = result.splitMaterialization.outcome;
       recovery?.marker("deterministic_split_materialized", result.largeCandidateReview.planDigest, { target: bundleBranchName, correlation: plan.planDigest });
@@ -369,7 +399,9 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
   const codexReviewFingerprintBefore = captureBundleReviewCheckoutFingerprint(config);
   recovery?.advance("codex_mechanics_security_review", "run_bundle_codex_review");
+  checkpoint("feature_bundle_local_codex_review", { externalReview: result.externalReview });
   result.review = runReviewPrompt(config, { ...result.reviewPackage, sessionLifecycle });
+  checkpoint("feature_bundle_local_codex_review_complete", { review: result.review });
   if (result.review.sessionLifecycle) {
     sessionLifecycle = result.review.sessionLifecycle;
     result.sessionLifecycle = sessionLifecycle;
@@ -457,6 +489,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     externalReview: result.externalReview,
     reviewMutationGuard: result.reviewMutationGuard,
   });
+  checkpoint("feature_bundle_review_convergence", { validation: result.validation, externalReview: result.externalReview, review: result.review });
   const convergence = await runBundleReviewConvergence(config, {
     issue,
     laneDecision: planned.laneDecision,
@@ -477,6 +510,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
       if (!config.dryRun) writeBundleState(config, state);
     },
   });
+  checkpoint("feature_bundle_review_convergence_complete", { validation: result.validation, externalReview: result.externalReview, review: result.review });
   state = convergence.state;
   sessionLifecycle = convergence.sessionLifecycle || sessionLifecycle;
   result.sessionLifecycle = sessionLifecycle;
@@ -505,14 +539,18 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
 
   recovery?.advance("push", "push_bundle_branch");
+  checkpoint("feature_bundle_push");
   result.push = await pushBranch(config, bundleBranchName, { effectContext: sessionLifecycle });
+  checkpoint("feature_bundle_push_complete", { push: result.push });
   if (!config.dryRun && (result.push.error || result.push.status !== 0)) {
     recovery?.stop("bundle_push_failed", result.push.error || `status ${result.push.status}`, "retry_bounded_or_manual");
     return stopBundle(result, "auto_failed", "bundle_push_failed", "Bundle branch push failed.");
   }
   recovery?.marker("push", `branch-${bundleBranchName}`, { target: bundleBranchName, correlation: finalHead || runId });
   recovery?.advance("pr_create_recover", "open_bundle_pr");
+  checkpoint("feature_bundle_pr_create_recover", { push: result.push });
   result.pr = await openOrUpdatePr(config, issue, bundleBranchName, bundlePrSummary({ result, state, plan }), { effectContext: sessionLifecycle });
+  checkpoint("feature_bundle_pr_create_recover_complete", { pr: result.pr });
   if (result.pr?.url || result.pr?.number) {
     recovery?.setPr(result.pr);
     recovery?.marker("pr_create", `bundle-${plan.id}-issue-${issue.number}`, {
@@ -522,11 +560,15 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
   }
   if (!config.dryRun && result.pr.url) {
     recovery?.advance("ci_wait", "wait_bundle_checks");
+    checkpoint("feature_bundle_ci_wait", { pr: result.pr });
     result.ci = watchChecks(config, result.pr.url);
+    checkpoint("feature_bundle_ci_wait_complete", { ci: result.ci });
     recovery?.evidence("ciChecks", { status: "recorded", headSha: finalHead, baseSha: baseOriginMainSha, changedFiles: aggregateFiles });
   }
   recovery?.advance("exact_head_final_refresh", "evaluate_bundle_merge_or_pr_state");
+  checkpoint("feature_bundle_exact_head_final_refresh", { pr: result.pr, ci: result.ci });
   result.autoMerge = await evaluateOrExecuteBundleAutoMerge(config, { issue, result, branchName: bundleBranchName, changedFiles: aggregateFiles, forbidden: aggregateForbidden, laneDecision: planned.laneDecision, autoMergeRunner, sessionLifecycle });
+  checkpoint("feature_bundle_exact_head_final_refresh_complete", { autoMerge: result.autoMerge });
   result.outcome = result.autoMerge.result === "merged" ? "auto_merged" : "approved_pr_opened";
   if (result.autoMerge.result === "merged") {
     recovery?.marker("merge", `bundle-pr-${result.pr?.number || result.pr?.url}-${finalHead || "head"}`, {

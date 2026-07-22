@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import process from "node:process";
 import { defaultLogsRoot } from "./lib/config.mjs";
@@ -10,6 +11,8 @@ import {
   generateRunId,
   resolveProfile,
   specPathForRunId,
+  readAndVerifyRunSpec,
+  validateRunnerConfigPath,
   writeImmutableRunSpec,
   sha256Text,
   canonicalJson,
@@ -27,21 +30,32 @@ import {
   unitNameForRunId,
   writeSupervisorState,
 } from "./supervisor/supervisor-state.mjs";
-import { loadConfig } from "./lib/config.mjs";
+import { defaultConfig, loadConfig } from "./lib/config.mjs";
 import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
 import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
+import { buildOperationalStatusProjection, renderOperationalStatusMarkdown } from "./lib/operational-status-projection.mjs";
+import { detectBlockingMarkers, summarizeCheckStatus } from "./lib/auto-merge-policy.mjs";
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
-  const config = loadConfig({ dryRun: true, run: false, configPath: null });
+  const config = cli.command === "export-status" ? null : loadConfig({ dryRun: true, run: false, configPath: null });
   if (cli.command === "submit") {
     const result = await submit(cli, config);
     print(result, cli.json);
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
+  if (cli.command === "export-status" && cli.json && cli.markdown) throw new Error("export-status accepts exactly one output format");
+  if (cli.command !== "export-status" && cli.markdown) throw new Error("--markdown is supported only by export-status");
   if (cli.command === "list") {
     print({ ok: true, runs: listSupervisorRuns(config.logsRoot) }, cli.json);
+    return;
+  }
+  if (cli.command === "export-status") {
+    const projection = await buildStatusExport(cli);
+    if (cli.markdown) process.stdout.write(renderOperationalStatusMarkdown(projection));
+    else console.log(JSON.stringify(projection, null, 2));
+    process.exitCode = projection.status === "blocked" ? 2 : 0;
     return;
   }
   const runId = resolveRunSelection(cli, config.logsRoot);
@@ -80,6 +94,52 @@ async function main() {
     return;
   }
   throw new Error(`Unhandled command: ${cli.command}`);
+}
+
+export async function buildStatusExport(cli, deps = {}) {
+  let config;
+  try {
+    config = (deps.loadProjectionConfig || loadProjectionConfig)(cli, deps);
+  } catch {
+    return buildOperationalStatusProjection({
+      repository: { read: () => ({}) },
+      github: { read: () => ({}) },
+      local: { read: () => ({ ok: false, reasonCode: "projection_config_verification_failed" }) },
+      ledger: { read: () => ({}) },
+    }, deps.projectionOptions);
+  }
+  return buildOperationalStatusProjection((deps.createProjectionAdapters || createProjectionAdapters)(config, deps), deps.projectionOptions);
+}
+
+export function loadProjectionConfig(cli, deps = {}) {
+  const statusReader = deps.getRunnerStatus || getRunnerStatus;
+  const specReader = deps.readAndVerifyRunSpec || readAndVerifyRunSpec;
+  const configLoader = deps.loadConfig || loadConfig;
+  const profileResolver = deps.resolveProfile || resolveProfile;
+  const configPathValidator = deps.validateRunnerConfigPath || validateRunnerConfigPath;
+  const pathExists = deps.existsSync || existsSync;
+  const bootstrap = { ...(deps.defaultConfig || defaultConfig) };
+  const status = suppressRetainedTaskForPreChildSupervisor(bootstrap, statusReader(bootstrap), deps.latestSupervisorRun || latestSupervisorRun);
+  let configPath;
+  if (status.supervisorRunId) {
+    const verified = specReader(status.supervisorRunId, null, bootstrap.logsRoot);
+    configPath = verified.config.path;
+  } else if (status.authorityHealth?.lockOnlyPrStackAuthority === true) {
+    configPath = status.configPath;
+    return configLoader({
+      dryRun: true,
+      run: false,
+      runPrStack: true,
+      configPath,
+      stackPlanPath: status.lock?.parsed?.stackPlanPath,
+    }, { prStackTrustedRoot: bootstrap.logsRoot });
+  } else if (status.active === true && status.configPath) {
+    configPath = configPathValidator(status.configPath, bootstrap.logsRoot).path;
+  } else {
+    configPath = profileResolver(cli.profile || "default", bootstrap.logsRoot).runnerConfigPath;
+    if (!pathExists(configPath)) return bootstrap;
+  }
+  return configLoader({ dryRun: true, run: false, configPath });
 }
 
 export function controlSupervisorRun(runId, cli, config, deps = {}) {
@@ -278,12 +338,14 @@ function parseCtlArgs(argv) {
     mode: "canary",
     maxTasksDelta: null,
     maxRuntimeDeltaMs: null,
+    markdown: false,
   };
   if (!cli.command) throw new Error("Missing command");
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--dry-run") cli.dryRun = true;
     else if (arg === "--json") cli.json = true;
+    else if (arg === "--markdown") cli.markdown = true;
     else if (arg === "--latest") cli.latest = true;
     else if (arg === "--run") cli.runId = readValue(argv, ++index, arg);
     else if (arg === "--profile") cli.profile = readValue(argv, ++index, arg);
@@ -314,12 +376,219 @@ function parseCtlArgs(argv) {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
-  if (!["submit", "status", "list", "report", "health", "pause", "stop-after-current", "extend"].includes(cli.command)) {
+  if (!["submit", "status", "list", "report", "health", "pause", "stop-after-current", "extend", "export-status"].includes(cli.command)) {
     throw new Error(`Unknown command: ${cli.command}`);
   }
   if (["status", "report"].includes(cli.command) && !cli.runId && !cli.latest) cli.latest = true;
   if (["health", "pause", "stop-after-current", "extend"].includes(cli.command) && !cli.runId) throw new Error(`${cli.command} requires --run <run-id>`);
   return cli;
+}
+
+export function createProjectionAdapters(config, deps = {}) {
+  const run = deps.spawnSync || spawnSync;
+  const statusReader = deps.getRunnerStatus || getRunnerStatus;
+  const supervisorReader = deps.readSupervisorProjection || readProjectionSupervisor;
+  let cachedStatus;
+  const runnerStatus = () => (cachedStatus ||= suppressRetainedTaskForPreChildSupervisor(config, statusReader(config)));
+  const gitRead = (args) => {
+    const result = run("git", ["--no-optional-locks", ...args], { cwd: config.repoRoot, encoding: "utf8" });
+    return result.status === 0 && !result.error ? { ok: true, value: String(result.stdout || "").trim() } : { ok: false };
+  };
+  return {
+    repository: { read: () => {
+      const branch = gitRead(["branch", "--show-current"]);
+      const head = gitRead(["rev-parse", "HEAD"]);
+      const main = gitRead(["rev-parse", "origin/main"]);
+      const status = gitRead(["status", "--porcelain=v1"]);
+      if ([branch, head, main, status].some((entry) => !entry.ok) || !safeProjectionRef(branch.value)) return { ok: false, reasonCode: "repository_read_failed" };
+      return { repositorySlug: config.repositorySlug, currentBranch: branch.value, headSha: head.value, originMainSha: main.value, clean: status.value === "" };
+    } },
+    github: { read: () => readProjectionGithub(config, runnerStatus(), run) },
+    local: { read: () => {
+      const status = runnerStatus();
+      const health = status.authorityHealth || {};
+      if (health.lockMalformed || health.activeStateMalformed || health.controlMalformed || health.summaryMalformed || health.stackAuthorityMalformed) return { ok: false, reasonCode: "local_authority_state_malformed" };
+      if (health.activeOwnerConflict) return { ok: false, reasonCode: "local_active_owner_identity_conflict" };
+      const projected = projectRunnerStatus(status);
+      const supervisor = supervisorReader(config, runnerStatus());
+      if (supervisor?.ok === false) return supervisor;
+      projected.supervisor = supervisor?.value || {};
+      return projected;
+    } },
+    ledger: { read: () => readProjectionLedger(gitRead, runnerStatus()) },
+  };
+}
+
+function readProjectionLedger(gitRead, status) {
+  const ledger = gitRead(["show", "HEAD:docs/planning/ISSUE_PROGRESS_LEDGER.md"]);
+  if (!ledger.ok) return { ok: false, reasonCode: "ledger_read_failed" };
+  const issueNumber = Number(status.currentOrLastIssue?.number);
+  if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) return { issueState: null, stale: null };
+  if (ledger.value.length > 1024 * 1024) return { ok: false, reasonCode: "ledger_read_too_large" };
+  const matchingLines = ledger.value.split("\n").filter((line) => [...line.matchAll(/#([1-9]\d{0,8})\b/g)].some((match) => Number(match[1]) === issueNumber));
+  if (matchingLines.length > 100) return { ok: false, reasonCode: "ledger_issue_posture_truncated" };
+  const relevantLines = matchingLines.map((line) => line.slice(0, 240));
+  const postures = relevantLines.map((line) => ledgerPostureForIssue(line, issueNumber));
+  const posture = { open: postures.some((entry) => entry.open), closed: postures.some((entry) => entry.closed) };
+  if (posture.open && posture.closed) return { ok: false, reasonCode: "ledger_issue_posture_ambiguous" };
+  const observedMainSha = ledger.value.match(/(?:merge commit\/current main|current main(?: sha)?)[^0-9a-f]{0,100}`?([0-9a-f]{40})/i)?.[1] || null;
+  return { issueState: posture.open ? "OPEN" : posture.closed ? "CLOSED" : null, observedMainSha, stale: null };
+}
+
+function ledgerPostureForIssue(line, issueNumber) {
+  const posture = { open: false, closed: false };
+  const pattern = /((?:#[1-9]\d{0,8}(?:\s*(?:,|\/|and)\s*)?)+)\s+(?:(?:are|is|was|remain|remains|stay|stays)\s+)?(open|closed)\b/gi;
+  for (const match of line.matchAll(pattern)) {
+    const referenced = [...match[1].matchAll(/#([1-9]\d{0,8})\b/g)].map((entry) => Number(entry[1]));
+    if (referenced.includes(issueNumber)) posture[match[2].toLowerCase()] = true;
+  }
+  return posture;
+}
+
+function readProjectionSupervisor(config, status) {
+  const runId = status.supervisorRunId;
+  if (!runId) return { ok: true, value: {} };
+  const stateResult = readSupervisorState(runId, config.logsRoot);
+  if (!stateResult.found || !stateResult.state) return { ok: false, reasonCode: "supervisor_state_read_failed" };
+  let heartbeatResult;
+  try { heartbeatResult = readHeartbeat(runId, config.logsRoot); } catch { return { ok: false, reasonCode: "supervisor_heartbeat_read_failed" }; }
+  const state = stateResult.state;
+  const heartbeat = heartbeatResult.heartbeat;
+  if (state.runId !== runId || (heartbeat && heartbeat.runId !== runId)) return { ok: false, reasonCode: "supervisor_identity_conflict" };
+  if (status.active && !state.runnerRunId) return { ok: false, reasonCode: "active_supervisor_runner_correlation_missing" };
+  if (status.active && !heartbeat) return { ok: false, reasonCode: "active_supervisor_heartbeat_missing" };
+  if (status.active && !heartbeat?.runnerRunId) return { ok: false, reasonCode: "active_supervisor_heartbeat_runner_correlation_missing" };
+  if (status.active && heartbeatResult.stale) return { ok: false, reasonCode: "active_supervisor_heartbeat_stale" };
+  if (status.active && heartbeat?.terminal) return { ok: false, reasonCode: "active_supervisor_terminal_conflict" };
+  if (status.activeRunId && state.runnerRunId && status.activeRunId !== state.runnerRunId) return { ok: false, reasonCode: "supervisor_runner_identity_conflict" };
+  if (heartbeat?.runnerRunId && state.runnerRunId && heartbeat.runnerRunId !== state.runnerRunId) return { ok: false, reasonCode: "supervisor_heartbeat_identity_conflict" };
+  return { ok: true, value: { runId, state: state.state, heartbeatPosture: !heartbeat ? "missing" : heartbeat.terminal ? "terminal" : heartbeatResult.stale ? "stale" : "fresh", leasePosture: !heartbeat ? "missing" : heartbeat.terminal ? "terminal" : heartbeatResult.stale ? "expired" : "valid", reportCorrelation: state.runnerRunId || null } };
+}
+
+function readProjectionGithub(config, status, run) {
+  const issueNumber = status.currentOrLastIssue?.number;
+  const prNumber = status.currentOrLastPr?.number;
+  const result = { repositorySlug: config.repositorySlug };
+  if (Number.isSafeInteger(Number(issueNumber)) && Number(issueNumber) > 0) {
+    const issue = readGhJson(run, config, ["issue", "view", String(issueNumber), "--repo", config.repositorySlug, "--json", "number,state,labels"]);
+    if (!issue || Number(issue.number) !== Number(issueNumber) || !["OPEN", "CLOSED"].includes(String(issue.state).toUpperCase()) || !Array.isArray(issue.labels)) return { ok: false, reasonCode: "github_issue_read_failed" };
+    result.issue = { number: issue.number, state: issue.state, manualGate: (issue.labels || []).some((label) => ["manual-gate", "needs-tommy"].includes(label.name)), dangerGate: (issue.labels || []).some((label) => label.name === "danger-gate") };
+  }
+  if (Number.isSafeInteger(Number(prNumber)) && Number(prNumber) > 0) {
+    const prArgs = ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,headRefName,headRefOid,baseRefName,statusCheckRollup"];
+    const pr = readGhJson(run, config, prArgs);
+    if (!validProjectionPr(pr, prNumber)) return { ok: false, reasonCode: "github_pr_read_failed" };
+    const [owner, name] = String(config.repositorySlug).split("/");
+    const query = "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}pageInfo{hasNextPage}}}}}";
+    const threads = readGhJson(run, config, ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`, "-F", `number=${prNumber}`, "-f", `query=${query}`]);
+    const threadConnection = threads?.data?.repository?.pullRequest?.reviewThreads;
+    if (!Array.isArray(threadConnection?.nodes) || threadConnection.pageInfo?.hasNextPage === true) return { ok: false, reasonCode: "github_review_threads_read_failed" };
+    const reviews = readGhJson(run, config, ["api", `repos/${config.repositorySlug}/pulls/${prNumber}/reviews?per_page=100`]);
+    if (!Array.isArray(reviews) || reviews.length >= 100) return { ok: false, reasonCode: "github_reviews_read_failed" };
+    const comments = readGhJson(run, config, ["api", `repos/${config.repositorySlug}/issues/${prNumber}/comments?per_page=100`]);
+    if (!Array.isArray(comments) || comments.length >= 100) return { ok: false, reasonCode: "github_comments_read_failed" };
+    const alerts = readGhJson(run, config, ["api", "--method", "GET", `repos/${config.repositorySlug}/code-scanning/alerts`, "-f", `ref=refs/heads/${pr.headRefName}`, "-f", "state=open", "-f", "per_page=100"]);
+    if (!Array.isArray(alerts) || alerts.length >= 100) return { ok: false, reasonCode: "github_code_scanning_alerts_read_failed" };
+    const confirmedPr = readGhJson(run, config, prArgs);
+    if (!validProjectionPr(confirmedPr, prNumber) || !sameProjectionPrIdentity(pr, confirmedPr)) return { ok: false, reasonCode: "github_pr_changed_during_projection_read" };
+    const exactCodexReviews = reviews.filter((review) => review?.commit_id === pr.headRefOid && review?.user?.login === "chatgpt-codex-connector[bot]");
+    const blockingCodexReview = exactCodexReviews.some((review) => String(review?.state || "").toUpperCase() === "CHANGES_REQUESTED");
+    result.pr = {
+      number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName,
+      checks: summarizeLiveChecks(pr.statusCheckRollup, config.autoMergePolicy),
+      review: { status: blockingCodexReview ? "changes_requested" : exactCodexReviews.length ? "complete" : "pending", headSha: pr.headRefOid, unresolvedThreads: threadConnection.nodes.filter((thread) => thread?.isResolved !== true).length },
+      blockingMarker: detectBlockingMarkers(comments, reviews).length > 0,
+      scanner: { status: alerts.length === 0 ? "pass" : "open_alerts", headSha: pr.headRefOid, openAlerts: alerts.length },
+    };
+  }
+  return result;
+}
+
+function sameProjectionPrIdentity(first, second) {
+  return first.number === second.number
+    && first.state === second.state
+    && first.headRefName === second.headRefName
+    && first.headRefOid === second.headRefOid
+    && first.baseRefName === second.baseRefName;
+}
+
+function validProjectionPr(pr, expectedNumber) {
+  return Boolean(pr
+    && Number(pr.number) === Number(expectedNumber)
+    && ["OPEN", "CLOSED", "MERGED"].includes(String(pr.state).toUpperCase())
+    && safeProjectionRef(pr.headRefName)
+    && safeProjectionRef(pr.baseRefName)
+    && /^[0-9a-f]{40}$/.test(pr.headRefOid || "")
+    && Array.isArray(pr.statusCheckRollup));
+}
+
+function safeProjectionRef(value) {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9._/-]{0,199}$/i.test(value) && !value.includes("..");
+}
+
+function suppressRetainedTaskForPreChildSupervisor(config, status, latestReader = latestSupervisorRun) {
+  if (status.active) return status;
+  const latest = latestReader(config.logsRoot);
+  if (!latest?.runId || latest.runId === status.supervisorRunId) return status;
+  const latestAt = Date.parse(latest.updatedAt || latest.createdAt || 0);
+  const retainedAt = Date.parse(status.lastEventAt || 0);
+  if (Number.isFinite(retainedAt) && (!Number.isFinite(latestAt) || latestAt <= retainedAt)) return status;
+  return { ...status, activeRunId: null, supervisorRunId: latest.runId, currentOrLastIssue: null, currentOrLastPr: null, operationalProjection: { status: latest.state || "submitted", lifecycle: { phase: latest.state || "submitted" } } };
+}
+
+function summarizeLiveChecks(checks, policy = {}) {
+  if (!Array.isArray(checks)) return null;
+  const normalized = checks.map((check) => ({
+    name: check.name || check.context || "unknown",
+    status: check.status || (["PENDING", "EXPECTED"].includes(check.state) ? "IN_PROGRESS" : "COMPLETED"),
+    conclusion: check.conclusion || (!["PENDING", "EXPECTED"].includes(check.state) ? check.state : null),
+  }));
+  const summary = summarizeCheckStatus(normalized, policy);
+  return { status: summary.state === "success" ? "pass" : summary.state, missingRequired: summary.missingRequired };
+}
+
+function readGhJson(run, config, args) {
+  const response = run("gh", args, { cwd: config.repoRoot, encoding: "utf8" });
+  if (response.status !== 0 || response.error) return null;
+  try { return JSON.parse(response.stdout || "{}"); } catch { return null; }
+}
+
+export function projectRunnerStatus(status = {}) {
+  const issue = status.currentOrLastIssue || {};
+  const pr = status.currentOrLastPr || {};
+  const projection = status.operationalProjection || {};
+  const taskIdentity = projection.taskIdentity || {};
+  return {
+    active: status.active === true,
+    status: status.active ? "active" : projection.status || status.latestTerminalOutcome || "idle",
+    task: {
+      logicalTaskKey: projection.counters?.acceptedTaskBudget?.chargeIdentity || status.activeRunId || null,
+      runId: status.activeRunId || null,
+      issueNumber: issue.number || null,
+      branch: pr.headRefName || taskIdentity.branch || null,
+      baseBranch: pr.baseRefName || taskIdentity.baseBranch || null,
+      baseSha: taskIdentity.baseSha || null,
+      headSha: pr.headSha || taskIdentity.headSha || null,
+      prNumber: pr.number || taskIdentity.prNumber || null,
+    },
+    lifecycle: {
+      ...(projection.lifecycle || {}),
+      phase: projection.lifecycle?.phase || (status.authorityHealth?.lockOnlyPrStackAuthority ? "pr_stack_running" : status.stopReason || null),
+      terminalPosture: projection.lifecycle?.terminalPosture || status.latestTerminalOutcome || null,
+    },
+    counters: projection.counters || {},
+    recovery: projection.recovery || {},
+    session: projection.session || {},
+    review: projection.review || {},
+    largeCandidate: {
+      ...(projection.largeCandidate || {}),
+      stackState: projection.largeCandidate?.stackState || (status.authorityHealth?.lockOnlyPrStackAuthority ? "running" : null),
+    },
+    effects: projection.effects || {},
+    supervisor: status.supervisor || {},
+    blockers: status.blockers || [],
+    nextSafeAction: projection.nextSafeAction || null,
+  };
 }
 
 function resolveRunSelection(cli, logsRoot) {

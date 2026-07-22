@@ -257,6 +257,10 @@ export function configRootsForLogsRoot(logsRoot = defaultLogsRoot) {
   return [path.join(logsRoot, "configs"), path.join(logsRoot, "canary")];
 }
 
+export function validateRunnerConfigPath(configPath, logsRoot = defaultLogsRoot) {
+  return validateRegularPrivateFile(configPath, { approvedRoots: configRootsForLogsRoot(logsRoot) });
+}
+
 function canonicalSerialize(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map((item) => canonicalSerialize(item)).join(",")}]`;

@@ -3,6 +3,13 @@ import path from "node:path";
 import { processAppearsActive } from "./state-store.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { buildOutageResubmissionStatus } from "../supervisor/outage-resubmission-controller.mjs";
+import { githubTriggeredFixEpochsPerPrLimit, localSourceChangingRoundsPerEpochLimit } from "./review-convergence-controller.mjs";
+import {
+  loadExecutableStackPlan,
+  loadPrStackState,
+  normalizePrStackExecutionConfig,
+  resolveStackStatePath,
+} from "./pr-stack-executor.mjs";
 
 const controlFileName = "runner-control.json";
 const activeRunFileName = "active-run.json";
@@ -32,11 +39,16 @@ export function writeActiveRunState(config, summary, extra = {}) {
     logPath: summary.logPath || null,
     summaryPath: extra.summaryPath || null,
     latestIteration: summarizeIteration((summary.iterations || []).at(-1)),
+    operationalProjection: summarizeOperationalIteration((summary.iterations || []).at(-1), summary),
     control: readControlState(config).control,
     ...extra,
   });
   atomicWriteJson(activePath, state);
   return activePath;
+}
+
+export function writeCurrentIterationState(config, summary, iteration) {
+  return writeActiveRunState(config, summary, { currentIteration: summarizeIteration(iteration), operationalProjection: summarizeOperationalIteration(iteration, summary) });
 }
 
 export function clearActiveRunState(config, summaryPath = null) {
@@ -134,7 +146,26 @@ export function getRunnerStatus(config) {
   const active = readActiveRun(config);
   const control = readControlState(config);
   const latestSummary = readLatestRunSummary(config);
-  const source = active.parsed || latestSummary?.summary || null;
+  const lockOnlyPrStackAuthority = Boolean(
+    lock.active &&
+    !active.active &&
+    /^pr-stack-[A-Za-z0-9._:-]+$/.test(lock.parsed?.runId || "") &&
+    lock.parsed?.mode === "pr-stack-run" &&
+    typeof lock.parsed?.configPath === "string" &&
+    typeof lock.parsed?.stackPlanPath === "string"
+  );
+  const lockOnlyStack = lockOnlyPrStackAuthority ? readLockOnlyPrStackProjection(config, lock.parsed) : { ok: true, issue: null, pr: null };
+  const runnerAuthorityActive = Boolean(lock.active || active.active);
+  const retainedTimestamp = Date.parse(active.parsed?.lastHeartbeatAt || active.parsed?.finishedAt || active.parsed?.startedAt || 0);
+  const summaryTimestamp = Date.parse(latestSummary?.summary?.finishedAt || latestSummary?.summary?.lastHeartbeatAt || latestSummary?.summary?.startedAt || 0);
+  const retainedInactiveCheckpointIsNewer = Boolean(active.parsed && (
+    !latestSummary?.summary || (Number.isFinite(retainedTimestamp) && (!Number.isFinite(summaryTimestamp) || retainedTimestamp > summaryTimestamp))
+  ));
+  const useLatestSummary = !runnerAuthorityActive && !retainedInactiveCheckpointIsNewer && Boolean(latestSummary?.summary);
+  const source = lockOnlyPrStackAuthority ? lock.parsed : runnerAuthorityActive ? active.parsed : useLatestSummary ? latestSummary.summary : active.parsed || null;
+  const selectedSummaryPath = runnerAuthorityActive
+    ? active.parsed?.summaryPath || null
+    : useLatestSummary ? latestSummary.path : active.parsed?.summaryPath || null;
   const startedAt = source?.startedAt || null;
   const maxRuntimeMs = source?.maxRuntimeMs ?? active.parsed?.maxRuntimeMs ?? null;
   const elapsedMs = startedAt ? Math.max(0, Date.now() - Date.parse(startedAt)) : null;
@@ -143,12 +174,25 @@ export function getRunnerStatus(config) {
   const completedIterations = source?.completedIterations ?? (source?.iterations || []).length ?? null;
   const outcomeCounts = source?.outcomeCounts || countIterationOutcomes(source?.iterations || []);
   const failedOrBlockedIterations = source?.failedOrBlockedIterations ?? outcomeCounts.failed + outcomeCounts.blocked;
-  const latestIteration = source?.latestIteration || summarizeIteration((source?.iterations || []).at(-1));
+  const latestRawIteration = (source?.iterations || []).at(-1) || null;
+  const latestIteration = source?.currentIteration || source?.latestIteration || summarizeIteration(latestRawIteration);
   return sanitize({
     generatedAt: new Date().toISOString(),
-    active: Boolean(lock.active || active.active),
-    activeRunId: active.parsed?.runId || (lock.active ? lock.parsed?.runId : null),
+    active: runnerAuthorityActive,
+    activeRunId: source?.runId || (lock.active ? lock.parsed?.runId : null),
     lock,
+    authorityHealth: {
+      lockMalformed: lock.malformed === true,
+      activeStateMalformed: active.malformed === true,
+      controlMalformed: control.malformed === true,
+      summaryMalformed: latestSummary?.malformed === true,
+      stackAuthorityMalformed: lockOnlyStack.ok === false,
+      stackAuthorityReason: lockOnlyStack.ok === false ? lockOnlyStack.reasonCode : null,
+      activeOwnerConflict: Boolean(!lockOnlyPrStackAuthority && (lock.active || active.active) && (
+        !lock.parsed?.runId || !active.parsed?.runId || lock.parsed.runId !== active.parsed.runId
+      )),
+      lockOnlyPrStackAuthority,
+    },
     mode: source?.mode || null,
     supervisorRunId: source?.supervisorRunId || null,
     configPath: source?.configPath || null,
@@ -170,18 +214,19 @@ export function getRunnerStatus(config) {
       Number.isFinite(maxIterations) && Number.isFinite(completedIterations)
         ? Math.max(0, maxIterations - completedIterations)
         : null,
-    currentOrLastIssue: latestIteration?.issue || null,
-    currentOrLastPr: latestIteration?.pr || null,
+    currentOrLastIssue: lockOnlyStack.issue || latestIteration?.issue || null,
+    currentOrLastPr: lockOnlyStack.pr || latestIteration?.pr || null,
     latestTerminalOutcome: latestIteration?.outcome || null,
+    operationalProjection: source?.operationalProjection || summarizeOperationalIteration(latestRawIteration, source),
     attemptedIssueNumbers: source?.attemptedIssueNumbers || [],
     attemptedIssueCount: source?.attemptedIssueCount || 0,
     processedIssueNumbers: source?.processedIssueNumbers || [],
     processedIssueCount: source?.processedIssueCount || 0,
     stopReason: source?.stopReason || null,
-    lastEventAt: latestIteration?.finishedAt || latestIteration?.startedAt || source?.lastHeartbeatAt || source?.finishedAt || source?.startedAt || null,
+    lastEventAt: source?.lastHeartbeatAt || latestIteration?.finishedAt || latestIteration?.startedAt || source?.finishedAt || source?.startedAt || null,
     paths: {
-      summary: active.parsed?.summaryPath || latestSummary?.path || null,
-      markdownSummary: latestSummary?.markdownPath || null,
+      summary: selectedSummaryPath,
+      markdownSummary: useLatestSummary ? latestSummary.markdownPath : null,
       log: source?.logPath || null,
       activeState: active.path,
       lock: lock.path,
@@ -189,6 +234,156 @@ export function getRunnerStatus(config) {
     },
     control: control.malformed ? { malformed: true, error: control.error } : control.control || null,
     outageResubmission: buildOutageResubmissionStatus(config),
+  });
+}
+
+function readLockOnlyPrStackProjection(config, lock) {
+  const stackConfig = normalizePrStackExecutionConfig(config);
+  const loadedPlan = loadExecutableStackPlan(config, lock.stackPlanPath, { stackConfig });
+  if (!loadedPlan.ok) return { ok: false, reasonCode: loadedPlan.reasonCode || "stack_plan_read_failed", issue: null, pr: null };
+  const plan = loadedPlan.plan;
+  let state = null;
+  try {
+    const statePath = resolveStackStatePath(config, stackConfig, loadedPlan.planPath);
+    if (existsSync(statePath)) {
+      const loadedState = loadPrStackState(statePath, plan);
+      if (!loadedState.ok) return { ok: false, reasonCode: loadedState.reasonCode || "stack_state_read_failed", issue: null, pr: null };
+      state = loadedState.state;
+    }
+  } catch {
+    return { ok: false, reasonCode: "stack_state_read_failed", issue: null, pr: null };
+  }
+  const activePrNumber = state
+    ? state.activePrNumber
+    : plan.activePrNumber ?? plan.orderedPrs?.[0]?.number ?? null;
+  const sourcePr = (state?.orderedPrs || plan.orderedPrs || []).find((entry) => entry.number === activePrNumber) || null;
+  if (!sourcePr) return { ok: false, reasonCode: "stack_active_pr_identity_missing", issue: null, pr: null };
+  if (!Number.isSafeInteger(plan.issueNumber) || plan.issueNumber <= 0) {
+    return { ok: false, reasonCode: "stack_active_issue_identity_missing", issue: null, pr: null };
+  }
+  const headSha = state ? state.exactHeads?.[activePrNumber] : sourcePr.headRefOid;
+  if (state && (headSha === null || headSha === undefined || headSha === "")) {
+    return { ok: false, reasonCode: "stack_active_pr_head_missing", issue: null, pr: null };
+  }
+  if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/i.test(headSha)) {
+    return { ok: false, reasonCode: "stack_active_pr_head_invalid", issue: null, pr: null };
+  }
+  return {
+    ok: true,
+    issue: { number: plan.issueNumber },
+    pr: {
+      number: sourcePr.number,
+      title: sourcePr.title || null,
+      baseRefName: sourcePr.baseRefName,
+      headRefName: sourcePr.headRefName,
+      headRefOid: headSha,
+      headSha,
+      state: sourcePr.state || "OPEN",
+    },
+  };
+}
+
+function summarizeOperationalIteration(iteration = {}, run = {}) {
+  iteration ||= {};
+  run ||= {};
+  const convergence = iteration.reviewConvergenceState || iteration.reviewConvergence || {};
+  const counters = convergence.twoLoop || convergence.counters || iteration.twoLoopCounters || {};
+  const budget = iteration.logicalTaskBudget || {};
+  const recovery = iteration.recovery?.state || iteration.recovery || {};
+  const session = iteration.sessionLifecycle || {};
+  const controller = session.controller || {};
+  const large = iteration.largeCandidateReview?.state || iteration.largeCandidateReview || {};
+  const split = iteration.featureBundleSplit || iteration.splitMaterialization || large.split || {};
+  const stack = iteration.prStackExecution || iteration.stackExecution || {};
+  const latestWaitAttempt = Array.isArray(iteration.autoMerge?.waitAttempts)
+    ? [...iteration.autoMerge.waitAttempts].reverse().find((attempt) => attempt?.checks && attempt?.prHeadSha)
+    : null;
+  return sanitize({
+    taskIdentity: {
+      branch: iteration.branchName || iteration.branch?.name || iteration.bundle?.branchName || iteration.pr?.headRefName || null,
+      baseBranch: iteration.baseBranchName || iteration.pr?.baseRefName || null,
+      baseSha: iteration.baseOriginMainSha || iteration.bundle?.baseSha || null,
+      headSha: iteration.runnerCreatedCommitSha || iteration.expectedHeadSha || iteration.bundle?.currentHeadSha || iteration.pr?.headSha || iteration.pr?.headRefOid || null,
+      prNumber: iteration.pr?.number || null,
+    },
+    lifecycle: {
+      phase: iteration.phase || recovery.phase || controller.phase || null,
+      continuationState: iteration.ordinaryCandidateContinuation?.phase || recovery.continuation?.phase || null,
+      ownerPosture: session.authority?.status || session.owner?.status || null,
+      terminalPosture: session.terminal?.status || iteration.outcome || null,
+    },
+    counters: {
+      acceptedTaskBudget: {
+        configured: run.maxIterations ?? run.requestedMaxIterations ?? null,
+        consumed: budget.acceptedLogicalTaskCount ?? run.acceptedLogicalTaskCount ?? null,
+        remaining: Number.isSafeInteger(run.maxIterations) && Number.isSafeInteger(budget.acceptedLogicalTaskCount)
+          ? Math.max(0, run.maxIterations - budget.acceptedLogicalTaskCount)
+          : null,
+        chargeIdentity: budget.chargeId || budget.logicalTaskKey || null,
+        chargeStatus: budget.charged ? "charged" : budget.duplicate ? "already_charged" : budget.reasonCode || null,
+      },
+      localSourceChangingRoundsPerEpoch: { value: counters.localSourceChangingRoundsPerEpoch ?? convergence.localSourceChangingRoundsPerEpoch ?? null, limit: localSourceChangingRoundsPerEpochLimit },
+      githubTriggeredFixEpochsPerPr: { value: counters.githubTriggeredFixEpochsPerPr ?? convergence.githubTriggeredFixEpochsPerPr ?? null, limit: githubTriggeredFixEpochsPerPrLimit },
+      lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds ?? convergence.lifetimeLocalSourceChangingRounds ?? null,
+    },
+    recovery: {
+      outcomeClass: recovery.attemptClass || recovery.outcomeClass || null,
+      classification: iteration.recovery?.classification || recovery.classification || null,
+      phase: recovery.phase || null,
+      nextSafeAction: recovery.nextSafeAction || iteration.recovery?.nextAction || null,
+      reasonCode: iteration.recovery?.reasonCode || recovery.stopReason?.reasonCode || recovery.blocker || null,
+    },
+    session: {
+      generation: session.authority?.generation ?? session.generation ?? null,
+      phase: controller.phase || session.phase || null,
+      rotationReason: session.rotation?.reason || session.rotationReason || null,
+      contextPressure: session.context?.pressureCategory || session.contextPressure || "unknown",
+      continuationState: session.continuation?.status || null,
+      ownerPosture: session.authority?.status || null,
+      terminalPosture: session.terminal?.status || null,
+    },
+    review: {
+      exactHead: iteration.runnerCreatedCommitSha
+        || iteration.expectedHeadSha
+        || iteration.pr?.headSha
+        || iteration.pr?.headRefOid
+        || iteration.validation?.headSha
+        || iteration.externalReview?.reviewedHead
+        || iteration.review?.reviewedHead
+        || null,
+      validationStatus: iteration.validation?.passed === true ? "pass" : iteration.validation ? "failed" : null,
+      validationHead: iteration.validation?.headSha || null,
+      geminiStatus: iteration.externalReview?.reviewStatus || iteration.externalReview?.status || null,
+      geminiHead: iteration.externalReview?.reviewedHead || null,
+      localCodexStatus: iteration.review?.verdict?.verdict || iteration.review?.reviewStatus || null,
+      localCodexHead: iteration.review?.reviewedHead || iteration.review?.headSha || null,
+      githubCodexStatus: iteration.autoMerge?.githubCodexReview?.status || null,
+      githubCodexHead: iteration.autoMerge?.githubCodexReview?.headSha || iteration.autoMerge?.githubCodexReview?.reviewedHead || null,
+      ciStatus: latestWaitAttempt?.checks?.state === "success"
+        ? "pass"
+        : latestWaitAttempt?.checks?.state || latestWaitAttempt?.checks?.status || null,
+      ciHead: latestWaitAttempt?.prHeadSha || null,
+      scannerStatus: iteration.autoMerge?.scanners?.status || null,
+      scannerHead: iteration.autoMerge?.scanners?.headSha || null,
+      unresolvedThreads: iteration.autoMerge?.unresolvedThreadCount ?? null,
+      openAlerts: iteration.autoMerge?.openAlertCount ?? null,
+    },
+    largeCandidate: {
+      route: large.route || iteration.externalReview?.route?.largeCandidateRouting?.route || null,
+      coverageStatus: large.coverage?.status || large.coverageStatus || null,
+      integrationStatus: large.integration?.status || large.integrationStatus || null,
+      uncoveredScopeIds: large.uncoveredScopeIds || large.contextLimit?.uncoveredScopeIds || [],
+      splitState: split.status || (typeof split.state === "string" ? split.state : split.state?.phase) || split.phase || null,
+      stackState: stack.status || (typeof stack.state === "string" ? stack.state : stack.state?.phase) || stack.phase || null,
+      handoffState: split.stackHandoff?.status || stack.handoff?.status || (stack.state === "handoff" ? "handoff" : null),
+    },
+    effects: {
+      pendingIntentCount: recovery.pendingIntentCount ?? null,
+      confirmedEffectCount: recovery.confirmedEffectCount ?? null,
+      adoptedEffectCount: recovery.adoptedEffectCount ?? null,
+      nextEffectType: recovery.nextEffectType || null,
+    },
+    nextSafeAction: recovery.nextSafeAction || controller.nextExactAction || iteration.nextSafeAction || null,
   });
 }
 
@@ -306,10 +501,12 @@ function readActiveRun(config) {
 }
 
 function readLatestRunSummary(config) {
-  const runs = listRuns(config, 1);
-  if (runs.length === 0) return null;
-  const info = readSummaryFile(runs[0].summaryPath);
-  return info ? { ...info, path: runs[0].summaryPath, markdownPath: runs[0].markdownPath } : null;
+  const summariesDir = path.join(config.logsRoot, "summaries");
+  if (!existsSync(summariesDir)) return null;
+  const files = readdirSync(summariesDir).filter((name) => /^run-.*\.json$/.test(name));
+  const summaries = files.map((name) => readSummaryFile(path.join(summariesDir, name)));
+  if (summaries.some((summary) => !summary)) return { malformed: true };
+  return summaries.sort((a, b) => Date.parse(b.summary.finishedAt || b.summary.startedAt || 0) - Date.parse(a.summary.finishedAt || a.summary.startedAt || 0))[0] || null;
 }
 
 function readSummaryFile(filePath) {
@@ -344,6 +541,7 @@ function summarizePr(pr, headSha = null, mergeSha = null) {
     title: pr.title || null,
     url: pr.url || null,
     headRefName: pr.headRefName || null,
+    baseRefName: pr.baseRefName || null,
     headSha: pr.headRefOid || headSha || null,
     mergeSha: pr.mergeCommit?.oid || mergeSha || null,
   });

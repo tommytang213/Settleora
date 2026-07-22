@@ -22,6 +22,12 @@
 - #924 is closed under its four-path close rule. #910 and #927 remain open;
   the next implementation is #927, followed by #912's untouched manual
   production-activation gate.
+- #927 now has a focused implementation candidate for the versioned read-only
+  operational projection, state inventory, stale-ledger reconciliation, and
+  milestone/batched ledger policy. JSON/JSONL remains the evidence-based local
+  backend; no database migration is justified. This is derived planning status,
+  not completion evidence: #927 remains open until the candidate converges,
+  merges, and passes current-main acceptance.
 
 ### Issues #928/#929 and PR #938 — merged completion (2026-07-21)
 

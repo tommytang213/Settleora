@@ -1075,10 +1075,10 @@ function flattenCheckRollup(rollup) {
   }));
 }
 
-function detectBlockingMarkers(comments, reviews) {
+export function detectBlockingMarkers(comments, reviews) {
   const text = [...comments, ...reviews].map((item) => `${item.body || ""} ${item.state || ""}`).join("\n");
   const markers = [];
-  if (/\b(needs-tommy|danger-gate|blocked|manual gate|do not merge|changes requested)\b/i.test(text)) {
+  if (/\b(needs[-_ ]tommy|danger[-_ ]gate|blocked|manual[-_ ]gate|do[-_ ]not[-_ ]merge|changes[-_ ]requested)\b/i.test(text)) {
     markers.push("blocking_comment_or_review_marker");
   }
   return markers;
