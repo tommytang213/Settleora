@@ -450,7 +450,8 @@ function readProjectionGithub(config, status, run) {
     result.issue = { number: issue.number, state: issue.state, manualGate: (issue.labels || []).some((label) => ["manual-gate", "needs-tommy"].includes(label.name)), dangerGate: (issue.labels || []).some((label) => label.name === "danger-gate") };
   }
   if (Number.isSafeInteger(Number(prNumber)) && Number(prNumber) > 0) {
-    const pr = readGhJson(run, config, ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,headRefName,headRefOid,baseRefName,statusCheckRollup"]);
+    const prArgs = ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,headRefName,headRefOid,baseRefName,statusCheckRollup"];
+    const pr = readGhJson(run, config, prArgs);
     if (!validProjectionPr(pr, prNumber)) return { ok: false, reasonCode: "github_pr_read_failed" };
     const [owner, name] = String(config.repositorySlug).split("/");
     const query = "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}pageInfo{hasNextPage}}}}}";
@@ -461,6 +462,8 @@ function readProjectionGithub(config, status, run) {
     if (!Array.isArray(reviews) || reviews.length >= 100) return { ok: false, reasonCode: "github_reviews_read_failed" };
     const alerts = readGhJson(run, config, ["api", "--method", "GET", `repos/${config.repositorySlug}/code-scanning/alerts`, "-f", `ref=refs/heads/${pr.headRefName}`, "-f", "state=open", "-f", "per_page=100"]);
     if (!Array.isArray(alerts) || alerts.length >= 100) return { ok: false, reasonCode: "github_code_scanning_alerts_read_failed" };
+    const confirmedPr = readGhJson(run, config, prArgs);
+    if (!validProjectionPr(confirmedPr, prNumber) || !sameProjectionPrIdentity(pr, confirmedPr)) return { ok: false, reasonCode: "github_pr_changed_during_projection_read" };
     const exactCodexReviews = reviews.filter((review) => review?.commit_id === pr.headRefOid && /codex/i.test(review?.user?.login || ""));
     result.pr = {
       number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName,
@@ -470,6 +473,14 @@ function readProjectionGithub(config, status, run) {
     };
   }
   return result;
+}
+
+function sameProjectionPrIdentity(first, second) {
+  return first.number === second.number
+    && first.state === second.state
+    && first.headRefName === second.headRefName
+    && first.headRefOid === second.headRefOid
+    && first.baseRefName === second.baseRefName;
 }
 
 function validProjectionPr(pr, expectedNumber) {

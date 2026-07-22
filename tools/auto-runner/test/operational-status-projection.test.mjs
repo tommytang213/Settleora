@@ -151,7 +151,7 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
   const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
   assert.equal(model.supervisor.heartbeatPosture, "fresh");
   assert.equal(model.ledger.consistency, "stale");
-  assert.deepEqual(calls.map((call) => call.slice(0, 3)).sort(), [["gh", "issue", "view"], ["gh", "pr", "view"], ["gh", "api", "graphql"], ["gh", "api", "repos/tommytang213/Settleora/pulls/942/reviews?per_page=100"], ["gh", "api", "--method"], ["git", "--no-optional-locks", "branch"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "show"], ["git", "--no-optional-locks", "status"]].sort());
+  assert.deepEqual(calls.map((call) => call.slice(0, 3)).sort(), [["gh", "issue", "view"], ["gh", "pr", "view"], ["gh", "pr", "view"], ["gh", "api", "graphql"], ["gh", "api", "repos/tommytang213/Settleora/pulls/942/reviews?per_page=100"], ["gh", "api", "--method"], ["git", "--no-optional-locks", "branch"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "show"], ["git", "--no-optional-locks", "status"]].sort());
   const forbidden = new Set(["add", "commit", "push", "merge", "edit", "comment", "close", "create", "delete"]);
   assert.equal(calls.some((call) => call.some((token) => forbidden.has(token))), false);
 });
@@ -202,6 +202,26 @@ test("production GitHub projection rejects incomplete PR identity before local f
   assert.equal(model.status, "blocked");
   assert.ok(model.blockers.includes("github_pr_read_failed"));
   assert.equal(model.review.liveHead, head);
+});
+
+test("production GitHub projection rejects PR head drift across its bounded live reads", async () => {
+  let prReads = 0;
+  const spawnSync = (command, args) => {
+    if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
+    if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
+    if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+    if (command === "git" && args[1] === "show") return { status: 0, stdout: "" };
+    if (command === "gh" && args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
+    if (command === "gh" && args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: ++prReads === 1 ? head : main, baseRefName: "main", statusCheckRollup: [] }) };
+    if (command === "gh" && args[0] === "api" && args[1] === "graphql") return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } } } } } }) };
+    if (command === "gh" && args[0] === "api" && String(args[1]).includes("/reviews")) return { status: 0, stdout: "[]" };
+    if (command === "gh" && args[0] === "api" && args[1] === "--method") return { status: 0, stdout: "[]" };
+    return { status: 1, stdout: "" };
+  };
+  const production = createProjectionAdapters({ repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, { spawnSync, getRunnerStatus: () => ({ active: true, activeRunId: "run-927", currentOrLastIssue: { number: 927 }, currentOrLastPr: { number: 942 }, operationalProjection: {} }), readSupervisorProjection: () => ({ ok: true, value: {} }) });
+  const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
+  assert.equal(model.status, "blocked");
+  assert.ok(model.blockers.includes("github_pr_changed_during_projection_read"));
 });
 
 test("projection config comes from the verified supervisor spec or trusted requested profile", () => {
