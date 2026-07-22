@@ -31,6 +31,7 @@ import { defaultConfig, loadConfig } from "./lib/config.mjs";
 import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
 import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
 import { buildOperationalStatusProjection, renderOperationalStatusMarkdown } from "./lib/operational-status-projection.mjs";
+import { summarizeCheckStatus } from "./lib/auto-merge-policy.mjs";
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
@@ -414,7 +415,7 @@ function readProjectionGithub(config, status, run) {
   if (Number.isSafeInteger(Number(prNumber)) && Number(prNumber) > 0) {
     const pr = readGhJson(run, config, ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,headRefName,headRefOid,baseRefName,statusCheckRollup"]);
     if (!pr) return { ok: false, reasonCode: "github_pr_read_failed" };
-    result.pr = { number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName, checks: summarizeLiveChecks(pr.statusCheckRollup) };
+    result.pr = { number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName, checks: summarizeLiveChecks(pr.statusCheckRollup, config.autoMergePolicy) };
   }
   return result;
 }
@@ -429,13 +430,15 @@ function suppressRetainedTaskForPreChildSupervisor(config, status) {
   return { ...status, activeRunId: null, supervisorRunId: latest.runId, currentOrLastIssue: null, currentOrLastPr: null, operationalProjection: { status: latest.state || "submitted", lifecycle: { phase: latest.state || "submitted" } } };
 }
 
-function summarizeLiveChecks(checks) {
+function summarizeLiveChecks(checks, policy = {}) {
   if (!Array.isArray(checks)) return null;
-  if (checks.some((check) => ["PENDING", "EXPECTED"].includes(check.state))) return { status: "pending" };
-  if (checks.some((check) => ["ERROR", "FAILURE"].includes(check.state))) return { status: "failed" };
-  if (checks.some((check) => check.status && check.status !== "COMPLETED")) return { status: "pending" };
-  if (checks.some((check) => check.conclusion && !["SUCCESS", "SKIPPED", "NEUTRAL"].includes(check.conclusion))) return { status: "failed" };
-  return { status: checks.length ? "pass" : "missing" };
+  const normalized = checks.map((check) => ({
+    name: check.name || check.context || "unknown",
+    status: check.status || (["PENDING", "EXPECTED"].includes(check.state) ? "IN_PROGRESS" : "COMPLETED"),
+    conclusion: check.conclusion || (!["PENDING", "EXPECTED"].includes(check.state) ? check.state : null),
+  }));
+  const summary = summarizeCheckStatus(normalized, policy);
+  return { status: summary.state === "success" ? "pass" : summary.state, missingRequired: summary.missingRequired };
 }
 
 function readGhJson(run, config, args) {

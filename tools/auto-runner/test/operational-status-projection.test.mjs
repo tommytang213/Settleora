@@ -135,6 +135,29 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
   assert.equal(calls.some((call) => call.some((token) => forbidden.has(token))), false);
 });
 
+test("production GitHub projection enforces required-check and neutral policies", async () => {
+  const required = ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"];
+  const modelFor = async (checks) => {
+    const spawnSync = (command, args) => {
+      if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
+      if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${args.at(-1) === "origin/main" ? main : head}\n` };
+      if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+      if (command === "git" && args[1] === "show") return { status: 0, stdout: "" };
+      if (command === "gh" && args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
+      if (command === "gh" && args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: head, baseRefName: "main", statusCheckRollup: checks }) };
+      return { status: 1, stdout: "" };
+    };
+    const production = createProjectionAdapters({ repoRoot: "/repo", repositorySlug: "tommytang213/Settleora", autoMergePolicy: { requiredChecks: required, allowedSkippedChecks: [], allowedNeutralChecks: [] } }, { spawnSync, getRunnerStatus: () => ({ active: true, activeRunId: "run-927", currentOrLastIssue: { number: 927 }, currentOrLastPr: { number: 942 }, operationalProjection: {} }), readSupervisorProjection: () => ({ ok: true, value: {} }) });
+    return buildOperationalStatusProjection(production, { now: () => new Date(0) });
+  };
+  const successes = required.map((name) => ({ name, status: "COMPLETED", conclusion: "SUCCESS" }));
+  assert.equal((await modelFor(successes)).review.ciStatus, "pass");
+  assert.equal((await modelFor(successes.slice(1))).review.ciStatus, "missing");
+  assert.equal((await modelFor(successes.map((check) => check.name === "CodeQL" ? { ...check, conclusion: "NEUTRAL" } : check))).review.ciStatus, "failed");
+  const legacy = required.map((context) => ({ context, state: "SUCCESS" }));
+  assert.equal((await modelFor(legacy)).review.ciStatus, "pass");
+});
+
 test("production supervisor correlation failures propagate as fail-closed reason codes", async () => {
   const spawnSync = (command, args) => {
     if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
