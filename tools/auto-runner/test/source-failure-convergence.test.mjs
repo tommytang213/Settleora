@@ -86,6 +86,14 @@ test("freezes and deduplicates one batch and durably stops identical no-progress
   assert.equal(evaluateSourceFailureBatch(batch, history).classification, "no_progress_or_oscillation");
 });
 
+test("head-independent finding signatures detect recurring replacement failures", () => {
+  const first = freezeSourceFailureBatch([{ sourceKind: "local_validation", structuredEvidence: true, failureType: "source", diagnostic: "same assertion failed", identity: identity("b") }], identity("b"));
+  const replacement = freezeSourceFailureBatch([{ sourceKind: "local_validation", structuredEvidence: true, failureType: "source", diagnostic: "same assertion failed", identity: identity("f") }], identity("f"));
+  assert.equal(first.findingSetSignature, replacement.findingSetSignature);
+  const history = [first, first].map((batch) => ({ batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }));
+  assert.equal(evaluateSourceFailureBatch(replacement, history).classification, "no_progress_or_oscillation");
+});
+
 test("ordinary continuation routes validation source failure through one focused fix and full recertification", async () => {
   const calls = [];
   const state = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/auto-944-x", identity: identity(), phase: "local_validation" });

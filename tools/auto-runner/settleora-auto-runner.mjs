@@ -886,7 +886,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     const batch = freezeSourceFailureBatch(failures, initialIdentity);
     const decision = evaluateSourceFailureBatch(batch, iteration.sourceFailureHistory || []);
     iteration.sourceFailureBatch = batch;
-    iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, candidate: batch.candidate }];
+    iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }];
     checkpoint(iteration);
     if (!decision.sourceFixEligible) {
       iteration.outcome = "validation_failed";
@@ -929,7 +929,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       const replacementBatch = freezeSourceFailureBatch(replacementFailures, replacementIdentity);
       const replacementDecision = evaluateSourceFailureBatch(replacementBatch, iteration.sourceFailureHistory || []);
       iteration.sourceFailureBatch = replacementBatch;
-      iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: replacementBatch.batchIdentity, candidate: replacementBatch.candidate }].slice(-100);
+      iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: replacementBatch.batchIdentity, findingSetSignature: replacementBatch.findingSetSignature, candidate: replacementBatch.candidate }].slice(-100);
       iteration.validation = postFix.validation;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
       iteration.changedFiles = postFix.changedFiles;
@@ -1994,6 +1994,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         lifetimeLocalSourceChangingRounds: initial.counters.lifetimeLocalSourceChangingRounds + 1,
       },
       lastSourceFailureFix: { adoptedCommit: liveHeadAtRecovery, batchIdentity: initial.sourceFailureFixIntent.batchIdentity },
+      processedGithubFindingFingerprints: [...new Set([...(initial.processedGithubFindingFingerprints || []), ...(initial.preparedGithubSourceFailureBatch?.fingerprints || [])])].sort(),
+      preparedGithubSourceFailureBatch: null,
+      sourceFailureCommitEffect: null,
       sourceFailureFixIntent: null,
       sourceFailureBatch: null,
     };

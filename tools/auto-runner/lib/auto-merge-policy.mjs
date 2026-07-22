@@ -400,7 +400,7 @@ export function executeAutoMerge(config, context, options = {}) {
   const finalDecision = confirmedLifecycleMergeDecision({ ...finalContext, config }) || evaluateAutoMergeDecision(finalContext);
   if (!finalDecision.eligible) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
-    return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
+    return { ...raced, finalGithubState: exactHeadGithubInspection(finalContext), evidence: writeAutoMergeEvidence(config, raced, finalContext) };
   }
   const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug || context.config?.repositorySlug);
   if (!repositorySlug) {
@@ -595,7 +595,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
   const finalDecision = confirmedLifecycleMergeDecision({ ...finalContext, config }) || evaluateAutoMergeDecision(finalContext);
   if (!finalDecision.eligible) {
     const raced = { ...finalDecision, result: "blocked", reason: `final_refresh_blocked:${finalDecision.reason}` };
-    return { ...raced, evidence: writeAutoMergeEvidence(config, raced, finalContext) };
+    return { ...raced, finalGithubState: exactHeadGithubInspection(finalContext), evidence: writeAutoMergeEvidence(config, raced, finalContext) };
   }
   const repositorySlug = normalizeMergeReadbackRepositorySlug(config.repositorySlug || context.config?.repositorySlug);
   if (!repositorySlug) {
@@ -670,7 +670,7 @@ function executeAutoMergeWithWait(config, initialContext, options) {
     if (decision.eligible) {
       const execute = options.mergeOnly === true ? executeAutoMergeMergeOnly : executeAutoMerge;
       const result = execute(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
-      return { ...result, waitAttempts: attempts, finalGithubState: exactHeadGithubInspection(context) };
+      return { ...result, waitAttempts: attempts, finalGithubState: result.finalGithubState || exactHeadGithubInspection(context) };
     }
     if (!shouldWaitForAutoMergeDecision(decision) || attempt === wait.maxAttempts) break;
     sleep(wait.delayMs);

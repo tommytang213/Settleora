@@ -48,7 +48,7 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
         && state.preparedGithubSourceFailureBatch?.batchIdentity === batch.batchIdentity
         && state.preparedGithubSourceFailureBatch?.candidateHead === state.identity.headSha;
       const decision = evaluateSourceFailureBatch(batch, matchingPrepared ? [] : state.sourceFailureHistory || []);
-      state = { ...state, sourceFailureBatch: batch, sourceFailureHistory: matchingPrepared ? state.sourceFailureHistory : [...(state.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, candidate: batch.candidate }].slice(-100) };
+      state = { ...state, sourceFailureBatch: batch, sourceFailureHistory: matchingPrepared ? state.sourceFailureHistory : [...(state.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }].slice(-100) };
       await handlers.onCheckpoint?.(state, { phase, action: "source_failure_batch_frozen", batch, decision });
       if (!decision.sourceFixEligible) {
         if (decision.classification === "pending" || decision.retryable) return { ok: true, outcome: "waiting", reasonCode: decision.reasonCode, state };

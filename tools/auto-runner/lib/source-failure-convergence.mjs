@@ -55,8 +55,10 @@ export function normalizeSourceFailure(input = {}) {
     reasonCode: boundedToken(input.reasonCode || defaultReason(classification), 200),
     nextAction: boundedToken(input.nextAction || nextAction(classification), 120),
   };
+  const failureSignature = digest({ ...stable, identity: undefined });
   return Object.freeze({
     ...stable,
+    failureSignature,
     fingerprint: digest(stable),
   });
 }
@@ -101,12 +103,15 @@ export function freezeSourceFailureBatch(findings = [], identity = {}) {
   const byFingerprint = new Map(normalized.map((finding) => [finding.fingerprint, finding]));
   const frozen = [...byFingerprint.values()].sort((a, b) => a.fingerprint.localeCompare(b.fingerprint));
   const batchIdentity = digest({ contractVersion: sourceFailureContractVersion, candidate, fingerprints: frozen.map((finding) => finding.fingerprint) });
-  return Object.freeze({ contractVersion: sourceFailureContractVersion, batchIdentity, candidate, findings: Object.freeze(frozen) });
+  const findingSetSignature = digest(frozen.map((finding) => finding.failureSignature).sort());
+  return Object.freeze({ contractVersion: sourceFailureContractVersion, batchIdentity, findingSetSignature, candidate, findings: Object.freeze(frozen) });
 }
 
 export function evaluateSourceFailureBatch(batch, history = [], limits = {}) {
   if (!batch || batch.contractVersion !== sourceFailureContractVersion || !batch.batchIdentity) return result("unsafe_or_ambiguous");
-  const repeats = history.filter((entry) => entry.batchIdentity === batch.batchIdentity && entry.candidate?.headSha === batch.candidate?.headSha).length;
+  const repeats = history.filter((entry) => entry.findingSetSignature
+    ? entry.findingSetSignature === batch.findingSetSignature
+    : entry.batchIdentity === batch.batchIdentity && entry.candidate?.headSha === batch.candidate?.headSha).length;
   if (repeats >= (limits.identicalBatchWithoutHeadChange ?? 2)) return result("no_progress_or_oscillation");
   const actionable = batch.findings.filter((finding) => finding.classification === "source_fix_safe");
   const blocking = batch.findings.find((finding) => !["source_fix_safe", "pending", "retryable_infrastructure", "retryable_provider", "terminal_success"].includes(finding.classification));
