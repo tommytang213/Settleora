@@ -220,6 +220,26 @@ test("an active foreground runner ignores unrelated historical supervisor state"
   assert.equal(model.supervisor.runId, null);
 });
 
+test("an inactive foreground summary ignores unrelated historical supervisor state", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-inactive-foreground-"));
+  writeSupervisorState("supervised-20260722T044800Z-abcdef123456", { state: "completed", createdAt: new Date().toISOString(), runnerRunId: "run-old-supervised" }, logsRoot);
+  const spawnSync = (command, args) => {
+    if (command === "git" && args[1] === "branch") return { status: 0, stdout: "main\n" };
+    if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
+    if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+    if (command === "git" && args[1] === "show") return { status: 0, stdout: "ledger\n" };
+    return { status: 1, stdout: "" };
+  };
+  const production = createProjectionAdapters({ logsRoot, repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, {
+    spawnSync,
+    getRunnerStatus: () => ({ active: false, activeRunId: "run-final-foreground", supervisorRunId: null, latestTerminalOutcome: "completed", operationalProjection: {} }),
+  });
+  const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
+  assert.equal(model.status, "completed");
+  assert.equal(model.supervisor.runId, null);
+  assert.equal(model.blockers.includes("supervisor_runner_identity_conflict"), false);
+});
+
 test("corrupt, multiple-active, contradictory repository, PR, and stale-head fixtures fail closed", async () => {
   const cases = [
     { local: { activeAuthorities: ["one", "two"] }, reason: "multiple_active_local_authorities" },
@@ -304,6 +324,7 @@ test("persisted evidence redacts arbitrary authorization schemes without hiding 
   const sanitized = sanitizePersistedEvidence({
     error: `Authorization: Digest username=${secret}, realm="settleora", nonce=${nonce}, response=hash\nnext line`,
     alternate: `authorization=ApiKey ${secret}`,
+    tokenScheme: `Authorization: Signature.v2 keyId=${secret}, signature=${nonce}`,
     reasonCode: "protected_stack_plan_authorization_missing",
   });
   assert.equal(JSON.stringify(sanitized).includes(secret), false);

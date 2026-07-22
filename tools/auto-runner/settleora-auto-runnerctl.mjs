@@ -383,9 +383,7 @@ function readProjectionLedger(gitRead, status) {
 }
 
 function readProjectionSupervisor(config, status) {
-  const runId = status.active
-    ? status.supervisorRunId
-    : latestSupervisorRun(config.logsRoot)?.runId || status.supervisorRunId;
+  const runId = status.supervisorRunId;
   if (!runId) return { ok: true, value: {} };
   const stateResult = readSupervisorState(runId, config.logsRoot);
   if (!stateResult.found || !stateResult.state) return { ok: false, reasonCode: "supervisor_state_read_failed" };
@@ -425,7 +423,7 @@ function suppressRetainedTaskForPreChildSupervisor(config, status) {
   if (status.active) return status;
   const latest = latestSupervisorRun(config.logsRoot);
   if (!latest?.runId || latest.runnerRunId || latest.runId === status.supervisorRunId) return status;
-  return { ...status, supervisorRunId: null, currentOrLastIssue: null, currentOrLastPr: null, operationalProjection: { status: latest.state || "submitted", lifecycle: { phase: latest.state || "submitted" } } };
+  return { ...status, supervisorRunId: latest.runId, currentOrLastIssue: null, currentOrLastPr: null, operationalProjection: { status: latest.state || "submitted", lifecycle: { phase: latest.state || "submitted" } } };
 }
 
 function summarizeLiveChecks(checks) {
