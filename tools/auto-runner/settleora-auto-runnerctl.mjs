@@ -407,11 +407,14 @@ function readProjectionLedger(gitRead, status) {
   const issueNumber = Number(status.currentOrLastIssue?.number);
   if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) return { issueState: null, stale: null };
   if (ledger.value.length > 1024 * 1024) return { ok: false, reasonCode: "ledger_read_too_large" };
-  const relevantLines = ledger.value.split("\n").filter((line) => [...line.matchAll(/#([1-9]\d{0,8})\b/g)].some((match) => Number(match[1]) === issueNumber)).slice(0, 100).map((line) => line.slice(0, 240));
-  const posture = relevantLines.map((line) => ({ open: /\b(?:remains|is|stays) open\b/i.test(line), closed: /\b(?:is |was )?closed\b/i.test(line) })).find((entry) => entry.open || entry.closed);
-  if (posture?.open && posture.closed) return { ok: false, reasonCode: "ledger_issue_posture_ambiguous" };
+  const matchingLines = ledger.value.split("\n").filter((line) => [...line.matchAll(/#([1-9]\d{0,8})\b/g)].some((match) => Number(match[1]) === issueNumber));
+  if (matchingLines.length > 100) return { ok: false, reasonCode: "ledger_issue_posture_truncated" };
+  const relevantLines = matchingLines.map((line) => line.slice(0, 240));
+  const postures = relevantLines.map((line) => ({ open: /\b(?:remains|is|stays) open\b/i.test(line), closed: /\b(?:is |was )?closed\b/i.test(line) }));
+  const posture = { open: postures.some((entry) => entry.open), closed: postures.some((entry) => entry.closed) };
+  if (posture.open && posture.closed) return { ok: false, reasonCode: "ledger_issue_posture_ambiguous" };
   const observedMainSha = ledger.value.match(/(?:merge commit\/current main|current main(?: sha)?)[^0-9a-f]{0,100}`?([0-9a-f]{40})/i)?.[1] || null;
-  return { issueState: posture?.open ? "OPEN" : posture?.closed ? "CLOSED" : null, observedMainSha, stale: null };
+  return { issueState: posture.open ? "OPEN" : posture.closed ? "CLOSED" : null, observedMainSha, stale: null };
 }
 
 function readProjectionSupervisor(config, status) {

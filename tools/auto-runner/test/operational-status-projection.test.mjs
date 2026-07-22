@@ -216,6 +216,23 @@ test("production supervisor correlation failures propagate as fail-closed reason
   assert.ok(model.blockers.includes("active_supervisor_heartbeat_stale"));
 });
 
+test("separate contradictory ledger posture lines fail closed in either order", async () => {
+  for (const ledgerText of ["#927 remains open.\n#927 is closed.\n", "#927 was closed.\n#927 stays open.\n"]) {
+    const spawnSync = (command, args) => {
+      if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
+      if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${args.at(-1) === "origin/main" ? main : head}\n` };
+      if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+      if (command === "git" && args[1] === "show") return { status: 0, stdout: ledgerText };
+      if (command === "gh" && args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
+      return { status: 1, stdout: "" };
+    };
+    const production = createProjectionAdapters({ repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, { spawnSync, getRunnerStatus: () => ({ active: true, activeRunId: "run-ledger-test", currentOrLastIssue: { number: 927 }, operationalProjection: {} }), readSupervisorProjection: () => ({ ok: true, value: {} }) });
+    const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
+    assert.equal(model.status, "blocked");
+    assert.ok(model.blockers.includes("ledger_issue_posture_ambiguous"));
+  }
+});
+
 test("production adapters preserve pre-PR checkpoint branch and head identity", async () => {
   const switchedHead = "d".repeat(40);
   const spawnSync = (command, args) => {
