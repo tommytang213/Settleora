@@ -257,6 +257,11 @@ test("safe authorization reason codes remain inspectable", async () => {
   }), { now: () => new Date(0) });
   assert.equal(model.recovery.reasonCode, "protected_stack_plan_authorization_missing");
   assert.doesNotThrow(() => assertBoundedProjection(model));
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-safe-reason-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  const config = { logsRoot, maxIterations: 1, maxRuntimeMs: 60_000 };
+  const activePath = writeActiveRunState(config, { runId: "run-safe-reason", startedAt: new Date().toISOString(), iterations: [{ recovery: { reasonCode: "protected_stack_plan_authorization_missing" } }] });
+  assert.equal(JSON.parse(readFileSync(activePath, "utf8")).operationalProjection.recovery.reasonCode, "protected_stack_plan_authorization_missing");
 });
 
 test("milestone ledger policy requests bounded hygiene and ephemeral transitions never do", () => {
