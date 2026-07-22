@@ -475,10 +475,12 @@ function readProjectionGithub(config, status, run) {
     const confirmedPr = readGhJson(run, config, prArgs);
     if (!validProjectionPr(confirmedPr, prNumber) || !sameProjectionPrIdentity(pr, confirmedPr)) return { ok: false, reasonCode: "github_pr_changed_during_projection_read" };
     const exactCodexReviews = reviews.filter((review) => review?.commit_id === pr.headRefOid && review?.user?.login === "chatgpt-codex-connector[bot]");
+    const blockingCodexReview = exactCodexReviews.some((review) => String(review?.state || "").toUpperCase() === "CHANGES_REQUESTED"
+      || /\bP[0-2]\b|inline comment|suggest/i.test(String(review?.body || "")));
     result.pr = {
       number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName,
       checks: summarizeLiveChecks(pr.statusCheckRollup, config.autoMergePolicy),
-      review: { status: exactCodexReviews.length ? "complete" : "pending", headSha: pr.headRefOid, unresolvedThreads: threadConnection.nodes.filter((thread) => thread?.isResolved !== true).length },
+      review: { status: blockingCodexReview ? "changes_requested" : exactCodexReviews.length ? "complete" : "pending", headSha: pr.headRefOid, unresolvedThreads: threadConnection.nodes.filter((thread) => thread?.isResolved !== true).length },
       scanner: { status: alerts.length === 0 ? "pass" : "open_alerts", headSha: pr.headRefOid, openAlerts: alerts.length },
     };
   }

@@ -186,6 +186,15 @@ test("production GitHub projection enforces required-check and neutral policies"
   assert.equal(live.review.scannerStatus, "open_alerts");
   assert.equal(live.review.openAlerts, 1);
   assert.equal((await modelFor(successes, [{ commit_id: head, user: { login: "friendly-codex-reviewer" } }])).review.githubCodexStatus, "pending");
+  for (const blockingReview of [
+    { commit_id: head, user: { login: "chatgpt-codex-connector[bot]" }, state: "CHANGES_REQUESTED", body: "" },
+    { commit_id: head, user: { login: "chatgpt-codex-connector[bot]" }, state: "COMMENTED", body: "P2 suggestion requires correction" },
+  ]) {
+    const blocked = await modelFor(successes, [blockingReview]);
+    assert.equal(blocked.review.githubCodexStatus, "changes_requested");
+    assert.equal(blocked.status, "blocked");
+    assert.ok(blocked.blockers.includes("github_codex_changes_requested"));
+  }
 });
 
 test("production GitHub projection rejects incomplete PR identity before local fallback", async () => {

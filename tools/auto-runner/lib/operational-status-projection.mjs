@@ -180,6 +180,7 @@ function reconcileConflicts(repository, github, local) {
     if (!sourceHead) reasons.push(`${source}_exact_head_missing`);
     else if (liveHead && sourceHead !== liveHead) reasons.push(`${source}_stale_exact_head_evidence`);
   }
+  if (github?.pr?.review?.status === "changes_requested") reasons.push("github_codex_changes_requested");
   if (local?.active === true && local?.task?.branch && repository?.currentBranch && local.task.branch !== repository.currentBranch) reasons.push("active_repository_branch_identity_conflict");
   if (local?.active === true && validSha(local?.task?.headSha) && validSha(repository?.headSha) && local.task.headSha !== repository.headSha) reasons.push("active_repository_head_identity_conflict");
   if (local?.active === true && validSha(local?.task?.baseSha) && validSha(repository?.originMainSha) && local.task.baseSha !== repository.originMainSha) reasons.push("active_repository_base_identity_conflict");
