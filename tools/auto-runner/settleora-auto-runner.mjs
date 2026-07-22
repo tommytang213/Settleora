@@ -392,6 +392,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       ? chargeStartupRecoveryLogicalTask(config, runId, startupRecovery)
       : { ok: true, charged: false, skipped: true, reasonCode: "startup_recovery_not_allowed" };
     iteration.logicalTaskBudget = recoveryBudget;
+    checkpoint(iteration);
     if (!recoveryBudget.ok) {
       iteration.recovery = startupRecovery;
       iteration.issueSource = "startup_recovery";
@@ -551,6 +552,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         claimIdentity: `${config.repositorySlug}#${issue.number}`,
         acceptedAt,
       });
+  checkpoint(iteration);
   if (!iteration.logicalTaskBudget.ok) {
     iteration.outcome = "blocked_logical_task_budget";
     iteration.systemicStop = `logical-task-budget:${iteration.logicalTaskBudget.reasonCode}`;
