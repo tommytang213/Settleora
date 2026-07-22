@@ -430,6 +430,8 @@ function suppressRetainedTaskForPreChildSupervisor(config, status) {
 
 function summarizeLiveChecks(checks) {
   if (!Array.isArray(checks)) return null;
+  if (checks.some((check) => ["PENDING", "EXPECTED"].includes(check.state))) return { status: "pending" };
+  if (checks.some((check) => ["ERROR", "FAILURE"].includes(check.state))) return { status: "failed" };
   if (checks.some((check) => check.status && check.status !== "COMPLETED")) return { status: "pending" };
   if (checks.some((check) => check.conclusion && !["SUCCESS", "SKIPPED", "NEUTRAL"].includes(check.conclusion))) return { status: "failed" };
   return { status: checks.length ? "pass" : "missing" };
@@ -447,7 +449,7 @@ function projectRunnerStatus(status = {}) {
   const projection = status.operationalProjection || {};
   return {
     active: status.active === true,
-    status: status.active ? "active" : status.latestTerminalOutcome || "idle",
+    status: status.active ? "active" : projection.status || status.latestTerminalOutcome || "idle",
     task: {
       logicalTaskKey: projection.counters?.acceptedTaskBudget?.chargeIdentity || status.activeRunId || null,
       runId: status.activeRunId || null,

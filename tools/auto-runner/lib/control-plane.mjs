@@ -140,7 +140,7 @@ export function getRunnerStatus(config) {
   const active = readActiveRun(config);
   const control = readControlState(config);
   const latestSummary = readLatestRunSummary(config);
-  const source = active.parsed || latestSummary?.summary || null;
+  const source = active.active ? active.parsed : latestSummary?.summary || active.parsed || null;
   const startedAt = source?.startedAt || null;
   const maxRuntimeMs = source?.maxRuntimeMs ?? active.parsed?.maxRuntimeMs ?? null;
   const elapsedMs = startedAt ? Math.max(0, Date.now() - Date.parse(startedAt)) : null;

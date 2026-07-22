@@ -336,3 +336,12 @@ test("projection checkpoints retain recovery, implementation, convergence, split
   assert.match(control, /activeOwnerConflict: Boolean\(\(lock\.active \|\| active\.active\)[\s\S]*?!lock\.parsed\?\.runId[\s\S]*?!active\.parsed\?\.runId[\s\S]*?lock\.parsed\.runId !== active\.parsed\.runId/);
   assert.doesNotMatch(control, /(?:ciHead|scannerHead):[^\n]*expectedHeadSha/);
 });
+
+test("projection adapters prefer terminal summaries and normalize legacy check contexts", () => {
+  const control = readFileSync(new URL("../lib/control-plane.mjs", import.meta.url), "utf8");
+  const ctl = readFileSync(new URL("../settleora-auto-runnerctl.mjs", import.meta.url), "utf8");
+  assert.match(control, /const source = active\.active \? active\.parsed : latestSummary\?\.summary \|\| active\.parsed/);
+  assert.match(ctl, /\["PENDING", "EXPECTED"\]\.includes\(check\.state\)/);
+  assert.match(ctl, /\["ERROR", "FAILURE"\]\.includes\(check\.state\)/);
+  assert.match(ctl, /status: status\.active \? "active" : projection\.status \|\| status\.latestTerminalOutcome/);
+});
