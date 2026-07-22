@@ -157,13 +157,14 @@ export function sourceFailuresFromValidation(validation = {}, context = {}) {
 export function sourceFailuresFromGithubEvidence(evidence = {}, context = {}) {
   const failures = [];
   for (const check of evidence.requiredChecks || []) {
-    const status = String(check.status || check.conclusion || "").toLowerCase();
-    if (["success", "completed_success", "neutral", "skipped"].includes(status)) continue;
+    const conclusion = String(check.conclusion || "").toLowerCase();
+    const status = String(check.status || "").toLowerCase();
+    if (["success", "neutral", "skipped"].includes(conclusion) || ["success", "completed_success"].includes(status)) continue;
     failures.push({
       ...context,
       sourceKind: "github_check",
       structuredEvidence: Boolean(check.name && (check.step || check.command) && check.sanitizedLogExcerpt),
-      status,
+      status: conclusion || status,
       commandId: check.name,
       diagnostic: check.sanitizedLogExcerpt || check.reason || check.name || "check failed without structured diagnostics",
       failureType: check.failureType || null,

@@ -352,7 +352,7 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {
   return {
     pr,
     issue: currentIssue,
-    requiredChecks: flattenCheckRollup(pr.statusCheckRollup || []),
+    requiredChecks: enrichFailedCheckEvidence(config, flattenCheckRollup(pr.statusCheckRollup || []), run),
     reviewThreads,
     codeScanningAlerts,
     blockingMarkers,
@@ -1072,7 +1072,20 @@ function flattenCheckRollup(rollup) {
     name: check.name || check.context || "unknown",
     status: check.status || (check.state === "SUCCESS" ? "COMPLETED" : check.state),
     conclusion: check.conclusion || check.state,
+    detailsUrl: check.detailsUrl || null,
   }));
+}
+
+function enrichFailedCheckEvidence(config, checks, run) {
+  return checks.map((check) => {
+    if (!["failure", "timed_out", "cancelled", "action_required"].includes(String(check.conclusion || "").toLowerCase())) return check;
+    const match = String(check.detailsUrl || "").match(/\/actions\/runs\/(\d+)\/job\/(\d+)(?:$|[?#])/);
+    if (!match) return check;
+    const result = run("gh", ["run", "view", match[1], "--job", match[2], "--log-failed"], { cwd: config.repoRoot });
+    if (result.error || result.status !== 0) return check;
+    const sanitized = sanitizePersistedEvidence(String(result.stdout || "").slice(0, 12_000));
+    return { ...check, step: "failed-job-log", sanitizedLogExcerpt: String(sanitized || "").slice(0, 2_000), failureType: /assert|test failed|compiler|compilation|lint|build failed|syntax error|analysis issues?/i.test(String(sanitized || "")) ? "source" : null };
+  });
 }
 
 export function detectBlockingMarkers(comments, reviews) {

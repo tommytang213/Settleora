@@ -59,6 +59,11 @@ test("GitHub CI and scanner adapters require structured exact-head evidence", ()
   assert.equal(unstructured.findings[0].classification, "unsafe_or_ambiguous");
 });
 
+test("completed successful GitHub checks are not normalized as failures", () => {
+  const failures = sourceFailuresFromGithubEvidence({ requiredChecks: [{ name: "Validate scaffold", status: "COMPLETED", conclusion: "SUCCESS" }] }, { identity: identity() });
+  assert.deepEqual(failures, []);
+});
+
 test("freezes and deduplicates one batch and durably stops identical no-progress", () => {
   const finding = { sourceKind: "local_validation", structuredEvidence: true, failureType: "source", diagnostic: "test failed assertion", identity: identity() };
   const batch = freezeSourceFailureBatch([finding, finding], identity());

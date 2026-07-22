@@ -1902,7 +1902,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
 
 async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null }) {
   const identity = checkpoint.candidateIdentity;
-  const initial = state.ordinaryContinuation || createOrdinaryContinuationState({
+  let initial = state.ordinaryContinuation || createOrdinaryContinuationState({
     logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
     executionKey: config.runnerRunId || null,
     issueNumber: issue.number,
@@ -1933,6 +1933,24 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
   };
   if (!ordinaryCandidateIdentityMatches(initial.identity, actualIdentity)) {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_candidate_identity_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
+  }
+  if (preparedFixCanBeAdopted) {
+    const replacementIdentity = ordinaryIdentityForHead(initial.identity.baseSha, liveHeadAtRecovery);
+    initial = {
+      ...initial,
+      identity: replacementIdentity,
+      phase: "local_validation",
+      effects: initial.effects?.candidate_reconciliation ? { candidate_reconciliation: initial.effects.candidate_reconciliation } : {},
+      counters: {
+        ...initial.counters,
+        localSourceChangingRoundsPerEpoch: initial.counters.localSourceChangingRoundsPerEpoch + 1,
+        lifetimeLocalSourceChangingRounds: initial.counters.lifetimeLocalSourceChangingRounds + 1,
+      },
+      lastSourceFailureFix: { adoptedCommit: liveHeadAtRecovery, batchIdentity: initial.sourceFailureFixIntent.batchIdentity },
+      sourceFailureFixIntent: null,
+      sourceFailureBatch: null,
+    };
+    await writeRecoveryState(config, { ...state, ordinaryContinuation: initial });
   }
   const context = {
     issue,
