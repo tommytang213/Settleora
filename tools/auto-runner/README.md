@@ -26,6 +26,11 @@ a pending check that later fails can enter this classifier. GitHub finding
 fingerprints remain prepared, not consumed, until a replacement commit is
 confirmed; crash recovery resumes the same reserved epoch and adopts the
 new-head effect before recertification.
+If a focused repair exposes another actionable validation defect, the new
+candidate is committed and re-enters the same bounded classifier instead of
+terminating after one round. Canonically named platform checks are translated
+from the exact-head GitHub inspection, and scanner alert paths must satisfy
+both the task contract and lane manifest before a fix epoch is authorized.
 
 ## Post-implementation continuation authorities
 

@@ -905,7 +905,32 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
-    const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, recoveryRecorder, branchName });
+    let postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, recoveryRecorder, branchName });
+    while (postFix.runnerCreatedCommitSha && !postFix.validation?.passed && !postFix.forbiddenChangedFiles?.length) {
+      const replacementIdentity = ordinaryIdentityForHead(iteration.baseOriginMainSha, postFix.runnerCreatedCommitSha);
+      const replacementFailures = sourceFailuresFromValidation(postFix.validation, {
+        repository: config.repositorySlug,
+        issueNumber: issue.number,
+        taskKey: config.taskKey || promptInfo.timestampKey,
+        branchName,
+        identity: replacementIdentity,
+        profile: laneDecision.validationProfile,
+        inContract: true,
+      });
+      const replacementBatch = freezeSourceFailureBatch(replacementFailures, replacementIdentity);
+      const replacementDecision = evaluateSourceFailureBatch(replacementBatch, iteration.sourceFailureHistory || []);
+      iteration.sourceFailureBatch = replacementBatch;
+      iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: replacementBatch.batchIdentity, candidate: replacementBatch.candidate }].slice(-100);
+      iteration.validation = postFix.validation;
+      iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
+      iteration.changedFiles = postFix.changedFiles;
+      checkpoint(iteration);
+      if (!replacementDecision.sourceFixEligible) break;
+      const replacementFindings = replacementBatch.findings.map((failure) => ({ provider: failure.sourceKind, severity: "high", path: failure.path || postFix.changedFiles[0] || "", title: "Recursive post-fix validation failure", body: failure.diagnosticExcerpt || failure.diagnosticDigest, safelyFixable: true }));
+      const replacementAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles: postFix.changedFiles, forbiddenChangedFiles: [], validation: postFix.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: replacementFindings } }, iteration, sourceFailureFix: { batch: replacementBatch, decision: replacementDecision, candidateHead: replacementIdentity.headSha, baseSha: replacementIdentity.baseSha } });
+      if (!replacementAttempt.proceeded) break;
+      postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt: replacementAttempt, recoveryRecorder, branchName, commitMessage: `Auto-runner issue #${issue.number}: recursive source-fix ${replacementBatch.batchIdentity.slice(0, 16)}` });
+    }
     if (!postFix.runnerCreatedCommitSha || !postFix.validation?.passed || postFix.forbiddenChangedFiles?.length) {
       iteration.outcome = "validation_failed";
       iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, "Auto-runner source-failure replacement candidate did not pass complete recertification.");
@@ -2391,7 +2416,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   const baseOriginMainSha = getRefSha("origin/main");
   const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
   operationalCheckpoint("existing_pr_live_reconciliation");
-  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner });
+  const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl, laneDecision }, { runner: autoMergeRunner });
   operationalCheckpoint("existing_pr_live_reconciliation_complete", { pr: githubState.pr || null });
   const prNumber = githubState.pr?.number || recoveryConfig.prNumber || recoveryConfig.prUrl;
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
@@ -2643,7 +2668,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   operationalCheckpoint("existing_pr_merge_evaluation", { pr: context.pr, validation: context.validation, review: context.review, externalReview: context.externalReview });
   const autoMerge = executeAutoMerge(config, context, {
     runner: autoMergeRunner,
-    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner }),
+    inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url, laneDecision }, { runner: autoMergeRunner }),
   });
   operationalCheckpoint("existing_pr_merge_evaluation_complete", { autoMerge });
   return {
@@ -2983,7 +3008,7 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
   const githubState =
     config.dryRun || !iteration.pr?.url
       ? {}
-      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url }, { runner: autoMergeRunner });
+      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url, laneDecision: iteration.laneDecision }, { runner: autoMergeRunner });
   return executeAutoMerge(config, {
     ...baseContext,
     ...githubState,
@@ -3112,6 +3137,19 @@ async function runReviewFixCycle(config, context) {
   const validationPlan = planValidation(changedFilesAfter, context.laneDecision);
   const validationAfter = runValidationPlan(config, validationPlan);
   if (!validationAfter.passed) {
+    if (context.sourceFailureFix) {
+      const evidence = writeReviewFixEvidence(config, {
+        ...baseEvidence,
+        fixAttemptHappened: true,
+        promptPath,
+        codex: summarizeCodex(codex),
+        changedFilesAfter,
+        forbiddenChangedFilesAfter,
+        validationAfter: summarizeValidation(validationAfter),
+        stopReason: null,
+      });
+      return { attempted: true, proceeded: true, reason: "source_fix_requires_recursive_validation_convergence", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter, evidence };
+    }
     return finishBlocked("review_fix_validation_failed", { validationAfter: summarizeValidation(validationAfter) });
   }
 
@@ -3273,6 +3311,19 @@ async function commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDeci
   const changedFiles = config.dryRun ? changedFilesBeforeCommit : listChangedFiles("origin/main", "HEAD");
   const forbiddenChangedFiles = filterForbiddenChangedFiles(changedFiles, laneDecision);
   const validation = fixAttempt.validationAfter;
+  if (validation?.passed === false) {
+    return {
+      changedFiles,
+      forbiddenChangedFiles,
+      validation,
+      commit,
+      runnerCreatedCommitSha,
+      reviewPackage: null,
+      externalReview: { status: "pending", reason: "recursive_source_failure_revalidation_required" },
+      review: { verdict: { verdict: "unable_to_review" } },
+      reviewMutationGuard: { mutationDetected: false },
+    };
+  }
   if (!config.dryRun && getStatusShort() !== "") {
     return {
       changedFiles,

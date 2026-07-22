@@ -26,6 +26,10 @@ wait carries its final bounded exact-head checks, scanner alerts, threads, and
 merge state back to the classifier. Reserved GitHub batches remain resumable
 until a source commit is confirmed, and fingerprints are consumed only with
 the persisted old-head to new-head commit effect.
+Post-fix validation failures recursively re-enter this authority. Exact-name
+external platform checks are bound from the inspected PR head, while every
+scanner alert path is checked against both task and lane scope; absent or
+out-of-contract paths block rather than becoming source-fix work.
 
 ## Post-implementation continuation authorities
 

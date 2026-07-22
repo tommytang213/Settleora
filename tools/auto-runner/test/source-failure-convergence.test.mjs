@@ -54,6 +54,11 @@ test("scanner REST field names preserve authoritative path and line", () => {
   assert.equal(finding.line, 12);
 });
 
+test("scanner evidence outside the task contract is fail-closed", () => {
+  const [finding] = sourceFailuresFromGithubEvidence({ codeScanningAlerts: [{ state: "open", tool: "CodeQL", ruleId: "js/x", path: "services/api/Auth.cs", line: 7, headSha: sha("b"), scopeAllowed: false }] }, { identity: identity(), inContract: true });
+  assert.equal(freezeSourceFailureBatch([finding], identity()).findings[0].classification, "out_of_contract");
+});
+
 test("GitHub CI and scanner adapters require structured exact-head evidence", () => {
   const findings = sourceFailuresFromGithubEvidence({
     requiredChecks: [{ name: "tests", status: "failure", step: "node test", command: "npm test", sanitizedLogExcerpt: "Assertion failed", failureType: "source" }],
@@ -104,6 +109,28 @@ test("ordinary continuation routes validation source failure through one focused
   assert.equal(result.state.counters.localSourceChangingRoundsPerEpoch, 1);
   assert.equal(result.state.counters.lifetimeLocalSourceChangingRounds, 1);
   assert.ok(calls.indexOf("push") > calls.indexOf("codex_review"));
+});
+
+test("ordinary continuation recursively repairs a second actionable validation failure", async () => {
+  let validations = 0;
+  let fixes = 0;
+  const state = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/auto-944-x", identity: identity(), phase: "local_validation" });
+  const handlers = Object.fromEntries(["external_review", "codex_review", "structured_review", "review_convergence", "push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene"].map((phase) => [phase, async () => ({ ok: true })]));
+  handlers.local_validation = async (current) => {
+    validations += 1;
+    return validations <= 2
+      ? { ok: true, sourceFailures: [{ sourceKind: "local_validation", structuredEvidence: true, failureType: "source", diagnostic: `test failure ${validations}`, identity: current.identity }] }
+      : { ok: true };
+  };
+  handlers.source_failure_fix = async (current) => {
+    fixes += 1;
+    return { ok: true, sourceChanged: true, identity: identity(fixes === 1 ? "f" : "9") };
+  };
+  const result = await continueOrdinaryCandidate(state, handlers);
+  assert.equal(result.ok, true);
+  assert.equal(result.outcome, "complete");
+  assert.equal(fixes, 2);
+  assert.equal(validations, 3);
 });
 
 test("ordinary continuation persists fix intent and can adopt a completed fix after restart", async () => {

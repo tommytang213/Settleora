@@ -4,7 +4,7 @@ import path from "node:path";
 import { safeTimestamp } from "./logger.mjs";
 import { evaluateLowRiskAutoMergeCanaryApproval } from "./canary-policy.mjs";
 import { digestChangedFiles } from "./config.mjs";
-import { filterForbiddenChangedFiles } from "./lane-policy.mjs";
+import { filterForbiddenChangedFiles, pathViolatesPolicy } from "./lane-policy.mjs";
 import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { buildIssueOperationContext, completeMergedIssueHygiene } from "./completion-hygiene.mjs";
@@ -261,7 +261,7 @@ export function writeAutoMergeEvidence(config, decision, context = {}) {
   return { evidencePath };
 }
 
-export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {}, options = {}) {
+export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber, laneDecision } = {}, options = {}) {
   const runner = options.runner || (config.dryRun ? defaultRunner : null);
   const commandEvidence = [];
   const run = (command, args, runnerOptions = {}) => {
@@ -347,7 +347,11 @@ export function inspectAutoMergeGithubState(config, { issue, prUrlOrNumber } = {
   if (issueView.error || issueView.status !== 0) blockingMarkers.push("issue_view_failed");
 
   const reviewThreads = inspectReviewThreads(config, pr.number, blockingMarkers, run);
-  const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers, run);
+  const codeScanningAlerts = inspectCodeScanningAlerts(config, pr.headRefName, blockingMarkers, run)
+    .map((alert) => {
+      const alertPath = alert?.most_recent_instance?.location?.path || alert?.mostRecentInstance?.location?.path || alert?.path;
+      return { ...alert, scopeAllowed: Boolean(alertPath) && !pathViolatesPolicy(alertPath, laneDecision || {}) };
+    });
   blockingMarkers.push(...detectBlockingMarkers(pr.comments || [], pr.reviews || []));
   return {
     pr,
@@ -893,7 +897,23 @@ function evaluateMobilePlatformBuildEvidence(input, { expectedHeadSha, expectedB
     if (!check) return { ok: false, reason: `mobile_platform_local_check_missing:${checkId}` };
     if (check.passed !== true || check.status !== 0) return { ok: false, reason: `mobile_platform_local_check_failed:${checkId}` };
   }
-  const externalEvidence = Array.isArray(input.externalPlatformBuildEvidence) ? input.externalPlatformBuildEvidence : [];
+  const explicitExternalEvidence = Array.isArray(input.externalPlatformBuildEvidence) ? input.externalPlatformBuildEvidence : [];
+  const exactHeadChecks = Array.isArray(input.requiredChecks) ? input.requiredChecks : [];
+  const externalEvidence = requirements.externalCheckIds.map((checkId) => {
+    const explicit = explicitExternalEvidence.find((item) => item.checkId === checkId);
+    if (explicit) return explicit;
+    const githubCheck = exactHeadChecks.find((item) => item.name === checkId);
+    if (!githubCheck) return null;
+    return {
+      checkId,
+      status: githubCheck.status,
+      conclusion: githubCheck.conclusion,
+      headSha: expectedHeadSha,
+      baseSha: expectedBaseSha,
+      changedFilesDigest: digestChangedFiles(changedFiles),
+      platforms: requirements.platforms,
+    };
+  }).filter(Boolean);
   for (const checkId of requirements.externalCheckIds) {
     const check = externalEvidence.find((item) => item.checkId === checkId);
     if (!check) return { ok: false, reason: `mobile_platform_external_check_missing:${checkId}` };
