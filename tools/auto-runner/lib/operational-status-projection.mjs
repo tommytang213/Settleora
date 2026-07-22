@@ -131,7 +131,7 @@ export function ledgerHygieneDecision(transition = {}) {
 export function assertBoundedProjection(model) {
   const encoded = JSON.stringify(model);
   if (Buffer.byteLength(encoded) > operationalStatusMaxBytes) throw new Error("operational_status_json_too_large");
-  if (/bearer\s|api[_-]?key|authorization|rawprompt|rawprovider|ocrtext|github_pat_|gh[pousr]_|xox[baprs]-|sk-[a-z0-9_-]{8,}|akia[0-9a-z]{12,}|ya29\.|https?:\\?\/\\?\/|[a-z]:\\\\|(?:^|["\s])\/(?:home|workspace|tmp|var|etc|opt)\//i.test(encoded)) {
+  if (/bearer\s|api[_-]?key|authorization["']?\s*[:=]\s*(?:bearer|basic|token)|rawprompt|rawprovider|ocrtext|github_pat_|gh[pousr]_|xox[baprs]-|sk-[a-z0-9_-]{8,}|akia[0-9a-z]{12,}|ya29\.|https?:\\?\/\\?\/|[a-z]:\\\\|(?:^|["\s])\/(?:home|workspace|tmp|var|etc|opt)\//i.test(encoded)) {
     throw new Error("operational_status_secret_or_path_boundary_violation");
   }
   return true;

@@ -383,8 +383,10 @@ function readProjectionLedger(gitRead, status) {
 }
 
 function readProjectionSupervisor(config, status) {
-  const runId = status.supervisorRunId;
+  const latest = latestSupervisorRun(config.logsRoot);
+  const runId = latest?.runId || status.supervisorRunId;
   if (!runId) return { ok: true, value: {} };
+  if (status.active && status.supervisorRunId && status.supervisorRunId !== runId) return { ok: false, reasonCode: "multiple_active_supervisor_authorities" };
   const stateResult = readSupervisorState(runId, config.logsRoot);
   if (!stateResult.found || !stateResult.state) return { ok: false, reasonCode: "supervisor_state_read_failed" };
   let heartbeatResult;

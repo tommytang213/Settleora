@@ -12,6 +12,7 @@ import {
   renderOperationalStatusMarkdown,
 } from "../lib/operational-status-projection.mjs";
 import { createProjectionAdapters } from "../settleora-auto-runnerctl.mjs";
+import { writeSupervisorState } from "../supervisor/supervisor-state.mjs";
 
 const head = "a".repeat(40);
 const main = "b".repeat(40);
@@ -136,6 +137,26 @@ test("production supervisor correlation failures propagate as fail-closed reason
   assert.ok(model.blockers.includes("active_supervisor_heartbeat_stale"));
 });
 
+test("production projection selects a submitted supervisor before its child runner starts", async () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-supervisor-submitted-"));
+  const supervisorRunId = "supervised-20260722T044700Z-abcdef123456";
+  writeSupervisorState(supervisorRunId, { state: "submitted", createdAt: new Date().toISOString(), runnerRunId: null }, logsRoot);
+  const spawnSync = (command, args) => {
+    if (command === "git" && args[1] === "branch") return { status: 0, stdout: "main\n" };
+    if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
+    if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+    if (command === "git" && args[1] === "show") return { status: 0, stdout: "ledger\n" };
+    return { status: 1, stdout: "" };
+  };
+  const production = createProjectionAdapters({ logsRoot, repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, {
+    spawnSync,
+    getRunnerStatus: () => ({ active: false, operationalProjection: {} }),
+  });
+  const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
+  assert.equal(model.supervisor.runId, supervisorRunId);
+  assert.equal(model.supervisor.state, "submitted");
+});
+
 test("corrupt, multiple-active, contradictory repository, PR, and stale-head fixtures fail closed", async () => {
   const cases = [
     { local: { activeAuthorities: ["one", "two"] }, reason: "multiple_active_local_authorities" },
@@ -227,6 +248,15 @@ test("active ownership fails closed when either authority identity is missing", 
 test("output bounds reject unbounded models", async () => {
   const model = await buildOperationalStatusProjection(adapters(), { now: () => new Date(0) });
   assert.throws(() => assertBoundedProjection({ ...model, padding: "x".repeat(70 * 1024) }), /too_large/);
+});
+
+test("safe authorization reason codes remain inspectable", async () => {
+  const baseLocal = await adapters().local.read();
+  const model = await buildOperationalStatusProjection(adapters({
+    local: { ...baseLocal, recovery: { ...baseLocal.recovery, reasonCode: "protected_stack_plan_authorization_missing" } },
+  }), { now: () => new Date(0) });
+  assert.equal(model.recovery.reasonCode, "protected_stack_plan_authorization_missing");
+  assert.doesNotThrow(() => assertBoundedProjection(model));
 });
 
 test("milestone ledger policy requests bounded hygiene and ephemeral transitions never do", () => {
