@@ -334,6 +334,19 @@ test("persisted evidence redacts arbitrary authorization schemes without hiding 
   assert.equal(sanitized.reasonCode, "protected_stack_plan_authorization_missing");
 });
 
+test("persisted evidence redacts scheme-less single-token authorization values", () => {
+  const secret = "abc123SECRET";
+  const sanitized = sanitizePersistedEvidence({
+    error: `Authorization: ${secret}`,
+    alternate: `authorization=${secret}`,
+    reasonCode: "protected_stack_plan_authorization_missing",
+  });
+  assert.doesNotMatch(JSON.stringify(sanitized), new RegExp(secret));
+  assert.equal(sanitized.error, "[REDACTED]");
+  assert.equal(sanitized.alternate, "[REDACTED]");
+  assert.equal(sanitized.reasonCode, "protected_stack_plan_authorization_missing");
+});
+
 test("charged task digests and pre-PR candidate identity remain authoritative", async () => {
   const chargeId = "c".repeat(64);
   const baseLocal = await adapters().local.read();

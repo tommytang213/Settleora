@@ -4,7 +4,7 @@ const rawOrSecretKeyPattern =
 const pathKeyPattern = /(path|url)$/i;
 const secretValuePatterns = [
   /GEMINI_API_KEY/gi,
-  /authorization\s*[:=]\s*\S+\s+[^\r\n]+/gi,
+  /authorization\s*[:=]\s*[^\r\n]+/gi,
   /x-goog-api-key/gi,
   /bearer\s+[A-Za-z0-9._~+/-]+/gi,
   /api[_-]?key\s*[:=]\s*[^,\s;]+/gi,
