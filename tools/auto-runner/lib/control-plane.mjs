@@ -214,7 +214,7 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
   const stack = iteration.prStackExecution || iteration.stackExecution || {};
   return sanitize({
     lifecycle: {
-      phase: recovery.phase || controller.phase || iteration.phase || null,
+      phase: iteration.phase || recovery.phase || controller.phase || null,
       continuationState: iteration.ordinaryCandidateContinuation?.phase || recovery.continuation?.phase || null,
       ownerPosture: session.authority?.status || session.owner?.status || null,
       terminalPosture: session.terminal?.status || iteration.outcome || null,

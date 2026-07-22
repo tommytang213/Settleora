@@ -611,6 +611,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       laneDecision,
       recoveryState: recoveryRecorder?.state || null,
       autoMergeRunner,
+      operationalCheckpoint: (phase, projected = {}) => {
+        iteration.phase = phase;
+        Object.assign(iteration, projected);
+        checkpoint(iteration);
+      },
       controlCheck: () => {
         const control = applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null });
         return control.action === "stop" ? { stop: true, reason: control.reason } : null;
@@ -670,6 +675,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     runId,
     index,
     chargeMarkerRef: iteration.logicalTaskBudget?.statePath,
+    operationalCheckpoint: (phase, projected = {}) => {
+      iteration.phase = phase;
+      Object.assign(iteration, projected);
+      checkpoint(iteration);
+    },
   });
   if (recovery) {
     iteration.existingPrRecovery = recovery;
@@ -2166,6 +2176,7 @@ function validateRecoveryOnlyStartupEvidence(config, state) {
 }
 
 async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision, recoveryState = null, lifecycleInput = {}) {
+  const operationalCheckpoint = (phase, projected = {}) => lifecycleInput.operationalCheckpoint?.(phase, projected);
   if (!config.allowExistingPrRecovery) return null;
   const recoveryConfig = config.existingPrRecovery?.[issue.number] || config.existingPrRecovery?.[String(issue.number)] || null;
   if (!recoveryConfig) return null;
@@ -2215,7 +2226,9 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   fetchOriginMain(config);
   const baseOriginMainSha = getRefSha("origin/main");
   const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
+  operationalCheckpoint("existing_pr_live_reconciliation");
   const githubState = inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: recoveryConfig.prNumber || recoveryConfig.prUrl }, { runner: autoMergeRunner });
+  operationalCheckpoint("existing_pr_live_reconciliation_complete", { pr: githubState.pr || null });
   const prNumber = githubState.pr?.number || recoveryConfig.prNumber || recoveryConfig.prUrl;
   const changedFiles = Array.isArray(recoveryConfig.changedFiles) && recoveryConfig.changedFiles.length > 0
     ? recoveryConfig.changedFiles
@@ -2253,12 +2266,18 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   }
   let generatedRecoveryEvidence = null;
   if (shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)) {
+    operationalCheckpoint("existing_pr_evidence_regeneration");
     generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {
       issue,
       laneDecision,
       pr: prMetadata,
       changedFiles,
       expectedHeadSha,
+    });
+    operationalCheckpoint("existing_pr_evidence_regeneration_complete", {
+      validation: generatedRecoveryEvidence.validation || null,
+      review: generatedRecoveryEvidence.review || null,
+      externalReview: generatedRecoveryEvidence.externalReview || null,
     });
     if (generatedRecoveryEvidence.sessionLifecycle) {
       sessionLifecycle = generatedRecoveryEvidence.sessionLifecycle;
@@ -2455,10 +2474,12 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       autoMerge: blocked,
     };
   }
+  operationalCheckpoint("existing_pr_merge_evaluation", { pr: context.pr, validation: context.validation, review: context.review, externalReview: context.externalReview });
   const autoMerge = executeAutoMerge(config, context, {
     runner: autoMergeRunner,
     inspectState: (cfg, ctx) => inspectAutoMergeGithubState(cfg, { issue: ctx.issue, prUrlOrNumber: ctx.pr?.number || ctx.pr?.url }, { runner: autoMergeRunner }),
   });
+  operationalCheckpoint("existing_pr_merge_evaluation_complete", { autoMerge });
   return {
     reason: recoveryDecision.reason,
     pr: context.pr,

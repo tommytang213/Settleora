@@ -303,3 +303,16 @@ test("operational projection checkpoints bracket long-running ordinary candidate
     assert.ok(postCheckpoint > operationOffset && postCheckpoint - operationOffset < 1_800, `missing completion checkpoint for ${phase}`);
   }
 });
+
+test("delegated bundle and existing-PR recovery phases use the owning iteration checkpoint", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  assert.match(runner, /runFeatureBundleIteration\([\s\S]*?operationalCheckpoint: \(phase, projected = \{\}\) => \{[\s\S]*?checkpoint\(iteration\);/);
+  assert.match(runner, /recoverExistingPrIfConfigured\([\s\S]*?operationalCheckpoint: \(phase, projected = \{\}\) => \{[\s\S]*?checkpoint\(iteration\);/);
+  for (const phase of ["slice_validation", "external_review", "local_codex_review", "push", "pr_create_recover", "ci_wait", "exact_head_final_refresh"]) {
+    assert.match(bundle, new RegExp(`checkpoint\\(\"feature_bundle_${phase}`), `missing bundle checkpoint for ${phase}`);
+  }
+  for (const phase of ["live_reconciliation", "evidence_regeneration", "merge_evaluation"]) {
+    assert.match(runner, new RegExp(`operationalCheckpoint\\(\"existing_pr_${phase}`), `missing recovery checkpoint for ${phase}`);
+  }
+});
