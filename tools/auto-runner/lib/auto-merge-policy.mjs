@@ -666,7 +666,7 @@ function executeAutoMergeWithWait(config, initialContext, options) {
     if (decision.eligible) {
       const execute = options.mergeOnly === true ? executeAutoMergeMergeOnly : executeAutoMerge;
       const result = execute(config, context, { ...options, runner, autoMergeWait: { maxAttempts: 1 } });
-      return { ...result, waitAttempts: attempts };
+      return { ...result, waitAttempts: attempts, finalGithubState: exactHeadGithubInspection(context) };
     }
     if (!shouldWaitForAutoMergeDecision(decision) || attempt === wait.maxAttempts) break;
     sleep(wait.delayMs);
@@ -686,7 +686,20 @@ function executeAutoMergeWithWait(config, initialContext, options) {
     reason: timedOut ? `auto_merge_wait_expired:${decision.reason}` : decision.reason,
     waitAttempts: attempts,
   };
-  return { ...finalDecision, evidence: writeAutoMergeEvidence(config, finalDecision, context) };
+  return { ...finalDecision, finalGithubState: exactHeadGithubInspection(context), evidence: writeAutoMergeEvidence(config, finalDecision, context) };
+}
+
+function exactHeadGithubInspection(context = {}) {
+  return {
+    inspectedHeadSha: context.pr?.headRefOid || context.actualHeadSha || null,
+    inspectedBaseRefName: context.pr?.baseRefName || null,
+    inspectedBaseSha: context.currentOriginMainSha || context.expectedOriginMainSha || null,
+    pr: context.pr ? { number: context.pr.number, state: context.pr.state, headRefOid: context.pr.headRefOid, baseRefName: context.pr.baseRefName, mergeable: context.pr.mergeable, mergeStateStatus: context.pr.mergeStateStatus } : null,
+    requiredChecks: Array.isArray(context.requiredChecks) ? context.requiredChecks : [],
+    reviewThreads: Array.isArray(context.reviewThreads) ? context.reviewThreads : [],
+    codeScanningAlerts: Array.isArray(context.codeScanningAlerts) ? context.codeScanningAlerts : [],
+    blockingMarkers: Array.isArray(context.blockingMarkers) ? context.blockingMarkers : [],
+  };
 }
 
 function legacyLabelCleanupResult(labelCleanup = {}) {

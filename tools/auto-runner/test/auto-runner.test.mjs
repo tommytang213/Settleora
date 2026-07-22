@@ -5505,6 +5505,24 @@ test("auto-merge wait expires fail-closed when checks remain pending beyond the 
   }
 });
 
+test("auto-merge wait returns the final exact-head inspection when pending checks become source failures", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-auto-merge-wait-failed-final-state-"));
+  try {
+    const failedChecks = autoMergeRequiredChecks({ CodeQL: { status: "COMPLETED", conclusion: "FAILURE", commandId: "codeql", diagnostic: "test failed assertion", structuredEvidence: true } });
+    const result = executeAutoMerge(
+      { repoRoot: process.cwd(), logsRoot: tempRoot, dryRun: false, autoMergeWait: { maxAttempts: 2, delayMs: 0 } },
+      autoMergeContext({ requiredChecks: autoMergeRequiredChecks({ CodeQL: { status: "IN_PROGRESS", conclusion: null } }) }),
+      { runner: createAutoMergeRunner([]), sleep: () => {}, inspectState: () => ({ pr: { mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", headRefOid: "head123", baseRefName: "main" }, requiredChecks: failedChecks, reviewThreads: [], codeScanningAlerts: [], blockingMarkers: [] }) },
+    );
+    assert.equal(result.result, "blocked");
+    assert.equal(result.reason, "required_checks_not_successful");
+    assert.equal(result.finalGithubState.inspectedHeadSha, "head123");
+    assert.deepEqual(result.finalGithubState.requiredChecks, failedChecks);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("auto-merge does not wait on failed or cancelled checks", () => {
   for (const conclusion of ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STALE", "STARTUP_FAILURE"]) {
     const tempRoot = mkdtempSync(path.join(tmpdir(), `settleora-auto-merge-terminal-${conclusion.toLowerCase()}-`));

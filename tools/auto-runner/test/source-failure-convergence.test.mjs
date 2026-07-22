@@ -10,6 +10,7 @@ import {
 } from "../lib/source-failure-convergence.mjs";
 import { continueOrdinaryCandidate, createOrdinaryContinuationState } from "../lib/ordinary-candidate-continuation.mjs";
 import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation } from "../lib/validation-planner.mjs";
+import { evaluateReviewFixMutationDecision, evaluateSourceFailureFixMutationDecision } from "../lib/review-fix-policy.mjs";
 
 const sha = (character) => character.repeat(40);
 const digest = (character) => character.repeat(64);
@@ -155,4 +156,71 @@ test("status projection exposes bounded operator source-failure posture", () => 
   assert.equal(status.schemaVersion, "operational_status_v1");
   assert.equal(status.sourceFailure.nextSafeAction, "run_focused_source_fix");
   assert.equal(status.sourceFailure.frozenBatchIdentity, batch.batchIdentity);
+});
+
+test("explicit source-failure authorization permits structured failed validation without faking a pass", () => {
+  const candidate = identity();
+  const findingContext = { repository: "tommytang213/Settleora", issueNumber: 944, taskKey: "20260722-2212", branchName: "feature/x" };
+  const batch = freezeSourceFailureBatch([{ ...findingContext, sourceKind: "local_validation", structuredEvidence: true, commandId: "runner-tests", failureType: "source", diagnostic: "test failed assertion", identity: candidate, inContract: true }], candidate);
+  const decision = evaluateSourceFailureBatch(batch);
+  const laneDecision = { lane: "workflow-docs-tooling", validationProfile: "runner-tests", allowedToImplement: true, autoMergeEligible: true, manualMergeRequired: false, dangerGate: false, dangerReasons: [], allowedPaths: ["tools/auto-runner/**"], contract: { autoMergeEligible: true, manualMergeRequired: false } };
+  const common = { config: { repositorySlug: findingContext.repository, configPath: "/trusted/config.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 }, issue: { number: 944, labels: [] }, branchName: findingContext.branchName, laneDecision, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: { passed: false } };
+  const oldDecision = evaluateReviewFixMutationDecision({ ...common, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: [{ path: candidate.changedFiles[0], safelyFixable: true }] } } });
+  assert.equal(oldDecision.reason, "local_validation_not_passed_before_review_fix");
+  const sourceDecision = evaluateSourceFailureFixMutationDecision({ ...common, sourceFailureFix: { batch, decision, candidateHead: candidate.headSha, baseSha: candidate.baseSha } });
+  assert.equal(sourceDecision.allowed, true);
+  assert.equal(sourceDecision.failedValidationExplicitlyAuthorized, true);
+  assert.equal(common.validation.passed, false);
+});
+
+test("source-failure authorization blocks missing, auth, manual, and out-of-contract evidence", () => {
+  const candidate = identity();
+  const laneDecision = { lane: "workflow-docs-tooling", validationProfile: "runner-tests", allowedToImplement: true, autoMergeEligible: true, manualMergeRequired: false, dangerGate: false, dangerReasons: [], allowedPaths: ["tools/auto-runner/**"], contract: { autoMergeEligible: true, manualMergeRequired: false } };
+  const config = { repositorySlug: "tommytang213/Settleora", configPath: "/trusted/config.json", allowReviewFixMutation: true, maxReviewFixCycles: 50 };
+  for (const finding of [
+    { sourceKind: "local_validation", structuredEvidence: false, diagnostic: "failed" },
+    { sourceKind: "local_validation", structuredEvidence: true, commandId: "tests", diagnostic: "missing secret", failureType: "source" },
+    { sourceKind: "local_validation", structuredEvidence: true, commandId: "tests", diagnostic: "manual approval required", failureType: "source" },
+    { sourceKind: "local_validation", structuredEvidence: true, commandId: "tests", diagnostic: "test failed", failureType: "source", inContract: false },
+  ]) {
+    const batch = freezeSourceFailureBatch([{ repository: config.repositorySlug, issueNumber: 944, taskKey: "root", branchName: "feature/x", commandId: "runner-tests", ...finding }], candidate);
+    const decision = evaluateSourceFailureBatch(batch);
+    const result = evaluateSourceFailureFixMutationDecision({ config, issue: { number: 944, labels: [] }, branchName: "feature/x", laneDecision, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: { passed: false }, sourceFailureFix: { batch, decision, candidateHead: candidate.headSha, baseSha: candidate.baseSha } });
+    assert.equal(result.allowed, false);
+  }
+});
+
+test("prepared GitHub batch resumes one epoch and consumes fingerprints only after a new head", async () => {
+  const finding = { sourceKind: "github_check", structuredEvidence: true, commandId: "tests", failureType: "source", diagnostic: "test failed assertion", identity: identity() };
+  const frozen = freezeSourceFailureBatch([finding], identity());
+  const prepared = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/x", identity: identity(), phase: "github_convergence", counters: { githubTriggeredFixEpochsPerPr: 1 } });
+  prepared.preparedGithubSourceFailureBatch = { batchIdentity: frozen.batchIdentity, candidateHead: identity().headSha, fingerprints: frozen.findings.map((item) => item.fingerprint), status: "epoch_reserved" };
+  prepared.sourceFailureFixIntent = { batchIdentity: frozen.batchIdentity, candidateHead: identity().headSha, status: "prepared" };
+  const result = await continueOrdinaryCandidate(prepared, {
+    github_convergence: async () => ({ ok: true, sourceFailures: [finding] }),
+    adopt_source_failure_fix: async () => ({ ok: false }),
+    source_failure_fix: async () => ({ ok: true, sourceChanged: true, identity: identity("f"), evidence: { committed: true } }),
+    local_validation: async () => ({ ok: true, wait: true }),
+    onCheckpoint: async () => {},
+  });
+  assert.equal(result.outcome, "waiting");
+  assert.equal(result.state.counters.githubTriggeredFixEpochsPerPr, 1);
+  assert.equal(result.state.processedGithubFindingFingerprints.length, 1);
+  assert.equal(result.state.preparedGithubSourceFailureBatch, null);
+});
+
+test("crash after new-head checkpoint adopts commit effect and consumes the prepared batch idempotently", async () => {
+  const finding = { sourceKind: "github_check", structuredEvidence: true, commandId: "tests", failureType: "source", diagnostic: "build failed", identity: identity() };
+  let checkpoint = null;
+  const first = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/x", identity: identity(), phase: "github_convergence" });
+  await assert.rejects(() => continueOrdinaryCandidate(first, {
+    github_convergence: async () => ({ ok: true, sourceFailures: [finding] }),
+    source_failure_fix: async () => ({ ok: true, sourceChanged: true, identity: identity("f") }),
+    onCheckpoint: async (state, event) => { if (event.action === "source_failure_new_head_persisted") { checkpoint = structuredClone(state); throw new Error("crash"); } },
+  }), /crash/);
+  const resumed = await continueOrdinaryCandidate(checkpoint, { local_validation: async () => ({ ok: true, wait: true }), onCheckpoint: async () => {} });
+  assert.equal(resumed.outcome, "waiting");
+  assert.equal(resumed.state.identity.headSha, identity("f").headSha);
+  assert.equal(resumed.state.processedGithubFindingFingerprints.length, 1);
+  assert.equal(resumed.state.preparedGithubSourceFailureBatch, null);
 });

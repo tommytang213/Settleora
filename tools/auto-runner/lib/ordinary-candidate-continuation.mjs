@@ -44,8 +44,11 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
     }
     if (Array.isArray(result.sourceFailures) && result.sourceFailures.length > 0) {
       const batch = freezeSourceFailureBatch(result.sourceFailures, state.identity);
-      const decision = evaluateSourceFailureBatch(batch, state.sourceFailureHistory || []);
-      state = { ...state, sourceFailureBatch: batch, sourceFailureHistory: [...(state.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, candidate: batch.candidate }].slice(-100) };
+      const matchingPrepared = phase === "github_convergence"
+        && state.preparedGithubSourceFailureBatch?.batchIdentity === batch.batchIdentity
+        && state.preparedGithubSourceFailureBatch?.candidateHead === state.identity.headSha;
+      const decision = evaluateSourceFailureBatch(batch, matchingPrepared ? [] : state.sourceFailureHistory || []);
+      state = { ...state, sourceFailureBatch: batch, sourceFailureHistory: matchingPrepared ? state.sourceFailureHistory : [...(state.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, candidate: batch.candidate }].slice(-100) };
       await handlers.onCheckpoint?.(state, { phase, action: "source_failure_batch_frozen", batch, decision });
       if (!decision.sourceFixEligible) {
         if (decision.classification === "pending" || decision.retryable) return { ok: true, outcome: "waiting", reasonCode: decision.reasonCode, state };
@@ -55,20 +58,25 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
         const processed = new Set(state.processedGithubFindingFingerprints || []);
         const fingerprints = batch.findings.map((finding) => finding.fingerprint);
         const novel = fingerprints.filter((fingerprint) => !processed.has(fingerprint));
-        if (novel.length === 0) return blocked(state, "ordinary_continuation_duplicate_github_source_failure_batch");
-        if (state.counters.githubTriggeredFixEpochsPerPr >= 50) return blocked(state, "github_triggered_fix_epoch_limit_exhausted");
-        state = {
-          ...state,
-          counters: { ...state.counters, githubTriggeredFixEpochsPerPr: state.counters.githubTriggeredFixEpochsPerPr + 1, localSourceChangingRoundsPerEpoch: 0 },
-          processedGithubFindingFingerprints: [...processed, ...novel].sort(),
-        };
-        await handlers.onCheckpoint?.(state, { phase, action: "github_source_fix_epoch_reserved", fingerprints: novel });
+        if (novel.length === 0 && !matchingPrepared) return blocked(state, "ordinary_continuation_duplicate_github_source_failure_batch");
+        if (!matchingPrepared) {
+          if (state.preparedGithubSourceFailureBatch) return blocked(state, "ordinary_continuation_conflicting_prepared_github_batch");
+          if (state.counters.githubTriggeredFixEpochsPerPr >= 50) return blocked(state, "github_triggered_fix_epoch_limit_exhausted");
+          state = {
+            ...state,
+            counters: { ...state.counters, githubTriggeredFixEpochsPerPr: state.counters.githubTriggeredFixEpochsPerPr + 1, localSourceChangingRoundsPerEpoch: 0 },
+            preparedGithubSourceFailureBatch: { batchIdentity: batch.batchIdentity, candidateHead: state.identity.headSha, fingerprints: novel, status: "epoch_reserved" },
+          };
+          await handlers.onCheckpoint?.(state, { phase, action: "github_source_fix_epoch_reserved", fingerprints: novel });
+        }
       }
       if (state.counters.localSourceChangingRoundsPerEpoch >= 50) {
         return blocked(state, "local_source_changing_round_limit_exhausted");
       }
       if (typeof handlers.source_failure_fix !== "function") return blocked(state, "ordinary_continuation_source_failure_fix_handler_missing");
-      const intent = { batchIdentity: batch.batchIdentity, candidateHead: state.identity.headSha, status: "prepared" };
+      const intent = matchingPrepared && state.sourceFailureFixIntent
+        ? state.sourceFailureFixIntent
+        : { batchIdentity: batch.batchIdentity, candidateHead: state.identity.headSha, status: "prepared" };
       state = { ...state, sourceFailureFixIntent: intent };
       await handlers.onCheckpoint?.(state, { phase, action: "source_failure_fix_intent_prepared", batch, decision });
       let fixed = null;
@@ -77,9 +85,13 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
       }
       if (!fixed?.ok) fixed = await handlers.source_failure_fix(Object.freeze({ ...state }), { batch, decision, originatingPhase: phase, intent });
       if (!fixed?.ok || fixed.sourceChanged !== true || !validIdentity(fixed.identity)) return blocked(state, fixed?.reasonCode || "ordinary_continuation_source_failure_fix_failed");
+      const preparedBeforeChange = state.preparedGithubSourceFailureBatch;
       state = invalidateForSourceChange(state, fixed.identity);
-      state = { ...state, sourceFailureBatch: null, sourceFailureFixIntent: null, lastSourceFailureFix: bounded(fixed.evidence) };
-      await handlers.onCheckpoint?.(state, { phase, action: "source_failure_fixed", batchIdentity: batch.batchIdentity });
+      state = { ...state, sourceFailureCommitEffect: phase === "github_convergence" ? { batchIdentity: batch.batchIdentity, oldHead: batch.candidate.headSha, newHead: fixed.identity.headSha, fingerprints: preparedBeforeChange?.fingerprints || [] } : null };
+      await handlers.onCheckpoint?.(state, { phase, action: "source_failure_new_head_persisted", batchIdentity: batch.batchIdentity, newHead: fixed.identity.headSha });
+      const consumed = state.sourceFailureCommitEffect?.fingerprints || [];
+      state = { ...state, sourceFailureBatch: null, sourceFailureFixIntent: null, lastSourceFailureFix: bounded(fixed.evidence), preparedGithubSourceFailureBatch: null, sourceFailureCommitEffect: null, processedGithubFindingFingerprints: [...new Set([...(state.processedGithubFindingFingerprints || []), ...consumed])].sort() };
+      await handlers.onCheckpoint?.(state, { phase, action: "source_failure_fingerprints_consumed", batchIdentity: batch.batchIdentity, fingerprints: consumed });
       return continueOrdinaryCandidate(state, handlers);
     }
     if (result.wait === true && result.completed !== true) {
@@ -124,7 +136,7 @@ function normalizeState(value = {}) {
   if (value.version !== 1 || !value.logicalTaskKey || !value.issueNumber || !value.branchName || !validIdentity(value.identity)) {
     return { ...value, phase: "invalid", effects: {}, counters: {} };
   }
-  return {
+  const normalized = {
     version: 1,
     logicalTaskKey: String(value.logicalTaskKey),
     executionKey: value.executionKey ? String(value.executionKey) : null,
@@ -144,7 +156,17 @@ function normalizeState(value = {}) {
     lastSourceFailureFix: value.lastSourceFailureFix || null,
     sourceFailureFixIntent: value.sourceFailureFixIntent || null,
     processedGithubFindingFingerprints: Array.isArray(value.processedGithubFindingFingerprints) ? [...new Set(value.processedGithubFindingFingerprints)].sort() : [],
+    preparedGithubSourceFailureBatch: value.preparedGithubSourceFailureBatch || null,
+    sourceFailureCommitEffect: value.sourceFailureCommitEffect || null,
   };
+  const effect = normalized.sourceFailureCommitEffect;
+  if (effect) {
+    const prepared = normalized.preparedGithubSourceFailureBatch;
+    if (effect.newHead !== normalized.identity.headSha || prepared?.batchIdentity !== effect.batchIdentity || prepared?.candidateHead !== effect.oldHead || JSON.stringify([...(prepared?.fingerprints || [])].sort()) !== JSON.stringify([...(effect.fingerprints || [])].sort())) return { ...normalized, phase: "invalid" };
+    return { ...normalized, sourceFailureBatch: null, sourceFailureFixIntent: null, preparedGithubSourceFailureBatch: null, sourceFailureCommitEffect: null, processedGithubFindingFingerprints: [...new Set([...normalized.processedGithubFindingFingerprints, ...effect.fingerprints])].sort() };
+  }
+  if (normalized.preparedGithubSourceFailureBatch && normalized.preparedGithubSourceFailureBatch.candidateHead !== normalized.identity.headSha) return { ...normalized, phase: "invalid" };
+  return normalized;
 }
 
 function invalidateForSourceChange(state, identity) {

@@ -71,6 +71,7 @@ import {
   buildPostReviewFixMechanicsContext,
   buildReviewFixPrompt,
   evaluateReviewFixMutationDecision,
+  evaluateSourceFailureFixMutationDecision,
   extractReviewFixTrigger,
   writeReviewFixEvidence,
 } from "./lib/review-fix-policy.mjs";
@@ -896,7 +897,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     }
     recoveryRecorder?.marker("source_failure_fix_intent", batch.batchIdentity, { target: branchName, correlation: runId });
     const findings = batch.findings.map((failure) => ({ provider: failure.sourceKind, severity: "high", path: failure.path || changedFiles[0] || "", title: "Post-Codex local validation failure", body: failure.diagnosticExcerpt || failure.diagnosticDigest, safelyFixable: true }));
-    const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles, forbiddenChangedFiles: forbidden, validation: iteration.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: findings } }, iteration });
+    const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles, forbiddenChangedFiles: forbidden, validation: iteration.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: findings } }, iteration, sourceFailureFix: { batch, decision, candidateHead: initialIdentity.headSha, baseSha: initialIdentity.baseSha } });
     if (!fixAttempt.proceeded) {
       iteration.outcome = "validation_failed";
       iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner source-failure fix stopped safely: ${fixAttempt.reason}.`);
@@ -2016,6 +2017,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         externalReview: null,
         review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: findings } },
         reviewConvergenceState: state.reviewConvergenceState,
+        sourceFailureFix: { batch, decision, candidateHead: continuation.identity.headSha, baseSha: continuation.identity.baseSha },
       });
       if (!fixAttempt.proceeded) return { ok: false, reasonCode: fixAttempt.reason || "source_failure_fix_not_proceeded" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, branchName: continuation.branchName, commitMessage: `Auto-runner issue #${issue.number}: source-fix ${batch.batchIdentity.slice(0, 16)}` });
@@ -2144,7 +2146,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         return { ok: true, evidence: compactOrdinaryMergeEvidence(recovered.autoMerge, prNumber) };
       }
       if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
-      const sourceFailures = sourceFailuresFromGithubEvidence(recovered?.githubState || {}, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: continuation.logicalTaskKey, branchName: continuation.branchName, prNumber, identity: candidate, inContract: true });
+      const finalGithubState = recovered?.githubState || recovered?.autoMerge?.finalGithubState || null;
+      if (!finalGithubState || (finalGithubState.inspectedHeadSha && finalGithubState.inspectedHeadSha !== candidate.headSha)) return { ok: false, reasonCode: "ordinary_continuation_final_github_inspection_missing_or_stale" };
+      const sourceFailures = sourceFailuresFromGithubEvidence(finalGithubState, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: continuation.logicalTaskKey, branchName: continuation.branchName, prNumber, identity: candidate, inContract: true });
       if (sourceFailures.length > 0) return { ok: true, sourceFailures };
       return { ok: false, reasonCode: recovered?.autoMerge?.reason || recovered?.reason || "ordinary_continuation_github_convergence_blocked" };
     },
@@ -2653,6 +2657,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     baseOriginMainSha,
     expectedHeadSha,
     autoMerge,
+    githubState: autoMerge.finalGithubState || githubState,
     sessionLifecycle,
   };
 }
@@ -2993,7 +2998,9 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
 
 async function runReviewFixCycle(config, context) {
   const trigger = extractReviewFixTrigger(context);
-  const decision = evaluateReviewFixMutationDecision({ ...context, config, trigger });
+  const decision = context.sourceFailureFix
+    ? evaluateSourceFailureFixMutationDecision({ ...context, config, trigger })
+    : evaluateReviewFixMutationDecision({ ...context, config, trigger });
   const baseEvidence = {
     issue: {
       number: context.issue.number,

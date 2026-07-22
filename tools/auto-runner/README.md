@@ -19,6 +19,14 @@ accepted logical-task charge remain authoritative. Ordinary
 `mobile-application` validation also runs the fixed trusted Android debug APK
 build; unsupported platforms remain exact-head external proof.
 
+Failed validation is authorized through a distinct source-failure mutation
+decision; ordinary review-fix authorization still requires a passing
+candidate. GitHub wait results retain a bounded final exact-head inspection so
+a pending check that later fails can enter this classifier. GitHub finding
+fingerprints remain prepared, not consumed, until a replacement commit is
+confirmed; crash recovery resumes the same reserved epoch and adopts the
+new-head effect before recertification.
+
 ## Post-implementation continuation authorities
 
 Ordinary post-implementation work uses one durable continuation authority from exact candidate reconciliation through validation, dual and structured review, convergence, push/PR recovery, GitHub gates, merge, and post-merge hygiene. Startup recovery re-enters that authority at the earliest incomplete exact-head phase; loading a large-review checkpoint is not a terminal success.

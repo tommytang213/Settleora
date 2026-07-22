@@ -18,6 +18,15 @@ authority, unsupported evidence, out-of-contract changes, scanner weakening,
 and deterministic no-progress/oscillation stop fail-closed. Fix rounds reuse
 the #923 counters and never add a #932 accepted-task charge.
 
+Source-caused validation failures use an explicit frozen-batch authorization
+inside ordinary continuation. This accepts the failed trusted command as the
+reason for a focused repair without reporting or persisting a fake pass; the
+normal review-fix path continues to require passed validation. A GitHub CI
+wait carries its final bounded exact-head checks, scanner alerts, threads, and
+merge state back to the classifier. Reserved GitHub batches remain resumable
+until a source commit is confirmed, and fingerprints are consumed only with
+the persisted old-head to new-head commit effect.
+
 ## Post-implementation continuation authorities
 
 The ordinary issue path and startup recovery share an idempotent continuation spanning exact candidate reconciliation, validation, independent and local/structured review, convergence, push, PR recovery, GitHub convergence, exact-head merge, and post-merge hygiene. Durable exact-target effects are adopted rather than replayed, a source change invalidates review and downstream effects, and the accepted logical-task charge remains the root task charge across execution/session continuations.
