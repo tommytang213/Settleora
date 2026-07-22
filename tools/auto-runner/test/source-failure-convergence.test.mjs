@@ -47,6 +47,12 @@ test("scanner findings require exact structured identity and reject suppression"
   assert.equal(staleBatch.findings[0].classification, "unsafe_or_ambiguous");
 });
 
+test("scanner REST field names preserve authoritative path and line", () => {
+  const [finding] = sourceFailuresFromGithubEvidence({ codeScanningAlerts: [{ state: "open", tool: { name: "CodeQL" }, rule: { id: "js/x", description: "finding" }, most_recent_instance: { location: { path: "tools/auto-runner/lib/x.mjs", start_line: 12 } }, headSha: sha("b") }] }, { identity: identity(), inContract: true });
+  assert.equal(finding.path, "tools/auto-runner/lib/x.mjs");
+  assert.equal(finding.line, 12);
+});
+
 test("GitHub CI and scanner adapters require structured exact-head evidence", () => {
   const findings = sourceFailuresFromGithubEvidence({
     requiredChecks: [{ name: "tests", status: "failure", step: "node test", command: "npm test", sanitizedLogExcerpt: "Assertion failed", failureType: "source" }],

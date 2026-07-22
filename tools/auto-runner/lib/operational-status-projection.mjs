@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { evaluateSourceFailureBatch } from "./source-failure-convergence.mjs";
 
 export const operationalStatusSchemaVersion = 1;
 export const operationalStatusMaxBytes = 64 * 1024;
@@ -213,7 +214,19 @@ function projectCounters(local = {}) { const c = local.counters || {}; const b =
 function projectSession(local = {}) { const s = local.session || {}; return { classification: "authoritative", generation: integer(s.generation), phase: boundedReason(s.phase), rotationReason: boundedReason(s.rotationReason), contextPressure: enumValue(s.contextPressure, ["normal", "elevated", "high", "critical", "unknown"]), continuationState: boundedReason(s.continuationState), ownerPosture: boundedReason(s.ownerPosture), terminalPosture: boundedReason(s.terminalPosture) }; }
 function projectRecovery(local = {}) { const r = local.recovery || {}; return { authority: "authoritative", outcomeClass: boundedReason(r.outcomeClass), classification: boundedReason(r.classification), phase: boundedReason(r.phase), nextSafeAction: boundedReason(r.nextSafeAction), reasonCode: boundedReason(r.reasonCode) }; }
 function projectSourceFailure(local = {}) {
-  const s = local.sourceFailure || local.ordinaryContinuation?.sourceFailure || {};
+  const continuation = local.ordinaryContinuation || {};
+  const batch = continuation.sourceFailureBatch || null;
+  const decision = batch ? evaluateSourceFailureBatch(batch, continuation.sourceFailureHistory || []) : null;
+  const s = local.sourceFailure || continuation.sourceFailure || (batch ? {
+    classification: decision?.classification,
+    originSources: [...new Set((batch.findings || []).map((finding) => finding.sourceKind))],
+    frozenBatchIdentity: batch.batchIdentity,
+    exactCandidate: batch.candidate,
+    retryable: decision?.retryable,
+    recertificationPhase: continuation.phase,
+    hardStopReason: decision && !decision.sourceFixEligible && !decision.retryable && decision.classification !== "pending" ? decision.reasonCode : null,
+    nextSafeAction: decision?.nextAction,
+  } : {});
   return {
     classification: boundedReason(s.classification),
     originSources: boundedList(s.originSources, identifier),
