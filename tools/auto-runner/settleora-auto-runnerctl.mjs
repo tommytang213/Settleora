@@ -10,6 +10,7 @@ import {
   generateRunId,
   resolveProfile,
   specPathForRunId,
+  readAndVerifyRunSpec,
   writeImmutableRunSpec,
   sha256Text,
   canonicalJson,
@@ -35,7 +36,7 @@ import { summarizeCheckStatus } from "./lib/auto-merge-policy.mjs";
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
-  const config = cli.command === "export-status" ? { ...defaultConfig } : loadConfig({ dryRun: true, run: false, configPath: null });
+  const config = cli.command === "export-status" ? loadProjectionConfig(cli) : loadConfig({ dryRun: true, run: false, configPath: null });
   if (cli.command === "submit") {
     const result = await submit(cli, config);
     print(result, cli.json);
@@ -91,6 +92,23 @@ async function main() {
     return;
   }
   throw new Error(`Unhandled command: ${cli.command}`);
+}
+
+export function loadProjectionConfig(cli, deps = {}) {
+  const statusReader = deps.getRunnerStatus || getRunnerStatus;
+  const specReader = deps.readAndVerifyRunSpec || readAndVerifyRunSpec;
+  const configLoader = deps.loadConfig || loadConfig;
+  const profileResolver = deps.resolveProfile || resolveProfile;
+  const bootstrap = { ...defaultConfig };
+  const status = statusReader(bootstrap);
+  let configPath;
+  if (status.supervisorRunId) {
+    const verified = specReader(status.supervisorRunId, null, bootstrap.logsRoot);
+    configPath = verified.config.path;
+  } else {
+    configPath = profileResolver(cli.profile || "default", bootstrap.logsRoot).runnerConfigPath;
+  }
+  return configLoader({ dryRun: true, run: false, configPath });
 }
 
 export function controlSupervisorRun(runId, cli, config, deps = {}) {

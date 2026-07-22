@@ -12,7 +12,7 @@ import {
   operationalStateInventory,
   renderOperationalStatusMarkdown,
 } from "../lib/operational-status-projection.mjs";
-import { createProjectionAdapters } from "../settleora-auto-runnerctl.mjs";
+import { createProjectionAdapters, loadProjectionConfig } from "../settleora-auto-runnerctl.mjs";
 import { writeSupervisorState } from "../supervisor/supervisor-state.mjs";
 
 const head = "a".repeat(40);
@@ -156,6 +156,28 @@ test("production GitHub projection enforces required-check and neutral policies"
   assert.equal((await modelFor(successes.map((check) => check.name === "CodeQL" ? { ...check, conclusion: "NEUTRAL" } : check))).review.ciStatus, "failed");
   const legacy = required.map((context) => ({ context, state: "SUCCESS" }));
   assert.equal((await modelFor(legacy)).review.ciStatus, "pass");
+});
+
+test("projection config comes from the verified supervisor spec or trusted requested profile", () => {
+  const calls = [];
+  const loaded = loadProjectionConfig({ profile: "default" }, {
+    getRunnerStatus: () => ({ supervisorRunId: "20260722-1019-supervisor" }),
+    readAndVerifyRunSpec: (runId, digest, logsRoot) => {
+      calls.push(["spec", runId, digest, logsRoot]);
+      return { config: { path: "/trusted/configs/active.json" } };
+    },
+    loadConfig: (args) => ({ ...args, autoMergePolicy: { requiredChecks: ["Active policy"] } }),
+  });
+  assert.equal(loaded.configPath, "/trusted/configs/active.json");
+  assert.deepEqual(loaded.autoMergePolicy.requiredChecks, ["Active policy"]);
+  assert.equal(calls[0][0], "spec");
+
+  const fallback = loadProjectionConfig({ profile: "canary" }, {
+    getRunnerStatus: () => ({}),
+    resolveProfile: (profile) => ({ runnerConfigPath: `/trusted/configs/${profile}.json` }),
+    loadConfig: (args) => args,
+  });
+  assert.equal(fallback.configPath, "/trusted/configs/canary.json");
 });
 
 test("production supervisor correlation failures propagate as fail-closed reason codes", async () => {

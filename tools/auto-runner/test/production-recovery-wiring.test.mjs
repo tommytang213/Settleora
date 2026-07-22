@@ -345,5 +345,7 @@ test("projection adapters prefer terminal summaries and normalize legacy check c
   assert.match(ctl, /\["PENDING", "EXPECTED"\]\.includes\(check\.state\)/);
   assert.match(ctl, /name: check\.name \|\| check\.context \|\| "unknown"/);
   assert.match(ctl, /summarizeCheckStatus\(normalized, policy\)/);
+  assert.match(ctl, /specReader\(status\.supervisorRunId, null, bootstrap\.logsRoot\)/);
+  assert.match(ctl, /loadProjectionConfig\(cli\)/);
   assert.match(ctl, /status: status\.active \? "active" : projection\.status \|\| status\.latestTerminalOutcome/);
 });
