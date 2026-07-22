@@ -40,6 +40,10 @@ export function writeActiveRunState(config, summary, extra = {}) {
   return activePath;
 }
 
+export function writeCurrentIterationState(config, summary, iteration) {
+  return writeActiveRunState(config, summary, { currentIteration: summarizeIteration(iteration), operationalProjection: summarizeOperationalIteration(iteration, summary) });
+}
+
 export function clearActiveRunState(config, summaryPath = null) {
   const activePath = path.join(config.logsRoot, "state", activeRunFileName);
   if (!existsSync(activePath)) return;
@@ -145,12 +149,13 @@ export function getRunnerStatus(config) {
   const outcomeCounts = source?.outcomeCounts || countIterationOutcomes(source?.iterations || []);
   const failedOrBlockedIterations = source?.failedOrBlockedIterations ?? outcomeCounts.failed + outcomeCounts.blocked;
   const latestRawIteration = (source?.iterations || []).at(-1) || null;
-  const latestIteration = source?.latestIteration || summarizeIteration(latestRawIteration);
+  const latestIteration = source?.currentIteration || source?.latestIteration || summarizeIteration(latestRawIteration);
   return sanitize({
     generatedAt: new Date().toISOString(),
     active: Boolean(lock.active || active.active),
     activeRunId: active.parsed?.runId || (lock.active ? lock.parsed?.runId : null),
     lock,
+    authorityHealth: { lockMalformed: lock.malformed === true, activeStateMalformed: active.malformed === true, controlMalformed: control.malformed === true },
     mode: source?.mode || null,
     supervisorRunId: source?.supervisorRunId || null,
     configPath: source?.configPath || null,

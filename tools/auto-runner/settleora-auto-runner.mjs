@@ -94,6 +94,7 @@ import {
   renderRunsText,
   renderStatusText,
   writeActiveRunState,
+  writeCurrentIterationState,
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
@@ -316,7 +317,7 @@ async function main() {
         break;
       }
       Object.assign(summary, trackerSnapshot(issueTracker));
-      const iteration = await runIteration(config, logger, runId, index, issueTracker, chargedRecoveryAtCap);
+      const iteration = await runIteration(config, logger, runId, index, issueTracker, chargedRecoveryAtCap, (current) => writeCurrentIterationState(config, summary, current));
       const canaryEvidence = writeCanaryEvidence(config, iteration);
       if (canaryEvidence) {
         iteration.canaryEvidence = canaryEvidence;
@@ -367,7 +368,7 @@ function isFatalRunStopReason(stopReason) {
   return typeof stopReason === "string" && stopReason.startsWith("recoverable-work-blocked:");
 }
 
-async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker(), startupRecoveryOverride = null) {
+async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker(), startupRecoveryOverride = null, checkpoint = () => {}) {
   const iteration = {
     runId,
     index,
@@ -378,6 +379,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     systemicStop: null,
     runIssueState: trackerSnapshot(issueTracker),
   };
+  checkpoint(iteration);
 
   const startupRecovery = startupRecoveryOverride || (config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config));
   if (startupRecovery.found) {
@@ -406,6 +408,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       ? projectStartupRecoveryIssueIdentity(startupRecovery, continuation)
       : null;
     iteration.issue = recoveryIssue?.ok ? recoveryIssue.issue : null;
+    checkpoint(iteration);
     iteration.existingPrRecovery = continuation.result?.existingPrRecovery || null;
     iteration.bundle = continuation.result?.bundle || null;
     iteration.autoMerge = continuation.result?.autoMerge || null;
@@ -490,6 +493,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     url: issue.url,
     labels: issue.labels,
   };
+  checkpoint(iteration);
   logger.info(`Iteration ${index}: selected issue #${issue.number} ${issue.title}`);
 
   let recoveryRecorder = createProductionRecoveryRecorder(config, {

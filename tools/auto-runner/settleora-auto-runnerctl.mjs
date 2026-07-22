@@ -27,14 +27,14 @@ import {
   unitNameForRunId,
   writeSupervisorState,
 } from "./supervisor/supervisor-state.mjs";
-import { loadConfig } from "./lib/config.mjs";
+import { defaultConfig, loadConfig } from "./lib/config.mjs";
 import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
 import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
 import { buildOperationalStatusProjection, renderOperationalStatusMarkdown } from "./lib/operational-status-projection.mjs";
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
-  const config = loadConfig({ dryRun: true, run: false, configPath: null });
+  const config = cli.command === "export-status" ? { ...defaultConfig } : loadConfig({ dryRun: true, run: false, configPath: null });
   if (cli.command === "submit") {
     const result = await submit(cli, config);
     print(result, cli.json);
@@ -355,7 +355,10 @@ export function createProjectionAdapters(config, deps = {}) {
     } },
     github: { read: () => readProjectionGithub(config, runnerStatus(), run) },
     local: { read: () => {
-      const projected = projectRunnerStatus(runnerStatus());
+      const status = runnerStatus();
+      const health = status.authorityHealth || {};
+      if (health.lockMalformed || health.activeStateMalformed || health.controlMalformed) return { ok: false, reasonCode: "local_authority_state_malformed" };
+      const projected = projectRunnerStatus(status);
       const supervisor = supervisorReader(config, runnerStatus());
       if (supervisor?.ok === false) return supervisor;
       projected.supervisor = supervisor?.value || {};
