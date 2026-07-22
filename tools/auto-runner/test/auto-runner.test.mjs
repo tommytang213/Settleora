@@ -7158,6 +7158,13 @@ test("production auto-merge inspection callers pass explicit live runner authori
   assert.match(policySource.slice(waitIndex, waitIndex + 700), /inspectAutoMergeGithubState\(cfg,[\s\S]*\{ runner \}/);
 });
 
+test("production source-failure paths forward recovery decisions and bound initial recursion", () => {
+  const runnerSource = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  assert.match(runnerSource, /source_failure_fix: async \(continuation, \{ batch, decision, intent \}\)/);
+  assert.match(runnerSource, /localSourceChangingRoundsPerEpoch \|\| 0\) >= 50/);
+  assert.match(runnerSource, /accountNormalReviewFixCommit\(iteration, postFix\.runnerCreatedCommitSha, "recursive_source_failure_fix_commit"\)/);
+});
+
 function createTempGitRepo() {
   const repo = mkdtempSync(path.join(tmpdir(), "settleora-auto-runner-git-"));
   mkdirSync(path.join(repo, "docs/workflow"), { recursive: true });

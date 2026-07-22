@@ -906,7 +906,16 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       return iteration;
     }
     let postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, recoveryRecorder, branchName });
+    if (postFix.runnerCreatedCommitSha) {
+      const accounted = accountNormalReviewFixCommit(iteration, postFix.runnerCreatedCommitSha, "initial_source_failure_fix_commit");
+      persistNormalReviewConvergenceState(config, iteration, "source_failure_fix_commit_accounted");
+      if (!accounted.consumedSourceCycle && accounted.reason === "local_source_changing_round_limit_exhausted") postFix = { ...postFix, forbiddenChangedFiles: ["source_round_limit_exhausted"] };
+    }
     while (postFix.runnerCreatedCommitSha && !postFix.validation?.passed && !postFix.forbiddenChangedFiles?.length) {
+      if ((iteration.reviewConvergenceState?.counters?.localSourceChangingRoundsPerEpoch || 0) >= 50) {
+        postFix = { ...postFix, forbiddenChangedFiles: ["source_round_limit_exhausted"] };
+        break;
+      }
       const replacementIdentity = ordinaryIdentityForHead(iteration.baseOriginMainSha, postFix.runnerCreatedCommitSha);
       const replacementFailures = sourceFailuresFromValidation(postFix.validation, {
         repository: config.repositorySlug,
@@ -930,6 +939,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       const replacementAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles: postFix.changedFiles, forbiddenChangedFiles: [], validation: postFix.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: replacementFindings } }, iteration, sourceFailureFix: { batch: replacementBatch, decision: replacementDecision, candidateHead: replacementIdentity.headSha, baseSha: replacementIdentity.baseSha } });
       if (!replacementAttempt.proceeded) break;
       postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt: replacementAttempt, recoveryRecorder, branchName, commitMessage: `Auto-runner issue #${issue.number}: recursive source-fix ${replacementBatch.batchIdentity.slice(0, 16)}` });
+      if (postFix.runnerCreatedCommitSha) {
+        const accounted = accountNormalReviewFixCommit(iteration, postFix.runnerCreatedCommitSha, "recursive_source_failure_fix_commit");
+        persistNormalReviewConvergenceState(config, iteration, "recursive_source_failure_fix_commit_accounted");
+        if (!accounted.consumedSourceCycle && accounted.reason === "local_source_changing_round_limit_exhausted") postFix = { ...postFix, forbiddenChangedFiles: ["source_round_limit_exhausted"] };
+      }
     }
     if (!postFix.runnerCreatedCommitSha || !postFix.validation?.passed || postFix.forbiddenChangedFiles?.length) {
       iteration.outcome = "validation_failed";
@@ -2019,7 +2033,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (filterForbiddenChangedFiles(changedFiles, laneDecision).length > 0) return { ok: false, reasonCode: "source_failure_fix_adoption_out_of_contract" };
       return { ok: true, sourceChanged: true, identity: ordinaryIdentityForHead(continuation.identity.baseSha, liveHead), evidence: { adoptedCommit: liveHead, batchIdentity: intent.batchIdentity } };
     },
-    source_failure_fix: async (continuation, { batch, intent }) => {
+    source_failure_fix: async (continuation, { batch, decision, intent }) => {
       operationalCheckpoint?.("ordinary_recovery_source_failure_fix_intent", { batchIdentity: batch.batchIdentity, candidateHead: continuation.identity.headSha });
       const findings = batch.findings.map((finding) => ({
         provider: finding.sourceKind,
