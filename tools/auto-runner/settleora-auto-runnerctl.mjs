@@ -38,7 +38,7 @@ import { summarizeCheckStatus } from "./lib/auto-merge-policy.mjs";
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
-  const config = cli.command === "export-status" ? loadProjectionConfig(cli) : loadConfig({ dryRun: true, run: false, configPath: null });
+  const config = cli.command === "export-status" ? null : loadConfig({ dryRun: true, run: false, configPath: null });
   if (cli.command === "submit") {
     const result = await submit(cli, config);
     print(result, cli.json);
@@ -52,7 +52,7 @@ async function main() {
     return;
   }
   if (cli.command === "export-status") {
-    const projection = await buildOperationalStatusProjection(createProjectionAdapters(config));
+    const projection = await buildStatusExport(cli);
     if (cli.markdown) process.stdout.write(renderOperationalStatusMarkdown(projection));
     else console.log(JSON.stringify(projection, null, 2));
     process.exitCode = projection.status === "blocked" ? 2 : 0;
@@ -94,6 +94,21 @@ async function main() {
     return;
   }
   throw new Error(`Unhandled command: ${cli.command}`);
+}
+
+export async function buildStatusExport(cli, deps = {}) {
+  let config;
+  try {
+    config = (deps.loadProjectionConfig || loadProjectionConfig)(cli, deps);
+  } catch {
+    return buildOperationalStatusProjection({
+      repository: { read: () => ({}) },
+      github: { read: () => ({}) },
+      local: { read: () => ({ ok: false, reasonCode: "projection_config_verification_failed" }) },
+      ledger: { read: () => ({}) },
+    }, deps.projectionOptions);
+  }
+  return buildOperationalStatusProjection((deps.createProjectionAdapters || createProjectionAdapters)(config, deps), deps.projectionOptions);
 }
 
 export function loadProjectionConfig(cli, deps = {}) {
@@ -385,14 +400,14 @@ export function createProjectionAdapters(config, deps = {}) {
       const head = gitRead(["rev-parse", "HEAD"]);
       const main = gitRead(["rev-parse", "origin/main"]);
       const status = gitRead(["status", "--porcelain=v1"]);
-      if ([branch, head, main, status].some((entry) => !entry.ok)) return { ok: false, reasonCode: "repository_read_failed" };
+      if ([branch, head, main, status].some((entry) => !entry.ok) || !safeProjectionRef(branch.value)) return { ok: false, reasonCode: "repository_read_failed" };
       return { repositorySlug: config.repositorySlug, currentBranch: branch.value, headSha: head.value, originMainSha: main.value, clean: status.value === "" };
     } },
     github: { read: () => readProjectionGithub(config, runnerStatus(), run) },
     local: { read: () => {
       const status = runnerStatus();
       const health = status.authorityHealth || {};
-      if (health.lockMalformed || health.activeStateMalformed || health.controlMalformed) return { ok: false, reasonCode: "local_authority_state_malformed" };
+      if (health.lockMalformed || health.activeStateMalformed || health.controlMalformed || health.summaryMalformed) return { ok: false, reasonCode: "local_authority_state_malformed" };
       if (health.activeOwnerConflict) return { ok: false, reasonCode: "local_active_owner_identity_conflict" };
       const projected = projectRunnerStatus(status);
       const supervisor = supervisorReader(config, runnerStatus());

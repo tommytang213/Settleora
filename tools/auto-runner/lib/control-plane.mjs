@@ -178,6 +178,7 @@ export function getRunnerStatus(config) {
       lockMalformed: lock.malformed === true,
       activeStateMalformed: active.malformed === true,
       controlMalformed: control.malformed === true,
+      summaryMalformed: latestSummary?.malformed === true,
       activeOwnerConflict: Boolean(!lockOnlyPrStackAuthority && (lock.active || active.active) && (
         !lock.parsed?.runId || !active.parsed?.runId || lock.parsed.runId !== active.parsed.runId
       )),
@@ -445,10 +446,12 @@ function readActiveRun(config) {
 }
 
 function readLatestRunSummary(config) {
-  const runs = listRuns(config, 1);
-  if (runs.length === 0) return null;
-  const info = readSummaryFile(runs[0].summaryPath);
-  return info ? { ...info, path: runs[0].summaryPath, markdownPath: runs[0].markdownPath } : null;
+  const summariesDir = path.join(config.logsRoot, "summaries");
+  if (!existsSync(summariesDir)) return null;
+  const files = readdirSync(summariesDir).filter((name) => /^run-.*\.json$/.test(name));
+  const summaries = files.map((name) => readSummaryFile(path.join(summariesDir, name)));
+  if (summaries.some((summary) => !summary)) return { malformed: true };
+  return summaries.sort((a, b) => Date.parse(b.summary.finishedAt || b.summary.startedAt || 0) - Date.parse(a.summary.finishedAt || a.summary.startedAt || 0))[0] || null;
 }
 
 function readSummaryFile(filePath) {

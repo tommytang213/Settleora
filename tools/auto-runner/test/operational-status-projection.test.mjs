@@ -12,7 +12,7 @@ import {
   operationalStateInventory,
   renderOperationalStatusMarkdown,
 } from "../lib/operational-status-projection.mjs";
-import { createProjectionAdapters, loadProjectionConfig, projectRunnerStatus } from "../settleora-auto-runnerctl.mjs";
+import { buildStatusExport, createProjectionAdapters, loadProjectionConfig, projectRunnerStatus } from "../settleora-auto-runnerctl.mjs";
 import { writeSupervisorState } from "../supervisor/supervisor-state.mjs";
 
 const head = "a".repeat(40);
@@ -154,6 +154,27 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
   assert.deepEqual(calls.map((call) => call.slice(0, 3)).sort(), [["gh", "issue", "view"], ["gh", "pr", "view"], ["gh", "pr", "view"], ["gh", "api", "graphql"], ["gh", "api", "repos/tommytang213/Settleora/pulls/942/reviews?per_page=100"], ["gh", "api", "--method"], ["git", "--no-optional-locks", "branch"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "show"], ["git", "--no-optional-locks", "status"]].sort());
   const forbidden = new Set(["add", "commit", "push", "merge", "edit", "comment", "close", "create", "delete"]);
   assert.equal(calls.some((call) => call.some((token) => forbidden.has(token))), false);
+});
+
+test("status export emits a bounded fail-closed model when config verification throws", async () => {
+  const model = await buildStatusExport({ profile: "default" }, { loadProjectionConfig: () => { throw new Error("untrusted detail"); }, projectionOptions: { now: () => new Date(0) } });
+  assert.equal(model.status, "blocked");
+  assert.deepEqual(model.blockers, ["projection_config_verification_failed"]);
+  assert.doesNotMatch(JSON.stringify(model), /untrusted detail/);
+});
+
+test("production repository projection rejects detached HEAD", async () => {
+  const spawnSync = (command, args) => {
+    if (command === "git" && args[1] === "branch") return { status: 0, stdout: "\n" };
+    if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
+    if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+    if (command === "git" && args[1] === "show") return { status: 0, stdout: "" };
+    return { status: 1, stdout: "" };
+  };
+  const production = createProjectionAdapters({ repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, { spawnSync, getRunnerStatus: () => ({ active: false, operationalProjection: {} }), readSupervisorProjection: () => ({ ok: true, value: {} }) });
+  const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
+  assert.equal(model.status, "blocked");
+  assert.ok(model.blockers.includes("repository_read_failed"));
 });
 
 test("production GitHub projection enforces required-check and neutral policies", async () => {
@@ -715,6 +736,13 @@ test("active ownership fails closed when either authority identity is missing", 
   writeFileSync(path.join(logsRoot, "locks", "settleora-auto-runner.lock"), JSON.stringify({ pid: process.pid, runId: "run-live" }));
   writeFileSync(path.join(logsRoot, "state", "active-run.json"), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), iterations: [] }));
   assert.equal(getRunnerStatus({ logsRoot }).authorityHealth.activeOwnerConflict, true);
+});
+
+test("malformed run summaries remain visible as local authority corruption", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-summary-malformed-"));
+  mkdirSync(path.join(logsRoot, "summaries"), { recursive: true });
+  writeFileSync(path.join(logsRoot, "summaries", "run-newest.json"), "{");
+  assert.equal(getRunnerStatus({ logsRoot }).authorityHealth.summaryMalformed, true);
 });
 
 test("output bounds reject unbounded models", async () => {
