@@ -12,7 +12,7 @@ import {
   operationalStateInventory,
   renderOperationalStatusMarkdown,
 } from "../lib/operational-status-projection.mjs";
-import { createProjectionAdapters, loadProjectionConfig } from "../settleora-auto-runnerctl.mjs";
+import { createProjectionAdapters, loadProjectionConfig, projectRunnerStatus } from "../settleora-auto-runnerctl.mjs";
 import { writeSupervisorState } from "../supervisor/supervisor-state.mjs";
 
 const head = "a".repeat(40);
@@ -546,6 +546,9 @@ test("a live lock-only PR-stack run is an authoritative owner with its trusted c
   assert.equal(status.authorityHealth.activeOwnerConflict, false);
   assert.equal(status.authorityHealth.lockOnlyPrStackAuthority, true);
   assert.equal(status.configPath, configPath);
+  const projected = projectRunnerStatus({ ...status, operationalProjection: { lifecycle: { phase: null }, largeCandidate: { stackState: null } } });
+  assert.equal(projected.lifecycle.phase, "pr_stack_running");
+  assert.equal(projected.largeCandidate.stackState, "running");
 
   const loaded = loadProjectionConfig({ profile: "default" }, {
     defaultConfig: { logsRoot },

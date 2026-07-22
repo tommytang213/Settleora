@@ -478,7 +478,7 @@ function readGhJson(run, config, args) {
   try { return JSON.parse(response.stdout || "{}"); } catch { return null; }
 }
 
-function projectRunnerStatus(status = {}) {
+export function projectRunnerStatus(status = {}) {
   const issue = status.currentOrLastIssue || {};
   const pr = status.currentOrLastPr || {};
   const projection = status.operationalProjection || {};
@@ -496,12 +496,19 @@ function projectRunnerStatus(status = {}) {
       headSha: pr.headSha || taskIdentity.headSha || null,
       prNumber: pr.number || taskIdentity.prNumber || null,
     },
-    lifecycle: projection.lifecycle || { phase: status.authorityHealth?.lockOnlyPrStackAuthority ? "pr_stack_running" : status.stopReason || null, terminalPosture: status.latestTerminalOutcome || null },
+    lifecycle: {
+      ...(projection.lifecycle || {}),
+      phase: projection.lifecycle?.phase || (status.authorityHealth?.lockOnlyPrStackAuthority ? "pr_stack_running" : status.stopReason || null),
+      terminalPosture: projection.lifecycle?.terminalPosture || status.latestTerminalOutcome || null,
+    },
     counters: projection.counters || {},
     recovery: projection.recovery || {},
     session: projection.session || {},
     review: projection.review || {},
-    largeCandidate: projection.largeCandidate || (status.authorityHealth?.lockOnlyPrStackAuthority ? { stackState: "running" } : {}),
+    largeCandidate: {
+      ...(projection.largeCandidate || {}),
+      stackState: projection.largeCandidate?.stackState || (status.authorityHealth?.lockOnlyPrStackAuthority ? "running" : null),
+    },
     effects: projection.effects || {},
     supervisor: status.supervisor || {},
     blockers: status.blockers || [],
