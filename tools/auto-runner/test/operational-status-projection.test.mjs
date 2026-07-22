@@ -95,7 +95,7 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
     if (command === "git" && args[0] === "--no-optional-locks" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
     if (command === "git" && args[0] === "--no-optional-locks" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
     if (command === "git" && args[0] === "--no-optional-locks" && args[1] === "status") return { status: 0, stdout: "" };
-    if (command === "git" && args[0] === "--no-optional-locks" && args[1] === "show") return { status: 0, stdout: "#927 is closed after accepted merge evidence.\n" };
+    if (command === "git" && args[0] === "--no-optional-locks" && args[1] === "show") return { status: 0, stdout: `${"historical ledger line\n".repeat(2000)}#927 is closed after accepted merge evidence.\nCurrent main SHA ${main}\n` };
     if (args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
     if (args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: head, baseRefName: "main" }) };
     return { status: 1, stdout: "" };
@@ -108,6 +108,21 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
   assert.deepEqual(calls.map((call) => call.slice(0, 3)).sort(), [["gh", "issue", "view"], ["gh", "pr", "view"], ["git", "--no-optional-locks", "branch"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "rev-parse"], ["git", "--no-optional-locks", "show"], ["git", "--no-optional-locks", "status"]].sort());
   const forbidden = new Set(["add", "commit", "push", "merge", "edit", "comment", "close", "create", "delete"]);
   assert.equal(calls.some((call) => call.some((token) => forbidden.has(token))), false);
+});
+
+test("production supervisor correlation failures propagate as fail-closed reason codes", async () => {
+  const spawnSync = (command, args) => {
+    if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
+    if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
+    if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+    if (command === "git" && args[1] === "show") return { status: 0, stdout: "#927 remains open.\n" };
+    if (command === "gh") return { status: 0, stdout: "{}" };
+    return { status: 1, stdout: "" };
+  };
+  const production = createProjectionAdapters({ repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, { spawnSync, getRunnerStatus: () => ({ active: true, activeRunId: "run-927", supervisorRunId: "supervisor-927", operationalProjection: {} }), readSupervisorProjection: () => ({ ok: false, reasonCode: "active_supervisor_heartbeat_stale" }) });
+  const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
+  assert.equal(model.status, "blocked");
+  assert.ok(model.blockers.includes("active_supervisor_heartbeat_stale"));
 });
 
 test("corrupt, multiple-active, contradictory repository, PR, and stale-head fixtures fail closed", async () => {

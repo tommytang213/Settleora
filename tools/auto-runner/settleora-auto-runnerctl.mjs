@@ -370,12 +370,13 @@ function readProjectionLedger(gitRead, status) {
   if (!ledger.ok) return { ok: false, reasonCode: "ledger_read_failed" };
   const issueNumber = Number(status.currentOrLastIssue?.number);
   if (!Number.isSafeInteger(issueNumber) || issueNumber <= 0) return { issueState: null, stale: null };
-  const bounded = ledger.value.slice(0, 16 * 1024);
-  const relevantLines = bounded.split("\n").filter((line) => [...line.matchAll(/#([1-9]\d{0,8})\b/g)].some((match) => Number(match[1]) === issueNumber)).map((line) => line.slice(0, 240));
+  if (ledger.value.length > 1024 * 1024) return { ok: false, reasonCode: "ledger_read_too_large" };
+  const relevantLines = ledger.value.split("\n").filter((line) => [...line.matchAll(/#([1-9]\d{0,8})\b/g)].some((match) => Number(match[1]) === issueNumber)).slice(0, 100).map((line) => line.slice(0, 240));
   const open = relevantLines.some((line) => /\b(?:remains|is|stays) open\b/i.test(line));
   const closed = relevantLines.some((line) => /\b(?:is |was )?closed\b/i.test(line));
   if (open && closed) return { ok: false, reasonCode: "ledger_issue_posture_ambiguous" };
-  return { issueState: open ? "OPEN" : closed ? "CLOSED" : null, stale: null };
+  const observedMainSha = ledger.value.match(/(?:merge commit\/current main|current main(?: sha)?)[^0-9a-f]{0,100}`?([0-9a-f]{40})/i)?.[1] || null;
+  return { issueState: open ? "OPEN" : closed ? "CLOSED" : null, observedMainSha, stale: null };
 }
 
 function readProjectionSupervisor(config, status) {
@@ -388,6 +389,10 @@ function readProjectionSupervisor(config, status) {
   const state = stateResult.state;
   const heartbeat = heartbeatResult.heartbeat;
   if (state.runId !== runId || (heartbeat && heartbeat.runId !== runId)) return { ok: false, reasonCode: "supervisor_identity_conflict" };
+  if (status.active && !state.runnerRunId) return { ok: false, reasonCode: "active_supervisor_runner_correlation_missing" };
+  if (status.active && !heartbeat) return { ok: false, reasonCode: "active_supervisor_heartbeat_missing" };
+  if (status.active && heartbeatResult.stale) return { ok: false, reasonCode: "active_supervisor_heartbeat_stale" };
+  if (status.active && heartbeat?.terminal) return { ok: false, reasonCode: "active_supervisor_terminal_conflict" };
   if (status.activeRunId && state.runnerRunId && status.activeRunId !== state.runnerRunId) return { ok: false, reasonCode: "supervisor_runner_identity_conflict" };
   if (heartbeat?.runnerRunId && state.runnerRunId && heartbeat.runnerRunId !== state.runnerRunId) return { ok: false, reasonCode: "supervisor_heartbeat_identity_conflict" };
   return { ok: true, value: { runId, state: state.state, heartbeatPosture: !heartbeat ? "missing" : heartbeat.terminal ? "terminal" : heartbeatResult.stale ? "stale" : "fresh", leasePosture: !heartbeat ? "missing" : heartbeat.terminal ? "terminal" : heartbeatResult.stale ? "expired" : "valid", reportCorrelation: state.runnerRunId || null } };
