@@ -754,6 +754,37 @@ test("a live lock-only PR-stack run is an authoritative owner with its trusted c
   const missingIssue = getRunnerStatus(runtimeConfig);
   assert.equal(missingIssue.authorityHealth.stackAuthorityMalformed, true);
   assert.equal(missingIssue.authorityHealth.stackAuthorityReason, "stack_active_issue_identity_missing");
+
+  const orderedPrs = [{
+    order: 0,
+    number: 942,
+    title: "Projection",
+    baseRefName: "main",
+    headRefName: "feature/auto-927",
+    headRefOid: head,
+    isDraft: false,
+    state: "OPEN",
+    ownDelta: {},
+    expectedParentPr: null,
+    expectedParentBranch: null,
+  }];
+  writeFileSync(stackPlanPath, JSON.stringify({
+    repository: "tommytang213/Settleora",
+    stackId: "stack-927",
+    issueNumber: 927,
+    activePrNumber: 942,
+    orderedPrs,
+  }), { mode: 0o600 });
+  const stackStatePath = path.join(path.dirname(stackPlanPath), "stack-state.json");
+  writeFileSync(stackStatePath, JSON.stringify({ stateVersion: 1, stackId: "stack-927", repository: "tommytang213/Settleora", orderedPrs, exactHeads: { 942: head } }), { mode: 0o600 });
+  const missingActivePr = getRunnerStatus(runtimeConfig);
+  assert.equal(missingActivePr.authorityHealth.stackAuthorityMalformed, true);
+  assert.equal(missingActivePr.authorityHealth.stackAuthorityReason, "stack_active_pr_identity_missing");
+
+  writeFileSync(stackStatePath, JSON.stringify({ stateVersion: 1, stackId: "stack-927", repository: "tommytang213/Settleora", activePrNumber: 942, orderedPrs, exactHeads: { 942: "not-a-sha" } }), { mode: 0o600 });
+  const malformedHead = getRunnerStatus(runtimeConfig);
+  assert.equal(malformedHead.authorityHealth.stackAuthorityMalformed, true);
+  assert.equal(malformedHead.authorityHealth.stackAuthorityReason, "stack_active_pr_head_invalid");
 });
 
 test("in-flight bundle checkpoints preserve expected branch, base, and head identity", () => {

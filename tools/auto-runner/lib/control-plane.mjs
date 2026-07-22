@@ -253,13 +253,18 @@ function readLockOnlyPrStackProjection(config, lock) {
   } catch {
     return { ok: false, reasonCode: "stack_state_read_failed", issue: null, pr: null };
   }
-  const activePrNumber = state?.activePrNumber ?? plan.activePrNumber ?? plan.orderedPrs?.[0]?.number ?? null;
+  const activePrNumber = state
+    ? state.activePrNumber
+    : plan.activePrNumber ?? plan.orderedPrs?.[0]?.number ?? null;
   const sourcePr = (state?.orderedPrs || plan.orderedPrs || []).find((entry) => entry.number === activePrNumber) || null;
   if (!sourcePr) return { ok: false, reasonCode: "stack_active_pr_identity_missing", issue: null, pr: null };
   if (!Number.isSafeInteger(plan.issueNumber) || plan.issueNumber <= 0) {
     return { ok: false, reasonCode: "stack_active_issue_identity_missing", issue: null, pr: null };
   }
   const headSha = state?.exactHeads?.[activePrNumber] || sourcePr.headRefOid || null;
+  if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/i.test(headSha)) {
+    return { ok: false, reasonCode: "stack_active_pr_head_invalid", issue: null, pr: null };
+  }
   return {
     ok: true,
     issue: { number: plan.issueNumber },
