@@ -343,6 +343,7 @@ test("projection adapters prefer terminal summaries and normalize legacy check c
   assert.match(control, /const retainedInactiveCheckpointIsNewer = Boolean\(active\.parsed/);
   assert.match(control, /const source = runnerAuthorityActive \? active\.parsed : useLatestSummary \? latestSummary\.summary : active\.parsed \|\| null/);
   assert.match(ctl, /\["PENDING", "EXPECTED"\]\.includes\(check\.state\)/);
-  assert.match(ctl, /\["ERROR", "FAILURE"\]\.includes\(check\.state\)/);
+  assert.match(ctl, /name: check\.name \|\| check\.context \|\| "unknown"/);
+  assert.match(ctl, /summarizeCheckStatus\(normalized, policy\)/);
   assert.match(ctl, /status: status\.active \? "active" : projection\.status \|\| status\.latestTerminalOutcome/);
 });
