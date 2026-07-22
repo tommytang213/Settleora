@@ -150,7 +150,7 @@ test("production projection selects a submitted supervisor before its child runn
   };
   const production = createProjectionAdapters({ logsRoot, repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, {
     spawnSync,
-    getRunnerStatus: () => ({ active: false, operationalProjection: {} }),
+    getRunnerStatus: () => ({ active: false, supervisorRunId: "supervised-20260721T010000Z-111111111111", operationalProjection: {} }),
   });
   const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
   assert.equal(model.supervisor.runId, supervisorRunId);
@@ -248,7 +248,7 @@ test("active-run persistence projects CI from the latest correlated wait attempt
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-ci-wait-"));
   mkdirSync(path.join(logsRoot, "state"), { recursive: true });
   const config = { logsRoot, maxIterations: 1, maxRuntimeMs: 60_000 };
-  const activePath = writeActiveRunState(config, { runId: "run-ci-wait", startedAt: new Date().toISOString(), iterations: [{ autoMerge: { waitAttempts: [{ prHeadSha: head, checks: { ok: false, status: "pending" } }, { prHeadSha: head, checks: { ok: true, status: "pass" } }] } }] });
+  const activePath = writeActiveRunState(config, { runId: "run-ci-wait", startedAt: new Date().toISOString(), iterations: [{ autoMerge: { waitAttempts: [{ prHeadSha: head, checks: { state: "pending" } }, { prHeadSha: head, checks: { state: "success" } }] } }] });
   const review = JSON.parse(readFileSync(activePath, "utf8")).operationalProjection.review;
   assert.equal(review.ciStatus, "pass");
   assert.equal(review.ciHead, head);

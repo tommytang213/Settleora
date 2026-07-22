@@ -277,7 +277,9 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
       localCodexHead: iteration.review?.reviewedHead || iteration.review?.headSha || null,
       githubCodexStatus: iteration.autoMerge?.githubCodexReview?.status || null,
       githubCodexHead: iteration.autoMerge?.githubCodexReview?.headSha || iteration.autoMerge?.githubCodexReview?.reviewedHead || null,
-      ciStatus: latestWaitAttempt?.checks?.ok === true ? "pass" : latestWaitAttempt?.checks?.status || null,
+      ciStatus: latestWaitAttempt?.checks?.state === "success"
+        ? "pass"
+        : latestWaitAttempt?.checks?.state || latestWaitAttempt?.checks?.status || null,
       ciHead: latestWaitAttempt?.prHeadSha || null,
       scannerStatus: iteration.autoMerge?.scanners?.status || null,
       scannerHead: iteration.autoMerge?.scanners?.headSha || null,
