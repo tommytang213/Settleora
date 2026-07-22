@@ -927,7 +927,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
-    let postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, recoveryRecorder, branchName });
+    let postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, recoveryRecorder, branchName, commitMessage: `Auto-runner issue #${issue.number}: source-fix ${batch.batchIdentity.slice(0, 16)}` });
     if (postFix.runnerCreatedCommitSha) {
       const accounted = accountNormalReviewFixCommit(iteration, postFix.runnerCreatedCommitSha, "initial_source_failure_fix_commit");
       persistNormalReviewConvergenceState(config, iteration, "source_failure_fix_commit_accounted");
@@ -956,6 +956,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
       iteration.changedFiles = postFix.changedFiles;
       checkpoint(iteration);
+      if (replacementDecision.retryable) {
+        iteration.outcome = "validation_retryable";
+        recoveryRecorder?.attempt(replacementDecision.classification, replacementDecision.reasonCode, "Bounded retry required for transient replacement validation failure.");
+        recoveryRecorder?.stop(replacementDecision.reasonCode, "Transient replacement validation failure retained for bounded recovery.", replacementDecision.nextAction);
+        iteration.finishedAt = new Date().toISOString();
+        return iteration;
+      }
       if (!replacementDecision.sourceFixEligible) break;
       const replacementFindings = replacementBatch.findings.map((failure) => ({ provider: failure.sourceKind, severity: "high", path: failure.path || postFix.changedFiles[0] || "", title: "Recursive post-fix validation failure", body: failure.diagnosticExcerpt || failure.diagnosticDigest, safelyFixable: true }));
       const replacementAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName, promptInfo, changedFiles: postFix.changedFiles, forbiddenChangedFiles: [], validation: postFix.validation, report: { found: true, recovered: true }, externalReview: null, review: { verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: replacementFindings } }, iteration, sourceFailureFix: { batch: replacementBatch, decision: replacementDecision, candidateHead: replacementIdentity.headSha, baseSha: replacementIdentity.baseSha } });

@@ -233,6 +233,8 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /recoveryRecorder\.annotate\(\{ ordinaryContinuation: continuation \}\)/);
   assert.match(source, /boundary\.phase === "checkpoint_validation_commit"[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /initial_validation_failure_commit_reconstruction_ambiguous/);
+  assert.match(source, /commitMessage: `Auto-runner issue #\$\{issue\.number\}: source-fix \$\{batch\.batchIdentity\.slice\(0, 16\)\}`/);
+  assert.match(source, /if \(replacementDecision\.retryable\) \{[\s\S]*iteration\.outcome = "validation_retryable";[\s\S]*replacementDecision\.nextAction/);
 });
 
 test("valid non-pass reviewers retain prompt binding for structured convergence", () => {
