@@ -887,6 +887,21 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     const decision = evaluateSourceFailureBatch(batch, iteration.sourceFailureHistory || []);
     iteration.sourceFailureBatch = batch;
     iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }];
+    if (recoveryRecorder) {
+      const continuation = createOrdinaryContinuationState({
+        logicalTaskKey: config.taskKey || `issue-${issue.number}`,
+        executionKey: runId,
+        issueNumber: issue.number,
+        branchName,
+        identity: initialIdentity,
+        phase: "local_validation",
+        counters: ordinaryCountersFromReviewConvergence(iteration.reviewConvergenceState),
+      });
+      continuation.sourceFailureBatch = batch;
+      continuation.sourceFailureHistory = iteration.sourceFailureHistory;
+      if (decision.sourceFixEligible) continuation.sourceFailureFixIntent = { batchIdentity: batch.batchIdentity, candidateHead: initialIdentity.headSha, status: "prepared" };
+      recoveryRecorder.annotate({ ordinaryContinuation: continuation });
+    }
     checkpoint(iteration);
     if (!decision.sourceFixEligible) {
       if (decision.retryable) {
@@ -1061,7 +1076,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
       changedFiles,
     };
-    const ordinaryContinuation = createOrdinaryContinuationState({ logicalTaskKey: config.taskKey || `issue-${issue.number}`, executionKey: runId, issueNumber: issue.number, branchName, identity });
+    const ordinaryContinuation = createOrdinaryContinuationState({ logicalTaskKey: config.taskKey || `issue-${issue.number}`, executionKey: runId, issueNumber: issue.number, branchName, identity, counters: ordinaryCountersFromReviewConvergence(iteration.reviewConvergenceState) });
     const registered = await continueOrdinaryCandidate(ordinaryContinuation, {
       candidate_reconciliation: async () => ({ ok: true, evidence: identity }),
       local_validation: async () => ({ ok: true, evidence: { changedFilesDigest: iteration.validation.changedFilesDigest } }),
@@ -1918,6 +1933,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
         }
       }
+      if (boundary.phase === "checkpoint_validation_commit") {
+        const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue);
+        if (checkpoint.ok) return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
+        return { ok: false, outcome: "blocked_recovery_state", reasonCode: checkpoint.reasonCode, state };
+      }
       if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
         const stopped = advanceRecoveryPhase(state, {
           phase: "stopped",
@@ -1950,6 +1970,30 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+function ordinaryCountersFromReviewConvergence(reviewConvergenceState = {}) {
+  const counters = reviewConvergenceState.counters || reviewConvergenceState.twoLoop || {};
+  return {
+    acceptedLogicalTasks: 1,
+    localSourceChangingRoundsPerEpoch: counters.localSourceChangingRoundsPerEpoch || 0,
+    lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds || 0,
+    githubTriggeredFixEpochsPerPr: counters.githubTriggeredFixEpochsPerPr || 0,
+  };
+}
+
+function reconstructInitialValidationFailureCheckpoint(config, state, issue) {
+  fetchOriginMain(config);
+  const baseSha = state.branch?.baseSha;
+  const priorHead = state.branch?.currentHeadSha || baseSha;
+  const headSha = getRefSha("HEAD");
+  const exactSubject = spawnSync("git", ["show", "-s", "--format=%s", headSha], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim();
+  const commitDistance = spawnSync("git", ["rev-list", "--count", `${priorHead}..${headSha}`], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim();
+  const exactAdvance = priorHead === headSha || (commitDistance === "1" && spawnSync("git", ["merge-base", "--is-ancestor", priorHead, headSha], { cwd: config.repoRoot }).status === 0);
+  if (!baseSha || getRefSha("origin/main") !== baseSha || getCurrentBranch() !== state.branch?.name || getStatusShort() !== "" || !exactAdvance || exactSubject !== `Auto-runner issue #${issue.number}: initial candidate before source classification`) {
+    return { ok: false, reasonCode: "initial_validation_failure_commit_reconstruction_ambiguous" };
+  }
+  return { ok: true, candidateIdentity: ordinaryIdentityForHead(baseSha, headSha), routeState: "initial_validation_failure_reconstructed" };
 }
 
 async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null }) {

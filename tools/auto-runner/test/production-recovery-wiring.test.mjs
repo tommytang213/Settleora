@@ -229,6 +229,10 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /synchronizeRecoveredSourceChange\(state, ordinaryContinuation, "ordinary_source_failure_fix_committed"\)/);
   assert.match(source, /accountConvergenceEvent\(convergence, \{ kind: "source_changed", newHead, reasonCode \}\)/);
   assert.match(source, /if \(decision\.retryable\) \{[\s\S]*iteration\.outcome = "validation_retryable";[\s\S]*decision\.nextAction/);
+  assert.match(source, /counters: ordinaryCountersFromReviewConvergence\(iteration\.reviewConvergenceState\)/);
+  assert.match(source, /recoveryRecorder\.annotate\(\{ ordinaryContinuation: continuation \}\)/);
+  assert.match(source, /boundary\.phase === "checkpoint_validation_commit"[\s\S]*reconstructInitialValidationFailureCheckpoint/);
+  assert.match(source, /initial_validation_failure_commit_reconstruction_ambiguous/);
 });
 
 test("valid non-pass reviewers retain prompt binding for structured convergence", () => {
