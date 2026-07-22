@@ -341,7 +341,7 @@ test("projection adapters prefer terminal summaries and normalize legacy check c
   const control = readFileSync(new URL("../lib/control-plane.mjs", import.meta.url), "utf8");
   const ctl = readFileSync(new URL("../settleora-auto-runnerctl.mjs", import.meta.url), "utf8");
   assert.match(control, /const retainedInactiveCheckpointIsNewer = Boolean\(active\.parsed/);
-  assert.match(control, /const source = active\.active \? active\.parsed : useLatestSummary \? latestSummary\.summary : active\.parsed \|\| null/);
+  assert.match(control, /const source = runnerAuthorityActive \? active\.parsed : useLatestSummary \? latestSummary\.summary : active\.parsed \|\| null/);
   assert.match(ctl, /\["PENDING", "EXPECTED"\]\.includes\(check\.state\)/);
   assert.match(ctl, /\["ERROR", "FAILURE"\]\.includes\(check\.state\)/);
   assert.match(ctl, /status: status\.active \? "active" : projection\.status \|\| status\.latestTerminalOutcome/);

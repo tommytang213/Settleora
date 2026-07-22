@@ -431,6 +431,35 @@ test("a live lock rejects a differently identified stale active-run record", () 
   assert.equal(status.authorityHealth.activeOwnerConflict, true);
 });
 
+test("a live matching lock keeps its checkpoint authoritative over unrelated summaries", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-live-lock-checkpoint-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  mkdirSync(path.join(logsRoot, "locks"), { recursive: true });
+  mkdirSync(path.join(logsRoot, "summaries"), { recursive: true });
+  writeFileSync(path.join(logsRoot, "locks", "settleora-auto-runner.lock"), JSON.stringify({ pid: process.pid, runId: "run-live" }));
+  writeFileSync(path.join(logsRoot, "state", "active-run.json"), JSON.stringify({
+    pid: 99999999,
+    runId: "run-live",
+    startedAt: "2026-07-22T02:00:00.000Z",
+    currentIteration: { issue: { number: 927 } },
+    operationalProjection: { lifecycle: { phase: "implementation" } },
+  }));
+  writeFileSync(path.join(logsRoot, "summaries", "run-old.json"), JSON.stringify({
+    runId: "run-old",
+    startedAt: "2026-07-22T03:00:00.000Z",
+    finishedAt: "2026-07-22T04:00:00.000Z",
+    iterations: [{ issue: { number: 910 }, outcome: "completed" }],
+  }));
+
+  const status = getRunnerStatus({ logsRoot });
+  assert.equal(status.active, true);
+  assert.equal(status.authorityHealth.activeOwnerConflict, false);
+  assert.equal(status.activeRunId, "run-live");
+  assert.equal(status.currentOrLastIssue.number, 927);
+  assert.equal(status.operationalProjection.lifecycle.phase, "implementation");
+  assert.equal(status.paths.summary, null);
+});
+
 test("active ownership fails closed when either authority identity is missing", () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-owner-missing-"));
   mkdirSync(path.join(logsRoot, "state"), { recursive: true });

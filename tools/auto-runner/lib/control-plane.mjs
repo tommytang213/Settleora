@@ -140,14 +140,15 @@ export function getRunnerStatus(config) {
   const active = readActiveRun(config);
   const control = readControlState(config);
   const latestSummary = readLatestRunSummary(config);
+  const runnerAuthorityActive = Boolean(lock.active || active.active);
   const retainedTimestamp = Date.parse(active.parsed?.lastHeartbeatAt || active.parsed?.finishedAt || active.parsed?.startedAt || 0);
   const summaryTimestamp = Date.parse(latestSummary?.summary?.finishedAt || latestSummary?.summary?.lastHeartbeatAt || latestSummary?.summary?.startedAt || 0);
   const retainedInactiveCheckpointIsNewer = Boolean(active.parsed && (
     !latestSummary?.summary || (Number.isFinite(retainedTimestamp) && (!Number.isFinite(summaryTimestamp) || retainedTimestamp > summaryTimestamp))
   ));
-  const useLatestSummary = !active.active && !retainedInactiveCheckpointIsNewer && Boolean(latestSummary?.summary);
-  const source = active.active ? active.parsed : useLatestSummary ? latestSummary.summary : active.parsed || null;
-  const selectedSummaryPath = active.active
+  const useLatestSummary = !runnerAuthorityActive && !retainedInactiveCheckpointIsNewer && Boolean(latestSummary?.summary);
+  const source = runnerAuthorityActive ? active.parsed : useLatestSummary ? latestSummary.summary : active.parsed || null;
+  const selectedSummaryPath = runnerAuthorityActive
     ? active.parsed?.summaryPath || null
     : useLatestSummary ? latestSummary.path : active.parsed?.summaryPath || null;
   const startedAt = source?.startedAt || null;
@@ -162,7 +163,7 @@ export function getRunnerStatus(config) {
   const latestIteration = source?.currentIteration || source?.latestIteration || summarizeIteration(latestRawIteration);
   return sanitize({
     generatedAt: new Date().toISOString(),
-    active: Boolean(lock.active || active.active),
+    active: runnerAuthorityActive,
     activeRunId: source?.runId || (lock.active ? lock.parsed?.runId : null),
     lock,
     authorityHealth: {
