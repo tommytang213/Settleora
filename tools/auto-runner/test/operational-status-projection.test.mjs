@@ -740,3 +740,18 @@ test("milestone ledger policy requests bounded hygiene and ephemeral transitions
   for (const kind of ["implementation_pr_merged", "issue_posture_changed", "umbrella_scope_changed", "manual_gate_changed", "production_activation_posture_changed", "major_acceptance_completed", "scheduled_reconciliation"]) assert.equal(ledgerHygieneDecision({ kind }).request, true, kind);
   for (const kind of ["wait", "retry", "heartbeat", "check_poll", "source_cycle", "session_rotation", "control_transition", "unknown"]) assert.equal(ledgerHygieneDecision({ kind }).request, false, kind);
 });
+
+test("live and identity blockers outrank retained local blocker overflow", async () => {
+  const localBlockers = Array.from({ length: 20 }, (_, index) => `retained_local_${index}`);
+  const baseLocal = await adapters().local.read();
+  const model = await buildOperationalStatusProjection(adapters({
+    local: { ...baseLocal, blockers: localBlockers },
+    github: {
+      repositorySlug: "tommytang213/Settleora",
+      issue: { number: 927, state: "OPEN", manualGate: true },
+      pr: { number: 942, state: "OPEN", headRefName: "feature/auto-927", baseRefName: "main", headSha: head, checks: { status: "failed" }, review: { status: "changes_requested", headSha: head, unresolvedThreads: 1 }, scanner: { status: "open_alerts", headSha: head, openAlerts: 1 } },
+    },
+  }), { now: () => new Date(0) });
+  for (const reason of ["github_issue_manual_gate", "github_required_checks_failed", "github_codex_changes_requested", "github_unresolved_review_threads", "github_code_scanning_alerts_open"]) assert.ok(model.blockers.includes(reason));
+  assert.equal(model.blockers.length, 20);
+});

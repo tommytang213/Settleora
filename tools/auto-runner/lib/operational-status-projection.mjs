@@ -59,7 +59,7 @@ export async function buildOperationalStatusProjection(adapters = {}, options = 
     supervisor: projectSupervisor(local.value),
     ledger: ledgerState,
     evidence: projectEvidence(local.value),
-    blockers: boundedList([...(local.value?.blockers || []), ...failClosed], boundedReason),
+    blockers: prioritizedBlockers(failClosed, local.value?.blockers),
     nextSafeAction: failClosed.length ? "inspect_projection_reason_codes" : boundedReason(local.value?.nextSafeAction || "reconcile_live_state"),
     inventory: operationalStateInventory,
     storageDecision: {
@@ -72,7 +72,7 @@ export async function buildOperationalStatusProjection(adapters = {}, options = 
   };
   if (local.value?.active === true && liveHead && localHead && liveHead !== localHead) {
     model.status = "blocked";
-    model.blockers = boundedList([...model.blockers, "stale_head_identity_conflict"], boundedReason);
+    model.blockers = prioritizedBlockers(["stale_head_identity_conflict"], model.blockers);
     model.nextSafeAction = "reconcile_live_head_before_continuation";
   }
   assertBoundedProjection(model);
@@ -247,6 +247,7 @@ function counter(raw, classification) { return { classification, value: integer(
 function bounded(value) { return typeof value === "string" && value ? value.replace(/[\r\n\t]/g, " ").slice(0, maxString) : null; }
 function boundedReason(value) { const text = bounded(value); if (!text) return null; return /^[a-z0-9_:-]+$/i.test(text) && !credentialShaped(text) ? text : "redacted_reason"; }
 function boundedList(value, mapper) { return Array.isArray(value) ? value.slice(0, maxItems).map(mapper).filter((item) => item !== null && item !== undefined) : []; }
+function prioritizedBlockers(...sources) { return boundedList([...new Set(sources.flatMap((source) => Array.isArray(source) ? source : []))], boundedReason); }
 function identifier(value) { const text = bounded(value); return text && /^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(text) && !credentialShaped(text) ? text : null; }
 function refName(value) { const text = bounded(value); return text && /^[a-z0-9][a-z0-9._/-]{0,199}$/i.test(text) && !text.includes("..") && !credentialShaped(text) ? text : null; }
 function repositorySlug(value) { const text = bounded(value); return text && /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(text) && !credentialShaped(text) ? text : null; }
