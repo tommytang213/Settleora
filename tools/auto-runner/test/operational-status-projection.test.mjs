@@ -215,6 +215,15 @@ test("a live lock rejects a differently identified stale active-run record", () 
   assert.equal(status.authorityHealth.activeOwnerConflict, true);
 });
 
+test("active ownership fails closed when either authority identity is missing", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-owner-missing-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  mkdirSync(path.join(logsRoot, "locks"), { recursive: true });
+  writeFileSync(path.join(logsRoot, "locks", "settleora-auto-runner.lock"), JSON.stringify({ pid: process.pid, runId: "run-live" }));
+  writeFileSync(path.join(logsRoot, "state", "active-run.json"), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), iterations: [] }));
+  assert.equal(getRunnerStatus({ logsRoot }).authorityHealth.activeOwnerConflict, true);
+});
+
 test("output bounds reject unbounded models", async () => {
   const model = await buildOperationalStatusProjection(adapters(), { now: () => new Date(0) });
   assert.throws(() => assertBoundedProjection({ ...model, padding: "x".repeat(70 * 1024) }), /too_large/);

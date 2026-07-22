@@ -333,5 +333,5 @@ test("projection checkpoints retain recovery, implementation, convergence, split
   assert.match(bundle, /checkpoint\("feature_bundle_split_materialization"[\s\S]*?materializeFeatureBundleSplit[\s\S]*?checkpoint\("feature_bundle_split_materialization_complete"/);
   assert.match(bundle, /checkpoint\("feature_bundle_pr_stack_handoff"\)[\s\S]*?runPrStackExecution[\s\S]*?checkpoint\("feature_bundle_pr_stack_handoff_complete"\)/);
   assert.match(control, /iteration\.pr\?\.headRefOid[\s\S]*?iteration\.validation\?\.headSha[\s\S]*?iteration\.externalReview\?\.reviewedHead/);
-  assert.match(control, /activeOwnerConflict: Boolean\(\(lock\.active \|\| active\.active\)[\s\S]*?lock\.parsed\.runId !== active\.parsed\.runId\)/);
+  assert.match(control, /activeOwnerConflict: Boolean\(\(lock\.active \|\| active\.active\)[\s\S]*?!lock\.parsed\?\.runId[\s\S]*?!active\.parsed\?\.runId[\s\S]*?lock\.parsed\.runId !== active\.parsed\.runId/);
 });
