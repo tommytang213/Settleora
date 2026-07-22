@@ -219,7 +219,9 @@ test("production GitHub projection enforces required-check and neutral policies"
   assert.ok(passingSummary.blockers.includes("github_unresolved_review_threads"));
   assert.ok(passingSummary.blockers.includes("github_code_scanning_alerts_open"));
   assert.ok((await modelFor(successes.slice(1))).blockers.includes("github_required_checks_missing"));
-  assert.ok((await modelFor(successes, undefined, [{ body: "do not merge" }])).blockers.includes("github_blocking_comment_or_review_marker"));
+  for (const marker of ["needs-tommy", "danger-gate", "blocked", "manual gate", "do-not-merge", "do_not_merge", "changes-requested", "CHANGES_REQUESTED"]) {
+    assert.ok((await modelFor(successes, undefined, [{ body: marker }])).blockers.includes("github_blocking_comment_or_review_marker"), marker);
+  }
 });
 
 test("production GitHub projection rejects incomplete PR identity before local fallback", async () => {
