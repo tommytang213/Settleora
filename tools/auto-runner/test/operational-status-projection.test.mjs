@@ -122,9 +122,9 @@ test("corrupt, multiple-active, contradictory repository, PR, and stale-head fix
 
 test("positive allowlist excludes secrets, prompts, provider payloads, OCR content, raw logs and paths", async () => {
   const poisoned = adapters();
-  poisoned.local = { read: async () => ({ ...await adapters().local.read(), secret: "api_key=unsafe", rawPrompt: "hidden", providerResponse: "private", ocrText: "receipt", arbitraryPath: "/workspace/private", evidence: [{ kind: "validation", path: "/workspace/private", rawLog: "token=unsafe" }] }) };
+  poisoned.local = { read: async () => ({ ...await adapters().local.read(), secret: "test-api-key-for-review", rawPrompt: "hidden", providerResponse: "private", ocrText: "receipt", arbitraryPath: "/workspace/private", evidence: [{ kind: "validation", path: "/workspace/private", rawLog: "test-token-for-review" }] }) };
   const encoded = JSON.stringify(await buildOperationalStatusProjection(poisoned, { now: () => new Date(0) }));
-  for (const forbidden of ["unsafe", "hidden", "private", "receipt", "/workspace/"]) assert.equal(encoded.includes(forbidden), false, forbidden);
+  for (const forbidden of ["test-api-key-for-review", "hidden", "private", "receipt", "/workspace/"]) assert.equal(encoded.includes(forbidden), false, forbidden);
 });
 
 test("output bounds reject unbounded models", async () => {
