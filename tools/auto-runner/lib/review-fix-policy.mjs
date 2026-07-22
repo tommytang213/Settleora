@@ -387,9 +387,9 @@ export function evaluateReviewFixContractPaths({ laneDecision = {}, changedFiles
 export function evaluateSourceFailureFixMutationDecision(input = {}) {
   const config = input.config || {};
   const laneDecision = input.laneDecision || {};
-  const authorization = input.sourceFailureFix || {};
-  const batch = authorization.batch || null;
-  const decision = authorization.decision || null;
+  const sourceFixContext = input.sourceFailureFix || {};
+  const batch = sourceFixContext.batch || null;
+  const decision = sourceFixContext.decision || null;
   const changedFiles = Array.isArray(input.changedFiles) ? input.changedFiles : [];
   const forbidden = Array.isArray(input.forbiddenChangedFiles) ? input.forbiddenChangedFiles : [];
   const labels = (input.issue?.labels || []).map((label) => typeof label === "string" ? label : label?.name).filter(Boolean);
@@ -400,7 +400,7 @@ export function evaluateSourceFailureFixMutationDecision(input = {}) {
   if (!decision?.sourceFixEligible || decision.classification !== "source_fix_safe") return block("source_failure_fix_batch_not_safe");
   const identity = batch.candidate || {};
   if (![identity.baseSha, identity.headSha, identity.treeSha].every((value) => /^[a-f0-9]{40}$/.test(value || "")) || !/^[a-f0-9]{64}$/.test(identity.diffDigest || "") || !Array.isArray(identity.changedFiles)) return block("source_failure_fix_candidate_identity_invalid");
-  if (identity.headSha !== authorization.candidateHead || identity.baseSha !== authorization.baseSha) return block("source_failure_fix_candidate_identity_mismatch");
+  if (identity.headSha !== sourceFixContext.candidateHead || identity.baseSha !== sourceFixContext.baseSha) return block("source_failure_fix_candidate_identity_mismatch");
   if (JSON.stringify([...identity.changedFiles].sort()) !== JSON.stringify([...changedFiles].sort())) return block("source_failure_fix_changed_files_mismatch");
   if (batch.findings.some((finding) => finding.classification !== "source_fix_safe" || finding.sourceFixEligible !== true || finding.identity?.headSha !== identity.headSha || !finding.repository || !finding.issueNumber || !finding.taskKey || !finding.branchName || finding.repository !== config.repositorySlug || finding.issueNumber !== input.issue?.number || finding.branchName !== input.branchName || (["local_validation", "github_check"].includes(finding.sourceKind) && !finding.commandId) || (finding.sourceKind === "local_validation" && finding.commandId !== laneDecision.validationProfile))) return block("source_failure_fix_finding_not_authorized");
   if (batch.findings.some((finding) => /(suppress|disable|exclude|skip (?:the )?tests?|hand.?edit generated|ignore scanner|remove check|weaken workflow|expand dependenc)/i.test(finding.diagnosticExcerpt || ""))) return block("source_failure_fix_unsafe_remediation_requested");
