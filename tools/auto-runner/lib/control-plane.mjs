@@ -156,7 +156,12 @@ export function getRunnerStatus(config) {
     active: Boolean(lock.active || active.active),
     activeRunId: active.parsed?.runId || (lock.active ? lock.parsed?.runId : null),
     lock,
-    authorityHealth: { lockMalformed: lock.malformed === true, activeStateMalformed: active.malformed === true, controlMalformed: control.malformed === true },
+    authorityHealth: {
+      lockMalformed: lock.malformed === true,
+      activeStateMalformed: active.malformed === true,
+      controlMalformed: control.malformed === true,
+      activeOwnerConflict: Boolean(lock.active && active.active && lock.parsed?.runId && active.parsed?.runId && lock.parsed.runId !== active.parsed.runId),
+    },
     mode: source?.mode || null,
     supervisorRunId: source?.supervisorRunId || null,
     configPath: source?.configPath || null,
@@ -251,7 +256,14 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
       terminalPosture: session.terminal?.status || null,
     },
     review: {
-      exactHead: iteration.runnerCreatedCommitSha || iteration.expectedHeadSha || iteration.pr?.headSha || null,
+      exactHead: iteration.runnerCreatedCommitSha
+        || iteration.expectedHeadSha
+        || iteration.pr?.headSha
+        || iteration.pr?.headRefOid
+        || iteration.validation?.headSha
+        || iteration.externalReview?.reviewedHead
+        || iteration.review?.reviewedHead
+        || null,
       validationStatus: iteration.validation?.passed === true ? "pass" : iteration.validation ? "failed" : null,
       geminiStatus: iteration.externalReview?.reviewStatus || iteration.externalReview?.status || null,
       localCodexStatus: iteration.review?.verdict?.verdict || iteration.review?.reviewStatus || null,

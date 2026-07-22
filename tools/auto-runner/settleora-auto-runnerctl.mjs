@@ -358,6 +358,7 @@ export function createProjectionAdapters(config, deps = {}) {
       const status = runnerStatus();
       const health = status.authorityHealth || {};
       if (health.lockMalformed || health.activeStateMalformed || health.controlMalformed) return { ok: false, reasonCode: "local_authority_state_malformed" };
+      if (health.activeOwnerConflict) return { ok: false, reasonCode: "local_active_owner_identity_conflict" };
       const projected = projectRunnerStatus(status);
       const supervisor = supervisorReader(config, runnerStatus());
       if (supervisor?.ok === false) return supervisor;

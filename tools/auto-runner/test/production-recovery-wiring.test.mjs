@@ -322,3 +322,16 @@ test("delegated bundle and existing-PR recovery phases use the owning iteration 
   assert.match(runner, /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?operationalCheckpoint/);
   assert.match(runner, /recoverExistingPrIfConfigured\(recoveryConfig, logger, issue, laneDecision, state,[\s\S]*?operationalCheckpoint/);
 });
+
+test("projection checkpoints retain recovery, implementation, convergence, split, and stack authority", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
+  const control = readFileSync(new URL("../lib/control-plane.mjs", import.meta.url), "utf8");
+  assert.match(runner, /iteration\.recovery = startupRecovery;[\s\S]*?iteration\.runnerCreatedCommitSha = startupRecovery\.state\?\.currentHeadSha[\s\S]*?iteration\.phase = "startup_recovery";/);
+  assert.match(runner, /iteration\.phase = "implementation";[\s\S]*?runCodexPrompt\(config,[\s\S]*?iteration\.phase = "implementation_complete";/);
+  assert.match(bundle, /reviewConvergenceState: state\?\.reviewConvergenceState \|\| result\.reviewConvergenceState \|\| null/);
+  assert.match(bundle, /checkpoint\("feature_bundle_split_materialization"[\s\S]*?materializeFeatureBundleSplit[\s\S]*?checkpoint\("feature_bundle_split_materialization_complete"/);
+  assert.match(bundle, /checkpoint\("feature_bundle_pr_stack_handoff"\)[\s\S]*?runPrStackExecution[\s\S]*?checkpoint\("feature_bundle_pr_stack_handoff_complete"\)/);
+  assert.match(control, /iteration\.pr\?\.headRefOid[\s\S]*?iteration\.validation\?\.headSha[\s\S]*?iteration\.externalReview\?\.reviewedHead/);
+  assert.match(control, /activeOwnerConflict: Boolean\(lock\.active && active\.active[\s\S]*?lock\.parsed\.runId !== active\.parsed\.runId\)/);
+});

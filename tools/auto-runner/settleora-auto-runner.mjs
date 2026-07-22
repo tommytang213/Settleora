@@ -407,6 +407,17 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
+    iteration.recovery = startupRecovery;
+    iteration.issueSource = "startup_recovery";
+    iteration.issue = Number.isSafeInteger(startupRecovery.state?.issue?.number)
+      ? { number: startupRecovery.state.issue.number }
+      : Number.isSafeInteger(startupRecovery.state?.issueNumber)
+        ? { number: startupRecovery.state.issueNumber }
+        : null;
+    iteration.branchName = startupRecovery.state?.branchName || startupRecovery.state?.branch?.name || null;
+    iteration.baseOriginMainSha = startupRecovery.state?.baseSha || null;
+    iteration.runnerCreatedCommitSha = startupRecovery.state?.currentHeadSha || null;
+    iteration.pr = startupRecovery.state?.pr || null;
     iteration.phase = "startup_recovery";
     checkpoint(iteration);
     const continuation = startupRecovery.allowed
@@ -780,6 +791,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   if (lifecycleInvocation) promptInfo.sessionLifecycle = lifecycleInvocation;
   if (lifecycleInvocation) iteration.sessionLifecycle = lifecycleInvocation.state;
   if (lifecycleInvocation) issue.sessionLifecycle = lifecycleInvocation.state;
+  iteration.phase = "implementation";
+  checkpoint(iteration);
   const codexResult = runCodexPrompt(config, { ...promptInfo, branchName }, "implementation");
   if (codexResult.sessionLifecycle?.state && promptInfo.sessionLifecycle) {
     promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: codexResult.sessionLifecycle.state };
@@ -787,6 +800,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     issue.sessionLifecycle = codexResult.sessionLifecycle.state;
   }
   iteration.codex = codexResult;
+  iteration.phase = "implementation_complete";
+  checkpoint(iteration);
   if (!codexResult.skipped && (codexResult.error || codexResult.status !== 0)) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, codexFailureBody(issue, codexResult));

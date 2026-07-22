@@ -95,12 +95,18 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     },
     laneDecision: planned.laneDecision,
   };
-  const checkpoint = (phase, projected = {}) => operationalCheckpoint?.(phase, { bundle: result.bundle, ...projected });
+  let state = null;
+  const checkpoint = (phase, projected = {}) => operationalCheckpoint?.(phase, {
+    bundle: result.bundle,
+    reviewConvergenceState: state?.reviewConvergenceState || result.reviewConvergenceState || null,
+    featureBundleSplit: result.splitMaterialization || result.splitPlan || null,
+    prStackExecution: result.prStackExecution || null,
+    ...projected,
+  });
 
   fetchOriginMain(config);
   const baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
   result.baseOriginMainSha = baseOriginMainSha;
-  let state = null;
   if (!config.dryRun) {
     const loaded = recoverExistingBundleCheckout(config, { plan, baseOriginMainSha });
     if (loaded.ok) {
@@ -361,14 +367,22 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
             const planPath = path.join(config.logsRoot, "pr-stacks", `${stackPlan.stackId.replace(/[^A-Za-z0-9_.-]/g, "-")}.json`);
             mkdirSync(path.dirname(planPath), { recursive: true, mode: 0o700 });
             writeFileSync(planPath, `${JSON.stringify(stackPlan, null, 2)}\n`, { mode: 0o600 });
+            result.prStackExecution = { stackId: stackPlan.stackId, state: "handoff", currentPrIndex: groupIndex, totalPrs: group.length };
+            checkpoint("feature_bundle_pr_stack_handoff");
             const execution = await runPrStackExecution(config, { stackPlanPath: planPath });
+            result.prStackExecution = { stackId: stackPlan.stackId, state: execution.outcome || (execution.ok ? "complete" : "blocked"), currentPrIndex: groupIndex, totalPrs: group.length };
+            checkpoint("feature_bundle_pr_stack_handoff_complete");
             if (!execution.ok && execution.outcome !== "waiting") return { ...execution, stackId: stackPlan.stackId, planPath };
             executions.push({ ...execution, stackId: stackPlan.stackId, planPath });
           }
           return { ok: true, outcome: executions.some((entry) => entry.outcome === "waiting") ? "waiting" : "complete", executions };
         },
       });
+      checkpoint("feature_bundle_split_materialization", {
+        featureBundleSplit: { planDigest: result.largeCandidateReview.planDigest, state: "materializing" },
+      });
       result.splitMaterialization = await materializeFeatureBundleSplit(splitInput, adapter);
+      checkpoint("feature_bundle_split_materialization_complete");
       if (!result.splitMaterialization.ok) return stopBundle(result, "blocked", result.splitMaterialization.reasonCode, "Deterministic split materialization failed closed before PR-stack convergence.");
       result.outcome = result.splitMaterialization.outcome;
       recovery?.marker("deterministic_split_materialized", result.largeCandidateReview.planDigest, { target: bundleBranchName, correlation: plan.planDigest });
