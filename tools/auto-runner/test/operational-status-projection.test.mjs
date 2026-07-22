@@ -142,7 +142,7 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
     if (args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
     if (args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: head, baseRefName: "main", statusCheckRollup: [] }) };
     if (args[0] === "api" && args[1] === "graphql") return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo: { hasNextPage: false } } } } } }) };
-    if (args[0] === "api" && String(args[1]).includes("/reviews")) return { status: 0, stdout: JSON.stringify([{ commit_id: head, user: { login: "chatgpt-codex-connector" } }]) };
+    if (args[0] === "api" && String(args[1]).includes("/reviews")) return { status: 0, stdout: JSON.stringify([{ commit_id: head, user: { login: "chatgpt-codex-connector[bot]" } }]) };
     if (args[0] === "api" && args[1] === "--method") return { status: 0, stdout: "[]" };
     return { status: 1, stdout: "" };
   };
@@ -158,7 +158,7 @@ test("production adapters use only fixed read-only git and GitHub commands", asy
 
 test("production GitHub projection enforces required-check and neutral policies", async () => {
   const required = ["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"];
-  const modelFor = async (checks) => {
+  const modelFor = async (checks, reviews = [{ commit_id: head, user: { login: "chatgpt-codex-connector[bot]" } }, { commit_id: head, user: { login: "friendly-codex-reviewer" } }]) => {
     const spawnSync = (command, args) => {
       if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
       if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${args.at(-1) === "origin/main" ? main : head}\n` };
@@ -167,7 +167,7 @@ test("production GitHub projection enforces required-check and neutral policies"
       if (command === "gh" && args[0] === "issue") return { status: 0, stdout: JSON.stringify({ number: 927, state: "OPEN", labels: [] }) };
       if (command === "gh" && args[0] === "pr") return { status: 0, stdout: JSON.stringify({ number: 942, state: "OPEN", headRefName: "feature/auto-927", headRefOid: head, baseRefName: "main", statusCheckRollup: checks }) };
       if (command === "gh" && args[0] === "api" && args[1] === "graphql") return { status: 0, stdout: JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [{ isResolved: false }], pageInfo: { hasNextPage: false } } } } } }) };
-      if (command === "gh" && args[0] === "api" && String(args[1]).includes("/reviews")) return { status: 0, stdout: JSON.stringify([{ commit_id: head, user: { login: "chatgpt-codex-connector" } }]) };
+      if (command === "gh" && args[0] === "api" && String(args[1]).includes("/reviews")) return { status: 0, stdout: JSON.stringify(reviews) };
       if (command === "gh" && args[0] === "api" && args[1] === "--method") return { status: 0, stdout: JSON.stringify([{ state: "open" }]) };
       return { status: 1, stdout: "" };
     };
@@ -185,6 +185,7 @@ test("production GitHub projection enforces required-check and neutral policies"
   assert.equal(live.review.unresolvedThreads, 1);
   assert.equal(live.review.scannerStatus, "open_alerts");
   assert.equal(live.review.openAlerts, 1);
+  assert.equal((await modelFor(successes, [{ commit_id: head, user: { login: "friendly-codex-reviewer" } }])).review.githubCodexStatus, "pending");
 });
 
 test("production GitHub projection rejects incomplete PR identity before local fallback", async () => {
@@ -308,6 +309,20 @@ test("separate contradictory ledger posture lines fail closed in either order", 
     assert.equal(model.status, "blocked");
     assert.ok(model.blockers.includes("ledger_issue_posture_ambiguous"));
   }
+});
+
+test("multi-issue ledger clauses associate posture only with their referenced issue group", async () => {
+  const spawnSync = (command, args) => {
+    if (command === "git" && args[1] === "branch") return { status: 0, stdout: "feature/auto-927\n" };
+    if (command === "git" && args[1] === "rev-parse") return { status: 0, stdout: `${head}\n` };
+    if (command === "git" && args[1] === "status") return { status: 0, stdout: "" };
+    if (command === "git" && args[1] === "show") return { status: 0, stdout: "#928/#929 are closed and #927 remains open.\n" };
+    return { status: 1, stdout: "" };
+  };
+  const production = createProjectionAdapters({ repoRoot: "/repo", repositorySlug: "tommytang213/Settleora" }, { spawnSync, getRunnerStatus: () => ({ active: false, activeRunId: "run-ledger-group", currentOrLastIssue: { number: 927 }, operationalProjection: {} }), readSupervisorProjection: () => ({ ok: true, value: {} }) });
+  const model = await buildOperationalStatusProjection(production, { now: () => new Date(0) });
+  assert.equal(model.ledger.consistency, "consistent_or_unproven");
+  assert.equal(model.blockers.includes("ledger_issue_posture_ambiguous"), false);
 });
 
 test("production adapters preserve pre-PR checkpoint branch and head identity", async () => {

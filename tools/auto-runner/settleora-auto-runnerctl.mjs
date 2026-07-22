@@ -413,11 +413,21 @@ function readProjectionLedger(gitRead, status) {
   const matchingLines = ledger.value.split("\n").filter((line) => [...line.matchAll(/#([1-9]\d{0,8})\b/g)].some((match) => Number(match[1]) === issueNumber));
   if (matchingLines.length > 100) return { ok: false, reasonCode: "ledger_issue_posture_truncated" };
   const relevantLines = matchingLines.map((line) => line.slice(0, 240));
-  const postures = relevantLines.map((line) => ({ open: /\b(?:remains|is|stays) open\b/i.test(line), closed: /\b(?:is |was )?closed\b/i.test(line) }));
+  const postures = relevantLines.map((line) => ledgerPostureForIssue(line, issueNumber));
   const posture = { open: postures.some((entry) => entry.open), closed: postures.some((entry) => entry.closed) };
   if (posture.open && posture.closed) return { ok: false, reasonCode: "ledger_issue_posture_ambiguous" };
   const observedMainSha = ledger.value.match(/(?:merge commit\/current main|current main(?: sha)?)[^0-9a-f]{0,100}`?([0-9a-f]{40})/i)?.[1] || null;
   return { issueState: posture.open ? "OPEN" : posture.closed ? "CLOSED" : null, observedMainSha, stale: null };
+}
+
+function ledgerPostureForIssue(line, issueNumber) {
+  const posture = { open: false, closed: false };
+  const pattern = /((?:#[1-9]\d{0,8}(?:\s*(?:,|\/|and)\s*)?)+)\s+(?:(?:are|is|was|remain|remains|stay|stays)\s+)?(open|closed)\b/gi;
+  for (const match of line.matchAll(pattern)) {
+    const referenced = [...match[1].matchAll(/#([1-9]\d{0,8})\b/g)].map((entry) => Number(entry[1]));
+    if (referenced.includes(issueNumber)) posture[match[2].toLowerCase()] = true;
+  }
+  return posture;
 }
 
 function readProjectionSupervisor(config, status) {
@@ -464,7 +474,7 @@ function readProjectionGithub(config, status, run) {
     if (!Array.isArray(alerts) || alerts.length >= 100) return { ok: false, reasonCode: "github_code_scanning_alerts_read_failed" };
     const confirmedPr = readGhJson(run, config, prArgs);
     if (!validProjectionPr(confirmedPr, prNumber) || !sameProjectionPrIdentity(pr, confirmedPr)) return { ok: false, reasonCode: "github_pr_changed_during_projection_read" };
-    const exactCodexReviews = reviews.filter((review) => review?.commit_id === pr.headRefOid && /codex/i.test(review?.user?.login || ""));
+    const exactCodexReviews = reviews.filter((review) => review?.commit_id === pr.headRefOid && review?.user?.login === "chatgpt-codex-connector[bot]");
     result.pr = {
       number: pr.number, state: pr.state, headRefName: pr.headRefName, headSha: pr.headRefOid, baseRefName: pr.baseRefName,
       checks: summarizeLiveChecks(pr.statusCheckRollup, config.autoMergePolicy),
