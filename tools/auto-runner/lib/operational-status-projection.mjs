@@ -186,7 +186,29 @@ function projectLifecycle(local = {}) { return { classification: "authoritative"
 function projectCounters(local = {}) { const c = local.counters || {}; const b = c.acceptedTaskBudget || {}; return { acceptedTaskBudget: { classification: "authoritative", configured: integer(b.configured), consumed: integer(b.consumed), remaining: integer(b.remaining), chargeIdentity: digest(b.chargeIdentity) || identifier(b.chargeIdentity), chargeStatus: boundedReason(b.chargeStatus) }, localSourceChangingRoundsPerEpoch: counter(c.localSourceChangingRoundsPerEpoch, "authoritative"), githubTriggeredFixEpochsPerPr: counter(c.githubTriggeredFixEpochsPerPr, "authoritative"), lifetimeLocalSourceChangingRounds: counter(c.lifetimeLocalSourceChangingRounds, "telemetryOnly") }; }
 function projectSession(local = {}) { const s = local.session || {}; return { classification: "authoritative", generation: integer(s.generation), phase: boundedReason(s.phase), rotationReason: boundedReason(s.rotationReason), contextPressure: enumValue(s.contextPressure, ["normal", "elevated", "high", "critical", "unknown"]), continuationState: boundedReason(s.continuationState), ownerPosture: boundedReason(s.ownerPosture), terminalPosture: boundedReason(s.terminalPosture) }; }
 function projectRecovery(local = {}) { const r = local.recovery || {}; return { authority: "authoritative", outcomeClass: boundedReason(r.outcomeClass), classification: boundedReason(r.classification), phase: boundedReason(r.phase), nextSafeAction: boundedReason(r.nextSafeAction), reasonCode: boundedReason(r.reasonCode) }; }
-function projectReview(local = {}, liveHead) { const r = local.review || {}; const exactHead = validSha(r.exactHead); const bound = Boolean(exactHead && liveHead && exactHead === liveHead); return { classification: "authoritative_when_exact_head_bound", exactHead, liveHead, validationStatus: bound ? boundedReason(r.validationStatus) : null, geminiStatus: bound ? boundedReason(r.geminiStatus) : null, localCodexStatus: bound ? boundedReason(r.localCodexStatus) : null, githubCodexStatus: bound ? boundedReason(r.githubCodexStatus) : null, ciStatus: bound ? boundedReason(r.ciStatus) : null, scannerStatus: bound ? boundedReason(r.scannerStatus) : null, unresolvedThreads: bound ? integer(r.unresolvedThreads) : null, openAlerts: bound ? integer(r.openAlerts) : null, stale: Boolean(exactHead && liveHead && exactHead !== liveHead), bound }; }
+function projectReview(local = {}, liveHead) {
+  const r = local.review || {};
+  const exactHead = validSha(r.exactHead);
+  const heads = {
+    validation: validSha(r.validationHead), gemini: validSha(r.geminiHead), localCodex: validSha(r.localCodexHead),
+    githubCodex: validSha(r.githubCodexHead), ci: validSha(r.ciHead), scanner: validSha(r.scannerHead),
+  };
+  const current = (name) => Boolean(heads[name] && liveHead && heads[name] === liveHead);
+  const bound = Boolean(exactHead && liveHead && exactHead === liveHead);
+  const staleSources = Object.entries(heads).filter(([, sourceHead]) => sourceHead && liveHead && sourceHead !== liveHead).map(([name]) => name);
+  return {
+    classification: "authoritative_when_exact_head_bound", exactHead, liveHead, sourceHeads: heads,
+    validationStatus: current("validation") ? boundedReason(r.validationStatus) : null,
+    geminiStatus: current("gemini") ? boundedReason(r.geminiStatus) : null,
+    localCodexStatus: current("localCodex") ? boundedReason(r.localCodexStatus) : null,
+    githubCodexStatus: current("githubCodex") ? boundedReason(r.githubCodexStatus) : null,
+    ciStatus: current("ci") ? boundedReason(r.ciStatus) : null,
+    scannerStatus: current("scanner") ? boundedReason(r.scannerStatus) : null,
+    unresolvedThreads: current("githubCodex") ? integer(r.unresolvedThreads) : null,
+    openAlerts: current("scanner") ? integer(r.openAlerts) : null,
+    staleSources, stale: Boolean((exactHead && liveHead && exactHead !== liveHead) || staleSources.length), bound,
+  };
+}
 function projectLargeCandidate(local = {}) { const l = local.largeCandidate || {}; return { classification: "authoritative", route: boundedReason(l.route), coverageStatus: boundedReason(l.coverageStatus), integrationStatus: boundedReason(l.integrationStatus), uncoveredScopeIds: boundedList(l.uncoveredScopeIds, identifier), splitState: boundedReason(l.splitState), stackState: boundedReason(l.stackState), handoffState: boundedReason(l.handoffState) }; }
 function projectEffects(local = {}) { const e = local.effects || {}; return { classification: "authoritative", pendingIntentCount: integer(e.pendingIntentCount), confirmedEffectCount: integer(e.confirmedEffectCount), adoptedEffectCount: integer(e.adoptedEffectCount), nextEffectType: boundedReason(e.nextEffectType) }; }
 function projectSupervisor(local = {}) { const s = local.supervisor || {}; return { classification: "authoritative", runId: identifier(s.runId), state: boundedReason(s.state), heartbeatPosture: boundedReason(s.heartbeatPosture), leasePosture: boundedReason(s.leasePosture), reportCorrelation: identifier(s.reportCorrelation) }; }

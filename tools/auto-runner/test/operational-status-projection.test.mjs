@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -28,7 +28,7 @@ function adapters(overrides = {}) {
       counters: { acceptedTaskBudget: { configured: 3, consumed: 1, remaining: 2, chargeIdentity: "20260722-1019", chargeStatus: "charged" }, localSourceChangingRoundsPerEpoch: { value: 4, limit: 50 }, githubTriggeredFixEpochsPerPr: { value: 2, limit: 50 }, lifetimeLocalSourceChangingRounds: { value: 87 } },
       recovery: { classification: "safe_boundary", phase: "local_validation", nextSafeAction: "run_validation" },
       session: { generation: 2, phase: "active", rotationReason: "context_pressure", contextPressure: "elevated", continuationState: "resumed", ownerPosture: "owner" },
-      review: { exactHead: head, validationStatus: "pass", geminiStatus: "pass", localCodexStatus: "pass", githubCodexStatus: "pending", ciStatus: "pending", scannerStatus: "pending", unresolvedThreads: 0, openAlerts: 0 },
+      review: { exactHead: head, validationHead: head, geminiHead: head, localCodexHead: head, githubCodexHead: head, ciHead: head, scannerHead: head, validationStatus: "pass", geminiStatus: "pass", localCodexStatus: "pass", githubCodexStatus: "pending", ciStatus: "pending", scannerStatus: "pending", unresolvedThreads: 0, openAlerts: 0 },
       largeCandidate: { route: "coherent_large", coverageStatus: "complete", integrationStatus: "complete", splitState: "not_required", stackState: "not_required", uncoveredScopeIds: [] },
       effects: { pendingIntentCount: 0, confirmedEffectCount: 3, adoptedEffectCount: 1, nextEffectType: "review_request" },
       supervisor: { runId: "20260722-1019", state: "active", heartbeatPosture: "fresh", leasePosture: "held", reportCorrelation: "20260722-1019" },
@@ -75,6 +75,17 @@ test("JSON and Markdown use the same normalized model", async () => {
   assert.match(markdown, new RegExp(model.task.headSha));
   assert.match(markdown, new RegExp(model.nextSafeAction));
   assert.match(markdown, new RegExp(String(model.counters.acceptedTaskBudget.remaining)));
+});
+
+test("each review result is independently exact-head bound", async () => {
+  const baseLocal = await adapters().local.read();
+  const model = await buildOperationalStatusProjection(adapters({
+    local: { ...baseLocal, review: { ...baseLocal.review, validationHead: main, geminiHead: main } },
+  }), { now: () => new Date(0) });
+  assert.equal(model.review.validationStatus, null);
+  assert.equal(model.review.geminiStatus, null);
+  assert.equal(model.review.localCodexStatus, "pass");
+  assert.deepEqual(model.review.staleSources, ["validation", "gemini"]);
 });
 
 test("reads are side-effect-free and invoke each injected adapter exactly once", async () => {
@@ -191,6 +202,17 @@ test("active-run persistence retains the bounded operational projection from the
   const status = getRunnerStatus(config);
   assert.equal(status.operationalProjection.recovery.nextSafeAction, "run_tests");
   assert.equal(status.currentOrLastPr.baseRefName, "feature/stack-a");
+});
+
+test("a live lock rejects a differently identified stale active-run record", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-owner-conflict-"));
+  mkdirSync(path.join(logsRoot, "state"), { recursive: true });
+  mkdirSync(path.join(logsRoot, "locks"), { recursive: true });
+  writeFileSync(path.join(logsRoot, "locks", "settleora-auto-runner.lock"), JSON.stringify({ pid: process.pid, runId: "run-live" }));
+  writeFileSync(path.join(logsRoot, "state", "active-run.json"), JSON.stringify({ pid: 99999999, runId: "run-stale", startedAt: new Date().toISOString(), iterations: [] }));
+  const status = getRunnerStatus({ logsRoot });
+  assert.equal(status.active, true);
+  assert.equal(status.authorityHealth.activeOwnerConflict, true);
 });
 
 test("output bounds reject unbounded models", async () => {
