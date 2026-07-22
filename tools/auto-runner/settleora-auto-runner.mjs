@@ -2137,7 +2137,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             branchName: continuation.branchName,
             identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
             phase: "candidate_reconciliation",
-            counters: { ...continuation.counters, sourceRounds: continuation.counters.sourceRounds + 1 },
+            counters: {
+              ...continuation.counters,
+              localSourceChangingRoundsPerEpoch: continuation.counters.localSourceChangingRoundsPerEpoch + 1,
+              lifetimeLocalSourceChangingRounds: continuation.counters.lifetimeLocalSourceChangingRounds + 1,
+            },
           });
           await persist(next);
         },
@@ -2194,7 +2198,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       }
       if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
       const finalGithubState = recovered?.githubState || recovered?.autoMerge?.finalGithubState || null;
-      if (!finalGithubState || (finalGithubState.inspectedHeadSha && finalGithubState.inspectedHeadSha !== candidate.headSha)) return { ok: false, reasonCode: "ordinary_continuation_final_github_inspection_missing_or_stale" };
+      const inspectedHead = finalGithubState?.inspectedHeadSha || finalGithubState?.pr?.headRefOid || null;
+      if (!finalGithubState || !inspectedHead || inspectedHead !== candidate.headSha) return { ok: false, reasonCode: "ordinary_continuation_final_github_inspection_missing_or_stale" };
       const sourceFailures = sourceFailuresFromGithubEvidence(finalGithubState, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: continuation.logicalTaskKey, branchName: continuation.branchName, prNumber, identity: candidate, inContract: true });
       if (sourceFailures.length > 0) return { ok: true, sourceFailures };
       return { ok: false, reasonCode: recovered?.autoMerge?.reason || recovered?.reason || "ordinary_continuation_github_convergence_blocked" };
@@ -2326,8 +2331,9 @@ function refreshOrdinaryContinuationAfterSourceChange(config, recoveryRecorder, 
     phase: "candidate_reconciliation",
     counters: {
       acceptedLogicalTasks: prior?.counters?.acceptedLogicalTasks ?? 1,
-      sourceRounds: (prior?.counters?.sourceRounds ?? 0) + 1,
-      githubEpochs: prior?.counters?.githubEpochs ?? 0,
+      localSourceChangingRoundsPerEpoch: (prior?.counters?.localSourceChangingRoundsPerEpoch ?? 0) + 1,
+      lifetimeLocalSourceChangingRounds: (prior?.counters?.lifetimeLocalSourceChangingRounds ?? prior?.counters?.sourceRounds ?? 0) + 1,
+      githubTriggeredFixEpochsPerPr: prior?.counters?.githubTriggeredFixEpochsPerPr ?? prior?.counters?.githubEpochs ?? 0,
     },
   });
   return recoveryRecorder.headChanged(iteration.runnerCreatedCommitSha, reasonCode, { ordinaryContinuation });

@@ -7,6 +7,7 @@ import {
   normalizeSourceFailure,
   sourceFailureStatusProjection,
   sourceFailuresFromGithubEvidence,
+  sourceFailuresFromValidation,
 } from "../lib/source-failure-convergence.mjs";
 import { continueOrdinaryCandidate, createOrdinaryContinuationState } from "../lib/ordinary-candidate-continuation.mjs";
 import { inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation } from "../lib/validation-planner.mjs";
@@ -37,6 +38,8 @@ test("classifies pending transient auth actionable and ambiguous CI without gues
   assert.equal(classifySourceFailure({ sourceKind: "github_check", structuredEvidence: true, diagnostic: "missing secret for registry" }).classification, "credential_or_auth_required");
   assert.equal(classifySourceFailure({ sourceKind: "github_check", structuredEvidence: true, failureType: "source", diagnostic: "compiler error" }).classification, "source_fix_safe");
   assert.equal(classifySourceFailure({ sourceKind: "github_check", status: "failure", structuredEvidence: false }).classification, "unsafe_or_ambiguous");
+  const [inferred] = sourceFailuresFromValidation({ passed: false, profile: "workflow-tooling", results: [{ command: "npm test", status: 1, stderr: "dependency download timeout; build failed with exit code 1" }] }, { identity: identity(), inContract: true });
+  assert.equal(freezeSourceFailureBatch([inferred], identity()).findings[0].classification, "retryable_infrastructure");
 });
 
 test("scanner findings require exact structured identity and reject suppression", () => {

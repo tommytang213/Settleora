@@ -155,7 +155,7 @@ export function sourceFailuresFromValidation(validation = {}, context = {}) {
     structuredEvidence: typeof failed.command === "string" && (Number.isInteger(failed.status) || Boolean(failed.error)),
     commandId: validation.profile || context.profile || "validation",
     diagnostic,
-    failureType: sourceDefect.test(diagnostic) ? "source" : null,
+    failureType: context.failureType === "source" ? "source" : null,
     status: failed.status,
   }];
 }
