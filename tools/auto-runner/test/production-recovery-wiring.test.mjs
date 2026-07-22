@@ -283,20 +283,23 @@ test("charged startup recovery is resumed before the accepted-task cap stops new
   assert.doesNotMatch(source, /summary\.acceptedLogicalTaskCount < config\.maxIterations; index/);
 });
 
-test("operational projection checkpoints cover long-running ordinary candidate phases", () => {
+test("operational projection checkpoints bracket long-running ordinary candidate phases", () => {
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
-  for (const phase of [
-    "iteration.validation = runValidationPlan",
-    "iteration.externalReview = await runIntegratedReviewSource",
-    "iteration.review = runReviewPrompt",
-    "iteration.push = await pushBranch",
-    "iteration.pr = await openOrUpdatePr",
-    "iteration.ci = watchChecks",
-    "iteration.autoMerge = await evaluateOrExecuteAutoMerge",
+  for (const [phase, operation] of [
+    ["local_validation", "iteration.validation = runValidationPlan"],
+    ["external_review", "iteration.externalReview = await runIntegratedReviewSource"],
+    ["local_codex_review", "iteration.review = runReviewPrompt"],
+    ["push", "iteration.push = await pushBranch"],
+    ["pr_create_recover", "iteration.pr = await openOrUpdatePr"],
+    ["ci_wait", "iteration.ci = watchChecks"],
+    ["exact_head_final_refresh", "iteration.autoMerge = await evaluateOrExecuteAutoMerge"],
   ]) {
-    const phaseOffset = runner.indexOf(phase);
-    assert.notEqual(phaseOffset, -1, `missing phase: ${phase}`);
-    const nextCheckpoint = runner.indexOf("checkpoint(iteration);", phaseOffset);
-    assert.ok(nextCheckpoint > phaseOffset && nextCheckpoint - phaseOffset < 1_800, `missing bounded checkpoint after ${phase}`);
+    const operationOffset = runner.indexOf(operation);
+    assert.notEqual(operationOffset, -1, `missing operation: ${operation}`);
+    const phaseOffset = runner.lastIndexOf(`iteration.phase = "${phase}";`, operationOffset);
+    const preCheckpoint = runner.indexOf("checkpoint(iteration);", phaseOffset);
+    const postCheckpoint = runner.indexOf("checkpoint(iteration);", operationOffset);
+    assert.ok(phaseOffset >= 0 && preCheckpoint > phaseOffset && preCheckpoint < operationOffset, `missing pre-operation checkpoint for ${phase}`);
+    assert.ok(postCheckpoint > operationOffset && postCheckpoint - operationOffset < 1_800, `missing completion checkpoint for ${phase}`);
   }
 });

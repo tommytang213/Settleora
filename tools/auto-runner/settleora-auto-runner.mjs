@@ -402,6 +402,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.finishedAt = new Date().toISOString();
       return iteration;
     }
+    iteration.phase = "startup_recovery";
+    checkpoint(iteration);
     const continuation = startupRecovery.allowed
       ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery)
       : await executeStartupContinuation(config, startupRecovery);
@@ -600,6 +602,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   if ((issue.labels || []).includes("auto-bundle")) {
     const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
+    iteration.phase = "feature_bundle";
+    checkpoint(iteration);
     const bundleResult = await runFeatureBundleIteration(config, logger, {
       runId,
       index,
@@ -631,6 +635,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     }
     iteration.runnerCreatedCommitSha = config.dryRun ? null : (bundleResult.stopReason ? null : getRefSha("HEAD"));
     iteration.outcome = bundleResult.outcome || (bundleResult.ok ? "approved_pr_opened" : "auto_failed");
+    iteration.phase = "feature_bundle_complete";
     checkpoint(iteration);
     if (!config.dryRun) {
       const detail = bundleResult.pr?.url ? `\n\nPR: ${bundleResult.pr.url}` : "";
@@ -659,6 +664,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
 
+  iteration.phase = "existing_pr_recovery";
+  checkpoint(iteration);
   const recovery = await recoverExistingPrIfConfigured(config, logger, issue, laneDecision, null, {
     runId,
     index,
@@ -675,6 +682,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.baseOriginMainSha = recovery.baseOriginMainSha;
     iteration.runnerCreatedCommitSha = recovery.expectedHeadSha;
     iteration.outcome = recovery.autoMerge?.result === "merged" ? "auto_merged" : "auto_failed";
+    iteration.phase = "existing_pr_recovery_complete";
     checkpoint(iteration);
     if (iteration.outcome !== "auto_merged" && !recovery.terminalMutationBlocked) {
       iteration.issueComment = finishIssueOutcome(
@@ -826,7 +834,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   const validationPlan = planValidation(changedFiles, laneDecision);
+  iteration.phase = "local_validation";
+  checkpoint(iteration);
   iteration.validation = runValidationPlan(config, validationPlan);
+  iteration.phase = "local_validation_complete";
   recoveryRecorder?.evidence("localValidation", {
     status: iteration.validation.passed ? "passed" : "failed",
     headSha: config.dryRun ? null : getRefSha("HEAD"),
@@ -957,7 +968,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     diffBaseRef: "origin/main",
     diffHeadRef: "HEAD",
   });
+  iteration.phase = "external_review";
+  checkpoint(iteration);
   iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
+  iteration.phase = "external_review_complete";
   iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
   checkpoint(iteration);
   if (iteration.reviewMutationGuard.mutationDetected) {
@@ -1087,7 +1101,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   if (!iteration.review) {
     recoveryRecorder?.advance("codex_mechanics_security_review", "run_codex_mechanics_review");
+    iteration.phase = "local_codex_review";
+    checkpoint(iteration);
     iteration.review = runReviewPrompt(config, { ...iteration.reviewPackage, sessionLifecycle: iteration.sessionLifecycle || iteration.issue?.sessionLifecycle || null });
+    iteration.phase = "local_codex_review_complete";
     if (iteration.review.sessionLifecycle) {
       iteration.sessionLifecycle = iteration.review.sessionLifecycle;
       issue.sessionLifecycle = iteration.review.sessionLifecycle;
@@ -1490,7 +1507,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   recoveryRecorder?.advance("push", "push_branch");
+  iteration.phase = "push";
+  checkpoint(iteration);
   iteration.push = await pushBranch(config, branchName, { effectContext: promptInfo.sessionLifecycle?.state });
+  iteration.phase = "push_complete";
   checkpoint(iteration);
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
@@ -1507,7 +1527,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   recoveryRecorder?.marker("push", `branch-${branchName}`, { target: branchName, correlation: iteration.runnerCreatedCommitSha || runId });
   recoveryRecorder?.advance("pr_create_recover", "open_or_recover_pr");
+  iteration.phase = "pr_create_recover";
+  checkpoint(iteration);
   iteration.pr = await openOrUpdatePr(config, issue, branchName, prSummary(iteration), { effectContext: promptInfo.sessionLifecycle?.state });
+  iteration.phase = "pr_create_recover_complete";
   checkpoint(iteration);
   if (iteration.pr?.url || iteration.pr?.number) {
     recoveryRecorder?.setPr(iteration.pr);
@@ -1518,7 +1541,10 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
   if (!config.dryRun && iteration.pr.url) {
     recoveryRecorder?.advance("ci_wait", "wait_for_checks");
+    iteration.phase = "ci_wait";
+    checkpoint(iteration);
     iteration.ci = watchChecks(config, iteration.pr.url);
+    iteration.phase = "ci_wait_complete";
     checkpoint(iteration);
     recoveryRecorder?.evidence("ciChecks", {
       status: "recorded",
@@ -1529,6 +1555,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
   }
   recoveryRecorder?.advance("exact_head_final_refresh", "evaluate_merge_or_pr_state");
+  iteration.phase = "exact_head_final_refresh";
+  checkpoint(iteration);
   iteration.autoMerge = await evaluateOrExecuteAutoMerge(config, {
     issue,
     iteration,
@@ -1536,6 +1564,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFiles,
     forbidden,
   });
+  iteration.phase = "exact_head_final_refresh_complete";
   checkpoint(iteration);
   if (iteration.autoMerge.result === "merged") {
     recoveryRecorder?.advance("merge", "merge_confirmed");
