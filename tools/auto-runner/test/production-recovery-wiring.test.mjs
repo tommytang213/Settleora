@@ -282,3 +282,21 @@ test("charged startup recovery is resumed before the accepted-task cap stops new
   assert.match(source, /iteration\.issueSource === "startup_recovery" && summary\.acceptedLogicalTaskCount >= config\.maxIterations\) \{\n\s+chargedRecoveryCapBypassConsumed = true;/);
   assert.doesNotMatch(source, /summary\.acceptedLogicalTaskCount < config\.maxIterations; index/);
 });
+
+test("operational projection checkpoints cover long-running ordinary candidate phases", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  for (const phase of [
+    "iteration.validation = runValidationPlan",
+    "iteration.externalReview = await runIntegratedReviewSource",
+    "iteration.review = runReviewPrompt",
+    "iteration.push = await pushBranch",
+    "iteration.pr = await openOrUpdatePr",
+    "iteration.ci = watchChecks",
+    "iteration.autoMerge = await evaluateOrExecuteAutoMerge",
+  ]) {
+    const phaseOffset = runner.indexOf(phase);
+    assert.notEqual(phaseOffset, -1, `missing phase: ${phase}`);
+    const nextCheckpoint = runner.indexOf("checkpoint(iteration);", phaseOffset);
+    assert.ok(nextCheckpoint > phaseOffset && nextCheckpoint - phaseOffset < 1_800, `missing bounded checkpoint after ${phase}`);
+  }
+});

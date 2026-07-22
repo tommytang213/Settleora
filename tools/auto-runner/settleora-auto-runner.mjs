@@ -430,6 +430,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
         ? `recoverable-work-stopped:${recoveryReasonCode}`
         : null;
     iteration.finishedAt = new Date().toISOString();
+    checkpoint(iteration);
     logger.info(
       startupRecovery.allowed
         ? `Recoverable auto-runner state for issue #${startupRecovery.state?.issueNumber} executed phase ${iteration.recovery?.executedPhase || "unknown"}.`
@@ -630,6 +631,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     }
     iteration.runnerCreatedCommitSha = config.dryRun ? null : (bundleResult.stopReason ? null : getRefSha("HEAD"));
     iteration.outcome = bundleResult.outcome || (bundleResult.ok ? "approved_pr_opened" : "auto_failed");
+    checkpoint(iteration);
     if (!config.dryRun) {
       const detail = bundleResult.pr?.url ? `\n\nPR: ${bundleResult.pr.url}` : "";
       const reason = bundleResult.stopReason?.reason ? `\nReason: ${bundleResult.stopReason.reason}` : "";
@@ -653,6 +655,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       }
     }
     iteration.finishedAt = new Date().toISOString();
+    checkpoint(iteration);
     return iteration;
   }
 
@@ -672,6 +675,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.baseOriginMainSha = recovery.baseOriginMainSha;
     iteration.runnerCreatedCommitSha = recovery.expectedHeadSha;
     iteration.outcome = recovery.autoMerge?.result === "merged" ? "auto_merged" : "auto_failed";
+    checkpoint(iteration);
     if (iteration.outcome !== "auto_merged" && !recovery.terminalMutationBlocked) {
       iteration.issueComment = finishIssueOutcome(
         config,
@@ -830,6 +834,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFiles,
     summary: "checkpoint validation",
   });
+  checkpoint(iteration);
   if (!iteration.validation.passed) {
     iteration.outcome = "validation_failed";
     iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, validationFailureBody(issue, iteration.validation));
@@ -919,6 +924,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFilesDigest: iteration.validation.changedFilesDigest,
     summary: "exact-head validation",
   });
+  checkpoint(iteration);
 
   if (recoveryRecorder) {
     const identity = {
@@ -953,6 +959,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   });
   iteration.externalReview = await runIntegratedReviewSource(config, iteration.reviewPackage, "pre-fix");
   iteration.reviewMutationGuard = compareFingerprints(beforeReview, await checkoutFingerprint());
+  checkpoint(iteration);
   if (iteration.reviewMutationGuard.mutationDetected) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(config, issue, iteration.outcome, `Auto-runner blocked #${issue.number} because external pre-PR review mutated the checkout.`);
@@ -1057,6 +1064,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
+    checkpoint(iteration);
     if (iteration.reviewMutationGuard?.mutationDetected) {
       return stopForPostFixReviewMutation(config, issue, iteration, recoveryRecorder, "review_fix_review_mutated_checkout");
     }
@@ -1085,6 +1093,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       issue.sessionLifecycle = iteration.review.sessionLifecycle;
       if (promptInfo.sessionLifecycle) promptInfo.sessionLifecycle = { ...promptInfo.sessionLifecycle, state: iteration.review.sessionLifecycle };
     }
+    checkpoint(iteration);
     const afterReview = await checkoutFingerprint();
     iteration.reviewMutationGuard = compareFingerprints(beforeReview, afterReview);
     if (iteration.reviewMutationGuard.mutationDetected) {
@@ -1205,6 +1214,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
+      checkpoint(iteration);
       if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
@@ -1326,6 +1336,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       iteration.reviewPackage = postFix.reviewPackage;
       iteration.externalReview = postFix.externalReview;
       iteration.review = postFix.review;
+      checkpoint(iteration);
       if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
       iteration.reviewMutationGuard = postFix.reviewMutationGuard;
       if (iteration.reviewMutationGuard?.mutationDetected) {
@@ -1454,6 +1465,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.reviewPackage = postFix.reviewPackage;
     iteration.externalReview = postFix.externalReview;
     iteration.review = postFix.review;
+    checkpoint(iteration);
     if (!await refreshNormalLargeCandidateReviewAfterFix(config, iteration, postFix.changedFiles, issue, recoveryRecorder)) return iteration;
     iteration.reviewMutationGuard = postFix.reviewMutationGuard;
     if (iteration.reviewMutationGuard?.mutationDetected) {
@@ -1479,6 +1491,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   recoveryRecorder?.advance("push", "push_branch");
   iteration.push = await pushBranch(config, branchName, { effectContext: promptInfo.sessionLifecycle?.state });
+  checkpoint(iteration);
   if (!config.dryRun && (iteration.push.error || iteration.push.status !== 0)) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(
@@ -1495,6 +1508,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   recoveryRecorder?.marker("push", `branch-${branchName}`, { target: branchName, correlation: iteration.runnerCreatedCommitSha || runId });
   recoveryRecorder?.advance("pr_create_recover", "open_or_recover_pr");
   iteration.pr = await openOrUpdatePr(config, issue, branchName, prSummary(iteration), { effectContext: promptInfo.sessionLifecycle?.state });
+  checkpoint(iteration);
   if (iteration.pr?.url || iteration.pr?.number) {
     recoveryRecorder?.setPr(iteration.pr);
     recoveryRecorder?.marker("pr_create", `issue-${issue.number}`, {
@@ -1505,6 +1519,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   if (!config.dryRun && iteration.pr.url) {
     recoveryRecorder?.advance("ci_wait", "wait_for_checks");
     iteration.ci = watchChecks(config, iteration.pr.url);
+    checkpoint(iteration);
     recoveryRecorder?.evidence("ciChecks", {
       status: "recorded",
       headSha: iteration.runnerCreatedCommitSha,
@@ -1521,6 +1536,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     changedFiles,
     forbidden,
   });
+  checkpoint(iteration);
   if (iteration.autoMerge.result === "merged") {
     recoveryRecorder?.advance("merge", "merge_confirmed");
     recoveryRecorder?.marker("merge", `pr-${iteration.pr?.number || iteration.pr?.url}-${iteration.runnerCreatedCommitSha || "head"}`, {
