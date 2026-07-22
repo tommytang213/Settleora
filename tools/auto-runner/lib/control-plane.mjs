@@ -261,7 +261,10 @@ function readLockOnlyPrStackProjection(config, lock) {
   if (!Number.isSafeInteger(plan.issueNumber) || plan.issueNumber <= 0) {
     return { ok: false, reasonCode: "stack_active_issue_identity_missing", issue: null, pr: null };
   }
-  const headSha = state?.exactHeads?.[activePrNumber] || sourcePr.headRefOid || null;
+  const headSha = state ? state.exactHeads?.[activePrNumber] : sourcePr.headRefOid;
+  if (state && (headSha === null || headSha === undefined || headSha === "")) {
+    return { ok: false, reasonCode: "stack_active_pr_head_missing", issue: null, pr: null };
+  }
   if (typeof headSha !== "string" || !/^[0-9a-f]{40}$/i.test(headSha)) {
     return { ok: false, reasonCode: "stack_active_pr_head_invalid", issue: null, pr: null };
   }

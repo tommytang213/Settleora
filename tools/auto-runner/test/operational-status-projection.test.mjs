@@ -465,6 +465,7 @@ test("corrupt, multiple-active, contradictory repository, PR, and stale-head fix
     { local: { active: true, task: { headSha: "e".repeat(40) } }, reason: "stale_head_identity_conflict" },
     { local: { active: true, task: { branch: "other-branch" } }, reason: "active_repository_branch_identity_conflict" },
     { local: { ...await adapters().local.read(), review: { exactHead: "e".repeat(40) } }, reason: "stale_exact_head_evidence" },
+    { local: { ...await adapters().local.read(), active: true, task: { headSha: "not-a-sha" } }, reason: "active_task_head_identity_invalid" },
     { local: { ...await adapters().local.read(), review: { validationStatus: "pass" } }, reason: "review_exact_head_missing" },
     { repository: { ...await adapters().repository.read(), headSha: "e".repeat(40) }, reason: "active_repository_head_identity_conflict" },
   ];
@@ -780,6 +781,11 @@ test("a live lock-only PR-stack run is an authoritative owner with its trusted c
   const missingActivePr = getRunnerStatus(runtimeConfig);
   assert.equal(missingActivePr.authorityHealth.stackAuthorityMalformed, true);
   assert.equal(missingActivePr.authorityHealth.stackAuthorityReason, "stack_active_pr_identity_missing");
+
+  writeFileSync(stackStatePath, JSON.stringify({ stateVersion: 1, stackId: "stack-927", repository: "tommytang213/Settleora", activePrNumber: 942, orderedPrs, exactHeads: {} }), { mode: 0o600 });
+  const missingHead = getRunnerStatus(runtimeConfig);
+  assert.equal(missingHead.authorityHealth.stackAuthorityMalformed, true);
+  assert.equal(missingHead.authorityHealth.stackAuthorityReason, "stack_active_pr_head_missing");
 
   writeFileSync(stackStatePath, JSON.stringify({ stateVersion: 1, stackId: "stack-927", repository: "tommytang213/Settleora", activePrNumber: 942, orderedPrs, exactHeads: { 942: "not-a-sha" } }), { mode: 0o600 });
   const malformedHead = getRunnerStatus(runtimeConfig);

@@ -187,6 +187,7 @@ function reconcileConflicts(repository, github, local) {
   if (Number(github?.pr?.review?.unresolvedThreads) > 0) reasons.push("github_unresolved_review_threads");
   if (github?.pr?.scanner?.status && github.pr.scanner.status !== "pass") reasons.push("github_code_scanning_alerts_open");
   if (github?.pr?.blockingMarker) reasons.push("github_blocking_comment_or_review_marker");
+  if (local?.active === true && local?.task?.headSha != null && local.task.headSha !== "" && !validSha(local.task.headSha)) reasons.push("active_task_head_identity_invalid");
   if (local?.active === true && local?.task?.branch && repository?.currentBranch && local.task.branch !== repository.currentBranch) reasons.push("active_repository_branch_identity_conflict");
   if (local?.active === true && validSha(local?.task?.headSha) && validSha(repository?.headSha) && local.task.headSha !== repository.headSha) reasons.push("active_repository_head_identity_conflict");
   if (local?.active === true && validSha(local?.task?.baseSha) && validSha(repository?.originMainSha) && local.task.baseSha !== repository.originMainSha) reasons.push("active_repository_base_identity_conflict");
