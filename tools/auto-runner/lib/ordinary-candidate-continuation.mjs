@@ -147,7 +147,7 @@ function normalizeState(value = {}) {
     effects: value.effects && typeof value.effects === "object" ? { ...value.effects } : {},
     counters: {
       acceptedLogicalTasks: Number(value.counters?.acceptedLogicalTasks ?? 1),
-      localSourceChangingRoundsPerEpoch: Number(value.counters?.localSourceChangingRoundsPerEpoch ?? value.counters?.sourceRounds ?? 0),
+      localSourceChangingRoundsPerEpoch: Number(value.counters?.localSourceChangingRoundsPerEpoch ?? 0),
       githubTriggeredFixEpochsPerPr: Number(value.counters?.githubTriggeredFixEpochsPerPr ?? value.counters?.githubEpochs ?? 0),
       lifetimeLocalSourceChangingRounds: Number(value.counters?.lifetimeLocalSourceChangingRounds ?? value.counters?.sourceRounds ?? 0),
     },

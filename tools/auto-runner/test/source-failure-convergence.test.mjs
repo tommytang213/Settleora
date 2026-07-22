@@ -168,6 +168,18 @@ test("ordinary continuation blocks the fifty-first local source-changing round",
   assert.equal(fixes, 0);
 });
 
+test("legacy lifetime source rounds do not exhaust a fresh per-epoch gate", async () => {
+  const state = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/auto-944-x", identity: identity(), phase: "local_validation", counters: { sourceRounds: 50 } });
+  let fixed = false;
+  const handlers = Object.fromEntries(["external_review", "codex_review", "structured_review", "review_convergence", "push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene"].map((phase) => [phase, async () => ({ ok: true })]));
+  handlers.local_validation = async (current) => fixed ? { ok: true } : { ok: true, sourceFailures: [{ sourceKind: "local_validation", structuredEvidence: true, failureType: "source", diagnostic: "assert failed", identity: current.identity }] };
+  handlers.source_failure_fix = async () => { fixed = true; return { ok: true, sourceChanged: true, identity: identity("f") }; };
+  const result = await continueOrdinaryCandidate(state, handlers);
+  assert.equal(result.ok, true);
+  assert.equal(result.state.counters.localSourceChangingRoundsPerEpoch, 1);
+  assert.equal(result.state.counters.lifetimeLocalSourceChangingRounds, 51);
+});
+
 test("ordinary mobile profile adds one Android APK proof and retains external unsupported platforms", () => {
   const lane = { lane: "mobile-application", canonicalLane: "mobile-application", validationProfile: "mobile" };
   const requirements = inferMobileBuildPlatformRequirements(["apps/mobile/lib/example.dart"], lane);

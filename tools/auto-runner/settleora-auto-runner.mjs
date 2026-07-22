@@ -1949,7 +1949,12 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     branchName: state.branch.name,
     identity: { ...identity, changedFiles: listChangedFiles(identity.baseSha, identity.headSha) },
     phase: "candidate_reconciliation",
-    counters: { acceptedLogicalTasks: 1, sourceRounds: state.reviewConvergenceState?.counters?.lifetimeLocalSourceChangingRounds || 0, githubEpochs: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0 },
+    counters: {
+      acceptedLogicalTasks: 1,
+      localSourceChangingRoundsPerEpoch: state.reviewConvergenceState?.counters?.localSourceChangingRoundsPerEpoch || 0,
+      lifetimeLocalSourceChangingRounds: state.reviewConvergenceState?.counters?.lifetimeLocalSourceChangingRounds || 0,
+      githubTriggeredFixEpochsPerPr: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0,
+    },
   });
   fetchOriginMain(config);
   const liveHeadAtRecovery = getRefSha("HEAD");
