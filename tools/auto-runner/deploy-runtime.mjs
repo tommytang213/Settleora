@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { acquireRuntimeDeploymentLock, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle } from "./lib/runtime-bundle.mjs";
+import { acquireRuntimeDeploymentLock, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "./lib/runtime-bundle.mjs";
 
 const values = new Map();
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -41,6 +41,7 @@ const status = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, enco
 if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("source repository must be clean and readable");
 const approvedSha = values.get("--approved-sha");
 if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not equal --approved-sha");
+verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha });
 const result = deployRuntimeBundle({
   sourceRoot,
   destination,
@@ -58,6 +59,7 @@ const result = deployRuntimeBundle({
     if (verifiedHead.status !== 0 || verifiedHead.stdout.trim() !== approvedSha || verifiedStatus.status !== 0 || verifiedStatus.stdout) {
       throw new Error("source repository changed during deployment");
     }
+    verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha });
   },
 });
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

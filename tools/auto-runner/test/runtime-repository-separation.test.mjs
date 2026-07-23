@@ -4,7 +4,7 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, 
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle } from "../lib/runtime-bundle.mjs";
+import { buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
 import { absoluteRuntimeEntry, assertSeparatedRoots, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
@@ -37,6 +37,42 @@ test("runtime manifest is deterministic, sorted, generic, and digest verified", 
   assert.equal(first.files.some((file) => /(^|\/)(\.git|node_modules|AGENTS\.md|logs|reports|config)(\/|$)/.test(file.path)), false);
   assert.equal(first.bundleDigest.length, 64);
   assert.deepEqual(runtimeBundleFileList(sourceRoot), first.files.map((file) => file.path));
+});
+
+test("deployment source verification rejects assume-unchanged bytes and ignored runtime files", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-source-commit-"));
+  try {
+    const repo = path.join(root, "repo");
+    const runtimeSource = path.join(repo, "tools/auto-runner");
+    mkdirSync(path.dirname(runtimeSource), { recursive: true });
+    cpSync(sourceRoot, runtimeSource, { recursive: true });
+    git(repo, ["init", "-b", "main"]);
+    git(repo, ["config", "user.email", "runner@example.invalid"]);
+    git(repo, ["config", "user.name", "Runner Test"]);
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-m", "runtime source"]);
+    const approvedSha = git(repo, ["rev-parse", "HEAD"]);
+    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 89);
+    const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
+    git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
+    writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);
+    assert.equal(git(repo, ["status", "--porcelain"]), "");
+    assert.throws(
+      () => verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }),
+      /bytes do not match/,
+    );
+    git(repo, ["update-index", "--no-assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
+    writeFileSync(hiddenPath, execFileSync("git", ["show", `${approvedSha}:tools/auto-runner/lib/runtime-identity.mjs`], { cwd: repo }));
+    writeFileSync(path.join(runtimeSource, "lib/ignored-local.mjs"), "export const unreviewed = true;\n");
+    writeFileSync(path.join(repo, ".git/info/exclude"), "tools/auto-runner/lib/ignored-local.mjs\n");
+    assert.equal(git(repo, ["status", "--porcelain"]), "");
+    assert.throws(
+      () => verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }),
+      /file list does not match/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("copied runtime remains authoritative after managed branch and source changes", () => {

@@ -125,6 +125,46 @@ export function runtimeBundleFileList(sourceRoot) {
   return files;
 }
 
+export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha } = {}) {
+  if (!/^[a-f0-9]{40}$/.test(String(sourceSha || ""))) throw new Error("approved source SHA is required");
+  const repository = canonicalExistingDirectory(repoRoot, "runtime source repository");
+  const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
+  const relativeSource = path.relative(repository, source).split(path.sep).join("/");
+  if (relativeSource !== "tools/auto-runner") throw new Error("runtime sourceRoot must be the repository tools/auto-runner directory");
+  const listed = spawnSync("git", ["ls-tree", "-r", "-z", sourceSha, "--", relativeSource], {
+    cwd: repository,
+    encoding: "buffer",
+  });
+  if (listed.status !== 0) throw new Error("approved runtime source tree is unreadable");
+  const selected = new Map();
+  for (const record of listed.stdout.toString("utf8").split("\0").filter(Boolean)) {
+    const match = /^([0-7]{6}) blob ([a-f0-9]{40,64})\t(.+)$/u.exec(record);
+    if (!match) throw new Error("approved runtime source tree contains an unsupported entry");
+    const relative = match[3].slice(`${relativeSource}/`.length);
+    if (includedFiles.includes(relative) || includedRoots.some((root) => relative.startsWith(`${root}/`) && relative.endsWith(".mjs"))) {
+      selected.set(relative, { mode: match[1], objectId: match[2] });
+    }
+  }
+  const worktreeFiles = runtimeBundleFileList(source);
+  const commitFiles = [...selected.keys()].sort();
+  if (canonicalJson(worktreeFiles) !== canonicalJson(commitFiles)) {
+    throw new Error("runtime source file list does not match the approved commit");
+  }
+  for (const relative of commitFiles) {
+    const expected = selected.get(relative);
+    const blob = spawnSync("git", ["cat-file", "blob", expected.objectId], { cwd: repository, encoding: "buffer" });
+    if (blob.status !== 0) throw new Error(`approved runtime blob is unreadable: ${relative}`);
+    const worktreePath = path.join(source, relative);
+    const worktreeDigest = createHash("sha256").update(readFileSync(worktreePath)).digest("hex");
+    const commitDigest = createHash("sha256").update(blob.stdout).digest("hex");
+    if (worktreeDigest !== commitDigest) throw new Error(`runtime source bytes do not match the approved commit: ${relative}`);
+    const worktreeExecutable = (statSync(worktreePath).mode & 0o111) !== 0;
+    const commitExecutable = expected.mode === "100755";
+    if (worktreeExecutable !== commitExecutable) throw new Error(`runtime source mode does not match the approved commit: ${relative}`);
+  }
+  return { sourceSha, fileCount: commitFiles.length };
+}
+
 export function buildRuntimeManifest(sourceRoot, { sourceSha, generatedAt = new Date().toISOString() } = {}) {
   if (!/^[a-f0-9]{40}$/.test(String(sourceSha || ""))) throw new Error("approved source SHA is required");
   const files = runtimeBundleFileList(sourceRoot).map((relativePath) => {
