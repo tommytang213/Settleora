@@ -1966,17 +1966,17 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
         if (checkpoint.ok) {
-          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
+          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         }
       }
       if (boundary.phase === "checkpoint_validation_commit") {
         const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue);
-        if (checkpoint.ok) return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
+        if (checkpoint.ok) return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: checkpoint.reasonCode, state };
       }
       if (boundary.phase === "post_merge_ephemeral_cleanup" && state.ordinaryContinuation?.phase === "post_merge_cleanup") {
         const checkpoint = { ok: true, candidateIdentity: state.ordinaryContinuation.identity, routeState: "post_merge_cleanup_ready" };
-        return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
+        return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
       }
       if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
         const stopped = advanceRecoveryPhase(state, {
@@ -2038,7 +2038,7 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue) {
   return { ok: true, candidateIdentity: ordinaryIdentityForHead(baseSha, headSha), routeState: "initial_validation_failure_reconstructed" };
 }
 
-async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null }) {
+async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null, currentRunId = null }) {
   const identity = checkpoint.candidateIdentity;
   let initial = state.ordinaryContinuation || createOrdinaryContinuationState({
     logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
@@ -2319,7 +2319,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const ownershipResult = continuation.effects?.github_convergence?.evidence?.postMergeCleanupOwnership;
       const ownership = state.postMergeCleanupOwnership || (ownershipResult?.ok ? ownershipResult.ownership : null);
       if (!ownership) return { ok: false, outcome: "cleanup_required", reasonCode: "post_merge_cleanup_ownership_missing" };
-      const authorityReader = async (owner) => readOrdinaryCleanupAuthority(config, state, continuation, owner);
+      const authorityReader = async (owner) => readOrdinaryCleanupAuthority(config, state, continuation, owner, currentRunId);
       const adapter = createPostMergeCleanupGitAdapter({ repoRoot: config.repoRoot, authorityReader, checkpoint: async (cleanup) => { const written = persistPostMergeCleanupState(config, cleanup); if (!written.ok) throw new Error(written.reasonCode); } });
       let loaded = loadPostMergeCleanupState(config, ownership);
       if (!loaded.ok && loaded.reasonCode === "cleanup_state_unavailable_or_corrupt") {
@@ -2388,7 +2388,7 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
   return { ok: false, reasonCode: `ordinary_continuation_live_adoption_unsupported:${phase}` };
 }
 
-function readOrdinaryCleanupAuthority(config, state, continuation, owner) {
+function readOrdinaryCleanupAuthority(config, state, continuation, owner, currentRunId = null) {
   const run = (command, args) => spawnSync(command, args, { cwd: config.repoRoot, encoding: "utf8" });
   const prRead = run("gh", ["pr", "view", String(owner.prNumber), "--repo", owner.repository, "--json", "number,state,headRefName,headRefOid,baseRefName,mergeCommit"]);
   const repositoryOwner = owner.repository.split("/")[0];
@@ -2436,10 +2436,13 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner) {
   try {
     const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
     const lock = existsSync(lockPath) ? JSON.parse(readFileSync(lockPath, "utf8")) : null;
+    const lockRunOwnsRecovery = typeof currentRunId === "string"
+      && currentRunId.length > 0
+      && lock?.runId === currentRunId;
     runnerLockAuthority = lock?.pid === process.pid
       && processAppearsActive(lock.pid) === true
-      && (!lock.runId || lock.runId === state.run?.runId)
-      && (!state.run?.supervisorRunId || lock.supervisorRunId === state.run.supervisorRunId);
+      && (lock?.runId === state.run?.runId || lockRunOwnsRecovery)
+      && (lockRunOwnsRecovery || !state.run?.supervisorRunId || lock.supervisorRunId === state.run.supervisorRunId);
   } catch { runnerLockAuthority = false; }
   const sessionAuthority = !owner.correlations?.session || owner.correlations.session === state.sessionLifecycle?.sessionId;
   return {

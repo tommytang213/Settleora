@@ -368,3 +368,10 @@ test("ordinary source-fix recovery admits only an exact descendant prepared comm
   assert.match(runner, /\["merge-base", "--is-ancestor", initial\.identity\.headSha, liveHeadAtRecovery\]/);
   assert.match(runner, /preparedFixCanBeAdopted/);
 });
+
+test("post-merge cleanup explicitly hands authority to the exact successor runner lock", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /currentRunId: runId/);
+  assert.match(runner, /lockRunOwnsRecovery = typeof currentRunId === "string"[\s\S]*?lock\?\.runId === currentRunId/);
+  assert.match(runner, /lock\?\.runId === state\.run\?\.runId \|\| lockRunOwnsRecovery/);
+});

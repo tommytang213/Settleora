@@ -29,6 +29,7 @@ export const safeBoundaryPhases = Object.freeze([
   "source_branch_restoration",
   "post_merge_current_main_checks_scanner_reconciliation",
   "issue_parent_ledger_hygiene",
+  "post_merge_ephemeral_cleanup",
 ]);
 
 const unsafeDynamicHandlerKeys = new Set([
