@@ -105,6 +105,13 @@ export function absoluteRuntimeEntry(runtimeRoot, relativeEntry) {
 
 export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspace/logs/auto-runner/repository-locks") {
   mkdirSync(authorityRoot, { recursive: true, mode: 0o700 });
+  const authority = lstatSync(authorityRoot);
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (authority.isSymbolicLink() || !authority.isDirectory() || realpathSync(authorityRoot) !== path.resolve(authorityRoot)) {
+    throw new Error("repository authority root must be a canonical real directory");
+  }
+  if (currentUid !== null && authority.uid !== currentUid) throw new Error("repository authority root owner is invalid");
+  if ((authority.mode & 0o022) !== 0) throw new Error("repository authority root must not be group/world writable");
   const repository = verifyRepositoryIdentity(canonicalExistingDirectory(repoRoot, "repoRoot"));
   return path.join(authorityRoot, `${createHash("sha256").update(repository.commonDir).digest("hex")}.lock`);
 }

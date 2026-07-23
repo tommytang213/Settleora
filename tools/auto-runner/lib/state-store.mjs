@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedIteration } from "./evidence-sanitizer.mjs";
 import { repositoryAuthorityLockPath } from "./runtime-identity.mjs";
@@ -31,6 +31,7 @@ export function acquireRunnerLock(config, metadata = {}) {
 
 function acquireOneLock(lockPath, metadata) {
   if (existsSync(lockPath)) {
+    const observed = lstatSync(lockPath);
     let lock;
     try {
       lock = JSON.parse(readFileSync(lockPath, "utf8"));
@@ -44,7 +45,13 @@ function acquireOneLock(lockPath, metadata) {
     if (active === null) {
       throw new Error(`Runner lock exists and staleness cannot be safely determined: ${lockPath}`);
     }
-    rmSync(lockPath);
+    const quarantine = `${lockPath}.stale-${process.pid}-${Date.now()}`;
+    renameSync(lockPath, quarantine);
+    const moved = lstatSync(quarantine);
+    if (moved.dev !== observed.dev || moved.ino !== observed.ino) {
+      throw new Error(`Runner lock changed during stale reclamation: ${lockPath}`);
+    }
+    rmSync(quarantine);
   }
   writeFileSync(
     lockPath,
