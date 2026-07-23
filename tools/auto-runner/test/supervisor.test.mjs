@@ -217,6 +217,21 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.deepEqual(plan.startArgv.slice(0, 2), ["systemd-run", "--user"]);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
+  for (const unsafePath of [
+    "/workspace/repos/Settleora\n--property=Environment=INJECTED=1",
+    "/workspace/repos/../other",
+    "/workspace/repos//Settleora",
+    "relative/repository",
+  ]) {
+    assert.throws(
+      () => buildSystemdStartPlan(runId, {
+        configPath: "/workspace/logs/configs/default.json",
+        repoRoot: unsafePath,
+        logsRoot: "/workspace/logs/settleora-auto-runner",
+      }),
+      /canonical shell-neutral supervisor repoRoot is required/,
+    );
+  }
   const runnerRunId = "run-2026-07-20T144500Z";
   const argv = runnerArgvForSpec(spec, { runnerRunId });
   assert.equal(argv[argv.indexOf("--max-iterations") + 1], "8");

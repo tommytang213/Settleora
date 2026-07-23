@@ -6,24 +6,37 @@ import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity
 
 export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot(), configPath = null, repoRoot = null, logsRoot = null } = {}) {
   validateRunId(runId);
-  if (!configPath || !path.isAbsolute(configPath)) throw new Error("absolute supervisor configPath is required");
-  if (!repoRoot || !path.isAbsolute(repoRoot) || !logsRoot || !path.isAbsolute(logsRoot)) {
-    throw new Error("absolute supervisor repoRoot and logsRoot are required");
-  }
-  const worker = absoluteRuntimeEntry(runtimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
+  const safeConfigPath = validateSystemdPath(configPath, "configPath");
+  const safeRepoRoot = validateSystemdPath(repoRoot, "repoRoot");
+  const safeLogsRoot = validateSystemdPath(logsRoot, "logsRoot");
+  const safeRuntimeRoot = validateSystemdPath(runtimeRoot, "runtimeRoot");
+  const worker = absoluteRuntimeEntry(safeRuntimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
   return {
     unitName: unitNameForRunId(runId),
     startArgv: [
       "systemd-run", "--user", `--unit=${unitNameForRunId(runId).replace(/\.service$/, "")}`,
       "--property=KillMode=process", "--property=TimeoutStopSec=30min",
       "--property=SendSIGKILL=no", "--property=UMask=0077",
-      `--property=EnvironmentFile=-${path.join(logsRoot, "secrets/supervisor.env")}`,
-      `--working-directory=${repoRoot}`,
-      process.execPath, worker, runId, "--config", configPath, "--logs-root", logsRoot,
+      `--property=EnvironmentFile=-${path.join(safeLogsRoot, "secrets/supervisor.env")}`,
+      `--working-directory=${safeRepoRoot}`,
+      process.execPath, worker, runId, "--config", safeConfigPath, "--logs-root", safeLogsRoot,
     ],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
     showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],
   };
+}
+
+function validateSystemdPath(value, label) {
+  if (
+    typeof value !== "string"
+    || !/^\/[A-Za-z0-9._/-]+$/u.test(value)
+    || path.normalize(value) !== value
+    || value.includes("//")
+    || value.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error(`canonical shell-neutral supervisor ${label} is required`);
+  }
+  return value;
 }
 
 export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath, repoRoot, logsRoot } = {}) {
