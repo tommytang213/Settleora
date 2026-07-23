@@ -134,7 +134,7 @@ async function main() {
     return;
   }
   if (cliArgs.status || cliArgs.listRuns || cliArgs.listEvents || cliArgs.controlCommand) {
-    const config = loadConfig({ ...cliArgs, dryRun: true, run: false });
+    const config = loadConfig({ ...cliArgs, dryRun: true, run: false }, { outageResubmissionControllerAvailable: true });
     if (cliArgs.status) {
       const status = getRunnerStatus(config);
       console.log(cliArgs.json ? JSON.stringify(status, null, 2) : renderStatusText(status));
@@ -160,7 +160,7 @@ async function main() {
     if (!cliArgs.configPath) {
       throw new Error("--review-package requires an explicit --config path");
     }
-    const config = loadConfig({ dryRun: false, run: false, configPath: cliArgs.configPath });
+    const config = loadConfig({ dryRun: false, run: false, configPath: cliArgs.configPath }, { outageResubmissionControllerAvailable: true });
     const packageText = readFileSync(cliArgs.reviewPackage, "utf8");
     const parsedPackage = JSON.parse(packageText);
     const result = await runGeminiIntegratedReview(config, {
@@ -175,7 +175,7 @@ async function main() {
     return;
   }
   if (cliArgs.preflight) {
-    const config = loadConfig(cliArgs);
+    const config = loadConfig(cliArgs, { outageResubmissionControllerAvailable: true });
     const result = runPreflight(config);
     console.error(
       `Readiness preflight: ${result.summary.pass} pass, ${result.summary.warn} warn, ${result.summary.fail} fail`,
@@ -186,7 +186,7 @@ async function main() {
     return;
   }
   if (cliArgs.reviewerSmokeTest) {
-    const config = loadConfig(cliArgs);
+    const config = loadConfig(cliArgs, { outageResubmissionControllerAvailable: true });
     const result = await runGeminiReviewerSmokeTest(config, {
       liveExternalReviewerCalls: cliArgs.liveExternalReviewerCalls,
       tierId: cliArgs.reviewerSmokeTier || config.reviewerSmokeTest?.tier,
@@ -201,14 +201,14 @@ async function main() {
     return;
   }
   if (cliArgs.securityFindingsDryRun) {
-    const config = loadConfig(cliArgs);
+    const config = loadConfig(cliArgs, { outageResubmissionControllerAvailable: true });
     const result = await runSecurityFindingsDryRun(config, { taskKey: "security-findings-dry-run" });
     console.log(cliArgs.json ? JSON.stringify(result, null, 2) : renderSecurityFindingsDryRunText(result));
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
   if (cliArgs.runPrStack) {
-    const config = loadConfig(cliArgs);
+    const config = loadConfig(cliArgs, { outageResubmissionControllerAvailable: true });
     const liveRunner = createLiveFixedArgvRunner(config);
     const liveReviewAdapters = createLivePrStackReviewAdapters(config);
     let lockPath = null;

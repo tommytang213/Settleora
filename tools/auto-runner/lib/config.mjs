@@ -761,7 +761,9 @@ function validSupervisorRunId(value) {
 function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null, trustHooks = null } = {}) {
   const resolved = path.resolve(configPath);
   if (!runPrStack) {
-    return { config: JSON.parse(readFileSync(resolved, "utf8")), evidence: null };
+    const parsed = JSON.parse(readFileSync(resolved, "utf8"));
+    if (parsed.runtimeMode === "external") return readExternalProfileConfig(resolved, trustHooks);
+    return { config: parsed, evidence: null };
   }
   if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("config_path_not_canonical: Config path must be absolute and canonical.");
   const trustedRootProof = validateTrustedRootDirectory(resolveExternalConfigTrustRoot({ bootstrapTrustedRoot }));
@@ -832,6 +834,35 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
       loadedAt: new Date().toISOString(),
     },
   };
+}
+
+function readExternalProfileConfig(configPath, trustHooks = null) {
+  if (!path.isAbsolute(configPath) || path.resolve(configPath) !== configPath) {
+    throw new Error("config_path_not_canonical: External profile path must be absolute and canonical.");
+  }
+  const before = lstatSync(configPath);
+  if (before.isSymbolicLink() || realpathSync(configPath) !== configPath) {
+    throw new Error("config_canonical_alias_mismatch: External profile must not be a symlink or alias.");
+  }
+  validateTrustedConfigRegularFile(before);
+  const { fd, strategy } = openTrustedConfigNoFollow(configPath, trustHooks);
+  try {
+    const opened = fstatSync(fd);
+    if (!sameFileIdentity(before, opened)) throw new Error("config_identity_mismatch: External profile changed before open.");
+    validateTrustedConfigRegularFile(opened);
+    const buffer = readBoundedTrustedDescriptorBytes(fd, opened, maxTrustedConfigBytes);
+    const after = fstatSync(fd);
+    if (!sameFileIdentity(opened, after) || opened.size !== after.size) {
+      throw new Error("config_identity_mismatch: External profile changed during read.");
+    }
+    if (!isUtf8(buffer)) throw new Error("config_utf8_invalid: External profile must be valid UTF-8.");
+    return {
+      config: JSON.parse(buffer.toString("utf8")),
+      evidence: { strategy, realPath: configPath, ownerUid: opened.uid, mode: opened.mode & 0o777 },
+    };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function resolveExternalConfigTrustRoot({ bootstrapTrustedRoot = null } = {}) {

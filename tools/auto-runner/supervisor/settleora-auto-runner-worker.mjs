@@ -171,7 +171,10 @@ async function main() {
     throw new Error("supervisor worker requires canonical absolute --logs-root");
   }
   failureLogsRoot = selectedLogsRoot;
-  const config = loadConfig({ dryRun: true, run: false, configPath });
+  const config = loadConfig(
+    { dryRun: true, run: false, configPath },
+    { outageResubmissionControllerAvailable: true },
+  );
   if (config.logsRoot !== selectedLogsRoot) throw new Error("supervisor worker logsRoot does not match config");
   failureLogsRoot = config.logsRoot;
   const result = await runSupervisorWorker(process.argv[2], {
