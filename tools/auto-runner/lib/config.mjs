@@ -762,6 +762,14 @@ function validSupervisorRunId(value) {
 function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null, trustHooks = null } = {}) {
   const resolved = path.resolve(configPath);
   if (!runPrStack) {
+    const installedBundle = existsSync(path.join(moduleRuntimeRoot(), "runtime-bundle-manifest.json"));
+    if (installedBundle) {
+      const loaded = readExternalProfileConfig(resolved, trustHooks);
+      if (loaded.config.runtimeMode !== "external") {
+        throw new Error("external_runtime_requires_external_profile: Installed runtime requires runtimeMode external.");
+      }
+      return loaded;
+    }
     const parsed = JSON.parse(readFileSync(resolved, "utf8"));
     if (parsed.runtimeMode === "external") return readExternalProfileConfig(resolved, trustHooks);
     return { config: parsed, evidence: null };
@@ -859,7 +867,13 @@ function readExternalProfileConfig(configPath, trustHooks = null) {
     if (!isUtf8(buffer)) throw new Error("config_utf8_invalid: External profile must be valid UTF-8.");
     return {
       config: JSON.parse(buffer.toString("utf8")),
-      evidence: { strategy, realPath: configPath, ownerUid: opened.uid, mode: opened.mode & 0o777 },
+      evidence: {
+        strategy,
+        realPath: configPath,
+        ownerUid: opened.uid,
+        mode: opened.mode & 0o777,
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+      },
     };
   } finally {
     closeSync(fd);

@@ -171,11 +171,16 @@ async function main() {
     throw new Error("supervisor worker requires canonical absolute --logs-root");
   }
   failureLogsRoot = selectedLogsRoot;
+  const priorState = readSupervisorState(process.argv[2], selectedLogsRoot).state;
+  const verifiedSpec = readAndVerifyRunSpec(process.argv[2], priorState?.specSha256 || null, selectedLogsRoot);
   const config = loadConfig(
     { dryRun: true, run: false, configPath },
     { outageResubmissionObserverAvailable: true },
   );
   if (config.logsRoot !== selectedLogsRoot) throw new Error("supervisor worker logsRoot does not match config");
+  if (config.runtimeMode === "external" && config.configTrustEvidence?.sha256 !== verifiedSpec.config.sha256) {
+    throw new Error("supervisor worker config digest does not match immutable run spec");
+  }
   failureLogsRoot = config.logsRoot;
   const result = await runSupervisorWorker(process.argv[2], {
     logsRoot: config.logsRoot,
