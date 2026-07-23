@@ -47,6 +47,21 @@ test("repository authority lock acquires and releases with PID birth identity", 
   }
 });
 
+test("caller metadata cannot override local lock owner identity", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-local-lock-owner-"));
+  const lock = path.join(root, "project.lock");
+  try {
+    acquireOneLock(lock, { ...metadata(), pid: 2, processBirthId: "0", startedAt: "untrusted" });
+    const parsed = JSON.parse(readFileSync(lock, "utf8"));
+    assert.equal(parsed.pid, process.pid);
+    assert.equal(parsed.processBirthId, processBirthId());
+    assert.notEqual(parsed.startedAt, "untrusted");
+  } finally {
+    releaseRunnerLock(lock);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("repository authority lock refuses a live owner and reclaims dead or PID-reused owners", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-authority-stale-"));
   const lock = path.join(root, "repository.lock");

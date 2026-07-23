@@ -86,7 +86,7 @@ export function acquireOneLock(lockPath, metadata, { repositoryAuthority = false
   }
   writeFileSync(
     lockPath,
-    `${JSON.stringify({ ...owner, startedAt: new Date().toISOString(), ...metadata }, null, 2)}\n`,
+    `${JSON.stringify({ ...metadata, ...owner, startedAt: new Date().toISOString() }, null, 2)}\n`,
     { flag: "wx", mode: 0o600 },
   );
 }
