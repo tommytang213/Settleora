@@ -739,6 +739,7 @@ function buildChildRunPlan({ config, source, state, recoveryTarget, now, childRu
     recoveryOnlyTarget: recoveryTarget,
     allowMissingConfig: true,
     logsRoot: config.logsRoot,
+    runnerConfigPath: config.configPath,
   }).spec;
   if (spec.runnerConfigSha256 !== source.runnerConfigDigest) {
     throw new Error("runner_config_digest_mismatch");

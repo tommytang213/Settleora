@@ -573,6 +573,7 @@ test("controller plans one exact correlated child in dry-run with zero live muta
     assert.equal(result.child.spec.outageResubmission.currentHeadSha, source().currentHeadSha);
     assert.equal(result.child.spec.outageResubmission.prNumber, source().prNumber);
     assert.equal(result.child.spec.outageResubmission.prHeadSha, source().prHeadSha);
+    assert.equal(result.child.spec.runnerConfigPath, config.configPath);
     assert.equal(JSON.parse(readFileSync(resolveProfile(result.child.spec.profile, config.logsRoot).runnerConfigPath, "utf8")).allowExistingPrRecovery, true);
     assert.match(result.child.specSha256, /^[a-f0-9]{64}$/);
   } finally {
@@ -3751,6 +3752,7 @@ function tempConfig(options = {}) {
   writeFileSync(profilePath, profileConfig, { mode: 0o600 });
   const config = {
     logsRoot,
+    configPath: profilePath,
     runnerConfigDigest: profileConfigDigest,
     outageResubmission: {
       allowBoundedOutageResubmission: enabled,
