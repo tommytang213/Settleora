@@ -45,6 +45,14 @@ export function acquireRuntimeDeploymentLock(destination) {
   const lock = path.join(parent, `.${path.basename(destination)}.deployment.lock`);
   writeFileSync(lock, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
   const consumers = path.join(parent, `.${path.basename(destination)}.consumers`);
+  mkdirSync(consumers, { recursive: true, mode: 0o700 });
+  const consumerDirectory = lstatSync(consumers);
+  if (!consumerDirectory.isDirectory() || consumerDirectory.isSymbolicLink() || realpathSync(consumers) !== consumers
+      || (consumerDirectory.mode & 0o022) !== 0
+      || (typeof process.getuid === "function" && consumerDirectory.uid !== process.getuid())) {
+    rmSync(lock);
+    throw new Error("runtime consumer directory is unsafe");
+  }
   if (existsSync(consumers)) {
     for (const name of readdirSync(consumers)) {
       const marker = path.join(consumers, name);
