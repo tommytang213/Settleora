@@ -7,7 +7,7 @@ import test from "node:test";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
 import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
-import { ensureOperationalDirectory, verifyProjectNamespaceMarker } from "../lib/config.mjs";
+import { ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
@@ -119,6 +119,10 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
     utimesSync(tracked, new Date(), new Date());
     utimesSync(index, oldIndexTime, oldIndexTime);
     const indexMtimeBefore = statSync(index).mtimeMs;
+    const fsmonitorSentinel = path.join(root, "fsmonitor-ran");
+    const fsmonitorHook = path.join(root, "fsmonitor-hook");
+    writeFileSync(fsmonitorHook, `#!/bin/sh\n: > '${fsmonitorSentinel}'\n`, { mode: 0o700 });
+    git(repo, ["config", "core.fsmonitor", fsmonitorHook]);
     const result = spawnSync(process.execPath, [
       path.join(runtimeSource, "deploy-runtime.mjs"),
       "--dry-run",
@@ -131,6 +135,7 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
     assert.equal(JSON.parse(result.stdout).dryRun, true);
     assert.deepEqual(readdirSync(installParent), []);
     assert.equal(statSync(index).mtimeMs, indexMtimeBefore);
+    assert.equal(existsSync(fsmonitorSentinel), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -385,6 +390,31 @@ test("project logs namespace marker refuses state adoption by another repository
     assert.deepEqual(verifyProjectNamespaceMarker(configA), verifyProjectNamespaceMarker(configA));
     const configB = { ...configA, runtimeIdentity: identityFor(repoB) };
     assert.throws(() => verifyProjectNamespaceMarker(configB), /does not match repository identity/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("repository namespace casing is stable and external profile ancestors must be owner-controlled", () => {
+  const root = mkdtempSync("/workspace/tmp/settleora-external-profile-");
+  try {
+    const repo = createRepo(root, "repo");
+    const runtime = path.join(root, "runtime");
+    const logs = path.join(root, "Settleora");
+    const configRoot = path.join(root, "config");
+    mkdirSync(runtime, { mode: 0o700 });
+    mkdirSync(logs, { mode: 0o700 });
+    mkdirSync(configRoot, { mode: 0o700 });
+    const identity = (repositorySlug) => validateProjectRuntimeIdentity({
+      runtimeMode: "development", runtimeRoot: runtime, repoRoot: repo, logsRoot: logs,
+      projectId: "Settleora", repositorySlug,
+    }, { actualRuntimeRoot: runtime, trusted: false });
+    assert.equal(identity("TommyTang213/SETTLEORA").namespace, identity("tommytang213/settleora").namespace);
+    const configPath = path.join(configRoot, "settleora.json");
+    writeFileSync(configPath, "{}\n", { mode: 0o600 });
+    assert.equal(validateExternalProfilePath(configPath, configRoot), configRoot);
+    chmodSync(configRoot, 0o777);
+    assert.throws(() => validateExternalProfilePath(configPath, configRoot), /ancestor_unsafe/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

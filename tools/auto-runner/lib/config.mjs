@@ -21,6 +21,7 @@ const liveStackAcceptanceRootName = "live-stack-acceptance";
 const liveStackAcceptanceConfigName = "config.json";
 const liveStackCorrelationPattern = /^[0-9]{8}-[0-9]{4}(?:-[a-z0-9][a-z0-9-]{0,48})?$/;
 const maxTrustedConfigBytes = 1024 * 1024;
+const externalProfileRoot = "/workspace/auto-runner/config";
 
 export const defaultConfig = Object.freeze({
   runtimeMode: "development",
@@ -906,6 +907,7 @@ function readExternalProfileConfig(configPath, trustHooks = null) {
   if (!path.isAbsolute(configPath) || path.resolve(configPath) !== configPath) {
     throw new Error("config_path_not_canonical: External profile path must be absolute and canonical.");
   }
+  validateExternalProfilePath(configPath);
   const before = lstatSync(configPath);
   if (before.isSymbolicLink() || realpathSync(configPath) !== configPath) {
     throw new Error("config_canonical_alias_mismatch: External profile must not be a symlink or alias.");
@@ -935,6 +937,29 @@ function readExternalProfileConfig(configPath, trustHooks = null) {
   } finally {
     closeSync(fd);
   }
+}
+
+export function validateExternalProfilePath(configPath, fixedRoot = externalProfileRoot) {
+  if (path.dirname(configPath) !== fixedRoot || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json$/u.test(path.basename(configPath))) {
+    throw new Error("config_outside_external_profile_root: External profile must be a direct JSON child of the fixed config root.");
+  }
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  const segments = fixedRoot.split(path.sep).filter(Boolean);
+  let current = path.parse(fixedRoot).root;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    const info = lstatSync(current);
+    if (info.isSymbolicLink() || !info.isDirectory() || realpathSync(current) !== current) {
+      throw new Error("config_external_profile_ancestor_unsafe: External profile ancestors must be canonical directories.");
+    }
+    if ((info.mode & 0o022) !== 0) {
+      throw new Error("config_external_profile_ancestor_unsafe: External profile ancestors must be owner-controlled.");
+    }
+    if (current === fixedRoot && currentUid !== null && info.uid !== currentUid) {
+      throw new Error("config_external_profile_root_owner_invalid: External profile root must be owned by the runner user.");
+    }
+  }
+  return fixedRoot;
 }
 
 function resolveExternalConfigTrustRoot({ bootstrapTrustedRoot = null } = {}) {

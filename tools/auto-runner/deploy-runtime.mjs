@@ -42,7 +42,7 @@ if (sourceRoot !== path.join(repoRoot, "tools/auto-runner")) {
   throw new Error("sourceRoot must be the approved repository tools/auto-runner directory");
 }
 const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
-const status = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: dryRunGitEnv });
+const status = spawnSync("git", ["-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: dryRunGitEnv });
 if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("source repository must be clean and readable");
 const approvedSha = values.get("--approved-sha");
 if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not equal --approved-sha");
@@ -61,7 +61,7 @@ const result = deployRuntimeBundle({
   runtimeConsumers,
   sourceVerifier: () => {
     const verifiedHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
-    const verifiedStatus = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: dryRunGitEnv });
+    const verifiedStatus = spawnSync("git", ["-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: dryRunGitEnv });
     if (verifiedHead.status !== 0 || verifiedHead.stdout.trim() !== approvedSha || verifiedStatus.status !== 0 || verifiedStatus.stdout) {
       throw new Error("source repository changed during deployment");
     }

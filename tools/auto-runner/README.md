@@ -38,7 +38,10 @@ authority lock identities canonicalize GitHub slugs case-insensitively, so
 separate clones or differently cased remote spellings cannot gain two owners.
 Deployment `--dry-run` performs the source, manifest, quiescence, and consumer
 inspection without creating locks, consumer directories, or other deployment
-control state.
+control state; its Git inspection disables optional index locks and repository
+filesystem-monitor hooks. Trusted profile reads accept only a direct JSON
+child of `/workspace/auto-runner/config` after verifying that fixed root and
+each ancestor are canonical and not writable by another principal.
 The supervisor worker derives its selected profile path from the immutable
 run spec under the fixed project `logsRoot`; the installed unit therefore
 contains no hard-coded active-profile path. The runner child receives the

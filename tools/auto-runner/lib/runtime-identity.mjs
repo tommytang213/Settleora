@@ -58,6 +58,7 @@ export function validateProjectRuntimeIdentity(config, {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(config?.repositorySlug || ""))) {
     throw new Error("repositorySlug must be an explicit owner/repository slug");
   }
+  const repositorySlug = config.repositorySlug.toLowerCase();
   const repoRoot = canonicalExistingDirectory(config?.repoRoot, "repoRoot");
   const repository = verifyRepositoryIdentity(repoRoot, trusted ? config.repositorySlug : null);
   const runtimeRoot = canonicalExistingDirectory(config?.runtimeRoot || actualRuntimeRoot, "runtimeRoot");
@@ -81,12 +82,12 @@ export function validateProjectRuntimeIdentity(config, {
   return Object.freeze({
     version: runtimeIdentityVersion,
     projectId,
-    repositorySlug: config.repositorySlug,
+    repositorySlug,
     runtimeRoot,
     repoRoot,
     logsRoot,
     namespace: createHash("sha256")
-      .update(JSON.stringify([projectId, config.repositorySlug, repository.commonDir]))
+      .update(JSON.stringify([projectId, repositorySlug, repository.commonDir]))
       .digest("hex"),
     repositoryCommonDir: repository.commonDir,
     originUrl: repository.originUrl,
