@@ -189,6 +189,16 @@ test("manual rollback exchanges only exact verified stopped bundles", () => {
       sourceSha: "b".repeat(40),
       expectedOldDigest: first.manifest.bundleDigest,
     });
+    renameSync(destination, path.join(parent, ".runtime.deploy-incoming"));
+    const adoptedDeploy = deployRuntimeBundle({
+      sourceRoot: changedSource,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha: "b".repeat(40),
+      expectedOldDigest: first.manifest.bundleDigest,
+    });
+    assert.equal(adoptedDeploy.adopted, true);
     renameSync(
       path.join(parent, ".runtime.rollback"),
       path.join(parent, ".runtime.rollback-incoming"),
@@ -201,6 +211,12 @@ test("manual rollback exchanges only exact verified stopped bundles", () => {
     assert.equal(rolledBack.adopted, true);
     assert.equal(rolledBack.manifest.bundleDigest, first.manifest.bundleDigest);
     assert.equal(verifyRuntimeBundle(rolledBack.rollback).bundleDigest, second.manifest.bundleDigest);
+    const adoptedRollback = rollbackRuntimeBundle({
+      destination,
+      expectedCurrentDigest: second.manifest.bundleDigest,
+      expectedRollbackDigest: first.manifest.bundleDigest,
+    });
+    assert.equal(adoptedRollback.adopted, true);
     assert.throws(() => rollbackRuntimeBundle({
       destination,
       expectedCurrentDigest: "0".repeat(64),

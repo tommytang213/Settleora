@@ -39,7 +39,11 @@ import { detectBlockingMarkers, summarizeCheckStatus } from "./lib/auto-merge-po
 
 async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
-  const config = cli.command === "export-status" ? null : loadConfig({ dryRun: true, run: false, configPath: null });
+  const config = cli.command === "export-status" ? null : loadConfig({
+    dryRun: true,
+    run: false,
+    configPath: cli.configPath,
+  });
   if (cli.command === "submit") {
     const result = await submit(cli, config);
     print(result, cli.json);
@@ -342,6 +346,7 @@ function parseCtlArgs(argv) {
     maxTasksDelta: null,
     maxRuntimeDeltaMs: null,
     markdown: false,
+    configPath: null,
   };
   if (!cli.command) throw new Error("Missing command");
   for (let index = 1; index < argv.length; index += 1) {
@@ -352,6 +357,7 @@ function parseCtlArgs(argv) {
     else if (arg === "--latest") cli.latest = true;
     else if (arg === "--run") cli.runId = readValue(argv, ++index, arg);
     else if (arg === "--profile") cli.profile = readValue(argv, ++index, arg);
+    else if (arg === "--config") cli.configPath = readValue(argv, ++index, arg);
     else if (arg === "--mode") cli.mode = readValue(argv, ++index, arg);
     else if (arg === "--max-tasks") {
       const raw = readValue(argv, ++index, arg);

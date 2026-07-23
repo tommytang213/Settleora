@@ -45,6 +45,8 @@ node /workspace/auto-runner/runtime/settleora-auto-runner.mjs --status --json \
   --config /workspace/auto-runner/config/settleora.json
 node /workspace/auto-runner/runtime/settleora-auto-runner.mjs \
   --stop-after-current --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/runtime/settleora-auto-runnerctl.mjs status \
+  --latest --json --config /workspace/auto-runner/config/settleora.json
 ```
 
 The non-dry-run deploy and all start/profile commands require the separate

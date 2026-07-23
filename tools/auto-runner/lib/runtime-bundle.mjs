@@ -102,14 +102,23 @@ export function deployRuntimeBundle({
   assertSeparatedRoots({ runtimeRoot: destination, repoRoot: path.resolve(repoRoot), logsRoot: path.resolve(logsRoot) });
   const manifest = buildRuntimeManifest(source, { sourceSha });
   if (dryRun) return { dryRun: true, destination, manifest };
+  const temporary = path.join(destinationParent, `.${path.basename(destination)}.deploy-incoming`);
+  const rollback = path.join(destinationParent, `.${path.basename(destination)}.rollback`);
   if (existsSync(destination)) {
     const current = verifyRuntimeBundle(destination);
+    if (current.bundleDigest === manifest.bundleDigest && expectedOldDigest && existsSync(rollback)) {
+      verifyRuntimeBundle(rollback, expectedOldDigest);
+      return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest: current };
+    }
     if (!expectedOldDigest || current.bundleDigest !== expectedOldDigest) throw new Error("installed runtime does not match expected old digest");
+  } else if (expectedOldDigest && existsSync(rollback) && existsSync(temporary)) {
+    verifyRuntimeBundle(rollback, expectedOldDigest);
+    verifyRuntimeBundle(temporary, manifest.bundleDigest);
+    renameSync(temporary, destination);
+    return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest };
   } else if (expectedOldDigest) {
     throw new Error("expected old runtime is absent");
   }
-  const temporary = path.join(destinationParent, `.${path.basename(destination)}.incoming-${process.pid}`);
-  const rollback = path.join(destinationParent, `.${path.basename(destination)}.rollback`);
   if (existsSync(temporary)) rmSync(temporary, { recursive: true });
   mkdirSync(temporary, { mode: 0o700 });
   for (const file of manifest.files) {
@@ -154,6 +163,13 @@ export function rollbackRuntimeBundle({
   const parent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
   const rollback = path.join(parent, `.${path.basename(destination)}.rollback`);
   const incoming = path.join(parent, `.${path.basename(destination)}.rollback-incoming`);
+  if (existsSync(destination) && existsSync(rollback)) {
+    const installed = verifyRuntimeBundle(destination);
+    const retained = verifyRuntimeBundle(rollback);
+    if (installed.bundleDigest === expectedRollbackDigest && retained.bundleDigest === expectedCurrentDigest) {
+      return { adopted: true, destination: realpathSync(destination), rollback, manifest: installed };
+    }
+  }
   if (existsSync(incoming)) {
     const staged = verifyRuntimeBundle(incoming, expectedRollbackDigest);
     if (!existsSync(destination)) {
