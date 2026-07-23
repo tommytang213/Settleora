@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { closeSync, constants as fsConstants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 export const postMergeCleanupSchemaVersion = 1;
 export const postMergeCleanupPolicyVersion = "ephemeral_cleanup_v1";
@@ -162,7 +163,7 @@ export function projectPostMergeCleanup(value = {}) {
 // Production Git effects are deliberately fixed here. The authority reader owns
 // GitHub, lease, report and recovery inventory; it must return the complete live
 // gate shape. No persisted command or path is ever executed.
-export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, checkpoint, spawn = spawnSync } = {}) {
+export function createPostMergeCleanupGitAdapter({ config = null, repoRoot, authorityReader, checkpoint, spawn = spawnSync } = {}) {
   const root = realpathSync(repoRoot);
   let primaryHandoffIgnoredPids = [];
   const run = (args, cwd = root) => spawn("git", args, { cwd, encoding: "utf8", windowsHide: true });
@@ -184,6 +185,7 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
     readLive: async (owner) => {
       const authority = await authorityReader(owner);
       primaryHandoffIgnoredPids = boundedPidList(authority.worktree?.primaryHandoffIgnoredPids);
+      assertRepositoryRemoteIdentity(config);
       const remote = run(["ls-remote", "--heads", "origin", `refs/heads/${owner.branchName}`]);
       const local = localRef(owner.branchName);
       const wt = worktreeFor(owner.branchName);
@@ -200,7 +202,10 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
       const localHead = local.status === 0 ? String(local.stdout || "").trim() : null;
       return { ...authority, remoteHead, localHead, worktree };
     },
-    deleteRemote: async (owner) => commandResult(run(["push", `--force-with-lease=refs/heads/${owner.branchName}:${owner.reviewedHeadSha}`, "origin", `:refs/heads/${owner.branchName}`]), "remote_branch_delete_failed"),
+    deleteRemote: async (owner) => {
+      assertRepositoryRemoteIdentity(config);
+      return commandResult(run(["push", `--force-with-lease=refs/heads/${owner.branchName}:${owner.reviewedHeadSha}`, "origin", `:refs/heads/${owner.branchName}`]), "remote_branch_delete_failed");
+    },
     handoffPrimaryCheckout: async (owner) => {
       const wt = worktreeFor(owner.branchName); if (!wt || wt.error) return fail(wt?.error || "checkout_handoff_target_missing");
       const candidate = realpathSync(wt.worktree); const status = run(["status", "--porcelain=v1", "--untracked-files=normal"], candidate); const local = localRef(owner.branchName);

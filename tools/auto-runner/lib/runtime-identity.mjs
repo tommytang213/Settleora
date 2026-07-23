@@ -172,6 +172,19 @@ export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
   return { topLevel: repoRoot, commonDir, originUrl, pushUrl };
 }
 
+export function assertRepositoryRemoteIdentity(config) {
+  if (config?.runtimeMode !== "external") return null;
+  const expected = config?.runtimeIdentity;
+  if (!expected?.originUrl || !expected?.pushUrl || !expected?.repositoryCommonDir || !config?.repositorySlug) {
+    throw new Error("verified repository remote identity is required before a remote Git operation");
+  }
+  const current = verifyRepositoryIdentity(config.repoRoot, config.repositorySlug);
+  if (current.commonDir !== expected.repositoryCommonDir || current.originUrl !== expected.originUrl || current.pushUrl !== expected.pushUrl) {
+    throw new Error("repository remote identity changed after runtime admission");
+  }
+  return Object.freeze({ originUrl: current.originUrl, pushUrl: current.pushUrl });
+}
+
 function gitValue(cwd, args, label) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
   if (result.error || result.status !== 0 || !result.stdout.trim()) throw new Error(`Unable to verify ${label}`);

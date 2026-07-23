@@ -7,6 +7,7 @@ import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { findPreEffectIntents, loadPreEffectIntent, preparePreEffectIntent } from "./pre-effect-intent.mjs";
 import { assertMutationAuthority, loadSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 let trustedRepositoryContext = null;
 
@@ -146,6 +147,7 @@ export function fetchOriginMain(config) {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run" };
   }
+  assertRepositoryRemoteIdentity(config);
   const result = runGit(["fetch", "origin", "main"], { cwd: config.repoRoot });
   assertGitSuccess(result, "Unable to fetch origin/main");
   return { skipped: false, status: result.status };

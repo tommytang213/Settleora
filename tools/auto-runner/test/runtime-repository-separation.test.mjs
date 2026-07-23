@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
-import { absoluteRuntimeEntry, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
+import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
+import { fetchOriginMain } from "../lib/git-workspace.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
@@ -174,17 +175,23 @@ test("copied runtime remains authoritative after managed branch and source chang
     assert.equal(readFileSync(entry, "utf8").includes("changed managed controller"), false);
     const otherCwd = path.join(root, "unrelated");
     mkdirSync(otherCwd);
-    const identity = validateProjectRuntimeIdentity({
+    const admittedConfig = {
       runtimeMode: "external",
       runtimeRoot: runtime,
       repoRoot: repo,
       logsRoot: logs,
       projectId: "Settleora",
       repositorySlug: "tommytang213/Settleora",
-    }, { actualRuntimeRoot: runtime });
+    };
+    const identity = validateProjectRuntimeIdentity(admittedConfig, { actualRuntimeRoot: runtime });
+    admittedConfig.runtimeIdentity = identity;
     assert.equal(identity.repoRoot, repo);
     assert.equal(identity.runtimeRoot, runtime);
     assert.equal(identity.pushUrl, "git@github.com:tommytang213/Settleora.git");
+    git(repo, ["remote", "set-url", "origin", "git@github.com:other/Settleora.git"]);
+    assert.throws(() => assertRepositoryRemoteIdentity(admittedConfig), /repositorySlug|changed after runtime admission/);
+    assert.throws(() => fetchOriginMain(admittedConfig), /repositorySlug|changed after runtime admission/);
+    git(repo, ["remote", "set-url", "origin", "git@github.com:tommytang213/Settleora.git"]);
     git(repo, ["config", "remote.origin.pushurl", "file:///tmp/tommytang213/Settleora.git"]);
     assert.throws(() => validateProjectRuntimeIdentity({
       runtimeMode: "external",

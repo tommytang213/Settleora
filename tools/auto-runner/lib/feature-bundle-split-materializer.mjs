@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 export async function materializeFeatureBundleSplit(input, adapter) {
   const proof = validateSplitMaterializationInput(input);
@@ -73,6 +74,7 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
   return {
     readBranch: async (branchName) => {
       const local = git(cwd, ["show-ref", "--verify", "--hash", `refs/heads/${branchName}`]);
+      assertRepositoryRemoteIdentity(config);
       const remote = git(cwd, ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`]);
       if (remote.status !== 0 || remote.error) return { complete: false, exists: false, unavailable: true };
       const remoteHead = remote.status === 0 && remote.stdout.trim() ? remote.stdout.trim().split(/\s+/)[0] : null;
@@ -80,6 +82,7 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
       if (localHead && remoteHead && localHead !== remoteHead) return { complete: true, exists: true, conflict: true, headSha: localHead, remoteHead };
       if (localHead) return { complete: true, exists: true, headSha: localHead, treeSha: git(cwd, ["rev-parse", `${localHead}^{tree}`]).stdout.trim(), remoteExists: Boolean(remoteHead), source: remoteHead ? "local+remote" : "local" };
       if (!remoteHead) return { complete: true, exists: false, headSha: null, remoteExists: false };
+      assertRepositoryRemoteIdentity(config);
       const fetched = git(cwd, ["fetch", "origin", `refs/heads/${branchName}`]);
       return fetched.status === 0 ? { complete: true, exists: true, headSha: remoteHead, treeSha: git(cwd, ["rev-parse", `${remoteHead}^{tree}`]).stdout.trim(), remoteExists: true, source: "remote" } : { complete: false, exists: true, headSha: remoteHead, unavailable: true };
     },
@@ -118,6 +121,7 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
       return { ok, reasonCode: ok ? null : actualDigest !== expected.changedFilesDigest ? "split_materialization_changed_files_mismatch" : "split_materialization_semantic_mismatch", changedFilesDigest: actualDigest, semanticOwnDeltaProven: ok, ownDelta };
     },
     pushBranch: async (expected) => {
+      assertRepositoryRemoteIdentity(config);
       const result = git(cwd, ["push", "origin", `${expected.headSha}:refs/heads/${expected.branchName}`]);
       return { ok: result.status === 0, reasonCode: result.status === 0 ? null : "split_materialization_push_failed" };
     },

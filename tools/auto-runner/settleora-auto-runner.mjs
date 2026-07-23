@@ -19,7 +19,7 @@ import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
 import { acquireRunnerLock, processAppearsActive, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
-import { matchAuthorizedSupervisorProcess, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
+import { assertRepositoryRemoteIdentity, matchAuthorizedSupervisorProcess, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
 import { pollEligibleIssues, claimIssue, commentIssueOutcome, readIssueLive } from "./lib/github-issues.mjs";
 import {
@@ -2331,7 +2331,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const cleanupConfig = { ...config, repoRoot: cleanupRoot };
       try { process.chdir(cleanupRoot); } catch { return { ok: false, outcome: "cleanup_required", reasonCode: "cleanup_primary_worktree_unavailable" }; }
       const authorityReader = async (owner) => readOrdinaryCleanupAuthority(cleanupConfig, state, continuation, owner, currentRunId);
-      const adapter = createPostMergeCleanupGitAdapter({ repoRoot: cleanupRoot, authorityReader, checkpoint: async (cleanup) => { const written = persistPostMergeCleanupState(cleanupConfig, cleanup); if (!written.ok) throw new Error(written.reasonCode); } });
+      const adapter = createPostMergeCleanupGitAdapter({ config: cleanupConfig, repoRoot: cleanupRoot, authorityReader, checkpoint: async (cleanup) => { const written = persistPostMergeCleanupState(cleanupConfig, cleanup); if (!written.ok) throw new Error(written.reasonCode); } });
       let loaded = loadPostMergeCleanupState(config, ownership);
       if (!loaded.ok && loaded.reasonCode === "cleanup_state_unavailable_or_corrupt") {
         const planned = planPostMergeCleanup(ownership, await adapter.readLive(ownership));
@@ -2372,6 +2372,7 @@ function synchronizeRecoveredSourceChange(state, ordinaryContinuation, reasonCod
 function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {
   const targetDigest = adopted.targetDigest;
   if (phase === "push") {
+    assertRepositoryRemoteIdentity(config);
     const live = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${continuation.branchName}`], { cwd: config.repoRoot, encoding: "utf8" });
     const head = live.status === 0 && live.stdout.trim() ? live.stdout.trim().split(/\s+/)[0] : null;
     return head === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_push_live_mismatch" };
@@ -2413,6 +2414,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
   const openBaseRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--base", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
   const branchRead = run("gh", ["api", `repos/${owner.repository}/branches/${encodeURIComponent(owner.branchName)}`]);
   const repositoryRead = run("gh", ["repo", "view", owner.repository, "--json", "defaultBranchRef"]);
+  assertRepositoryRemoteIdentity(config);
   const fetch = run("git", ["fetch", "origin", `refs/heads/${owner.targetBranch}:refs/remotes/origin/${owner.targetBranch}`]);
   const targetRead = run("git", ["rev-parse", `refs/remotes/origin/${owner.targetBranch}`]);
   const sourceAncestor = run("git", ["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]);
@@ -3073,6 +3075,7 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
     };
   }
   try {
+    assertRepositoryRemoteIdentity(config);
     const fetch = spawnLike("git", ["fetch", "origin", pr.headRefName], config.repoRoot);
     if (fetch.status !== 0 || fetch.error) {
       return {
