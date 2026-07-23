@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -17,7 +17,7 @@ import {
 import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
-import { acquireRunnerLock, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
+import { acquireRunnerLock, processAppearsActive, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
 import { pollEligibleIssues, claimIssue, commentIssueOutcome, readIssueLive } from "./lib/github-issues.mjs";
 import {
@@ -2432,11 +2432,21 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner) {
     && state.issue?.number === owner.issueNumber
     && state.branch?.name === owner.branchName
     && state.branch?.currentHeadSha === owner.reviewedHeadSha;
+  let runnerLockAuthority = false;
+  try {
+    const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
+    const lock = existsSync(lockPath) ? JSON.parse(readFileSync(lockPath, "utf8")) : null;
+    runnerLockAuthority = lock?.pid === process.pid
+      && processAppearsActive(lock.pid) === true
+      && (!lock.runId || lock.runId === state.run?.runId)
+      && (!state.run?.supervisorRunId || lock.supervisorRunId === state.run.supervisorRunId);
+  } catch { runnerLockAuthority = false; }
+  const sessionAuthority = !owner.correlations?.session || owner.correlations.session === state.sessionLifecycle?.sessionId;
   return {
     repository: owner.repository,
     pr: { state: prRead.status === 0 ? pr?.state : null, headSha: pr?.headRefOid, mergeSha: pr?.mergeCommit?.oid, baseBranch: pr?.baseRefName },
     target: { branch: owner.targetBranch, headSha: targetRead.status === 0 ? targetRead.stdout.trim() : null, sourceAncestor: fetch.status === 0 && sourceAncestor.status === 0, mergeAncestor: fetch.status === 0 && mergeAncestor.status === 0 && acceptanceAncestor.status === 0, acceptanceDigest: sourceTree.status === 0 && acceptanceAncestor.status === 0 ? canonicalGithubEvidenceDigest({ targetBranch: owner.targetBranch, targetHeadSha: owner.acceptance.targetHeadSha, sourceHeadSha: owner.reviewedHeadSha, mergeSha: owner.mergeSha, treeSha: sourceTree.stdout.trim() }) : null },
-    hygieneComplete: hygiene.status === "merged", reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority, openPrReferences,
+    hygieneComplete: hygiene.status === "merged", reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority, openPrReferences,
     protected: branchRead.status === 0 ? branch?.protected === true : false, defaultBranch: repository?.defaultBranchRef?.name, manualOwned: state.taskKey !== owner.rootTaskKey || state.issue?.number !== owner.issueNumber || state.branch?.name !== owner.branchName || state.branch?.currentHeadSha !== owner.reviewedHeadSha, excluded: prRead.status !== 0 || openHeadRead.status !== 0 || openBaseRead.status !== 0 || !openIdentityValid || repositoryRead.status !== 0 || (branchRead.status !== 0 && !branchAbsent) || targetRead.status !== 0,
     worktree: { active: false, shared: false, unexportedEvidence: false },
   };

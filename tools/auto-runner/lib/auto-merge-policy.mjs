@@ -527,20 +527,22 @@ export function preparePostMergeCleanupOwnership(config, context, { runner, merg
   const evidenceDigest = canonicalGithubEvidenceDigest({ targetBranch, targetHeadSha, sourceHeadSha, mergeSha, treeSha: sourceTree.stdout.trim() });
   let ownership;
   try {
-    ownership = createCleanupOwnershipRecord({ repository: repositorySlug, rootTaskKey: context.taskKey || `issue-${context.issue?.number}`, executionLineage: `${context.runId || config.runnerRunId || "runner"}:${context.sessionLifecycle?.sessionId || "session"}`, issueNumber: context.issue?.number, branchName, branchKind: branchName.split("/")[0], baseBranch: targetBranch, baseSha: context.baseSha || context.expectedOriginMainSha, reviewedHeadSha: sourceHeadSha, prNumber, prUrl: context.pr?.url || `https://github.com/${repositorySlug}/pull/${prNumber}`, mergeSha, targetBranch, acceptance: { passed: true, targetHeadSha, evidenceDigest }, correlations: { recovery: context.recoveryState?.taskKey || null, session: context.sessionLifecycle?.sessionId || null, bundle: context.featureBundle?.bundleId || null, stack: context.stackId || null }, worktree: cleanupWorktreeIdentity(config, runner, repositorySlug, branchName, sourceHeadSha) });
+    ownership = createCleanupOwnershipRecord({ repository: repositorySlug, rootTaskKey: context.taskKey || `issue-${context.issue?.number}`, executionLineage: `${context.runId || config.runnerRunId || "runner"}:${context.sessionLifecycle?.sessionId || "session"}`, issueNumber: context.issue?.number, branchName, branchKind: branchName.split("/")[0], baseBranch: targetBranch, baseSha: context.baseSha || context.expectedOriginMainSha, reviewedHeadSha: sourceHeadSha, prNumber, prUrl: context.pr?.url || `https://github.com/${repositorySlug}/pull/${prNumber}`, mergeSha, targetBranch, acceptance: { passed: true, targetHeadSha, evidenceDigest }, correlations: { recovery: context.recoveryState?.taskKey || null, session: context.sessionLifecycle?.sessionId || null, bundle: context.featureBundle?.bundleId || null, stack: context.stackId || null }, worktree: cleanupWorktreeIdentity(config, runner, repositorySlug, branchName, sourceHeadSha, recovery) });
   } catch (error) { return { ok: false, eligible: true, reasonCode: error.message }; }
   const persisted = persistCleanupOwnership(config, ownership);
   return persisted.ok ? { ok: true, eligible: true, ownership, ownershipDigest: canonicalGithubEvidenceDigest(ownership) } : { ok: false, eligible: true, reasonCode: persisted.reasonCode };
 }
 
-function cleanupWorktreeIdentity(config, runner, repository, branchName, headSha) {
+function cleanupWorktreeIdentity(config, runner, repository, branchName, headSha, recovery) {
   const common = runner("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: config.repoRoot });
   const top = runner("git", ["rev-parse", "--show-toplevel"], { cwd: config.repoRoot });
   if (common.status !== 0 || common.error || top.status !== 0 || top.error) return null;
   const worktreePath = path.resolve(String(top.stdout || "").trim());
   const primaryPath = path.dirname(path.resolve(String(common.stdout || "").trim()));
   if (!worktreePath || worktreePath === primaryPath) return null;
-  return { identity: canonicalGithubEvidenceDigest({ repository, branchName, headSha, realPath: worktreePath }), disposable: true };
+  const identity = canonicalGithubEvidenceDigest({ repository, branchName, headSha, realPath: worktreePath });
+  const marker = recovery?.mutationMarkers?.worktree_ownership_created?.[`${branchName}:${identity}`];
+  return marker?.target === identity && marker?.correlation === branchName ? { identity, disposable: true } : null;
 }
 
 function inspectCleanupBranchSafety(config, context, runner) {

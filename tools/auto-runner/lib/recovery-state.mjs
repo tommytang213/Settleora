@@ -103,6 +103,7 @@ const allowedMutationMarkerKinds = new Set([
   "ledger_hygiene",
   "branch_cleanup_plan",
   "branch_ownership_created",
+  "worktree_ownership_created",
   "remote_branch_delete",
   "worktree_remove",
   "local_branch_delete",
