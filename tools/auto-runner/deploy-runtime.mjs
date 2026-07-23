@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { deployRuntimeBundle, inspectDeploymentQuiescence, rollbackRuntimeBundle } from "./lib/runtime-bundle.mjs";
+import { deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, rollbackRuntimeBundle } from "./lib/runtime-bundle.mjs";
 
 const values = new Map();
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -25,6 +25,7 @@ const status = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, enco
 if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("source repository must be clean and readable");
 const approvedSha = values.get("--approved-sha");
 const quiescence = inspectDeploymentQuiescence(logsRoot);
+const runtimeConsumers = inspectRuntimeConsumers(destination);
 if (values.has("--rollback")) {
   const result = rollbackRuntimeBundle({
     destination,
@@ -32,6 +33,7 @@ if (values.has("--rollback")) {
     expectedRollbackDigest: values.get("--expected-rollback-digest"),
     active: quiescence.active,
     pendingEffects: quiescence.pendingEffects,
+    runtimeConsumers,
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   process.exit(0);
@@ -47,5 +49,6 @@ const result = deployRuntimeBundle({
   dryRun: values.has("--dry-run"),
   active: quiescence.active,
   pendingEffects: quiescence.pendingEffects,
+  runtimeConsumers,
 });
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

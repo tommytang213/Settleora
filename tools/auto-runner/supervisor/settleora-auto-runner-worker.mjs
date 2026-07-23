@@ -4,7 +4,7 @@ import { createWriteStream } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import process from "node:process";
-import { defaultLogsRoot } from "../lib/config.mjs";
+import { defaultLogsRoot, loadConfig } from "../lib/config.mjs";
 import { getRefSha } from "../lib/git-workspace.mjs";
 import { safeTimestamp } from "../lib/logger.mjs";
 import { readAndVerifyRunSpec, validateRunId } from "./run-spec.mjs";
@@ -160,7 +160,15 @@ export async function runSupervisorWorker(
 }
 
 async function main() {
-  const result = await runSupervisorWorker(process.argv[2]);
+  const configIndex = process.argv.indexOf("--config");
+  const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : null;
+  if (!configPath) throw new Error("supervisor worker requires --config");
+  const config = loadConfig({ dryRun: true, run: false, configPath });
+  const result = await runSupervisorWorker(process.argv[2], {
+    logsRoot: config.logsRoot,
+    repoRoot: config.repoRoot,
+    runtimeRoot: config.runtimeRoot,
+  });
   process.exit(result.exitCode);
 }
 

@@ -15,6 +15,23 @@ export const runtimeEntryPoints = Object.freeze([
   "supervisor/settleora-auto-runner-worker.mjs",
 ]);
 
+export function inspectRuntimeConsumers(destination, { procRoot = "/proc", selfPid = process.pid } = {}) {
+  const root = path.resolve(destination);
+  if (!existsSync(procRoot)) return [];
+  const entries = runtimeEntryPoints.map((entry) => path.join(root, entry));
+  const consumers = [];
+  for (const name of readdirSync(procRoot)) {
+    if (!/^\d+$/.test(name) || Number(name) === selfPid) continue;
+    try {
+      const argv = readFileSync(path.join(procRoot, name, "cmdline"), "utf8").split("\0").filter(Boolean);
+      if (entries.some((entry) => argv.includes(entry))) consumers.push(Number(name));
+    } catch {
+      // A process may exit or become unreadable during this bounded snapshot.
+    }
+  }
+  return consumers.sort((a, b) => a - b);
+}
+
 const includedRoots = ["lib", "supervisor"];
 const includedFiles = [
   ...runtimeEntryPoints,
@@ -93,9 +110,11 @@ export function deployRuntimeBundle({
   dryRun = false,
   active = false,
   pendingEffects = false,
+  runtimeConsumers = [],
 } = {}) {
   if (active) throw new Error("runtime deployment refused while a runner or supervisor is active");
   if (pendingEffects) throw new Error("runtime deployment refused with unresolved effects or recovery");
+  if (runtimeConsumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
   const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
   const destinationParent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
   if (path.resolve(destination) !== destination || isContained(destination, source)) throw new Error("runtime destination must be canonical and outside source");
@@ -156,9 +175,11 @@ export function rollbackRuntimeBundle({
   expectedRollbackDigest,
   active = false,
   pendingEffects = false,
+  runtimeConsumers = [],
 } = {}) {
   if (active) throw new Error("runtime rollback refused while a runner or supervisor is active");
   if (pendingEffects) throw new Error("runtime rollback refused with unresolved effects or recovery");
+  if (runtimeConsumers.length) throw new Error("runtime rollback refused while the shared runtime has active consumers");
   if (!/^[a-f0-9]{64}$/.test(String(expectedCurrentDigest || ""))
       || !/^[a-f0-9]{64}$/.test(String(expectedRollbackDigest || ""))) {
     throw new Error("runtime rollback requires expected current and rollback digests");

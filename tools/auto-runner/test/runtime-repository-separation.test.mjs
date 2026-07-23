@@ -4,7 +4,7 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, 
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle } from "../lib/runtime-bundle.mjs";
+import { buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle } from "../lib/runtime-bundle.mjs";
 import { absoluteRuntimeEntry, assertSeparatedRoots, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
@@ -159,12 +159,27 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
     assert.equal(deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, dryRun: true }).dryRun, true);
     assert.throws(() => deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, active: true }), /active/);
     assert.throws(() => deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, pendingEffects: true }), /unresolved/);
+    assert.throws(() => deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, runtimeConsumers: [4321] }), /shared runtime/);
     const installed = deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha });
     assert.throws(() => deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, expectedOldDigest: "0".repeat(64) }), /expected old digest/);
     const upgraded = deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, expectedOldDigest: installed.manifest.bundleDigest });
     assert.ok(upgraded.rollback);
   } finally {
     rmSync(root, { recursive: true });
+  }
+});
+
+test("runtime consumer discovery covers every project using the shared bundle", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-consumers-"));
+  try {
+    mkdirSync(path.join(root, "100"));
+    mkdirSync(path.join(root, "200"));
+    const runtime = "/opt/controller/runtime";
+    writeFileSync(path.join(root, "100/cmdline"), `node\0${runtime}/settleora-auto-runner.mjs\0--run\0`);
+    writeFileSync(path.join(root, "200/cmdline"), "node\0/unrelated/app.mjs\0");
+    assert.deepEqual(inspectRuntimeConsumers(runtime, { procRoot: root, selfPid: 999 }), [100]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -1,20 +1,26 @@
 import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { unitNameForRunId } from "./supervisor-state.mjs";
 import { resolveProfile, validateRunId } from "./run-spec.mjs";
 import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 
-export function buildSystemdStartPlan(runId) {
+export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot(), configPath = null } = {}) {
   validateRunId(runId);
+  if (!configPath || !path.isAbsolute(configPath)) throw new Error("absolute supervisor configPath is required");
+  const worker = absoluteRuntimeEntry(runtimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
   return {
     unitName: unitNameForRunId(runId),
-    startArgv: ["systemctl", "--user", "start", unitNameForRunId(runId)],
+    startArgv: [
+      "systemd-run", "--user", `--unit=${unitNameForRunId(runId).replace(/\.service$/, "")}`,
+      process.execPath, worker, runId, "--config", configPath,
+    ],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
     showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],
   };
 }
 
-export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000 } = {}) {
-  const plan = buildSystemdStartPlan(runId);
+export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath } = {}) {
+  const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath });
   const start = runner(plan.startArgv[0], plan.startArgv.slice(1), { encoding: "utf8", windowsHide: true });
   if (start.error || start.status !== 0) {
     return { ok: false, unitName: plan.unitName, state: "submission_failed", status: start.status, stderr: start.stderr || start.error?.message || "" };

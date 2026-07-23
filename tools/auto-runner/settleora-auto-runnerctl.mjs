@@ -241,7 +241,7 @@ function buildLastControlMetadata({
 async function submit(cli, config) {
   const profile = resolveProfile(cli.profile, config.logsRoot);
   const runId = generateRunId();
-  const initialOriginMainSha = getRefSha("origin/main");
+  const initialOriginMainSha = getRefSha("origin/main", { cwd: config.repoRoot });
   const specResult = buildRunSpec({
     runId,
     maxTasks: cli.maxTasks,
@@ -254,8 +254,9 @@ async function submit(cli, config) {
     logsRoot: config.logsRoot,
   });
   const specSha256 = sha256Text(canonicalJson(specResult.spec));
-  const plan = buildSystemdStartPlan(runId);
-  const runnerArgv = runnerArgvForSpec(specResult.spec);
+  const runtimeRoot = moduleRuntimeRoot();
+  const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath: profile.runnerConfigPath });
+  const runnerArgv = runnerArgvForSpec(specResult.spec, { runtimeRoot, logsRoot: config.logsRoot });
   const heartbeat = buildHeartbeat({
     runId,
     state: "submitted",
@@ -293,11 +294,10 @@ async function submit(cli, config) {
   };
   if (cli.dryRun) return rendered;
 
-  const runtimeRoot = moduleRuntimeRoot();
   const runnerEntry = absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs");
   const status = getStatusShort({ cwd: config.repoRoot });
   if (status) throw new Error("Refusing supervisor submit with a dirty worktree");
-  const runnerStatus = spawnSync(process.execPath, [runnerEntry, "--status", "--json"], {
+  const runnerStatus = spawnSync(process.execPath, [runnerEntry, "--status", "--json", "--config", profile.runnerConfigPath], {
     cwd: runtimeRoot,
     encoding: "utf8",
   });
@@ -322,7 +322,10 @@ async function submit(cli, config) {
     initialOriginMainSha,
   }, config.logsRoot);
   recordMonitoringEvent("submitted", { ...heartbeat, runId }, { logsRoot: config.logsRoot });
-  const start = startUserUnit(runId);
+  const start = startUserUnit(runId, {
+    runtimeRoot,
+    configPath: profile.runnerConfigPath,
+  });
   if (!start.ok) {
     writeSupervisorState(runId, { state: "submission_failed", submissionFailure: start.stderr }, config.logsRoot);
     return { ...rendered, ok: false, state: "submission_failed", start };
