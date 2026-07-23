@@ -32,7 +32,9 @@ consumer directory. Deployment reclaims only markers whose process-start
 identity is stale and otherwise refuses the handoff.
 The supervisor worker derives its selected profile path from the immutable
 run spec under the fixed project `logsRoot`; the installed unit therefore
-contains no hard-coded active-profile path.
+contains no hard-coded active-profile path. The runner child receives the
+spec's expected profile SHA-256 and refuses admission if the profile is
+replaced between supervisor verification and child startup.
 
 Future manual command shapes (not executed by issue #951):
 

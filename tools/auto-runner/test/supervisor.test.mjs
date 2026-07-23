@@ -245,6 +245,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.equal(argv.includes("auto-canary-ready"), false);
   assert.equal(argv.includes("--allow-auto-merge"), false);
   assert.equal(argv.includes("--config"), true);
+  assert.equal(argv[argv.indexOf("--expected-config-sha256") + 1], spec.runnerConfigSha256);
   assert.equal(argv.filter((part) => part === "--supervisor-run-id").length, 1);
   assert.equal(argv[argv.indexOf("--supervisor-run-id") + 1], runId);
   assert.equal(argv[argv.indexOf("--runner-run-id") + 1], runnerRunId);

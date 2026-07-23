@@ -1,10 +1,16 @@
 import { spawnSync } from "node:child_process";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
-function runGh(args) {
-  const result = spawnSync("gh", args, { encoding: "utf8", windowsHide: true });
+function runGh(config, args, { mutation = false } = {}) {
+  if (!config?.repoRoot || !config?.repositorySlug) throw new Error("explicit GitHub repository context is required");
+  if (mutation) assertRepositoryRemoteIdentity(config);
+  const boundArgs = args[0] === "issue" && !args.includes("--repo")
+    ? [...args, "--repo", config.repositorySlug]
+    : args;
+  const result = spawnSync("gh", boundArgs, { cwd: config.repoRoot, encoding: "utf8", windowsHide: true });
   return {
-    command: `gh ${args.join(" ")}`,
+    command: `gh ${boundArgs.join(" ")}`,
     status: result.status,
     stdout: result.stdout || "",
     stderr: result.stderr || "",
@@ -25,7 +31,7 @@ export function pollEligibleIssues(config, logger) {
 
   let searches;
   try {
-    searches = buildEligibleLabelSearches(repoSlug(), config.eligibleLabels);
+    searches = buildEligibleLabelSearches(config.repositorySlug, config.eligibleLabels);
   } catch (error) {
     const detail = { error: error.message };
     if (config.run) {
@@ -36,7 +42,7 @@ export function pollEligibleIssues(config, logger) {
   }
 
   const results = searches.map(({ search }) =>
-    runGh([
+    runGh(config, [
       "issue",
       "list",
       "--state",
@@ -137,12 +143,12 @@ export function claimIssue(config, issue, logger) {
     };
   }
 
-  const labelResult = runGh(["issue", "edit", String(issue.number), "--add-label", config.claimLabels.join(",")]);
+  const labelResult = runGh(config, ["issue", "edit", String(issue.number), "--add-label", config.claimLabels.join(",")], { mutation: true });
   if (labelResult.error || labelResult.status !== 0) {
     throw new Error(`Unable to claim issue #${issue.number}: ${labelResult.stderr || labelResult.error}`);
   }
   const comment = claimComment(claim.claimedAt);
-  const commentResult = runGh(["issue", "comment", String(issue.number), "--body", comment]);
+  const commentResult = runGh(config, ["issue", "comment", String(issue.number), "--body", comment], { mutation: true });
   if (commentResult.error || commentResult.status !== 0) {
     logger.warn(`Issue #${issue.number} was labeled but claim comment failed.`, {
       stderr: commentResult.stderr,
@@ -163,7 +169,7 @@ export function readIssueLive(config, issueNumber) {
     if (!issue) return { ok: false, reason: "fixture_issue_missing" };
     return { ok: true, issue: { ...issue, state: issue.state || "OPEN", labels: labelNames(issue) } };
   }
-  const result = runGh([
+  const result = runGh(config, [
     "issue",
     "view",
     String(issueNumber),
@@ -201,8 +207,8 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
         return { complete: true, present: labelEffect.addLabels.every((label) => current.has(label)) && labelEffect.removeLabels.every((label) => !current.has(label)), identity: intent.identity, effect: labelEffect };
       },
       execute: () => {
-        if (labelEffect.addLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--add-label", labelEffect.addLabels.join(",")]), `Unable to add terminal outcome labels for issue #${issue.number}`);
-        if (labelEffect.removeLabels.length > 0) assertGhSuccess(runGh(["issue", "edit", String(issue.number), "--remove-label", labelEffect.removeLabels.join(",")]), `Unable to remove active runner labels for issue #${issue.number}`);
+        if (labelEffect.addLabels.length > 0) assertGhSuccess(runGh(config, ["issue", "edit", String(issue.number), "--add-label", labelEffect.addLabels.join(",")], { mutation: true }), `Unable to add terminal outcome labels for issue #${issue.number}`);
+        if (labelEffect.removeLabels.length > 0) assertGhSuccess(runGh(config, ["issue", "edit", String(issue.number), "--remove-label", labelEffect.removeLabels.join(",")], { mutation: true }), `Unable to remove active runner labels for issue #${issue.number}`);
         return { status: 0 };
       },
     });
@@ -217,36 +223,28 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
     const commentEffect = { issueNumber: issue.number, bodyDigest: canonicalGithubEvidenceDigest(boundedBody), outcome };
     const comment = executeCanonicalGithubEffectSync(config, effectContext, { effectType: "comment", issueNumber: issue.number, headSha: effectContext.branch?.headSha, effect: commentEffect }, {
       readLive: (intent) => {
-        const result = runGh(["api", "--paginate", "--slurp", `repos/${config.repositorySlug}/issues/${issue.number}/comments?per_page=100`]);
+        const result = runGh(config, ["api", "--paginate", "--slurp", `repos/${config.repositorySlug}/issues/${issue.number}/comments?per_page=100`]);
         if (result.status !== 0) return { complete: false };
         try { return { complete: true, present: JSON.parse(result.stdout || "[]").flat().some((entry) => entry.body === boundedBody), identity: intent.identity, effect: commentEffect }; } catch { return { complete: false }; }
       },
-      execute: () => runGh(["issue", "comment", String(issue.number), "--body", boundedBody]),
+      execute: () => runGh(config, ["issue", "comment", String(issue.number), "--body", boundedBody], { mutation: true }),
     });
     return { skipped: false, status: comment.ok ? 0 : 1, reason: comment.ok ? null : comment.reasonCode };
   }
   if (mutations.addLabels.length > 0) {
     assertGhSuccess(
-      runGh(["issue", "edit", String(issue.number), "--add-label", mutations.addLabels.join(",")]),
+      runGh(config, ["issue", "edit", String(issue.number), "--add-label", mutations.addLabels.join(",")], { mutation: true }),
       `Unable to add terminal outcome labels for issue #${issue.number}`,
     );
   }
   if (mutations.removeLabels.length > 0) {
     assertGhSuccess(
-      runGh(["issue", "edit", String(issue.number), "--remove-label", mutations.removeLabels.join(",")]),
+      runGh(config, ["issue", "edit", String(issue.number), "--remove-label", mutations.removeLabels.join(",")], { mutation: true }),
       `Unable to remove active runner labels for issue #${issue.number}`,
     );
   }
-  const result = runGh(["issue", "comment", String(issue.number), "--body", boundedBody]);
+  const result = runGh(config, ["issue", "comment", String(issue.number), "--body", boundedBody], { mutation: true });
   return { skipped: false, status: result.status, stderr: result.stderr };
-}
-
-function repoSlug() {
-  const result = spawnSync("gh", ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : "";
 }
 
 function issueSortKey(config, issue) {

@@ -87,6 +87,8 @@ export function runnerArgvForSpec(spec, { runnerRunId = null, runtimeRoot = modu
     spec.runId,
     "--config",
     configPath,
+    "--expected-config-sha256",
+    spec.runnerConfigSha256,
     "--max-iterations",
     String(spec.maxTasks),
     "--max-runtime",

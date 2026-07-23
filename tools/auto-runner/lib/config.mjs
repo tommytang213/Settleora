@@ -245,6 +245,7 @@ export function parseCliArgs(argv) {
     fixtureIssuesPath: null,
     supervisorRunId: null,
     runnerRunId: null,
+    expectedConfigSha256: null,
     outageRecoveryOnly: false,
     outageRecoveryTarget: null,
     securityFindingsDryRun: false,
@@ -287,6 +288,7 @@ export function parseCliArgs(argv) {
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
     else if (arg === "--runner-run-id") args.runnerRunId = validateRunnerRunId(readValue(argv, ++index, arg));
+    else if (arg === "--expected-config-sha256") args.expectedConfigSha256 = readValue(argv, ++index, arg);
     else if (arg === "--outage-recovery-only") args.outageRecoveryOnly = true;
     else if (arg === "--outage-target-task-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), taskKey: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-issue") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), issueNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
@@ -354,6 +356,9 @@ export function parseCliArgs(argv) {
   }
   if (args.runnerRunId && (!args.supervisorRunId || !args.run || args.dryRun || specialMode)) {
     throw new Error("--runner-run-id is only valid with a supervised normal real --run");
+  }
+  if (args.expectedConfigSha256 && (!args.runnerRunId || !/^[a-f0-9]{64}$/u.test(args.expectedConfigSha256))) {
+    throw new Error("--expected-config-sha256 requires a supervised run and a SHA-256 digest");
   }
   if (args.outageRecoveryOnly && (!args.run || args.dryRun || specialMode || args.canary || !args.supervisorRunId)) {
     throw new Error("--outage-recovery-only is only valid for supervised non-canary real --run");
@@ -439,6 +444,9 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     });
     fileConfig = loaded.config;
     configTrustEvidence = loaded.evidence;
+    if (cliArgs.expectedConfigSha256 && configTrustEvidence.sha256 !== cliArgs.expectedConfigSha256) {
+      throw new Error("runner config digest does not match immutable supervisor run spec");
+    }
   }
   const config = {
     ...defaultConfig,
@@ -552,7 +560,8 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
       path.join(config.logsRoot, "auto-merge"),
       path.join(config.logsRoot, "pr-stacks"),
     ]) {
-      mkdirSync(dir, { recursive: true });
+      if (config.runtimeMode === "external") ensureOperationalDirectory(dir, config.logsRoot);
+      else mkdirSync(dir, { recursive: true });
     }
     const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
     if (existsSync(lifecycleRoot)) {
@@ -576,6 +585,19 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+export function ensureOperationalDirectory(directory, logsRoot) {
+  if (!existsSync(directory)) mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const info = lstatSync(directory);
+  const real = info.isDirectory() && !info.isSymbolicLink() ? realpathSync(directory) : null;
+  const relative = real ? path.relative(logsRoot, real) : "..";
+  if (!real || relative.startsWith("..") || path.isAbsolute(relative)
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())
+      || (info.mode & 0o022) !== 0) {
+    throw new Error(`Operational logs directory is unsafe: ${path.basename(directory)}`);
+  }
+  return real;
 }
 
 export function verifyProjectNamespaceMarker(config, { create = false } = {}) {

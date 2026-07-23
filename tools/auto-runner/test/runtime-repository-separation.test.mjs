@@ -7,7 +7,7 @@ import test from "node:test";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
 import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
-import { verifyProjectNamespaceMarker } from "../lib/config.mjs";
+import { ensureOperationalDirectory, verifyProjectNamespaceMarker } from "../lib/config.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
@@ -331,6 +331,25 @@ test("project logs namespace marker refuses state adoption by another repository
     assert.deepEqual(verifyProjectNamespaceMarker(configA), verifyProjectNamespaceMarker(configA));
     const configB = { ...configA, runtimeIdentity: identityFor(repoB) };
     assert.throws(() => verifyProjectNamespaceMarker(configB), /does not match repository identity/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("operational logs children refuse symlink escapes and unsafe permissions", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-project-children-"));
+  try {
+    const logsRoot = path.join(root, "Settleora");
+    const outside = path.join(root, "outside");
+    mkdirSync(logsRoot, { mode: 0o700 });
+    mkdirSync(outside, { mode: 0o700 });
+    const state = path.join(logsRoot, "state");
+    symlinkSync(outside, state);
+    assert.throws(() => ensureOperationalDirectory(state, logsRoot), /unsafe/);
+    rmSync(state);
+    mkdirSync(state, { mode: 0o777 });
+    chmodSync(state, 0o777);
+    assert.throws(() => ensureOperationalDirectory(state, logsRoot), /unsafe/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
