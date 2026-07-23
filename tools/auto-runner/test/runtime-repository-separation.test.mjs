@@ -4,7 +4,7 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, 
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildRuntimeManifest, deployRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle } from "../lib/runtime-bundle.mjs";
+import { buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, runtimeBundleFileList, verifyRuntimeBundle } from "../lib/runtime-bundle.mjs";
 import { absoluteRuntimeEntry, assertSeparatedRoots, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
@@ -20,6 +20,7 @@ function createRepo(root, name) {
   git(repo, ["init", "-b", "main"]);
   git(repo, ["config", "user.email", "runner@example.invalid"]);
   git(repo, ["config", "user.name", "Runner Test"]);
+  git(repo, ["remote", "add", "origin", "git@github.com-settleora:tommytang213/Settleora.git"]);
   writeFileSync(path.join(repo, "README.md"), "fixture\n");
   mkdirSync(path.join(repo, "tools/auto-runner"), { recursive: true });
   writeFileSync(path.join(repo, "tools/auto-runner/settleora-auto-runner.mjs"), "throw new Error('managed repository controller executed');\n");
@@ -87,7 +88,7 @@ test("path overlap, aliases, manifest drift, missing entry, and digest mismatch 
     const alias = path.join(root, "runtime-alias");
     symlinkSync(runtime, alias);
     assert.throws(() => validateProjectRuntimeIdentity({
-      runtimeMode: "external", runtimeRoot: alias, repoRoot: repo, logsRoot: logs, projectId: "Settleora", repositorySlug: "o/r",
+      runtimeMode: "external", runtimeRoot: alias, repoRoot: repo, logsRoot: logs, projectId: "Settleora", repositorySlug: "tommytang213/Settleora",
     }, { actualRuntimeRoot: alias }), /real directory/);
     writeFileSync(path.join(runtime, "lib/runtime-identity.mjs"), "\n// drift\n", { flag: "a" });
     assert.throws(() => verifyRuntimeBundle(runtime), /drift/);
@@ -109,6 +110,24 @@ test("distinct repositories isolate authority while the same canonical repositor
     const b = repositoryAuthorityLockPath(repoB, authority);
     assert.equal(a1, a2);
     assert.notEqual(a1, b);
+    const linked = path.join(root, "repo-a-linked");
+    git(repoA, ["worktree", "add", "--detach", linked]);
+    assert.equal(repositoryAuthorityLockPath(realpathSync(linked), authority), a1);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("deployment quiescence detects active owners and unresolved effects", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-deploy-quiescence-"));
+  try {
+    mkdirSync(path.join(root, "locks"));
+    writeFileSync(path.join(root, "locks", "runner.json"), `${JSON.stringify({ pid: process.pid })}\n`);
+    assert.equal(inspectDeploymentQuiescence(root).active, true);
+    rmSync(path.join(root, "locks", "runner.json"));
+    mkdirSync(path.join(root, "pre-effect-intents"));
+    writeFileSync(path.join(root, "pre-effect-intents", "pending.json"), `${JSON.stringify({ status: "prepared" })}\n`);
+    assert.equal(inspectDeploymentQuiescence(root).pendingEffects, true);
   } finally {
     rmSync(root, { recursive: true });
   }

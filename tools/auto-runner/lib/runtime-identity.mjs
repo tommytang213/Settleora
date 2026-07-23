@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 export const runtimeIdentityVersion = 1;
 export const projectIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -58,6 +59,7 @@ export function validateProjectRuntimeIdentity(config, {
     throw new Error("repositorySlug must be an explicit owner/repository slug");
   }
   const repoRoot = canonicalExistingDirectory(config?.repoRoot, "repoRoot");
+  const repository = verifyRepositoryIdentity(repoRoot, trusted ? config.repositorySlug : null);
   const runtimeRoot = canonicalExistingDirectory(config?.runtimeRoot || actualRuntimeRoot, "runtimeRoot");
   const logsRoot = canonicalExistingDirectory(config?.logsRoot, "logsRoot");
   if (runtimeRoot !== canonicalExistingDirectory(actualRuntimeRoot, "actual runtimeRoot")) {
@@ -77,8 +79,10 @@ export function validateProjectRuntimeIdentity(config, {
     repoRoot,
     logsRoot,
     namespace: createHash("sha256")
-      .update(JSON.stringify([projectId, config.repositorySlug, repoRoot]))
+      .update(JSON.stringify([projectId, config.repositorySlug, repository.commonDir]))
       .digest("hex"),
+    repositoryCommonDir: repository.commonDir,
+    originUrl: repository.originUrl,
   });
 }
 
@@ -98,6 +102,32 @@ export function absoluteRuntimeEntry(runtimeRoot, relativeEntry) {
 
 export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspace/logs/auto-runner/repository-locks") {
   mkdirSync(authorityRoot, { recursive: true, mode: 0o700 });
-  const canonicalRepo = canonicalExistingDirectory(repoRoot, "repoRoot");
-  return path.join(authorityRoot, `${createHash("sha256").update(canonicalRepo).digest("hex")}.lock`);
+  const repository = verifyRepositoryIdentity(canonicalExistingDirectory(repoRoot, "repoRoot"));
+  return path.join(authorityRoot, `${createHash("sha256").update(repository.commonDir).digest("hex")}.lock`);
+}
+
+export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
+  const top = gitValue(repoRoot, ["rev-parse", "--show-toplevel"], "repository top-level");
+  if (realpathSync(top) !== repoRoot) throw new Error("repoRoot must be the exact Git worktree top-level");
+  const commonRaw = gitValue(repoRoot, ["rev-parse", "--git-common-dir"], "Git common directory");
+  const commonDir = realpathSync(path.resolve(repoRoot, commonRaw));
+  const originResult = spawnSync("git", ["remote", "get-url", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
+  const originUrl = originResult.status === 0 ? originResult.stdout.trim() : null;
+  if (expectedSlug && (!originUrl || repositorySlugFromRemote(originUrl) !== expectedSlug)) {
+    throw new Error("repoRoot origin does not match repositorySlug");
+  }
+  return { topLevel: repoRoot, commonDir, originUrl };
+}
+
+function gitValue(cwd, args, label) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  if (result.error || result.status !== 0 || !result.stdout.trim()) throw new Error(`Unable to verify ${label}`);
+  return result.stdout.trim();
+}
+
+function repositorySlugFromRemote(remote) {
+  const value = String(remote || "").replace(/\/+$/, "").replace(/\.git$/, "");
+  const match = value.match(/(?:^|[:/])([^/:]+\/[^/]+)$/);
+  if (!match) throw new Error("origin URL does not contain a repository slug");
+  return match[1];
 }

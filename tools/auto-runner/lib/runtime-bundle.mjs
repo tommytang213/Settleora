@@ -127,7 +127,68 @@ export function deployRuntimeBundle({
   const smoke = spawnSync(process.execPath, ["--input-type=module", "--eval", `await import(${JSON.stringify(new URL(`file://${path.join(temporary, "lib/runtime-identity.mjs")}`).href)})`], { cwd: destinationParent, encoding: "utf8" });
   if (smoke.status !== 0) throw new Error(`copied runtime import smoke failed: ${smoke.stderr}`);
   if (existsSync(rollback)) rmSync(rollback, { recursive: true });
-  if (existsSync(destination)) renameSync(destination, rollback);
-  renameSync(temporary, destination);
+  const movedOldRuntime = existsSync(destination);
+  if (movedOldRuntime) renameSync(destination, rollback);
+  try {
+    renameSync(temporary, destination);
+  } catch (error) {
+    if (movedOldRuntime && !existsSync(destination) && existsSync(rollback)) renameSync(rollback, destination);
+    throw error;
+  }
   return { dryRun: false, destination: realpathSync(destination), rollback: existsSync(rollback) ? rollback : null, manifest };
+}
+
+export function inspectDeploymentQuiescence(logsRoot) {
+  canonicalExistingDirectory(logsRoot, "logsRoot");
+  const activePaths = [
+    path.join(logsRoot, "locks"),
+    path.join(logsRoot, "supervisor", "runs"),
+  ];
+  for (const root of activePaths) {
+    if (!existsSync(root)) continue;
+    for (const file of regularJsonFiles(root, 3)) {
+      let record;
+      try {
+        record = JSON.parse(readFileSync(file, "utf8"));
+      } catch {
+        throw new Error("runtime deployment refused because operational state is unreadable");
+      }
+      if (Number.isInteger(record.pid) && processIsActive(record.pid)) {
+        return { active: true, pendingEffects: false };
+      }
+      if (["submitted", "starting", "running", "stopping_after_current"].includes(record.state)) {
+        return { active: true, pendingEffects: false };
+      }
+    }
+  }
+  for (const name of ["pre-effect-intents", "recovery"]) {
+    const root = path.join(logsRoot, name);
+    if (!existsSync(root)) continue;
+    for (const file of regularJsonFiles(root, 4)) {
+      const record = JSON.parse(readFileSync(file, "utf8"));
+      const terminal = record.completed === true || record.status === "completed" || record.phase === "cleanup_complete";
+      if (!terminal) return { active: false, pendingEffects: true };
+    }
+  }
+  return { active: false, pendingEffects: false };
+}
+
+function regularJsonFiles(root, depth) {
+  if (depth < 0) return [];
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const target = path.join(root, entry.name);
+    if (entry.isSymbolicLink()) throw new Error("runtime deployment refused because operational state contains a symlink");
+    if (entry.isDirectory()) return regularJsonFiles(target, depth - 1);
+    return entry.isFile() && entry.name.endsWith(".json") ? [target] : [];
+  });
+}
+
+function processIsActive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === "ESRCH") return false;
+    return true;
+  }
 }
