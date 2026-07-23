@@ -133,6 +133,8 @@ test("copied runtime remains authoritative after managed branch and source chang
     assert.equal(verifyRuntimeBundle(runtime).bundleDigest, deployed.manifest.bundleDigest);
     assert.equal(existsSync(deployed.launcher), true);
     assert.equal(statSync(deployed.launcher).mode & 0o777, 0o500);
+    const approval = path.join(runtimeParent, ".runtime.approved.json");
+    assert.equal(statSync(approval).mode & 0o777, 0o400);
     const deploymentLock = acquireRuntimeDeploymentLock(runtime);
     const refused = spawnSync(process.execPath, [
       deployed.launcher,
@@ -148,6 +150,20 @@ test("copied runtime remains authoritative after managed branch and source chang
     assert.notEqual(refused.status, 0);
     assert.match(refused.stderr, /startup refused during deployment/);
     releaseRuntimeDeploymentLock(deploymentLock);
+    const launcherSource = readFileSync(deployed.launcher, "utf8");
+    assert.ok(launcherSource.indexOf("await import(") < launcherSource.indexOf("process.argv = [process.execPath, target"));
+    const tampered = path.join(runtime, "lib/runtime-identity.mjs");
+    const originalBytes = readFileSync(tampered);
+    chmodSync(tampered, 0o600);
+    writeFileSync(tampered, `${originalBytes}\n`);
+    const drifted = spawnSync(process.execPath, [
+      deployed.launcher, "--runtime-root", runtime, "--entry", "settleora-auto-runnerctl.mjs", "--", "list",
+      "--config", "/workspace/auto-runner/config/settleora.json",
+    ], { encoding: "utf8" });
+    assert.notEqual(drifted.status, 0);
+    assert.match(drifted.stderr, /bundle file verification failed/);
+    writeFileSync(tampered, originalBytes);
+    chmodSync(tampered, 0o400);
     const entry = absoluteRuntimeEntry(runtime, "settleora-auto-runner.mjs");
     assert.equal(entry.startsWith(`${runtime}${path.sep}`), true);
     git(repo, ["switch", "-c", "feature/change-controller"]);

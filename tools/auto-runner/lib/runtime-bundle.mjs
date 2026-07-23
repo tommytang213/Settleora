@@ -248,10 +248,12 @@ export function deployRuntimeBundle({
   if (existsSync(destination)) {
     const current = verifyRuntimeBundle(destination);
     if (current.bundleDigest === manifest.bundleDigest && !expectedOldDigest) {
+      writeRuntimeApproval(destination, current);
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback: null, manifest: current };
     }
     if (current.bundleDigest === manifest.bundleDigest && expectedOldDigest && existsSync(rollback)) {
       verifyRuntimeBundle(rollback, expectedOldDigest);
+      writeRuntimeApproval(destination, current);
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest: current };
     }
     if (!expectedOldDigest || current.bundleDigest !== expectedOldDigest) throw new Error("installed runtime does not match expected old digest");
@@ -259,6 +261,7 @@ export function deployRuntimeBundle({
     verifyRuntimeBundle(rollback, expectedOldDigest);
     verifyRuntimeBundle(temporary, manifest.bundleDigest);
     renameSync(temporary, destination);
+    writeRuntimeApproval(destination, manifest);
     return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest };
   } else if (expectedOldDigest) {
     throw new Error("expected old runtime is absent");
@@ -304,7 +307,29 @@ export function deployRuntimeBundle({
     if (movedOldRuntime && !existsSync(destination) && existsSync(rollback)) renameSync(rollback, destination);
     throw error;
   }
+  writeRuntimeApproval(destination, manifest);
   return { dryRun: false, destination: realpathSync(destination), launcher, rollback: existsSync(rollback) ? rollback : null, manifest };
+}
+
+function writeRuntimeApproval(destination, manifest) {
+  const parent = path.dirname(destination);
+  const base = path.basename(destination);
+  const launcher = path.join(parent, `.${base}.launcher.mjs`);
+  const approval = path.join(parent, `.${base}.approved.json`);
+  const temporary = path.join(parent, `.${base}.approved.incoming`);
+  const launcherInfo = lstatSync(launcher);
+  if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0) {
+    throw new Error("stable runtime launcher is unsafe");
+  }
+  if (existsSync(temporary)) rmSync(temporary);
+  writeFileSync(temporary, `${JSON.stringify({
+    version: 1,
+    sourceSha: manifest.sourceSha,
+    bundleDigest: manifest.bundleDigest,
+    launcherSha256: createHash("sha256").update(readFileSync(launcher)).digest("hex"),
+  })}\n`, { mode: 0o600 });
+  chmodSync(temporary, 0o400);
+  renameSync(temporary, approval);
 }
 
 export function rollbackRuntimeBundle({
@@ -329,6 +354,7 @@ export function rollbackRuntimeBundle({
     const installed = verifyRuntimeBundle(destination);
     const retained = verifyRuntimeBundle(rollback);
     if (installed.bundleDigest === expectedRollbackDigest && retained.bundleDigest === expectedCurrentDigest) {
+      writeRuntimeApproval(destination, installed);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: installed };
     }
   }
@@ -337,12 +363,14 @@ export function rollbackRuntimeBundle({
     if (!existsSync(destination)) {
       verifyRuntimeBundle(rollback, expectedCurrentDigest);
       renameSync(incoming, destination);
+      writeRuntimeApproval(destination, staged);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
     }
     if (!existsSync(rollback)) {
       verifyRuntimeBundle(destination, expectedCurrentDigest);
       renameSync(destination, rollback);
       renameSync(incoming, destination);
+      writeRuntimeApproval(destination, staged);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
     }
   }
@@ -360,11 +388,13 @@ export function rollbackRuntimeBundle({
     if (!existsSync(rollback) && existsSync(incoming)) renameSync(incoming, rollback);
     throw error;
   }
+  const installed = verifyRuntimeBundle(destination, expectedRollbackDigest);
+  writeRuntimeApproval(destination, installed);
   return {
     adopted: false,
     destination: realpathSync(destination),
     rollback,
-    manifest: verifyRuntimeBundle(destination, expectedRollbackDigest),
+    manifest: installed,
   };
 }
 
