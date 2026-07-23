@@ -17,19 +17,19 @@ export function processAppearsActive(pid) {
 export function acquireRunnerLock(config, metadata = {}) {
   const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
   const repositoryLockPath = repositoryAuthorityLockPath(config.repoRoot);
-  for (const target of [repositoryLockPath, lockPath]) {
+  for (const [target, allowStaleReclaim] of [[repositoryLockPath, false], [lockPath, true]]) {
     acquireOneLock(target, {
       projectId: config.projectId,
       repositorySlug: config.repositorySlug,
       repoRoot: config.repoRoot,
       stateNamespace: config.runtimeIdentity?.namespace || null,
       ...metadata,
-    });
+    }, { allowStaleReclaim });
   }
   return { lockPath, repositoryLockPath };
 }
 
-function acquireOneLock(lockPath, metadata) {
+function acquireOneLock(lockPath, metadata, { allowStaleReclaim = true } = {}) {
   if (existsSync(lockPath)) {
     const observed = lstatSync(lockPath);
     let lock;
@@ -44,6 +44,9 @@ function acquireOneLock(lockPath, metadata) {
     }
     if (active === null) {
       throw new Error(`Runner lock exists and staleness cannot be safely determined: ${lockPath}`);
+    }
+    if (!allowStaleReclaim) {
+      throw new Error(`Repository authority lock is stale and requires explicit recovery: ${lockPath}`);
     }
     const quarantine = `${lockPath}.stale-${process.pid}-${Date.now()}`;
     renameSync(lockPath, quarantine);
