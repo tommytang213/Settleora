@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -2408,6 +2408,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
   const evidence = continuation.effects?.github_convergence?.evidence || {};
   const hygiene = state.postMergeCompletionHygiene || evidence.completionHygiene || {};
   const otherRecoveryReferences = listRecoverableRecoveryStates(config).filter((record) => record.branch?.name === owner.branchName && (record.taskKey !== owner.rootTaskKey || record.issue?.number !== owner.issueNumber)).length;
+  const durableInventory = inspectDurableCleanupReferences(config, owner);
   const pendingBranchEffects = findPreEffectIntents(config, (intent) => intent.branchName === owner.branchName || intent.effect?.branchName === owner.branchName).filter((intent) => !["live_confirmed", "adopted_after_recovery"].includes(intent.status)).length;
   const processInventory = run("ps", ["-eo", "pid=,args="]);
   const correlatedProcesses = processInventory.status === 0
@@ -2423,16 +2424,16 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
   const activeReferences = {
     runner: otherRunnerProcesses,
     supervisor: otherSupervisorProcesses,
-    recovery: otherRecoveryReferences,
+    recovery: otherRecoveryReferences + durableInventory.recovery,
     outage: state.outageResubmission && !["complete", "completed"].includes(state.outageResubmission.status) ? 1 : 0,
     review: state.reviewConvergenceState?.pendingFindingCount > 0 ? 1 : 0,
     source_failure: state.ordinaryContinuation?.sourceFailureBatch ? 1 : 0,
-    session: 0,
-    bundle: state.featureBundle && !["complete", "completed"].includes(state.featureBundle.status) ? 1 : 0,
-    stack: state.prStack && !["complete", "completed"].includes(state.prStack.status) ? 1 : 0,
+    session: durableInventory.session,
+    bundle: (state.featureBundle && !["complete", "completed"].includes(state.featureBundle.status) ? 1 : 0) + durableInventory.bundle,
+    stack: (state.prStack && !["complete", "completed"].includes(state.prStack.status) ? 1 : 0) + durableInventory.stack,
     report: reportEvidenceComplete ? 0 : 1,
     pending_effect: Math.max(Number(state.pendingEffectCount || 0), pendingBranchEffects),
-    generated_work: state.generatedWork && !["complete", "completed"].includes(state.generatedWork.status) ? 1 : 0,
+    generated_work: (state.generatedWork && !["complete", "completed"].includes(state.generatedWork.status) ? 1 : 0) + durableInventory.generated_work,
     lease: 0,
   };
   const openPrReferences = Array.isArray(openHead) && Array.isArray(openBase) ? Math.min(2, openHead.length + openBase.length) : 1;
@@ -2456,16 +2457,44 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
       && (lockRunOwnsRecovery || !state.run?.supervisorRunId || lock.supervisorRunId === state.run.supervisorRunId);
   } catch { runnerLockAuthority = false; }
   const sessionAuthority = !owner.correlations?.session || owner.correlations.session === state.sessionLifecycle?.sessionId;
-  activeReferences.session = sessionAuthority ? 0 : 1;
+  activeReferences.session += sessionAuthority ? 0 : 1;
   activeReferences.lease = runnerLockAuthority ? 0 : 1;
   return {
     repository: owner.repository,
     pr: { state: prRead.status === 0 ? pr?.state : null, headSha: pr?.headRefOid, mergeSha: pr?.mergeCommit?.oid, baseBranch: pr?.baseRefName },
     target: { branch: owner.targetBranch, headSha: targetRead.status === 0 ? targetRead.stdout.trim() : null, sourceAncestor: fetch.status === 0 && sourceAncestor.status === 0, mergeAncestor: fetch.status === 0 && mergeAncestor.status === 0 && acceptanceAncestor.status === 0, acceptanceDigest: sourceTree.status === 0 && acceptanceAncestor.status === 0 ? canonicalGithubEvidenceDigest({ targetBranch: owner.targetBranch, targetHeadSha: owner.acceptance.targetHeadSha, sourceHeadSha: owner.reviewedHeadSha, mergeSha: owner.mergeSha, treeSha: sourceTree.stdout.trim() }) : null },
-    hygieneComplete: hygiene.status === "merged", reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0, openPrReferences,
+    hygieneComplete: hygiene.status === "merged", reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0 && durableInventory.complete, openPrReferences,
     protected: branchRead.status === 0 ? branch?.protected === true : false, defaultBranch: repository?.defaultBranchRef?.name, manualOwned: state.taskKey !== owner.rootTaskKey || state.issue?.number !== owner.issueNumber || state.branch?.name !== owner.branchName || state.branch?.currentHeadSha !== owner.reviewedHeadSha, excluded: prRead.status !== 0 || openHeadRead.status !== 0 || openBaseRead.status !== 0 || !openIdentityValid || repositoryRead.status !== 0 || (branchRead.status !== 0 && !branchAbsent) || targetRead.status !== 0,
     worktree: { active: false, shared: false, unexportedEvidence: false },
   };
+}
+
+function inspectDurableCleanupReferences(config, owner) {
+  const result = { complete: true, recovery: 0, session: 0, bundle: 0, stack: 0, generated_work: 0 };
+  const roots = [["recovery", "recovery"], ["session-lifecycle", "session"], ["bundles", "bundle"], ["stack-operation-intents", "stack"], ["pr-stack", "stack"], ["generated-work", "generated_work"]];
+  let visited = 0;
+  for (const [relative, category] of roots) {
+    const root = path.join(config.logsRoot, relative);
+    if (!existsSync(root)) continue;
+    const pending = [root];
+    while (pending.length) {
+      const current = pending.pop();
+      let entries; try { if (lstatSync(current).isSymbolicLink()) { result.complete = false; continue; } entries = readdirSync(current, { withFileTypes: true }); } catch { result.complete = false; continue; }
+      for (const entry of entries) {
+        if (++visited > 2_000) { result.complete = false; return result; }
+        const file = path.join(current, entry.name);
+        if (entry.isDirectory()) { pending.push(file); continue; }
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        let value; try { value = JSON.parse(readFileSync(file, "utf8")); } catch { result.complete = false; continue; }
+        const serialized = JSON.stringify(value);
+        if (!serialized.includes(owner.branchName)) continue;
+        const taskKey = value.taskKey || value.logicalTask?.taskKey || value.sourceTaskKey || null;
+        const exactOwner = taskKey === owner.rootTaskKey && (category !== "session" || !owner.correlations?.session || value.sessionId === owner.correlations.session || value.sessions?.currentSessionId === owner.correlations.session);
+        if (!exactOwner) result[category] += 1;
+      }
+    }
+  }
+  return result;
 }
 
 function ordinaryIdentityForHead(baseSha, headSha) {

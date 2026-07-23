@@ -42,11 +42,15 @@ While Settleora has no production deployment, a task explicitly marked as a PR/m
 - PR head is unchanged immediately before merge.
 - No manual gate is triggered.
 - Merge is a normal GitHub merge commit unless the task explicitly says otherwise.
-- Source branch is not deleted unless the human explicitly requests deletion.
+- Source branch is not deleted unless the human explicitly requests deletion,
+  except that issue #947's `ephemeral_cleanup_v1` standing authority permits the
+  runner to delete only its own positively proven, fully merged, fully
+  reconciled ephemeral branch and disposable clean worktree after every policy
+  gate passes.
 
 Dev-stage auto-merge does not allow direct pushes to `main`, force pushes, skipped validation, skipped CI, dirty or stale PRs, changed-head merges, or merges for production/security/destructive/manual-gated work.
 
-Manual gates are still required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
+Manual gates are still required for production deploys, mobile store releases, public/admin exposure changes, destructive migrations or destructive data operations, branch deletion/cleanup outside the exact issue #947 `ephemeral_cleanup_v1` standing authority above, force-like history changes, secrets/auth config changes, auth/session/security-critical runtime work, storage/file privacy/authz changes, money/settlement calculation authority changes, schema migrations, CI/deployment infrastructure changes, reducing Day 1 scope, replacing architecture direction, and any task that explicitly says PR-only or human-merge-only.
 
 Task PRs may also be eligible for auto-merge into `ai/integration` after the scope guard, requested validation, CI, AI review, and QA all pass.
 
