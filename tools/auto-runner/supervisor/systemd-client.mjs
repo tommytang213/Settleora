@@ -21,7 +21,9 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
       runId, "--config", safeConfigPath, "--logs-root", safeLogsRoot,
     ],
     unitTemplate,
+    reloadArgv: ["systemctl", "--user", "daemon-reload"],
     inspectArgv: ["systemctl", "--user", "cat", unitNameForRunId(runId), "--no-pager"],
+    inspectExecArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ExecStart", "--value"],
     startArgv: ["systemctl", "--user", "start", unitNameForRunId(runId)],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
     showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],
@@ -43,10 +45,20 @@ function validateSystemdPath(value, label) {
 
 export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath, repoRoot, logsRoot } = {}) {
   const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath, repoRoot, logsRoot });
+  const reloaded = runner(plan.reloadArgv[0], plan.reloadArgv.slice(1), { encoding: "utf8", windowsHide: true });
+  if (reloaded.error || reloaded.status !== 0) {
+    return { ok: false, unitName: plan.unitName, state: "submission_failed", status: reloaded.status, stderr: "supervisor unit reload failed" };
+  }
   const inspected = runner(plan.inspectArgv[0], plan.inspectArgv.slice(1), { encoding: "utf8", windowsHide: true });
   const installedUnit = String(inspected.stdout || "").replace(/^# \/[^\n]+\n/u, "");
   if (inspected.error || inspected.status !== 0 || installedUnit !== plan.unitTemplate) {
     return { ok: false, unitName: plan.unitName, state: "submission_failed", status: inspected.status, stderr: "installed supervisor unit identity mismatch" };
+  }
+  const inspectedExec = runner(plan.inspectExecArgv[0], plan.inspectExecArgv.slice(1), { encoding: "utf8", windowsHide: true });
+  const execMatch = /argv\[\]=([^;]+)\s+;/u.exec(String(inspectedExec.stdout || ""));
+  const loadedArgv = execMatch ? execMatch[1].trim().split(/\s+/u) : [];
+  if (inspectedExec.error || inspectedExec.status !== 0 || JSON.stringify(loadedArgv) !== JSON.stringify(plan.expectedExecArgv)) {
+    return { ok: false, unitName: plan.unitName, state: "submission_failed", status: inspectedExec.status, stderr: "loaded supervisor unit identity mismatch" };
   }
   const start = runner(plan.startArgv[0], plan.startArgv.slice(1), { encoding: "utf8", windowsHide: true });
   if (start.error || start.status !== 0) {

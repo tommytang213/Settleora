@@ -177,6 +177,13 @@ test("copied runtime remains authoritative after managed branch and source chang
       repositorySlug: "tommytang213/Settleora",
     }, { actualRuntimeRoot: runtime }), /push URL/);
     git(repo, ["config", "--unset", "remote.origin.pushurl"]);
+    git(repo, ["config", "--add", "remote.origin.pushurl", "git@github.com:tommytang213/Settleora.git"]);
+    git(repo, ["config", "--add", "remote.origin.pushurl", "git@github.com:other/Settleora.git"]);
+    assert.throws(() => validateProjectRuntimeIdentity({
+      runtimeMode: "external", runtimeRoot: runtime, repoRoot: repo, logsRoot: logs,
+      projectId: "Settleora", repositorySlug: "tommytang213/Settleora",
+    }, { actualRuntimeRoot: runtime }), /push URL/);
+    git(repo, ["config", "--unset-all", "remote.origin.pushurl"]);
     assert.throws(() => validateProjectRuntimeIdentity({
       runtimeMode: "external",
       runtimeRoot: runtime,

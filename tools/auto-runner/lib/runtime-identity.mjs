@@ -160,8 +160,9 @@ export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
   const commonDir = realpathSync(path.resolve(repoRoot, commonRaw));
   const originResult = spawnSync("git", ["remote", "get-url", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
   const originUrl = originResult.status === 0 ? originResult.stdout.trim() : null;
-  const pushResult = spawnSync("git", ["remote", "get-url", "--push", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
-  const pushUrl = pushResult.status === 0 ? pushResult.stdout.trim() : null;
+  const pushResult = spawnSync("git", ["remote", "get-url", "--push", "--all", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
+  const pushUrls = pushResult.status === 0 ? pushResult.stdout.split(/\r?\n/u).filter(Boolean) : [];
+  const pushUrl = pushUrls.length === 1 ? pushUrls[0] : null;
   if (expectedSlug && (!originUrl || repositorySlugFromRemote(originUrl) !== expectedSlug)) {
     throw new Error("repoRoot origin does not match repositorySlug");
   }
