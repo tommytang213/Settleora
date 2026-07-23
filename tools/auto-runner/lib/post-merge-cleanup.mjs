@@ -164,6 +164,7 @@ export function projectPostMergeCleanup(value = {}) {
 // gate shape. No persisted command or path is ever executed.
 export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, checkpoint, spawn = spawnSync } = {}) {
   const root = realpathSync(repoRoot);
+  let primaryHandoffIgnoredPids = [];
   const run = (args, cwd = root) => spawn("git", args, { cwd, encoding: "utf8", windowsHide: true });
   const worktreeFor = (branchName) => {
     const result = run(["worktree", "list", "--porcelain"]); if (result.status !== 0) return { error: "worktree_inventory_failed" };
@@ -182,6 +183,7 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
     checkpoint,
     readLive: async (owner) => {
       const authority = await authorityReader(owner);
+      primaryHandoffIgnoredPids = boundedPidList(authority.worktree?.primaryHandoffIgnoredPids);
       const remote = run(["ls-remote", "--heads", "origin", `refs/heads/${owner.branchName}`]);
       const local = localRef(owner.branchName);
       const wt = worktreeFor(owner.branchName);
@@ -191,7 +193,7 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
         const candidate = wt.worktree; let symlinked = true; let primary = true; let dirty = true;
         try { symlinked = lstatSync(candidate).isSymbolicLink(); const real = realpathSync(candidate); primary = real === root; const status = run(["status", "--porcelain=v1", "--untracked-files=normal"], real); dirty = status.status !== 0 || Boolean(String(status.stdout || "").trim()); } catch { /* fail closed */ }
         const actualIdentity = symlinked ? null : digest({ repository: owner.repository, branchName: owner.branchName, headSha: local.status === 0 ? String(local.stdout || "").trim() : null, realPath: realpathSync(candidate) });
-        const processActive = !symlinked && processOwnsPath(realpathSync(candidate), primary ? process.pid : null);
+        const processActive = !symlinked && processOwnsPath(realpathSync(candidate), primary ? [process.pid, ...primaryHandoffIgnoredPids] : []);
         worktree = { present: true, identity: actualIdentity, primary, handoffEligible: primary && !owner.worktree && !dirty && !processActive, dirty, active: authority.worktree?.active === true || processActive, shared: authority.worktree?.shared === true, symlinked, unexportedEvidence: authority.worktree?.unexportedEvidence === true };
       }
       const remoteHead = String(remote.stdout || "").trim().split(/\s+/)[0] || null;
@@ -202,7 +204,7 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
     handoffPrimaryCheckout: async (owner) => {
       const wt = worktreeFor(owner.branchName); if (!wt || wt.error) return fail(wt?.error || "checkout_handoff_target_missing");
       const candidate = realpathSync(wt.worktree); const status = run(["status", "--porcelain=v1", "--untracked-files=normal"], candidate); const local = localRef(owner.branchName);
-      if (candidate !== root || status.status !== 0 || String(status.stdout || "").trim() || local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha || processOwnsPath(candidate, process.pid)) return fail("checkout_handoff_target_drift");
+      if (candidate !== root || status.status !== 0 || String(status.stdout || "").trim() || local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha || processOwnsPath(candidate, [process.pid, ...primaryHandoffIgnoredPids])) return fail("checkout_handoff_target_drift");
       return commandResult(run(["switch", "--detach", owner.acceptance.targetHeadSha], candidate), "checkout_handoff_failed");
     },
     removeWorktree: async (owner) => {
@@ -239,20 +241,21 @@ function safeReason(value) { return typeof value === "string" && /^[a-z0-9_:-]{1
 function commandResult(result, reasonCode) { return result?.status === 0 && !result?.error ? { ok: true } : { ok: false, reasonCode }; }
 function writeOwnerOnlyAtomic(file, value, unsafeReason) { const dir = path.dirname(file); mkdirSync(dir, { recursive: true, mode: 0o700 }); const info = lstatSync(dir); if ((info.mode & 0o077) !== 0 || info.isSymbolicLink()) return fail(unsafeReason); const tmp = `${file}.${process.pid}.${Date.now()}.tmp`; writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" }); renameSync(tmp, file); return { ok: true, statePath: file, value }; }
 function readOwnerOnlyJson(file, validator, prefix) { let fd; try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); const stat = fstatSync(fd); if (!stat.isFile() || stat.size < 2 || stat.size > 1024 * 1024 || (stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())) return fail(`${prefix}_state_unsafe`); const value = JSON.parse(readFileSync(fd, "utf8")); const valid = validator(value); return valid.ok ? { ok: true, value } : valid; } catch { return fail(`${prefix}_state_unavailable_or_corrupt`); } finally { if (fd !== undefined) closeSync(fd); } }
-function processOwnsPath(candidate, ignoredPid = null) {
+function processOwnsPath(candidate, ignoredPids = []) {
+  const ignored = new Set(boundedPidList(ignoredPids));
   const lsof = spawnSync("lsof", ["-t", "+D", candidate], { encoding: "utf8", windowsHide: true });
   if (lsof.error && lsof.error.code !== "ENOENT") return true;
   if (!lsof.error && ![0, 1].includes(lsof.status)) return true;
   if (!lsof.error && lsof.status === 0) {
     const owners = String(lsof.stdout || "").trim().split(/\s+/).filter(Boolean).map(Number);
-    if (owners.some((pid) => pid !== ignoredPid)) return true;
+    if (owners.some((pid) => !ignored.has(pid))) return true;
     if (owners.length > 0) return false;
   }
   if (!lsof.error && lsof.status === 1) return false;
   try {
     for (const entry of readdirSync("/proc")) {
       if (!/^[1-9][0-9]*$/.test(entry)) continue;
-      if (Number(entry) === ignoredPid) continue;
+      if (ignored.has(Number(entry))) continue;
       for (const link of [`/proc/${entry}/cwd`, `/proc/${entry}/root`, `/proc/${entry}/exe`]) {
         try { if (insidePath(readlinkSync(link), candidate)) return true; } catch (error) { if (!transientProcfsError(error)) return true; }
       }
@@ -265,5 +268,6 @@ function processOwnsPath(candidate, ignoredPid = null) {
   } catch { return true; }
   return false;
 }
+function boundedPidList(value) { return (Array.isArray(value) ? value : [value]).filter((pid) => Number.isSafeInteger(pid) && pid > 1).slice(0, 4); }
 function transientProcfsError(error) { return error?.code === "ENOENT" || error?.code === "ESRCH"; }
 function insidePath(value, candidate) { const clean = String(value || "").replace(/ \(deleted\)$/, ""); return clean === candidate || clean.startsWith(`${candidate}${path.sep}`); }

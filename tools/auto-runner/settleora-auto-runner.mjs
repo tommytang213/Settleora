@@ -2481,7 +2481,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
       && (lock?.runId === state.run?.runId || lockRunOwnsRecovery)
       && (lockRunOwnsRecovery || !state.run?.supervisorRunId || lock.supervisorRunId === state.run.supervisorRunId);
   } catch { runnerLockAuthority = false; }
-  const sessionAuthority = !owner.correlations?.session || owner.correlations.session === state.sessionLifecycle?.sessionId;
+  const sessionAuthority = !owner.correlations?.session || owner.correlations.session === state.sessionLifecycle?.sessions?.current;
   activeReferences.session += sessionAuthority ? 0 : 1;
   activeReferences.lease = runnerLockAuthority ? 0 : 1;
   return {
@@ -2490,7 +2490,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
     target: { branch: owner.targetBranch, headSha: targetRead.status === 0 ? targetRead.stdout.trim() : null, sourceAncestor: fetch.status === 0 && sourceAncestor.status === 0, mergeAncestor: fetch.status === 0 && mergeAncestor.status === 0 && acceptanceAncestor.status === 0, acceptanceDigest: sourceTree.status === 0 && acceptanceAncestor.status === 0 ? canonicalGithubEvidenceDigest({ targetBranch: owner.targetBranch, targetHeadSha: owner.acceptance.targetHeadSha, sourceHeadSha: owner.reviewedHeadSha, mergeSha: owner.mergeSha, treeSha: sourceTree.stdout.trim() }) : null },
     hygieneComplete: completionHygieneReady(hygiene), reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0 && durableInventory.complete, openPrReferences,
     protected: branchRead.status === 0 ? branch?.protected === true : false, defaultBranch: repository?.defaultBranchRef?.name, manualOwned: state.taskKey !== owner.rootTaskKey || state.issue?.number !== owner.issueNumber || state.branch?.name !== owner.branchName || state.branch?.currentHeadSha !== owner.reviewedHeadSha, excluded: prRead.status !== 0 || openHeadRead.status !== 0 || openBaseRead.status !== 0 || !openIdentityValid || repositoryRead.status !== 0 || (branchRead.status !== 0 && !branchAbsent) || targetRead.status !== 0,
-    worktree: { active: false, shared: false, unexportedEvidence: false },
+    worktree: { active: false, shared: false, unexportedEvidence: false, primaryHandoffIgnoredPids: authorizedSupervisorProcessIds(state) },
   };
 }
 
@@ -2515,7 +2515,7 @@ function inspectDurableCleanupReferences(config, owner) {
         const serialized = JSON.stringify(value);
         if (!serialized.includes(owner.branchName)) continue;
         const taskKey = value.taskKey || value.logicalTask?.taskKey || value.sourceTaskKey || null;
-        const exactOwner = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || (taskKey === owner.rootTaskKey && (category !== "session" || !owner.correlations?.session || value.sessionId === owner.correlations.session || value.sessions?.currentSessionId === owner.correlations.session));
+        const exactOwner = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || (taskKey === owner.rootTaskKey && (category !== "session" || owner.correlations?.session === value.sessions?.current));
         const posture = String(value.status || value.state || value.phase || value.controller?.phase || "").toLowerCase();
         const terminal = ((category === "recovery" || category === "session") && exactOwner) || ["complete", "completed", "merged", "cleanup_complete", "post_merge_ephemeral_cleanup"].includes(posture);
         if (!exactOwner || !terminal) result[category] += 1;
@@ -2531,6 +2531,16 @@ export function sameCleanupExecutionLineage(record, owner) {
     && record.branch?.name === owner.branchName
     && typeof runId === "string"
     && owner.executionLineage.startsWith(`${runId}:`);
+}
+
+export function authorizedSupervisorProcessIds(state) {
+  const supervisorRunId = state?.run?.supervisorRunId;
+  if (typeof supervisorRunId !== "string" || supervisorRunId.length === 0 || !Number.isSafeInteger(process.ppid) || process.ppid <= 1) return [];
+  try {
+    const argv = readFileSync(`/proc/${process.ppid}/cmdline`, "utf8").split("\0").filter(Boolean);
+    const worker = argv.findIndex((value) => value.endsWith("/tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs") || value === "tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs");
+    return worker >= 0 && argv[worker + 1] === supervisorRunId && processAppearsActive(process.ppid) === true ? [process.ppid] : [];
+  } catch { return []; }
 }
 
 export function primaryWorktreeRoot(repoRoot) {
@@ -2912,6 +2922,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     exactHeadEvidence,
     issueLinkageEvidence,
     sessionLifecycle,
+    recoveryState,
   };
   const strictRecoveryDecision = evaluateExistingPrRecovery({
     allowExistingPrRecovery: config.allowExistingPrRecovery,
