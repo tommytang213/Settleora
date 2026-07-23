@@ -504,6 +504,7 @@ test("stack config trust boundary accepts the current durable resume path shape"
     const config = loadConfig(parseCliArgs(["--run-pr-stack", "--config", configPath, "--stack-plan", planPath]), { prStackTrustedRoot: logsRoot });
     assert.equal(config.configTrustEvidence.relativePurposePath, "live-stack-acceptance/20260717-2347/config.json");
     assert.equal(config.configTrustEvidence.repositorySlug, "tommytang213/Settleora");
+    assert.equal(config.repoRoot, "/workspace/repos/Settleora");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -22,6 +22,7 @@ const liveStackAcceptanceConfigName = "config.json";
 const liveStackCorrelationPattern = /^[0-9]{8}-[0-9]{4}(?:-[a-z0-9][a-z0-9-]{0,48})?$/;
 const maxTrustedConfigBytes = 1024 * 1024;
 const externalProfileRoot = "/workspace/auto-runner/config";
+const defaultApprovedPrimaryRepoRoot = "/workspace/repos/Settleora";
 
 export const defaultConfig = Object.freeze({
   runtimeMode: "development",
@@ -441,6 +442,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     const loaded = readTrustedConfigFile(cliArgs.configPath, {
       runPrStack: cliArgs.runPrStack,
       bootstrapTrustedRoot: trustedCapabilities?.prStackTrustedRoot,
+      approvedPrimaryRepoRoot: trustedCapabilities?.prStackApprovedRepoRoot || defaultApprovedPrimaryRepoRoot,
       trustHooks: trustedCapabilities?.configTrustHooks || null,
     });
     fileConfig = loaded.config;
@@ -817,7 +819,12 @@ function validSupervisorRunId(value) {
   }
 }
 
-function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null, trustHooks = null } = {}) {
+function readTrustedConfigFile(configPath, {
+  runPrStack = false,
+  bootstrapTrustedRoot = null,
+  approvedPrimaryRepoRoot = defaultApprovedPrimaryRepoRoot,
+  trustHooks = null,
+} = {}) {
   const resolved = path.resolve(configPath);
   if (!runPrStack) {
     const installedBundle = existsSync(path.join(moduleRuntimeRoot(), "runtime-bundle-manifest.json"));
@@ -880,7 +887,7 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
     throw new Error(`config_json_invalid: Config JSON is malformed: ${error.message}`);
   }
   if (runPrStack) {
-    validateParsedPrStackConfigIdentity(parsed, trustedRootProof);
+    validateParsedPrStackConfigIdentity(parsed, trustedRootProof, approvedPrimaryRepoRoot);
   }
   return {
     config: parsed,
@@ -1175,23 +1182,31 @@ function sameFileIdentity(left, right) {
   return Boolean(left && right && left.dev === right.dev && left.ino === right.ino);
 }
 
-function validateParsedPrStackConfigIdentity(parsed, trustedRootProof) {
+function validateParsedPrStackConfigIdentity(parsed, trustedRootProof, approvedPrimaryRepoRoot) {
   const repository = parsed.repositorySlug || parsed.repository || defaultConfig.repositorySlug;
   if (repository !== defaultConfig.repositorySlug) {
     throw new Error("config_identity_mismatch: --run-pr-stack config repository must match the approved repository identity.");
   }
   const repoRoot = parsed.repoRoot || parsed.protectedRoot || defaultConfig.repoRoot;
-  if (repoRoot && path.resolve(repoRoot) !== path.resolve(defaultConfig.repoRoot) && path.resolve(repoRoot) !== process.cwd()) {
-    throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
-  }
+  parsed.repoRoot = validatePrStackRepositoryRoot(repoRoot, approvedPrimaryRepoRoot);
   const worktree = parsed.worktreeRoot || parsed.worktree || null;
-  if (worktree && path.resolve(worktree) !== path.resolve(defaultConfig.repoRoot) && path.resolve(worktree) !== process.cwd()) {
-    throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
-  }
+  if (worktree) validatePrStackRepositoryRoot(worktree, approvedPrimaryRepoRoot);
   for (const [field, value] of [["logsRoot", parsed.logsRoot], ["trustedControlRoot", parsed.trustedControlRoot]]) {
     const canonical = validateParsedPrStackConfigRoot(field, value, trustedRootProof);
     if (canonical !== null) parsed[field] = canonical;
   }
+}
+
+function validatePrStackRepositoryRoot(value, approvedPrimaryRepoRoot) {
+  const candidate = path.resolve(value || "");
+  const allowed = new Set([
+    path.resolve(approvedPrimaryRepoRoot),
+    path.resolve(defaultConfig.repoRoot),
+  ]);
+  if (typeof value !== "string" || !path.isAbsolute(value) || candidate !== value || !allowed.has(candidate)) {
+    throw new Error("config_repo_root_mismatch: --run-pr-stack repository root must be a canonical Git worktree for the approved repository.");
+  }
+  return candidate;
 }
 
 function validateParsedPrStackConfigRoot(field, value, trustedRootProof) {
