@@ -131,6 +131,9 @@ async function effect(state, adapter, kind, present) {
     const result = await method(next.ownership);
     if (!result?.ok) return blocked(next, result?.reasonCode || `${kind}_cleanup_failed`, result?.nextAction || `retry_exact_${kind}_cleanup`);
   }
+  const readback = await adapter.readLive?.(next.ownership);
+  const stillPresent = kind === "remote" ? Boolean(readback?.remoteHead) : kind === "worktree" ? Boolean(readback?.worktree?.present) : Boolean(readback?.localHead);
+  if (stillPresent) return blocked(next, `${kind}_cleanup_unconfirmed`, `retry_exact_${kind}_absence_readback`);
   next = checkpoint(next, confirmed, nowPresent ? `${kind}_confirmed` : `${kind}_already_absent_adopted`, kind === "remote" ? "reconcile_owned_worktree" : kind === "worktree" ? "reconcile_owned_local_branch" : "perform_final_cleanup_readback"); await adapter.checkpoint?.(next);
   return { ok: true, state: next };
 }

@@ -374,4 +374,6 @@ test("post-merge cleanup explicitly hands authority to the exact successor runne
   assert.match(runner, /currentRunId: runId/);
   assert.match(runner, /lockRunOwnsRecovery = typeof currentRunId === "string"[\s\S]*?lock\?\.runId === currentRunId/);
   assert.match(runner, /lock\?\.runId === state\.run\?\.runId \|\| lockRunOwnsRecovery/);
+  assert.match(runner, /processInventory = run\("ps", \["-eo", "pid=,args="\]\)/);
+  assert.match(runner, /reportEvidenceComplete[\s\S]*?activeReferences\.lease = runnerLockAuthority \? 0 : 1/);
 });

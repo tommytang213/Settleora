@@ -504,8 +504,9 @@ export function preparePostMergeCleanupOwnership(config, context, { runner, merg
   const targetBranch = context.pr?.baseRefName || context.baseRefName || "main";
   if (!cleanupBranchSafety?.ok || cleanupBranchSafety.protected || cleanupBranchSafety.defaultBranch === branchName) return { ok: false, eligible: true, reasonCode: "cleanup_branch_protection_unproven_or_excluded" };
   const recovery = context.recoveryState;
+  const rootTaskKey = recovery?.taskKey || context.taskKey || `issue-${context.issue?.number}`;
   const creationMarker = recovery?.mutationMarkers?.branch_ownership_created?.[`${branchName}:${context.baseSha || context.expectedOriginMainSha}`];
-  if (recovery?.taskKey !== (context.taskKey || `issue-${context.issue?.number}`)
+  if (!recovery?.taskKey || recovery.taskKey !== rootTaskKey
     || recovery?.issue?.number !== context.issue?.number
     || recovery?.branch?.name !== branchName
     || recovery?.branch?.baseSha !== (context.baseSha || context.expectedOriginMainSha)
@@ -527,7 +528,7 @@ export function preparePostMergeCleanupOwnership(config, context, { runner, merg
   const evidenceDigest = canonicalGithubEvidenceDigest({ targetBranch, targetHeadSha, sourceHeadSha, mergeSha, treeSha: sourceTree.stdout.trim() });
   let ownership;
   try {
-    ownership = createCleanupOwnershipRecord({ repository: repositorySlug, rootTaskKey: context.taskKey || `issue-${context.issue?.number}`, executionLineage: `${context.runId || config.runnerRunId || "runner"}:${context.sessionLifecycle?.sessionId || "session"}`, issueNumber: context.issue?.number, branchName, branchKind: branchName.split("/")[0], baseBranch: targetBranch, baseSha: context.baseSha || context.expectedOriginMainSha, reviewedHeadSha: sourceHeadSha, prNumber, prUrl: context.pr?.url || `https://github.com/${repositorySlug}/pull/${prNumber}`, mergeSha, targetBranch, acceptance: { passed: true, targetHeadSha, evidenceDigest }, correlations: { recovery: context.recoveryState?.taskKey || null, session: context.sessionLifecycle?.sessionId || null, bundle: context.featureBundle?.bundleId || null, stack: context.stackId || null }, worktree: cleanupWorktreeIdentity(config, runner, repositorySlug, branchName, sourceHeadSha, recovery) });
+    ownership = createCleanupOwnershipRecord({ repository: repositorySlug, rootTaskKey, executionLineage: `${context.runId || config.runnerRunId || "runner"}:${context.sessionLifecycle?.sessionId || "session"}`, issueNumber: context.issue?.number, branchName, branchKind: branchName.split("/")[0], baseBranch: targetBranch, baseSha: context.baseSha || context.expectedOriginMainSha, reviewedHeadSha: sourceHeadSha, prNumber, prUrl: context.pr?.url || `https://github.com/${repositorySlug}/pull/${prNumber}`, mergeSha, targetBranch, acceptance: { passed: true, targetHeadSha, evidenceDigest }, correlations: { recovery: context.recoveryState?.taskKey || null, session: context.sessionLifecycle?.sessionId || null, bundle: context.featureBundle?.bundleId || null, stack: context.stackId || null }, worktree: cleanupWorktreeIdentity(config, runner, repositorySlug, branchName, sourceHeadSha, recovery) });
   } catch (error) { return { ok: false, eligible: true, reasonCode: error.message }; }
   const persisted = persistCleanupOwnership(config, ownership);
   return persisted.ok ? { ok: true, eligible: true, ownership, ownershipDigest: canonicalGithubEvidenceDigest(ownership) } : { ok: false, eligible: true, reasonCode: persisted.reasonCode };

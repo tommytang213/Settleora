@@ -48,6 +48,24 @@ test("already absent remote is adopted without restoration or delete replay", as
   assert.equal(result.ok, true); assert.equal(deletes, 0); assert.equal(result.state.lastResult, "complete");
 });
 
+test("a successful command is not confirmed until exact absence readback passes", async () => {
+  const o = owner(); let current = live(o); let deletes = 0;
+  const planned = planPostMergeCleanup(o, current).state;
+  const blocked = await continuePostMergeCleanup(planned, {
+    readLive: async () => structuredClone(current), checkpoint: async () => {},
+    deleteRemote: async () => { deletes += 1; return { ok: true }; },
+  });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.reasonCode, "remote_cleanup_unconfirmed");
+  assert.equal(blocked.state.phase, "remote_delete_intended");
+  current.remoteHead = null;
+  current.localHead = null;
+  current.worktree.present = false;
+  const adopted = await continuePostMergeCleanup(blocked.state, { readLive: async () => structuredClone(current), checkpoint: async () => {} });
+  assert.equal(adopted.ok, true);
+  assert.equal(deletes, 1);
+});
+
 test("crash adoption after every boundary never replays completed effects", async () => {
   const o = owner(); let current = live(o); const calls = [];
   const adapter = { readLive: async () => structuredClone(current), checkpoint: async () => {}, deleteRemote: async () => { calls.push("r"); current.remoteHead = null; return { ok: true }; }, removeWorktree: async () => { calls.push("w"); current.worktree.present = false; return { ok: true }; }, deleteLocalBranch: async () => { calls.push("l"); current.localHead = null; return { ok: true }; } };

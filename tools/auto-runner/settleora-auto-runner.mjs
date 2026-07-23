@@ -2409,9 +2409,20 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
   const hygiene = state.postMergeCompletionHygiene || evidence.completionHygiene || {};
   const otherRecoveryReferences = listRecoverableRecoveryStates(config).filter((record) => record.branch?.name === owner.branchName && (record.taskKey !== owner.rootTaskKey || record.issue?.number !== owner.issueNumber)).length;
   const pendingBranchEffects = findPreEffectIntents(config, (intent) => intent.branchName === owner.branchName || intent.effect?.branchName === owner.branchName).filter((intent) => !["live_confirmed", "adopted_after_recovery"].includes(intent.status)).length;
+  const processInventory = run("ps", ["-eo", "pid=,args="]);
+  const correlatedProcesses = processInventory.status === 0
+    ? String(processInventory.stdout || "").split("\n").filter((line) => {
+        const pid = Number(line.trim().split(/\s+/, 1)[0]);
+        return pid !== process.pid && (line.includes(owner.branchName) || line.includes(owner.rootTaskKey));
+      })
+    : null;
+  const otherRunnerProcesses = correlatedProcesses?.filter((line) => /settleora-auto-runner\.mjs/.test(line)).length ?? 1;
+  const otherSupervisorProcesses = correlatedProcesses?.filter((line) => /supervisor/i.test(line)).length ?? 1;
+  const expectedReports = Object.values(state.expectedReportPaths || {}).filter((value) => typeof value === "string");
+  const reportEvidenceComplete = expectedReports.length > 0 && expectedReports.every((value) => existsSync(value));
   const activeReferences = {
-    runner: 0,
-    supervisor: 0,
+    runner: otherRunnerProcesses,
+    supervisor: otherSupervisorProcesses,
     recovery: otherRecoveryReferences,
     outage: state.outageResubmission && !["complete", "completed"].includes(state.outageResubmission.status) ? 1 : 0,
     review: state.reviewConvergenceState?.pendingFindingCount > 0 ? 1 : 0,
@@ -2419,7 +2430,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
     session: 0,
     bundle: state.featureBundle && !["complete", "completed"].includes(state.featureBundle.status) ? 1 : 0,
     stack: state.prStack && !["complete", "completed"].includes(state.prStack.status) ? 1 : 0,
-    report: 0,
+    report: reportEvidenceComplete ? 0 : 1,
     pending_effect: Math.max(Number(state.pendingEffectCount || 0), pendingBranchEffects),
     generated_work: state.generatedWork && !["complete", "completed"].includes(state.generatedWork.status) ? 1 : 0,
     lease: 0,
@@ -2445,11 +2456,13 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
       && (lockRunOwnsRecovery || !state.run?.supervisorRunId || lock.supervisorRunId === state.run.supervisorRunId);
   } catch { runnerLockAuthority = false; }
   const sessionAuthority = !owner.correlations?.session || owner.correlations.session === state.sessionLifecycle?.sessionId;
+  activeReferences.session = sessionAuthority ? 0 : 1;
+  activeReferences.lease = runnerLockAuthority ? 0 : 1;
   return {
     repository: owner.repository,
     pr: { state: prRead.status === 0 ? pr?.state : null, headSha: pr?.headRefOid, mergeSha: pr?.mergeCommit?.oid, baseBranch: pr?.baseRefName },
     target: { branch: owner.targetBranch, headSha: targetRead.status === 0 ? targetRead.stdout.trim() : null, sourceAncestor: fetch.status === 0 && sourceAncestor.status === 0, mergeAncestor: fetch.status === 0 && mergeAncestor.status === 0 && acceptanceAncestor.status === 0, acceptanceDigest: sourceTree.status === 0 && acceptanceAncestor.status === 0 ? canonicalGithubEvidenceDigest({ targetBranch: owner.targetBranch, targetHeadSha: owner.acceptance.targetHeadSha, sourceHeadSha: owner.reviewedHeadSha, mergeSha: owner.mergeSha, treeSha: sourceTree.stdout.trim() }) : null },
-    hygieneComplete: hygiene.status === "merged", reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority, openPrReferences,
+    hygieneComplete: hygiene.status === "merged", reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0, openPrReferences,
     protected: branchRead.status === 0 ? branch?.protected === true : false, defaultBranch: repository?.defaultBranchRef?.name, manualOwned: state.taskKey !== owner.rootTaskKey || state.issue?.number !== owner.issueNumber || state.branch?.name !== owner.branchName || state.branch?.currentHeadSha !== owner.reviewedHeadSha, excluded: prRead.status !== 0 || openHeadRead.status !== 0 || openBaseRead.status !== 0 || !openIdentityValid || repositoryRead.status !== 0 || (branchRead.status !== 0 && !branchAbsent) || targetRead.status !== 0,
     worktree: { active: false, shared: false, unexportedEvidence: false },
   };
