@@ -102,11 +102,13 @@ test("post-merge cleanup uses the supported head filter and terminalizes its own
   assert.match(source, /\(category === "recovery" \|\| category === "session"\) && exactOwner/);
   assert.match(source, /transitionSessionLifecyclePhase\(config, state\.sessionLifecycle, \{ phase: "completed", nextExactAction: "post_merge_cleanup_complete" \}\)/);
   assert.match(source, /advanceRecoveryPhase\(state, \{ phase: "completed"[^}]*nextSafeAction: "none" \}\)/);
-  assert.match(source, /sessionAuthority = !owner\.correlations\?\.session \|\| owner\.correlations\.session === state\.sessionLifecycle\?\.sessions\?\.current/);
-  assert.match(source, /owner\.correlations\?\.session === value\.sessions\?\.current/);
+  assert.match(source, /sessionAuthority = cleanupSessionLifecycleMatches\(state\.sessionLifecycle, owner\)/);
+  assert.match(source, /category !== "session" \|\| cleanupSessionLifecycleMatches\(value, owner\)/);
+  assert.match(source, /sessions\.includes\(ownerSession\)/);
   assert.match(source, /issueLinkageEvidence,\s*sessionLifecycle,\s*recoveryState,/s);
   assert.match(source, /primaryHandoffIgnoredPids: authorizedSupervisorProcessIds\(state\)/);
   assert.match(source, /argv\[worker \+ 1\] === supervisorRunId/);
+  assert.match(source, /expectedReportPaths: \{ durableReportPath: iteration\.report\.copyPath \}/);
 });
 
 test("only the controller-owning production runner path grants outage resubmission capability", () => {

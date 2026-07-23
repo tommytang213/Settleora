@@ -11,7 +11,7 @@ import { buildIssueOperationContext, completeMergedIssueHygiene, completionHygie
 import { evaluateCycleBudget } from "./review-convergence-controller.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 import { findPreEffectIntents } from "./pre-effect-intent.mjs";
-import { createCleanupOwnershipRecord, persistCleanupOwnership } from "./post-merge-cleanup.mjs";
+import { createCleanupOwnershipRecord, loadCleanupOwnership, persistCleanupOwnership } from "./post-merge-cleanup.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -448,7 +448,8 @@ export function executeAutoMerge(config, context, options = {}) {
       runner: (command, args) => runner(command, args, { cwd: config.repoRoot }),
     },
   );
-  const cleanupOwnership = preparePostMergeCleanupOwnership(config, finalContext, { runner, mergeSha, mergeProof, hygiene, sourceHeadSha: finalDecision.expectedHeadSha, repositorySlug, prNumber: Number(prNumber), cleanupBranchSafety });
+  const cleanupOwnership = adoptPersistedPostMergeCleanupOwnership(config, finalContext, { mergeSha, sourceHeadSha: finalDecision.expectedHeadSha, repositorySlug, prNumber: Number(prNumber) })
+    || preparePostMergeCleanupOwnership(config, finalContext, { runner, mergeSha, mergeProof, hygiene, sourceHeadSha: finalDecision.expectedHeadSha, repositorySlug, prNumber: Number(prNumber), cleanupBranchSafety });
   const branchRestore = cleanupOwnership.ok
     ? adoptCompletedSourceBranchPosture(config, finalContext, runner, finalDecision.expectedHeadSha)
     : restoreSourceBranchIfDeleted(config, finalContext, runner);
@@ -535,6 +536,34 @@ export function preparePostMergeCleanupOwnership(config, context, { runner, merg
   } catch (error) { return { ok: false, eligible: true, reasonCode: error.message }; }
   const persisted = persistCleanupOwnership(config, ownership);
   return persisted.ok ? { ok: true, eligible: true, ownership, ownershipDigest: canonicalGithubEvidenceDigest(ownership) } : { ok: false, eligible: true, reasonCode: persisted.reasonCode };
+}
+
+export function adoptPersistedPostMergeCleanupOwnership(config, context, { mergeSha, sourceHeadSha, repositorySlug, prNumber }) {
+  const recovery = context.recoveryState;
+  const branchName = context.branchName || context.pr?.headRefName;
+  const rootTaskKey = recovery?.taskKey || context.taskKey;
+  const issueNumber = context.issue?.number;
+  if (!repositorySlug || !rootTaskKey || !Number.isSafeInteger(issueNumber) || !branchName) return null;
+  const loaded = loadCleanupOwnership(config, { repository: repositorySlug, rootTaskKey, issueNumber, branchName });
+  if (!loaded.ok) return null;
+  const owner = loaded.value;
+  const executionRunId = recovery?.run?.runId || context.runId || config.runnerRunId || null;
+  const lifecycleSessionId = context.sessionLifecycle?.sessions?.current || null;
+  const lifecycleSessionLineage = [lifecycleSessionId, ...(context.sessionLifecycle?.sessions?.retired || [])].filter(Boolean);
+  const exact = owner.repository === repositorySlug
+    && owner.rootTaskKey === rootTaskKey
+    && owner.issueNumber === issueNumber
+    && owner.branchName === branchName
+    && owner.baseBranch === (context.pr?.baseRefName || context.baseRefName || "main")
+    && owner.baseSha === (context.baseSha || context.expectedOriginMainSha)
+    && owner.reviewedHeadSha === sourceHeadSha
+    && owner.prNumber === prNumber
+    && owner.mergeSha === mergeSha
+    && owner.targetBranch === (context.pr?.baseRefName || context.baseRefName || "main")
+    && typeof executionRunId === "string"
+    && owner.executionLineage.startsWith(`${executionRunId}:`)
+    && (lifecycleSessionLineage.length === 0 || lifecycleSessionLineage.includes(owner.correlations?.session));
+  return exact ? { ok: true, eligible: true, ownership: owner, ownershipDigest: canonicalGithubEvidenceDigest(owner), adopted: true } : null;
 }
 
 function cleanupWorktreeIdentity(config, runner, repository, branchName, headSha, recovery) {

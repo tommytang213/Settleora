@@ -1014,6 +1014,9 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.finishedAt = new Date().toISOString();
     return iteration;
   }
+  if (!config.dryRun && iteration.report.copyPath) {
+    recoveryRecorder?.annotate({ expectedReportPaths: { durableReportPath: iteration.report.copyPath } });
+  }
 
   iteration.preReviewPrOwnership = inspectPreReviewPrOwnership(config, branchName);
   if (!iteration.preReviewPrOwnership.clean) {
@@ -2481,7 +2484,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
       && (lock?.runId === state.run?.runId || lockRunOwnsRecovery)
       && (lockRunOwnsRecovery || !state.run?.supervisorRunId || lock.supervisorRunId === state.run.supervisorRunId);
   } catch { runnerLockAuthority = false; }
-  const sessionAuthority = !owner.correlations?.session || owner.correlations.session === state.sessionLifecycle?.sessions?.current;
+  const sessionAuthority = cleanupSessionLifecycleMatches(state.sessionLifecycle, owner);
   activeReferences.session += sessionAuthority ? 0 : 1;
   activeReferences.lease = runnerLockAuthority ? 0 : 1;
   return {
@@ -2515,7 +2518,7 @@ function inspectDurableCleanupReferences(config, owner) {
         const serialized = JSON.stringify(value);
         if (!serialized.includes(owner.branchName)) continue;
         const taskKey = value.taskKey || value.logicalTask?.taskKey || value.sourceTaskKey || null;
-        const exactOwner = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || (taskKey === owner.rootTaskKey && (category !== "session" || owner.correlations?.session === value.sessions?.current));
+        const exactOwner = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || (taskKey === owner.rootTaskKey && (category !== "session" || cleanupSessionLifecycleMatches(value, owner)));
         const posture = String(value.status || value.state || value.phase || value.controller?.phase || "").toLowerCase();
         const terminal = ((category === "recovery" || category === "session") && exactOwner) || ["complete", "completed", "merged", "cleanup_complete", "post_merge_ephemeral_cleanup"].includes(posture);
         if (!exactOwner || !terminal) result[category] += 1;
@@ -2531,6 +2534,17 @@ export function sameCleanupExecutionLineage(record, owner) {
     && record.branch?.name === owner.branchName
     && typeof runId === "string"
     && owner.executionLineage.startsWith(`${runId}:`);
+}
+
+export function cleanupSessionLifecycleMatches(lifecycle, owner) {
+  const ownerSession = owner.correlations?.session;
+  if (!ownerSession) return !lifecycle;
+  const sessions = [lifecycle?.sessions?.current, ...(lifecycle?.sessions?.retired || [])].filter(Boolean);
+  const runId = lifecycle?.logicalTask?.runId;
+  return lifecycle?.logicalTask?.taskKey === owner.rootTaskKey
+    && typeof runId === "string"
+    && owner.executionLineage.startsWith(`${runId}:`)
+    && sessions.includes(ownerSession);
 }
 
 export function authorizedSupervisorProcessIds(state) {

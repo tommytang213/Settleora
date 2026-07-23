@@ -5,8 +5,8 @@ import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { continuePostMergeCleanup, createCleanupOwnershipRecord, createPostMergeCleanupGitAdapter, evaluateCleanupGate, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup, projectPostMergeCleanup } from "../lib/post-merge-cleanup.mjs";
-import { preparePostMergeCleanupOwnership } from "../lib/auto-merge-policy.mjs";
+import { continuePostMergeCleanup, createCleanupOwnershipRecord, createPostMergeCleanupGitAdapter, evaluateCleanupGate, loadPostMergeCleanupState, persistCleanupOwnership, persistPostMergeCleanupState, planPostMergeCleanup, projectPostMergeCleanup } from "../lib/post-merge-cleanup.mjs";
+import { adoptPersistedPostMergeCleanupOwnership, preparePostMergeCleanupOwnership } from "../lib/auto-merge-policy.mjs";
 
 const s = (c) => c.repeat(40);
 const d = (c) => c.repeat(64);
@@ -103,6 +103,18 @@ test("cleanup state persists atomically owner-only and rejects corrupt or permis
   const written = persistPostMergeCleanupState({ logsRoot }, state); assert.equal(written.ok, true); assert.equal(loadPostMergeCleanupState({ logsRoot }, o).ok, true);
   writeFileSync(written.statePath, "{broken", { mode: 0o600 }); assert.equal(loadPostMergeCleanupState({ logsRoot }, o).ok, false);
   persistPostMergeCleanupState({ logsRoot }, state); chmodSync(written.statePath, 0o644); assert.equal(loadPostMergeCleanupState({ logsRoot }, o).reasonCode, "cleanup_state_unsafe");
+});
+
+test("merged recovery adopts only an exact persisted cleanup ownership record", () => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-cleanup-adopt-owner-"));
+  const o = owner({ executionLineage: "run-947:session-947", correlations: { recovery: "20260723-1007", session: "session-947", bundle: null, stack: null } });
+  assert.equal(persistCleanupOwnership({ logsRoot }, o).ok, true);
+  const context = { taskKey: o.rootTaskKey, issue: { number: o.issueNumber }, branchName: o.branchName, expectedOriginMainSha: o.baseSha, pr: { headRefName: o.branchName, baseRefName: o.targetBranch }, recoveryState: { taskKey: o.rootTaskKey, run: { runId: "run-947" } }, sessionLifecycle: { sessions: { current: "session-947" } } };
+  const adopted = adoptPersistedPostMergeCleanupOwnership({ logsRoot }, context, { mergeSha: o.mergeSha, sourceHeadSha: o.reviewedHeadSha, repositorySlug: o.repository, prNumber: o.prNumber });
+  assert.equal(adopted?.ok, true); assert.equal(adopted?.adopted, true); assert.equal(adopted?.ownership.reviewedHeadSha, o.reviewedHeadSha);
+  const rotated = { ...context, sessionLifecycle: { sessions: { current: "session-948", retired: ["session-947"] } } };
+  assert.equal(adoptPersistedPostMergeCleanupOwnership({ logsRoot }, rotated, { mergeSha: o.mergeSha, sourceHeadSha: o.reviewedHeadSha, repositorySlug: o.repository, prNumber: o.prNumber })?.ok, true);
+  assert.equal(adoptPersistedPostMergeCleanupOwnership({ logsRoot }, context, { mergeSha: s("f"), sourceHeadSha: o.reviewedHeadSha, repositorySlug: o.repository, prNumber: o.prNumber }), null);
 });
 
 test("normal merged-task path creates and persists exact recovery lineage only after target tree acceptance and hygiene", () => {
