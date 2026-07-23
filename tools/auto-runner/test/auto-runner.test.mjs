@@ -1,11 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { parseCliArgs, loadConfig, normalizeAutoMergePolicy } from "../lib/config.mjs";
+
+test("read-only observer config loading creates and chmods no project state", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-observer-config-"));
+  try {
+    const logsRoot = path.join(tempRoot, "observer-logs");
+    const lifecycleRoot = path.join(logsRoot, "session-lifecycle");
+    mkdirSync(lifecycleRoot, { recursive: true, mode: 0o755 });
+    chmodSync(lifecycleRoot, 0o755);
+    const configPath = path.join(tempRoot, "observer.json");
+    writeFileSync(configPath, `${JSON.stringify({ logsRoot })}\n`);
+    const loaded = loadConfig(
+      { dryRun: true, run: false, configPath },
+      { outageResubmissionObserverAvailable: true, readOnlyObserver: true },
+    );
+    assert.equal(loaded.logsRoot, logsRoot);
+    assert.equal(statSync(lifecycleRoot).mode & 0o777, 0o755);
+    assert.equal(existsSync(path.join(logsRoot, "runner-config.last.json")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
 import {
   evaluateCanaryIssuePolicy,
   evaluateLowRiskAutoMergeCanaryApproval,

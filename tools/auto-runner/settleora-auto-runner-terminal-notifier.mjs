@@ -12,7 +12,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const project = loadConfig(
     { dryRun: true, run: false, configPath: args.configPath },
-    { outageResubmissionObserverAvailable: true },
+    { outageResubmissionObserverAvailable: true, readOnlyObserver: true },
   );
   const consumer = acquireRuntimeConsumer(moduleRuntimeRoot());
   const result = await runTerminalNotifier({

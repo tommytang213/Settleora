@@ -16,7 +16,7 @@ async function main() {
   if (!args.configPath) throw new Error("health service requires --config");
   const project = loadConfig(
     { dryRun: true, run: false, configPath: args.configPath },
-    { outageResubmissionObserverAvailable: true },
+    { outageResubmissionObserverAvailable: true, readOnlyObserver: true },
   );
   const consumer = acquireRuntimeConsumer(moduleRuntimeRoot());
   const config = validateHealthServiceConfigWithFixedRoot({ ...args, logsRoot: project.logsRoot });

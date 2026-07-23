@@ -428,6 +428,7 @@ function readValue(argv, index, name) {
 }
 
 export function loadConfig(cliArgs, trustedCapabilities = {}) {
+  const readOnlyObserver = trustedCapabilities?.readOnlyObserver === true && cliArgs.run !== true && cliArgs.runPrStack !== true;
   let fileConfig = {};
   let configTrustEvidence = null;
   if (cliArgs.configPath) {
@@ -534,31 +535,33 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     bindTrustedRepositoryContext(config.runtimeIdentity.repoRoot);
   }
 
-  for (const dir of [
-    config.logsRoot,
-    path.join(config.logsRoot, "state"),
-    path.join(config.logsRoot, "tasks"),
-    path.join(config.logsRoot, "codex-runs"),
-    path.join(config.logsRoot, "reports"),
-    path.join(config.logsRoot, "reviews"),
-    path.join(config.logsRoot, "review-fix"),
-    path.join(config.logsRoot, "recovery"),
-    path.join(config.logsRoot, "summaries"),
-    path.join(config.logsRoot, "locks"),
-    path.join(config.logsRoot, "canary"),
-    path.join(config.logsRoot, "auto-merge"),
-    path.join(config.logsRoot, "pr-stacks"),
-  ]) {
-    mkdirSync(dir, { recursive: true });
+  if (!readOnlyObserver) {
+    for (const dir of [
+      config.logsRoot,
+      path.join(config.logsRoot, "state"),
+      path.join(config.logsRoot, "tasks"),
+      path.join(config.logsRoot, "codex-runs"),
+      path.join(config.logsRoot, "reports"),
+      path.join(config.logsRoot, "reviews"),
+      path.join(config.logsRoot, "review-fix"),
+      path.join(config.logsRoot, "recovery"),
+      path.join(config.logsRoot, "summaries"),
+      path.join(config.logsRoot, "locks"),
+      path.join(config.logsRoot, "canary"),
+      path.join(config.logsRoot, "auto-merge"),
+      path.join(config.logsRoot, "pr-stacks"),
+    ]) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
+    if (existsSync(lifecycleRoot)) {
+      const lifecycleRootInfo = lstatSync(lifecycleRoot);
+      if (!lifecycleRootInfo.isDirectory() || lifecycleRootInfo.isSymbolicLink() || (typeof process.getuid === "function" && lifecycleRootInfo.uid !== process.getuid())) throw new Error("Session lifecycle root is untrusted.");
+    } else {
+      mkdirSync(lifecycleRoot, { recursive: true, mode: 0o700 });
+    }
+    chmodSync(lifecycleRoot, 0o700);
   }
-  const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
-  if (existsSync(lifecycleRoot)) {
-    const lifecycleRootInfo = lstatSync(lifecycleRoot);
-    if (!lifecycleRootInfo.isDirectory() || lifecycleRootInfo.isSymbolicLink() || (typeof process.getuid === "function" && lifecycleRootInfo.uid !== process.getuid())) throw new Error("Session lifecycle root is untrusted.");
-  } else {
-    mkdirSync(lifecycleRoot, { recursive: true, mode: 0o700 });
-  }
-  chmodSync(lifecycleRoot, 0o700);
   config.canaryEvidenceRoot = path.join(config.logsRoot, "canary");
   if (config.runtimeMode !== "external") {
     config.runtimeIdentity = validateProjectRuntimeIdentity(config, {
@@ -568,7 +571,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   }
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
-  if (!existsSync(localConfigPath)) {
+  if (!readOnlyObserver && !existsSync(localConfigPath)) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
