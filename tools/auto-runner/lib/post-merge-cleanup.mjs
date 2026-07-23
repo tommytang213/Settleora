@@ -173,8 +173,21 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
       return { ...authority, remoteHead, localHead, worktree };
     },
     deleteRemote: async (owner) => commandResult(run(["push", `--force-with-lease=refs/heads/${owner.branchName}:${owner.reviewedHeadSha}`, "origin", `:refs/heads/${owner.branchName}`]), "remote_branch_delete_failed"),
-    removeWorktree: async (owner) => { const wt = worktreeFor(owner.branchName); if (!wt) return { ok: true, adopted: true }; if (wt.error) return fail(wt.error); const candidate = realpathSync(wt.worktree); if (candidate === root || lstatSync(wt.worktree).isSymbolicLink()) return fail("worktree_remove_target_unsafe"); return commandResult(run(["worktree", "remove", "--", candidate]), "worktree_remove_failed"); },
-    deleteLocalBranch: async (owner) => commandResult(run(["branch", "-d", "--", owner.branchName]), "local_branch_delete_failed"),
+    removeWorktree: async (owner) => {
+      const wt = worktreeFor(owner.branchName); if (!wt) return { ok: true, adopted: true }; if (wt.error) return fail(wt.error);
+      if (!owner.worktree?.identity || lstatSync(wt.worktree).isSymbolicLink()) return fail("worktree_remove_target_unsafe");
+      const candidate = realpathSync(wt.worktree); const local = run(["show-ref", "--verify", "--hash", `refs/heads/${owner.branchName}`]);
+      const status = run(["status", "--porcelain=v1", "--untracked-files=normal"], candidate);
+      const identity = local.status === 0 ? digest({ repository: owner.repository, branchName: owner.branchName, headSha: String(local.stdout || "").trim(), realPath: candidate }) : null;
+      if (candidate === root || local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha || identity !== owner.worktree.identity || status.status !== 0 || String(status.stdout || "").trim() || processOwnsPath(candidate)) return fail("worktree_remove_target_drift");
+      return commandResult(run(["worktree", "remove", "--", candidate]), "worktree_remove_failed");
+    },
+    deleteLocalBranch: async (owner) => {
+      const local = run(["show-ref", "--verify", "--hash", `refs/heads/${owner.branchName}`]); if (local.status === 1) return { ok: true, adopted: true };
+      if (local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha) return fail("local_branch_delete_target_drift");
+      const merged = run(["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]); if (merged.status !== 0) return fail("local_branch_unmerged");
+      return commandResult(run(["update-ref", "-d", `refs/heads/${owner.branchName}`, owner.reviewedHeadSha]), "local_branch_delete_failed");
+    },
   };
 }
 

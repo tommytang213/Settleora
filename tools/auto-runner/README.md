@@ -6,8 +6,8 @@
 ancestry, current-target acceptance, hygiene, dependency, active-state, ref,
 and worktree proof. Remote absence is adopted, never repaired in this completed
 state. Exact expected-old-SHA leased remote deletion, clean disposable
-worktree removal, and normal
-merged local-branch deletion are checkpointed and read back. Failure reports
+worktree removal, and ancestry-checked expected-old-SHA local-ref deletion are
+checkpointed and read back. Failure reports
 `cleanup_required` without changing merge success. Historical, protected,
 release, manual, unowned, dirty, active, shared, symlinked, ambiguous, or
 referenced state is never deleted.

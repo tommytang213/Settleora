@@ -11,7 +11,8 @@ optional disposable worktree identity. A name pattern grants no authority.
 The runner freezes an immutable identity digest, rereads all live gates,
 adopts an already absent remote ref or deletes only the exact ref with an
 expected-old-SHA lease, confirms absence, removes only an
-exact clean inactive non-primary worktree, and uses normal `git branch -d`.
+exact clean inactive non-primary worktree, and deletes the local ref only after
+an ancestry check with Git's atomic expected-old-SHA transaction.
 Every intent and confirmation is checkpointed. Failure preserves merge success
 as `cleanup_required`. Protected, release, manual, unowned, dirty, active,
 ambiguous, historical, or referenced state is retained; wildcard deletion,
