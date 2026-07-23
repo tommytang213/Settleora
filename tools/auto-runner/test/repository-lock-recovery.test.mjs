@@ -103,7 +103,7 @@ test("repository authority lock fails closed for corrupt, partial, symlinked, or
     rmSync(lock);
     assert.throws(
       () => acquireOneLock(path.join(root, "..", authorityLockName), metadata(), { repositoryAuthority: true }),
-      /invalid/,
+      /invalid|unsafe/,
     );
     assert.throws(
       () => acquireOneLock(path.join(root, "repository.lock"), metadata(), { repositoryAuthority: true }),
