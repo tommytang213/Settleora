@@ -52,7 +52,7 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["add", "."]);
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
-    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 89);
+    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 90);
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
     writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);
@@ -121,6 +121,23 @@ test("copied runtime remains authoritative after managed branch and source chang
     const runtime = path.join(runtimeParent, "runtime");
     const deployed = deployRuntimeBundle({ sourceRoot, destination: runtime, repoRoot: repo, logsRoot: logs, sourceSha });
     assert.equal(verifyRuntimeBundle(runtime).bundleDigest, deployed.manifest.bundleDigest);
+    assert.equal(existsSync(deployed.launcher), true);
+    assert.equal(statSync(deployed.launcher).mode & 0o777, 0o500);
+    const deploymentLock = acquireRuntimeDeploymentLock(runtime);
+    const refused = spawnSync(process.execPath, [
+      deployed.launcher,
+      "--runtime-root",
+      runtime,
+      "--entry",
+      "settleora-auto-runnerctl.mjs",
+      "--",
+      "list",
+      "--config",
+      "/workspace/auto-runner/config/settleora.json",
+    ], { encoding: "utf8" });
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stderr, /startup refused during deployment/);
+    releaseRuntimeDeploymentLock(deploymentLock);
     const entry = absoluteRuntimeEntry(runtime, "settleora-auto-runner.mjs");
     assert.equal(entry.startsWith(`${runtime}${path.sep}`), true);
     git(repo, ["switch", "-c", "feature/change-controller"]);
@@ -253,11 +270,15 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
     const logs = path.join(root, "logs");
     const parent = path.join(root, "installed");
     mkdirSync(logs, { mode: 0o700 });
-    mkdirSync(parent);
+    mkdirSync(parent, { mode: 0o700 });
     const destination = path.join(parent, "runtime");
-    const deploymentLock = acquireRuntimeDeploymentLock(destination);
     const consumers = path.join(parent, ".runtime.consumers");
+    mkdirSync(consumers, { mode: 0o700 });
+    const staleMarker = path.join(consumers, `${process.pid}.lock`);
+    writeFileSync(staleMarker, `${JSON.stringify({ pid: process.pid, startToken: "0" })}\n`, { mode: 0o600 });
+    const deploymentLock = acquireRuntimeDeploymentLock(destination);
     assert.equal(existsSync(consumers), true);
+    assert.equal(existsSync(staleMarker), false);
     assert.equal(statSync(consumers).mode & 0o777, 0o700);
     releaseRuntimeDeploymentLock(deploymentLock);
     assert.equal(deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, dryRun: true }).dryRun, true);

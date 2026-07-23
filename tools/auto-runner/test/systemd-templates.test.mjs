@@ -75,11 +75,11 @@ test("repository templates keep loopback defaults and avoid deployment secrets i
 
   assert.equal(
     getLast(health, "Service", "ExecStart"),
-    "/usr/bin/env node /workspace/auto-runner/runtime/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json",
+    "/usr/bin/env node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-health-service.mjs -- --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json",
   );
   assert.equal(
     getLast(notifier, "Service", "ExecStart"),
-    "/usr/bin/env node /workspace/auto-runner/runtime/settleora-auto-runner-terminal-notifier.mjs --config /workspace/auto-runner/config/settleora.json",
+    "/usr/bin/env node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-terminal-notifier.mjs -- --config /workspace/auto-runner/config/settleora.json",
   );
 
   for (const [name, unit] of [["health", health], ["notifier", notifier]]) {
@@ -140,7 +140,7 @@ function assertServiceDirectives(unit, name, expected) {
 
 function assertExecStartIsSafe(unit, name) {
   const execStart = getLast(unit, "Service", "ExecStart");
-  assert.match(execStart, /^\/usr\/bin\/env node \/workspace\/auto-runner\/runtime\/[a-z0-9-]+\.mjs(?: --host 127\.0\.0\.1 --port 8787)? --config \/workspace\/auto-runner\/config\/settleora\.json$/);
+  assert.match(execStart, /^\/usr\/bin\/env node \/workspace\/auto-runner\/\.runtime\.launcher\.mjs --runtime-root \/workspace\/auto-runner\/runtime --entry settleora-auto-runner-(?:health-service|terminal-notifier)\.mjs -- (?:--host 127\.0\.0\.1 --port 8787 )?--config \/workspace\/auto-runner\/config\/settleora\.json$/);
   assert.doesNotMatch(execStart, /\b(?:sh|bash)\s+-c\b/, name);
   assert.doesNotMatch(execStart, /%[EfhinpsuU]|\$|\.\.|\/workspace\/logs\/settleora-auto-runner\/secrets/, name);
 }

@@ -5,7 +5,7 @@ Documentation=file:/workspace/repos/Settleora/docs/workflow/AUTONOMOUS_CODEX_RUN
 [Service]
 Type=exec
 WorkingDirectory=/workspace/repos/Settleora
-ExecStart=/usr/bin/env node /workspace/auto-runner/runtime/supervisor/settleora-auto-runner-worker.mjs %i --config /workspace/auto-runner/config/settleora.json --logs-root /workspace/logs/auto-runner/Settleora
+ExecStart=/usr/bin/env node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry supervisor/settleora-auto-runner-worker.mjs -- %i --config /workspace/auto-runner/config/settleora.json --logs-root /workspace/logs/auto-runner/Settleora
 UMask=0077
 Restart=no
 KillMode=process

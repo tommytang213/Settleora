@@ -19,6 +19,14 @@ checks there, and uses expected-old-digest protected atomic handoff with one
 bounded rollback directory. It never writes a project profile or starts,
 enables, reloads, or restarts a service.
 
+Production entry points are imported through the stable sibling
+`/workspace/auto-runner/.runtime.launcher.mjs`. The deployer creates that
+verified launcher on first install and refuses a mismatched replacement.
+Before importing any replaceable bundle module, the launcher checks the
+deployment lock and records a PID plus process-start identity in the shared
+consumer directory. Deployment reclaims only markers whose process-start
+identity is stale and otherwise refuses the handoff.
+
 Future manual command shapes (not executed by issue #951):
 
 ```bash
@@ -39,14 +47,14 @@ node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
   --expected-old-digest <current-bundle-digest> \
   --expected-rollback-digest <retained-rollback-bundle-digest>
 
-node /workspace/auto-runner/runtime/settleora-auto-runner.mjs --run \
-  --config /workspace/auto-runner/config/settleora.json
-node /workspace/auto-runner/runtime/settleora-auto-runner.mjs --status --json \
-  --config /workspace/auto-runner/config/settleora.json
-node /workspace/auto-runner/runtime/settleora-auto-runner.mjs \
-  --stop-after-current --config /workspace/auto-runner/config/settleora.json
-node /workspace/auto-runner/runtime/settleora-auto-runnerctl.mjs status \
-  --latest --json --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner.mjs -- --run --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner.mjs -- --status --json --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner.mjs -- --stop-after-current --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runnerctl.mjs -- status --latest --json --config /workspace/auto-runner/config/settleora.json
 ```
 
 The non-dry-run deploy and all start/profile commands require the separate

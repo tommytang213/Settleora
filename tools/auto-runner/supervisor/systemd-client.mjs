@@ -10,7 +10,8 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
   const safeRepoRoot = validateSystemdPath(repoRoot, "repoRoot");
   const safeLogsRoot = validateSystemdPath(logsRoot, "logsRoot");
   const safeRuntimeRoot = validateSystemdPath(runtimeRoot, "runtimeRoot");
-  const worker = absoluteRuntimeEntry(safeRuntimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
+  absoluteRuntimeEntry(safeRuntimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
+  const launcher = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.launcher.mjs`);
   return {
     unitName: unitNameForRunId(runId),
     startArgv: [
@@ -19,7 +20,8 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
       "--property=SendSIGKILL=no", "--property=UMask=0077",
       `--property=EnvironmentFile=-${path.join(safeLogsRoot, "secrets/supervisor.env")}`,
       `--working-directory=${safeRepoRoot}`,
-      process.execPath, worker, runId, "--config", safeConfigPath, "--logs-root", safeLogsRoot,
+      process.execPath, launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
+      runId, "--config", safeConfigPath, "--logs-root", safeLogsRoot,
     ],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
     showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],

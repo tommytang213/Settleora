@@ -162,7 +162,7 @@ export async function runSupervisorWorker(
   };
 }
 
-async function main() {
+export async function main() {
   const runtimeConsumer = acquireRuntimeConsumer(moduleRuntimeRoot());
   try {
   const configIndex = process.argv.indexOf("--config");

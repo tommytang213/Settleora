@@ -11,7 +11,7 @@ import { loadConfig } from "./lib/config.mjs";
 import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "./lib/runtime-bundle.mjs";
 import { moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 
-async function main() {
+export async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.configPath) throw new Error("health service requires --config");
   const project = loadConfig(

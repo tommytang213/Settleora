@@ -28,20 +28,33 @@ export function acquireRuntimeConsumer(runtimeRoot) {
   }
   if (existsSync(deploymentLock)) throw new Error("runtime startup refused during deployment");
   const marker = path.join(consumers, `${process.pid}.lock`);
-  writeFileSync(marker, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+  const identity = { pid: process.pid, startToken: processStartToken(process.pid) };
+  if (existsSync(marker)) {
+    let existing;
+    try { existing = JSON.parse(readFileSync(marker, "utf8")); } catch { existing = null; }
+    if (existing?.pid !== identity.pid || existing?.startToken !== identity.startToken) {
+      throw new Error("runtime consumer marker identity collision");
+    }
+    return { marker, owned: false };
+  }
+  writeFileSync(marker, `${JSON.stringify(identity)}\n`, { flag: "wx", mode: 0o600 });
   if (existsSync(deploymentLock)) {
     rmSync(marker);
     throw new Error("runtime startup raced with deployment");
   }
-  return marker;
+  return { marker, owned: true };
 }
 
-export function releaseRuntimeConsumer(marker) {
-  if (marker && existsSync(marker)) rmSync(marker);
+export function releaseRuntimeConsumer(handle) {
+  if (handle?.owned === true && handle.marker && existsSync(handle.marker)) rmSync(handle.marker);
 }
 
 export function acquireRuntimeDeploymentLock(destination) {
   const parent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
+  const parentInfo = statSync(parent);
+  if ((typeof process.getuid === "function" && parentInfo.uid !== process.getuid()) || (parentInfo.mode & 0o022) !== 0) {
+    throw new Error("runtime destination parent must be owner-controlled");
+  }
   const lock = path.join(parent, `.${path.basename(destination)}.deployment.lock`);
   writeFileSync(lock, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
   const consumers = path.join(parent, `.${path.basename(destination)}.consumers`);
@@ -58,14 +71,16 @@ export function acquireRuntimeDeploymentLock(destination) {
       const marker = path.join(consumers, name);
       const info = lstatSync(marker);
       const match = /^([1-9]\d*)\.lock$/.exec(name);
+      let identity;
+      try { identity = JSON.parse(readFileSync(marker, "utf8")); } catch { identity = null; }
       if (!match || !info.isFile() || info.isSymbolicLink() || (info.mode & 0o022) !== 0
           || (typeof process.getuid === "function" && info.uid !== process.getuid())
-          || readFileSync(marker, "utf8").trim() !== match[1]) {
+          || identity?.pid !== Number(match[1]) || !/^\d+$/u.test(String(identity?.startToken || ""))) {
         rmSync(lock);
         throw new Error("runtime consumer marker is unsafe");
       }
-      const active = processIsActive(Number(match[1]));
-      if (active !== false) {
+      const activeToken = processStartToken(Number(match[1]), { missingOk: true });
+      if (activeToken !== null && activeToken === identity.startToken) {
         rmSync(lock);
         throw new Error("runtime deployment refused while runtime consumers are registered");
       }
@@ -99,6 +114,7 @@ export function inspectRuntimeConsumers(destination, { procRoot = "/proc", selfP
 const includedRoots = ["lib", "supervisor"];
 const includedFiles = [
   ...runtimeEntryPoints,
+  "runtime-launcher.mjs",
   "runner-config.example.json",
   "README.md",
 ];
@@ -266,6 +282,18 @@ export function deployRuntimeBundle({
   if (buildRuntimeManifest(source, { sourceSha }).bundleDigest !== manifest.bundleDigest) {
     throw new Error("runtime source changed during deployment");
   }
+  const launcher = path.join(destinationParent, `.${path.basename(destination)}.launcher.mjs`);
+  const stagedLauncher = path.join(temporary, "runtime-launcher.mjs");
+  if (existsSync(launcher)) {
+    const launcherInfo = lstatSync(launcher);
+    if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink()
+        || createHash("sha256").update(readFileSync(launcher)).digest("hex") !== createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex")) {
+      throw new Error("stable runtime launcher does not match the approved bundle");
+    }
+  } else {
+    cpSync(stagedLauncher, launcher, { dereference: false });
+    chmodSync(launcher, 0o500);
+  }
   if (existsSync(rollback)) rmSync(rollback, { recursive: true });
   const movedOldRuntime = existsSync(destination);
   if (movedOldRuntime) renameSync(destination, rollback);
@@ -275,7 +303,7 @@ export function deployRuntimeBundle({
     if (movedOldRuntime && !existsSync(destination) && existsSync(rollback)) renameSync(rollback, destination);
     throw error;
   }
-  return { dryRun: false, destination: realpathSync(destination), rollback: existsSync(rollback) ? rollback : null, manifest };
+  return { dryRun: false, destination: realpathSync(destination), launcher, rollback: existsSync(rollback) ? rollback : null, manifest };
 }
 
 export function rollbackRuntimeBundle({
@@ -393,5 +421,17 @@ function processIsActive(pid) {
   } catch (error) {
     if (error.code === "ESRCH") return false;
     return true;
+  }
+}
+
+function processStartToken(pid, { missingOk = false } = {}) {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const fields = stat.slice(stat.lastIndexOf(") ") + 2).trim().split(/\s+/u);
+    if (!fields[19]) throw new Error("process start identity is unavailable");
+    return fields[19];
+  } catch (error) {
+    if (missingOk && error.code === "ENOENT") return null;
+    throw error;
   }
 }

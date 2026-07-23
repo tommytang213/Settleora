@@ -35,21 +35,8 @@ import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
 import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
 import { buildOperationalStatusProjection, renderOperationalStatusMarkdown } from "./lib/operational-status-projection.mjs";
 import { detectBlockingMarkers, summarizeCheckStatus } from "./lib/auto-merge-policy.mjs";
-import { acquireRuntimeConsumer, releaseRuntimeConsumer, runtimeManifestName } from "./lib/runtime-bundle.mjs";
 
-async function main() {
-  const runtimeRoot = moduleRuntimeRoot();
-  const consumer = existsSync(pathToFileURL(`${runtimeRoot}/${runtimeManifestName}`).pathname)
-    ? acquireRuntimeConsumer(runtimeRoot)
-    : null;
-  try {
-    return await runCommand();
-  } finally {
-    releaseRuntimeConsumer(consumer);
-  }
-}
-
-async function runCommand() {
+export async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
   const config = cli.command === "export-status" ? null : loadConfig({
     dryRun: true,

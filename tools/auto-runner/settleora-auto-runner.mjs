@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import {
   canonicalizeChangedFiles,
   digestChangedFiles,
@@ -126,7 +127,7 @@ import { canonicalGithubEvidenceDigest } from "./lib/github-effect-consumer.mjs"
 import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
 import { completeMergedIssueHygiene, completionHygieneReady } from "./lib/completion-hygiene.mjs";
 
-async function main() {
+export async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
   if (cliArgs.writeSummary) {
     const config = { logsRoot: defaultLogsRoot };
@@ -4318,7 +4319,9 @@ function renderSecurityFindingsDryRunText(result) {
   return `${lines.join("\n")}\n`;
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  main().catch((error) => {
+    console.error(error.stack || error.message);
+    process.exit(1);
+  });
+}
