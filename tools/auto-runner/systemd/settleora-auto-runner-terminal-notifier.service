@@ -13,8 +13,8 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/workspace/logs/settleora-auto-runner/monitoring
-ReadOnlyPaths=/workspace/repos/Settleora /workspace/logs/settleora-auto-runner/supervisor /workspace/logs/settleora-auto-runner/summaries /workspace/logs/settleora-auto-runner/state /workspace/logs/settleora-auto-runner/locks /workspace/logs/settleora-auto-runner/secrets
+ReadWritePaths=/workspace/logs/auto-runner/Settleora/monitoring -/workspace/auto-runner/.runtime.consumers
+ReadOnlyPaths=/workspace/repos/Settleora /workspace/auto-runner/runtime /workspace/auto-runner/config/settleora.json /workspace/logs/auto-runner/Settleora/supervisor /workspace/logs/auto-runner/Settleora/summaries /workspace/logs/auto-runner/Settleora/state /workspace/logs/auto-runner/Settleora/locks /workspace/logs/auto-runner/Settleora/secrets
 RestrictSUIDSGID=yes
 LockPersonality=yes
 # Node/V8 needs runtime executable-memory permission transitions, so

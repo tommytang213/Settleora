@@ -25,16 +25,16 @@ test("Node service templates omit MemoryDenyWriteExecute and retain least-privil
     assertExecStartIsSafe(unit, name);
   }
 
-  assert.equal(getLast(health, "Service", "ReadWritePaths"), "/workspace/logs/settleora-auto-runner");
-  assert.equal(getLast(health, "Service", "ReadOnlyPaths"), "/workspace/repos/Settleora");
+  assert.equal(getLast(health, "Service", "ReadWritePaths"), "/workspace/logs/auto-runner/Settleora -/workspace/auto-runner/.runtime.consumers");
+  assert.match(getLast(health, "Service", "ReadOnlyPaths"), /\/workspace\/auto-runner\/runtime/);
 
   assert.equal(
     getLast(notifier, "Service", "ReadWritePaths"),
-    "/workspace/logs/settleora-auto-runner/monitoring",
+    "/workspace/logs/auto-runner/Settleora/monitoring -/workspace/auto-runner/.runtime.consumers",
   );
   assert.equal(
     getLast(notifier, "Service", "ReadOnlyPaths"),
-    "/workspace/repos/Settleora /workspace/logs/settleora-auto-runner/supervisor /workspace/logs/settleora-auto-runner/summaries /workspace/logs/settleora-auto-runner/state /workspace/logs/settleora-auto-runner/locks /workspace/logs/settleora-auto-runner/secrets",
+    "/workspace/repos/Settleora /workspace/auto-runner/runtime /workspace/auto-runner/config/settleora.json /workspace/logs/auto-runner/Settleora/supervisor /workspace/logs/auto-runner/Settleora/summaries /workspace/logs/auto-runner/Settleora/state /workspace/logs/auto-runner/Settleora/locks /workspace/logs/auto-runner/Settleora/secrets",
   );
 });
 
@@ -75,11 +75,11 @@ test("repository templates keep loopback defaults and avoid deployment secrets i
 
   assert.equal(
     getLast(health, "Service", "ExecStart"),
-    "/usr/bin/env node tools/auto-runner/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787",
+    "/usr/bin/env node /workspace/auto-runner/runtime/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json",
   );
   assert.equal(
     getLast(notifier, "Service", "ExecStart"),
-    "/usr/bin/env node tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs",
+    "/usr/bin/env node /workspace/auto-runner/runtime/settleora-auto-runner-terminal-notifier.mjs --config /workspace/auto-runner/config/settleora.json",
   );
 
   for (const [name, unit] of [["health", health], ["notifier", notifier]]) {
@@ -140,7 +140,7 @@ function assertServiceDirectives(unit, name, expected) {
 
 function assertExecStartIsSafe(unit, name) {
   const execStart = getLast(unit, "Service", "ExecStart");
-  assert.match(execStart, /^\/usr\/bin\/env node tools\/auto-runner\/[a-z0-9-]+\.mjs(?: --host 127\.0\.0\.1 --port 8787)?$/);
+  assert.match(execStart, /^\/usr\/bin\/env node \/workspace\/auto-runner\/runtime\/[a-z0-9-]+\.mjs(?: --host 127\.0\.0\.1 --port 8787)? --config \/workspace\/auto-runner\/config\/settleora\.json$/);
   assert.doesNotMatch(execStart, /\b(?:sh|bash)\s+-c\b/, name);
   assert.doesNotMatch(execStart, /%[EfhinpsuU]|\$|\.\.|\/workspace\/logs\/settleora-auto-runner\/secrets/, name);
 }
