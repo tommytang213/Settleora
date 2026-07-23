@@ -8,8 +8,8 @@ StartLimitBurst=5
 [Service]
 Type=exec
 WorkingDirectory=/workspace/repos/Settleora
-ExecStart=/usr/bin/env node tools/auto-runner/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787
-EnvironmentFile=-/workspace/logs/settleora-auto-runner/secrets/health-service.env
+ExecStart=/usr/bin/env node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-health-service.mjs -- --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json
+EnvironmentFile=-/workspace/logs/auto-runner/Settleora/secrets/health-service.env
 UMask=0077
 Restart=on-failure
 RestartSec=10s
@@ -17,8 +17,8 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/workspace/logs/settleora-auto-runner
-ReadOnlyPaths=/workspace/repos/Settleora
+ReadWritePaths=/workspace/logs/auto-runner/Settleora -/workspace/auto-runner/.runtime.consumers
+ReadOnlyPaths=/workspace/repos/Settleora /workspace/auto-runner/runtime /workspace/auto-runner/config/settleora.json
 RestrictSUIDSGID=yes
 LockPersonality=yes
 # Node/V8 needs runtime executable-memory permission transitions, so

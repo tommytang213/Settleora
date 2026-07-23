@@ -9,8 +9,10 @@ import { evaluateReviewFixCanaryFixtureApproval } from "./review-fix-fixture.mjs
 import { buildEligibleLabelSearches } from "./github-issues.mjs";
 import { safeTimestamp } from "./logger.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
+import { absoluteRuntimeEntry, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
+import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
 
-const repoNameWithOwner = "tommytang213/Settleora";
+const settleoraRepositorySlug = "tommytang213/Settleora";
 const riskyGateKeys = Object.freeze([
   "allowAutoMerge",
   "allowFollowupIssueCreation",
@@ -29,13 +31,16 @@ export function runPreflight(config, options = {}) {
   const runner = options.runner || defaultRunner;
   const checks = [];
   checks.push(checkRepoRoot(config));
+  checks.push(checkRuntimeIdentity(config));
   checks.push(checkBranchAndStatus(config, runner));
   checks.push(checkOriginMainFetchable(config, runner));
   checks.push(checkGhAvailable(runner));
   checks.push(checkGhAuthStatus(config, runner));
   checks.push(checkGhRepoView(config, runner));
-  checks.push(checkIssueState(config, runner, 800, "CLOSED"));
-  checks.push(checkIssueState(config, runner, 805, "CLOSED"));
+  if (config.repositorySlug?.toLowerCase() === settleoraRepositorySlug.toLowerCase()) {
+    checks.push(checkIssueState(config, runner, 800, "CLOSED"));
+    checks.push(checkIssueState(config, runner, 805, "CLOSED"));
+  }
   checks.push(checkIssuePolling(config, runner));
   checks.push(checkCodexResolution(config));
   checks.push(checkNodeVersion());
@@ -94,9 +99,10 @@ export function runPreflight(config, options = {}) {
   const result = {
     mode: config.mode || "preflight",
     generatedAt: new Date().toISOString(),
-    repo: repoNameWithOwner,
-    branch: safeValue(() => getCurrentBranch(), "unknown"),
-    headSha: safeValue(() => getRefSha("HEAD"), "unknown"),
+    repo: config.repositorySlug,
+    branch: safeValue(() => getCurrentBranch({ cwd: config.repoRoot }), "unknown"),
+    headSha: safeValue(() => getRefSha("HEAD", { cwd: config.repoRoot }), "unknown"),
+    runtimeIdentity: config.runtimeIdentity || null,
     configPathUsed: config.configPath || "default built-in config",
     logsRoot: config.logsRoot,
     readinessReports: null,
@@ -122,23 +128,45 @@ function buildRemainingManualGates(config) {
 }
 
 function checkRepoRoot(config) {
-  const cwd = process.cwd();
   const packageJson = path.join(config.repoRoot, "package.json");
-  const runner = path.join(config.repoRoot, "tools/auto-runner/settleora-auto-runner.mjs");
-  const ok = cwd === config.repoRoot && existsSync(packageJson) && existsSync(runner);
+  const ok = existsSync(packageJson);
   return {
     name: "repo-root",
     status: ok ? "pass" : "fail",
-    detail: bounded(`cwd=${cwd}; configured=${config.repoRoot}`),
+    detail: bounded(`configured=${config.repoRoot}`),
   };
+}
+
+function checkRuntimeIdentity(config) {
+  try {
+    if (config.runtimeMode !== "external" && (!config.projectId || !config.runtimeRoot)) {
+      return {
+        name: "runtime-identity",
+        status: "pass",
+        detail: "development compatibility mode; trusted external activation would require explicit runtimeRoot and projectId",
+      };
+    }
+    const identity = validateProjectRuntimeIdentity(config);
+    const runner = absoluteRuntimeEntry(identity.runtimeRoot, "settleora-auto-runner.mjs");
+    const manifest = config.runtimeMode === "external"
+      ? verifyRuntimeBundle(identity.runtimeRoot, config.runtimeBundleDigest || null)
+      : null;
+    return {
+      name: "runtime-identity",
+      status: "pass",
+      detail: bounded(JSON.stringify({ ...identity, runner, bundleDigest: manifest?.bundleDigest || null })),
+    };
+  } catch (error) {
+    return { name: "runtime-identity", status: "fail", detail: bounded(error.message) };
+  }
 }
 
 function checkBranchAndStatus(config, runner) {
   try {
-    const branch = getCurrentBranch();
-    const status = getStatusShort();
-    const headSha = getRefSha("HEAD");
-    const originMainSha = safeValue(() => getRefSha("origin/main"), null);
+    const branch = getCurrentBranch({ cwd: config.repoRoot });
+    const status = getStatusShort({ cwd: config.repoRoot });
+    const headSha = getRefSha("HEAD", { cwd: config.repoRoot });
+    const originMainSha = safeValue(() => getRefSha("origin/main", { cwd: config.repoRoot }), null);
     const relation = originMainSha ? headRelationToOriginMain(runner, headSha, originMainSha) : "origin-main-unavailable";
     const realRunWouldRefuse = branch === "main" || Boolean(status);
     return {
@@ -179,19 +207,19 @@ function checkGhAuthStatus(config, runner) {
 }
 
 function checkGhRepoView(config, runner) {
-  const result = runner("gh", ["repo", "view", repoNameWithOwner, "--json", "nameWithOwner", "-q", ".nameWithOwner"], {
+  const result = runner("gh", ["repo", "view", config.repositorySlug, "--json", "nameWithOwner", "-q", ".nameWithOwner"], {
     cwd: config.repoRoot,
   });
   const resolved = result.stdout.trim();
   return {
     name: "gh-repo-view",
-    status: result.status === 0 && resolved === repoNameWithOwner ? "pass" : "fail",
+    status: result.status === 0 && resolved.toLowerCase() === config.repositorySlug.toLowerCase() ? "pass" : "fail",
     detail: bounded(result.status === 0 ? `resolved=${resolved}` : result.stderr || result.error?.message || ""),
   };
 }
 
 function checkIssueState(config, runner, number, expectedState) {
-  const result = runner("gh", ["issue", "view", String(number), "--repo", repoNameWithOwner, "--json", "number,state,title,url"], {
+  const result = runner("gh", ["issue", "view", String(number), "--repo", config.repositorySlug, "--json", "number,state,title,url"], {
     cwd: config.repoRoot,
   });
   if (result.error || result.status !== 0) {
@@ -212,14 +240,14 @@ function checkIssueState(config, runner, number, expectedState) {
 function checkIssuePolling(config, runner) {
   let searches;
   try {
-    searches = buildEligibleLabelSearches(repoNameWithOwner, config.eligibleLabels);
+    searches = buildEligibleLabelSearches(config.repositorySlug, config.eligibleLabels);
   } catch (error) {
     return { name: "github-issue-polling", status: "fail", detail: bounded(error.message) };
   }
   const results = searches.map(({ search }) =>
     runner(
       "gh",
-      ["issue", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "1", "--json", "number,title,labels", "--search", search],
+      ["issue", "list", "--repo", config.repositorySlug, "--state", "open", "--limit", "1", "--json", "number,title,labels", "--search", search],
       { cwd: config.repoRoot },
     ),
   );
@@ -479,11 +507,11 @@ function policyCheck(name, ok, passDetail) {
 }
 
 function checkActiveClaims(config, runner) {
-  const searches = ["auto-claimed", "auto-running"].map((label) => `repo:${repoNameWithOwner} is:issue is:open label:${label}`);
+  const searches = ["auto-claimed", "auto-running"].map((label) => `repo:${config.repositorySlug} is:issue is:open label:${label}`);
   const results = searches.map((query) =>
     runner(
       "gh",
-      ["issue", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "30", "--json", "number,title,labels,updatedAt,url", "--search", query],
+      ["issue", "list", "--repo", config.repositorySlug, "--state", "open", "--limit", "30", "--json", "number,title,labels,updatedAt,url", "--search", query],
       { cwd: config.repoRoot },
     ),
   );
@@ -518,7 +546,7 @@ function checkActiveClaims(config, runner) {
 }
 
 function checkOpenAutoRunnerPrs(config, runner) {
-  const result = runner("gh", ["pr", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "50", "--json", "number,title,headRefName,url"], {
+  const result = runner("gh", ["pr", "list", "--repo", config.repositorySlug, "--state", "open", "--limit", "50", "--json", "number,title,headRefName,url"], {
     cwd: config.repoRoot,
   });
   if (result.error || result.status !== 0) {
@@ -533,10 +561,10 @@ function checkOpenAutoRunnerPrs(config, runner) {
 }
 
 function checkActivePrOpenedIssues(config, runner) {
-  const query = `repo:${repoNameWithOwner} is:issue is:open label:auto-pr-opened`;
+  const query = `repo:${config.repositorySlug} is:issue is:open label:auto-pr-opened`;
   const result = runner(
     "gh",
-    ["issue", "list", "--repo", repoNameWithOwner, "--state", "open", "--limit", "30", "--json", "number,title,labels,updatedAt,url", "--search", query],
+    ["issue", "list", "--repo", config.repositorySlug, "--state", "open", "--limit", "30", "--json", "number,title,labels,updatedAt,url", "--search", query],
     { cwd: config.repoRoot },
   );
   if (result.error || result.status !== 0) {

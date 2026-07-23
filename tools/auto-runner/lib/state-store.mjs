@@ -1,6 +1,8 @@
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedIteration } from "./evidence-sanitizer.mjs";
+import { repositoryAuthorityLockPath } from "./runtime-identity.mjs";
+import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "./runtime-bundle.mjs";
 
 export function processAppearsActive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
@@ -15,7 +17,32 @@ export function processAppearsActive(pid) {
 
 export function acquireRunnerLock(config, metadata = {}) {
   const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
+  const repositoryLockPath = repositoryAuthorityLockPath(config.repoRoot, undefined, config.runtimeMode === "external" ? config.repositorySlug : null);
+  const acquired = [];
+  let runtimeConsumerLock = null;
+  try {
+    if (config.runtimeMode === "external") runtimeConsumerLock = acquireRuntimeConsumer(config.runtimeRoot);
+    for (const [target, allowStaleReclaim] of [[repositoryLockPath, false], [lockPath, true]]) {
+      acquireOneLock(target, {
+        projectId: config.projectId,
+        repositorySlug: config.repositorySlug,
+        repoRoot: config.repoRoot,
+        stateNamespace: config.runtimeIdentity?.namespace || null,
+        ...metadata,
+      }, { allowStaleReclaim });
+      acquired.push(target);
+    }
+  } catch (error) {
+    for (const target of acquired.reverse()) releaseOneLock(target);
+    releaseRuntimeConsumer(runtimeConsumerLock);
+    throw error;
+  }
+  return { lockPath, repositoryLockPath, runtimeConsumerLock };
+}
+
+function acquireOneLock(lockPath, metadata, { allowStaleReclaim = true } = {}) {
   if (existsSync(lockPath)) {
+    const observed = lstatSync(lockPath);
     let lock;
     try {
       lock = JSON.parse(readFileSync(lockPath, "utf8"));
@@ -29,18 +56,34 @@ export function acquireRunnerLock(config, metadata = {}) {
     if (active === null) {
       throw new Error(`Runner lock exists and staleness cannot be safely determined: ${lockPath}`);
     }
-    rmSync(lockPath);
+    if (!allowStaleReclaim) {
+      throw new Error(`Repository authority lock is stale and requires explicit recovery: ${lockPath}`);
+    }
+    const quarantine = `${lockPath}.stale-${process.pid}-${Date.now()}`;
+    renameSync(lockPath, quarantine);
+    const moved = lstatSync(quarantine);
+    if (moved.dev !== observed.dev || moved.ino !== observed.ino) {
+      throw new Error(`Runner lock changed during stale reclamation: ${lockPath}`);
+    }
+    rmSync(quarantine);
   }
   writeFileSync(
     lockPath,
     `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), ...metadata }, null, 2)}\n`,
     { flag: "wx" },
   );
-  return lockPath;
 }
 
-export function releaseRunnerLock(lockPath) {
-  if (!lockPath || !existsSync(lockPath)) return;
+export function releaseRunnerLock(lockHandle) {
+  const paths = typeof lockHandle === "string"
+    ? [lockHandle]
+    : [lockHandle?.lockPath, lockHandle?.repositoryLockPath].filter(Boolean);
+  for (const lockPath of paths) releaseOneLock(lockPath);
+  releaseRuntimeConsumer(lockHandle?.runtimeConsumerLock);
+}
+
+function releaseOneLock(lockPath) {
+  if (!existsSync(lockPath)) return;
   try {
     const lock = JSON.parse(readFileSync(lockPath, "utf8"));
     if (lock.pid === process.pid) rmSync(lockPath);

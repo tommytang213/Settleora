@@ -4,7 +4,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import process from "node:process";
-import { defaultLogsRoot } from "./lib/config.mjs";
 import { getRefSha, getStatusShort } from "./lib/git-workspace.mjs";
 import {
   buildRunSpec,
@@ -31,14 +30,21 @@ import {
   writeSupervisorState,
 } from "./supervisor/supervisor-state.mjs";
 import { defaultConfig, loadConfig } from "./lib/config.mjs";
+import { absoluteRuntimeEntry, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
 import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
 import { buildOperationalStatusProjection, renderOperationalStatusMarkdown } from "./lib/operational-status-projection.mjs";
 import { detectBlockingMarkers, summarizeCheckStatus } from "./lib/auto-merge-policy.mjs";
 
-async function main() {
+export async function main() {
   const cli = parseCtlArgs(process.argv.slice(2));
-  const config = cli.command === "export-status" ? null : loadConfig({ dryRun: true, run: false, configPath: null });
+  const config = cli.command === "export-status" ? null : loadConfig({
+    dryRun: true,
+    run: false,
+    configPath: cli.configPath,
+  }, {
+    outageResubmissionObserverAvailable: true,
+  });
   if (cli.command === "submit") {
     const result = await submit(cli, config);
     print(result, cli.json);
@@ -118,6 +124,12 @@ export function loadProjectionConfig(cli, deps = {}) {
   const profileResolver = deps.resolveProfile || resolveProfile;
   const configPathValidator = deps.validateRunnerConfigPath || validateRunnerConfigPath;
   const pathExists = deps.existsSync || existsSync;
+  if (cli.configPath) {
+    return configLoader(
+      { dryRun: true, run: false, configPath: cli.configPath },
+      { outageResubmissionObserverAvailable: true },
+    );
+  }
   const bootstrap = { ...(deps.defaultConfig || defaultConfig) };
   const status = suppressRetainedTaskForPreChildSupervisor(bootstrap, statusReader(bootstrap), deps.latestSupervisorRun || latestSupervisorRun);
   let configPath;
@@ -155,7 +167,7 @@ export function controlSupervisorRun(runId, cli, config, deps = {}) {
   }
 
   const lifecycleState = supervisorState.state?.state || null;
-  const controlConfig = { ...config, logsRoot: defaultLogsRoot };
+  const controlConfig = config;
   const runnerStatus = getStatus(controlConfig);
   const decision = evaluateSupervisorControlPolicy({
     supervisorRunId: runId,
@@ -236,8 +248,9 @@ function buildLastControlMetadata({
 
 async function submit(cli, config) {
   const profile = resolveProfile(cli.profile, config.logsRoot);
+  const admittedConfigPath = config.configPath || profile.runnerConfigPath;
   const runId = generateRunId();
-  const initialOriginMainSha = getRefSha("origin/main");
+  const initialOriginMainSha = getRefSha("origin/main", { cwd: config.repoRoot });
   const specResult = buildRunSpec({
     runId,
     maxTasks: cli.maxTasks,
@@ -248,12 +261,21 @@ async function submit(cli, config) {
     requestedBy: "operator",
     allowMissingConfig: cli.dryRun,
     logsRoot: config.logsRoot,
+    runnerConfigPath: admittedConfigPath,
   });
   const specSha256 = sha256Text(canonicalJson(specResult.spec));
-  const plan = buildSystemdStartPlan(runId);
-  const runnerArgv = runnerArgvForSpec(specResult.spec);
+  const runtimeRoot = moduleRuntimeRoot();
+  const plan = buildSystemdStartPlan(runId, {
+    runtimeRoot,
+    configPath: admittedConfigPath,
+    projectId: config.projectId,
+    repoRoot: config.repoRoot,
+    logsRoot: config.logsRoot,
+  });
+  const runnerArgv = runnerArgvForSpec(specResult.spec, { runtimeRoot, logsRoot: config.logsRoot });
   const heartbeat = buildHeartbeat({
     runId,
+    projectId: config.projectId,
     state: "submitted",
     maxTasks: specResult.spec.maxTasks,
     maxRuntime: specResult.spec.maxRuntime,
@@ -285,21 +307,22 @@ async function submit(cli, config) {
       state: event,
       payload: "sanitized bounded JSON",
     })),
-    statusCommand: `node tools/auto-runner/settleora-auto-runnerctl.mjs status --run ${runId} --json`,
+    statusCommand: `node ${absoluteRuntimeEntry(moduleRuntimeRoot(), "settleora-auto-runnerctl.mjs")} status --run ${runId} --json --config ${admittedConfigPath}`,
   };
   if (cli.dryRun) return rendered;
 
-  const status = getStatusShort();
+  const runnerEntry = absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs");
+  const status = getStatusShort({ cwd: config.repoRoot });
   if (status) throw new Error("Refusing supervisor submit with a dirty worktree");
-  const runnerStatus = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--status", "--json"], {
-    cwd: config.repoRoot,
+  const runnerStatus = spawnSync(process.execPath, [runnerEntry, "--status", "--json", "--config", admittedConfigPath], {
+    cwd: runtimeRoot,
     encoding: "utf8",
   });
   if (runnerStatus.status !== 0) throw new Error("Unable to read existing runner status");
   const parsedRunnerStatus = JSON.parse(runnerStatus.stdout);
   if (parsedRunnerStatus.active || parsedRunnerStatus.lock?.exists) throw new Error("Existing runner is active or locked");
-  const readiness = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--readiness", "--config", profile.runnerConfigPath], {
-    cwd: config.repoRoot,
+  const readiness = spawnSync(process.execPath, [runnerEntry, "--readiness", "--config", admittedConfigPath], {
+    cwd: runtimeRoot,
     encoding: "utf8",
   });
   if (readiness.status !== 0) throw new Error("Runner readiness failed for selected config");
@@ -316,7 +339,13 @@ async function submit(cli, config) {
     initialOriginMainSha,
   }, config.logsRoot);
   recordMonitoringEvent("submitted", { ...heartbeat, runId }, { logsRoot: config.logsRoot });
-  const start = startUserUnit(runId);
+  const start = startUserUnit(runId, {
+    runtimeRoot,
+    configPath: admittedConfigPath,
+    projectId: config.projectId,
+    repoRoot: config.repoRoot,
+    logsRoot: config.logsRoot,
+  });
   if (!start.ok) {
     writeSupervisorState(runId, { state: "submission_failed", submissionFailure: start.stderr }, config.logsRoot);
     return { ...rendered, ok: false, state: "submission_failed", start };
@@ -339,6 +368,7 @@ function parseCtlArgs(argv) {
     maxTasksDelta: null,
     maxRuntimeDeltaMs: null,
     markdown: false,
+    configPath: null,
   };
   if (!cli.command) throw new Error("Missing command");
   for (let index = 1; index < argv.length; index += 1) {
@@ -349,6 +379,7 @@ function parseCtlArgs(argv) {
     else if (arg === "--latest") cli.latest = true;
     else if (arg === "--run") cli.runId = readValue(argv, ++index, arg);
     else if (arg === "--profile") cli.profile = readValue(argv, ++index, arg);
+    else if (arg === "--config") cli.configPath = readValue(argv, ++index, arg);
     else if (arg === "--mode") cli.mode = readValue(argv, ++index, arg);
     else if (arg === "--max-tasks") {
       const raw = readValue(argv, ++index, arg);

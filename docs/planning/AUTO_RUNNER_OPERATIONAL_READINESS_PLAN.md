@@ -309,6 +309,12 @@ paths are added.
 
 ## Current Remaining Sequence
 
+Issue #951 implements the repository-side external-runtime separation,
+deterministic bundle/deploy utility, absolute child resolution, explicit
+project identities, and same-repository ownership exclusion. It does not
+deploy the runtime, create the future Settleora profile, migrate legacy logs,
+or activate services. Those actions remain manual under #912.
+
 The original planning PR and the #913/#921 implementation acceptance chain are
 complete. Current live issues now own the remaining work:
 

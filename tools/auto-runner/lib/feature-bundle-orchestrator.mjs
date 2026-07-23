@@ -1085,7 +1085,8 @@ async function certifyLargeBundleCumulativeReview({ config, issue, reviewPackage
   return { ...certification, sessionLifecycle: structuredLifecycle };
 }
 
-function bundleIntegrationBoundaryMaterial(repoRoot = process.cwd(), paths) {
+function bundleIntegrationBoundaryMaterial(repoRoot, paths) {
+  if (!repoRoot) throw new Error("bundle integration boundary material requires repoRoot");
   return paths.map((relativePath) => {
     const content = readFileSync(path.join(repoRoot, relativePath), "utf8");
     return { path: relativePath, sha256: createHash("sha256").update(content).digest("hex"), content };
@@ -1369,7 +1370,7 @@ function validateFeatureBundleAutoMergeRunner({ config = {}, runner = null } = {
     return { ok: false, reasonCode: "feature_bundle_auto_merge_runner_malformed", reason: "Feature-bundle auto-merge runner identity is incomplete." };
   }
   const expectedRepository = String(config.repositorySlug || "");
-  const expectedRoot = path.resolve(config.repoRoot || process.cwd());
+  const expectedRoot = path.resolve(config.repoRoot);
   if (identity.repositorySlug !== expectedRepository || path.resolve(identity.repoRoot) !== expectedRoot) {
     return {
       ok: false,
@@ -1434,7 +1435,7 @@ function captureBundleReviewCheckoutFingerprint(config = {}) {
       untracked: [],
     };
   }
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const branch = runGit(["branch", "--show-current"], { cwd });
   const head = runGit(["rev-parse", "HEAD"], { cwd });
   const untracked = runGit(["ls-files", "--others", "--exclude-standard"], { cwd });

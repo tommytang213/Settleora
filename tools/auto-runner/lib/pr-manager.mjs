@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha } from "./git-workspace.mjs";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 function runGh(args, cwd) {
   const result = spawnSync("gh", args, { cwd, encoding: "utf8", windowsHide: true });
@@ -16,6 +17,7 @@ function runGh(args, cwd) {
 export async function pushBranch(config, branchName, options = {}) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
   if (options.effectContext) return canonicalPush(config, branchName, options.effectContext);
+  assertRepositoryRemoteIdentity(config);
   const result = spawnSync("git", ["push", "origin", branchName], {
     cwd: config.repoRoot,
     encoding: "utf8",
@@ -52,6 +54,7 @@ async function canonicalPush(config, branchName, lifecycle) {
       return { complete: true, present: true, identity: intent.identity, effect: { ...effect, allowedFastForwardTarget: live.sha || "remote_missing" } };
     },
     execute: () => {
+      assertRepositoryRemoteIdentity(config);
       const result = spawnSync("git", ["push", "origin", `${localSha}:refs/heads/${branchName}`], { cwd: config.repoRoot, encoding: "utf8", windowsHide: true });
       if (result.error || result.status !== 0) throw new Error("Canonical normal push failed");
       return { ok: true, status: result.status };
@@ -62,6 +65,7 @@ async function canonicalPush(config, branchName, lifecycle) {
 }
 
 function readRemoteHead(config, branchName) {
+  assertRepositoryRemoteIdentity(config);
   const result = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`], { cwd: config.repoRoot, encoding: "utf8", windowsHide: true });
   if (result.error || result.status !== 0) return { complete: false, sha: null };
   return { complete: true, sha: result.stdout.trim() ? result.stdout.trim().split(/\s+/)[0] : null };
@@ -77,6 +81,7 @@ export function inspectPreReviewPrOwnership(config, branchName) {
       prs: [],
     };
   }
+  assertRepositoryRemoteIdentity(config);
   const remote = spawnSync("git", ["ls-remote", "--heads", "origin", branchName], {
     cwd: config.repoRoot,
     encoding: "utf8",

@@ -3,8 +3,9 @@
 import { createWriteStream } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import path from "node:path";
 import process from "node:process";
-import { defaultLogsRoot } from "../lib/config.mjs";
+import { defaultLogsRoot, loadConfig } from "../lib/config.mjs";
 import { getRefSha } from "../lib/git-workspace.mjs";
 import { safeTimestamp } from "../lib/logger.mjs";
 import { readAndVerifyRunSpec, validateRunId } from "./run-spec.mjs";
@@ -14,6 +15,8 @@ import { resolveRunnerSummaryForSupervisor } from "./runner-summary-resolver.mjs
 import { runnerArgvForSpec } from "./systemd-client.mjs";
 import { readSupervisorState, writeSupervisorState } from "./supervisor-state.mjs";
 import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
+import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
+import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "../lib/runtime-bundle.mjs";
 
 const exitCodes = {
   completed: 0,
@@ -23,6 +26,7 @@ const exitCodes = {
   cancelled: 13,
   stale: 14,
 };
+let failureLogsRoot = defaultLogsRoot;
 
 export async function runSupervisorWorker(
   runId,
@@ -32,12 +36,14 @@ export async function runSupervisorWorker(
     spawnImpl = spawn,
     spawnSyncImpl = spawnSync,
     resolveSummary = resolveRunnerSummaryForSupervisor,
+    runtimeRoot = moduleRuntimeRoot(),
+    projectId = "Settleora",
   } = {},
 ) {
   validateRunId(runId);
   const previous = readSupervisorState(runId, logsRoot).state;
   const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, logsRoot);
-  const currentMain = getRefSha("origin/main");
+  const currentMain = getRefSha("origin/main", { cwd: repoRoot });
   if (currentMain !== verified.spec.initialOriginMainSha) {
     writeSupervisorState(runId, { state: "stale", staleReason: "origin_main_changed", currentMain }, logsRoot);
     return { terminal: "stale", exitCode: exitCodes.stale };
@@ -58,13 +64,13 @@ export async function runSupervisorWorker(
   writeSupervisorState(runId, statePatch, logsRoot);
   const runnerRunId = statePatch.runnerRunId;
   let heartbeatGeneration = 1;
-  let heartbeat = buildHeartbeat({ runId, runnerRunId, state: "starting", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration });
+  let heartbeat = buildHeartbeat({ runId, projectId, runnerRunId, state: "starting", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration });
   writeHeartbeat(runId, heartbeat, logsRoot);
   recordMonitoringEvent("started", heartbeat, { logsRoot });
 
-  const argv = runnerArgvForSpec(verified.spec, { runnerRunId });
+  const argv = runnerArgvForSpec(verified.spec, { runnerRunId, runtimeRoot, logsRoot });
   writeSupervisorState(runId, { state: "running", runnerArgv: redactArgv(argv), stdoutPath, stderrPath }, logsRoot);
-  heartbeat = buildHeartbeat({ runId, runnerRunId, state: "running", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration: ++heartbeatGeneration });
+  heartbeat = buildHeartbeat({ runId, projectId, runnerRunId, state: "running", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration: ++heartbeatGeneration });
   writeHeartbeat(runId, heartbeat, logsRoot);
   const stdout = createWriteStream(stdoutPath, { flags: "a", mode: 0o600 });
   const stderr = createWriteStream(stderrPath, { flags: "a", mode: 0o600 });
@@ -78,8 +84,15 @@ export async function runSupervisorWorker(
     if (stopping) return;
     stopping = true;
     writeSupervisorState(runId, { state: "stopping_after_current" }, logsRoot);
-    spawnSyncImpl(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--stop-after-current"], {
-      cwd: repoRoot,
+    spawnSyncImpl(process.execPath, [
+      absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs"),
+      "--stop-after-current",
+      "--config",
+      verified.config.realPath,
+      "--expected-config-sha256",
+      verified.config.sha256,
+    ], {
+      cwd: runtimeRoot,
       encoding: "utf8",
     });
   };
@@ -89,6 +102,7 @@ export async function runSupervisorWorker(
   const interval = setInterval(async () => {
     const activeHeartbeat = buildHeartbeat({
       runId,
+      projectId,
       runnerRunId,
       state: stopping ? "stopping_after_current" : "running",
       maxTasks: verified.spec.maxTasks,
@@ -133,6 +147,7 @@ export async function runSupervisorWorker(
   }, logsRoot);
   const terminalHeartbeat = buildHeartbeat({
     runId,
+    projectId,
     runnerRunId,
     state: terminalDecision.state,
     maxTasks: verified.spec.maxTasks,
@@ -152,9 +167,47 @@ export async function runSupervisorWorker(
   };
 }
 
-async function main() {
-  const result = await runSupervisorWorker(process.argv[2]);
-  process.exit(result.exitCode);
+export async function main() {
+  const runtimeConsumer = acquireRuntimeConsumer(moduleRuntimeRoot());
+  try {
+  const logsIndex = process.argv.indexOf("--logs-root");
+  const selectedLogsRoot = logsIndex >= 0 ? process.argv[logsIndex + 1] : null;
+  if (!selectedLogsRoot || !path.isAbsolute(selectedLogsRoot) || path.resolve(selectedLogsRoot) !== selectedLogsRoot) {
+    throw new Error("supervisor worker requires canonical absolute --logs-root");
+  }
+  failureLogsRoot = selectedLogsRoot;
+  const priorState = readSupervisorState(process.argv[2], selectedLogsRoot).state;
+  const verifiedSpec = readAndVerifyRunSpec(process.argv[2], priorState?.specSha256 || null, selectedLogsRoot);
+  const configPath = verifiedSpec.spec.runnerConfigPath;
+  const config = loadConfig(
+    { dryRun: true, run: false, configPath },
+    { outageResubmissionObserverAvailable: true },
+  );
+  if (config.logsRoot !== selectedLogsRoot) throw new Error("supervisor worker logsRoot does not match config");
+  if (config.runtimeMode === "external" && config.configTrustEvidence?.sha256 !== verifiedSpec.config.sha256) {
+    throw new Error("supervisor worker config digest does not match immutable run spec");
+  }
+  failureLogsRoot = config.logsRoot;
+  const result = await runSupervisorWorker(process.argv[2], {
+    logsRoot: config.logsRoot,
+    repoRoot: config.repoRoot,
+    runtimeRoot: config.runtimeRoot,
+    projectId: config.projectId,
+  });
+    process.exitCode = result.exitCode;
+  } catch (error) {
+    const runId = process.argv[2];
+    if (runId) {
+      try {
+        writeSupervisorState(runId, { state: "failed", failure: error.message }, failureLogsRoot);
+      } catch {
+        // Preserve original failure.
+      }
+    }
+    throw error;
+  } finally {
+    releaseRuntimeConsumer(runtimeConsumer);
+  }
 }
 
 function waitForChild(child) {
@@ -202,15 +255,7 @@ function sanitizeReportResolution(resolution) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   main().catch((error) => {
-  const runId = process.argv[2];
-  if (runId) {
-    try {
-      writeSupervisorState(runId, { state: "failed", failure: error.message }, defaultLogsRoot);
-    } catch {
-      // Preserve original failure.
-    }
-  }
-  console.error(error.message);
-  process.exit(12);
+    console.error(error.message);
+    process.exit(12);
   });
 }

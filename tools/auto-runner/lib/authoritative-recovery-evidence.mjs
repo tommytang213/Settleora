@@ -7,6 +7,7 @@ import { processAppearsActive } from "./state-store.mjs";
 import { readHeartbeat } from "../supervisor/heartbeat.mjs";
 import { loadPreEffectIntent, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
 import { canonicalGithubEvidenceDigest } from "./github-effect-consumer.mjs";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 export const authoritativeRecoveryEvidenceVersion = 1;
 
@@ -217,6 +218,7 @@ function defaultGitRead(config, identity) {
   const branch = run(["symbolic-ref", "--quiet", "--short", "HEAD"]);
   const head = run(["rev-parse", "HEAD"]);
   const commit = run(["show", "-s", "--format=%P%n%T%n%B", "HEAD"]);
+  assertRepositoryRemoteIdentity(config);
   const remote = run(["ls-remote", "--exit-code", "origin", `refs/heads/${identity.branchName}`]);
   const staged = run(["diff", "--cached", "--name-only"]);
   const unstaged = run(["diff", "--name-only"]);

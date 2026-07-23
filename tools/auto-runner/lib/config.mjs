@@ -10,6 +10,9 @@ import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs"
 import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.mjs";
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
 import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./session-lifecycle.mjs";
+import { moduleRuntimeRoot, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
+import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
+import { bindTrustedRepositoryContext } from "./git-workspace.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -18,9 +21,14 @@ const liveStackAcceptanceRootName = "live-stack-acceptance";
 const liveStackAcceptanceConfigName = "config.json";
 const liveStackCorrelationPattern = /^[0-9]{8}-[0-9]{4}(?:-[a-z0-9][a-z0-9-]{0,48})?$/;
 const maxTrustedConfigBytes = 1024 * 1024;
+const externalProfileRoot = "/workspace/auto-runner/config";
+const defaultApprovedPrimaryRepoRoot = "/workspace/repos/Settleora";
 
 export const defaultConfig = Object.freeze({
-  repoRoot: "/workspace/repos/Settleora",
+  runtimeMode: "development",
+  runtimeRoot: moduleRuntimeRoot(),
+  projectId: "Settleora",
+  repoRoot: path.resolve(moduleRuntimeRoot(), "../.."),
   logsRoot: defaultLogsRoot,
   repositorySlug: "tommytang213/Settleora",
   eligibleLabels: ["auto-ready", "auto-bundle"],
@@ -239,6 +247,7 @@ export function parseCliArgs(argv) {
     fixtureIssuesPath: null,
     supervisorRunId: null,
     runnerRunId: null,
+    expectedConfigSha256: null,
     outageRecoveryOnly: false,
     outageRecoveryTarget: null,
     securityFindingsDryRun: false,
@@ -281,6 +290,7 @@ export function parseCliArgs(argv) {
     else if (arg === "--fixture-issues") args.fixtureIssuesPath = readValue(argv, ++index, arg);
     else if (arg === "--supervisor-run-id") args.supervisorRunId = validateSupervisorRunId(readValue(argv, ++index, arg));
     else if (arg === "--runner-run-id") args.runnerRunId = validateRunnerRunId(readValue(argv, ++index, arg));
+    else if (arg === "--expected-config-sha256") args.expectedConfigSha256 = readValue(argv, ++index, arg);
     else if (arg === "--outage-recovery-only") args.outageRecoveryOnly = true;
     else if (arg === "--outage-target-task-key") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), taskKey: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-issue") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), issueNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
@@ -348,6 +358,9 @@ export function parseCliArgs(argv) {
   }
   if (args.runnerRunId && (!args.supervisorRunId || !args.run || args.dryRun || specialMode)) {
     throw new Error("--runner-run-id is only valid with a supervised normal real --run");
+  }
+  if (args.expectedConfigSha256 && ((!args.runnerRunId && !args.controlCommand) || !/^[a-f0-9]{64}$/u.test(args.expectedConfigSha256))) {
+    throw new Error("--expected-config-sha256 requires a supervised run or control and a SHA-256 digest");
   }
   if (args.outageRecoveryOnly && (!args.run || args.dryRun || specialMode || args.canary || !args.supervisorRunId)) {
     throw new Error("--outage-recovery-only is only valid for supervised non-canary real --run");
@@ -422,16 +435,21 @@ function readValue(argv, index, name) {
 }
 
 export function loadConfig(cliArgs, trustedCapabilities = {}) {
+  const readOnlyObserver = trustedCapabilities?.readOnlyObserver === true && cliArgs.run !== true && cliArgs.runPrStack !== true;
   let fileConfig = {};
   let configTrustEvidence = null;
   if (cliArgs.configPath) {
     const loaded = readTrustedConfigFile(cliArgs.configPath, {
       runPrStack: cliArgs.runPrStack,
       bootstrapTrustedRoot: trustedCapabilities?.prStackTrustedRoot,
+      approvedPrimaryRepoRoot: trustedCapabilities?.prStackApprovedRepoRoot || defaultApprovedPrimaryRepoRoot,
       trustHooks: trustedCapabilities?.configTrustHooks || null,
     });
     fileConfig = loaded.config;
     configTrustEvidence = loaded.evidence;
+    if (cliArgs.expectedConfigSha256 && configTrustEvidence?.sha256 !== cliArgs.expectedConfigSha256) {
+      throw new Error("runner config digest does not match immutable supervisor run spec");
+    }
   }
   const config = {
     ...defaultConfig,
@@ -510,43 +528,110 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.prStackExecution = normalizePrStackExecutionConfig(config.prStackExecution);
   if (
     config.outageResubmission.allowBoundedOutageResubmission === true &&
-    trustedCapabilities?.outageResubmissionControllerAvailable !== true
+    trustedCapabilities?.outageResubmissionControllerAvailable !== true &&
+    !(trustedCapabilities?.outageResubmissionObserverAvailable === true && cliArgs.run !== true)
   ) {
     throw new Error("Bounded outage resubmission requires trusted controller capability.");
   }
 
-  for (const dir of [
-    config.logsRoot,
-    path.join(config.logsRoot, "state"),
-    path.join(config.logsRoot, "tasks"),
-    path.join(config.logsRoot, "codex-runs"),
-    path.join(config.logsRoot, "reports"),
-    path.join(config.logsRoot, "reviews"),
-    path.join(config.logsRoot, "review-fix"),
-    path.join(config.logsRoot, "recovery"),
-    path.join(config.logsRoot, "summaries"),
-    path.join(config.logsRoot, "locks"),
-    path.join(config.logsRoot, "canary"),
-    path.join(config.logsRoot, "auto-merge"),
-    path.join(config.logsRoot, "pr-stacks"),
-  ]) {
-    mkdirSync(dir, { recursive: true });
+  if (config.runtimeMode === "external") {
+    config.runtimeIdentity = validateProjectRuntimeIdentity(config, {
+      actualRuntimeRoot: moduleRuntimeRoot(),
+      trusted: true,
+    });
+    if (!/^[a-f0-9]{64}$/.test(String(config.runtimeBundleDigest || ""))) {
+      throw new Error("external runtime mode requires an explicit runtimeBundleDigest");
+    }
+    config.runtimeManifest = verifyRuntimeBundle(config.runtimeIdentity.runtimeRoot, config.runtimeBundleDigest);
+    verifyProjectNamespaceMarker(config, { create: !readOnlyObserver });
+    bindTrustedRepositoryContext(config.runtimeIdentity.repoRoot);
   }
-  const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
-  if (existsSync(lifecycleRoot)) {
-    const lifecycleRootInfo = lstatSync(lifecycleRoot);
-    if (!lifecycleRootInfo.isDirectory() || lifecycleRootInfo.isSymbolicLink() || (typeof process.getuid === "function" && lifecycleRootInfo.uid !== process.getuid())) throw new Error("Session lifecycle root is untrusted.");
-  } else {
-    mkdirSync(lifecycleRoot, { recursive: true, mode: 0o700 });
+
+  if (!readOnlyObserver) {
+    for (const dir of [
+      config.logsRoot,
+      path.join(config.logsRoot, "state"),
+      path.join(config.logsRoot, "tasks"),
+      path.join(config.logsRoot, "codex-runs"),
+      path.join(config.logsRoot, "reports"),
+      path.join(config.logsRoot, "run-logs"),
+      path.join(config.logsRoot, "reviews"),
+      path.join(config.logsRoot, "review-fix"),
+      path.join(config.logsRoot, "recovery"),
+      path.join(config.logsRoot, "summaries"),
+      path.join(config.logsRoot, "locks"),
+      path.join(config.logsRoot, "canary"),
+      path.join(config.logsRoot, "auto-merge"),
+      path.join(config.logsRoot, "pr-stacks"),
+    ]) {
+      if (config.runtimeMode === "external") ensureOperationalDirectory(dir, config.logsRoot);
+      else mkdirSync(dir, { recursive: true });
+    }
+    const lifecycleRoot = path.join(config.logsRoot, "session-lifecycle");
+    if (existsSync(lifecycleRoot)) {
+      const lifecycleRootInfo = lstatSync(lifecycleRoot);
+      if (!lifecycleRootInfo.isDirectory() || lifecycleRootInfo.isSymbolicLink() || (typeof process.getuid === "function" && lifecycleRootInfo.uid !== process.getuid())) throw new Error("Session lifecycle root is untrusted.");
+    } else {
+      mkdirSync(lifecycleRoot, { recursive: true, mode: 0o700 });
+    }
+    chmodSync(lifecycleRoot, 0o700);
   }
-  chmodSync(lifecycleRoot, 0o700);
   config.canaryEvidenceRoot = path.join(config.logsRoot, "canary");
+  if (config.runtimeMode !== "external") {
+    config.runtimeIdentity = validateProjectRuntimeIdentity(config, {
+      actualRuntimeRoot: moduleRuntimeRoot(),
+      trusted: false,
+    });
+  }
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
-  if (!existsSync(localConfigPath)) {
+  if (!readOnlyObserver && !existsSync(localConfigPath)) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+export function ensureOperationalDirectory(directory, logsRoot) {
+  if (!existsSync(directory)) mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const info = lstatSync(directory);
+  const real = info.isDirectory() && !info.isSymbolicLink() ? realpathSync(directory) : null;
+  const relative = real ? path.relative(logsRoot, real) : "..";
+  if (!real || relative.startsWith("..") || path.isAbsolute(relative)
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())
+      || (info.mode & 0o022) !== 0) {
+    throw new Error(`Operational logs directory is unsafe: ${path.basename(directory)}`);
+  }
+  return real;
+}
+
+export function verifyProjectNamespaceMarker(config, { create = false } = {}) {
+  const markerPath = path.join(config.logsRoot, ".project-namespace.json");
+  const expected = {
+    version: 1,
+    namespace: config.runtimeIdentity.namespace,
+    projectId: config.projectId,
+    repositorySlug: config.runtimeIdentity.repositorySlug,
+    repositoryCommonDirDigest: createHash("sha256").update(config.runtimeIdentity.repositoryCommonDir).digest("hex"),
+  };
+  if (!existsSync(markerPath)) {
+    if (!create) throw new Error("trusted project namespace marker is required");
+    writeFileSync(markerPath, `${JSON.stringify(expected)}\n`, { flag: "wx", mode: 0o600 });
+  }
+  const info = lstatSync(markerPath);
+  if (!info.isFile() || info.isSymbolicLink() || info.size > 4096 || (info.mode & 0o077) !== 0
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+    throw new Error("trusted project namespace marker is unsafe");
+  }
+  let actual;
+  try {
+    actual = JSON.parse(readFileSync(markerPath, "utf8"));
+  } catch {
+    throw new Error("trusted project namespace marker is invalid");
+  }
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error("trusted project namespace marker does not match repository identity");
+  }
+  return expected;
 }
 
 function normalizeOutageRecoveryCliTarget(value = {}) {
@@ -734,10 +819,32 @@ function validSupervisorRunId(value) {
   }
 }
 
-function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTrustedRoot = null, trustHooks = null } = {}) {
+function readTrustedConfigFile(configPath, {
+  runPrStack = false,
+  bootstrapTrustedRoot = null,
+  approvedPrimaryRepoRoot = defaultApprovedPrimaryRepoRoot,
+  trustHooks = null,
+} = {}) {
   const resolved = path.resolve(configPath);
   if (!runPrStack) {
-    return { config: JSON.parse(readFileSync(resolved, "utf8")), evidence: null };
+    const installedBundle = existsSync(path.join(moduleRuntimeRoot(), "runtime-bundle-manifest.json"));
+    if (installedBundle) {
+      const loaded = readExternalProfileConfig(resolved, trustHooks);
+      if (loaded.config.runtimeMode !== "external") {
+        throw new Error("external_runtime_requires_external_profile: Installed runtime requires runtimeMode external.");
+      }
+      return loaded;
+    }
+    const bytes = readFileSync(resolved);
+    const parsed = JSON.parse(bytes.toString("utf8"));
+    if (parsed.runtimeMode === "external") return readExternalProfileConfig(resolved, trustHooks);
+    return {
+      config: parsed,
+      evidence: {
+        trustMode: "development",
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      },
+    };
   }
   if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("config_path_not_canonical: Config path must be absolute and canonical.");
   const trustedRootProof = validateTrustedRootDirectory(resolveExternalConfigTrustRoot({ bootstrapTrustedRoot }));
@@ -780,7 +887,7 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
     throw new Error(`config_json_invalid: Config JSON is malformed: ${error.message}`);
   }
   if (runPrStack) {
-    validateParsedPrStackConfigIdentity(parsed, trustedRootProof);
+    validateParsedPrStackConfigIdentity(parsed, trustedRootProof, approvedPrimaryRepoRoot);
   }
   return {
     config: parsed,
@@ -808,6 +915,68 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
       loadedAt: new Date().toISOString(),
     },
   };
+}
+
+function readExternalProfileConfig(configPath, trustHooks = null) {
+  if (!path.isAbsolute(configPath) || path.resolve(configPath) !== configPath) {
+    throw new Error("config_path_not_canonical: External profile path must be absolute and canonical.");
+  }
+  validateExternalProfilePath(configPath);
+  const before = lstatSync(configPath);
+  if (before.isSymbolicLink() || realpathSync(configPath) !== configPath) {
+    throw new Error("config_canonical_alias_mismatch: External profile must not be a symlink or alias.");
+  }
+  validateTrustedConfigRegularFile(before);
+  const { fd, strategy } = openTrustedConfigNoFollow(configPath, trustHooks);
+  try {
+    const opened = fstatSync(fd);
+    if (!sameFileIdentity(before, opened)) throw new Error("config_identity_mismatch: External profile changed before open.");
+    validateTrustedConfigRegularFile(opened);
+    const buffer = readBoundedTrustedDescriptorBytes(fd, opened, maxTrustedConfigBytes);
+    const after = fstatSync(fd);
+    if (!sameFileIdentity(opened, after) || opened.size !== after.size) {
+      throw new Error("config_identity_mismatch: External profile changed during read.");
+    }
+    if (!isUtf8(buffer)) throw new Error("config_utf8_invalid: External profile must be valid UTF-8.");
+    return {
+      config: JSON.parse(buffer.toString("utf8")),
+      evidence: {
+        strategy,
+        realPath: configPath,
+        ownerUid: opened.uid,
+        mode: opened.mode & 0o777,
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+      },
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+export function validateExternalProfilePath(configPath, fixedRoot = externalProfileRoot) {
+  if (path.dirname(configPath) !== fixedRoot || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json$/u.test(path.basename(configPath))) {
+    throw new Error("config_outside_external_profile_root: External profile must be a direct JSON child of the fixed config root.");
+  }
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  const segments = fixedRoot.split(path.sep).filter(Boolean);
+  let current = path.parse(fixedRoot).root;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    const info = lstatSync(current);
+    if (info.isSymbolicLink() || !info.isDirectory() || realpathSync(current) !== current) {
+      throw new Error("config_external_profile_ancestor_unsafe: External profile ancestors must be canonical directories.");
+    }
+    if ((info.mode & 0o022) !== 0) {
+      throw new Error("config_external_profile_ancestor_unsafe: External profile ancestors must be owner-controlled.");
+    }
+    if (currentUid !== null && info.uid !== currentUid && info.uid !== 0) {
+      throw new Error("config_external_profile_ancestor_unsafe: External profile ancestors must be runner- or system-owned.");
+    }
+    if (current === fixedRoot && currentUid !== null && info.uid !== currentUid) {
+      throw new Error("config_external_profile_root_owner_invalid: External profile root must be owned by the runner user.");
+    }
+  }
+  return fixedRoot;
 }
 
 function resolveExternalConfigTrustRoot({ bootstrapTrustedRoot = null } = {}) {
@@ -1013,23 +1182,31 @@ function sameFileIdentity(left, right) {
   return Boolean(left && right && left.dev === right.dev && left.ino === right.ino);
 }
 
-function validateParsedPrStackConfigIdentity(parsed, trustedRootProof) {
+function validateParsedPrStackConfigIdentity(parsed, trustedRootProof, approvedPrimaryRepoRoot) {
   const repository = parsed.repositorySlug || parsed.repository || defaultConfig.repositorySlug;
   if (repository !== defaultConfig.repositorySlug) {
     throw new Error("config_identity_mismatch: --run-pr-stack config repository must match the approved repository identity.");
   }
   const repoRoot = parsed.repoRoot || parsed.protectedRoot || defaultConfig.repoRoot;
-  if (repoRoot && path.resolve(repoRoot) !== path.resolve(defaultConfig.repoRoot) && path.resolve(repoRoot) !== process.cwd()) {
-    throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
-  }
+  parsed.repoRoot = validatePrStackRepositoryRoot(repoRoot, approvedPrimaryRepoRoot);
   const worktree = parsed.worktreeRoot || parsed.worktree || null;
-  if (worktree && path.resolve(worktree) !== path.resolve(defaultConfig.repoRoot) && path.resolve(worktree) !== process.cwd()) {
-    throw new Error("config_repo_root_mismatch: --run-pr-stack config repo root/worktree must match the invocation.");
-  }
+  if (worktree) validatePrStackRepositoryRoot(worktree, approvedPrimaryRepoRoot);
   for (const [field, value] of [["logsRoot", parsed.logsRoot], ["trustedControlRoot", parsed.trustedControlRoot]]) {
     const canonical = validateParsedPrStackConfigRoot(field, value, trustedRootProof);
     if (canonical !== null) parsed[field] = canonical;
   }
+}
+
+function validatePrStackRepositoryRoot(value, approvedPrimaryRepoRoot) {
+  const candidate = path.resolve(value || "");
+  const allowed = new Set([
+    path.resolve(approvedPrimaryRepoRoot),
+    path.resolve(defaultConfig.repoRoot),
+  ]);
+  if (typeof value !== "string" || !path.isAbsolute(value) || candidate !== value || !allowed.has(candidate)) {
+    throw new Error("config_repo_root_mismatch: --run-pr-stack repository root must be a canonical Git worktree for the approved repository.");
+  }
+  return candidate;
 }
 
 function validateParsedPrStackConfigRoot(field, value, trustedRootProof) {

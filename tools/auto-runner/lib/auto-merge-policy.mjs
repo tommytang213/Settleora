@@ -12,6 +12,7 @@ import { evaluateCycleBudget } from "./review-convergence-controller.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 import { findPreEffectIntents } from "./pre-effect-intent.mjs";
 import { createCleanupOwnershipRecord, loadCleanupOwnership, persistCleanupOwnership } from "./post-merge-cleanup.mjs";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -409,6 +410,7 @@ export function executeAutoMerge(config, context, options = {}) {
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
   const cleanupBranchSafety = inspectCleanupBranchSafety(config, finalContext, runner);
+  assertRepositoryRemoteIdentity(config);
   const merge = finalContext.sessionLifecycle
     ? executeCanonicalMergeEffect(config, finalContext, { runner, repositorySlug, prNumber, finalDecision })
     : runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
@@ -458,6 +460,7 @@ export function executeAutoMerge(config, context, options = {}) {
     return { ...mergedCleanupRequired, mergeSha, mergeReadback: mergeProof, sourceBranchRestoration: branchRestore, completionHygiene: hygiene, postMergeCleanupOwnership: cleanupOwnership, evidence: writeAutoMergeEvidence(config, mergedCleanupRequired, finalContext) };
   }
   const summaryBody = mergeSummaryBody(finalContext, mergeSha);
+  assertRepositoryRemoteIdentity(config);
   const prComment = finalContext.sessionLifecycle
     ? executeCanonicalPrComment(config, finalContext, { runner, repositorySlug, prNumber: Number(prNumber), mergeSha, body: summaryBody })
     : runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", summaryBody], { cwd: config.repoRoot });
@@ -490,6 +493,7 @@ export function executeAutoMerge(config, context, options = {}) {
 
 function adoptCompletedSourceBranchPosture(config, context, runner, headSha) {
   const branchName = context.branchName || context.pr?.headRefName; const fullRef = `refs/heads/${branchName}`;
+  assertRepositoryRemoteIdentity(config);
   const read = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
   if (read.status !== 0 || read.error) return { ok: false, confirmed: false, reasonCode: "source_branch_read_failed" };
   const liveHead = remoteBranchHead(read.stdout, fullRef);
@@ -516,6 +520,7 @@ export function preparePostMergeCleanupOwnership(config, context, { runner, merg
     || creationMarker?.correlation !== (context.baseSha || context.expectedOriginMainSha)) {
     return { ok: false, eligible: true, reasonCode: "cleanup_runner_creation_ownership_unproven" };
   }
+  assertRepositoryRemoteIdentity(config);
   const fetched = runner("git", ["fetch", "origin", `refs/heads/${targetBranch}:refs/remotes/origin/${targetBranch}`], { cwd: config.repoRoot });
   if (fetched.status !== 0 || fetched.error) return { ok: false, eligible: true, reasonCode: "cleanup_target_fetch_failed" };
   const target = runner("git", ["rev-parse", `refs/remotes/origin/${targetBranch}`], { cwd: config.repoRoot });
@@ -637,6 +642,7 @@ function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, 
       return { complete: true, ambiguous: true };
     },
     execute: () => {
+      assertRepositoryRemoteIdentity(config);
       const result = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
       if (result.error || result.status !== 0) throw new Error("Exact-head merge command did not confirm success");
       return { ok: true, status: result.status };
@@ -657,8 +663,9 @@ function executeCanonicalPrComment(config, context, { runner, repositorySlug, pr
       if (matches.length > 1) return { complete: true, ambiguous: true };
       return matches.length === 1 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
     },
-    execute: () => {
-      const result = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", markedBody], { cwd: config.repoRoot });
+      execute: () => {
+        assertRepositoryRemoteIdentity(config);
+        const result = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", markedBody], { cwd: config.repoRoot });
       if (result.error || result.status !== 0) throw new Error("Canonical PR merge comment did not confirm success");
       return { ok: true, status: result.status };
     },
@@ -710,6 +717,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
     const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
+  assertRepositoryRemoteIdentity(config);
   const merge = finalContext.sessionLifecycle
     ? executeCanonicalMergeEffect(config, finalContext, { runner, repositorySlug, prNumber, finalDecision })
     : runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
@@ -1317,6 +1325,7 @@ function restoreSourceBranchIfDeleted(config, context, runner) {
   const headSha = context.expectedHeadSha || context.runnerCreatedCommitSha;
   if (!branchName || !headSha) return { ok: false, planned: false, confirmed: false, reasonCode: "missing_branch_or_sha", reason: "missing_branch_or_sha" };
   const fullRef = `refs/heads/${branchName}`;
+  assertRepositoryRemoteIdentity(config);
   const remote = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
   if (remote.status !== 0 || remote.error) return { ok: false, planned: false, confirmed: false, reasonCode: "source_branch_read_failed", status: remote.status, stderr: bounded(remote.stderr || remote.error || "") };
   const existingHead = remoteBranchHead(remote.stdout, fullRef);
@@ -1328,6 +1337,7 @@ function restoreSourceBranchIfDeleted(config, context, runner) {
     const effect = { branchName, expectedHeadSha: headSha };
     const canonical = executeCanonicalGithubEffectSync(config, context.sessionLifecycle, { effectType: "branch_retention_verify", headSha, effect }, {
       readLive: (intent) => {
+        assertRepositoryRemoteIdentity(config);
         const read = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
         if (read.status !== 0 || read.error) return { complete: false };
         const liveHead = remoteBranchHead(read.stdout, fullRef);
@@ -1335,6 +1345,7 @@ function restoreSourceBranchIfDeleted(config, context, runner) {
           : liveHead ? { complete: true, ambiguous: true } : { complete: true, present: false };
       },
       execute: () => {
+        assertRepositoryRemoteIdentity(config);
         const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
         if (push.status !== 0 || push.error) throw new Error("Canonical source branch restoration failed");
         return { ok: true, status: push.status };
@@ -1344,8 +1355,10 @@ function restoreSourceBranchIfDeleted(config, context, runner) {
       ? { ok: true, planned: true, executed: canonical.action === "executed", confirmed: true, branchExists: true, branchName, headSha, canonicalEffect: canonical }
       : { ok: false, planned: true, executed: false, confirmed: false, reasonCode: canonical.reasonCode, canonicalEffect: canonical };
   }
+  assertRepositoryRemoteIdentity(config);
   const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
   if (push.status !== 0 || push.error) return { ok: false, planned: true, executed: false, confirmed: false, reasonCode: "source_branch_restore_push_failed", status: push.status, stderr: bounded(push.stderr || push.error || "") };
+  assertRepositoryRemoteIdentity(config);
   const confirm = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
   if (confirm.status !== 0 || confirm.error) return { ok: false, planned: true, executed: true, confirmed: false, reasonCode: "source_branch_confirm_failed", status: confirm.status, stderr: bounded(confirm.stderr || confirm.error || "") };
   const confirmedHead = remoteBranchHead(confirm.stdout, fullRef);
@@ -1618,6 +1631,7 @@ export function cleanupIssueLifecycleLabels(config, context, runner = defaultRun
       completedAt: new Date().toISOString(),
     };
   }
+  assertRepositoryRemoteIdentity(config);
   const remove = runner("gh", ["issue", "edit", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--remove-label", labelsRemoved.join(",")], {
     cwd: config.repoRoot,
   });

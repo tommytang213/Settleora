@@ -1,19 +1,99 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { unitNameForRunId } from "./supervisor-state.mjs";
-import { resolveProfile, validateRunId } from "./run-spec.mjs";
+import { validateRunId } from "./run-spec.mjs";
+import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 
-export function buildSystemdStartPlan(runId) {
+export function buildSystemdStartPlan(runId, {
+  runtimeRoot = moduleRuntimeRoot(),
+  configPath = null,
+  projectId = "Settleora",
+  repoRoot = null,
+  logsRoot = null,
+} = {}) {
   validateRunId(runId);
+  if (configPath !== null) validateSystemdPath(configPath, "configPath");
+  const safeProjectId = validateProjectId(projectId);
+  const safeRepoRoot = validateSystemdPath(repoRoot, "repoRoot");
+  const safeLogsRoot = validateSystemdPath(logsRoot, "logsRoot");
+  const safeRuntimeRoot = validateSystemdPath(runtimeRoot, "runtimeRoot");
+  absoluteRuntimeEntry(safeRuntimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
+  const launcher = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.launcher.mjs`);
+  const unitName = unitNameForRunId(runId, safeProjectId);
+  const unitTemplate = renderUnitTemplate(
+    readFileSync(absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-auto-runner@.service"), "utf8"),
+    { projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot, logsRoot: safeLogsRoot, launcher },
+  );
   return {
-    unitName: unitNameForRunId(runId),
-    startArgv: ["systemctl", "--user", "start", unitNameForRunId(runId)],
-    isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
-    showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],
+    unitName,
+    expectedExecArgv: [
+      "/usr/bin/env", "node", launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
+      runId, "--logs-root", safeLogsRoot,
+    ],
+    unitTemplate,
+    reloadArgv: ["systemctl", "--user", "daemon-reload"],
+    inspectArgv: ["systemctl", "--user", "cat", unitName, "--no-pager"],
+    inspectExecArgv: ["systemctl", "--user", "show", unitName, "--property=ExecStart", "--value"],
+    startArgv: ["systemctl", "--user", "start", unitName],
+    isActiveArgv: ["systemctl", "--user", "is-active", unitName],
+    showArgv: ["systemctl", "--user", "show", unitName, "--property=ActiveState,SubState,Result"],
   };
 }
 
-export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000 } = {}) {
-  const plan = buildSystemdStartPlan(runId);
+function validateProjectId(value) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(value)) {
+    throw new Error("canonical filesystem-safe supervisor projectId is required");
+  }
+  return value;
+}
+
+function renderUnitTemplate(template, values) {
+  let rendered = template;
+  const placeholders = {
+    PROJECT_ID: values.projectId,
+    RUNTIME_ROOT: values.runtimeRoot,
+    REPO_ROOT: values.repoRoot,
+    LOGS_ROOT: values.logsRoot,
+    LAUNCHER: values.launcher,
+  };
+  for (const [key, value] of Object.entries(placeholders)) {
+    rendered = rendered.replaceAll(`{{${key}}}`, value);
+  }
+  if (/\{\{[A-Z_]+\}\}/u.test(rendered)) throw new Error("unresolved supervisor unit template identity");
+  return rendered;
+}
+
+function validateSystemdPath(value, label) {
+  if (
+    typeof value !== "string"
+    || !/^\/[A-Za-z0-9._/-]+$/u.test(value)
+    || path.normalize(value) !== value
+    || value.includes("//")
+    || value.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error(`canonical shell-neutral supervisor ${label} is required`);
+  }
+  return value;
+}
+
+export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath, projectId, repoRoot, logsRoot } = {}) {
+  const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath, projectId, repoRoot, logsRoot });
+  const reloaded = runner(plan.reloadArgv[0], plan.reloadArgv.slice(1), { encoding: "utf8", windowsHide: true });
+  if (reloaded.error || reloaded.status !== 0) {
+    return { ok: false, unitName: plan.unitName, state: "submission_failed", status: reloaded.status, stderr: "supervisor unit reload failed" };
+  }
+  const inspected = runner(plan.inspectArgv[0], plan.inspectArgv.slice(1), { encoding: "utf8", windowsHide: true });
+  const installedUnit = String(inspected.stdout || "").replace(/^# \/[^\n]+\n/u, "");
+  if (inspected.error || inspected.status !== 0 || installedUnit !== plan.unitTemplate) {
+    return { ok: false, unitName: plan.unitName, state: "submission_failed", status: inspected.status, stderr: "installed supervisor unit identity mismatch" };
+  }
+  const inspectedExec = runner(plan.inspectExecArgv[0], plan.inspectExecArgv.slice(1), { encoding: "utf8", windowsHide: true });
+  const execMatch = /argv\[\]=([^;]+)\s+;/u.exec(String(inspectedExec.stdout || ""));
+  const loadedArgv = execMatch ? execMatch[1].trim().split(/\s+/u) : [];
+  if (inspectedExec.error || inspectedExec.status !== 0 || JSON.stringify(loadedArgv) !== JSON.stringify(plan.expectedExecArgv)) {
+    return { ok: false, unitName: plan.unitName, state: "submission_failed", status: inspectedExec.status, stderr: "loaded supervisor unit identity mismatch" };
+  }
   const start = runner(plan.startArgv[0], plan.startArgv.slice(1), { encoding: "utf8", windowsHide: true });
   if (start.error || start.status !== 0) {
     return { ok: false, unitName: plan.unitName, state: "submission_failed", status: start.status, stderr: start.stderr || start.error?.message || "" };
@@ -31,16 +111,18 @@ export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000 } = {})
   return { ok: false, unitName: plan.unitName, state: "submission_failed", status: active?.status ?? null, stderr: active?.stderr || "unit did not become active" };
 }
 
-export function runnerArgvForSpec(spec, { runnerRunId = null } = {}) {
-  const configPath = resolveProfile(spec.profile).runnerConfigPath;
+export function runnerArgvForSpec(spec, { runnerRunId = null, runtimeRoot = moduleRuntimeRoot(), logsRoot } = {}) {
+  const configPath = spec.runnerConfigPath;
   const argv = [
     process.execPath,
-    "tools/auto-runner/settleora-auto-runner.mjs",
+    absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs"),
     "--run",
     "--supervisor-run-id",
     spec.runId,
     "--config",
     configPath,
+    "--expected-config-sha256",
+    spec.runnerConfigSha256,
     "--max-iterations",
     String(spec.maxTasks),
     "--max-runtime",

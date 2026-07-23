@@ -1,11 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { parseCliArgs, loadConfig, normalizeAutoMergePolicy } from "../lib/config.mjs";
+
+test("read-only observer config loading creates and chmods no project state", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-observer-config-"));
+  try {
+    const logsRoot = path.join(tempRoot, "observer-logs");
+    const lifecycleRoot = path.join(logsRoot, "session-lifecycle");
+    mkdirSync(lifecycleRoot, { recursive: true, mode: 0o755 });
+    chmodSync(lifecycleRoot, 0o755);
+    const configPath = path.join(tempRoot, "observer.json");
+    writeFileSync(configPath, `${JSON.stringify({ logsRoot })}\n`);
+    const loaded = loadConfig(
+      { dryRun: true, run: false, configPath },
+      { outageResubmissionObserverAvailable: true, readOnlyObserver: true },
+    );
+    assert.equal(loaded.logsRoot, logsRoot);
+    assert.equal(statSync(lifecycleRoot).mode & 0o777, 0o755);
+    assert.equal(existsSync(path.join(logsRoot, "runner-config.last.json")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
 import {
   evaluateCanaryIssuePolicy,
   evaluateLowRiskAutoMergeCanaryApproval,
@@ -93,6 +114,7 @@ import {
 } from "../lib/review-fix-policy.mjs";
 import { bindValidationEvidence, inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
+import { loadSummaryConfig } from "../settleora-auto-runner.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";
@@ -111,6 +133,23 @@ const baseConfig = {
   priorityLabels: ["priority-critical", "priority-high", "priority-ready"],
   pollLimit: 30,
 };
+
+test("write-summary admits the selected project profile before choosing logsRoot", () => {
+  const selected = { logsRoot: "/workspace/logs/auto-runner/AppB", projectId: "AppB" };
+  let received = null;
+  const result = loadSummaryConfig(
+    { writeSummary: true, configPath: "/workspace/auto-runner/config/appb.json", run: true },
+    (cli, capabilities) => {
+      received = { cli, capabilities };
+      return selected;
+    },
+  );
+  assert.equal(result, selected);
+  assert.equal(received.cli.configPath, "/workspace/auto-runner/config/appb.json");
+  assert.equal(received.cli.dryRun, true);
+  assert.equal(received.cli.run, false);
+  assert.equal(received.capabilities.outageResubmissionObserverAvailable, true);
+});
 
 test("CLI rejects fixture issues outside dry-run", () => {
   assert.throws(
@@ -1375,6 +1414,24 @@ test("readiness preflight uses durable foundation completion and ignores later t
     assert.equal(result.summary.fail, 0);
     assert.equal(result.checks.find((check) => check.name === "issue-800-state").status, "pass");
     assert.equal(result.checks.find((check) => check.name === "issue-910-state"), undefined);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("readiness preflight binds every GitHub read to a non-Settleora repository", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "appb-readiness-repository-"));
+  try {
+    const repositorySlug = "example/AppB";
+    const runner = createReadinessRunner({ repositorySlug });
+    const result = runPreflight({ ...readinessConfig(tempRoot), repositorySlug }, { runner });
+    assert.equal(result.repo, repositorySlug);
+    assert.equal(result.summary.fail, 0);
+    assert.equal(result.checks.some((check) => check.name === "issue-800-state" || check.name === "issue-805-state"), false);
+    const githubReads = runner.commands.filter((command) => command.startsWith("gh ") && !command.startsWith("gh --version") && !command.startsWith("gh auth "));
+    assert.ok(githubReads.length > 0);
+    assert.equal(githubReads.every((command) => command.includes(repositorySlug)), true);
+    assert.equal(githubReads.some((command) => command.includes("tommytang213/Settleora")), false);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -7618,6 +7675,7 @@ function readinessConfig(logsRoot) {
   return {
     ...baseConfig,
     repoRoot: process.cwd(),
+    repositorySlug: "tommytang213/Settleora",
     logsRoot,
     codexCommand: "codex-vm-full",
     trustedRealRunApproved: false,
@@ -7976,7 +8034,7 @@ function createReadinessRunner(overrides = {}) {
     if (command === "git" && args[0] === "merge-base") return ok("");
     if (command === "gh" && args[0] === "--version") return ok("gh version 2.0.0\n");
     if (command === "gh" && args[0] === "auth") return ok("Logged in to github.com\n");
-    if (command === "gh" && args[0] === "repo") return ok("tommytang213/Settleora\n");
+    if (command === "gh" && args[0] === "repo") return ok(`${overrides.repositorySlug || "tommytang213/Settleora"}\n`);
     if (command === "gh" && args[0] === "issue" && args[1] === "view") {
       const number = Number(args[2]);
       const state = issueStates[number] || (number === 800 || number === 805 ? "CLOSED" : "OPEN");

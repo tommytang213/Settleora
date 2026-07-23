@@ -1,4 +1,7 @@
 {
+  "runtimeMode": "development",
+  "runtimeRoot": "/workspace/repos/Settleora/tools/auto-runner",
+  "projectId": "Settleora",
   "repoRoot": "/workspace/repos/Settleora",
   "logsRoot": "/workspace/logs/settleora-auto-runner",
   "repositorySlug": "tommytang213/Settleora",

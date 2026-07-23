@@ -1,5 +1,16 @@
 # Detached Auto-Runner Supervisor
 
+## Runtime-bound child execution
+
+Supervisor workers resolve controller and control entrypoints as absolute
+verified paths under the executing `runtimeRoot`. The managed `repoRoot` is
+passed only as explicit project command context. Stop-after-current, recovery,
+and later controller-owned child launches must not use
+`node tools/auto-runner/...` from the project checkout. Runtime identity and
+bundle digest are preflight/status evidence, while same-canonical-repository
+authority locking prevents a second project ID or logs root from becoming a
+concurrent mutation owner.
+
 Post-merge cleanup is runner-owned. The supervisor receives only bounded
 sanitized policy, ownership, eligibility, phase, expected-head, presence,
 active-reference count/category, result, blocker, and next-action fields. It
@@ -125,17 +136,25 @@ The repository template is:
 tools/auto-runner/systemd/settleora-auto-runner@.service
 ```
 
-It is intended for later manual installation under:
+It is a reviewed placeholder template. A later manual activation must render
+the exact admitted `projectId`, canonical external `runtimeRoot`, canonical
+`logsRoot`, and sibling launcher path, then install it under the matching
+project-specific template identity. For Settleora that identity remains:
 
 ```text
 ~/.config/systemd/user/settleora-auto-runner@.service
 ```
 
-The unit uses `Type=exec`, fixed `WorkingDirectory=/workspace/repos/Settleora`,
-the Node worker entry point, validated `%i` run IDs, `UMask=0077`,
+The controller renders and verifies the installed unit byte-for-byte before
+submission. The rendered unit uses `Type=exec`, `WorkingDirectory` bound to the
+verified external runtime, the absolute sibling launcher and Node worker entry
+point, project-specific unit identity, validated `%i` run IDs, `UMask=0077`,
 `Restart=no`, bounded graceful stop behavior, `SendSIGKILL=no`, journal output,
-dedicated worker log files, and an optional environment file only under
-`/workspace/logs/settleora-auto-runner/secrets/`.
+dedicated worker log files, and an optional environment file only under the
+admitted project `logsRoot`. Another project uses its own lower-cased
+`<projectId>-auto-runner@.service` identity and rendered paths; the retained
+lower-case Settleora prefix is an explicit compatibility exception. Shared runtime
+files do not imply a shared unit or mutation authority.
 
 No instance is enabled by the template. Failed, killed, crashed, timed-out, or
 reboot-interrupted mutation runs recover only through durable runner state and

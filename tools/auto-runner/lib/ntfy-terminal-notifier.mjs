@@ -31,19 +31,20 @@ const eligibleReasons = new Map([
 
 export async function runTerminalNotifier({
   logsRoot = defaultLogsRoot,
-  statePath = defaultNotifierStatePath,
+  statePath = null,
   configPath = defaultNtfyNotifierConfigPath,
   config = null,
   now = new Date(),
   publisher = publishNtfyMessage,
 } = {}) {
+  const projectStatePath = statePath || path.join(logsRoot, "monitoring", "notifier-state.json");
   const selected = selectEligibleTerminalNotification({ logsRoot, now });
   if (!selected.eligible) return { ok: true, sent: false, reason: selected.reason };
 
   const delivered = hasDeliveredTerminalNotification({
     supervisorRunId: selected.supervisorRunId,
     eventKind: selected.eventKind,
-    statePath,
+    statePath: projectStatePath,
     logsRoot,
   });
   if (delivered) return { ok: true, sent: false, reason: "already_delivered" };
@@ -58,7 +59,7 @@ export async function runTerminalNotifier({
   recordTerminalNotificationDelivered({
     supervisorRunId: selected.supervisorRunId,
     eventKind: selected.eventKind,
-    statePath,
+    statePath: projectStatePath,
     logsRoot,
     now,
   });

@@ -5,12 +5,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import {
   canonicalizeChangedFiles,
   digestChangedFiles,
   parseCliArgs,
   loadConfig,
-  defaultLogsRoot,
   validateRecoveryOnlyExistingPrTarget,
   validateRecoveryOnlyExactHeadEvidence,
 } from "./lib/config.mjs";
@@ -18,6 +18,7 @@ import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
 import { acquireRunnerLock, processAppearsActive, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
+import { assertRepositoryRemoteIdentity, matchAuthorizedSupervisorProcess, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
 import { pollEligibleIssues, claimIssue, commentIssueOutcome, readIssueLive } from "./lib/github-issues.mjs";
 import {
@@ -125,16 +126,16 @@ import { canonicalGithubEvidenceDigest } from "./lib/github-effect-consumer.mjs"
 import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
 import { completeMergedIssueHygiene, completionHygieneReady } from "./lib/completion-hygiene.mjs";
 
-async function main() {
+export async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
   if (cliArgs.writeSummary) {
-    const config = { logsRoot: defaultLogsRoot };
+    const config = loadSummaryConfig(cliArgs);
     const result = writeRecentSummary(config, cliArgs.sinceMs);
     console.log(`Wrote summary: ${result.markdownPath}`);
     return;
   }
   if (cliArgs.status || cliArgs.listRuns || cliArgs.listEvents || cliArgs.controlCommand) {
-    const config = loadConfig({ ...cliArgs, dryRun: true, run: false });
+    const config = loadConfig({ ...cliArgs, dryRun: true, run: false }, { outageResubmissionObserverAvailable: true });
     if (cliArgs.status) {
       const status = getRunnerStatus(config);
       console.log(cliArgs.json ? JSON.stringify(status, null, 2) : renderStatusText(status));
@@ -160,7 +161,7 @@ async function main() {
     if (!cliArgs.configPath) {
       throw new Error("--review-package requires an explicit --config path");
     }
-    const config = loadConfig({ dryRun: false, run: false, configPath: cliArgs.configPath });
+    const config = loadConfig({ dryRun: false, run: false, configPath: cliArgs.configPath }, { outageResubmissionObserverAvailable: true });
     const packageText = readFileSync(cliArgs.reviewPackage, "utf8");
     const parsedPackage = JSON.parse(packageText);
     const result = await runGeminiIntegratedReview(config, {
@@ -175,7 +176,7 @@ async function main() {
     return;
   }
   if (cliArgs.preflight) {
-    const config = loadConfig(cliArgs);
+    const config = loadConfig(cliArgs, { outageResubmissionObserverAvailable: true });
     const result = runPreflight(config);
     console.error(
       `Readiness preflight: ${result.summary.pass} pass, ${result.summary.warn} warn, ${result.summary.fail} fail`,
@@ -186,7 +187,7 @@ async function main() {
     return;
   }
   if (cliArgs.reviewerSmokeTest) {
-    const config = loadConfig(cliArgs);
+    const config = loadConfig(cliArgs, { outageResubmissionObserverAvailable: true });
     const result = await runGeminiReviewerSmokeTest(config, {
       liveExternalReviewerCalls: cliArgs.liveExternalReviewerCalls,
       tierId: cliArgs.reviewerSmokeTier || config.reviewerSmokeTest?.tier,
@@ -201,7 +202,7 @@ async function main() {
     return;
   }
   if (cliArgs.securityFindingsDryRun) {
-    const config = loadConfig(cliArgs);
+    const config = loadConfig(cliArgs, { outageResubmissionObserverAvailable: true });
     const result = await runSecurityFindingsDryRun(config, { taskKey: "security-findings-dry-run" });
     console.log(cliArgs.json ? JSON.stringify(result, null, 2) : renderSecurityFindingsDryRunText(result));
     process.exitCode = result.ok ? 0 : 1;
@@ -369,6 +370,13 @@ async function main() {
   if (isFatalRunStopReason(summary.stopReason)) {
     process.exitCode = 2;
   }
+}
+
+export function loadSummaryConfig(cliArgs, loader = loadConfig) {
+  return loader(
+    { ...cliArgs, dryRun: true, run: false },
+    { outageResubmissionObserverAvailable: true },
+  );
 }
 
 function isFatalRunStopReason(stopReason) {
@@ -2329,7 +2337,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const cleanupConfig = { ...config, repoRoot: cleanupRoot };
       try { process.chdir(cleanupRoot); } catch { return { ok: false, outcome: "cleanup_required", reasonCode: "cleanup_primary_worktree_unavailable" }; }
       const authorityReader = async (owner) => readOrdinaryCleanupAuthority(cleanupConfig, state, continuation, owner, currentRunId);
-      const adapter = createPostMergeCleanupGitAdapter({ repoRoot: cleanupRoot, authorityReader, checkpoint: async (cleanup) => { const written = persistPostMergeCleanupState(cleanupConfig, cleanup); if (!written.ok) throw new Error(written.reasonCode); } });
+      const adapter = createPostMergeCleanupGitAdapter({ config: cleanupConfig, repoRoot: cleanupRoot, authorityReader, checkpoint: async (cleanup) => { const written = persistPostMergeCleanupState(cleanupConfig, cleanup); if (!written.ok) throw new Error(written.reasonCode); } });
       let loaded = loadPostMergeCleanupState(config, ownership);
       if (!loaded.ok && loaded.reasonCode === "cleanup_state_unavailable_or_corrupt") {
         const planned = planPostMergeCleanup(ownership, await adapter.readLive(ownership));
@@ -2370,6 +2378,7 @@ function synchronizeRecoveredSourceChange(state, ordinaryContinuation, reasonCod
 function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {
   const targetDigest = adopted.targetDigest;
   if (phase === "push") {
+    assertRepositoryRemoteIdentity(config);
     const live = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${continuation.branchName}`], { cwd: config.repoRoot, encoding: "utf8" });
     const head = live.status === 0 && live.stdout.trim() ? live.stdout.trim().split(/\s+/)[0] : null;
     return head === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_push_live_mismatch" };
@@ -2411,6 +2420,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
   const openBaseRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--base", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
   const branchRead = run("gh", ["api", `repos/${owner.repository}/branches/${encodeURIComponent(owner.branchName)}`]);
   const repositoryRead = run("gh", ["repo", "view", owner.repository, "--json", "defaultBranchRef"]);
+  assertRepositoryRemoteIdentity(config);
   const fetch = run("git", ["fetch", "origin", `refs/heads/${owner.targetBranch}:refs/remotes/origin/${owner.targetBranch}`]);
   const targetRead = run("git", ["rev-parse", `refs/remotes/origin/${owner.targetBranch}`]);
   const sourceAncestor = run("git", ["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]);
@@ -2547,13 +2557,21 @@ export function cleanupSessionLifecycleMatches(lifecycle, owner) {
     && sessions.includes(ownerSession);
 }
 
-export function authorizedSupervisorProcessIds(state) {
+export function authorizedSupervisorProcessIds(state, {
+  parentPid = process.ppid,
+  readParentCmdline = (pid) => readFileSync(`/proc/${pid}/cmdline`, "utf8"),
+  appearsActive = processAppearsActive,
+} = {}) {
   const supervisorRunId = state?.run?.supervisorRunId;
-  if (typeof supervisorRunId !== "string" || supervisorRunId.length === 0 || !Number.isSafeInteger(process.ppid) || process.ppid <= 1) return [];
+  if (typeof supervisorRunId !== "string" || supervisorRunId.length === 0 || !Number.isSafeInteger(parentPid) || parentPid <= 1) return [];
   try {
-    const argv = readFileSync(`/proc/${process.ppid}/cmdline`, "utf8").split("\0").filter(Boolean);
-    const worker = argv.findIndex((value) => value.endsWith("/tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs") || value === "tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs");
-    return worker >= 0 && argv[worker + 1] === supervisorRunId && processAppearsActive(process.ppid) === true ? [process.ppid] : [];
+    return matchAuthorizedSupervisorProcess({
+      supervisorRunId,
+      parentPid,
+      parentCmdline: readParentCmdline(parentPid),
+      runtimeRoot: moduleRuntimeRoot(),
+      active: appearsActive(parentPid),
+    });
   } catch { return []; }
 }
 
@@ -3063,6 +3081,7 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
     };
   }
   try {
+    assertRepositoryRemoteIdentity(config);
     const fetch = spawnLike("git", ["fetch", "origin", pr.headRefName], config.repoRoot);
     if (fetch.status !== 0 || fetch.error) {
       return {
@@ -3136,7 +3155,7 @@ function spawnLike(command, args, cwd) {
 
 function createLiveFixedArgvRunner(config = {}) {
   const repositorySlug = String(config.repositorySlug || "");
-  const repoRoot = path.resolve(config.repoRoot || process.cwd());
+  const repoRoot = path.resolve(config.repoRoot);
   const maxOutputBytes = Number.isInteger(config.prStackExecution?.runnerMaxOutputBytes)
     ? Math.max(1024, Math.min(config.prStackExecution.runnerMaxOutputBytes, 1024 * 1024))
     : 128 * 1024;
@@ -3989,7 +4008,8 @@ async function writeReviewPackage(config, payload) {
   return { packagePath, summary, diff: diff.text };
 }
 
-function integrationBoundaryMaterial(repoRoot = process.cwd(), paths) {
+function integrationBoundaryMaterial(repoRoot, paths) {
+  if (!repoRoot) throw new Error("integration boundary material requires repoRoot");
   return paths.map((relativePath) => {
     const content = readFileSync(path.join(repoRoot, relativePath), "utf8");
     return { path: relativePath, sha256: createHash("sha256").update(content).digest("hex"), content };
@@ -4308,7 +4328,9 @@ function renderSecurityFindingsDryRunText(result) {
   return `${lines.join("\n")}\n`;
 }
 
-main().catch((error) => {
-  console.error(error.stack || error.message);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  main().catch((error) => {
+    console.error(error.stack || error.message);
+    process.exit(1);
+  });
+}

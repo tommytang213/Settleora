@@ -32,6 +32,7 @@ import { bindValidationEvidence, planValidation, runValidationPlan } from "./val
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 import { findPreEffectIntents } from "./pre-effect-intent.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, transitionSessionLifecycleHead, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "./session-lifecycle.mjs";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 export const prStackStateVersion = 1;
 export const prStackWaitingReasons = Object.freeze([
@@ -1615,7 +1616,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     },
     async readRepositoryOperationContext({ config: cfg, prNumber }) {
       const targetConfig = cfg || config;
-      const cwd = path.resolve(targetConfig.repoRoot || process.cwd());
+      const cwd = path.resolve(targetConfig.repoRoot);
       const worktree = run("git", ["rev-parse", "--show-toplevel"], { cwd });
       if (!isRunnerResult(worktree)) return fail("repository_operation_runner_malformed", "live runner did not return fixed-argv command evidence");
       if (worktree.status !== 0 || worktree.error) return fail("repository_operation_root_unreadable", boundedText(worktree.stderr || worktree.error || worktree.stdout));
@@ -1942,7 +1943,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
 function createProductionBatchFixAdapters(config = {}, options = {}) {
   const runner = options.runner || defaultRunner;
   const codexPromptRunner = options.runCodexPrompt || runCodexPrompt;
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   return {
     async runCodexBatchFix({ fixTask, pr, exactHead, sessionLifecycle = null }) {
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
@@ -2093,6 +2094,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         candidateTree: candidate.tree,
         candidateCommitChainDigest: candidate.commitChainDigest,
       });
+      assertRepositoryRemoteIdentity(config);
       const baseFetch = runner("git", ["fetch", "origin", pr?.baseRefName || pr?.base || "main"], { cwd });
       if (baseFetch.status !== 0 || baseFetch.error) return fail("existing_pr_batch_fix_base_fetch_failed", boundedText(baseFetch.stderr || baseFetch.error || baseFetch.stdout));
       const live = readLivePrProof({ config, pr, expectedHead: exactHead, runner });
@@ -2349,6 +2351,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         return { ok: true, newHead, sourceIdentity: { ...(reviewed?.sourceIdentity || {}), newHead, sourceCycleReservation: reconciledIntent.sourceCycleReservation }, pushedAt: reconciledIntent.confirmedAt, pushIntent: intent, pushConfirmation: reconciledIntent, sourceCycleReservation: reconciledIntent.sourceCycleReservation };
       }
       if (!reconciledIntent.ok && !["push_intent_not_completed", "push_intent_unpushed_candidate"].includes(reconciledIntent.reasonCode)) return reconciledIntent;
+      assertRepositoryRemoteIdentity(config);
       const push = runner("git", ["push", "origin", `${newHead}:${branch}`], { cwd });
       if (push.status !== 0 || push.error) return fail("existing_pr_batch_fix_push_failed", boundedText(push.stderr || push.error || push.stdout));
       const confirmation = reconcilePushIntent({ config, pr, intent, runner, requireCandidate: true });
@@ -2432,7 +2435,7 @@ function stackDispatchProgressDigest(state = {}) {
 async function buildRepositoryOperationContext({ config = {}, plan = null, state = null, prNumber = null, adapter = null } = {}) {
   const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || plan?.repository || state?.repository || "tommytang213/Settleora");
   if (!configuredRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
-  const repoRoot = path.resolve(config.repoRoot || process.cwd());
+  const repoRoot = path.resolve(config.repoRoot);
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
   if (repoRoot === protectedRoot) return fail("repository_operation_protected_root_refused", "stack repository operations cannot use the protected root");
   let worktreePath = repoRoot;
@@ -2779,6 +2782,7 @@ function restoreStackSourceBranchIfDeleted({ config = {}, pr = {}, expectedHead 
     if (before.headSha !== headSha) return fail("merge_source_branch_head_mismatch", "source branch exists at an unexpected head", { branchName, expectedHead: headSha, actualHead: before.headSha });
     return { ok: true, planned: false, executed: false, confirmed: true, branchExists: true, reason: "source_branch_exists", branchName, headSha };
   }
+  assertRepositoryRemoteIdentity(config);
   const push = runner("git", ["push", "origin", `${headSha}:refs/heads/${branchName}`], { cwd: config.repoRoot });
   if (push.status !== 0 || push.error) {
     return fail("merge_source_branch_restore_push_failed", "source branch restoration push failed", { branchName, headSha, status: push.status, stderr: boundedProof(push.stderr || push.error || "") });
@@ -2792,6 +2796,7 @@ function restoreStackSourceBranchIfDeleted({ config = {}, pr = {}, expectedHead 
 
 function readRemoteBranchHead({ config = {}, branchName, runner } = {}) {
   const fullRef = `refs/heads/${branchName}`;
+  assertRepositoryRemoteIdentity(config);
   const remote = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
   if (remote.status !== 0 || remote.error) {
     return fail("merge_source_branch_read_failed", "source branch remote read failed", { branchName, status: remote.status, stderr: boundedProof(remote.stderr || remote.error || "") });
@@ -3807,7 +3812,7 @@ function canonicalRepositoryFromOriginUrl(value, { expectedRepositorySlug = null
 }
 
 function readOriginRepositoryProof({ config = {}, runner = defaultRunner } = {}) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const expectedRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
   if (!expectedRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
   const result = runner("git", ["remote", "get-url", "--push", "origin"], { cwd });
@@ -3914,7 +3919,7 @@ function repositoryBoundGhRunner(runner, repositoryContext = {}) {
 }
 
 function proveTargetBatchFixWorktree({ config, pr, runner, recoveryState = null }) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
   const worktreePath = path.resolve(cwd);
   if (worktreePath === protectedRoot) return fail("existing_pr_batch_fix_protected_root_refused", "protected root cannot be used as a source-mutation worktree");
@@ -3939,6 +3944,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner, recoveryState = null 
     && recoveryState?.prNumber === pr?.number
     && recoveryState?.sourceBranch === branch;
   if (clean.clean !== true && !dirtyRecoveryAuthorized) return fail("existing_pr_batch_fix_worktree_dirty", "target worktree/index must be clean before checkout or Codex", clean);
+  assertRepositoryRemoteIdentity(config);
   const fetch = runner("git", ["fetch", "origin", branch], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("existing_pr_batch_fix_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "existing_pr_batch_fix_remote_head_unreadable" });
@@ -4005,7 +4011,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner, recoveryState = null 
 }
 
 function prepareExactHeadFinalGateWorktree({ config, pr, expectedHead, runner, repositoryContext = null }) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
   const worktreePath = path.resolve(cwd);
   if (worktreePath === protectedRoot) return fail("exact_head_gate_protected_root_refused", "protected root cannot be used for exact-head final gates");
@@ -4030,6 +4036,7 @@ function prepareExactHeadFinalGateWorktree({ config, pr, expectedHead, runner, r
   if (!head.ok) return head;
   let remote = { ok: true, sha: null };
   if (beforeBranchName !== branch || head.sha !== expectedHead) {
+    assertRepositoryRemoteIdentity(config);
     const fetch = runner("git", ["fetch", "origin", branch], { cwd });
     if (fetch.status !== 0 || fetch.error) return fail("exact_head_gate_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
     remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "exact_head_gate_remote_head_unreadable" });
@@ -4060,7 +4067,7 @@ function readLivePrProof({ config, pr, expectedHead, runner }) {
   const result = runner(
     "gh",
     ["pr", "view", String(pr?.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository"],
-    { cwd: config.repoRoot || process.cwd() },
+    { cwd: config.repoRoot },
   );
   if (result.status !== 0 || result.error) return fail("existing_pr_batch_fix_pr_read_failed", boundedText(result.stderr || result.error || result.stdout));
   let proof;
@@ -4511,9 +4518,11 @@ function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = fa
   const validation = validatePushIntentShape({ config, pr, intent });
   if (!validation.ok) return validation;
   const branch = intent.sourceBranch;
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
+  assertRepositoryRemoteIdentity(config);
   const fetch = runner("git", ["fetch", "origin", branch], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("push_intent_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
+  assertRepositoryRemoteIdentity(config);
   const baseFetch = runner("git", ["fetch", "origin", "main"], { cwd });
   if (baseFetch.status !== 0 || baseFetch.error) return fail("push_intent_base_fetch_failed", boundedText(baseFetch.stderr || baseFetch.error || baseFetch.stdout));
   const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "push_intent_remote_unreadable" });
@@ -4880,7 +4889,8 @@ function validateCanonicalCommitChain(values = [], { oldHead, newHead, candidate
 }
 
 function fetchAndReadOriginMain({ config, runner, reasonPrefix }) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
+  assertRepositoryRemoteIdentity(config);
   const fetch = runner("git", ["fetch", "origin", "main"], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail(`${reasonPrefix}_base_fetch_failed`, boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const base = readGitSha({ runner, cwd, ref: "origin/main", reasonCode: `${reasonPrefix}_base_unreadable` });
@@ -4970,6 +4980,7 @@ function fetchCurrentMainProof({ config, state, pr, runner }) {
   const mergeProof = state?.evidence?.merged?.[pr.number] || {};
   const parentMergeSha = mergeProof.mergeSha || mergeProof.result?.mergeSha || null;
   if (!validSha(parentMergeSha)) return fail("current_main_parent_merge_sha_missing", "parent merge SHA is required before current-main proof");
+  assertRepositoryRemoteIdentity(config);
   const fetch = runner("git", ["fetch", "origin", "main"], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("current_main_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const current = runner("git", ["rev-parse", "origin/main"], { cwd });
@@ -5601,7 +5612,7 @@ function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase
 }
 
 function readMergeWorktreeCleanProof({ config, expectedHead, runner }) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const head = runner("git", ["rev-parse", "HEAD"], { cwd });
   if (head.status !== 0 || head.error) {
     return fail("merge_worktree_head_unreadable", boundedText(head.stderr || head.error || head.stdout), {
@@ -5641,7 +5652,7 @@ function readMergeWorktreeCleanProof({ config, expectedHead, runner }) {
 }
 
 function readExactFinalGateWorktreeProof({ config, pr = {}, expectedHead, expectedBranch, expectedRepository, runner, proofType }) {
-  const cwd = path.resolve(config.repoRoot || process.cwd());
+  const cwd = path.resolve(config.repoRoot);
   const worktree = runner("git", ["rev-parse", "--show-toplevel"], { cwd });
   if (worktree.status !== 0 || worktree.error) return fail("exact_worktree_root_unreadable", boundedText(worktree.stderr || worktree.error || worktree.stdout));
   const worktreePath = path.resolve(String(worktree.stdout || "").trim() || cwd);

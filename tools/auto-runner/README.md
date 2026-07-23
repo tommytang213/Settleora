@@ -1,5 +1,104 @@
 # Settleora Auto-Runner Tooling
 
+## External runtime and managed repository separation
+
+The controller now has five explicit identities: `runtimeRoot`, `repoRoot`,
+`logsRoot`, `projectId`, and `repositorySlug`. Development configs may set
+`runtimeMode: "development"` and point `runtimeRoot` at this directory. A
+trusted profile must set `runtimeMode: "external"` and is accepted only when
+the executing module tree equals `runtimeRoot`, its versioned manifest and
+digest verify, and runtime, repository, `.git`, and project logs are disjoint
+canonical real paths, including a resolved linked-worktree or separate Git
+common directory. Project Git commands continue to use `repoRoot`;
+controller-owned children use absolute entries below `runtimeRoot`.
+The first trusted non-observer preflight creates an owner-only
+`.project-namespace.json` marker in `logsRoot`; every later process verifies
+that marker before reading project state, so a logs directory cannot be
+adopted by another repository that reuses the same project ID.
+
+`deploy-runtime.mjs` is an explicit stopped-runner utility. It builds a sorted
+generic-only manifest with per-file SHA-256/mode, a file-list digest, bundle
+digest, source SHA, entry points, and Node constraint. It copies to a sibling
+incoming directory, verifies the copied bundle, runs syntax/import smoke
+checks there, and uses expected-old-digest protected atomic handoff with one
+bounded rollback directory. It never writes a project profile or starts,
+enables, reloads, or restarts a service.
+
+Production entry points are imported through the stable sibling
+`/workspace/auto-runner/.runtime.launcher.mjs`. The deployer creates that
+verified launcher on first install and refuses a mismatched replacement.
+Before importing any replaceable bundle module, the launcher checks the
+deployment lock and records a PID plus process-start identity in the shared
+consumer directory. Deployment reclaims only markers whose process-start
+identity is stale and otherwise refuses the handoff. The deployment lock uses
+the same PID-birth proof and an OS-released `flock` acquisition guard, so
+concurrent stale-lock recovery stays serialized, guard ownership is released
+on process exit, and a crashed deploy can be reclaimed safely before the
+atomic exchange is reconciled. Repository
+authority lock identities canonicalize GitHub slugs case-insensitively, so
+separate clones or differently cased remote spellings cannot gain two owners.
+Deployment `--dry-run` performs the source, manifest, quiescence, and consumer
+inspection without creating locks, consumer directories, or other deployment
+control state; its Git inspection disables optional index locks and repository
+filesystem-monitor hooks. Trusted profile reads accept only a direct JSON
+child of `/workspace/auto-runner/config` after verifying that fixed root and
+each ancestor are canonical, runner- or system-owned, and not writable by
+another principal. Manifest source verification disables local Git replacement
+objects, and project namespace markers store the same case-normalized
+repository slug used by repository locks and runtime identity.
+The supervisor binds the already admitted canonical profile path and its
+SHA-256 into the immutable run spec; the installed unit therefore contains no
+hard-coded active-profile path, and the worker never reconstructs the profile
+under `logsRoot`. Development profiles remain confined to their approved
+project-log config roots, while an external profile remains confined to the
+fixed `/workspace/auto-runner/config` root. The runner child receives the
+spec's expected profile SHA-256 and refuses admission if the profile is
+replaced between supervisor verification and child startup.
+
+The reviewed supervisor unit source is a placeholder template, not an
+installable Settleora singleton. Future manual activation renders it from the
+verified runtime for one admitted `projectId`, `runtimeRoot`, and `logsRoot`,
+installs it as `<projectId>-auto-runner@.service`, and retains the
+rendered bytes for the controller's pre-start identity comparison. Settleora
+retains the legacy-compatible `settleora-auto-runner@.service` exception; an
+AppB profile selects `AppB-auto-runner@.service`. The rendered working directory and every
+controller-owned executable remain runtime-bound.
+
+Future manual command shapes (not executed by issue #951):
+
+```bash
+node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
+  --repo-root /workspace/repos/Settleora \
+  --source-root /workspace/repos/Settleora/tools/auto-runner \
+  --destination /workspace/auto-runner/runtime \
+  --logs-root /workspace/logs/auto-runner/Settleora \
+  --approved-sha <reviewed-40-character-sha> \
+  --expected-old-digest <installed-bundle-digest> \
+  --dry-run
+
+node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
+  --repo-root /workspace/repos/Settleora \
+  --destination /workspace/auto-runner/runtime \
+  --logs-root /workspace/logs/auto-runner/Settleora \
+  --rollback \
+  --expected-old-digest <current-bundle-digest> \
+  --expected-rollback-digest <retained-rollback-bundle-digest>
+
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner.mjs -- --run --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner.mjs -- --status --json --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner.mjs -- --stop-after-current --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runnerctl.mjs -- status --latest --json --config /workspace/auto-runner/config/settleora.json
+```
+
+The non-dry-run deploy and all start/profile commands require the separate
+manual #912 activation. Rollback is a stopped-process atomic exchange of the
+retained sibling `.runtime.rollback` after verifying its manifest and expected
+digest; no automatic rollback or restart authority is granted.
+
 ## Final ephemeral cleanup
 
 `ephemeral_cleanup_v1` requires positive ownership plus complete live merge,

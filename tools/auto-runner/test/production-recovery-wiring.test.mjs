@@ -95,6 +95,13 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
 });
 
+test("stable-launched supervisor main persists startup failures before rethrow", () => {
+  const worker = readFileSync("tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs", "utf8");
+  const exportedMain = worker.slice(worker.indexOf("export async function main()"), worker.indexOf("function waitForChild"));
+  assert.match(exportedMain, /catch \(error\)[\s\S]*writeSupervisorState\(runId, \{ state: "failed"/);
+  assert.match(exportedMain, /throw error/);
+});
+
 test("post-merge cleanup uses the supported head filter and terminalizes its own recovery state", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.match(source, /\["pr", "list", "--repo", owner\.repository, "--state", "open", "--head", owner\.branchName/);
@@ -107,7 +114,7 @@ test("post-merge cleanup uses the supported head filter and terminalizes its own
   assert.match(source, /sessions\.includes\(ownerSession\)/);
   assert.match(source, /issueLinkageEvidence,\s*sessionLifecycle,\s*recoveryState,/s);
   assert.match(source, /primaryHandoffIgnoredPids: authorizedSupervisorProcessIds\(state\)/);
-  assert.match(source, /argv\[worker \+ 1\] === supervisorRunId/);
+  assert.match(source, /matchAuthorizedSupervisorProcess\(\{/);
   assert.match(source, /expectedReportPaths: \{ durableReportPath: iteration\.report\.copyPath \}/);
 });
 
@@ -115,16 +122,14 @@ test("only the controller-owning production runner path grants outage resubmissi
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   const capabilityToken = ["outageResubmissionControllerAvailable", " true"].join(":");
   assert.equal(source.match(new RegExp(capabilityToken, "g"))?.length, 1);
+  assert.ok((source.match(/outageResubmissionObserverAvailable: true/g) || []).length >= 5);
   assert.match(
     source,
     /const config = loadConfig\(cliArgs,\s*\{\s*outageResubmissionControllerAvailable: true,\s*\}\);\s*const trustPolicy = evaluateTrustPolicy\(config\);/s,
   );
 
-  assert.match(source, /loadConfig\(\{ \.\.\.cliArgs, dryRun: true, run: false \}\)/);
-  assert.match(source, /loadConfig\(\{ dryRun: false, run: false, configPath: cliArgs\.configPath \}\)/);
-  assert.match(source, /const config = loadConfig\(cliArgs\);\s*const result = runPreflight\(config\);/s);
-  assert.match(source, /const config = loadConfig\(cliArgs\);\s*const result = await runGeminiReviewerSmokeTest\(config,/s);
-  assert.match(source, /const config = loadConfig\(cliArgs\);\s*const result = await runSecurityFindingsDryRun\(config,/s);
+  assert.match(source, /loadConfig\(\{ \.\.\.cliArgs, dryRun: true, run: false \}, \{ outageResubmissionObserverAvailable: true \}\)/);
+  assert.match(source, /loadConfig\(\{ dryRun: false, run: false, configPath: cliArgs\.configPath \}, \{ outageResubmissionObserverAvailable: true \}\)/);
 });
 
 test("production runner records lifecycle phases, mutation markers, and head invalidation hooks", () => {

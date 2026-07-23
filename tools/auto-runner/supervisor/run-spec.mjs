@@ -6,7 +6,7 @@ import {
   realpathSync,
 } from "node:fs";
 import path from "node:path";
-import { defaultLogsRoot, parseDuration } from "../lib/config.mjs";
+import { defaultLogsRoot, parseDuration, validateExternalProfilePath } from "../lib/config.mjs";
 import { validateSupervisorRunId } from "../lib/run-correlation.mjs";
 import {
   configPathForProfile,
@@ -35,6 +35,7 @@ export const allowedSpecFields = new Set([
   "maxRuntime",
   "mode",
   "profile",
+  "runnerConfigPath",
   "runnerConfigSha256",
   "initialOriginMainSha",
   "requestedBy",
@@ -162,14 +163,16 @@ export function buildRunSpec({
   recoveryOnlyTarget = null,
   allowMissingConfig = false,
   logsRoot = defaultLogsRoot,
+  runnerConfigPath = null,
 } = {}) {
   validateRunId(runId);
   const resolvedProfile = resolveProfile(profile, logsRoot);
-  const normalizedConfigPath = path.resolve(resolvedProfile.runnerConfigPath);
-  const config = validateRegularPrivateFile(normalizedConfigPath, {
-    approvedRoots: configRootsForLogsRoot(logsRoot),
-    allowMissing: allowMissingConfig,
-  });
+  const normalizedConfigPath = path.resolve(runnerConfigPath || resolvedProfile.runnerConfigPath);
+  if (!path.isAbsolute(runnerConfigPath || resolvedProfile.runnerConfigPath)
+      || normalizedConfigPath !== (runnerConfigPath || resolvedProfile.runnerConfigPath)) {
+    throw new Error("runnerConfigPath must be canonical and absolute");
+  }
+  const config = validateRunnerConfigPath(normalizedConfigPath, logsRoot, { allowMissing: allowMissingConfig });
   if (!/^[a-f0-9]{40}$/.test(String(initialOriginMainSha || ""))) {
     throw new Error("initialOriginMainSha must be a 40-character git SHA");
   }
@@ -185,6 +188,7 @@ export function buildRunSpec({
     maxRuntime: normalizeMaxRuntime(maxRuntime),
     mode: normalizeMode(mode),
     profile: resolvedProfile.profile,
+    runnerConfigPath: normalizedConfigPath,
     runnerConfigSha256: config.sha256,
     initialOriginMainSha,
     requestedBy: normalizeRequestedBy(requestedBy),
@@ -210,6 +214,10 @@ export function validateRunSpecShape(spec) {
   normalizeMaxRuntime(spec.maxRuntime);
   normalizeMode(spec.mode);
   validateProfileName(spec.profile);
+  if (spec.runnerConfigPath !== undefined
+      && (!path.isAbsolute(spec.runnerConfigPath) || path.resolve(spec.runnerConfigPath) !== spec.runnerConfigPath)) {
+    throw new Error("runnerConfigPath must be canonical and absolute");
+  }
   if (spec.runnerConfigSha256 !== null && !/^[a-f0-9]{64}$/.test(String(spec.runnerConfigSha256 || ""))) {
     throw new Error("runnerConfigSha256 must be null or a SHA-256 digest");
   }
@@ -245,20 +253,30 @@ export function readAndVerifyRunSpec(runId, expectedSpecSha256 = null, logsRoot 
   if (expectedSpecSha256 && digest !== expectedSpecSha256) {
     throw new Error("Run spec digest mismatch");
   }
-  const configPath = resolveProfile(parsed.profile, logsRoot).runnerConfigPath;
-  const config = validateRegularPrivateFile(configPath, { approvedRoots: configRootsForLogsRoot(logsRoot) });
+  const configPath = parsed.runnerConfigPath || resolveProfile(parsed.profile, logsRoot).runnerConfigPath;
+  const config = validateRunnerConfigPath(configPath, logsRoot);
   if (parsed.runnerConfigSha256 && config.sha256 !== parsed.runnerConfigSha256) {
     throw new Error("Runner config digest mismatch");
   }
-  return { spec: parsed, specPath, specSha256: digest, config };
+  return { spec: { ...parsed, runnerConfigPath: config.path }, specPath, specSha256: digest, config };
 }
 
 export function configRootsForLogsRoot(logsRoot = defaultLogsRoot) {
   return [path.join(logsRoot, "configs"), path.join(logsRoot, "canary")];
 }
 
-export function validateRunnerConfigPath(configPath, logsRoot = defaultLogsRoot) {
-  return validateRegularPrivateFile(configPath, { approvedRoots: configRootsForLogsRoot(logsRoot) });
+export function validateRunnerConfigPath(configPath, logsRoot = defaultLogsRoot, { allowMissing = false } = {}) {
+  const approvedRoots = configRootsForLogsRoot(logsRoot);
+  const absolute = path.resolve(configPath);
+  const isDevelopmentProfile = approvedRoots.some((root) => {
+    const relative = path.relative(path.resolve(root), absolute);
+    return relative && !relative.startsWith("..") && !path.isAbsolute(relative);
+  });
+  if (!isDevelopmentProfile) validateExternalProfilePath(absolute);
+  return validateRegularPrivateFile(absolute, {
+    approvedRoots: isDevelopmentProfile ? approvedRoots : null,
+    allowMissing,
+  });
 }
 
 function canonicalSerialize(value) {

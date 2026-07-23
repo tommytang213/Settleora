@@ -74,6 +74,24 @@ test("terminal notifier sends a completed run once, records after 2xx, and skips
   });
 });
 
+test("terminal notifier derives default dedupe state from the supplied project logs root", async () => {
+  await withLogs(async (logsRoot) => {
+    writeRun(logsRoot, {
+      state: "completed",
+      runnerRunId: "run-2026-07-12T070000Z",
+      summary: { iterations: [{ outcome: "completed" }] },
+    });
+    const result = await runTerminalNotifier({
+      logsRoot,
+      config,
+      now,
+      publisher: async () => ({ ok: true }),
+    });
+    assert.equal(result.sent, true);
+    assert.equal(existsSync(path.join(logsRoot, "monitoring", "notifier-state.json")), true);
+  });
+});
+
 test("terminal notifier sends again for a new run ID and supports no-work and budget activity events", async () => {
   await withLogs(async (logsRoot) => {
     const statePath = notifierStatePath(logsRoot);
@@ -288,9 +306,26 @@ test("terminal notifier CLI rejects caller-controlled production arguments and s
   for (const arg of ["--base-url", "--topic", "--token", "--config-path"]) {
     const result = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs", arg, "x"], { encoding: "utf8" });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /Unknown argument/);
+    assert.match(result.stderr, /requires trusted --config/);
     assert.doesNotMatch(result.stderr, /tk_|Bearer|Authorization/);
   }
+  for (const configPath of [
+    "/tmp/settleora.json",
+    "/workspace/auto-runner/config/../settleora.json",
+    "/workspace/auto-runner/config/settleora/child.json",
+    "/workspace/auto-runner/config/.json",
+  ]) {
+    const result = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs", "--config", configPath], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /requires trusted --config/);
+  }
+  const longProfile = spawnSync(process.execPath, [
+    "tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs",
+    "--config",
+    `/workspace/auto-runner/config/${"a".repeat(80)}.json`,
+  ], { encoding: "utf8" });
+  assert.notEqual(longProfile.status, 0);
+  assert.doesNotMatch(longProfile.stderr, /requires trusted --config/);
   const notifierService = readFileSync("tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.service", "utf8");
   const notifierTimer = readFileSync("tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.timer", "utf8");
   const supervisor = readFileSync("tools/auto-runner/systemd/settleora-auto-runner@.service", "utf8");

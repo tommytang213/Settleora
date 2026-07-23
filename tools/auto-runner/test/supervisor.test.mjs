@@ -58,7 +58,6 @@ test("run-spec rejects unknown command/env/argument fields and unsafe run IDs", 
   assert.throws(() => validateRunSpecShape({ specVersion: 1, runId, command: "rm -rf /" }), /Unknown run-spec field: command/);
   assert.throws(() => validateRunSpecShape({ specVersion: 1, runId, env: { X: "Y" } }), /Unknown run-spec field: env/);
   assert.throws(() => validateRunSpecShape({ specVersion: 1, runId, extraArgs: ["--danger"] }), /Unknown run-spec field: extraArgs/);
-  assert.throws(() => validateRunSpecShape({ specVersion: 1, runId, runnerConfigPath: "/tmp/config.json" }), /Unknown run-spec field: runnerConfigPath/);
 });
 
 test("run-spec canonical serialization, exclusive create, digest, tamper, symlink, escape, and mode checks", () => {
@@ -74,11 +73,17 @@ test("run-spec canonical serialization, exclusive create, digest, tamper, symlin
   const digest = sha256Text(canonicalJson(spec));
   assert.match(digest, /^[a-f0-9]{64}$/);
   assert.equal(spec.profile, "default");
-  assert.equal("runnerConfigPath" in spec, false);
+  assert.equal(spec.runnerConfigPath, configPath);
   const written = writeImmutableRunSpec(spec, logsRoot);
   assert.equal(written.specSha256, digest);
   assert.throws(() => writeImmutableRunSpec(spec, logsRoot), /EEXIST/);
   assert.equal(readAndVerifyRunSpec(runId, digest, logsRoot).spec.runId, runId);
+  const legacySpec = { ...spec };
+  delete legacySpec.runnerConfigPath;
+  const legacyRunId = generateRunId();
+  legacySpec.runId = legacyRunId;
+  writeImmutableRunSpec(legacySpec, logsRoot);
+  assert.equal(readAndVerifyRunSpec(legacyRunId, null, logsRoot).spec.runnerConfigPath, configPath);
   writeFileSync(written.specPath, canonicalJson({ ...spec, maxTasks: 2 }), { mode: 0o600 });
   assert.throws(() => readAndVerifyRunSpec(runId, digest, logsRoot), /digest mismatch/);
 
@@ -205,14 +210,64 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
     maxRuntime: "8h",
     mode: "trusted",
     profile: "default",
+    runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
     runnerConfigSha256: "b".repeat(64),
     initialOriginMainSha: fakeSha,
     requestedBy: "operator",
   };
-  const plan = buildSystemdStartPlan(runId);
-  assert.deepEqual(plan.startArgv.slice(0, 3), ["systemctl", "--user", "start"]);
+  const plan = buildSystemdStartPlan(runId, {
+    configPath: "/workspace/logs/configs/default.json",
+    projectId: "Settleora",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/settleora-auto-runner",
+  });
+  assert.deepEqual(plan.startArgv, ["systemctl", "--user", "start", `settleora-auto-runner@${runId}.service`]);
+  assert.equal(plan.expectedExecArgv.some((value) => value.endsWith("/.auto-runner.launcher.mjs")), true);
+  assert.equal(plan.expectedExecArgv.includes("--config"), false);
+  const workerSource = readFileSync("tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs", "utf8");
+  assert.match(workerSource, /const configPath = verifiedSpec\.spec\.runnerConfigPath/);
+  const controlSource = readFileSync("tools/auto-runner/settleora-auto-runnerctl.mjs", "utf8");
+  assert.match(controlSource, /const admittedConfigPath = config\.configPath \|\| profile\.runnerConfigPath/);
+  assert.equal((controlSource.match(/profile\.runnerConfigPath/gu) || []).length, 1);
+  assert.match(controlSource, /\[runnerEntry, "--readiness", "--config", admittedConfigPath\]/);
+  assert.deepEqual(plan.inspectArgv, ["systemctl", "--user", "cat", plan.unitName, "--no-pager"]);
+  assert.deepEqual(plan.reloadArgv, ["systemctl", "--user", "daemon-reload"]);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
+  const appBPlan = buildSystemdStartPlan(runId, {
+    configPath: "/workspace/auto-runner/config/appb.json",
+    projectId: "AppB",
+    repoRoot: "/workspace/repos/AppB",
+    logsRoot: "/workspace/logs/auto-runner/AppB",
+  });
+  assert.equal(appBPlan.unitName, `AppB-auto-runner@${runId}.service`);
+  assert.match(appBPlan.unitTemplate, /Description=AppB detached auto-runner/);
+  assert.match(appBPlan.unitTemplate, /WorkingDirectory=\/workspace\/repos\/Settleora\/tools\/auto-runner/);
+  assert.match(appBPlan.unitTemplate, /--logs-root \/workspace\/logs\/auto-runner\/AppB/);
+  assert.doesNotMatch(appBPlan.unitTemplate, /\{\{[A-Z_]+\}\}|\/workspace\/repos\/AppB\/tools\/auto-runner/);
+  assert.throws(
+    () => buildSystemdStartPlan(runId, {
+      projectId: "App B",
+      repoRoot: "/workspace/repos/AppB",
+      logsRoot: "/workspace/logs/auto-runner/AppB",
+    }),
+    /filesystem-safe supervisor projectId/,
+  );
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
+  for (const unsafePath of [
+    "/workspace/repos/Settleora\n--property=Environment=INJECTED=1",
+    "/workspace/repos/../other",
+    "/workspace/repos//Settleora",
+    "relative/repository",
+  ]) {
+    assert.throws(
+      () => buildSystemdStartPlan(runId, {
+        configPath: "/workspace/logs/configs/default.json",
+        repoRoot: unsafePath,
+        logsRoot: "/workspace/logs/settleora-auto-runner",
+      }),
+      /canonical shell-neutral supervisor repoRoot is required/,
+    );
+  }
   const runnerRunId = "run-2026-07-20T144500Z";
   const argv = runnerArgvForSpec(spec, { runnerRunId });
   assert.equal(argv[argv.indexOf("--max-iterations") + 1], "8");
@@ -220,6 +275,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.equal(argv.includes("auto-canary-ready"), false);
   assert.equal(argv.includes("--allow-auto-merge"), false);
   assert.equal(argv.includes("--config"), true);
+  assert.equal(argv[argv.indexOf("--expected-config-sha256") + 1], spec.runnerConfigSha256);
   assert.equal(argv.filter((part) => part === "--supervisor-run-id").length, 1);
   assert.equal(argv[argv.indexOf("--supervisor-run-id") + 1], runId);
   assert.equal(argv[argv.indexOf("--runner-run-id") + 1], runnerRunId);
@@ -253,6 +309,7 @@ test("outage recovery-only run-spec maps to fixed target argv", () => {
     maxRuntime: "8h",
     mode: "trusted",
     profile: "default",
+    runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
     runnerConfigSha256: "b".repeat(64),
     initialOriginMainSha: fakeSha,
     requestedBy: "outage-controller",
@@ -772,6 +829,9 @@ test("systemd start failure records no foreground fallback shape", () => {
   const runId = generateRunId();
   const calls = [];
   const result = startUserUnit(runId, {
+    configPath: "/workspace/logs/configs/default.json",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/settleora-auto-runner",
     runner: (cmd, args) => {
       calls.push([cmd, ...args]);
       return { status: 1, stderr: "boom" };
@@ -783,12 +843,49 @@ test("systemd start failure records no foreground fallback shape", () => {
   assert.equal(calls[0][0], "systemctl");
 });
 
+test("systemd start verifies the installed exact ExecStart before activation", () => {
+  const runId = generateRunId();
+  const options = {
+    configPath: "/workspace/logs/configs/default.json",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/settleora-auto-runner",
+  };
+  const plan = buildSystemdStartPlan(runId, options);
+  const calls = [];
+  const result = startUserUnit(runId, {
+    ...options,
+    runner: (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (args.includes("cat")) {
+        return { status: 0, stdout: `# /home/runner/.config/systemd/user/settleora-auto-runner@.service\n${plan.unitTemplate}` };
+      }
+      if (args.includes("--property=ExecStart")) {
+        return { status: 0, stdout: `{ path=/usr/bin/env ; argv[]=${plan.expectedExecArgv.join(" ")} ; ignore_errors=no ; }\n` };
+      }
+      if (args.includes("is-active")) return { status: 0, stdout: "active\n" };
+      return { status: 0, stdout: "" };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls[3], plan.startArgv);
+  const refused = startUserUnit(runId, {
+    ...options,
+    runner: () => ({ status: 0, stdout: `${plan.unitTemplate}\n# /home/runner/.config/systemd/user/settleora-auto-runner@.service.d/override.conf\n[Service]\nEnvironment=NODE_OPTIONS=--import=evil\n` }),
+  });
+  assert.equal(refused.ok, false);
+  assert.match(refused.stderr, /identity mismatch/);
+});
+
 test("heartbeat defaults, stale detection, terminal state, and sanitization", () => {
   const runId = generateRunId();
   const hb = buildHeartbeat({ runId, runnerRunId: "run-2026-07-20T144500Z", state: "running", maxTasks: 1, maxRuntime: "3h" });
   assert.equal(hb.heartbeatIntervalSeconds, 60);
   assert.equal(hb.heartbeatLeaseSeconds, 300);
   assert.equal(hb.terminal, false);
+  assert.equal(
+    buildHeartbeat({ runId, projectId: "AppB", state: "running" }).unitName,
+    `AppB-auto-runner@${runId}.service`,
+  );
   assert.equal(isHeartbeatStale({ ...hb, leaseExpiresAt: "2020-01-01T00:00:00Z" }, new Date("2026-01-01T00:00:00Z")), true);
   assert.equal(isHeartbeatStale({ ...hb, state: "completed", terminal: true, leaseExpiresAt: "2020-01-01T00:00:00Z" }), false);
   const sanitized = sanitizeMonitoringPayload({ runId, webhookUrl: "https://secret.example/hook", token: "abc", body: "ok" });
@@ -861,7 +958,7 @@ test("operator CLI dry-run has no durable supervisor side effects and renders ex
   assert.equal(parsed.runnerArgv.includes("--max-iterations"), true);
   assert.equal(parsed.runnerArgv.includes("--config"), true);
   assert.equal(parsed.spec.profile, "default");
-  assert.equal("runnerConfigPath" in parsed.spec, false);
+  assert.equal(parsed.spec.runnerConfigPath, parsed.runnerArgv[parsed.runnerArgv.indexOf("--config") + 1]);
   assert.equal(parsed.specPath.includes(parsed.runId), false);
   assert.equal(parsed.statePath.includes(parsed.runId), false);
   assert.equal(parsed.unitName, `settleora-auto-runner@${parsed.runId}.service`);
@@ -907,7 +1004,10 @@ test("operator CLI bounds extensions and refuses unknown supervisor run control"
 test("systemd template is fixed, no restart, no enablement, and no embedded secrets", () => {
   const text = readFileSync("tools/auto-runner/systemd/settleora-auto-runner@.service", "utf8");
   assert.match(text, /Type=exec/);
-  assert.match(text, /WorkingDirectory=\/workspace\/repos\/Settleora/);
+  assert.match(text, /WorkingDirectory=\{\{RUNTIME_ROOT\}\}/);
+  assert.match(text, /ExecStart=\/usr\/bin\/env node \{\{LAUNCHER\}\} --runtime-root \{\{RUNTIME_ROOT\}\} --entry supervisor\/settleora-auto-runner-worker\.mjs -- %i --logs-root \{\{LOGS_ROOT\}\}/);
+  assert.match(text, /EnvironmentFile=-\{\{LOGS_ROOT\}\}\/secrets\/supervisor\.env/);
+  assert.doesNotMatch(text, /\/workspace\/repos\/Settleora|\/workspace\/logs\/auto-runner\/Settleora/);
   assert.match(text, /Restart=no/);
   assert.match(text, /SendSIGKILL=no/);
   assert.doesNotMatch(text, /WantedBy=/);
@@ -952,7 +1052,7 @@ test("supervisor core has no network delivery or raw-path regression shapes", ()
   assert.doesNotMatch(joined, /node:(http|https|net|dns)|from\s+["']node:(http|https|net|dns)/);
   assert.doesNotMatch(joined, /SETTLEORA_(HEARTBEAT|NOTIFICATION|ALLOW_LAN_HTTP)/);
   assert.doesNotMatch(joined, /atomicWriteJson\s*\(\s*filePath/);
-  assert.doesNotMatch(joined, /runnerConfigPath"\s*,/);
+  assert.match(joined, /"runnerConfigPath"/);
   assert.doesNotMatch(joined, /\$\{name\}\.json/);
   assert.doesNotMatch(joined, /path\.join\([^)]*runId[^)]*\)/);
   assert.doesNotMatch(joined, /\bfileName\b/);
