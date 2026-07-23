@@ -7,7 +7,7 @@ import { digestChangedFiles } from "./config.mjs";
 import { filterForbiddenChangedFiles, pathViolatesPolicy } from "./lane-policy.mjs";
 import { inferMobileBuildPlatformRequirements } from "./validation-planner.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
-import { buildIssueOperationContext, completeMergedIssueHygiene } from "./completion-hygiene.mjs";
+import { buildIssueOperationContext, completeMergedIssueHygiene, completionHygieneReady } from "./completion-hygiene.mjs";
 import { evaluateCycleBudget } from "./review-convergence-controller.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 import { findPreEffectIntents } from "./pre-effect-intent.mjs";
@@ -524,7 +524,7 @@ export function preparePostMergeCleanupOwnership(config, context, { runner, merg
   const mergeTree = runner("git", ["rev-parse", `${mergeSha}^{tree}`], { cwd: config.repoRoot });
   const targetHeadSha = String(target.stdout || "").trim();
   if (target.status !== 0 || sourceAncestor.status !== 0 || mergeAncestor.status !== 0 || sourceTree.status !== 0 || mergeTree.status !== 0 || sourceTree.stdout.trim() !== mergeTree.stdout.trim() || !/^[0-9a-f]{40}$/.test(targetHeadSha)) return { ok: false, eligible: true, reasonCode: "cleanup_current_target_acceptance_unproven" };
-  if (hygiene?.status !== "merged") return { ok: false, eligible: true, reasonCode: "cleanup_hygiene_incomplete" };
+  if (!completionHygieneReady(hygiene)) return { ok: false, eligible: true, reasonCode: "cleanup_hygiene_incomplete" };
   const evidenceDigest = canonicalGithubEvidenceDigest({ targetBranch, targetHeadSha, sourceHeadSha, mergeSha, treeSha: sourceTree.stdout.trim() });
   let ownership;
   try {

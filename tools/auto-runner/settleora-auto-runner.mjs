@@ -123,6 +123,7 @@ import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCan
 import { continuePostMergeCleanup, createPostMergeCleanupGitAdapter, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup } from "./lib/post-merge-cleanup.mjs";
 import { canonicalGithubEvidenceDigest } from "./lib/github-effect-consumer.mjs";
 import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
+import { completionHygieneReady } from "./lib/completion-hygiene.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -2463,7 +2464,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
     repository: owner.repository,
     pr: { state: prRead.status === 0 ? pr?.state : null, headSha: pr?.headRefOid, mergeSha: pr?.mergeCommit?.oid, baseBranch: pr?.baseRefName },
     target: { branch: owner.targetBranch, headSha: targetRead.status === 0 ? targetRead.stdout.trim() : null, sourceAncestor: fetch.status === 0 && sourceAncestor.status === 0, mergeAncestor: fetch.status === 0 && mergeAncestor.status === 0 && acceptanceAncestor.status === 0, acceptanceDigest: sourceTree.status === 0 && acceptanceAncestor.status === 0 ? canonicalGithubEvidenceDigest({ targetBranch: owner.targetBranch, targetHeadSha: owner.acceptance.targetHeadSha, sourceHeadSha: owner.reviewedHeadSha, mergeSha: owner.mergeSha, treeSha: sourceTree.stdout.trim() }) : null },
-    hygieneComplete: hygiene.status === "merged", reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0 && durableInventory.complete, openPrReferences,
+    hygieneComplete: completionHygieneReady(hygiene), reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0 && durableInventory.complete, openPrReferences,
     protected: branchRead.status === 0 ? branch?.protected === true : false, defaultBranch: repository?.defaultBranchRef?.name, manualOwned: state.taskKey !== owner.rootTaskKey || state.issue?.number !== owner.issueNumber || state.branch?.name !== owner.branchName || state.branch?.currentHeadSha !== owner.reviewedHeadSha, excluded: prRead.status !== 0 || openHeadRead.status !== 0 || openBaseRead.status !== 0 || !openIdentityValid || repositoryRead.status !== 0 || (branchRead.status !== 0 && !branchAbsent) || targetRead.status !== 0,
     worktree: { active: false, shared: false, unexportedEvidence: false },
   };

@@ -60,6 +60,18 @@ export function completeMergedIssueHygiene(config = {}, context = {}, options = 
   };
 }
 
+export function completionHygieneReady(value = {}) {
+  const statusIs = (component, allowed, skippedReasons = []) => allowed.includes(component?.status)
+    || (component?.status === "skipped" && skippedReasons.includes(component?.reason));
+  return value.status === "merged"
+    && statusIs(value.comment, ["updated"], ["completion_comment_already_present"])
+    && statusIs(value.closure, ["updated"], ["issue_already_closed"])
+    && statusIs(value.labelCleanup, ["updated"], ["no_transient_labels"])
+    && statusIs(value.parentProgress, ["updated"], ["parent_issue_missing", "parent_progress_already_present"])
+    && (value.project?.status === "updated" || (value.project?.status === "not_updated" && value.project?.reason === "project_status_mapping_not_configured"))
+    && ["created", "reuse"].includes(value.ledger?.status);
+}
+
 export function evaluateCloseDecision(issue = {}, context = {}) {
   if (!issue?.number) return { close: false, reason: "issue_missing" };
   if (String(issue.state || "").toUpperCase() === "CLOSED") return { close: false, reason: "issue_already_closed" };
