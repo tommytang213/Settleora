@@ -29,7 +29,12 @@ Production entry points are imported through the stable sibling
 verified launcher on first install and refuses a mismatched replacement.
 Before importing any replaceable bundle module, the launcher checks the
 deployment lock and records a PID plus process-start identity in the shared
-consumer directory. Deployment reclaims only markers whose process-start
+consumer directory. It also evaluates the Node version against the constraint
+from the already verified manifest bytes. The bounded grammar accepts only a
+stable numeric version inside a strict `>=major <major` interval; missing,
+malformed, contradictory, prerelease, or unsupported values fail before entry
+evaluation. Production preflight applies the same approved `>=22 <23` rule.
+Deployment reclaims only markers whose process-start
 identity is stale and otherwise refuses the handoff. The deployment lock uses
 the same PID-birth proof and an OS-released `flock` acquisition guard, so
 concurrent stale-lock recovery stays serialized, guard ownership is released
@@ -37,6 +42,13 @@ on process exit, and a crashed deploy can be reclaimed safely before the
 atomic exchange is reconciled. Repository
 authority lock identities canonicalize GitHub slugs case-insensitively, so
 separate clones or differently cased remote spellings cannot gain two owners.
+Each authority lock stores both PID and process-birth identity. An owner-only
+per-repository `flock` guard serializes inspection and replacement: a matching
+live owner blocks, PID reuse is stale, and only a trusted owner-only regular
+lock whose recorded owner is proven stale is replaced. Corrupt, partial,
+symlinked, foreign-owned, or writable authority state fails closed. A crash
+releases the OS guard, so unattended restart can retry without deleting lock
+state manually or broadening task/branch authority.
 Deployment `--dry-run` performs the source, manifest, quiescence, and consumer
 inspection without creating locks, consumer directories, or other deployment
 control state; its Git inspection disables optional index locks and repository

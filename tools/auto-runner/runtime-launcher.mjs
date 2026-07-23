@@ -71,6 +71,27 @@ function canonicalJson(value) {
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
 }
 
+export function assertNodeCompatibility(range, version = process.versions.node) {
+  if (typeof range !== "string" || range.length > 32) {
+    throw new Error("runtime manifest Node constraint is invalid");
+  }
+  const rangeMatch = /^>=(\d{1,2}) <(\d{1,2})$/u.exec(range);
+  if (!rangeMatch) throw new Error("runtime manifest Node constraint is unsupported");
+  const minimum = Number(rangeMatch[1]);
+  const maximum = Number(rangeMatch[2]);
+  if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum)
+      || minimum < 1 || maximum > 99 || minimum >= maximum) {
+    throw new Error("runtime manifest Node constraint is contradictory");
+  }
+  const versionMatch = /^(\d{1,2})\.(\d{1,3})\.(\d{1,3})$/u.exec(String(version || ""));
+  if (!versionMatch) throw new Error("executing Node version is unsupported");
+  const major = Number(versionMatch[1]);
+  if (major < minimum || major >= maximum) {
+    throw new Error("executing Node version is outside the approved runtime range");
+  }
+  return Object.freeze({ range, version: versionMatch[0], minimum, maximum });
+}
+
 function verifyApprovedRuntime(runtimeRoot, launcherPath) {
   const parent = path.dirname(runtimeRoot);
   if (path.basename(runtimeRoot) !== "runtime") throw new Error("runtime bundle basename is invalid");
@@ -121,6 +142,7 @@ function verifyApprovedRuntime(runtimeRoot, launcherPath) {
   if (rebuiltDigest !== manifest.bundleDigest || rebuiltDigest !== approval.bundleDigest) {
     throw new Error("runtime bundle approval digest mismatch");
   }
+  assertNodeCompatibility(manifest.node);
 }
 
 export async function main(argv = process.argv.slice(2)) {

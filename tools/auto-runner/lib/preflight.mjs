@@ -11,6 +11,7 @@ import { safeTimestamp } from "./logger.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
 import { absoluteRuntimeEntry, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
 import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
+import { assertNodeCompatibility } from "../runtime-launcher.mjs";
 
 const settleoraRepositorySlug = "tommytang213/Settleora";
 const riskyGateKeys = Object.freeze([
@@ -327,11 +328,19 @@ function checkDiskSpace(config, runner) {
 }
 
 function checkNodeVersion() {
-  const major = Number.parseInt(process.versions.node.split(".")[0], 10);
+  let detail;
+  let ok = false;
+  try {
+    const result = assertNodeCompatibility(">=22 <23");
+    ok = true;
+    detail = `node=${result.version}; approved=${result.range}`;
+  } catch (error) {
+    detail = `node=${process.version}; expected approved range >=22 <23; ${error.message}`;
+  }
   return {
     name: "node-version",
-    status: major >= 20 ? "pass" : "warn",
-    detail: `node=${process.version}; expected major >= 20 for current repo tooling`,
+    status: ok ? "pass" : "fail",
+    detail,
   };
 }
 

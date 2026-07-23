@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,10 +9,16 @@ import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle
 import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
 import { ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
-import { reclaimStaleOwnMarker } from "../runtime-launcher.mjs";
+import { assertNodeCompatibility, reclaimStaleOwnMarker } from "../runtime-launcher.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
+
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+}
 
 function git(repo, args) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
@@ -56,7 +63,7 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["add", "."]);
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
-    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 92);
+    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 93);
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
     writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);
@@ -88,6 +95,68 @@ test("runtime launcher reclaims only a trusted stale marker for its reused PID",
     assert.equal(existsSync(marker), false);
     writeFileSync(marker, `${JSON.stringify({ pid: process.pid, processBirthId: "0" })}\n`, { mode: 0o644 });
     assert.throws(() => reclaimStaleOwnMarker(marker), /not trusted/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runtime Node compatibility accepts only strict stable versions in the approved bounded range", () => {
+  assert.deepEqual(
+    assertNodeCompatibility(">=22 <23", "22.0.0"),
+    { range: ">=22 <23", version: "22.0.0", minimum: 22, maximum: 23 },
+  );
+  assert.equal(assertNodeCompatibility(">=22 <23", "22.999.999").version, "22.999.999");
+  for (const version of ["20.19.0", "23.0.0", "24.1.0", "22.1.0-rc.1", "v22.1.0", "22.1"]) {
+    assert.throws(() => assertNodeCompatibility(">=22 <23", version), /outside|unsupported/);
+  }
+  for (const range of [undefined, "", ">=22", ">=22 <=23", "^22", "22.x", ">=23 <22", ">=022 <23", ">=22 <100"]) {
+    assert.throws(() => assertNodeCompatibility(range, "22.1.0"), /invalid|unsupported|contradictory/);
+  }
+});
+
+test("copied launcher refuses an unsupported verified manifest before entry evaluation", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-node-refusal-"));
+  try {
+    const repo = createRepo(root, "project");
+    const logs = path.join(root, "Settleora");
+    const parent = path.join(root, "install");
+    mkdirSync(logs, { mode: 0o700 });
+    mkdirSync(parent, { mode: 0o700 });
+    const runtime = path.join(parent, "runtime");
+    const deployed = deployRuntimeBundle({ sourceRoot, destination: runtime, repoRoot: repo, logsRoot: logs, sourceSha });
+    const evaluated = path.join(root, "entry-evaluated");
+    const entryPath = path.join(runtime, "settleora-auto-runnerctl.mjs");
+    chmodSync(entryPath, 0o600);
+    writeFileSync(entryPath, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(evaluated)}, "yes"); export async function main() {}\n`);
+    chmodSync(entryPath, 0o400);
+    const manifestPath = path.join(runtime, "runtime-bundle-manifest.json");
+    chmodSync(manifestPath, 0o600);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const entryRecord = manifest.files.find((file) => file.path === "settleora-auto-runnerctl.mjs");
+    entryRecord.sha256 = createHash("sha256").update(readFileSync(entryPath)).digest("hex");
+    manifest.node = ">=23 <24";
+    manifest.bundleDigest = createHash("sha256").update(canonicalJson({
+      format: manifest.format,
+      version: manifest.version,
+      sourceSha: manifest.sourceSha,
+      files: manifest.files,
+      entryPoints: manifest.entryPoints,
+      node: manifest.node,
+    })).digest("hex");
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    chmodSync(manifestPath, 0o400);
+    const approvalPath = path.join(parent, ".runtime.approved.json");
+    chmodSync(approvalPath, 0o600);
+    const approval = JSON.parse(readFileSync(approvalPath, "utf8"));
+    approval.bundleDigest = manifest.bundleDigest;
+    writeFileSync(approvalPath, `${JSON.stringify(approval, null, 2)}\n`);
+    chmodSync(approvalPath, 0o400);
+    const result = spawnSync(process.execPath, [
+      deployed.launcher, "--runtime-root", runtime, "--entry", "settleora-auto-runnerctl.mjs", "--",
+    ], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /outside the approved runtime range/);
+    assert.equal(existsSync(evaluated), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
