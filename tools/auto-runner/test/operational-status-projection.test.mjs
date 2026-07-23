@@ -552,16 +552,20 @@ test("missing numeric values remain unknown and recovery authority is not overwr
   assert.equal(model.recovery.classification, null);
 });
 
-test("active-run persistence retains the bounded operational projection from the full iteration", () => {
+test("active-run persistence retains bounded operational and cleanup projections", () => {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-projection-"));
   mkdirSync(path.join(logsRoot, "state"), { recursive: true });
   const config = { logsRoot, maxIterations: 3, maxRuntimeMs: 60_000 };
-  const summary = { runId: "run-927", startedAt: new Date().toISOString(), iterations: [{ pr: { number: 42, headRefName: "feature/stack-b", baseRefName: "feature/stack-a", headRefOid: head }, logicalTaskBudget: { acceptedLogicalTaskCount: 1, logicalTaskKey: "task-927", charged: true }, reviewConvergenceState: { twoLoop: { localSourceChangingRoundsPerEpoch: 2, githubTriggeredFixEpochsPerPr: 1, lifetimeLocalSourceChangingRounds: 9 } }, recovery: { state: { phase: "validation", nextSafeAction: "run_tests" } } }] };
+  const summary = { runId: "run-927", startedAt: new Date().toISOString(), iterations: [{ pr: { number: 42, headRefName: "feature/stack-b", baseRefName: "feature/stack-a", headRefOid: head }, logicalTaskBudget: { acceptedLogicalTaskCount: 1, logicalTaskKey: "task-927", charged: true }, reviewConvergenceState: { twoLoop: { localSourceChangingRoundsPerEpoch: 2, githubTriggeredFixEpochsPerPr: 1, lifetimeLocalSourceChangingRounds: 9 } }, recovery: { state: { phase: "validation", nextSafeAction: "run_tests" } }, postMergeCleanupState: { policyVersion: "ephemeral_cleanup_v1", phase: "cleanup_planned", ownership: { repository: "owner/repo", rootTaskKey: "secret-task-key", correlations: { session: "secret-session" } }, evidence: { remotePresent: true, activeReferenceCount: 2, activeReferenceCategories: ["session"] }, cleanupRequired: true } }] };
   const activePath = writeActiveRunState(config, summary);
   const persisted = JSON.parse(readFileSync(activePath, "utf8"));
   assert.equal(persisted.operationalProjection.counters.acceptedTaskBudget.consumed, 1);
   assert.deepEqual(persisted.operationalProjection.counters.localSourceChangingRoundsPerEpoch, { value: 2, limit: 50 });
   assert.deepEqual(persisted.operationalProjection.counters.githubTriggeredFixEpochsPerPr, { value: 1, limit: 50 });
+  assert.equal(persisted.operationalProjection.cleanup.policyVersion, "ephemeral_cleanup_v1");
+  assert.equal(persisted.operationalProjection.cleanup.remotePresent, true);
+  assert.equal(JSON.stringify(persisted.operationalProjection.cleanup).includes("secret-task-key"), false);
+  assert.equal(JSON.stringify(persisted.operationalProjection.cleanup).includes("secret-session"), false);
   const status = getRunnerStatus(config);
   assert.equal(status.operationalProjection.recovery.nextSafeAction, "run_tests");
   assert.equal(status.currentOrLastPr.baseRefName, "feature/stack-a");

@@ -759,6 +759,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       branchName,
       expectedOriginMainSha: iteration.baseOriginMainSha,
     });
+    recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName);
   }
 
   const promptInfo = generateTaskPrompt(config, issue, laneDecision, branchName);
@@ -2532,6 +2533,19 @@ export function primaryWorktreeRoot(repoRoot) {
   const first = String(listed.stdout || "").split("\n").find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
   if (!first) return null;
   try { return realpathSync(first); } catch { return null; }
+}
+
+function recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName) {
+  const common = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: config.repoRoot, encoding: "utf8" });
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: config.repoRoot, encoding: "utf8" });
+  if (common.status !== 0 || top.status !== 0) return;
+  try {
+    const worktreePath = realpathSync(String(top.stdout || "").trim());
+    const primaryPath = realpathSync(path.dirname(String(common.stdout || "").trim()));
+    if (worktreePath === primaryPath) return;
+    const identity = canonicalGithubEvidenceDigest({ repository: config.repositorySlug, branchName, realPath: worktreePath });
+    recoveryRecorder?.marker("worktree_ownership_created", `${branchName}:${identity}`, { target: identity, correlation: branchName });
+  } catch { /* absent proof deliberately leaves the worktree unowned */ }
 }
 
 function ordinaryIdentityForHead(baseSha, headSha) {

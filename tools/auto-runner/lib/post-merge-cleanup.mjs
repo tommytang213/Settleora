@@ -198,7 +198,7 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
       const local = localRef(owner.branchName); if (local.status === 1) return { ok: true, adopted: true };
       if (local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha) return fail("local_branch_delete_target_drift");
       const merged = run(["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]); if (merged.status !== 0) return fail("local_branch_unmerged");
-      return commandResult(run(["-c", `branch.${owner.branchName}.remote=origin`, "-c", `branch.${owner.branchName}.merge=refs/heads/${owner.targetBranch}`, "branch", "-d", "--", owner.branchName]), "local_branch_delete_failed");
+      return commandResult(run(["update-ref", "-d", `refs/heads/${owner.branchName}`, owner.reviewedHeadSha]), "local_branch_delete_failed");
     },
   };
 }
@@ -219,5 +219,26 @@ function safeReason(value) { return typeof value === "string" && /^[a-z0-9_:-]{1
 function commandResult(result, reasonCode) { return result?.status === 0 && !result?.error ? { ok: true } : { ok: false, reasonCode }; }
 function writeOwnerOnlyAtomic(file, value, unsafeReason) { const dir = path.dirname(file); mkdirSync(dir, { recursive: true, mode: 0o700 }); const info = lstatSync(dir); if ((info.mode & 0o077) !== 0 || info.isSymbolicLink()) return fail(unsafeReason); const tmp = `${file}.${process.pid}.${Date.now()}.tmp`; writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" }); renameSync(tmp, file); return { ok: true, statePath: file, value }; }
 function readOwnerOnlyJson(file, validator, prefix) { let fd; try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); const stat = fstatSync(fd); if (!stat.isFile() || stat.size < 2 || stat.size > 1024 * 1024 || (stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())) return fail(`${prefix}_state_unsafe`); const value = JSON.parse(readFileSync(fd, "utf8")); const valid = validator(value); return valid.ok ? { ok: true, value } : valid; } catch { return fail(`${prefix}_state_unavailable_or_corrupt`); } finally { if (fd !== undefined) closeSync(fd); } }
-function processOwnsPath(candidate) { const lsof = spawnSync("lsof", ["-t", "+D", candidate], { encoding: "utf8", windowsHide: true }); if (lsof.error && lsof.error.code !== "ENOENT") return true; if (!lsof.error && ![0, 1].includes(lsof.status)) return true; if (!lsof.error && lsof.status === 0 && String(lsof.stdout || "").trim()) return true; try { for (const entry of readdirSync("/proc")) { if (!/^[1-9][0-9]*$/.test(entry)) continue; for (const link of [`/proc/${entry}/cwd`, `/proc/${entry}/root`, `/proc/${entry}/exe`]) { try { if (insidePath(readlinkSync(link), candidate)) return true; } catch { /* procfs entries can disappear during the bounded scan */ } } try { for (const fd of readdirSync(`/proc/${entry}/fd`)) { try { if (insidePath(readlinkSync(`/proc/${entry}/fd/${fd}`), candidate)) return true; } catch { /* fd may close during the bounded scan */ } } } catch { /* process may exit during the bounded scan */ } } } catch { return true; } return false; }
+function processOwnsPath(candidate) {
+  const lsof = spawnSync("lsof", ["-t", "+D", candidate], { encoding: "utf8", windowsHide: true });
+  if (lsof.error && lsof.error.code !== "ENOENT") return true;
+  if (!lsof.error && ![0, 1].includes(lsof.status)) return true;
+  if (!lsof.error && lsof.status === 0 && String(lsof.stdout || "").trim()) return true;
+  if (!lsof.error && lsof.status === 1) return false;
+  try {
+    for (const entry of readdirSync("/proc")) {
+      if (!/^[1-9][0-9]*$/.test(entry)) continue;
+      for (const link of [`/proc/${entry}/cwd`, `/proc/${entry}/root`, `/proc/${entry}/exe`]) {
+        try { if (insidePath(readlinkSync(link), candidate)) return true; } catch (error) { if (!transientProcfsError(error)) return true; }
+      }
+      let fds;
+      try { fds = readdirSync(`/proc/${entry}/fd`); } catch (error) { if (transientProcfsError(error)) continue; return true; }
+      for (const fd of fds) {
+        try { if (insidePath(readlinkSync(`/proc/${entry}/fd/${fd}`), candidate)) return true; } catch (error) { if (!transientProcfsError(error)) return true; }
+      }
+    }
+  } catch { return true; }
+  return false;
+}
+function transientProcfsError(error) { return error?.code === "ENOENT" || error?.code === "ESRCH"; }
 function insidePath(value, candidate) { const clean = String(value || "").replace(/ \(deleted\)$/, ""); return clean === candidate || clean.startsWith(`${candidate}${path.sep}`); }

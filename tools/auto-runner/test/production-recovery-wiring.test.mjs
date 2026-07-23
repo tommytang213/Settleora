@@ -134,6 +134,8 @@ test("production runner records lifecycle phases, mutation markers, and head inv
     assert.match(source, new RegExp(`["']${phase}["']`), phase);
   }
   assert.match(source, /recordIdempotentMutation/);
+  assert.match(source, /recordTaskWorktreeOwnershipMarker\(config, recoveryRecorder, branchName\)/);
+  assert.match(source, /marker\("worktree_ownership_created"/);
   assert.match(source, /invalidateEvidenceForHeadChange/);
   assert.match(source, /writeRecoveryState/);
 });

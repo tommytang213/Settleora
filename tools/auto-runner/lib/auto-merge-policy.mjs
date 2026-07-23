@@ -541,9 +541,10 @@ function cleanupWorktreeIdentity(config, runner, repository, branchName, headSha
   const worktreePath = path.resolve(String(top.stdout || "").trim());
   const primaryPath = path.dirname(path.resolve(String(common.stdout || "").trim()));
   if (!worktreePath || worktreePath === primaryPath) return null;
+  const creationIdentity = canonicalGithubEvidenceDigest({ repository, branchName, realPath: worktreePath });
   const identity = canonicalGithubEvidenceDigest({ repository, branchName, headSha, realPath: worktreePath });
-  const marker = recovery?.mutationMarkers?.worktree_ownership_created?.[`${branchName}:${identity}`];
-  return marker?.target === identity && marker?.correlation === branchName ? { identity, disposable: true } : null;
+  const marker = recovery?.mutationMarkers?.worktree_ownership_created?.[`${branchName}:${creationIdentity}`];
+  return marker?.target === creationIdentity && marker?.correlation === branchName ? { identity, disposable: true } : null;
 }
 
 function inspectCleanupBranchSafety(config, context, runner) {
