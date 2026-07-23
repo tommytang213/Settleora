@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedIteration } from "./evidence-sanitizer.mjs";
+import { repositoryAuthorityLockPath } from "./runtime-identity.mjs";
 
 export function processAppearsActive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
@@ -15,6 +16,20 @@ export function processAppearsActive(pid) {
 
 export function acquireRunnerLock(config, metadata = {}) {
   const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
+  const repositoryLockPath = repositoryAuthorityLockPath(config.repoRoot, config.repositoryAuthorityRoot);
+  for (const target of [repositoryLockPath, lockPath]) {
+    acquireOneLock(target, {
+      projectId: config.projectId,
+      repositorySlug: config.repositorySlug,
+      repoRoot: config.repoRoot,
+      stateNamespace: config.runtimeIdentity?.namespace || null,
+      ...metadata,
+    });
+  }
+  return { lockPath, repositoryLockPath };
+}
+
+function acquireOneLock(lockPath, metadata) {
   if (existsSync(lockPath)) {
     let lock;
     try {
@@ -36,11 +51,17 @@ export function acquireRunnerLock(config, metadata = {}) {
     `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString(), ...metadata }, null, 2)}\n`,
     { flag: "wx" },
   );
-  return lockPath;
 }
 
-export function releaseRunnerLock(lockPath) {
-  if (!lockPath || !existsSync(lockPath)) return;
+export function releaseRunnerLock(lockHandle) {
+  const paths = typeof lockHandle === "string"
+    ? [lockHandle]
+    : [lockHandle?.lockPath, lockHandle?.repositoryLockPath].filter(Boolean);
+  for (const lockPath of paths) releaseOneLock(lockPath);
+}
+
+function releaseOneLock(lockPath) {
+  if (!existsSync(lockPath)) return;
   try {
     const lock = JSON.parse(readFileSync(lockPath, "utf8"));
     if (lock.pid === process.pid) rmSync(lockPath);

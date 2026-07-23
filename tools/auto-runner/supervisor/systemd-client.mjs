@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { unitNameForRunId } from "./supervisor-state.mjs";
 import { resolveProfile, validateRunId } from "./run-spec.mjs";
+import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 
 export function buildSystemdStartPlan(runId) {
   validateRunId(runId);
@@ -31,11 +32,11 @@ export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000 } = {})
   return { ok: false, unitName: plan.unitName, state: "submission_failed", status: active?.status ?? null, stderr: active?.stderr || "unit did not become active" };
 }
 
-export function runnerArgvForSpec(spec, { runnerRunId = null } = {}) {
-  const configPath = resolveProfile(spec.profile).runnerConfigPath;
+export function runnerArgvForSpec(spec, { runnerRunId = null, runtimeRoot = moduleRuntimeRoot(), logsRoot } = {}) {
+  const configPath = resolveProfile(spec.profile, logsRoot).runnerConfigPath;
   const argv = [
     process.execPath,
-    "tools/auto-runner/settleora-auto-runner.mjs",
+    absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs"),
     "--run",
     "--supervisor-run-id",
     spec.runId,

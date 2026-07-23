@@ -1,5 +1,47 @@
 # Settleora Auto-Runner Tooling
 
+## External runtime and managed repository separation
+
+The controller now has five explicit identities: `runtimeRoot`, `repoRoot`,
+`logsRoot`, `projectId`, and `repositorySlug`. Development configs may set
+`runtimeMode: "development"` and point `runtimeRoot` at this directory. A
+trusted profile must set `runtimeMode: "external"` and is accepted only when
+the executing module tree equals `runtimeRoot`, its versioned manifest and
+digest verify, and runtime, repository, `.git`, and project logs are disjoint
+canonical real paths. Project Git commands continue to use `repoRoot`;
+controller-owned children use absolute entries below `runtimeRoot`.
+
+`deploy-runtime.mjs` is an explicit stopped-runner utility. It builds a sorted
+generic-only manifest with per-file SHA-256/mode, a file-list digest, bundle
+digest, source SHA, entry points, and Node constraint. It copies to a sibling
+incoming directory, verifies the copied bundle, runs syntax/import smoke
+checks there, and uses expected-old-digest protected atomic handoff with one
+bounded rollback directory. It never writes a project profile or starts,
+enables, reloads, or restarts a service.
+
+Future manual command shapes (not executed by issue #951):
+
+```bash
+node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
+  --repo-root /workspace/repos/Settleora \
+  --source-root /workspace/repos/Settleora/tools/auto-runner \
+  --destination /workspace/auto-runner/runtime \
+  --logs-root /workspace/logs/auto-runner/Settleora \
+  --approved-sha <reviewed-40-character-sha> \
+  --expected-old-digest <installed-bundle-digest> \
+  --dry-run
+
+node /workspace/auto-runner/runtime/settleora-auto-runnerctl.mjs start \
+  --profile settleora --config /workspace/auto-runner/config/settleora.json
+node /workspace/auto-runner/runtime/settleora-auto-runnerctl.mjs status --json
+node /workspace/auto-runner/runtime/settleora-auto-runner.mjs --stop-after-current
+```
+
+The non-dry-run deploy and all start/profile commands require the separate
+manual #912 activation. Rollback is a stopped-process atomic exchange of the
+retained sibling `.runtime.rollback` after verifying its manifest and expected
+digest; no automatic rollback or restart authority is granted.
+
 ## Final ephemeral cleanup
 
 `ephemeral_cleanup_v1` requires positive ownership plus complete live merge,

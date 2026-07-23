@@ -9,6 +9,8 @@ import { evaluateReviewFixCanaryFixtureApproval } from "./review-fix-fixture.mjs
 import { buildEligibleLabelSearches } from "./github-issues.mjs";
 import { safeTimestamp } from "./logger.mjs";
 import { reviewerReadinessSummary } from "./reviewer-policy.mjs";
+import { absoluteRuntimeEntry, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
+import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
 
 const repoNameWithOwner = "tommytang213/Settleora";
 const riskyGateKeys = Object.freeze([
@@ -29,6 +31,7 @@ export function runPreflight(config, options = {}) {
   const runner = options.runner || defaultRunner;
   const checks = [];
   checks.push(checkRepoRoot(config));
+  checks.push(checkRuntimeIdentity(config));
   checks.push(checkBranchAndStatus(config, runner));
   checks.push(checkOriginMainFetchable(config, runner));
   checks.push(checkGhAvailable(runner));
@@ -95,8 +98,9 @@ export function runPreflight(config, options = {}) {
     mode: config.mode || "preflight",
     generatedAt: new Date().toISOString(),
     repo: repoNameWithOwner,
-    branch: safeValue(() => getCurrentBranch(), "unknown"),
-    headSha: safeValue(() => getRefSha("HEAD"), "unknown"),
+    branch: safeValue(() => getCurrentBranch({ cwd: config.repoRoot }), "unknown"),
+    headSha: safeValue(() => getRefSha("HEAD", { cwd: config.repoRoot }), "unknown"),
+    runtimeIdentity: config.runtimeIdentity || null,
     configPathUsed: config.configPath || "default built-in config",
     logsRoot: config.logsRoot,
     readinessReports: null,
@@ -122,23 +126,45 @@ function buildRemainingManualGates(config) {
 }
 
 function checkRepoRoot(config) {
-  const cwd = process.cwd();
   const packageJson = path.join(config.repoRoot, "package.json");
-  const runner = path.join(config.repoRoot, "tools/auto-runner/settleora-auto-runner.mjs");
-  const ok = cwd === config.repoRoot && existsSync(packageJson) && existsSync(runner);
+  const ok = existsSync(packageJson);
   return {
     name: "repo-root",
     status: ok ? "pass" : "fail",
-    detail: bounded(`cwd=${cwd}; configured=${config.repoRoot}`),
+    detail: bounded(`configured=${config.repoRoot}`),
   };
+}
+
+function checkRuntimeIdentity(config) {
+  try {
+    if (config.runtimeMode !== "external" && (!config.projectId || !config.runtimeRoot)) {
+      return {
+        name: "runtime-identity",
+        status: "pass",
+        detail: "development compatibility mode; trusted external activation would require explicit runtimeRoot and projectId",
+      };
+    }
+    const identity = validateProjectRuntimeIdentity(config);
+    const runner = absoluteRuntimeEntry(identity.runtimeRoot, "settleora-auto-runner.mjs");
+    const manifest = config.runtimeMode === "external"
+      ? verifyRuntimeBundle(identity.runtimeRoot, config.runtimeBundleDigest || null)
+      : null;
+    return {
+      name: "runtime-identity",
+      status: "pass",
+      detail: bounded(JSON.stringify({ ...identity, runner, bundleDigest: manifest?.bundleDigest || null })),
+    };
+  } catch (error) {
+    return { name: "runtime-identity", status: "fail", detail: bounded(error.message) };
+  }
 }
 
 function checkBranchAndStatus(config, runner) {
   try {
-    const branch = getCurrentBranch();
-    const status = getStatusShort();
-    const headSha = getRefSha("HEAD");
-    const originMainSha = safeValue(() => getRefSha("origin/main"), null);
+    const branch = getCurrentBranch({ cwd: config.repoRoot });
+    const status = getStatusShort({ cwd: config.repoRoot });
+    const headSha = getRefSha("HEAD", { cwd: config.repoRoot });
+    const originMainSha = safeValue(() => getRefSha("origin/main", { cwd: config.repoRoot }), null);
     const relation = originMainSha ? headRelationToOriginMain(runner, headSha, originMainSha) : "origin-main-unavailable";
     const realRunWouldRefuse = branch === "main" || Boolean(status);
     return {

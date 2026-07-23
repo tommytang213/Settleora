@@ -1,5 +1,23 @@
 # Autonomous Codex Runner
 
+## External controller runtime boundary
+
+The trusted controller program is a verified bundle outside the managed Git
+checkout. `runtimeRoot` selects controller modules and absolute child
+entrypoints; `repoRoot` selects the one managed repository; `logsRoot` contains
+only that project's durable operational evidence; `projectId` is a bounded
+filesystem-safe process identity; and `repositorySlug` remains GitHub
+authority. Launch directory is not repository authority. A branch switch or
+edit under `repoRoot/tools/auto-runner` cannot select controller code.
+
+Trusted external mode requires explicit identities, a deterministic manifest
+and bundle digest, realpath/symlink containment, owner-controlled disjoint
+roots, expected repository identity, and one mutation owner per canonical
+repository. Different canonical repositories may use the same read-only
+runtime with separate processes and state. Legacy
+`/workspace/logs/settleora-auto-runner` remains historical evidence; adopting
+`/workspace/logs/auto-runner/Settleora` is a later manual #912 decision.
+
 ## Positively owned post-merge cleanup
 
 Issue #947 adds `ephemeral_cleanup_v1` as the final ordinary-continuation

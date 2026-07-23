@@ -1,5 +1,14 @@
 # Autonomous Codex Runner Monitoring
 
+## Project-bound monitoring identity
+
+Health, notifier, status, supervisor, session, recovery, budget, effect, and
+report records are scoped to the explicit `projectId`, `repositorySlug`,
+canonical `repoRoot`, and state namespace. Monitoring reads controller code
+from `runtimeRoot` and project evidence from `logsRoot`; colliding run/task IDs
+from another project are not adoption authority. Shared runtime files are
+read-only inputs and do not create a cross-project mutation lock.
+
 ## Status
 
 This document is the authoritative design for future Settleora auto-runner

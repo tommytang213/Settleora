@@ -10,6 +10,7 @@ import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs"
 import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.mjs";
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
 import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./session-lifecycle.mjs";
+import { moduleRuntimeRoot, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -20,6 +21,9 @@ const liveStackCorrelationPattern = /^[0-9]{8}-[0-9]{4}(?:-[a-z0-9][a-z0-9-]{0,4
 const maxTrustedConfigBytes = 1024 * 1024;
 
 export const defaultConfig = Object.freeze({
+  runtimeMode: "development",
+  runtimeRoot: moduleRuntimeRoot(),
+  projectId: "Settleora",
   repoRoot: "/workspace/repos/Settleora",
   logsRoot: defaultLogsRoot,
   repositorySlug: "tommytang213/Settleora",
@@ -541,6 +545,10 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   }
   chmodSync(lifecycleRoot, 0o700);
   config.canaryEvidenceRoot = path.join(config.logsRoot, "canary");
+  config.runtimeIdentity = validateProjectRuntimeIdentity(config, {
+    actualRuntimeRoot: moduleRuntimeRoot(),
+    trusted: config.runtimeMode === "external",
+  });
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
   if (!existsSync(localConfigPath)) {

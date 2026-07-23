@@ -1,5 +1,18 @@
 # Issue Progress Ledger
 
+### Issue #951 — external runtime/repository separation implementation (2026-07-23)
+
+- Root task `20260723-1455` started from exact main
+  `c285a275934a00b4e57138304bd1e71a5d0b99a6` after PRs #949/#950 and #947
+  were reconciled complete and no prior #951 continuation or owner existed.
+- The candidate introduces explicit runtime/repository/log/project/GitHub
+  identities, runtime-bound absolute child entrypoints, project-bound state and
+  same-repository authority locks, a deterministic generic runtime bundle
+  manifest, and an expected-old-digest protected manual deployment utility.
+- Acceptance uses isolated temporary repositories and copied runtime paths;
+  no external runtime, profile, service, or historical log root is changed.
+  #910 and #912 remain open; #912 remains manual-gated and unactivated.
+
 ### Issue #947 and PR #949 — merged safe ephemeral cleanup (2026-07-23)
 
 - Root task `20260723-1007` was admitted once from main

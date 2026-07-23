@@ -14,6 +14,7 @@ import { resolveRunnerSummaryForSupervisor } from "./runner-summary-resolver.mjs
 import { runnerArgvForSpec } from "./systemd-client.mjs";
 import { readSupervisorState, writeSupervisorState } from "./supervisor-state.mjs";
 import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
+import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 
 const exitCodes = {
   completed: 0,
@@ -32,12 +33,13 @@ export async function runSupervisorWorker(
     spawnImpl = spawn,
     spawnSyncImpl = spawnSync,
     resolveSummary = resolveRunnerSummaryForSupervisor,
+    runtimeRoot = moduleRuntimeRoot(),
   } = {},
 ) {
   validateRunId(runId);
   const previous = readSupervisorState(runId, logsRoot).state;
   const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, logsRoot);
-  const currentMain = getRefSha("origin/main");
+  const currentMain = getRefSha("origin/main", { cwd: repoRoot });
   if (currentMain !== verified.spec.initialOriginMainSha) {
     writeSupervisorState(runId, { state: "stale", staleReason: "origin_main_changed", currentMain }, logsRoot);
     return { terminal: "stale", exitCode: exitCodes.stale };
@@ -62,7 +64,7 @@ export async function runSupervisorWorker(
   writeHeartbeat(runId, heartbeat, logsRoot);
   recordMonitoringEvent("started", heartbeat, { logsRoot });
 
-  const argv = runnerArgvForSpec(verified.spec, { runnerRunId });
+  const argv = runnerArgvForSpec(verified.spec, { runnerRunId, runtimeRoot, logsRoot });
   writeSupervisorState(runId, { state: "running", runnerArgv: redactArgv(argv), stdoutPath, stderrPath }, logsRoot);
   heartbeat = buildHeartbeat({ runId, runnerRunId, state: "running", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration: ++heartbeatGeneration });
   writeHeartbeat(runId, heartbeat, logsRoot);
@@ -78,8 +80,8 @@ export async function runSupervisorWorker(
     if (stopping) return;
     stopping = true;
     writeSupervisorState(runId, { state: "stopping_after_current" }, logsRoot);
-    spawnSyncImpl(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--stop-after-current"], {
-      cwd: repoRoot,
+    spawnSyncImpl(process.execPath, [absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs"), "--stop-after-current"], {
+      cwd: runtimeRoot,
       encoding: "utf8",
     });
   };

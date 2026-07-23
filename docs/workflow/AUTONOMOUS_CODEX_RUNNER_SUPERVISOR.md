@@ -1,5 +1,16 @@
 # Detached Auto-Runner Supervisor
 
+## Runtime-bound child execution
+
+Supervisor workers resolve controller and control entrypoints as absolute
+verified paths under the executing `runtimeRoot`. The managed `repoRoot` is
+passed only as explicit project command context. Stop-after-current, recovery,
+and later controller-owned child launches must not use
+`node tools/auto-runner/...` from the project checkout. Runtime identity and
+bundle digest are preflight/status evidence, while same-canonical-repository
+authority locking prevents a second project ID or logs root from becoming a
+concurrent mutation owner.
+
 Post-merge cleanup is runner-owned. The supervisor receives only bounded
 sanitized policy, ownership, eligibility, phase, expected-head, presence,
 active-reference count/category, result, blocker, and next-action fields. It
