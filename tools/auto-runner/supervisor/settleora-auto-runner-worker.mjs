@@ -191,6 +191,16 @@ export async function main() {
     runtimeRoot: config.runtimeRoot,
   });
     process.exitCode = result.exitCode;
+  } catch (error) {
+    const runId = process.argv[2];
+    if (runId) {
+      try {
+        writeSupervisorState(runId, { state: "failed", failure: error.message }, failureLogsRoot);
+      } catch {
+        // Preserve original failure.
+      }
+    }
+    throw error;
   } finally {
     releaseRuntimeConsumer(runtimeConsumer);
   }
@@ -241,15 +251,7 @@ function sanitizeReportResolution(resolution) {
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   main().catch((error) => {
-  const runId = process.argv[2];
-  if (runId) {
-    try {
-      writeSupervisorState(runId, { state: "failed", failure: error.message }, failureLogsRoot);
-    } catch {
-      // Preserve original failure.
-    }
-  }
-  console.error(error.message);
-  process.exit(12);
+    console.error(error.message);
+    process.exit(12);
   });
 }

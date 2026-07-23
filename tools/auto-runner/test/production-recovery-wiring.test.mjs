@@ -95,6 +95,13 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
 });
 
+test("stable-launched supervisor main persists startup failures before rethrow", () => {
+  const worker = readFileSync("tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs", "utf8");
+  const exportedMain = worker.slice(worker.indexOf("export async function main()"), worker.indexOf("function waitForChild"));
+  assert.match(exportedMain, /catch \(error\)[\s\S]*writeSupervisorState\(runId, \{ state: "failed"/);
+  assert.match(exportedMain, /throw error/);
+});
+
 test("post-merge cleanup uses the supported head filter and terminalizes its own recovery state", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.match(source, /\["pr", "list", "--repo", owner\.repository, "--state", "open", "--head", owner\.branchName/);

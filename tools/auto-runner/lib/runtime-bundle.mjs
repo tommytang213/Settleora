@@ -239,6 +239,7 @@ export function deployRuntimeBundle({
   if (runtimeConsumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
   const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
   const destinationParent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
+  if (path.basename(destination) !== "runtime") throw new Error("runtime destination basename must be runtime");
   if (path.resolve(destination) !== destination || isContained(destination, source)) throw new Error("runtime destination must be canonical and outside source");
   assertSeparatedRoots({ runtimeRoot: destination, repoRoot: path.resolve(repoRoot), logsRoot: path.resolve(logsRoot) });
   const manifest = buildRuntimeManifest(source, { sourceSha });
@@ -348,6 +349,7 @@ export function rollbackRuntimeBundle({
     throw new Error("runtime rollback requires expected current and rollback digests");
   }
   const parent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
+  if (path.basename(destination) !== "runtime") throw new Error("runtime destination basename must be runtime");
   const rollback = path.join(parent, `.${path.basename(destination)}.rollback`);
   const incoming = path.join(parent, `.${path.basename(destination)}.rollback-incoming`);
   if (existsSync(destination) && existsSync(rollback)) {

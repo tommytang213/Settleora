@@ -111,7 +111,6 @@ export async function main(argv = process.argv.slice(2)) {
   if (path.resolve(argv[1]) !== runtimeRoot || !allowedEntries.has(entry)) throw new Error("runtime launcher identity is invalid");
   const parent = path.dirname(runtimeRoot);
   assertOwnerControlledDirectory(parent, "runtime deployment parent");
-  verifyApprovedRuntime(runtimeRoot, launcherPath);
   const deploymentLock = path.join(parent, `.${path.basename(runtimeRoot)}.deployment.lock`);
   const consumers = path.join(parent, `.${path.basename(runtimeRoot)}.consumers`);
   mkdirSync(consumers, { recursive: true, mode: 0o700 });
@@ -121,6 +120,7 @@ export async function main(argv = process.argv.slice(2)) {
   writeFileSync(marker, `${JSON.stringify({ pid: process.pid, processBirthId: processBirthId(process.pid) })}\n`, { flag: "wx", mode: 0o600 });
   try {
     if (lockExists(deploymentLock)) throw new Error("runtime startup raced with deployment");
+    verifyApprovedRuntime(runtimeRoot, launcherPath);
     const target = path.join(runtimeRoot, entry);
     const loaded = await import(pathToFileURL(target).href);
     if (typeof loaded.main !== "function") throw new Error("runtime entry does not export main");

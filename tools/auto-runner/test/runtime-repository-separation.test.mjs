@@ -152,6 +152,8 @@ test("copied runtime remains authoritative after managed branch and source chang
     releaseRuntimeDeploymentLock(deploymentLock);
     const launcherSource = readFileSync(deployed.launcher, "utf8");
     assert.ok(launcherSource.indexOf("await import(") < launcherSource.indexOf("process.argv = [process.execPath, target"));
+    const launcherMain = launcherSource.slice(launcherSource.indexOf("export async function main"));
+    assert.ok(launcherMain.indexOf("writeFileSync(marker") < launcherMain.indexOf("verifyApprovedRuntime(runtimeRoot"));
     const tampered = path.join(runtime, "lib/runtime-identity.mjs");
     const originalBytes = readFileSync(tampered);
     chmodSync(tampered, 0o600);
@@ -199,6 +201,14 @@ test("copied runtime remains authoritative after managed branch and source chang
       runtimeMode: "external", runtimeRoot: runtime, repoRoot: repo, logsRoot: logs,
       projectId: "Settleora", repositorySlug: "tommytang213/Settleora",
     }, { actualRuntimeRoot: runtime }), /push URL/);
+    git(repo, ["config", "--unset-all", "remote.origin.pushurl"]);
+    git(repo, ["remote", "set-url", "origin", "ssh://git@attacker.example/tommytang213/Settleora.git"]);
+    git(repo, ["config", "remote.origin.pushurl", "git@github.com:tommytang213/Settleora.git"]);
+    assert.throws(() => validateProjectRuntimeIdentity({
+      runtimeMode: "external", runtimeRoot: runtime, repoRoot: repo, logsRoot: logs,
+      projectId: "Settleora", repositorySlug: "tommytang213/Settleora",
+    }, { actualRuntimeRoot: runtime }), /origin/);
+    git(repo, ["remote", "set-url", "origin", "git@github.com:tommytang213/Settleora.git"]);
     git(repo, ["config", "--unset-all", "remote.origin.pushurl"]);
     assert.throws(() => validateProjectRuntimeIdentity({
       runtimeMode: "external",
@@ -317,6 +327,9 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
     mkdirSync(logs, { mode: 0o700 });
     mkdirSync(parent, { mode: 0o700 });
     const destination = path.join(parent, "runtime");
+    assert.throws(() => deployRuntimeBundle({
+      sourceRoot, destination: path.join(parent, "candidate"), repoRoot: repo, logsRoot: logs, sourceSha,
+    }), /basename/);
     const consumers = path.join(parent, ".runtime.consumers");
     mkdirSync(consumers, { mode: 0o700 });
     const staleMarker = path.join(consumers, `${process.pid}.lock`);

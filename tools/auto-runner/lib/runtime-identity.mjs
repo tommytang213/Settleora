@@ -163,7 +163,7 @@ export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
   const pushResult = spawnSync("git", ["remote", "get-url", "--push", "--all", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
   const pushUrls = pushResult.status === 0 ? pushResult.stdout.split(/\r?\n/u).filter(Boolean) : [];
   const pushUrl = pushUrls.length === 1 ? pushUrls[0] : null;
-  if (expectedSlug && (!originUrl || repositorySlugFromRemote(originUrl) !== expectedSlug)) {
+  if (expectedSlug && (!originUrl || repositorySlugFromRemote(originUrl) !== expectedSlug || !isApprovedGitHubRemote(originUrl))) {
     throw new Error("repoRoot origin does not match repositorySlug");
   }
   if (expectedSlug && (!pushUrl || repositorySlugFromRemote(pushUrl) !== expectedSlug || !isApprovedGitHubRemote(pushUrl))) {
