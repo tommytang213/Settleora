@@ -255,7 +255,7 @@ async function submit(cli, config) {
   });
   const specSha256 = sha256Text(canonicalJson(specResult.spec));
   const runtimeRoot = moduleRuntimeRoot();
-  const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath: profile.runnerConfigPath });
+  const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath: profile.runnerConfigPath, repoRoot: config.repoRoot, logsRoot: config.logsRoot });
   const runnerArgv = runnerArgvForSpec(specResult.spec, { runtimeRoot, logsRoot: config.logsRoot });
   const heartbeat = buildHeartbeat({
     runId,
@@ -290,7 +290,7 @@ async function submit(cli, config) {
       state: event,
       payload: "sanitized bounded JSON",
     })),
-    statusCommand: `node ${absoluteRuntimeEntry(moduleRuntimeRoot(), "settleora-auto-runnerctl.mjs")} status --run ${runId} --json`,
+    statusCommand: `node ${absoluteRuntimeEntry(moduleRuntimeRoot(), "settleora-auto-runnerctl.mjs")} status --run ${runId} --json --config ${profile.runnerConfigPath}`,
   };
   if (cli.dryRun) return rendered;
 
@@ -325,6 +325,8 @@ async function submit(cli, config) {
   const start = startUserUnit(runId, {
     runtimeRoot,
     configPath: profile.runnerConfigPath,
+    repoRoot: config.repoRoot,
+    logsRoot: config.logsRoot,
   });
   if (!start.ok) {
     writeSupervisorState(runId, { state: "submission_failed", submissionFailure: start.stderr }, config.logsRoot);

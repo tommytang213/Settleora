@@ -24,6 +24,7 @@ const exitCodes = {
   cancelled: 13,
   stale: 14,
 };
+let failureLogsRoot = defaultLogsRoot;
 
 export async function runSupervisorWorker(
   runId,
@@ -164,6 +165,7 @@ async function main() {
   const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : null;
   if (!configPath) throw new Error("supervisor worker requires --config");
   const config = loadConfig({ dryRun: true, run: false, configPath });
+  failureLogsRoot = config.logsRoot;
   const result = await runSupervisorWorker(process.argv[2], {
     logsRoot: config.logsRoot,
     repoRoot: config.repoRoot,
@@ -220,7 +222,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   const runId = process.argv[2];
   if (runId) {
     try {
-      writeSupervisorState(runId, { state: "failed", failure: error.message }, defaultLogsRoot);
+      writeSupervisorState(runId, { state: "failed", failure: error.message }, failureLogsRoot);
     } catch {
       // Preserve original failure.
     }

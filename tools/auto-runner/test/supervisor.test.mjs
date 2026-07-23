@@ -209,7 +209,11 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
     initialOriginMainSha: fakeSha,
     requestedBy: "operator",
   };
-  const plan = buildSystemdStartPlan(runId, { configPath: "/workspace/logs/configs/default.json" });
+  const plan = buildSystemdStartPlan(runId, {
+    configPath: "/workspace/logs/configs/default.json",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/settleora-auto-runner",
+  });
   assert.deepEqual(plan.startArgv.slice(0, 2), ["systemd-run", "--user"]);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
@@ -773,6 +777,8 @@ test("systemd start failure records no foreground fallback shape", () => {
   const calls = [];
   const result = startUserUnit(runId, {
     configPath: "/workspace/logs/configs/default.json",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/settleora-auto-runner",
     runner: (cmd, args) => {
       calls.push([cmd, ...args]);
       return { status: 1, stderr: "boom" };

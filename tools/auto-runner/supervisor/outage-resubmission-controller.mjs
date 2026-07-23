@@ -506,7 +506,12 @@ export function runOutageResubmissionController(input = {}) {
   writeSupervisorState(child.spec.runId, { state: "submitted", parentSupervisorRunId: source.supervisorRunId, specSha256: child.specSha256 }, config.logsRoot);
   counts.systemdCalls += 1;
   counts.realMutationCalls += 1;
-  const submitted = startUnit(child.spec.runId);
+  const submitted = startUnit(child.spec.runId, {
+    runtimeRoot: config.runtimeRoot,
+    configPath: config.configPath,
+    repoRoot: config.repoRoot,
+    logsRoot: config.logsRoot,
+  });
   if (!submitted.ok) {
     writeSupervisorState(child.spec.runId, {
       state: submitted.state || "submission_failed",

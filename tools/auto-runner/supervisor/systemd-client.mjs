@@ -4,14 +4,21 @@ import { unitNameForRunId } from "./supervisor-state.mjs";
 import { resolveProfile, validateRunId } from "./run-spec.mjs";
 import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 
-export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot(), configPath = null } = {}) {
+export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot(), configPath = null, repoRoot = null, logsRoot = null } = {}) {
   validateRunId(runId);
   if (!configPath || !path.isAbsolute(configPath)) throw new Error("absolute supervisor configPath is required");
+  if (!repoRoot || !path.isAbsolute(repoRoot) || !logsRoot || !path.isAbsolute(logsRoot)) {
+    throw new Error("absolute supervisor repoRoot and logsRoot are required");
+  }
   const worker = absoluteRuntimeEntry(runtimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
   return {
     unitName: unitNameForRunId(runId),
     startArgv: [
       "systemd-run", "--user", `--unit=${unitNameForRunId(runId).replace(/\.service$/, "")}`,
+      "--property=KillMode=process", "--property=TimeoutStopSec=30min",
+      "--property=SendSIGKILL=no", "--property=UMask=0077",
+      `--property=EnvironmentFile=-${path.join(logsRoot, "secrets/supervisor.env")}`,
+      `--working-directory=${repoRoot}`,
       process.execPath, worker, runId, "--config", configPath,
     ],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
@@ -19,8 +26,8 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
   };
 }
 
-export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath } = {}) {
-  const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath });
+export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath, repoRoot, logsRoot } = {}) {
+  const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath, repoRoot, logsRoot });
   const start = runner(plan.startArgv[0], plan.startArgv.slice(1), { encoding: "utf8", windowsHide: true });
   if (start.error || start.status !== 0) {
     return { ok: false, unitName: plan.unitName, state: "submission_failed", status: start.status, stderr: start.stderr || start.error?.message || "" };
