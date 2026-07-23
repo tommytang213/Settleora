@@ -19,7 +19,13 @@ export function acquireRuntimeConsumer(runtimeRoot) {
   const parent = canonicalExistingDirectory(path.dirname(runtimeRoot), "runtime parent");
   const deploymentLock = path.join(parent, `.${path.basename(runtimeRoot)}.deployment.lock`);
   const consumers = path.join(parent, `.${path.basename(runtimeRoot)}.consumers`);
-  mkdirSync(consumers, { mode: 0o700 });
+  mkdirSync(consumers, { recursive: true, mode: 0o700 });
+  const consumerDirectory = lstatSync(consumers);
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (!consumerDirectory.isDirectory() || consumerDirectory.isSymbolicLink() || realpathSync(consumers) !== consumers
+      || (consumerDirectory.mode & 0o022) !== 0 || (currentUid !== null && consumerDirectory.uid !== currentUid)) {
+    throw new Error("runtime consumer directory is unsafe");
+  }
   if (existsSync(deploymentLock)) throw new Error("runtime startup refused during deployment");
   const marker = path.join(consumers, `${process.pid}.lock`);
   writeFileSync(marker, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
@@ -39,9 +45,24 @@ export function acquireRuntimeDeploymentLock(destination) {
   const lock = path.join(parent, `.${path.basename(destination)}.deployment.lock`);
   writeFileSync(lock, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
   const consumers = path.join(parent, `.${path.basename(destination)}.consumers`);
-  if (existsSync(consumers) && readdirSync(consumers).length > 0) {
-    rmSync(lock);
-    throw new Error("runtime deployment refused while runtime consumers are registered");
+  if (existsSync(consumers)) {
+    for (const name of readdirSync(consumers)) {
+      const marker = path.join(consumers, name);
+      const info = lstatSync(marker);
+      const match = /^([1-9]\d*)\.lock$/.exec(name);
+      if (!match || !info.isFile() || info.isSymbolicLink() || (info.mode & 0o022) !== 0
+          || (typeof process.getuid === "function" && info.uid !== process.getuid())
+          || readFileSync(marker, "utf8").trim() !== match[1]) {
+        rmSync(lock);
+        throw new Error("runtime consumer marker is unsafe");
+      }
+      const active = processIsActive(Number(match[1]));
+      if (active !== false) {
+        rmSync(lock);
+        throw new Error("runtime deployment refused while runtime consumers are registered");
+      }
+      rmSync(marker);
+    }
   }
   return lock;
 }
@@ -299,7 +320,7 @@ export function inspectDeploymentQuiescence(logsRoot) {
     for (const file of regularJsonFiles(root, 4)) {
       const record = JSON.parse(readFileSync(file, "utf8"));
       const terminalStatuses = new Set(["completed", "finalized", "failed_closed", "recovered", "exhausted", "blocked"]);
-      const terminalPhases = new Set(["completed", "cleanup_complete"]);
+      const terminalPhases = new Set(["completed", "cleanup_complete", "stopped"]);
       const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
       if (!terminal) return { active: false, pendingEffects: true };
     }
