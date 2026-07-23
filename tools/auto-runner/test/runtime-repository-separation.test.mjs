@@ -43,7 +43,7 @@ test("copied runtime remains authoritative after managed branch and source chang
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-separation-"));
   try {
     const repo = createRepo(root, "project");
-    const logs = path.join(root, "logs");
+    const logs = path.join(root, "Settleora");
     const runtimeParent = path.join(root, "installed");
     mkdirSync(logs, { mode: 0o700 });
     mkdirSync(runtimeParent);
@@ -68,6 +68,14 @@ test("copied runtime remains authoritative after managed branch and source chang
     }, { actualRuntimeRoot: runtime });
     assert.equal(identity.repoRoot, repo);
     assert.equal(identity.runtimeRoot, runtime);
+    assert.throws(() => validateProjectRuntimeIdentity({
+      runtimeMode: "external",
+      runtimeRoot: runtime,
+      repoRoot: repo,
+      logsRoot: logs,
+      projectId: "OtherProject",
+      repositorySlug: "tommytang213/Settleora",
+    }, { actualRuntimeRoot: runtime }), /project-bound/);
   } finally {
     rmSync(root, { recursive: true });
   }
@@ -83,7 +91,7 @@ test("path overlap, aliases, manifest drift, missing entry, and digest mismatch 
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-refusal-"));
   try {
     const repo = createRepo(root, "project");
-    const logs = path.join(root, "logs");
+    const logs = path.join(root, "Settleora");
     const runtimeParent = path.join(root, "installed");
     mkdirSync(logs, { mode: 0o700 });
     mkdirSync(runtimeParent);

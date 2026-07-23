@@ -67,6 +67,9 @@ export function validateProjectRuntimeIdentity(config, {
   }
   if (trusted) assertSeparatedRoots({ runtimeRoot, repoRoot, logsRoot });
   const logsStat = statSync(logsRoot);
+  if (trusted && path.basename(logsRoot) !== projectId) {
+    throw new Error("trusted logsRoot must be project-bound by its terminal directory name");
+  }
   if (trusted && typeof process.getuid === "function" && logsStat.uid !== process.getuid()) {
     throw new Error("logsRoot must be owned by the runner user");
   }
