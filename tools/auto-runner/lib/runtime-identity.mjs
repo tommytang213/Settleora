@@ -164,10 +164,11 @@ export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
   const pushResult = spawnSync("git", ["remote", "get-url", "--push", "--all", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
   const pushUrls = pushResult.status === 0 ? pushResult.stdout.split(/\r?\n/u).filter(Boolean) : [];
   const pushUrl = pushUrls.length === 1 ? pushUrls[0] : null;
-  if (expectedSlug && (!originUrl || repositorySlugFromRemote(originUrl) !== expectedSlug || !isApprovedGitHubRemote(originUrl))) {
+  const normalizedExpectedSlug = expectedSlug?.toLowerCase() || null;
+  if (expectedSlug && (!originUrl || repositorySlugFromRemote(originUrl)?.toLowerCase() !== normalizedExpectedSlug || !isApprovedGitHubRemote(originUrl))) {
     throw new Error("repoRoot origin does not match repositorySlug");
   }
-  if (expectedSlug && (!pushUrl || repositorySlugFromRemote(pushUrl) !== expectedSlug || !isApprovedGitHubRemote(pushUrl))) {
+  if (expectedSlug && (!pushUrl || repositorySlugFromRemote(pushUrl)?.toLowerCase() !== normalizedExpectedSlug || !isApprovedGitHubRemote(pushUrl))) {
     throw new Error("repoRoot push URL does not match the approved GitHub repository");
   }
   return { topLevel: repoRoot, commonDir, originUrl, pushUrl };

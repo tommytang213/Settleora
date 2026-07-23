@@ -30,9 +30,10 @@ Before importing any replaceable bundle module, the launcher checks the
 deployment lock and records a PID plus process-start identity in the shared
 consumer directory. Deployment reclaims only markers whose process-start
 identity is stale and otherwise refuses the handoff. The deployment lock uses
-the same PID-birth proof and a short-lived atomic acquisition guard, so
-concurrent stale-lock recovery stays serialized and a crashed deploy can be
-reclaimed safely before the atomic exchange is reconciled. Repository
+the same PID-birth proof and an OS-released `flock` acquisition guard, so
+concurrent stale-lock recovery stays serialized, guard ownership is released
+on process exit, and a crashed deploy can be reclaimed safely before the
+atomic exchange is reconciled. Repository
 authority lock identities canonicalize GitHub slugs case-insensitively, so
 separate clones or differently cased remote spellings cannot gain two owners.
 Deployment `--dry-run` performs the source, manifest, quiescence, and consumer

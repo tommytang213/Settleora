@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -55,7 +55,7 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["add", "."]);
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
-    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 91);
+    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 92);
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
     writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);
@@ -113,6 +113,12 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
     git(repo, ["add", "."]);
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
+    const tracked = path.join(runtimeSource, "README.md");
+    const index = path.join(repo, ".git/index");
+    const oldIndexTime = new Date("2000-01-01T00:00:00.000Z");
+    utimesSync(tracked, new Date(), new Date());
+    utimesSync(index, oldIndexTime, oldIndexTime);
+    const indexMtimeBefore = statSync(index).mtimeMs;
     const result = spawnSync(process.execPath, [
       path.join(runtimeSource, "deploy-runtime.mjs"),
       "--dry-run",
@@ -124,6 +130,7 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).dryRun, true);
     assert.deepEqual(readdirSync(installParent), []);
+    assert.equal(statSync(index).mtimeMs, indexMtimeBefore);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -346,6 +353,10 @@ test("distinct repositories isolate authority while the same canonical repositor
       repositoryAuthorityLockPath(repoA, authority, "TommyTang213/SETTLEORA"),
       repositoryAuthorityLockPath(repoB, authority, "tommytang213/settleora"),
     );
+    assert.equal(
+      repositoryAuthorityLockPath(repoA, authority, "tommytang213/settleora"),
+      repositoryAuthorityLockPath(repoB, authority, "TommyTang213/SETTLEORA"),
+    );
     const linked = path.join(root, "repo-a-linked");
     git(repoA, ["worktree", "add", "--detach", linked]);
     assert.equal(repositoryAuthorityLockPath(realpathSync(linked), authority), a1);
@@ -426,10 +437,10 @@ test("deployment lock refuses an active owner and reclaims a proven stale owner"
     const reclaimed = acquireRuntimeDeploymentLock(destination);
     assert.equal(reclaimed, lock);
     releaseRuntimeDeploymentLock(reclaimed);
-    const acquisitionGuard = path.join(root, ".runtime.deployment-acquire");
-    mkdirSync(acquisitionGuard, { mode: 0o700 });
-    assert.throws(() => acquireRuntimeDeploymentLock(destination), /acquisition is already active/);
-    rmSync(acquisitionGuard, { recursive: true });
+    const acquisitionGuard = path.join(root, ".runtime.deployment-acquire.lock");
+    assert.equal(existsSync(acquisitionGuard), true);
+    const reacquired = acquireRuntimeDeploymentLock(destination);
+    releaseRuntimeDeploymentLock(reacquired);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -20,6 +20,7 @@ const repoRoot = path.resolve(values.get("--repo-root") || "");
 const sourceRoot = path.resolve(values.get("--source-root") || path.join(repoRoot, "tools/auto-runner"));
 const destination = path.resolve(values.get("--destination") || "");
 const logsRoot = path.resolve(values.get("--logs-root") || "");
+const dryRunGitEnv = values.has("--dry-run") ? { ...process.env, GIT_OPTIONAL_LOCKS: "0" } : process.env;
 let deploymentLock = null;
 try {
 const quiescence = inspectDeploymentQuiescence(logsRoot);
@@ -41,7 +42,7 @@ if (sourceRoot !== path.join(repoRoot, "tools/auto-runner")) {
   throw new Error("sourceRoot must be the approved repository tools/auto-runner directory");
 }
 const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
-const status = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
+const status = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: dryRunGitEnv });
 if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("source repository must be clean and readable");
 const approvedSha = values.get("--approved-sha");
 if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not equal --approved-sha");
@@ -60,7 +61,7 @@ const result = deployRuntimeBundle({
   runtimeConsumers,
   sourceVerifier: () => {
     const verifiedHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
-    const verifiedStatus = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
+    const verifiedStatus = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: dryRunGitEnv });
     if (verifiedHead.status !== 0 || verifiedHead.stdout.trim() !== approvedSha || verifiedStatus.status !== 0 || verifiedStatus.stdout) {
       throw new Error("source repository changed during deployment");
     }

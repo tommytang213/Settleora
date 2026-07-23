@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { assertSeparatedRoots, canonicalExistingDirectory, isContained } from "./runtime-identity.mjs";
 
 export const runtimeBundleFormat = "settleora-auto-runner-runtime";
@@ -56,33 +57,27 @@ export function acquireRuntimeDeploymentLock(destination) {
     throw new Error("runtime destination parent must be owner-controlled");
   }
   const lock = path.join(parent, `.${path.basename(destination)}.deployment.lock`);
-  const acquisitionGuard = path.join(parent, `.${path.basename(destination)}.deployment-acquire`);
-  try {
-    mkdirSync(acquisitionGuard, { mode: 0o700 });
-  } catch (error) {
-    if (error?.code === "EEXIST") throw new Error("runtime deployment lock acquisition is already active");
-    throw error;
-  }
-  try {
-    if (existsSync(lock)) {
-      const info = lstatSync(lock);
-      let prior;
-      try { prior = JSON.parse(readFileSync(lock, "utf8")); } catch { prior = null; }
-      if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
-          || (typeof process.getuid === "function" && info.uid !== process.getuid())
-          || !Number.isSafeInteger(prior?.pid) || prior.pid <= 1
-          || !/^\d+$/u.test(String(prior?.processBirthId || ""))) {
-        throw new Error("runtime deployment lock is unsafe");
-      }
-      const activeBirthId = processBirthId(prior.pid, { missingOk: true });
-      if (activeBirthId !== null && activeBirthId === prior.processBirthId) {
-        throw new Error("runtime deployment is already active");
-      }
-      rmSync(lock);
+  const acquisitionGuard = path.join(parent, `.${path.basename(destination)}.deployment-acquire.lock`);
+  if (!existsSync(acquisitionGuard)) {
+    try {
+      writeFileSync(acquisitionGuard, "", { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
     }
-    writeFileSync(lock, `${JSON.stringify({ pid: process.pid, processBirthId: processBirthId(process.pid) })}\n`, { flag: "wx", mode: 0o600 });
-  } finally {
-    rmSync(acquisitionGuard, { recursive: true, force: true });
+  }
+  const guardInfo = lstatSync(acquisitionGuard);
+  if (!guardInfo.isFile() || guardInfo.isSymbolicLink() || (guardInfo.mode & 0o077) !== 0
+      || (typeof process.getuid === "function" && guardInfo.uid !== process.getuid())) {
+    throw new Error("runtime deployment acquisition lock is unsafe");
+  }
+  const helper = fileURLToPath(new URL("./runtime-deployment-lock-helper.mjs", import.meta.url));
+  const identity = { pid: process.pid, processBirthId: processBirthId(process.pid) };
+  const acquired = spawnSync("/usr/bin/flock", [
+    "--exclusive", "--timeout", "5", acquisitionGuard,
+    process.execPath, helper, destination, JSON.stringify(identity),
+  ], { encoding: "utf8", windowsHide: true });
+  if (acquired.status !== 0) {
+    throw new Error(acquired.stderr?.trim() || "runtime deployment lock acquisition failed");
   }
   const consumers = path.join(parent, `.${path.basename(destination)}.consumers`);
   mkdirSync(consumers, { recursive: true, mode: 0o700 });
@@ -114,6 +109,36 @@ export function acquireRuntimeDeploymentLock(destination) {
       rmSync(marker);
     }
   }
+  return lock;
+}
+
+export function acquireRuntimeDeploymentLockSerialized(destination, identity) {
+  const parent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
+  const lock = path.join(parent, `.${path.basename(destination)}.deployment.lock`);
+  if (!Number.isSafeInteger(identity?.pid) || identity.pid <= 1
+      || !/^\d+$/u.test(String(identity?.processBirthId || ""))) {
+    throw new Error("runtime deployment owner identity is invalid");
+  }
+  if (processBirthId(identity.pid, { missingOk: true }) !== identity.processBirthId) {
+    throw new Error("runtime deployment owner is not active");
+  }
+  if (existsSync(lock)) {
+    const info = lstatSync(lock);
+    let prior;
+    try { prior = JSON.parse(readFileSync(lock, "utf8")); } catch { prior = null; }
+    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())
+        || !Number.isSafeInteger(prior?.pid) || prior.pid <= 1
+        || !/^\d+$/u.test(String(prior?.processBirthId || ""))) {
+      throw new Error("runtime deployment lock is unsafe");
+    }
+    const activeBirthId = processBirthId(prior.pid, { missingOk: true });
+    if (activeBirthId !== null && activeBirthId === prior.processBirthId) {
+      throw new Error("runtime deployment is already active");
+    }
+    rmSync(lock);
+  }
+  writeFileSync(lock, `${JSON.stringify(identity)}\n`, { flag: "wx", mode: 0o600 });
   return lock;
 }
 
