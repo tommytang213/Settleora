@@ -15,6 +15,41 @@ export const runtimeEntryPoints = Object.freeze([
   "supervisor/settleora-auto-runner-worker.mjs",
 ]);
 
+export function acquireRuntimeConsumer(runtimeRoot) {
+  const parent = canonicalExistingDirectory(path.dirname(runtimeRoot), "runtime parent");
+  const deploymentLock = path.join(parent, `.${path.basename(runtimeRoot)}.deployment.lock`);
+  const consumers = path.join(parent, `.${path.basename(runtimeRoot)}.consumers`);
+  mkdirSync(consumers, { mode: 0o700 });
+  if (existsSync(deploymentLock)) throw new Error("runtime startup refused during deployment");
+  const marker = path.join(consumers, `${process.pid}.lock`);
+  writeFileSync(marker, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+  if (existsSync(deploymentLock)) {
+    rmSync(marker);
+    throw new Error("runtime startup raced with deployment");
+  }
+  return marker;
+}
+
+export function releaseRuntimeConsumer(marker) {
+  if (marker && existsSync(marker)) rmSync(marker);
+}
+
+export function acquireRuntimeDeploymentLock(destination) {
+  const parent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
+  const lock = path.join(parent, `.${path.basename(destination)}.deployment.lock`);
+  writeFileSync(lock, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+  const consumers = path.join(parent, `.${path.basename(destination)}.consumers`);
+  if (existsSync(consumers) && readdirSync(consumers).length > 0) {
+    rmSync(lock);
+    throw new Error("runtime deployment refused while runtime consumers are registered");
+  }
+  return lock;
+}
+
+export function releaseRuntimeDeploymentLock(lock) {
+  if (lock && existsSync(lock)) rmSync(lock);
+}
+
 export function inspectRuntimeConsumers(destination, { procRoot = "/proc", selfPid = process.pid } = {}) {
   const root = path.resolve(destination);
   if (!existsSync(procRoot)) return [];
@@ -111,6 +146,7 @@ export function deployRuntimeBundle({
   active = false,
   pendingEffects = false,
   runtimeConsumers = [],
+  sourceVerifier = null,
 } = {}) {
   if (active) throw new Error("runtime deployment refused while a runner or supervisor is active");
   if (pendingEffects) throw new Error("runtime deployment refused with unresolved effects or recovery");
@@ -157,6 +193,10 @@ export function deployRuntimeBundle({
   }
   const smoke = spawnSync(process.execPath, ["--input-type=module", "--eval", `await import(${JSON.stringify(new URL(`file://${path.join(temporary, "lib/runtime-identity.mjs")}`).href)})`], { cwd: destinationParent, encoding: "utf8" });
   if (smoke.status !== 0) throw new Error(`copied runtime import smoke failed: ${smoke.stderr}`);
+  if (sourceVerifier) sourceVerifier(manifest);
+  if (buildRuntimeManifest(source, { sourceSha }).bundleDigest !== manifest.bundleDigest) {
+    throw new Error("runtime source changed during deployment");
+  }
   if (existsSync(rollback)) rmSync(rollback, { recursive: true });
   const movedOldRuntime = existsSync(destination);
   if (movedOldRuntime) renameSync(destination, rollback);

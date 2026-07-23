@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, rmSync, w
 import path from "node:path";
 import { sanitizePersistedIteration } from "./evidence-sanitizer.mjs";
 import { repositoryAuthorityLockPath } from "./runtime-identity.mjs";
+import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "./runtime-bundle.mjs";
 
 export function processAppearsActive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return null;
@@ -18,7 +19,9 @@ export function acquireRunnerLock(config, metadata = {}) {
   const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
   const repositoryLockPath = repositoryAuthorityLockPath(config.repoRoot);
   const acquired = [];
+  let runtimeConsumerLock = null;
   try {
+    if (config.runtimeMode === "external") runtimeConsumerLock = acquireRuntimeConsumer(config.runtimeRoot);
     for (const [target, allowStaleReclaim] of [[repositoryLockPath, false], [lockPath, true]]) {
       acquireOneLock(target, {
         projectId: config.projectId,
@@ -31,9 +34,10 @@ export function acquireRunnerLock(config, metadata = {}) {
     }
   } catch (error) {
     for (const target of acquired.reverse()) releaseOneLock(target);
+    releaseRuntimeConsumer(runtimeConsumerLock);
     throw error;
   }
-  return { lockPath, repositoryLockPath };
+  return { lockPath, repositoryLockPath, runtimeConsumerLock };
 }
 
 function acquireOneLock(lockPath, metadata, { allowStaleReclaim = true } = {}) {
@@ -75,6 +79,7 @@ export function releaseRunnerLock(lockHandle) {
     ? [lockHandle]
     : [lockHandle?.lockPath, lockHandle?.repositoryLockPath].filter(Boolean);
   for (const lockPath of paths) releaseOneLock(lockPath);
+  releaseRuntimeConsumer(lockHandle?.runtimeConsumerLock);
 }
 
 function releaseOneLock(lockPath) {

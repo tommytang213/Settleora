@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, rollbackRuntimeBundle } from "./lib/runtime-bundle.mjs";
+import { acquireRuntimeDeploymentLock, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle } from "./lib/runtime-bundle.mjs";
 
 const values = new Map();
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -17,6 +17,8 @@ const repoRoot = path.resolve(values.get("--repo-root") || "");
 const sourceRoot = path.resolve(values.get("--source-root") || path.join(repoRoot, "tools/auto-runner"));
 const destination = path.resolve(values.get("--destination") || "");
 const logsRoot = path.resolve(values.get("--logs-root") || "");
+const deploymentLock = acquireRuntimeDeploymentLock(destination);
+try {
 const quiescence = inspectDeploymentQuiescence(logsRoot);
 const runtimeConsumers = inspectRuntimeConsumers(destination);
 if (values.has("--rollback")) {
@@ -29,8 +31,8 @@ if (values.has("--rollback")) {
     runtimeConsumers,
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-  process.exit(0);
-}
+  process.exitCode = 0;
+} else {
 if (sourceRoot !== path.join(repoRoot, "tools/auto-runner")) {
   throw new Error("sourceRoot must be the approved repository tools/auto-runner directory");
 }
@@ -50,5 +52,16 @@ const result = deployRuntimeBundle({
   active: quiescence.active,
   pendingEffects: quiescence.pendingEffects,
   runtimeConsumers,
+  sourceVerifier: () => {
+    const verifiedHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
+    const verifiedStatus = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
+    if (verifiedHead.status !== 0 || verifiedHead.stdout.trim() !== approvedSha || verifiedStatus.status !== 0 || verifiedStatus.stdout) {
+      throw new Error("source repository changed during deployment");
+    }
+  },
 });
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+} finally {
+  releaseRuntimeDeploymentLock(deploymentLock);
+}
