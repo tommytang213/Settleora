@@ -4,7 +4,7 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, 
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, runtimeBundleFileList, verifyRuntimeBundle } from "../lib/runtime-bundle.mjs";
+import { buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle } from "../lib/runtime-bundle.mjs";
 import { absoluteRuntimeEntry, assertSeparatedRoots, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
@@ -163,6 +163,44 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
     assert.throws(() => deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, expectedOldDigest: "0".repeat(64) }), /expected old digest/);
     const upgraded = deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha, expectedOldDigest: installed.manifest.bundleDigest });
     assert.ok(upgraded.rollback);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("manual rollback exchanges only exact verified stopped bundles", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-rollback-"));
+  try {
+    const repo = createRepo(root, "project");
+    const logs = path.join(root, "logs");
+    const parent = path.join(root, "install");
+    mkdirSync(logs);
+    mkdirSync(parent);
+    const destination = path.join(parent, "runtime");
+    const first = deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha });
+    const changedSource = path.join(root, "changed-source");
+    cpSync(sourceRoot, changedSource, { recursive: true });
+    writeFileSync(path.join(changedSource, "lib/runtime-identity.mjs"), `${readFileSync(path.join(changedSource, "lib/runtime-identity.mjs"), "utf8")}\n`);
+    const second = deployRuntimeBundle({
+      sourceRoot: changedSource,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha: "b".repeat(40),
+      expectedOldDigest: first.manifest.bundleDigest,
+    });
+    const rolledBack = rollbackRuntimeBundle({
+      destination,
+      expectedCurrentDigest: second.manifest.bundleDigest,
+      expectedRollbackDigest: first.manifest.bundleDigest,
+    });
+    assert.equal(rolledBack.manifest.bundleDigest, first.manifest.bundleDigest);
+    assert.equal(verifyRuntimeBundle(rolledBack.rollback).bundleDigest, second.manifest.bundleDigest);
+    assert.throws(() => rollbackRuntimeBundle({
+      destination,
+      expectedCurrentDigest: "0".repeat(64),
+      expectedRollbackDigest: second.manifest.bundleDigest,
+    }), /digest mismatch/);
   } finally {
     rmSync(root, { recursive: true });
   }

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { deployRuntimeBundle, inspectDeploymentQuiescence } from "./lib/runtime-bundle.mjs";
+import { deployRuntimeBundle, inspectDeploymentQuiescence, rollbackRuntimeBundle } from "./lib/runtime-bundle.mjs";
 
 const values = new Map();
 for (let index = 2; index < process.argv.length; index += 1) {
   const arg = process.argv[index];
-  if (arg === "--dry-run") values.set(arg, true);
+  if (arg === "--dry-run" || arg === "--rollback") values.set(arg, true);
   else {
     const value = process.argv[++index];
     if (!value) throw new Error(`missing value for ${arg}`);
@@ -24,8 +24,19 @@ const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: 
 const status = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
 if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("source repository must be clean and readable");
 const approvedSha = values.get("--approved-sha");
-if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not equal --approved-sha");
 const quiescence = inspectDeploymentQuiescence(logsRoot);
+if (values.has("--rollback")) {
+  const result = rollbackRuntimeBundle({
+    destination,
+    expectedCurrentDigest: values.get("--expected-old-digest"),
+    expectedRollbackDigest: values.get("--expected-rollback-digest"),
+    active: quiescence.active,
+    pendingEffects: quiescence.pendingEffects,
+  });
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  process.exit(0);
+}
+if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not equal --approved-sha");
 const result = deployRuntimeBundle({
   sourceRoot,
   destination,

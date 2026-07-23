@@ -138,6 +138,52 @@ export function deployRuntimeBundle({
   return { dryRun: false, destination: realpathSync(destination), rollback: existsSync(rollback) ? rollback : null, manifest };
 }
 
+export function rollbackRuntimeBundle({
+  destination,
+  expectedCurrentDigest,
+  expectedRollbackDigest,
+  active = false,
+  pendingEffects = false,
+} = {}) {
+  if (active) throw new Error("runtime rollback refused while a runner or supervisor is active");
+  if (pendingEffects) throw new Error("runtime rollback refused with unresolved effects or recovery");
+  if (!/^[a-f0-9]{64}$/.test(String(expectedCurrentDigest || ""))
+      || !/^[a-f0-9]{64}$/.test(String(expectedRollbackDigest || ""))) {
+    throw new Error("runtime rollback requires expected current and rollback digests");
+  }
+  const parent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
+  const rollback = path.join(parent, `.${path.basename(destination)}.rollback`);
+  const incoming = path.join(parent, `.${path.basename(destination)}.rollback-incoming`);
+  if (existsSync(incoming)) {
+    const staged = verifyRuntimeBundle(incoming, expectedRollbackDigest);
+    if (!existsSync(destination)) {
+      verifyRuntimeBundle(rollback, expectedCurrentDigest);
+      renameSync(incoming, destination);
+      return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
+    }
+  }
+  verifyRuntimeBundle(destination, expectedCurrentDigest);
+  verifyRuntimeBundle(rollback, expectedRollbackDigest);
+  if (existsSync(incoming)) throw new Error("runtime rollback incoming state is contradictory");
+  renameSync(rollback, incoming);
+  try {
+    renameSync(destination, rollback);
+    renameSync(incoming, destination);
+  } catch (error) {
+    if (!existsSync(destination) && existsSync(rollback) && existsSync(incoming)) {
+      renameSync(rollback, destination);
+    }
+    if (!existsSync(rollback) && existsSync(incoming)) renameSync(incoming, rollback);
+    throw error;
+  }
+  return {
+    adopted: false,
+    destination: realpathSync(destination),
+    rollback,
+    manifest: verifyRuntimeBundle(destination, expectedRollbackDigest),
+  };
+}
+
 export function inspectDeploymentQuiescence(logsRoot) {
   canonicalExistingDirectory(logsRoot, "logsRoot");
   const activePaths = [

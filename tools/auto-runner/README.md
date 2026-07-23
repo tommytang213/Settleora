@@ -31,6 +31,14 @@ node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
   --expected-old-digest <installed-bundle-digest> \
   --dry-run
 
+node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
+  --repo-root /workspace/repos/Settleora \
+  --destination /workspace/auto-runner/runtime \
+  --logs-root /workspace/logs/auto-runner/Settleora \
+  --rollback \
+  --expected-old-digest <current-bundle-digest> \
+  --expected-rollback-digest <retained-rollback-bundle-digest>
+
 node /workspace/auto-runner/runtime/settleora-auto-runnerctl.mjs start \
   --profile settleora --config /workspace/auto-runner/config/settleora.json
 node /workspace/auto-runner/runtime/settleora-auto-runnerctl.mjs status --json
