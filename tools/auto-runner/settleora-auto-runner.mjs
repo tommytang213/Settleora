@@ -11,7 +11,6 @@ import {
   digestChangedFiles,
   parseCliArgs,
   loadConfig,
-  defaultLogsRoot,
   validateRecoveryOnlyExistingPrTarget,
   validateRecoveryOnlyExactHeadEvidence,
 } from "./lib/config.mjs";
@@ -130,7 +129,7 @@ import { completeMergedIssueHygiene, completionHygieneReady } from "./lib/comple
 export async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
   if (cliArgs.writeSummary) {
-    const config = { logsRoot: defaultLogsRoot };
+    const config = loadSummaryConfig(cliArgs);
     const result = writeRecentSummary(config, cliArgs.sinceMs);
     console.log(`Wrote summary: ${result.markdownPath}`);
     return;
@@ -371,6 +370,13 @@ export async function main() {
   if (isFatalRunStopReason(summary.stopReason)) {
     process.exitCode = 2;
   }
+}
+
+export function loadSummaryConfig(cliArgs, loader = loadConfig) {
+  return loader(
+    { ...cliArgs, dryRun: true, run: false },
+    { outageResubmissionObserverAvailable: true },
+  );
 }
 
 function isFatalRunStopReason(stopReason) {

@@ -55,6 +55,15 @@ fixed `/workspace/auto-runner/config` root. The runner child receives the
 spec's expected profile SHA-256 and refuses admission if the profile is
 replaced between supervisor verification and child startup.
 
+The reviewed supervisor unit source is a placeholder template, not an
+installable Settleora singleton. Future manual activation renders it from the
+verified runtime for one admitted `projectId`, `runtimeRoot`, and `logsRoot`,
+installs it as `<projectId>-auto-runner@.service`, and retains the
+rendered bytes for the controller's pre-start identity comparison. Settleora
+retains the legacy-compatible `settleora-auto-runner@.service` exception; an
+AppB profile selects `AppB-auto-runner@.service`. The rendered working directory and every
+controller-owned executable remain runtime-bound.
+
 Future manual command shapes (not executed by issue #951):
 
 ```bash

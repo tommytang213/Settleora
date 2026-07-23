@@ -28,7 +28,7 @@ import {
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
 import { buildRunSpec, generateRunId, sha256Text, canonicalJson, writeImmutableRunSpec } from "./run-spec.mjs";
 import { resolveRunnerSummaryForSupervisor, resolverStatuses } from "./runner-summary-resolver.mjs";
-import { writeSupervisorState } from "./supervisor-state.mjs";
+import { unitNameForRunId, writeSupervisorState } from "./supervisor-state.mjs";
 import { startUserUnit } from "./systemd-client.mjs";
 
 export function evaluateSourceRunEligibility(input = {}) {
@@ -503,12 +503,18 @@ export function runOutageResubmissionController(input = {}) {
   });
   writeOutageResubmissionState(config, uncertain);
   writeImmutableRunSpec(child.spec, config.logsRoot);
-  writeSupervisorState(child.spec.runId, { state: "submitted", parentSupervisorRunId: source.supervisorRunId, specSha256: child.specSha256 }, config.logsRoot);
+  writeSupervisorState(child.spec.runId, {
+    state: "submitted",
+    parentSupervisorRunId: source.supervisorRunId,
+    specSha256: child.specSha256,
+    unitName: unitNameForRunId(child.spec.runId, config.projectId),
+  }, config.logsRoot);
   counts.systemdCalls += 1;
   counts.realMutationCalls += 1;
   const submitted = startUnit(child.spec.runId, {
     runtimeRoot: config.runtimeRoot,
     configPath: config.configPath,
+    projectId: config.projectId,
     repoRoot: config.repoRoot,
     logsRoot: config.logsRoot,
   });

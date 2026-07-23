@@ -114,6 +114,7 @@ import {
 } from "../lib/review-fix-policy.mjs";
 import { bindValidationEvidence, inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
+import { loadSummaryConfig } from "../settleora-auto-runner.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";
@@ -132,6 +133,23 @@ const baseConfig = {
   priorityLabels: ["priority-critical", "priority-high", "priority-ready"],
   pollLimit: 30,
 };
+
+test("write-summary admits the selected project profile before choosing logsRoot", () => {
+  const selected = { logsRoot: "/workspace/logs/auto-runner/AppB", projectId: "AppB" };
+  let received = null;
+  const result = loadSummaryConfig(
+    { writeSummary: true, configPath: "/workspace/auto-runner/config/appb.json", run: true },
+    (cli, capabilities) => {
+      received = { cli, capabilities };
+      return selected;
+    },
+  );
+  assert.equal(result, selected);
+  assert.equal(received.cli.configPath, "/workspace/auto-runner/config/appb.json");
+  assert.equal(received.cli.dryRun, true);
+  assert.equal(received.cli.run, false);
+  assert.equal(received.capabilities.outageResubmissionObserverAvailable, true);
+});
 
 test("CLI rejects fixture issues outside dry-run", () => {
   assert.throws(

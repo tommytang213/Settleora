@@ -31,9 +31,16 @@ export function isControllableSupervisorState(state) {
   return classifySupervisorLifecycleState(state) === "controllable";
 }
 
-export function unitNameForRunId(runId) {
+export function unitNameForRunId(runId, projectId = "Settleora") {
   validateRunId(runId);
-  return `settleora-auto-runner@${runId}.service`;
+  if (typeof projectId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(projectId)) {
+    throw new Error("Invalid supervisor project ID");
+  }
+  if (projectId.toLowerCase() === "settleora" && projectId !== "Settleora") {
+    throw new Error("Invalid case-ambiguous supervisor project ID");
+  }
+  const unitProjectId = projectId === "Settleora" ? "settleora" : projectId;
+  return `${unitProjectId}-auto-runner@${runId}.service`;
 }
 
 export function statePathForRunId(runId, logsRoot = defaultLogsRoot) {

@@ -12,6 +12,7 @@ export const heartbeatSchemaVersion = 2;
 
 export function buildHeartbeat({
   runId,
+  projectId = "Settleora",
   runnerRunId = null,
   state,
   maxTasks,
@@ -32,7 +33,7 @@ export function buildHeartbeat({
     runId,
     runnerRunId,
     state,
-    unitName: unitNameForRunId(runId),
+    unitName: unitNameForRunId(runId, projectId),
     updatedAt,
     startedAt: startedAt || updatedAt,
     heartbeatGeneration: Number.isSafeInteger(heartbeatGeneration) && heartbeatGeneration > 0 ? heartbeatGeneration : 1,

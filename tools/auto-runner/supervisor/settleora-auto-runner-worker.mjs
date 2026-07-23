@@ -37,6 +37,7 @@ export async function runSupervisorWorker(
     spawnSyncImpl = spawnSync,
     resolveSummary = resolveRunnerSummaryForSupervisor,
     runtimeRoot = moduleRuntimeRoot(),
+    projectId = "Settleora",
   } = {},
 ) {
   validateRunId(runId);
@@ -63,13 +64,13 @@ export async function runSupervisorWorker(
   writeSupervisorState(runId, statePatch, logsRoot);
   const runnerRunId = statePatch.runnerRunId;
   let heartbeatGeneration = 1;
-  let heartbeat = buildHeartbeat({ runId, runnerRunId, state: "starting", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration });
+  let heartbeat = buildHeartbeat({ runId, projectId, runnerRunId, state: "starting", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration });
   writeHeartbeat(runId, heartbeat, logsRoot);
   recordMonitoringEvent("started", heartbeat, { logsRoot });
 
   const argv = runnerArgvForSpec(verified.spec, { runnerRunId, runtimeRoot, logsRoot });
   writeSupervisorState(runId, { state: "running", runnerArgv: redactArgv(argv), stdoutPath, stderrPath }, logsRoot);
-  heartbeat = buildHeartbeat({ runId, runnerRunId, state: "running", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration: ++heartbeatGeneration });
+  heartbeat = buildHeartbeat({ runId, projectId, runnerRunId, state: "running", maxTasks: verified.spec.maxTasks, maxRuntime: verified.spec.maxRuntime, startedAt: statePatch.startedAt, heartbeatGeneration: ++heartbeatGeneration });
   writeHeartbeat(runId, heartbeat, logsRoot);
   const stdout = createWriteStream(stdoutPath, { flags: "a", mode: 0o600 });
   const stderr = createWriteStream(stderrPath, { flags: "a", mode: 0o600 });
@@ -101,6 +102,7 @@ export async function runSupervisorWorker(
   const interval = setInterval(async () => {
     const activeHeartbeat = buildHeartbeat({
       runId,
+      projectId,
       runnerRunId,
       state: stopping ? "stopping_after_current" : "running",
       maxTasks: verified.spec.maxTasks,
@@ -145,6 +147,7 @@ export async function runSupervisorWorker(
   }, logsRoot);
   const terminalHeartbeat = buildHeartbeat({
     runId,
+    projectId,
     runnerRunId,
     state: terminalDecision.state,
     maxTasks: verified.spec.maxTasks,
@@ -189,6 +192,7 @@ export async function main() {
     logsRoot: config.logsRoot,
     repoRoot: config.repoRoot,
     runtimeRoot: config.runtimeRoot,
+    projectId: config.projectId,
   });
     process.exitCode = result.exitCode;
   } catch (error) {

@@ -217,6 +217,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   };
   const plan = buildSystemdStartPlan(runId, {
     configPath: "/workspace/logs/configs/default.json",
+    projectId: "Settleora",
     repoRoot: "/workspace/repos/Settleora",
     logsRoot: "/workspace/logs/settleora-auto-runner",
   });
@@ -232,6 +233,25 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   assert.deepEqual(plan.inspectArgv, ["systemctl", "--user", "cat", plan.unitName, "--no-pager"]);
   assert.deepEqual(plan.reloadArgv, ["systemctl", "--user", "daemon-reload"]);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
+  const appBPlan = buildSystemdStartPlan(runId, {
+    configPath: "/workspace/auto-runner/config/appb.json",
+    projectId: "AppB",
+    repoRoot: "/workspace/repos/AppB",
+    logsRoot: "/workspace/logs/auto-runner/AppB",
+  });
+  assert.equal(appBPlan.unitName, `AppB-auto-runner@${runId}.service`);
+  assert.match(appBPlan.unitTemplate, /Description=AppB detached auto-runner/);
+  assert.match(appBPlan.unitTemplate, /WorkingDirectory=\/workspace\/repos\/Settleora\/tools\/auto-runner/);
+  assert.match(appBPlan.unitTemplate, /--logs-root \/workspace\/logs\/auto-runner\/AppB/);
+  assert.doesNotMatch(appBPlan.unitTemplate, /\{\{[A-Z_]+\}\}|\/workspace\/repos\/AppB\/tools\/auto-runner/);
+  assert.throws(
+    () => buildSystemdStartPlan(runId, {
+      projectId: "App B",
+      repoRoot: "/workspace/repos/AppB",
+      logsRoot: "/workspace/logs/auto-runner/AppB",
+    }),
+    /filesystem-safe supervisor projectId/,
+  );
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
   for (const unsafePath of [
     "/workspace/repos/Settleora\n--property=Environment=INJECTED=1",
@@ -862,6 +882,10 @@ test("heartbeat defaults, stale detection, terminal state, and sanitization", ()
   assert.equal(hb.heartbeatIntervalSeconds, 60);
   assert.equal(hb.heartbeatLeaseSeconds, 300);
   assert.equal(hb.terminal, false);
+  assert.equal(
+    buildHeartbeat({ runId, projectId: "AppB", state: "running" }).unitName,
+    `AppB-auto-runner@${runId}.service`,
+  );
   assert.equal(isHeartbeatStale({ ...hb, leaseExpiresAt: "2020-01-01T00:00:00Z" }, new Date("2026-01-01T00:00:00Z")), true);
   assert.equal(isHeartbeatStale({ ...hb, state: "completed", terminal: true, leaseExpiresAt: "2020-01-01T00:00:00Z" }), false);
   const sanitized = sanitizeMonitoringPayload({ runId, webhookUrl: "https://secret.example/hook", token: "abc", body: "ok" });
@@ -980,7 +1004,10 @@ test("operator CLI bounds extensions and refuses unknown supervisor run control"
 test("systemd template is fixed, no restart, no enablement, and no embedded secrets", () => {
   const text = readFileSync("tools/auto-runner/systemd/settleora-auto-runner@.service", "utf8");
   assert.match(text, /Type=exec/);
-  assert.match(text, /WorkingDirectory=\/workspace\/repos\/Settleora/);
+  assert.match(text, /WorkingDirectory=\{\{RUNTIME_ROOT\}\}/);
+  assert.match(text, /ExecStart=\/usr\/bin\/env node \{\{LAUNCHER\}\} --runtime-root \{\{RUNTIME_ROOT\}\} --entry supervisor\/settleora-auto-runner-worker\.mjs -- %i --logs-root \{\{LOGS_ROOT\}\}/);
+  assert.match(text, /EnvironmentFile=-\{\{LOGS_ROOT\}\}\/secrets\/supervisor\.env/);
+  assert.doesNotMatch(text, /\/workspace\/repos\/Settleora|\/workspace\/logs\/auto-runner\/Settleora/);
   assert.match(text, /Restart=no/);
   assert.match(text, /SendSIGKILL=no/);
   assert.doesNotMatch(text, /WantedBy=/);

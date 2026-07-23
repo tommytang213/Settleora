@@ -1,17 +1,17 @@
 [Unit]
-Description=Settleora detached auto-runner supervisor worker %i
-Documentation=file:/workspace/repos/Settleora/docs/workflow/AUTONOMOUS_CODEX_RUNNER_SUPERVISOR.md
+Description={{PROJECT_ID}} detached auto-runner supervisor worker %i
+Documentation=file:{{RUNTIME_ROOT}}/README.md
 
 [Service]
 Type=exec
-WorkingDirectory=/workspace/repos/Settleora
-ExecStart=/usr/bin/env node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry supervisor/settleora-auto-runner-worker.mjs -- %i --logs-root /workspace/logs/auto-runner/Settleora
+WorkingDirectory={{RUNTIME_ROOT}}
+ExecStart=/usr/bin/env node {{LAUNCHER}} --runtime-root {{RUNTIME_ROOT}} --entry supervisor/settleora-auto-runner-worker.mjs -- %i --logs-root {{LOGS_ROOT}}
 UMask=0077
 Restart=no
 KillMode=process
 TimeoutStopSec=30min
 SendSIGKILL=no
-EnvironmentFile=-/workspace/logs/auto-runner/Settleora/secrets/supervisor.env
+EnvironmentFile=-{{LOGS_ROOT}}/secrets/supervisor.env
 StandardOutput=journal
 StandardError=journal
 

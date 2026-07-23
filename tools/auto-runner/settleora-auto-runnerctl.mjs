@@ -265,10 +265,17 @@ async function submit(cli, config) {
   });
   const specSha256 = sha256Text(canonicalJson(specResult.spec));
   const runtimeRoot = moduleRuntimeRoot();
-  const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath: admittedConfigPath, repoRoot: config.repoRoot, logsRoot: config.logsRoot });
+  const plan = buildSystemdStartPlan(runId, {
+    runtimeRoot,
+    configPath: admittedConfigPath,
+    projectId: config.projectId,
+    repoRoot: config.repoRoot,
+    logsRoot: config.logsRoot,
+  });
   const runnerArgv = runnerArgvForSpec(specResult.spec, { runtimeRoot, logsRoot: config.logsRoot });
   const heartbeat = buildHeartbeat({
     runId,
+    projectId: config.projectId,
     state: "submitted",
     maxTasks: specResult.spec.maxTasks,
     maxRuntime: specResult.spec.maxRuntime,
@@ -335,6 +342,7 @@ async function submit(cli, config) {
   const start = startUserUnit(runId, {
     runtimeRoot,
     configPath: admittedConfigPath,
+    projectId: config.projectId,
     repoRoot: config.repoRoot,
     logsRoot: config.logsRoot,
   });

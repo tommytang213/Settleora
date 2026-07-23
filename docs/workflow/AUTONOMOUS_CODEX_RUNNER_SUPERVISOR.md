@@ -136,17 +136,25 @@ The repository template is:
 tools/auto-runner/systemd/settleora-auto-runner@.service
 ```
 
-It is intended for later manual installation under:
+It is a reviewed placeholder template. A later manual activation must render
+the exact admitted `projectId`, canonical external `runtimeRoot`, canonical
+`logsRoot`, and sibling launcher path, then install it under the matching
+project-specific template identity. For Settleora that identity remains:
 
 ```text
 ~/.config/systemd/user/settleora-auto-runner@.service
 ```
 
-The unit uses `Type=exec`, fixed `WorkingDirectory=/workspace/repos/Settleora`,
-the Node worker entry point, validated `%i` run IDs, `UMask=0077`,
+The controller renders and verifies the installed unit byte-for-byte before
+submission. The rendered unit uses `Type=exec`, `WorkingDirectory` bound to the
+verified external runtime, the absolute sibling launcher and Node worker entry
+point, project-specific unit identity, validated `%i` run IDs, `UMask=0077`,
 `Restart=no`, bounded graceful stop behavior, `SendSIGKILL=no`, journal output,
-dedicated worker log files, and an optional environment file only under
-`/workspace/logs/settleora-auto-runner/secrets/`.
+dedicated worker log files, and an optional environment file only under the
+admitted project `logsRoot`. Another project uses its own lower-cased
+`<projectId>-auto-runner@.service` identity and rendered paths; the retained
+lower-case Settleora prefix is an explicit compatibility exception. Shared runtime
+files do not imply a shared unit or mutation authority.
 
 No instance is enabled by the template. Failed, killed, crashed, timed-out, or
 reboot-interrupted mutation runs recover only through durable runner state and
