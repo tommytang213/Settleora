@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { unitNameForRunId } from "./supervisor-state.mjs";
 import { resolveProfile, validateRunId } from "./run-spec.mjs";
@@ -12,13 +13,15 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
   const safeRuntimeRoot = validateSystemdPath(runtimeRoot, "runtimeRoot");
   absoluteRuntimeEntry(safeRuntimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
   const launcher = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.launcher.mjs`);
+  const unitTemplate = readFileSync(absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-auto-runner@.service"), "utf8");
   return {
     unitName: unitNameForRunId(runId),
     expectedExecArgv: [
       "/usr/bin/env", "node", launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
       runId, "--config", safeConfigPath, "--logs-root", safeLogsRoot,
     ],
-    inspectArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ExecStart", "--value"],
+    unitTemplate,
+    inspectArgv: ["systemctl", "--user", "cat", unitNameForRunId(runId), "--no-pager"],
     startArgv: ["systemctl", "--user", "start", unitNameForRunId(runId)],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
     showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],
@@ -41,9 +44,8 @@ function validateSystemdPath(value, label) {
 export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath, repoRoot, logsRoot } = {}) {
   const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath, repoRoot, logsRoot });
   const inspected = runner(plan.inspectArgv[0], plan.inspectArgv.slice(1), { encoding: "utf8", windowsHide: true });
-  const execMatch = /argv\[\]=([^;]+)\s+;/u.exec(String(inspected.stdout || ""));
-  const installedArgv = execMatch ? execMatch[1].trim().split(/\s+/u) : [];
-  if (inspected.error || inspected.status !== 0 || JSON.stringify(installedArgv) !== JSON.stringify(plan.expectedExecArgv)) {
+  const installedUnit = String(inspected.stdout || "").replace(/^# \/[^\n]+\n/u, "");
+  if (inspected.error || inspected.status !== 0 || installedUnit !== plan.unitTemplate) {
     return { ok: false, unitName: plan.unitName, state: "submission_failed", status: inspected.status, stderr: "installed supervisor unit identity mismatch" };
   }
   const start = runner(plan.startArgv[0], plan.startArgv.slice(1), { encoding: "utf8", windowsHide: true });

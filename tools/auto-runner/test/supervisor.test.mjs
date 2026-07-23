@@ -216,7 +216,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   });
   assert.deepEqual(plan.startArgv, ["systemctl", "--user", "start", `settleora-auto-runner@${runId}.service`]);
   assert.equal(plan.expectedExecArgv.some((value) => value.endsWith("/.auto-runner.launcher.mjs")), true);
-  assert.deepEqual(plan.inspectArgv, ["systemctl", "--user", "show", plan.unitName, "--property=ExecStart", "--value"]);
+  assert.deepEqual(plan.inspectArgv, ["systemctl", "--user", "cat", plan.unitName, "--no-pager"]);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
   for (const unsafePath of [
@@ -820,8 +820,8 @@ test("systemd start verifies the installed exact ExecStart before activation", (
     ...options,
     runner: (cmd, args) => {
       calls.push([cmd, ...args]);
-      if (args.includes("--property=ExecStart")) {
-        return { status: 0, stdout: `{ path=/usr/bin/env ; argv[]=${plan.expectedExecArgv.join(" ")} ; ignore_errors=no ; }\n` };
+      if (args.includes("cat")) {
+        return { status: 0, stdout: `# /home/runner/.config/systemd/user/settleora-auto-runner@.service\n${plan.unitTemplate}` };
       }
       if (args.includes("is-active")) return { status: 0, stdout: "active\n" };
       return { status: 0, stdout: "" };
@@ -831,7 +831,7 @@ test("systemd start verifies the installed exact ExecStart before activation", (
   assert.deepEqual(calls[1], plan.startArgv);
   const refused = startUserUnit(runId, {
     ...options,
-    runner: () => ({ status: 0, stdout: "{ path=/usr/bin/node ; argv[]=/usr/bin/node tools/auto-runner/settleora-auto-runner.mjs ; }\n" }),
+    runner: () => ({ status: 0, stdout: `${plan.unitTemplate}\n# /home/runner/.config/systemd/user/settleora-auto-runner@.service.d/override.conf\n[Service]\nEnvironment=NODE_OPTIONS=--import=evil\n` }),
   });
   assert.equal(refused.ok, false);
   assert.match(refused.stderr, /identity mismatch/);

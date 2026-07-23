@@ -115,6 +115,7 @@ const includedRoots = ["lib", "supervisor"];
 const includedFiles = [
   ...runtimeEntryPoints,
   "runtime-launcher.mjs",
+  "systemd/settleora-auto-runner@.service",
   "runner-config.example.json",
   "README.md",
 ];

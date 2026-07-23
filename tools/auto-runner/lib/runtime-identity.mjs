@@ -186,6 +186,6 @@ function repositorySlugFromRemote(remote) {
 
 function isApprovedGitHubRemote(remote) {
   return /^https:\/\/github\.com\/[^/]+\/[^/]+(?:\.git)?$/u.test(remote)
-    || /^git@github\.com(?:-[A-Za-z0-9._-]+)?:[^/]+\/[^/]+(?:\.git)?$/u.test(remote)
+    || /^git@github\.com:[^/]+\/[^/]+(?:\.git)?$/u.test(remote)
     || /^ssh:\/\/git@github\.com\/[^/]+\/[^/]+(?:\.git)?$/u.test(remote);
 }

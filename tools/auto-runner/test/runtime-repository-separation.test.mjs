@@ -20,7 +20,7 @@ function createRepo(root, name) {
   git(repo, ["init", "-b", "main"]);
   git(repo, ["config", "user.email", "runner@example.invalid"]);
   git(repo, ["config", "user.name", "Runner Test"]);
-  git(repo, ["remote", "add", "origin", "git@github.com-settleora:tommytang213/Settleora.git"]);
+  git(repo, ["remote", "add", "origin", "git@github.com:tommytang213/Settleora.git"]);
   writeFileSync(path.join(repo, "README.md"), "fixture\n");
   mkdirSync(path.join(repo, "tools/auto-runner"), { recursive: true });
   writeFileSync(path.join(repo, "tools/auto-runner/settleora-auto-runner.mjs"), "throw new Error('managed repository controller executed');\n");
@@ -53,7 +53,7 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["add", "."]);
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
-    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 90);
+    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 91);
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
     writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);
@@ -166,7 +166,7 @@ test("copied runtime remains authoritative after managed branch and source chang
     }, { actualRuntimeRoot: runtime });
     assert.equal(identity.repoRoot, repo);
     assert.equal(identity.runtimeRoot, runtime);
-    assert.equal(identity.pushUrl, "git@github.com-settleora:tommytang213/Settleora.git");
+    assert.equal(identity.pushUrl, "git@github.com:tommytang213/Settleora.git");
     git(repo, ["config", "remote.origin.pushurl", "file:///tmp/tommytang213/Settleora.git"]);
     assert.throws(() => validateProjectRuntimeIdentity({
       runtimeMode: "external",
