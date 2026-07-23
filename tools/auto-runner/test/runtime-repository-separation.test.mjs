@@ -442,7 +442,7 @@ test("project logs namespace marker refuses state adoption by another repository
 });
 
 test("repository namespace casing is stable and external profile ancestors must be owner-controlled", () => {
-  const root = mkdtempSync("/workspace/tmp/settleora-external-profile-");
+  const root = mkdtempSync(path.join(os.homedir(), ".settleora-external-profile-"));
   try {
     const repo = createRepo(root, "repo");
     const runtime = path.join(root, "runtime");
@@ -461,6 +461,31 @@ test("repository namespace casing is stable and external profile ancestors must 
     assert.equal(validateExternalProfilePath(configPath, configRoot), configRoot);
     chmodSync(configRoot, 0o777);
     assert.throws(() => validateExternalProfilePath(configPath, configRoot), /ancestor_unsafe/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("trusted identity separates external Git common directories from runtime and logs", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-git-common-separation-"));
+  try {
+    const runtime = path.join(root, "runtime");
+    const repo = path.join(root, "repo");
+    const logs = path.join(root, "Settleora");
+    const gitCommon = path.join(runtime, "managed-git");
+    mkdirSync(runtime, { mode: 0o700 });
+    mkdirSync(logs, { mode: 0o700 });
+    execFileSync("git", ["init", "-b", "main", "--separate-git-dir", gitCommon, repo]);
+    git(repo, ["config", "user.email", "runner@example.invalid"]);
+    git(repo, ["config", "user.name", "Runner Test"]);
+    git(repo, ["remote", "add", "origin", "git@github.com:tommytang213/Settleora.git"]);
+    writeFileSync(path.join(repo, "README.md"), "fixture\n");
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-m", "fixture"]);
+    assert.throws(() => validateProjectRuntimeIdentity({
+      runtimeMode: "external", runtimeRoot: runtime, repoRoot: realpathSync(repo), logsRoot: logs,
+      projectId: "Settleora", repositorySlug: "tommytang213/Settleora",
+    }, { actualRuntimeRoot: runtime }), /repository common directory and runtimeRoot must be separate/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

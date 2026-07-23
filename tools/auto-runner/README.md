@@ -8,7 +8,8 @@ The controller now has five explicit identities: `runtimeRoot`, `repoRoot`,
 trusted profile must set `runtimeMode: "external"` and is accepted only when
 the executing module tree equals `runtimeRoot`, its versioned manifest and
 digest verify, and runtime, repository, `.git`, and project logs are disjoint
-canonical real paths. Project Git commands continue to use `repoRoot`;
+canonical real paths, including a resolved linked-worktree or separate Git
+common directory. Project Git commands continue to use `repoRoot`;
 controller-owned children use absolute entries below `runtimeRoot`.
 The first trusted non-observer preflight creates an owner-only
 `.project-namespace.json` marker in `logsRoot`; every later process verifies

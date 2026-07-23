@@ -68,6 +68,11 @@ export function validateProjectRuntimeIdentity(config, {
   }
   if (trusted) {
     assertSeparatedRoots({ runtimeRoot, repoRoot, logsRoot });
+    for (const [name, root] of [["runtimeRoot", runtimeRoot], ["logsRoot", logsRoot]]) {
+      if (isContained(repository.commonDir, root) || isContained(root, repository.commonDir)) {
+        throw new Error(`repository common directory and ${name} must be separate`);
+      }
+    }
     assertOwnerControlledDirectory(runtimeRoot, "runtimeRoot");
     assertOwnerControlledDirectory(canonicalExistingDirectory(path.dirname(runtimeRoot), "runtime deployment-control parent"), "runtime deployment-control parent");
   }
