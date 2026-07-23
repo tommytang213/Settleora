@@ -83,7 +83,7 @@ const sensitivePathPatterns = Object.freeze([
   /(^|\/)(openapi|generated)(\/|$)/i,
 ]);
 
-const workflowPathPatterns = Object.freeze([/^tools\/auto-runner(?:\/|$)/, /^docs\/workflow(?:\/|$)/]);
+const workflowPathPatterns = Object.freeze([/^AGENTS\.md$/, /^\.ai\/prompts\/controller\.md$/, /^tools\/auto-runner(?:\/|$)/, /^docs\/workflow(?:\/|$)/]);
 const docsPathPatterns = Object.freeze([/^docs\/(?:workflow|planning|qa)(?:\/|$)/, /^\.ai(?:\/|$)/]);
 
 export function mergeReviewerPolicyConfig(config) {
@@ -689,7 +689,7 @@ function isDocsPath(filePath) {
 }
 
 function isWorkflowPolicyDomain(domain) {
-  return ["workflow-docs-tooling", "docs/workflow", "docs/planning", "docs/qa", "tools/auto-runner"].includes(domain);
+  return [".ai", "AGENTS.md", "workflow-docs-tooling", "docs/workflow", "docs/planning", "docs/qa", "tools/auto-runner"].includes(domain);
 }
 
 function normalizePath(filePath) {

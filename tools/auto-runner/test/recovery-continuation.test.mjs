@@ -40,6 +40,19 @@ test("disabled lifecycle preserves legacy startup continuation before takeover g
   );
 });
 
+test("post-merge ephemeral cleanup is a restart-safe continuation boundary", () => {
+  assert.deepEqual(firstIncompleteContinuationAction({
+    phase: "post_merge_ephemeral_cleanup",
+    firstIncompleteAction: "continue_exact_post_merge_cleanup",
+    nextSafeAction: "continue_exact_post_merge_cleanup",
+  }), {
+    ok: true,
+    phase: "post_merge_ephemeral_cleanup",
+    firstIncompleteAction: "continue_exact_post_merge_cleanup",
+    nextSafeAction: "continue_exact_post_merge_cleanup",
+  });
+});
+
 test("disabled lifecycle refuses legacy fallback when a lifecycle checkpoint exists", () => {
   const config = tempConfig({ repositorySlug: "tommytang213/Settleora", sessionLifecycle: { enabled: false, allowRecoveryTakeover: false } });
   try {

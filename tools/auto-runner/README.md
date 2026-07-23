@@ -1,5 +1,17 @@
 # Settleora Auto-Runner Tooling
 
+## Final ephemeral cleanup
+
+`ephemeral_cleanup_v1` requires positive ownership plus complete live merge,
+ancestry, current-target acceptance, hygiene, dependency, active-state, ref,
+and worktree proof. Remote absence is adopted, never repaired in this completed
+state. Exact expected-old-SHA leased remote deletion, clean disposable
+worktree removal, and ancestry-checked expected-old-SHA local-ref deletion are
+checkpointed and read back. Failure reports
+`cleanup_required` without changing merge success. Historical, protected,
+release, manual, unowned, dirty, active, shared, symlinked, ambiguous, or
+referenced state is never deleted.
+
 ## Recursive source-failure convergence
 
 `source-failure-convergence.mjs` defines the versioned, bounded record used by

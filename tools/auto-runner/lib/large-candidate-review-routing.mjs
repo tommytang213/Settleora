@@ -17,7 +17,7 @@ export const largeCandidateRoutingStates = Object.freeze([
 const passingStates = new Set(["external_review_large_bundle_approved", "external_review_complete"]);
 const historicalStates = new Map([["blocked_external_reviewer_split_required", "external_review_split_required"]]);
 const domainRules = Object.freeze([
-  ["workflow-docs-tooling", /^(tools\/auto-runner|docs\/(workflow|planning)\/|README\.md$)/i],
+  ["workflow-docs-tooling", /^(AGENTS\.md$|\.ai\/prompts\/controller\.md$|tools\/auto-runner|docs\/(workflow|planning)\/|README\.md$)/i],
   ["auth-security", /(^|\/)(auth|identity|session|security|credential|token)(\/|[-_.])/i],
   ["money-settlement", /(^|\/)(money|settlement|payment|bill|rounding)(\/|[-_.])/i],
   ["storage-privacy", /(^|\/)(storage|file|privacy|vault|authorization|authz)(\/|[-_.])/i],

@@ -1248,6 +1248,7 @@ export const terminalOutcomes = [
   "review_changes_requested_retry_exhausted",
   "issue_created_for_followup",
   "auto_merged",
+  "cleanup_required",
 ];
 
 export const systemicStopReasons = [

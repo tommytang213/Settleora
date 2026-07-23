@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -17,7 +17,7 @@ import {
 import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
-import { acquireRunnerLock, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
+import { acquireRunnerLock, processAppearsActive, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
 import { pollEligibleIssues, claimIssue, commentIssueOutcome, readIssueLive } from "./lib/github-issues.mjs";
 import {
@@ -106,6 +106,7 @@ import {
   bindRecoveryEvidence,
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
+  listRecoverableRecoveryStates,
   persistCompleteHeadEvidence,
   recordIdempotentMutation,
   recordRecoveryAttempt,
@@ -119,7 +120,10 @@ import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-
 import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
 import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches } from "./lib/ordinary-candidate-continuation.mjs";
+import { continuePostMergeCleanup, createPostMergeCleanupGitAdapter, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup } from "./lib/post-merge-cleanup.mjs";
+import { canonicalGithubEvidenceDigest } from "./lib/github-effect-consumer.mjs";
 import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
+import { completeMergedIssueHygiene, completionHygieneReady } from "./lib/completion-hygiene.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -701,10 +705,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.externalReview = recovery.externalReview;
     iteration.baseOriginMainSha = recovery.baseOriginMainSha;
     iteration.runnerCreatedCommitSha = recovery.expectedHeadSha;
-    iteration.outcome = recovery.autoMerge?.result === "merged" ? "auto_merged" : "auto_failed";
+    iteration.outcome = recovery.autoMerge?.result === "merged"
+      ? recovery.autoMerge?.cleanupRequired ? "cleanup_required" : "auto_merged"
+      : "auto_failed";
     iteration.phase = "existing_pr_recovery_complete";
     checkpoint(iteration);
-    if (iteration.outcome !== "auto_merged" && !recovery.terminalMutationBlocked) {
+    if (!["auto_merged", "cleanup_required"].includes(iteration.outcome) && !recovery.terminalMutationBlocked) {
       iteration.issueComment = finishIssueOutcome(
         config,
         issue,
@@ -736,6 +742,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   iteration.branchName = branchName;
   fetchOriginMain(config);
   iteration.baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
+  recoveryRecorder?.setBranch({ branchName, baseSha: iteration.baseOriginMainSha, currentHeadSha: iteration.baseOriginMainSha });
+  recoveryRecorder?.marker("branch_ownership_created", `${branchName}:${iteration.baseOriginMainSha}`, {
+    target: branchName,
+    correlation: iteration.baseOriginMainSha,
+  });
   createTaskBranch(config, branchName);
   recoveryRecorder?.setBranch({
     branchName,
@@ -748,6 +759,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       branchName,
       expectedOriginMainSha: iteration.baseOriginMainSha,
     });
+    recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName);
   }
 
   const promptInfo = generateTaskPrompt(config, issue, laneDecision, branchName);
@@ -1001,6 +1013,9 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     recoveryRecorder?.stop("expected_report_missing", promptInfo.reportPath, "manual_recovery_required");
     iteration.finishedAt = new Date().toISOString();
     return iteration;
+  }
+  if (!config.dryRun && iteration.report.copyPath) {
+    recoveryRecorder?.annotate({ expectedReportPaths: { durableReportPath: iteration.report.copyPath } });
   }
 
   iteration.preReviewPrOwnership = inspectPreReviewPrOwnership(config, branchName);
@@ -1696,6 +1711,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     });
   }
   recoveryRecorder?.advance("exact_head_final_refresh", "evaluate_merge_or_pr_state");
+  recoveryRecorder?.setBranch({ branchName, baseSha: iteration.baseOriginMainSha, currentHeadSha: iteration.runnerCreatedCommitSha });
+  iteration.recoveryState = recoveryRecorder?.state || null;
   iteration.phase = "exact_head_final_refresh";
   checkpoint(iteration);
   iteration.autoMerge = await evaluateOrExecuteAutoMerge(config, {
@@ -1714,7 +1731,24 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       correlation: iteration.autoMerge.mergeSha || iteration.runnerCreatedCommitSha || runId,
     });
     recoveryRecorder?.advance("post_merge_current_main_checks_scanner_reconciliation", "reconcile_current_main");
-    iteration.outcome = "auto_merged";
+    iteration.outcome = iteration.autoMerge.cleanupRequired ? "cleanup_required" : "auto_merged";
+    if (iteration.autoMerge.postMergeCleanupOwnership?.ok) {
+      const cleanupContinuation = createOrdinaryContinuationState({
+        logicalTaskKey: config.taskKey || `issue-${issue.number}`,
+        executionKey: runId,
+        issueNumber: issue.number,
+        branchName,
+        identity: ordinaryIdentityForHead(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha),
+        phase: "post_merge_cleanup",
+        counters: ordinaryCountersFromReviewConvergence(iteration.reviewConvergenceState),
+      });
+      recoveryRecorder?.annotate({
+        postMergeCleanupOwnership: iteration.autoMerge.postMergeCleanupOwnership.ownership,
+        postMergeCompletionHygiene: iteration.autoMerge.completionHygiene,
+        ordinaryContinuation: cleanupContinuation,
+      });
+      recoveryRecorder?.advance("post_merge_ephemeral_cleanup", "continue_exact_post_merge_cleanup");
+    }
   } else if (config.allowAutoMerge && !config.dryRun) {
     iteration.outcome = "auto_failed";
     iteration.issueComment = finishIssueOutcome(
@@ -1760,7 +1794,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.sessionLifecycle = terminal.state;
     issue.sessionLifecycle = terminal.state;
   }
-  recoveryRecorder?.complete(iteration.outcome);
+  if (iteration.outcome !== "cleanup_required") recoveryRecorder?.complete(iteration.outcome);
   iteration.recovery = recoveryRecorder?.summary();
   iteration.finishedAt = new Date().toISOString();
   return iteration;
@@ -1937,13 +1971,17 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
         if (checkpoint.ok) {
-          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
+          return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         }
       }
       if (boundary.phase === "checkpoint_validation_commit") {
         const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue);
-        if (checkpoint.ok) return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint });
+        if (checkpoint.ok) return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: checkpoint.reasonCode, state };
+      }
+      if (boundary.phase === "post_merge_ephemeral_cleanup" && state.ordinaryContinuation?.phase === "post_merge_cleanup") {
+        const checkpoint = { ok: true, candidateIdentity: state.ordinaryContinuation.identity, routeState: "post_merge_cleanup_ready" };
+        return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
       }
       if (!["push", "pr_create_recover", "ci_wait", "ci_scanner_fix", "exact_head_final_refresh", "merge", "source_branch_restoration", "post_merge_current_main_checks_scanner_reconciliation", "issue_parent_ledger_hygiene"].includes(boundary.phase)) {
         const stopped = advanceRecoveryPhase(state, {
@@ -1969,7 +2007,9 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       }
       return {
         ok: existingPrRecovery.autoMerge?.result !== "blocked",
-        outcome: existingPrRecovery.autoMerge?.result === "merged" ? "auto_merged" : "recovery_existing_pr_continued",
+        outcome: existingPrRecovery.autoMerge?.result === "merged"
+          ? existingPrRecovery.autoMerge?.cleanupRequired ? "cleanup_required" : "auto_merged"
+          : "recovery_existing_pr_continued",
         reasonCode: existingPrRecovery.reason,
         existingPrRecovery,
         ...existingPrRecovery,
@@ -2003,7 +2043,7 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue) {
   return { ok: true, candidateIdentity: ordinaryIdentityForHead(baseSha, headSha), routeState: "initial_validation_failure_reconstructed" };
 }
 
-async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null }) {
+async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null, currentRunId = null }) {
   const identity = checkpoint.candidateIdentity;
   let initial = state.ordinaryContinuation || createOrdinaryContinuationState({
     logicalTaskKey: state.logicalTask?.taskKey || state.taskKey,
@@ -2029,7 +2069,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     && spawnSync("git", ["rev-list", "--count", `${initial.identity.headSha}..${liveHeadAtRecovery}`], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === "1"
     && spawnSync("git", ["show", "-s", "--format=%s", liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === `Auto-runner issue #${issue.number}: source-fix ${initial.sourceFailureFixIntent?.batchIdentity?.slice(0, 16)}`
   );
-  if (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== initial.identity.baseSha || getStatusShort() !== "") {
+  const cleanupOnlyRecovery = initial.phase === "post_merge_cleanup";
+  if (!cleanupOnlyRecovery && (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== initial.identity.baseSha || getStatusShort() !== "")) {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
   const actualChangedFiles = listChangedFiles(initial.identity.baseSha, initial.identity.headSha);
@@ -2279,6 +2320,36 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         ? { ok: true, evidence }
         : { ok: false, reasonCode: "ordinary_continuation_post_merge_hygiene_unconfirmed" };
     },
+    post_merge_cleanup: async (continuation) => {
+      const ownershipResult = continuation.effects?.github_convergence?.evidence?.postMergeCleanupOwnership;
+      const ownership = state.postMergeCleanupOwnership || (ownershipResult?.ok ? ownershipResult.ownership : null);
+      if (!ownership) return { ok: false, outcome: "cleanup_required", reasonCode: "post_merge_cleanup_ownership_missing" };
+      const cleanupRoot = primaryWorktreeRoot(config.repoRoot);
+      if (!cleanupRoot) return { ok: false, outcome: "cleanup_required", reasonCode: "cleanup_primary_worktree_unavailable" };
+      const cleanupConfig = { ...config, repoRoot: cleanupRoot };
+      try { process.chdir(cleanupRoot); } catch { return { ok: false, outcome: "cleanup_required", reasonCode: "cleanup_primary_worktree_unavailable" }; }
+      const authorityReader = async (owner) => readOrdinaryCleanupAuthority(cleanupConfig, state, continuation, owner, currentRunId);
+      const adapter = createPostMergeCleanupGitAdapter({ repoRoot: cleanupRoot, authorityReader, checkpoint: async (cleanup) => { const written = persistPostMergeCleanupState(cleanupConfig, cleanup); if (!written.ok) throw new Error(written.reasonCode); } });
+      let loaded = loadPostMergeCleanupState(config, ownership);
+      if (!loaded.ok && loaded.reasonCode === "cleanup_state_unavailable_or_corrupt") {
+        const planned = planPostMergeCleanup(ownership, await adapter.readLive(ownership));
+        if (!planned.ok) return { ok: false, outcome: "cleanup_required", reasonCode: planned.reasonCode };
+        loaded = persistPostMergeCleanupState(config, planned.state);
+      }
+      if (!loaded.ok) return { ok: false, outcome: "cleanup_required", reasonCode: loaded.reasonCode };
+      const cleanup = await continuePostMergeCleanup(loaded.state || loaded.value, adapter);
+      const cleanupCheckpoint = persistPostMergeCleanupState(config, cleanup.state);
+      if (!cleanupCheckpoint.ok) return { ok: false, outcome: "cleanup_required", reasonCode: cleanupCheckpoint.reasonCode };
+      state = { ...state, postMergeCleanupState: cleanup.state };
+      if (!cleanup.ok) return { ok: false, outcome: "cleanup_required", reasonCode: cleanup.reasonCode };
+      if (state.sessionLifecycle && state.sessionLifecycle.controller?.phase !== "completed") {
+        const terminal = transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "completed", nextExactAction: "post_merge_cleanup_complete" });
+        if (!terminal.ok) return { ok: false, outcome: "cleanup_required", reasonCode: terminal.reasonCode };
+        state = { ...state, sessionLifecycle: terminal.state };
+      }
+      state = advanceRecoveryPhase(state, { phase: "completed", firstIncompleteAction: state.firstIncompleteAction, nextSafeAction: "none" });
+      return { ok: true, evidence: { phase: cleanup.state.phase, targetDigest: cleanup.state.targetDigest } };
+    },
     adoptEffect: async (phase, continuation, adopted) => adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, state.sessionLifecycle),
     onCheckpoint: persist,
   });
@@ -2327,7 +2398,184 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
       ? { ok: true, targetDigest }
       : { ok: false, reasonCode: "ordinary_continuation_hygiene_effects_unconfirmed" };
   }
+  if (phase === "post_merge_cleanup") {
+    return adopted.evidence?.phase === "cleanup_complete" ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_cleanup_effect_unconfirmed" };
+  }
   return { ok: false, reasonCode: `ordinary_continuation_live_adoption_unsupported:${phase}` };
+}
+
+function readOrdinaryCleanupAuthority(config, state, continuation, owner, currentRunId = null) {
+  const run = (command, args) => spawnSync(command, args, { cwd: config.repoRoot, encoding: "utf8" });
+  const prRead = run("gh", ["pr", "view", String(owner.prNumber), "--repo", owner.repository, "--json", "number,state,headRefName,headRefOid,baseRefName,mergeCommit"]);
+  const openHeadRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--head", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
+  const openBaseRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--base", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
+  const branchRead = run("gh", ["api", `repos/${owner.repository}/branches/${encodeURIComponent(owner.branchName)}`]);
+  const repositoryRead = run("gh", ["repo", "view", owner.repository, "--json", "defaultBranchRef"]);
+  const fetch = run("git", ["fetch", "origin", `refs/heads/${owner.targetBranch}:refs/remotes/origin/${owner.targetBranch}`]);
+  const targetRead = run("git", ["rev-parse", `refs/remotes/origin/${owner.targetBranch}`]);
+  const sourceAncestor = run("git", ["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]);
+  const mergeAncestor = run("git", ["merge-base", "--is-ancestor", owner.mergeSha, `refs/remotes/origin/${owner.targetBranch}`]);
+  const acceptanceAncestor = run("git", ["merge-base", "--is-ancestor", owner.acceptance.targetHeadSha, `refs/remotes/origin/${owner.targetBranch}`]);
+  const sourceTree = run("git", ["rev-parse", `${owner.reviewedHeadSha}^{tree}`]);
+  let pr = null; let openHead = []; let openBase = []; let branch = null; let repository = null;
+  const branchAbsent = branchRead.status !== 0 && /HTTP 404|not found/i.test(`${branchRead.stderr || ""} ${branchRead.stdout || ""}`);
+  try { pr = JSON.parse(prRead.stdout || "null"); openHead = JSON.parse(openHeadRead.stdout || "[]"); openBase = JSON.parse(openBaseRead.stdout || "[]"); branch = branchRead.status === 0 ? JSON.parse(branchRead.stdout || "null") : null; repository = JSON.parse(repositoryRead.stdout || "null"); } catch { return { repository: owner.repository, excluded: true }; }
+  const evidence = continuation.effects?.github_convergence?.evidence || {};
+  const persistedHygiene = state.postMergeCompletionHygiene || evidence.completionHygiene || {};
+  const hygiene = completeMergedIssueHygiene(config, {
+    ...state,
+    issue: state.issue,
+    pr: { number: owner.prNumber, url: owner.prUrl, headRefName: owner.branchName, headRefOid: owner.reviewedHeadSha, baseRefName: owner.targetBranch, state: "MERGED" },
+    mergeSha: owner.mergeSha,
+    sourceHeadSha: owner.reviewedHeadSha,
+    closeRuleSatisfied: true,
+    currentMainResult: "current_target_accepted",
+    ciSecurityResult: "exact_head_checks_passed",
+    sessionLifecycle: state.sessionLifecycle || null,
+    parentIssue: persistedHygiene.parentIssue || state.parentIssue || null,
+    ledgerEvidence: persistedHygiene.ledger?.result ? { results: [persistedHygiene.ledger.result] } : state.ledgerEvidence,
+  }, { runner: (command, args) => run(command, args) });
+  const otherRecoveryReferences = listRecoverableRecoveryStates(config).filter((record) => record.branch?.name === owner.branchName && !sameCleanupExecutionLineage(record, owner)).length;
+  const durableInventory = inspectDurableCleanupReferences(config, owner);
+  const pendingBranchEffects = findPreEffectIntents(config, (intent) => intent.branchName === owner.branchName || intent.effect?.branchName === owner.branchName).filter((intent) => !["live_confirmed", "adopted_after_recovery"].includes(intent.status)).length;
+  const processInventory = run("ps", ["-eo", "pid=,args="]);
+  const correlatedProcesses = processInventory.status === 0
+    ? String(processInventory.stdout || "").split("\n").filter((line) => {
+        const pid = Number(line.trim().split(/\s+/, 1)[0]);
+        return pid !== process.pid && (line.includes(owner.branchName) || line.includes(owner.rootTaskKey));
+      })
+    : null;
+  const otherRunnerProcesses = correlatedProcesses?.filter((line) => /settleora-auto-runner\.mjs/.test(line)).length ?? 1;
+  const otherSupervisorProcesses = correlatedProcesses?.filter((line) => /supervisor/i.test(line)).length ?? 1;
+  const expectedReports = Object.values(state.expectedReportPaths || {}).filter((value) => typeof value === "string");
+  const reportEvidenceComplete = expectedReports.length > 0 && expectedReports.every((value) => existsSync(value));
+  const activeReferences = {
+    runner: otherRunnerProcesses,
+    supervisor: otherSupervisorProcesses,
+    recovery: otherRecoveryReferences + durableInventory.recovery,
+    outage: state.outageResubmission && !["complete", "completed"].includes(state.outageResubmission.status) ? 1 : 0,
+    review: state.reviewConvergenceState?.pendingFindingCount > 0 ? 1 : 0,
+    source_failure: state.ordinaryContinuation?.sourceFailureBatch ? 1 : 0,
+    session: durableInventory.session,
+    bundle: (state.featureBundle && !["complete", "completed"].includes(state.featureBundle.status) ? 1 : 0) + durableInventory.bundle,
+    stack: (state.prStack && !["complete", "completed"].includes(state.prStack.status) ? 1 : 0) + durableInventory.stack,
+    report: reportEvidenceComplete ? 0 : 1,
+    pending_effect: Math.max(Number(state.pendingEffectCount || 0), pendingBranchEffects),
+    generated_work: (state.generatedWork && !["complete", "completed"].includes(state.generatedWork.status) ? 1 : 0) + durableInventory.generated_work,
+    lease: 0,
+  };
+  const openPrReferences = Array.isArray(openHead) && Array.isArray(openBase) ? Math.min(2, openHead.length + openBase.length) : 1;
+  const openIdentityValid = openHead.every((item) => item.headRefName === owner.branchName) && openBase.every((item) => item.baseRefName === owner.branchName);
+  const cleanupExecutorAuthority = continuation.phase === "post_merge_cleanup"
+    && state.phase === "post_merge_ephemeral_cleanup"
+    && state.taskKey === owner.rootTaskKey
+    && state.issue?.number === owner.issueNumber
+    && state.branch?.name === owner.branchName
+    && state.branch?.currentHeadSha === owner.reviewedHeadSha;
+  let runnerLockAuthority = false;
+  try {
+    const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
+    const lock = existsSync(lockPath) ? JSON.parse(readFileSync(lockPath, "utf8")) : null;
+    const lockRunOwnsRecovery = typeof currentRunId === "string"
+      && currentRunId.length > 0
+      && lock?.runId === currentRunId;
+    runnerLockAuthority = lock?.pid === process.pid
+      && processAppearsActive(lock.pid) === true
+      && (lock?.runId === state.run?.runId || lockRunOwnsRecovery)
+      && (lockRunOwnsRecovery || !state.run?.supervisorRunId || lock.supervisorRunId === state.run.supervisorRunId);
+  } catch { runnerLockAuthority = false; }
+  const sessionAuthority = cleanupSessionLifecycleMatches(state.sessionLifecycle, owner);
+  activeReferences.session += sessionAuthority ? 0 : 1;
+  activeReferences.lease = runnerLockAuthority ? 0 : 1;
+  return {
+    repository: owner.repository,
+    pr: { state: prRead.status === 0 ? pr?.state : null, headSha: pr?.headRefOid, mergeSha: pr?.mergeCommit?.oid, baseBranch: pr?.baseRefName },
+    target: { branch: owner.targetBranch, headSha: targetRead.status === 0 ? targetRead.stdout.trim() : null, sourceAncestor: fetch.status === 0 && sourceAncestor.status === 0, mergeAncestor: fetch.status === 0 && mergeAncestor.status === 0 && acceptanceAncestor.status === 0, acceptanceDigest: sourceTree.status === 0 && acceptanceAncestor.status === 0 ? canonicalGithubEvidenceDigest({ targetBranch: owner.targetBranch, targetHeadSha: owner.acceptance.targetHeadSha, sourceHeadSha: owner.reviewedHeadSha, mergeSha: owner.mergeSha, treeSha: sourceTree.stdout.trim() }) : null },
+    hygieneComplete: completionHygieneReady(hygiene), reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0 && durableInventory.complete, openPrReferences,
+    protected: branchRead.status === 0 ? branch?.protected === true : false, defaultBranch: repository?.defaultBranchRef?.name, manualOwned: state.taskKey !== owner.rootTaskKey || state.issue?.number !== owner.issueNumber || state.branch?.name !== owner.branchName || state.branch?.currentHeadSha !== owner.reviewedHeadSha, excluded: prRead.status !== 0 || openHeadRead.status !== 0 || openBaseRead.status !== 0 || !openIdentityValid || repositoryRead.status !== 0 || (branchRead.status !== 0 && !branchAbsent) || targetRead.status !== 0,
+    worktree: { active: false, shared: false, unexportedEvidence: false, primaryHandoffIgnoredPids: authorizedSupervisorProcessIds(state) },
+  };
+}
+
+function inspectDurableCleanupReferences(config, owner) {
+  const result = { complete: true, recovery: 0, session: 0, bundle: 0, stack: 0, generated_work: 0 };
+  const roots = [["recovery", "recovery"], ["session-lifecycle", "session"], ["bundles", "bundle"], ["stack-operation-intents", "stack"], ["pr-stack", "stack"], ["generated-work", "generated_work"]];
+  let visited = 0;
+  for (const [relative, category] of roots) {
+    const root = path.join(config.logsRoot, relative);
+    if (!existsSync(root)) continue;
+    const pending = [root];
+    while (pending.length) {
+      const current = pending.pop();
+      let entries; try { if (lstatSync(current).isSymbolicLink()) { result.complete = false; continue; } entries = readdirSync(current, { withFileTypes: true }); } catch { result.complete = false; continue; }
+      for (const entry of entries) {
+        if (++visited > 2_000) { result.complete = false; return result; }
+        const file = path.join(current, entry.name);
+        if (entry.isSymbolicLink()) { result.complete = false; continue; }
+        if (entry.isDirectory()) { pending.push(file); continue; }
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        let value; try { value = JSON.parse(readFileSync(file, "utf8")); } catch { result.complete = false; continue; }
+        const serialized = JSON.stringify(value);
+        if (!serialized.includes(owner.branchName)) continue;
+        const taskKey = value.taskKey || value.logicalTask?.taskKey || value.sourceTaskKey || null;
+        const exactOwner = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || (taskKey === owner.rootTaskKey && (category !== "session" || cleanupSessionLifecycleMatches(value, owner)));
+        const posture = String(value.status || value.state || value.phase || value.controller?.phase || "").toLowerCase();
+        const terminal = ((category === "recovery" || category === "session") && exactOwner) || ["complete", "completed", "merged", "cleanup_complete", "post_merge_ephemeral_cleanup"].includes(posture);
+        if (!exactOwner || !terminal) result[category] += 1;
+      }
+    }
+  }
+  return result;
+}
+
+export function sameCleanupExecutionLineage(record, owner) {
+  const runId = record.run?.runId || record.runId || null;
+  return record.issue?.number === owner.issueNumber
+    && record.branch?.name === owner.branchName
+    && typeof runId === "string"
+    && owner.executionLineage.startsWith(`${runId}:`);
+}
+
+export function cleanupSessionLifecycleMatches(lifecycle, owner) {
+  const ownerSession = owner.correlations?.session;
+  if (!ownerSession) return !lifecycle;
+  const sessions = [lifecycle?.sessions?.current, ...(lifecycle?.sessions?.retired || [])].filter(Boolean);
+  const runId = lifecycle?.logicalTask?.runId;
+  return lifecycle?.logicalTask?.taskKey === owner.rootTaskKey
+    && typeof runId === "string"
+    && owner.executionLineage.startsWith(`${runId}:`)
+    && sessions.includes(ownerSession);
+}
+
+export function authorizedSupervisorProcessIds(state) {
+  const supervisorRunId = state?.run?.supervisorRunId;
+  if (typeof supervisorRunId !== "string" || supervisorRunId.length === 0 || !Number.isSafeInteger(process.ppid) || process.ppid <= 1) return [];
+  try {
+    const argv = readFileSync(`/proc/${process.ppid}/cmdline`, "utf8").split("\0").filter(Boolean);
+    const worker = argv.findIndex((value) => value.endsWith("/tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs") || value === "tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs");
+    return worker >= 0 && argv[worker + 1] === supervisorRunId && processAppearsActive(process.ppid) === true ? [process.ppid] : [];
+  } catch { return []; }
+}
+
+export function primaryWorktreeRoot(repoRoot) {
+  const listed = spawnSync("git", ["worktree", "list", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
+  if (listed.status !== 0) return null;
+  const first = String(listed.stdout || "").split("\n").find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
+  if (!first) return null;
+  try { return realpathSync(first); } catch { return null; }
+}
+
+function recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName) {
+  const common = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: config.repoRoot, encoding: "utf8" });
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: config.repoRoot, encoding: "utf8" });
+  if (common.status !== 0 || top.status !== 0) return;
+  try {
+    const worktreePath = realpathSync(String(top.stdout || "").trim());
+    const primaryPath = realpathSync(path.dirname(String(common.stdout || "").trim()));
+    if (worktreePath === primaryPath) return;
+    const identity = canonicalGithubEvidenceDigest({ repository: config.repositorySlug, branchName, realPath: worktreePath });
+    recoveryRecorder?.marker("worktree_ownership_created", `${branchName}:${identity}`, { target: identity, correlation: branchName });
+  } catch { /* absent proof deliberately leaves the worktree unowned */ }
 }
 
 function ordinaryIdentityForHead(baseSha, headSha) {
@@ -2350,6 +2598,7 @@ function compactOrdinaryMergeEvidence(autoMerge, prNumber) {
     mergeReadback: autoMerge.mergeReadback,
     sourceBranchRestoration: autoMerge.sourceBranchRestoration,
     completionHygiene: autoMerge.completionHygiene,
+    postMergeCleanupOwnership: autoMerge.postMergeCleanupOwnership,
     comments: { pr: autoMerge.comments?.pr },
   };
 }
@@ -2687,6 +2936,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     exactHeadEvidence,
     issueLinkageEvidence,
     sessionLifecycle,
+    recoveryState,
   };
   const strictRecoveryDecision = evaluateExistingPrRecovery({
     allowExistingPrRecovery: config.allowExistingPrRecovery,
@@ -3101,6 +3351,7 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     codeScanningAlerts: [],
     blockingMarkers: [],
     sessionLifecycle: iteration.sessionLifecycle || null,
+    recoveryState: iteration.recoveryState || null,
   };
   if (!config.allowAutoMerge) {
     const decision = evaluateAutoMergeDecision(baseContext);

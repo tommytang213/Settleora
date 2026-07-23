@@ -5,6 +5,7 @@ import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { buildOutageResubmissionStatus } from "../supervisor/outage-resubmission-controller.mjs";
 import { githubTriggeredFixEpochsPerPrLimit, localSourceChangingRoundsPerEpochLimit } from "./review-convergence-controller.mjs";
 import { evaluateSourceFailureBatch } from "./source-failure-convergence.mjs";
+import { projectPostMergeCleanup } from "./post-merge-cleanup.mjs";
 import {
   loadExecutableStackPlan,
   loadPrStackState,
@@ -399,6 +400,7 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
       adoptedEffectCount: recovery.adoptedEffectCount ?? null,
       nextEffectType: recovery.nextEffectType || null,
     },
+    cleanup: projectPostMergeCleanup(iteration.postMergeCleanupState || iteration.cleanup || {}),
     nextSafeAction: recovery.nextSafeAction || controller.nextExactAction || iteration.nextSafeAction || null,
   });
 }

@@ -95,6 +95,22 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
 });
 
+test("post-merge cleanup uses the supported head filter and terminalizes its own recovery state", () => {
+  const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(source, /\["pr", "list", "--repo", owner\.repository, "--state", "open", "--head", owner\.branchName/);
+  assert.doesNotMatch(source, /--head", `\$\{repositoryOwner\}/);
+  assert.match(source, /\(category === "recovery" \|\| category === "session"\) && exactOwner/);
+  assert.match(source, /transitionSessionLifecyclePhase\(config, state\.sessionLifecycle, \{ phase: "completed", nextExactAction: "post_merge_cleanup_complete" \}\)/);
+  assert.match(source, /advanceRecoveryPhase\(state, \{ phase: "completed"[^}]*nextSafeAction: "none" \}\)/);
+  assert.match(source, /sessionAuthority = cleanupSessionLifecycleMatches\(state\.sessionLifecycle, owner\)/);
+  assert.match(source, /category !== "session" \|\| cleanupSessionLifecycleMatches\(value, owner\)/);
+  assert.match(source, /sessions\.includes\(ownerSession\)/);
+  assert.match(source, /issueLinkageEvidence,\s*sessionLifecycle,\s*recoveryState,/s);
+  assert.match(source, /primaryHandoffIgnoredPids: authorizedSupervisorProcessIds\(state\)/);
+  assert.match(source, /argv\[worker \+ 1\] === supervisorRunId/);
+  assert.match(source, /expectedReportPaths: \{ durableReportPath: iteration\.report\.copyPath \}/);
+});
+
 test("only the controller-owning production runner path grants outage resubmission capability", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   const capabilityToken = ["outageResubmissionControllerAvailable", " true"].join(":");
@@ -134,6 +150,8 @@ test("production runner records lifecycle phases, mutation markers, and head inv
     assert.match(source, new RegExp(`["']${phase}["']`), phase);
   }
   assert.match(source, /recordIdempotentMutation/);
+  assert.match(source, /recordTaskWorktreeOwnershipMarker\(config, recoveryRecorder, branchName\)/);
+  assert.match(source, /marker\("worktree_ownership_created"/);
   assert.match(source, /invalidateEvidenceForHeadChange/);
   assert.match(source, /writeRecoveryState/);
 });
@@ -367,4 +385,13 @@ test("ordinary source-fix recovery admits only an exact descendant prepared comm
   assert.match(runner, /initial\.sourceFailureFixIntent\?\.status === "prepared"/);
   assert.match(runner, /\["merge-base", "--is-ancestor", initial\.identity\.headSha, liveHeadAtRecovery\]/);
   assert.match(runner, /preparedFixCanBeAdopted/);
+});
+
+test("post-merge cleanup explicitly hands authority to the exact successor runner lock", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(runner, /currentRunId: runId/);
+  assert.match(runner, /lockRunOwnsRecovery = typeof currentRunId === "string"[\s\S]*?lock\?\.runId === currentRunId/);
+  assert.match(runner, /lock\?\.runId === state\.run\?\.runId \|\| lockRunOwnsRecovery/);
+  assert.match(runner, /processInventory = run\("ps", \["-eo", "pid=,args="\]\)/);
+  assert.match(runner, /reportEvidenceComplete[\s\S]*?activeReferences\.lease = runnerLockAuthority \? 0 : 1/);
 });

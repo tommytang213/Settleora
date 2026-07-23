@@ -1,5 +1,11 @@
 # Detached Auto-Runner Supervisor
 
+Post-merge cleanup is runner-owned. The supervisor receives only bounded
+sanitized policy, ownership, eligibility, phase, expected-head, presence,
+active-reference count/category, result, blocker, and next-action fields. It
+does not infer ownership, choose targets, execute deletion, or broaden retry
+authority. `cleanup_required` preserves merge truth and resumes the same task.
+
 ## Source-failure status and recovery
 
 The supervisor projects the bounded `operational_status_v1` source-failure
