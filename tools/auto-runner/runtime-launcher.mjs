@@ -32,6 +32,28 @@ function processBirthId(pid) {
   return fields[19];
 }
 
+export function reclaimStaleOwnMarker(marker) {
+  try {
+    const info = lstatSync(marker);
+    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
+      throw new Error("runtime consumer marker is not trusted");
+    }
+    if (typeof process.getuid === "function" && info.uid !== process.getuid()) {
+      throw new Error("runtime consumer marker has the wrong owner");
+    }
+    const parsed = JSON.parse(readFileSync(marker, "utf8"));
+    if (parsed.pid !== process.pid || typeof parsed.processBirthId !== "string") {
+      throw new Error("runtime consumer marker identity is invalid");
+    }
+    if (parsed.processBirthId === processBirthId(process.pid)) {
+      throw new Error("runtime consumer marker is already active");
+    }
+    rmSync(marker);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
 function assertOwnerControlledDirectory(directory, label) {
   const info = lstatSync(directory);
   if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(directory) !== path.resolve(directory)) {
@@ -117,6 +139,7 @@ export async function main(argv = process.argv.slice(2)) {
   assertOwnerControlledDirectory(consumers, "runtime consumer directory");
   if (lockExists(deploymentLock)) throw new Error("runtime startup refused during deployment");
   const marker = path.join(consumers, `${process.pid}.lock`);
+  reclaimStaleOwnMarker(marker);
   writeFileSync(marker, `${JSON.stringify({ pid: process.pid, processBirthId: processBirthId(process.pid) })}\n`, { flag: "wx", mode: 0o600 });
   try {
     if (lockExists(deploymentLock)) throw new Error("runtime startup raced with deployment");

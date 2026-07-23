@@ -455,6 +455,10 @@ test("production health CLI rejects filesystem path arguments", () => {
   const secretFile = runHealthCli("--secret-file", "/tmp/evil");
   assert.notEqual(secretFile.status, 0);
   assert.match(secretFile.stderr, /Unknown argument: --secret-file/);
+
+  const longProfile = runHealthCli("--config", `/workspace/auto-runner/config/${"a".repeat(80)}.json`);
+  assert.notEqual(longProfile.status, 0);
+  assert.doesNotMatch(longProfile.stderr, /requires trusted --config/);
 });
 
 test("production health config uses fixed approved logs root", () => {

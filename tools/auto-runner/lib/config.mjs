@@ -445,7 +445,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     });
     fileConfig = loaded.config;
     configTrustEvidence = loaded.evidence;
-    if (cliArgs.expectedConfigSha256 && configTrustEvidence.sha256 !== cliArgs.expectedConfigSha256) {
+    if (cliArgs.expectedConfigSha256 && configTrustEvidence?.sha256 !== cliArgs.expectedConfigSha256) {
       throw new Error("runner config digest does not match immutable supervisor run spec");
     }
   }
@@ -828,9 +828,16 @@ function readTrustedConfigFile(configPath, { runPrStack = false, bootstrapTruste
       }
       return loaded;
     }
-    const parsed = JSON.parse(readFileSync(resolved, "utf8"));
+    const bytes = readFileSync(resolved);
+    const parsed = JSON.parse(bytes.toString("utf8"));
     if (parsed.runtimeMode === "external") return readExternalProfileConfig(resolved, trustHooks);
-    return { config: parsed, evidence: null };
+    return {
+      config: parsed,
+      evidence: {
+        trustMode: "development",
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      },
+    };
   }
   if (!path.isAbsolute(configPath) || resolved !== configPath) throw new Error("config_path_not_canonical: Config path must be absolute and canonical.");
   const trustedRootProof = validateTrustedRootDirectory(resolveExternalConfigTrustRoot({ bootstrapTrustedRoot }));

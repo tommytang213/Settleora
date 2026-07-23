@@ -32,7 +32,7 @@ function parseArgs(argv) {
   if (
     !path.isAbsolute(configPath)
     || path.normalize(configPath) !== configPath
-    || !/^\/workspace\/auto-runner\/config\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.json$/u.test(configPath)
+    || !/^\/workspace\/auto-runner\/config\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json$/u.test(configPath)
   ) {
     throw new Error("terminal notifier requires trusted --config");
   }

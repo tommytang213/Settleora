@@ -55,7 +55,7 @@ function parseArgs(argv) {
     && (
       !path.isAbsolute(config.configPath)
       || path.normalize(config.configPath) !== config.configPath
-      || !/^\/workspace\/auto-runner\/config\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.json$/u.test(config.configPath)
+      || !/^\/workspace\/auto-runner\/config\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.json$/u.test(config.configPath)
     )
   ) {
     throw new Error("health service requires trusted --config");

@@ -8,6 +8,7 @@ import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle
 import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
 import { ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
+import { reclaimStaleOwnMarker } from "../runtime-launcher.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
@@ -73,6 +74,20 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
       () => verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }),
       /file list does not match/,
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runtime launcher reclaims only a trusted stale marker for its reused PID", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-launcher-marker-"));
+  try {
+    const marker = path.join(root, `${process.pid}.lock`);
+    writeFileSync(marker, `${JSON.stringify({ pid: process.pid, processBirthId: "0" })}\n`, { mode: 0o600 });
+    reclaimStaleOwnMarker(marker);
+    assert.equal(existsSync(marker), false);
+    writeFileSync(marker, `${JSON.stringify({ pid: process.pid, processBirthId: "0" })}\n`, { mode: 0o644 });
+    assert.throws(() => reclaimStaleOwnMarker(marker), /not trusted/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

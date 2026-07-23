@@ -45,6 +45,27 @@ test("disabled outage resubmission profile loads without trusted controller capa
   });
 });
 
+test("development supervisor config digest uses the exact loaded profile bytes", () => {
+  withProfile({}, ({ configPath }) => {
+    const expectedConfigSha256 = createHash("sha256").update(readFileSync(configPath)).digest("hex");
+    const config = loadConfig({
+      ...parseCliArgs(["--run", "--supervisor-run-id", "supervised-20260711T083159Z-427681e96152"]),
+      configPath,
+      expectedConfigSha256,
+    });
+    assert.equal(config.configTrustEvidence.trustMode, "development");
+    assert.equal(config.configTrustEvidence.sha256, expectedConfigSha256);
+    assert.throws(
+      () => loadConfig({
+        ...parseCliArgs(["--run", "--supervisor-run-id", "supervised-20260711T083159Z-427681e96152"]),
+        configPath,
+        expectedConfigSha256: "0".repeat(64),
+      }),
+      /digest does not match/,
+    );
+  });
+});
+
 test("enabled outage resubmission profile requires trusted controller capability", () => {
   withProfile({ outageResubmission: { allowBoundedOutageResubmission: true } }, ({ configPath }) => {
     assert.throws(
