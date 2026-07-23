@@ -49,10 +49,6 @@ function canonicalJson(value) {
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
 }
 
-function digestFile(file) {
-  return createHash("sha256").update(readFileSync(file)).digest("hex");
-}
-
 function verifyApprovedRuntime(runtimeRoot, launcherPath) {
   const parent = path.dirname(runtimeRoot);
   const approvalPath = path.join(parent, `.${path.basename(runtimeRoot)}.approved.json`);
@@ -62,7 +58,7 @@ function verifyApprovedRuntime(runtimeRoot, launcherPath) {
   }
   const approval = JSON.parse(readFileSync(approvalPath, "utf8"));
   if (!/^[a-f0-9]{64}$/u.test(String(approval.bundleDigest || ""))
-      || approval.launcherSha256 !== digestFile(launcherPath)) {
+      || approval.launcherSha256 !== createHash("sha256").update(readFileSync(launcherPath)).digest("hex")) {
     throw new Error("runtime launcher approval mismatch");
   }
   const manifestPath = path.join(runtimeRoot, "runtime-bundle-manifest.json");
@@ -79,10 +75,12 @@ function verifyApprovedRuntime(runtimeRoot, launcherPath) {
     if (typeof file.path !== "string" || path.isAbsolute(file.path) || file.path.split("/").some((part) => part === "" || part === "." || part === "..")) {
       throw new Error("runtime manifest path is unsafe");
     }
-    const target = path.join(runtimeRoot, file.path);
+    const target = path.resolve(runtimeRoot, file.path);
+    if (!target.startsWith(`${runtimeRoot}${path.sep}`)) throw new Error("runtime manifest path escaped runtimeRoot");
     const info = lstatSync(target);
     if (!info.isFile() || info.isSymbolicLink() || realpathSync(target) !== target
-        || (statSync(target).mode & 0o777) !== file.mode || digestFile(target) !== file.sha256) {
+        || (statSync(target).mode & 0o777) !== file.mode
+        || createHash("sha256").update(readFileSync(target)).digest("hex") !== file.sha256) {
       throw new Error("runtime bundle file verification failed");
     }
   }
