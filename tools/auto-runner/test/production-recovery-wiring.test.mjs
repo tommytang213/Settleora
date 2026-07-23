@@ -95,6 +95,15 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
 });
 
+test("post-merge cleanup uses the supported head filter and terminalizes its own recovery state", () => {
+  const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.match(source, /\["pr", "list", "--repo", owner\.repository, "--state", "open", "--head", owner\.branchName/);
+  assert.doesNotMatch(source, /--head", `\$\{repositoryOwner\}/);
+  assert.match(source, /\(category === "recovery" \|\| category === "session"\) && exactOwner/);
+  assert.match(source, /transitionSessionLifecyclePhase\(config, state\.sessionLifecycle, \{ phase: "completed", nextExactAction: "post_merge_cleanup_complete" \}\)/);
+  assert.match(source, /advanceRecoveryPhase\(state, \{ phase: "completed"[^}]*nextSafeAction: "none" \}\)/);
+});
+
 test("only the controller-owning production runner path grants outage resubmission capability", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   const capabilityToken = ["outageResubmissionControllerAvailable", " true"].join(":");

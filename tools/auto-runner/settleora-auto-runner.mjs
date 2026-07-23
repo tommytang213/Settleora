@@ -2338,7 +2338,14 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const cleanupCheckpoint = persistPostMergeCleanupState(config, cleanup.state);
       if (!cleanupCheckpoint.ok) return { ok: false, outcome: "cleanup_required", reasonCode: cleanupCheckpoint.reasonCode };
       state = { ...state, postMergeCleanupState: cleanup.state };
-      return cleanup.ok ? { ok: true, evidence: { phase: cleanup.state.phase, targetDigest: cleanup.state.targetDigest } } : { ok: false, outcome: "cleanup_required", reasonCode: cleanup.reasonCode };
+      if (!cleanup.ok) return { ok: false, outcome: "cleanup_required", reasonCode: cleanup.reasonCode };
+      if (state.sessionLifecycle && state.sessionLifecycle.controller?.phase !== "completed") {
+        const terminal = transitionSessionLifecyclePhase(config, state.sessionLifecycle, { phase: "completed", nextExactAction: "post_merge_cleanup_complete" });
+        if (!terminal.ok) return { ok: false, outcome: "cleanup_required", reasonCode: terminal.reasonCode };
+        state = { ...state, sessionLifecycle: terminal.state };
+      }
+      state = advanceRecoveryPhase(state, { phase: "completed", firstIncompleteAction: state.firstIncompleteAction, nextSafeAction: "none" });
+      return { ok: true, evidence: { phase: cleanup.state.phase, targetDigest: cleanup.state.targetDigest } };
     },
     adoptEffect: async (phase, continuation, adopted) => adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, state.sessionLifecycle),
     onCheckpoint: persist,
@@ -2397,8 +2404,7 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
 function readOrdinaryCleanupAuthority(config, state, continuation, owner, currentRunId = null) {
   const run = (command, args) => spawnSync(command, args, { cwd: config.repoRoot, encoding: "utf8" });
   const prRead = run("gh", ["pr", "view", String(owner.prNumber), "--repo", owner.repository, "--json", "number,state,headRefName,headRefOid,baseRefName,mergeCommit"]);
-  const repositoryOwner = owner.repository.split("/")[0];
-  const openHeadRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--head", `${repositoryOwner}:${owner.branchName}`, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
+  const openHeadRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--head", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
   const openBaseRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--base", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
   const branchRead = run("gh", ["api", `repos/${owner.repository}/branches/${encodeURIComponent(owner.branchName)}`]);
   const repositoryRead = run("gh", ["repo", "view", owner.repository, "--json", "defaultBranchRef"]);
@@ -2511,7 +2517,7 @@ function inspectDurableCleanupReferences(config, owner) {
         const taskKey = value.taskKey || value.logicalTask?.taskKey || value.sourceTaskKey || null;
         const exactOwner = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || (taskKey === owner.rootTaskKey && (category !== "session" || !owner.correlations?.session || value.sessionId === owner.correlations.session || value.sessions?.currentSessionId === owner.correlations.session));
         const posture = String(value.status || value.state || value.phase || value.controller?.phase || "").toLowerCase();
-        const terminal = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || ["complete", "completed", "merged", "cleanup_complete", "post_merge_ephemeral_cleanup"].includes(posture);
+        const terminal = ((category === "recovery" || category === "session") && exactOwner) || ["complete", "completed", "merged", "cleanup_complete", "post_merge_ephemeral_cleanup"].includes(posture);
         if (!exactOwner || !terminal) result[category] += 1;
       }
     }
