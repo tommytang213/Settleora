@@ -1,16 +1,41 @@
 # Issue Progress Ledger
 
-### Issue #947 — safe ephemeral cleanup implementation in progress (2026-07-23)
+### Issue #947 and PR #949 — merged safe ephemeral cleanup (2026-07-23)
 
-- Root task `20260723-1007` was admitted once from main `0688c4b9ad48f7ca8c8770584c097de4ee561535` after live reconciliation found no prior #947 continuation or competing owner.
-- The bounded implementation covers positive ownership, live cleanup gates, checkpointed exact effects, absent-ref adoption, crash recovery, merge-preserving `cleanup_required`, and sanitized status. It performs no historical cleanup.
-- #910 remains open; #912 remains open, manual-gated, and unactivated; #946 remains deferred.
+- Root task `20260723-1007` was admitted once from main
+  `0688c4b9ad48f7ca8c8770584c097de4ee561535`. PR #949 merged normally at
+  exact reviewed source head `929169d9315fc07701c17a45e62c0079157bdb62`
+  as merge commit/current main `210310d4cf292c63d2d2ba4a85845780144cbe2f`.
+- The merged `ephemeral_cleanup_v1` authority requires versioned positive
+  ownership, exact PR/head/target acceptance, complete issue/report/dependency
+  hygiene, protected/default/release exclusions, and a clean inactive exact
+  worktree before any task-scoped deletion. Name shape alone is never deletion
+  authority, historical bulk cleanup remains forbidden, and an already absent
+  merged remote is adopted rather than restored.
+- Exact effects use fixed arguments, immediate drift checks, durable
+  intent/confirmation, and restart adoption. Cleanup failure preserves merge
+  success as `cleanup_required`; durable report export and exact persisted
+  ownership span linked-worktree removal and auto-delete crash windows.
+- Exact-head and current-main acceptance passed runner `1143/1143`, secret
+  boundary `31/31`, docs/scaffold/doctor/syntax/diff checks, and Semgrep 1.167.0
+  with zero findings across 568 rules and 1,578 tracked files. Fresh Gemini and
+  local Codex passed; GitHub Codex found no major issues on the final head; all
+  GitHub checks/scanners passed; unresolved threads and open alerts were zero.
+- Isolated acceptance deleted only exact positively owned task refs/worktrees
+  and retained concurrent manual state. No historical, protected, release,
+  manual, or unowned branch was deleted. #947 is close-ready after this derived
+  checkpoint lands.
+- #910 remains open; #912 remains open, manual-gated, unactivated, and not
+  auto-eligible; #946 remains deferred.
 
-### Issue #944 and PR #945 — merged source-failure convergence (2026-07-22)
+### Issue #944 and PRs #945/#948 — merged source-failure convergence (2026-07-22)
 
 - PR #945 merged normally at exact reviewed source head
   `b38adcb1a12c66140936b526797fc8090cd77a92` as merge commit/current-main
   acceptance head `2db4d4af13e8b56edb2452d95fc3360c3295bc77`; the source branch is retained.
+- Focused hygiene PR #948 merged exact source head
+  `cfa822ae140eb681c08b06d92fa0b41cee0979b3` as
+  `0688c4b9ad48f7ca8c8770584c097de4ee561535`.
 - Scope is runner/docs tooling only: a normalized local/CI/scanner/reviewer
   failure contract, shared ordinary-continuation source-fix routing, durable
   no-progress/status projection, and ordinary mobile Android debug APK proof.
