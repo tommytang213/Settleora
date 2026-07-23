@@ -161,6 +161,12 @@ export function rollbackRuntimeBundle({
       renameSync(incoming, destination);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
     }
+    if (!existsSync(rollback)) {
+      verifyRuntimeBundle(destination, expectedCurrentDigest);
+      renameSync(destination, rollback);
+      renameSync(incoming, destination);
+      return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
+    }
   }
   verifyRuntimeBundle(destination, expectedCurrentDigest);
   verifyRuntimeBundle(rollback, expectedRollbackDigest);

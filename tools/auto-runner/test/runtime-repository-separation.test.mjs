@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -189,11 +189,16 @@ test("manual rollback exchanges only exact verified stopped bundles", () => {
       sourceSha: "b".repeat(40),
       expectedOldDigest: first.manifest.bundleDigest,
     });
+    renameSync(
+      path.join(parent, ".runtime.rollback"),
+      path.join(parent, ".runtime.rollback-incoming"),
+    );
     const rolledBack = rollbackRuntimeBundle({
       destination,
       expectedCurrentDigest: second.manifest.bundleDigest,
       expectedRollbackDigest: first.manifest.bundleDigest,
     });
+    assert.equal(rolledBack.adopted, true);
     assert.equal(rolledBack.manifest.bundleDigest, first.manifest.bundleDigest);
     assert.equal(verifyRuntimeBundle(rolledBack.rollback).bundleDigest, second.manifest.bundleDigest);
     assert.throws(() => rollbackRuntimeBundle({

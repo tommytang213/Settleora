@@ -26,7 +26,7 @@ export const defaultConfig = Object.freeze({
   runtimeMode: "development",
   runtimeRoot: moduleRuntimeRoot(),
   projectId: "Settleora",
-  repoRoot: "/workspace/repos/Settleora",
+  repoRoot: path.resolve(moduleRuntimeRoot(), "../.."),
   logsRoot: defaultLogsRoot,
   repositorySlug: "tommytang213/Settleora",
   eligibleLabels: ["auto-ready", "auto-bundle"],
@@ -521,6 +521,18 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     throw new Error("Bounded outage resubmission requires trusted controller capability.");
   }
 
+  if (config.runtimeMode === "external") {
+    config.runtimeIdentity = validateProjectRuntimeIdentity(config, {
+      actualRuntimeRoot: moduleRuntimeRoot(),
+      trusted: true,
+    });
+    if (!/^[a-f0-9]{64}$/.test(String(config.runtimeBundleDigest || ""))) {
+      throw new Error("external runtime mode requires an explicit runtimeBundleDigest");
+    }
+    config.runtimeManifest = verifyRuntimeBundle(config.runtimeIdentity.runtimeRoot, config.runtimeBundleDigest);
+    bindTrustedRepositoryContext(config.runtimeIdentity.repoRoot);
+  }
+
   for (const dir of [
     config.logsRoot,
     path.join(config.logsRoot, "state"),
@@ -547,16 +559,11 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   }
   chmodSync(lifecycleRoot, 0o700);
   config.canaryEvidenceRoot = path.join(config.logsRoot, "canary");
-  config.runtimeIdentity = validateProjectRuntimeIdentity(config, {
-    actualRuntimeRoot: moduleRuntimeRoot(),
-    trusted: config.runtimeMode === "external",
-  });
-  if (config.runtimeMode === "external") {
-    if (!/^[a-f0-9]{64}$/.test(String(config.runtimeBundleDigest || ""))) {
-      throw new Error("external runtime mode requires an explicit runtimeBundleDigest");
-    }
-    config.runtimeManifest = verifyRuntimeBundle(config.runtimeIdentity.runtimeRoot, config.runtimeBundleDigest);
-    bindTrustedRepositoryContext(config.runtimeIdentity.repoRoot);
+  if (config.runtimeMode !== "external") {
+    config.runtimeIdentity = validateProjectRuntimeIdentity(config, {
+      actualRuntimeRoot: moduleRuntimeRoot(),
+      trusted: false,
+    });
   }
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
