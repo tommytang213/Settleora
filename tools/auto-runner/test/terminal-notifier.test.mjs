@@ -74,6 +74,24 @@ test("terminal notifier sends a completed run once, records after 2xx, and skips
   });
 });
 
+test("terminal notifier derives default dedupe state from the supplied project logs root", async () => {
+  await withLogs(async (logsRoot) => {
+    writeRun(logsRoot, {
+      state: "completed",
+      runnerRunId: "run-2026-07-12T070000Z",
+      summary: { iterations: [{ outcome: "completed" }] },
+    });
+    const result = await runTerminalNotifier({
+      logsRoot,
+      config,
+      now,
+      publisher: async () => ({ ok: true }),
+    });
+    assert.equal(result.sent, true);
+    assert.equal(existsSync(path.join(logsRoot, "monitoring", "notifier-state.json")), true);
+  });
+});
+
 test("terminal notifier sends again for a new run ID and supports no-work and budget activity events", async () => {
   await withLogs(async (logsRoot) => {
     const statePath = notifierStatePath(logsRoot);

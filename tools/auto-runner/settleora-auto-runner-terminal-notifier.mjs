@@ -17,6 +17,7 @@ async function main() {
   const consumer = acquireRuntimeConsumer(moduleRuntimeRoot());
   const result = await runTerminalNotifier({
     logsRoot: project.logsRoot,
+    statePath: path.join(project.logsRoot, "monitoring", "notifier-state.json"),
     configPath: path.join(project.logsRoot, "secrets", "ntfy-notifier.json"),
   }).finally(() => releaseRuntimeConsumer(consumer));
   if (!result.ok) {
