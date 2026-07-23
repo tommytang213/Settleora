@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { evaluateSourceFailureBatch } from "./source-failure-convergence.mjs";
+import { projectPostMergeCleanup } from "./post-merge-cleanup.mjs";
 
 export const operationalStatusSchemaVersion = 1;
 export const operationalStatusMaxBytes = 64 * 1024;
@@ -18,6 +19,7 @@ export const operationalStateInventory = Object.freeze([
   inventory("ordinary_candidate_continuation", "local_operational", 1, ["ordinary-candidate-continuation"], ["runner", "recovery", "operator_projection"], "atomic_versioned_json", "head_bound"),
   inventory("large_route_coverage_split_stack", "local_operational", 1, ["large-candidate-review-routing", "feature-bundle-split-materializer", "pr-stack-executor"], ["runner", "recovery", "operator_projection"], "atomic_versioned_json", "head_bound"),
   inventory("pre_effect_effect_adoption_dedupe", "local_operational", 1, ["pre-effect-intent", "effect-journal", "mutation-dedupe"], ["runner", "recovery", "operator_projection"], "atomic_json_jsonl", "cross_head"),
+  inventory("post_merge_ephemeral_cleanup", "local_operational", 1, ["post-merge-cleanup"], ["runner", "recovery", "operator_projection"], "atomic_versioned_json", "cross_head"),
   inventory("generated_work_security_notifier_dedupe", "local_operational", 1, ["generated-work", "security-findings", "notifier"], ["runner", "monitoring", "operator_projection"], "atomic_versioned_json", "head_bound"),
   inventory("reports_summaries_review_evidence_events", "immutable_evidence", 1, ["runner", "reviewers", "supervisor"], ["operator_projection"], "immutable_bounded_artifacts", "head_bound"),
   inventory("github_repository", "live_authority", 1, ["git", "github"], ["runner", "operator_projection"], "provider_authoritative", "live"),
@@ -58,6 +60,7 @@ export async function buildOperationalStatusProjection(adapters = {}, options = 
     review: projectReview(local.value, github.value, liveHead),
     largeCandidate: projectLargeCandidate(local.value),
     effects: projectEffects(local.value),
+    cleanup: projectPostMergeCleanup(local.value?.cleanup || {}),
     supervisor: projectSupervisor(local.value),
     ledger: ledgerState,
     evidence: projectEvidence(local.value),
@@ -76,6 +79,11 @@ export async function buildOperationalStatusProjection(adapters = {}, options = 
     model.status = "blocked";
     model.blockers = prioritizedBlockers(["stale_head_identity_conflict"], model.blockers);
     model.nextSafeAction = "reconcile_live_head_before_continuation";
+  }
+  if (model.cleanup.cleanupRequired) {
+    model.status = "cleanup_required";
+    if (model.cleanup.blocker) model.blockers = prioritizedBlockers([model.cleanup.blocker], model.blockers);
+    model.nextSafeAction = model.cleanup.nextAction || "resume_post_merge_cleanup";
   }
   assertBoundedProjection(model);
   return model;
@@ -110,6 +118,7 @@ export function renderOperationalStatusMarkdown(model) {
     `- Source failure: ${model.sourceFailure.classification || "none"}; batch ${model.sourceFailure.frozenBatchIdentity || "none"}; recertification ${model.sourceFailure.recertificationPhase || "none"}`,
     `- Session: generation ${value(model.session.generation)}, phase ${model.session.phase || "none"}, pressure ${model.session.contextPressure || "none"}`,
     `- Review exact head: ${model.review.exactHead || "none"}; validation ${model.review.validationStatus || "unknown"}; Gemini ${model.review.geminiStatus || "unknown"}; local Codex ${model.review.localCodexStatus || "unknown"}; CI ${model.review.ciStatus || "unknown"}`,
+    `- Cleanup: ${model.cleanup.phase || "none"}; ownership ${model.cleanup.ownershipStatus}; required ${model.cleanup.cleanupRequired}; blocker ${model.cleanup.blocker || "none"}; next ${model.cleanup.nextAction || "none"}`,
     "",
     "## Large-candidate and ledger posture",
     "",

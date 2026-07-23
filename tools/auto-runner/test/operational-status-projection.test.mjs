@@ -33,6 +33,7 @@ function adapters(overrides = {}) {
       review: { exactHead: head, validationHead: head, geminiHead: head, localCodexHead: head, githubCodexHead: head, ciHead: head, scannerHead: head, validationStatus: "pass", geminiStatus: "pass", localCodexStatus: "pass", githubCodexStatus: "pending", ciStatus: "pending", scannerStatus: "pending", unresolvedThreads: 0, openAlerts: 0 },
       largeCandidate: { route: "coherent_large", coverageStatus: "complete", integrationStatus: "complete", splitState: "not_required", stackState: "not_required", uncoveredScopeIds: [] },
       effects: { pendingIntentCount: 0, confirmedEffectCount: 3, adoptedEffectCount: 1, nextEffectType: "review_request" },
+      cleanup: {},
       supervisor: { runId: "20260722-1019", state: "active", heartbeatPosture: "fresh", leasePosture: "held", reportCorrelation: "20260722-1019" },
       evidence: [{ kind: "validation", digest: "c".repeat(64), status: "pass", exactHead: head }],
       nextSafeAction: "await_github_gates",
@@ -67,6 +68,7 @@ test("production-shaped composed fixture exports one deterministic bounded autho
   assert.equal(one.session.generation, 2);
   assert.equal(one.largeCandidate.stackState, "not_required");
   assert.equal(one.effects.adoptedEffectCount, 1);
+  assert.equal(one.cleanup.ownershipStatus, "unproven");
   assert.ok(Buffer.byteLength(JSON.stringify(one)) < 64 * 1024);
   assert.match(renderOperationalStatusMarkdown(one), /telemetry only; never a gate/);
 });

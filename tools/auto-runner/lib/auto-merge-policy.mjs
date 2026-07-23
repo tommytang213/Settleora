@@ -11,6 +11,7 @@ import { buildIssueOperationContext, completeMergedIssueHygiene } from "./comple
 import { evaluateCycleBudget } from "./review-convergence-controller.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 import { findPreEffectIntents } from "./pre-effect-intent.mjs";
+import { createCleanupOwnershipRecord, persistCleanupOwnership } from "./post-merge-cleanup.mjs";
 
 export const lowRiskAutoMergeLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const approvedDomainAutoMergeLanes = Object.freeze([
@@ -407,6 +408,7 @@ export function executeAutoMerge(config, context, options = {}) {
     const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
+  const cleanupBranchSafety = inspectCleanupBranchSafety(config, finalContext, runner);
   const merge = finalContext.sessionLifecycle
     ? executeCanonicalMergeEffect(config, finalContext, { runner, repositorySlug, prNumber, finalDecision })
     : runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
@@ -432,11 +434,6 @@ export function executeAutoMerge(config, context, options = {}) {
     return { ...failed, mergeReadback: mergeProof, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
   const mergeSha = mergeProof.mergeSha;
-  const branchRestore = restoreSourceBranchIfDeleted(config, finalContext, runner);
-  if (!sourceBranchRestorationConfirmed(branchRestore, { branchName: finalContext.branchName || finalContext.pr?.headRefName, headSha: finalDecision.expectedHeadSha })) {
-    const failed = { ...finalDecision, attempted: true, eligible: false, result: "merge_failed", reason: `source_branch_restoration_failed:${branchRestore.reasonCode || branchRestore.reason || "unconfirmed"}` };
-    return { ...failed, mergeSha, mergeReadback: mergeProof, sourceBranchRestoration: branchRestore, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
-  }
   const hygiene = completeMergedIssueHygiene(
     config,
     {
@@ -451,6 +448,14 @@ export function executeAutoMerge(config, context, options = {}) {
       runner: (command, args) => runner(command, args, { cwd: config.repoRoot }),
     },
   );
+  const cleanupOwnership = preparePostMergeCleanupOwnership(config, finalContext, { runner, mergeSha, mergeProof, hygiene, sourceHeadSha: finalDecision.expectedHeadSha, repositorySlug, prNumber: Number(prNumber), cleanupBranchSafety });
+  const branchRestore = cleanupOwnership.ok
+    ? adoptCompletedSourceBranchPosture(config, finalContext, runner, finalDecision.expectedHeadSha)
+    : restoreSourceBranchIfDeleted(config, finalContext, runner);
+  if (!cleanupOwnership.ok && !sourceBranchRestorationConfirmed(branchRestore, { branchName: finalContext.branchName || finalContext.pr?.headRefName, headSha: finalDecision.expectedHeadSha })) {
+    const mergedCleanupRequired = { ...finalDecision, attempted: true, eligible: false, result: "merged", reason: "github_merge_commit_completed_cleanup_required", cleanupRequired: true };
+    return { ...mergedCleanupRequired, mergeSha, mergeReadback: mergeProof, sourceBranchRestoration: branchRestore, completionHygiene: hygiene, postMergeCleanupOwnership: cleanupOwnership, evidence: writeAutoMergeEvidence(config, mergedCleanupRequired, finalContext) };
+  }
   const summaryBody = mergeSummaryBody(finalContext, mergeSha);
   const prComment = finalContext.sessionLifecycle
     ? executeCanonicalPrComment(config, finalContext, { runner, repositorySlug, prNumber: Number(prNumber), mergeSha, body: summaryBody })
@@ -464,6 +469,8 @@ export function executeAutoMerge(config, context, options = {}) {
     mergeReadback: mergeProof,
     sourceBranchRestoration: branchRestore,
     completionHygiene: hygiene,
+    postMergeCleanupOwnership: cleanupOwnership,
+    cleanupRequired: cleanupOwnership.ok === true,
     issueLabelCleanupResult: legacyLabelCleanupResult(hygiene.labelCleanup),
     issueClosureResult:
       hygiene.closure?.status === "updated"
@@ -478,6 +485,71 @@ export function executeAutoMerge(config, context, options = {}) {
     },
   };
   return { ...merged, evidence: writeAutoMergeEvidence(config, merged, finalContext) };
+}
+
+function adoptCompletedSourceBranchPosture(config, context, runner, headSha) {
+  const branchName = context.branchName || context.pr?.headRefName; const fullRef = `refs/heads/${branchName}`;
+  const read = runner("git", ["ls-remote", "--heads", "origin", fullRef], { cwd: config.repoRoot });
+  if (read.status !== 0 || read.error) return { ok: false, confirmed: false, reasonCode: "source_branch_read_failed" };
+  const liveHead = remoteBranchHead(read.stdout, fullRef);
+  if (liveHead && liveHead !== headSha) return { ok: false, confirmed: false, reasonCode: "source_branch_head_mismatch" };
+  return liveHead
+    ? { ok: true, confirmed: true, branchExists: true, branchName, headSha, reason: "source_branch_exists_cleanup_pending" }
+    : { ok: true, confirmed: true, branchExists: false, branchName, headSha, adoptedForCleanup: true, reason: "source_branch_absence_adopted" };
+}
+
+export function preparePostMergeCleanupOwnership(config, context, { runner, mergeSha, hygiene, sourceHeadSha, repositorySlug, prNumber, cleanupBranchSafety }) {
+  const branchName = context.branchName || context.pr?.headRefName;
+  if (!/^(?:feature|focused|fix|docs|feature-bundle)\/auto-[a-z0-9][a-z0-9._/-]{0,180}$/.test(branchName || "")) return { ok: false, eligible: false, reasonCode: "cleanup_branch_not_ephemeral" };
+  const targetBranch = context.pr?.baseRefName || context.baseRefName || "main";
+  if (!cleanupBranchSafety?.ok || cleanupBranchSafety.protected || cleanupBranchSafety.defaultBranch === branchName) return { ok: false, eligible: true, reasonCode: "cleanup_branch_protection_unproven_or_excluded" };
+  const recovery = context.recoveryState;
+  const creationMarker = recovery?.mutationMarkers?.branch_ownership_created?.[`${branchName}:${context.baseSha || context.expectedOriginMainSha}`];
+  if (recovery?.taskKey !== (context.taskKey || `issue-${context.issue?.number}`)
+    || recovery?.issue?.number !== context.issue?.number
+    || recovery?.branch?.name !== branchName
+    || recovery?.branch?.baseSha !== (context.baseSha || context.expectedOriginMainSha)
+    || recovery?.branch?.currentHeadSha !== sourceHeadSha
+    || creationMarker?.target !== branchName
+    || creationMarker?.correlation !== (context.baseSha || context.expectedOriginMainSha)) {
+    return { ok: false, eligible: true, reasonCode: "cleanup_runner_creation_ownership_unproven" };
+  }
+  const fetched = runner("git", ["fetch", "origin", `refs/heads/${targetBranch}:refs/remotes/origin/${targetBranch}`], { cwd: config.repoRoot });
+  if (fetched.status !== 0 || fetched.error) return { ok: false, eligible: true, reasonCode: "cleanup_target_fetch_failed" };
+  const target = runner("git", ["rev-parse", `refs/remotes/origin/${targetBranch}`], { cwd: config.repoRoot });
+  const sourceAncestor = runner("git", ["merge-base", "--is-ancestor", sourceHeadSha, `refs/remotes/origin/${targetBranch}`], { cwd: config.repoRoot });
+  const mergeAncestor = runner("git", ["merge-base", "--is-ancestor", mergeSha, `refs/remotes/origin/${targetBranch}`], { cwd: config.repoRoot });
+  const sourceTree = runner("git", ["rev-parse", `${sourceHeadSha}^{tree}`], { cwd: config.repoRoot });
+  const mergeTree = runner("git", ["rev-parse", `${mergeSha}^{tree}`], { cwd: config.repoRoot });
+  const targetHeadSha = String(target.stdout || "").trim();
+  if (target.status !== 0 || sourceAncestor.status !== 0 || mergeAncestor.status !== 0 || sourceTree.status !== 0 || mergeTree.status !== 0 || sourceTree.stdout.trim() !== mergeTree.stdout.trim() || !/^[0-9a-f]{40}$/.test(targetHeadSha)) return { ok: false, eligible: true, reasonCode: "cleanup_current_target_acceptance_unproven" };
+  if (hygiene?.status !== "merged") return { ok: false, eligible: true, reasonCode: "cleanup_hygiene_incomplete" };
+  const evidenceDigest = canonicalGithubEvidenceDigest({ targetBranch, targetHeadSha, sourceHeadSha, mergeSha, treeSha: sourceTree.stdout.trim() });
+  let ownership;
+  try {
+    ownership = createCleanupOwnershipRecord({ repository: repositorySlug, rootTaskKey: context.taskKey || `issue-${context.issue?.number}`, executionLineage: `${context.runId || config.runnerRunId || "runner"}:${context.sessionLifecycle?.sessionId || "session"}`, issueNumber: context.issue?.number, branchName, branchKind: branchName.split("/")[0], baseBranch: targetBranch, baseSha: context.baseSha || context.expectedOriginMainSha, reviewedHeadSha: sourceHeadSha, prNumber, prUrl: context.pr?.url || `https://github.com/${repositorySlug}/pull/${prNumber}`, mergeSha, targetBranch, acceptance: { passed: true, targetHeadSha, evidenceDigest }, correlations: { recovery: context.recoveryState?.taskKey || null, session: context.sessionLifecycle?.sessionId || null, bundle: context.featureBundle?.bundleId || null, stack: context.stackId || null }, worktree: cleanupWorktreeIdentity(config, runner, repositorySlug, branchName, sourceHeadSha) });
+  } catch (error) { return { ok: false, eligible: true, reasonCode: error.message }; }
+  const persisted = persistCleanupOwnership(config, ownership);
+  return persisted.ok ? { ok: true, eligible: true, ownership, ownershipDigest: canonicalGithubEvidenceDigest(ownership) } : { ok: false, eligible: true, reasonCode: persisted.reasonCode };
+}
+
+function cleanupWorktreeIdentity(config, runner, repository, branchName, headSha) {
+  const common = runner("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: config.repoRoot });
+  const top = runner("git", ["rev-parse", "--show-toplevel"], { cwd: config.repoRoot });
+  if (common.status !== 0 || common.error || top.status !== 0 || top.error) return null;
+  const worktreePath = path.resolve(String(top.stdout || "").trim());
+  const primaryPath = path.dirname(path.resolve(String(common.stdout || "").trim()));
+  if (!worktreePath || worktreePath === primaryPath) return null;
+  return { identity: canonicalGithubEvidenceDigest({ repository, branchName, headSha, realPath: worktreePath }), disposable: true };
+}
+
+function inspectCleanupBranchSafety(config, context, runner) {
+  const repository = config.repositorySlug || context.config?.repositorySlug; const branchName = context.branchName || context.pr?.headRefName;
+  if (!repository || !branchName) return { ok: false };
+  const branch = runner("gh", ["api", `repos/${repository}/branches/${encodeURIComponent(branchName)}`], { cwd: config.repoRoot });
+  const repo = runner("gh", ["repo", "view", repository, "--json", "defaultBranchRef"], { cwd: config.repoRoot });
+  if (branch.status !== 0 || branch.error || repo.status !== 0 || repo.error) return { ok: false };
+  try { const branchValue = JSON.parse(branch.stdout || "{}"); const repoValue = JSON.parse(repo.stdout || "{}"); return { ok: true, protected: branchValue.protected === true, defaultBranch: repoValue.defaultBranchRef?.name || null }; } catch { return { ok: false }; }
 }
 
 function confirmedLifecycleMergeDecision(context = {}) {

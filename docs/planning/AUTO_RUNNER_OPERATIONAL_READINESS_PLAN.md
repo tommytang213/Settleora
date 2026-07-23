@@ -1,5 +1,10 @@
 # Auto-Runner Operational Readiness Plan
 
+Issue #947 is the approved pre-activation cleanup prerequisite. Its authority
+applies only to newly completed positively owned ephemeral state after exact
+merge/current-target/hygiene proof. It does not activate #912, perform
+historical cleanup, retire release lines, or broaden deferred #946.
+
 Status: implementation acceptance advanced; production profile not activated.
 
 Issue #944 completed through PR #945. The merged implementation extends the

@@ -108,7 +108,7 @@ test("ordinary continuation routes validation source failure through one focused
   const calls = [];
   const state = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/auto-944-x", identity: identity(), phase: "local_validation" });
   let failed = false;
-  const handlers = Object.fromEntries(["external_review", "codex_review", "structured_review", "review_convergence", "push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene"].map((phase) => [phase, async () => { calls.push(phase); return { ok: true }; }]));
+  const handlers = Object.fromEntries(["external_review", "codex_review", "structured_review", "review_convergence", "push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene", "post_merge_cleanup"].map((phase) => [phase, async () => { calls.push(phase); return { ok: true }; }]));
   handlers.local_validation = async (current) => {
     calls.push(`validate:${current.identity.headSha[0]}`);
     if (!failed) {
@@ -134,7 +134,7 @@ test("ordinary continuation recursively repairs a second actionable validation f
   let validations = 0;
   let fixes = 0;
   const state = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/auto-944-x", identity: identity(), phase: "local_validation" });
-  const handlers = Object.fromEntries(["external_review", "codex_review", "structured_review", "review_convergence", "push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene"].map((phase) => [phase, async () => ({ ok: true })]));
+  const handlers = Object.fromEntries(["external_review", "codex_review", "structured_review", "review_convergence", "push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene", "post_merge_cleanup"].map((phase) => [phase, async () => ({ ok: true })]));
   handlers.local_validation = async (current) => {
     validations += 1;
     return validations <= 2
@@ -189,7 +189,7 @@ test("ordinary continuation blocks the fifty-first local source-changing round",
 test("legacy lifetime source rounds do not exhaust a fresh per-epoch gate", async () => {
   const state = createOrdinaryContinuationState({ logicalTaskKey: "944", issueNumber: 944, branchName: "feature/auto-944-x", identity: identity(), phase: "local_validation", counters: { sourceRounds: 50 } });
   let fixed = false;
-  const handlers = Object.fromEntries(["external_review", "codex_review", "structured_review", "review_convergence", "push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene"].map((phase) => [phase, async () => ({ ok: true })]));
+  const handlers = Object.fromEntries(["external_review", "codex_review", "structured_review", "review_convergence", "push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene", "post_merge_cleanup"].map((phase) => [phase, async () => ({ ok: true })]));
   handlers.local_validation = async (current) => fixed ? { ok: true } : { ok: true, sourceFailures: [{ sourceKind: "local_validation", structuredEvidence: true, failureType: "source", diagnostic: "assert failed", identity: current.identity }] };
   handlers.source_failure_fix = async () => { fixed = true; return { ok: true, sourceChanged: true, identity: identity("f") }; };
   const result = await continueOrdinaryCandidate(state, handlers);

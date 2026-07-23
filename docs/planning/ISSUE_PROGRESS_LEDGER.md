@@ -1,5 +1,11 @@
 # Issue Progress Ledger
 
+### Issue #947 — safe ephemeral cleanup implementation in progress (2026-07-23)
+
+- Root task `20260723-1007` was admitted once from main `0688c4b9ad48f7ca8c8770584c097de4ee561535` after live reconciliation found no prior #947 continuation or competing owner.
+- The bounded implementation covers positive ownership, live cleanup gates, checkpointed exact effects, absent-ref adoption, crash recovery, merge-preserving `cleanup_required`, and sanitized status. It performs no historical cleanup.
+- #910 remains open; #912 remains open, manual-gated, and unactivated; #946 remains deferred.
+
 ### Issue #944 and PR #945 — merged source-failure convergence (2026-07-22)
 
 - PR #945 merged normally at exact reviewed source head

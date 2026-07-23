@@ -13,8 +13,9 @@ export const ordinaryContinuationPhases = Object.freeze([
   "github_convergence",
   "merge",
   "post_merge_hygiene",
+  "post_merge_cleanup",
 ]);
-const externallyMutatingPhases = new Set(["push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene"]);
+const externallyMutatingPhases = new Set(["push", "pr_create_or_update", "github_convergence", "merge", "post_merge_hygiene", "post_merge_cleanup"]);
 
 export async function continueOrdinaryCandidate(input, handlers = {}) {
   let state = normalizeState(input);

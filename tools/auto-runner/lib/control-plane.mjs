@@ -399,6 +399,7 @@ function summarizeOperationalIteration(iteration = {}, run = {}) {
       adoptedEffectCount: recovery.adoptedEffectCount ?? null,
       nextEffectType: recovery.nextEffectType || null,
     },
+    cleanup: iteration.postMergeCleanupState || iteration.cleanup || {},
     nextSafeAction: recovery.nextSafeAction || controller.nextExactAction || iteration.nextSafeAction || null,
   });
 }

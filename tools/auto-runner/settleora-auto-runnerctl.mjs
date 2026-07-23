@@ -586,6 +586,7 @@ export function projectRunnerStatus(status = {}) {
       stackState: projection.largeCandidate?.stackState || (status.authorityHealth?.lockOnlyPrStackAuthority ? "running" : null),
     },
     effects: projection.effects || {},
+    cleanup: projection.cleanup || {},
     supervisor: status.supervisor || {},
     blockers: status.blockers || [],
     nextSafeAction: projection.nextSafeAction || null,

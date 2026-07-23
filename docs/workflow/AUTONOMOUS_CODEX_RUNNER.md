@@ -1,5 +1,22 @@
 # Autonomous Codex Runner
 
+## Positively owned post-merge cleanup
+
+Issue #947 adds `ephemeral_cleanup_v1` as the final ordinary-continuation
+phase after current-target acceptance and completion hygiene. A versioned
+owner-only record binds repository, task lineage, issue, branch and creation
+base, reviewed head, PR/merge/target, acceptance digest, correlations, and an
+optional disposable worktree identity. A name pattern grants no authority.
+
+The runner freezes an immutable identity digest, rereads all live gates,
+adopts an already absent remote ref or deletes only the exact ref with an
+expected-old-SHA lease, confirms absence, removes only an
+exact clean inactive non-primary worktree, and uses normal `git branch -d`.
+Every intent and confirmation is checkpointed. Failure preserves merge success
+as `cleanup_required`. Protected, release, manual, unowned, dirty, active,
+ambiguous, historical, or referenced state is retained; wildcard deletion,
+arbitrary persisted commands, broad prune, and force deletion are forbidden.
+
 ## Shared recursive source-failure authority
 
 Post-implementation failures do not gain a separate controller or accounting
@@ -1438,8 +1455,10 @@ spam must be avoided. Dry-run only previews follow-up creation.
 ## Git And PR Rules
 
 Real-run mode fetches latest `origin/main`, starts every task branch from
-`origin/main`, never pushes directly to `main`, never force pushes, never
-deletes branches, never amends commits, and refuses a dirty worktree.
+`origin/main`, never pushes directly to `main`, never rewrites branch history,
+never deletes branches outside the positively owned final-cleanup executor,
+never amends commits, and refuses a dirty worktree. The executor's exact
+expected-old-SHA deletion lease is not authority to update or rewrite a ref.
 
 After implementation Codex exits, the runner collects changed paths from the
 post-Codex checkout: unstaged tracked changes with `git diff --name-only`,
@@ -1453,8 +1472,8 @@ index, and untracked-file set is clean.
 If any post-Codex changed path is outside the issue contract allowlist or lane
 manifest allowlist, the runner fails closed with the offending paths recorded
 and does not silently restore or discard implementation changes. Operator
-cleanup remains a manual inspection step unless a future explicit safe cleanup
-path is designed.
+cleanup remains a manual inspection step unless the exact
+`ephemeral_cleanup_v1` positive-ownership contract is satisfied.
 
 The runner never uses `git add .` and never fabricates empty commits.
 
