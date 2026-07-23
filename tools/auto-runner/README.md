@@ -41,7 +41,10 @@ inspection without creating locks, consumer directories, or other deployment
 control state; its Git inspection disables optional index locks and repository
 filesystem-monitor hooks. Trusted profile reads accept only a direct JSON
 child of `/workspace/auto-runner/config` after verifying that fixed root and
-each ancestor are canonical and not writable by another principal.
+each ancestor are canonical, runner- or system-owned, and not writable by
+another principal. Manifest source verification disables local Git replacement
+objects, and project namespace markers store the same case-normalized
+repository slug used by repository locks and runtime identity.
 The supervisor worker derives its selected profile path from the immutable
 run spec under the fixed project `logsRoot`; the installed unit therefore
 contains no hard-coded active-profile path. The runner child receives the

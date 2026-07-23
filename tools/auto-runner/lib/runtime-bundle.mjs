@@ -208,7 +208,7 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
   const relativeSource = path.relative(repository, source).split(path.sep).join("/");
   if (relativeSource !== "tools/auto-runner") throw new Error("runtime sourceRoot must be the repository tools/auto-runner directory");
-  const listed = spawnSync("git", ["ls-tree", "-r", "-z", sourceSha, "--", relativeSource], {
+  const listed = spawnSync("git", ["--no-replace-objects", "ls-tree", "-r", "-z", sourceSha, "--", relativeSource], {
     cwd: repository,
     encoding: "buffer",
   });
@@ -229,7 +229,7 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   }
   for (const relative of commitFiles) {
     const expected = selected.get(relative);
-    const blob = spawnSync("git", ["cat-file", "blob", expected.objectId], { cwd: repository, encoding: "buffer" });
+    const blob = spawnSync("git", ["--no-replace-objects", "cat-file", "blob", expected.objectId], { cwd: repository, encoding: "buffer" });
     if (blob.status !== 0) throw new Error(`approved runtime blob is unreadable: ${relative}`);
     const worktreePath = path.join(source, relative);
     const worktreeDigest = createHash("sha256").update(readFileSync(worktreePath)).digest("hex");

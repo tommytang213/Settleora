@@ -78,6 +78,37 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
   }
 });
 
+test("deployment source verification ignores local Git replacement objects", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-source-replace-"));
+  try {
+    const repo = path.join(root, "repo");
+    const runtimeSource = path.join(repo, "tools/auto-runner");
+    mkdirSync(path.dirname(runtimeSource), { recursive: true });
+    cpSync(sourceRoot, runtimeSource, { recursive: true });
+    git(repo, ["init", "-b", "main"]);
+    git(repo, ["config", "user.email", "runner@example.invalid"]);
+    git(repo, ["config", "user.name", "Runner Test"]);
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-m", "approved runtime"]);
+    const approvedSha = git(repo, ["rev-parse", "HEAD"]);
+    const changed = path.join(runtimeSource, "README.md");
+    writeFileSync(changed, `${readFileSync(changed, "utf8")}\nreplacement bytes\n`);
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-m", "replacement runtime"]);
+    const replacementSha = git(repo, ["rev-parse", "HEAD"]);
+    git(repo, ["replace", approvedSha, replacementSha]);
+    git(repo, ["reset", "--hard", approvedSha]);
+    assert.equal(git(repo, ["rev-parse", "HEAD"]), approvedSha);
+    assert.equal(git(repo, ["status", "--porcelain"]), "");
+    assert.throws(
+      () => verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }),
+      /bytes do not match/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("deployment CLI requires project logs and keeps rollback dry-run non-mutating", () => {
   const entry = path.join(sourceRoot, "deploy-runtime.mjs");
   const missingLogs = spawnSync(process.execPath, [entry, "--rollback", "--destination", "/tmp/runtime"], { encoding: "utf8" });
@@ -390,6 +421,21 @@ test("project logs namespace marker refuses state adoption by another repository
     assert.deepEqual(verifyProjectNamespaceMarker(configA), verifyProjectNamespaceMarker(configA));
     const configB = { ...configA, runtimeIdentity: identityFor(repoB) };
     assert.throws(() => verifyProjectNamespaceMarker(configB), /does not match repository identity/);
+    const caseLogsRoot = path.join(root, "CaseSettleora");
+    mkdirSync(caseLogsRoot, { mode: 0o700 });
+    const upperIdentity = validateProjectRuntimeIdentity({
+      runtimeMode: "development", runtimeRoot: sourceRoot, repoRoot: repoA, logsRoot: caseLogsRoot,
+      projectId: "CaseSettleora", repositorySlug: "TommyTang213/SETTLEORA",
+    }, { actualRuntimeRoot: sourceRoot, trusted: false });
+    const upperConfig = {
+      projectId: "CaseSettleora", repositorySlug: "TommyTang213/SETTLEORA",
+      logsRoot: caseLogsRoot, runtimeIdentity: upperIdentity,
+    };
+    verifyProjectNamespaceMarker(upperConfig, { create: true });
+    assert.equal(
+      verifyProjectNamespaceMarker({ ...upperConfig, repositorySlug: "tommytang213/settleora" }).repositorySlug,
+      "tommytang213/settleora",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -608,7 +608,7 @@ export function verifyProjectNamespaceMarker(config, { create = false } = {}) {
     version: 1,
     namespace: config.runtimeIdentity.namespace,
     projectId: config.projectId,
-    repositorySlug: config.repositorySlug,
+    repositorySlug: config.runtimeIdentity.repositorySlug,
     repositoryCommonDirDigest: createHash("sha256").update(config.runtimeIdentity.repositoryCommonDir).digest("hex"),
   };
   if (!existsSync(markerPath)) {
@@ -954,6 +954,9 @@ export function validateExternalProfilePath(configPath, fixedRoot = externalProf
     }
     if ((info.mode & 0o022) !== 0) {
       throw new Error("config_external_profile_ancestor_unsafe: External profile ancestors must be owner-controlled.");
+    }
+    if (currentUid !== null && info.uid !== currentUid && info.uid !== 0) {
+      throw new Error("config_external_profile_ancestor_unsafe: External profile ancestors must be runner- or system-owned.");
     }
     if (current === fixedRoot && currentUid !== null && info.uid !== currentUid) {
       throw new Error("config_external_profile_root_owner_invalid: External profile root must be owned by the runner user.");
