@@ -51,14 +51,17 @@ function canonicalJson(value) {
 
 function verifyApprovedRuntime(runtimeRoot, launcherPath) {
   const parent = path.dirname(runtimeRoot);
-  const approvalPath = path.join(parent, `.${path.basename(runtimeRoot)}.approved.json`);
+  if (path.basename(runtimeRoot) !== "runtime") throw new Error("runtime bundle basename is invalid");
+  const expectedLauncher = path.join(parent, ".runtime.launcher.mjs");
+  if (launcherPath !== expectedLauncher) throw new Error("runtime launcher sibling identity is invalid");
+  const approvalPath = path.join(parent, ".runtime.approved.json");
   const approvalInfo = lstatSync(approvalPath);
   if (!approvalInfo.isFile() || approvalInfo.isSymbolicLink() || (approvalInfo.mode & 0o077) !== 0) {
     throw new Error("runtime approval evidence is unsafe");
   }
   const approval = JSON.parse(readFileSync(approvalPath, "utf8"));
   if (!/^[a-f0-9]{64}$/u.test(String(approval.bundleDigest || ""))
-      || approval.launcherSha256 !== createHash("sha256").update(readFileSync(launcherPath)).digest("hex")) {
+      || approval.launcherSha256 !== createHash("sha256").update(readFileSync(expectedLauncher)).digest("hex")) {
     throw new Error("runtime launcher approval mismatch");
   }
   const manifestPath = path.join(runtimeRoot, "runtime-bundle-manifest.json");
