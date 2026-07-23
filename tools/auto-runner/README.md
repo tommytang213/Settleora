@@ -46,9 +46,12 @@ each ancestor are canonical, runner- or system-owned, and not writable by
 another principal. Manifest source verification disables local Git replacement
 objects, and project namespace markers store the same case-normalized
 repository slug used by repository locks and runtime identity.
-The supervisor worker derives its selected profile path from the immutable
-run spec under the fixed project `logsRoot`; the installed unit therefore
-contains no hard-coded active-profile path. The runner child receives the
+The supervisor binds the already admitted canonical profile path and its
+SHA-256 into the immutable run spec; the installed unit therefore contains no
+hard-coded active-profile path, and the worker never reconstructs the profile
+under `logsRoot`. Development profiles remain confined to their approved
+project-log config roots, while an external profile remains confined to the
+fixed `/workspace/auto-runner/config` root. The runner child receives the
 spec's expected profile SHA-256 and refuses admission if the profile is
 replaced between supervisor verification and child startup.
 

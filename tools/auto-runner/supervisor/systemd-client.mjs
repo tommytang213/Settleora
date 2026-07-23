@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { unitNameForRunId } from "./supervisor-state.mjs";
-import { resolveProfile, validateRunId } from "./run-spec.mjs";
+import { validateRunId } from "./run-spec.mjs";
 import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 
 export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot(), configPath = null, repoRoot = null, logsRoot = null } = {}) {
@@ -78,7 +78,7 @@ export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtim
 }
 
 export function runnerArgvForSpec(spec, { runnerRunId = null, runtimeRoot = moduleRuntimeRoot(), logsRoot } = {}) {
-  const configPath = resolveProfile(spec.profile, logsRoot).runnerConfigPath;
+  const configPath = spec.runnerConfigPath;
   const argv = [
     process.execPath,
     absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs"),
