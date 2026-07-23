@@ -66,6 +66,17 @@ test("a successful command is not confirmed until exact absence readback passes"
   assert.equal(deletes, 1);
 });
 
+test("incomplete post-command inventory can never confirm absence", async () => {
+  const o = owner(); const initial = live(o); let reads = 0;
+  const result = await continuePostMergeCleanup(planPostMergeCleanup(o, initial).state, {
+    readLive: async () => { reads += 1; return reads < 3 ? structuredClone(initial) : { ...structuredClone(initial), excluded: true, remoteHead: null }; },
+    checkpoint: async () => {}, deleteRemote: async () => ({ ok: true }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, "branch_excluded_or_protected");
+  assert.equal(result.state.phase, "remote_delete_intended");
+});
+
 test("crash adoption after every boundary never replays completed effects", async () => {
   const o = owner(); let current = live(o); const calls = [];
   const adapter = { readLive: async () => structuredClone(current), checkpoint: async () => {}, deleteRemote: async () => { calls.push("r"); current.remoteHead = null; return { ok: true }; }, removeWorktree: async () => { calls.push("w"); current.worktree.present = false; return { ok: true }; }, deleteLocalBranch: async () => { calls.push("l"); current.localHead = null; return { ok: true }; } };

@@ -106,11 +106,11 @@ export async function continuePostMergeCleanup(input, adapter = {}) {
   if (digest({ ownership: state.ownership }) !== state.targetDigest) return blocked(state, "cleanup_plan_identity_drift", "inspect_cleanup_ownership_drift");
   state = checkpoint(state, "final_reread_passed", "final_reread_passed", "reconcile_remote_branch"); await adapter.checkpoint?.(state);
   const remote = await effect(state, adapter, "remote", Boolean(live.remoteHead)); if (!remote.ok) return remote; state = remote.state;
-  const afterRemote = await adapter.readLive?.(state.ownership); if (afterRemote?.remoteHead) return blocked(state, "remote_delete_unconfirmed", "retry_exact_remote_absence_readback");
+  const afterRemote = await adapter.readLive?.(state.ownership); const afterRemoteGate = evaluateCleanupGate(state.ownership, afterRemote || {}); if (!afterRemoteGate.ok) return blocked(state, afterRemoteGate.reasonCode, afterRemoteGate.nextAction); if (afterRemote?.remoteHead) return blocked(state, "remote_delete_unconfirmed", "retry_exact_remote_absence_readback");
   const worktree = await effect(state, adapter, "worktree", Boolean(afterRemote?.worktree?.present)); if (!worktree.ok) return worktree; state = worktree.state;
-  const afterWorktree = await adapter.readLive?.(state.ownership); if (afterWorktree?.worktree?.present) return blocked(state, "worktree_remove_unconfirmed", "inspect_exact_owned_worktree");
+  const afterWorktree = await adapter.readLive?.(state.ownership); const afterWorktreeGate = evaluateCleanupGate(state.ownership, afterWorktree || {}); if (!afterWorktreeGate.ok) return blocked(state, afterWorktreeGate.reasonCode, afterWorktreeGate.nextAction); if (afterWorktree?.worktree?.present) return blocked(state, "worktree_remove_unconfirmed", "inspect_exact_owned_worktree");
   const local = await effect(state, adapter, "local_branch", Boolean(afterWorktree?.localHead)); if (!local.ok) return local; state = local.state;
-  const finalLive = await adapter.readLive?.(state.ownership); if (finalLive?.remoteHead || finalLive?.localHead || finalLive?.worktree?.present) return blocked(state, "cleanup_final_readback_incomplete", "reconcile_exact_cleanup_effects");
+  const finalLive = await adapter.readLive?.(state.ownership); const finalGate = evaluateCleanupGate(state.ownership, finalLive || {}); if (!finalGate.ok) return blocked(state, finalGate.reasonCode, finalGate.nextAction); if (finalLive?.remoteHead || finalLive?.localHead || finalLive?.worktree?.present) return blocked(state, "cleanup_final_readback_incomplete", "reconcile_exact_cleanup_effects");
   state = checkpoint(state, "cleanup_complete", "complete", "none", { cleanupRequired: false }); await adapter.checkpoint?.(state);
   return { ok: true, outcome: "complete", state };
 }
@@ -132,6 +132,8 @@ async function effect(state, adapter, kind, present) {
     if (!result?.ok) return blocked(next, result?.reasonCode || `${kind}_cleanup_failed`, result?.nextAction || `retry_exact_${kind}_cleanup`);
   }
   const readback = await adapter.readLive?.(next.ownership);
+  const readbackGate = evaluateCleanupGate(next.ownership, readback || {});
+  if (!readbackGate.ok) return blocked(next, readbackGate.reasonCode, readbackGate.nextAction);
   const stillPresent = kind === "remote" ? Boolean(readback?.remoteHead) : kind === "worktree" ? Boolean(readback?.worktree?.present) : Boolean(readback?.localHead);
   if (stillPresent) return blocked(next, `${kind}_cleanup_unconfirmed`, `retry_exact_${kind}_absence_readback`);
   next = checkpoint(next, confirmed, nowPresent ? `${kind}_confirmed` : `${kind}_already_absent_adopted`, kind === "remote" ? "reconcile_owned_worktree" : kind === "worktree" ? "reconcile_owned_local_branch" : "perform_final_cleanup_readback"); await adapter.checkpoint?.(next);
@@ -162,7 +164,7 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
       const remote = run(["ls-remote", "--heads", "origin", `refs/heads/${owner.branchName}`]);
       const local = run(["show-ref", "--verify", "--hash", `refs/heads/${owner.branchName}`]);
       const wt = worktreeFor(owner.branchName);
-      if (remote.status !== 0 || (local.status !== 0 && local.status !== 1) || wt?.error) return { ...authority, excluded: true };
+      if (remote.status !== 0 || ![0, 1, 128].includes(local.status) || wt?.error) return { ...authority, excluded: true };
       let worktree = { present: false };
       if (wt) {
         const candidate = wt.worktree; let symlinked = true; let primary = true; let dirty = true;
@@ -186,7 +188,7 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
       return commandResult(run(["worktree", "remove", "--", candidate]), "worktree_remove_failed");
     },
     deleteLocalBranch: async (owner) => {
-      const local = run(["show-ref", "--verify", "--hash", `refs/heads/${owner.branchName}`]); if (local.status === 1) return { ok: true, adopted: true };
+      const local = run(["show-ref", "--verify", "--hash", `refs/heads/${owner.branchName}`]); if ([1, 128].includes(local.status)) return { ok: true, adopted: true };
       if (local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha) return fail("local_branch_delete_target_drift");
       const merged = run(["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]); if (merged.status !== 0) return fail("local_branch_unmerged");
       return commandResult(run(["update-ref", "-d", `refs/heads/${owner.branchName}`, owner.reviewedHeadSha]), "local_branch_delete_failed");
