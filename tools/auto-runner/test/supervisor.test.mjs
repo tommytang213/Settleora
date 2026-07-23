@@ -214,7 +214,8 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
     repoRoot: "/workspace/repos/Settleora",
     logsRoot: "/workspace/logs/settleora-auto-runner",
   });
-  assert.deepEqual(plan.startArgv.slice(0, 2), ["systemd-run", "--user"]);
+  assert.deepEqual(plan.startArgv, ["systemctl", "--user", "start", `settleora-auto-runner@${runId}.service`]);
+  assert.equal(plan.expectedExecArgv.some((value) => value.endsWith("/.auto-runner.launcher.mjs")), true);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
   for (const unsafePath of [
@@ -802,7 +803,7 @@ test("systemd start failure records no foreground fallback shape", () => {
   assert.equal(result.ok, false);
   assert.equal(result.state, "submission_failed");
   assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], "systemd-run");
+  assert.equal(calls[0][0], "systemctl");
 });
 
 test("heartbeat defaults, stale detection, terminal state, and sanitization", () => {

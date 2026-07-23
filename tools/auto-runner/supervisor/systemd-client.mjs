@@ -14,15 +14,11 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
   const launcher = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.launcher.mjs`);
   return {
     unitName: unitNameForRunId(runId),
-    startArgv: [
-      "systemd-run", "--user", `--unit=${unitNameForRunId(runId).replace(/\.service$/, "")}`,
-      "--property=KillMode=process", "--property=TimeoutStopSec=30min",
-      "--property=SendSIGKILL=no", "--property=UMask=0077",
-      `--property=EnvironmentFile=-${path.join(safeLogsRoot, "secrets/supervisor.env")}`,
-      `--working-directory=${safeRepoRoot}`,
+    expectedExecArgv: [
       process.execPath, launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
       runId, "--config", safeConfigPath, "--logs-root", safeLogsRoot,
     ],
+    startArgv: ["systemctl", "--user", "start", unitNameForRunId(runId)],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
     showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],
   };
