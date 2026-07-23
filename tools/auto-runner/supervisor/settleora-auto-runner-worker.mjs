@@ -80,7 +80,12 @@ export async function runSupervisorWorker(
     if (stopping) return;
     stopping = true;
     writeSupervisorState(runId, { state: "stopping_after_current" }, logsRoot);
-    spawnSyncImpl(process.execPath, [absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs"), "--stop-after-current"], {
+    spawnSyncImpl(process.execPath, [
+      absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs"),
+      "--stop-after-current",
+      "--config",
+      verified.config.realPath,
+    ], {
       cwd: runtimeRoot,
       encoding: "utf8",
     });

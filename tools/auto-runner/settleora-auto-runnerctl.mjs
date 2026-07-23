@@ -4,7 +4,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import process from "node:process";
-import { defaultLogsRoot } from "./lib/config.mjs";
 import { getRefSha, getStatusShort } from "./lib/git-workspace.mjs";
 import {
   buildRunSpec,
@@ -160,7 +159,7 @@ export function controlSupervisorRun(runId, cli, config, deps = {}) {
   }
 
   const lifecycleState = supervisorState.state?.state || null;
-  const controlConfig = { ...config, logsRoot: defaultLogsRoot };
+  const controlConfig = config;
   const runnerStatus = getStatus(controlConfig);
   const decision = evaluateSupervisorControlPolicy({
     supervisorRunId: runId,

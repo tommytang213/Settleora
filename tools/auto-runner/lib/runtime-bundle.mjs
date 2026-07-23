@@ -106,6 +106,9 @@ export function deployRuntimeBundle({
   const rollback = path.join(destinationParent, `.${path.basename(destination)}.rollback`);
   if (existsSync(destination)) {
     const current = verifyRuntimeBundle(destination);
+    if (current.bundleDigest === manifest.bundleDigest && !expectedOldDigest) {
+      return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback: null, manifest: current };
+    }
     if (current.bundleDigest === manifest.bundleDigest && expectedOldDigest && existsSync(rollback)) {
       verifyRuntimeBundle(rollback, expectedOldDigest);
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest: current };
