@@ -8,9 +8,21 @@ import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { findPreEffectIntents, loadPreEffectIntent, preparePreEffectIntent } from "./pre-effect-intent.mjs";
 import { assertMutationAuthority, loadSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
+let configuredProjectRoot = null;
+let requireConfiguredProjectRoot = false;
+
+export function configureGitProjectContext(repoRoot, { trustedExternal = false } = {}) {
+  if (typeof repoRoot !== "string" || !path.isAbsolute(repoRoot)) throw new Error("repoRoot must be an absolute path");
+  configuredProjectRoot = path.resolve(repoRoot);
+  requireConfiguredProjectRoot = trustedExternal === true;
+  return configuredProjectRoot;
+}
+
 export function runGit(args, options = {}) {
+  const cwd = options.cwd || configuredProjectRoot || (!requireConfiguredProjectRoot ? process.cwd() : null);
+  if (!cwd) throw new Error("Git project context is required");
   const result = spawnSync("git", args, {
-    cwd: options.cwd || process.cwd(),
+    cwd,
     env: options.env ? { ...process.env, ...options.env } : process.env,
     encoding: "utf8",
     windowsHide: true,
