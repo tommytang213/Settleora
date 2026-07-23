@@ -17,14 +17,21 @@ export function processAppearsActive(pid) {
 export function acquireRunnerLock(config, metadata = {}) {
   const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
   const repositoryLockPath = repositoryAuthorityLockPath(config.repoRoot);
-  for (const [target, allowStaleReclaim] of [[repositoryLockPath, false], [lockPath, true]]) {
-    acquireOneLock(target, {
-      projectId: config.projectId,
-      repositorySlug: config.repositorySlug,
-      repoRoot: config.repoRoot,
-      stateNamespace: config.runtimeIdentity?.namespace || null,
-      ...metadata,
-    }, { allowStaleReclaim });
+  const acquired = [];
+  try {
+    for (const [target, allowStaleReclaim] of [[repositoryLockPath, false], [lockPath, true]]) {
+      acquireOneLock(target, {
+        projectId: config.projectId,
+        repositorySlug: config.repositorySlug,
+        repoRoot: config.repoRoot,
+        stateNamespace: config.runtimeIdentity?.namespace || null,
+        ...metadata,
+      }, { allowStaleReclaim });
+      acquired.push(target);
+    }
+  } catch (error) {
+    for (const target of acquired.reverse()) releaseOneLock(target);
+    throw error;
   }
   return { lockPath, repositoryLockPath };
 }
