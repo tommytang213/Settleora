@@ -126,7 +126,17 @@ export function matchAuthorizedSupervisorProcess({
   const argv = String(parentCmdline || "").split("\0").filter(Boolean);
   const expectedWorker = absoluteRuntimeEntry(runtimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
   const worker = argv.findIndex((value) => value === expectedWorker);
-  return worker >= 0 && argv[worker + 1] === supervisorRunId ? [parentPid] : [];
+  if (worker >= 0 && argv[worker + 1] === supervisorRunId) return [parentPid];
+  const expectedLauncher = path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.launcher.mjs`);
+  const launcher = argv.findIndex((value) => value === expectedLauncher);
+  const launcherShapeMatches = launcher >= 0
+    && argv[launcher + 1] === "--runtime-root"
+    && argv[launcher + 2] === runtimeRoot
+    && argv[launcher + 3] === "--entry"
+    && argv[launcher + 4] === "supervisor/settleora-auto-runner-worker.mjs"
+    && argv[launcher + 5] === "--"
+    && argv[launcher + 6] === supervisorRunId;
+  return launcherShapeMatches ? [parentPid] : [];
 }
 
 export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspace/logs/auto-runner/repository-locks") {

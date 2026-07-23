@@ -104,9 +104,18 @@ test("cleanup recognizes only the exact worker in the executing runtime bundle",
     parentCmdline: `node\0${expectedWorker}\0${supervisorRunId}\0`,
   };
   assert.deepEqual(matchAuthorizedSupervisorProcess(options), [4321]);
+  const expectedLauncher = path.join(path.dirname(sourceRoot), `.${path.basename(sourceRoot)}.launcher.mjs`);
+  assert.deepEqual(matchAuthorizedSupervisorProcess({
+    ...options,
+    parentCmdline: `node\0${expectedLauncher}\0--runtime-root\0${sourceRoot}\0--entry\0supervisor/settleora-auto-runner-worker.mjs\0--\0${supervisorRunId}\0`,
+  }), [4321]);
   assert.deepEqual(matchAuthorizedSupervisorProcess({
     ...options,
     parentCmdline: `node\0/workspace/repos/Other/tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs\0${supervisorRunId}\0`,
+  }), []);
+  assert.deepEqual(matchAuthorizedSupervisorProcess({
+    ...options,
+    parentCmdline: `node\0${expectedLauncher}\0--runtime-root\0${sourceRoot}\0--entry\0settleora-auto-runner.mjs\0--\0${supervisorRunId}\0`,
   }), []);
 });
 
