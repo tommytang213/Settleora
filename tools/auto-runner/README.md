@@ -26,7 +26,11 @@ enables, reloads, or restarts a service.
 
 Production entry points are imported through the stable sibling
 `/workspace/auto-runner/.runtime.launcher.mjs`. The deployer creates that
-verified launcher on first install and refuses a mismatched replacement.
+verified launcher on first install. During an expected-old-digest protected,
+quiescent upgrade, it may atomically replace the stable launcher only when the
+installed launcher matches the launcher inside the verified old bundle; all
+other mismatches fail closed. The old bundle's approval is refreshed after
+that replacement so an interrupted upgrade remains safely retryable.
 Before importing any replaceable bundle module, the launcher checks the
 deployment lock and records a PID plus process-start identity in the shared
 consumer directory. It also evaluates the Node version against the constraint

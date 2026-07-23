@@ -674,6 +674,50 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
   }
 });
 
+test("deployment atomically upgrades an authenticated stable launcher", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-launcher-upgrade-"));
+  try {
+    const repo = createRepo(root, "project");
+    const logs = path.join(root, "logs");
+    const parent = path.join(root, "installed");
+    const oldSource = path.join(root, "old-source");
+    mkdirSync(logs, { mode: 0o700 });
+    mkdirSync(parent, { mode: 0o700 });
+    cpSync(sourceRoot, oldSource, { recursive: true });
+    writeFileSync(
+      path.join(oldSource, "runtime-launcher.mjs"),
+      `${readFileSync(path.join(oldSource, "runtime-launcher.mjs"), "utf8")}\n// authenticated prior launcher\n`,
+    );
+    const destination = path.join(parent, "runtime");
+    const installed = deployRuntimeBundle({
+      sourceRoot: oldSource,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha: "a".repeat(40),
+    });
+    const launcher = path.join(parent, ".runtime.launcher.mjs");
+    const oldLauncherDigest = createHash("sha256").update(readFileSync(launcher)).digest("hex");
+    const upgraded = deployRuntimeBundle({
+      sourceRoot,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha,
+      expectedOldDigest: installed.manifest.bundleDigest,
+    });
+    assert.notEqual(createHash("sha256").update(readFileSync(launcher)).digest("hex"), oldLauncherDigest);
+    assert.equal(
+      createHash("sha256").update(readFileSync(launcher)).digest("hex"),
+      createHash("sha256").update(readFileSync(path.join(destination, "runtime-launcher.mjs"))).digest("hex"),
+    );
+    assert.equal(verifyRuntimeBundle(destination).bundleDigest, upgraded.manifest.bundleDigest);
+    assert.equal(existsSync(path.join(parent, ".runtime.launcher.incoming")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("runtime consumer discovery covers every project using the shared bundle", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-consumers-"));
   try {
