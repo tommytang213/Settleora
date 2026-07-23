@@ -150,7 +150,7 @@ export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspac
   if (currentUid !== null && authority.uid !== currentUid) throw new Error("repository authority root owner is invalid");
   if ((authority.mode & 0o022) !== 0) throw new Error("repository authority root must not be group/world writable");
   const repository = verifyRepositoryIdentity(canonicalExistingDirectory(repoRoot, "repoRoot"), repositorySlug);
-  const authorityIdentity = repositorySlug ? `github.com/${repositorySlug}` : repository.commonDir;
+  const authorityIdentity = repositorySlug ? `github.com/${repositorySlug.toLowerCase()}` : repository.commonDir;
   return path.join(authorityRoot, `${createHash("sha256").update(authorityIdentity).digest("hex")}.lock`);
 }
 

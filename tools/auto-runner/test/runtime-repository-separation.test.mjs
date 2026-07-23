@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -94,6 +94,39 @@ test("deployment CLI requires project logs and keeps rollback dry-run non-mutati
   ], { encoding: "utf8" });
   assert.notEqual(rollbackDryRun.status, 0);
   assert.match(rollbackDryRun.stderr, /cannot be combined/);
+});
+
+test("deployment CLI dry-run does not create deployment-control state", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-cli-dry-run-"));
+  try {
+    const repo = path.join(root, "repo");
+    const runtimeSource = path.join(repo, "tools/auto-runner");
+    const logs = path.join(root, "logs");
+    const installParent = path.join(root, "install");
+    mkdirSync(path.dirname(runtimeSource), { recursive: true });
+    cpSync(sourceRoot, runtimeSource, { recursive: true });
+    mkdirSync(logs, { mode: 0o700 });
+    mkdirSync(installParent, { mode: 0o700 });
+    git(repo, ["init", "-b", "main"]);
+    git(repo, ["config", "user.email", "runner@example.invalid"]);
+    git(repo, ["config", "user.name", "Runner Test"]);
+    git(repo, ["add", "."]);
+    git(repo, ["commit", "-m", "runtime source"]);
+    const approvedSha = git(repo, ["rev-parse", "HEAD"]);
+    const result = spawnSync(process.execPath, [
+      path.join(runtimeSource, "deploy-runtime.mjs"),
+      "--dry-run",
+      "--repo-root", repo,
+      "--destination", path.join(installParent, "runtime"),
+      "--logs-root", logs,
+      "--approved-sha", approvedSha,
+    ], { encoding: "utf8", cwd: root });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).dryRun, true);
+    assert.deepEqual(readdirSync(installParent), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("cleanup recognizes only the exact worker in the executing runtime bundle", () => {
@@ -307,6 +340,12 @@ test("distinct repositories isolate authority while the same canonical repositor
       repositoryAuthorityLockPath(repoA, authority, "tommytang213/Settleora"),
       repositoryAuthorityLockPath(repoB, authority, "tommytang213/Settleora"),
     );
+    git(repoA, ["remote", "set-url", "origin", "git@github.com:TommyTang213/SETTLEORA.git"]);
+    git(repoB, ["remote", "set-url", "origin", "git@github.com:tommytang213/settleora.git"]);
+    assert.equal(
+      repositoryAuthorityLockPath(repoA, authority, "TommyTang213/SETTLEORA"),
+      repositoryAuthorityLockPath(repoB, authority, "tommytang213/settleora"),
+    );
     const linked = path.join(root, "repo-a-linked");
     git(repoA, ["worktree", "add", "--detach", linked]);
     assert.equal(repositoryAuthorityLockPath(realpathSync(linked), authority), a1);
@@ -387,6 +426,10 @@ test("deployment lock refuses an active owner and reclaims a proven stale owner"
     const reclaimed = acquireRuntimeDeploymentLock(destination);
     assert.equal(reclaimed, lock);
     releaseRuntimeDeploymentLock(reclaimed);
+    const acquisitionGuard = path.join(root, ".runtime.deployment-acquire");
+    mkdirSync(acquisitionGuard, { mode: 0o700 });
+    assert.throws(() => acquireRuntimeDeploymentLock(destination), /acquisition is already active/);
+    rmSync(acquisitionGuard, { recursive: true });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

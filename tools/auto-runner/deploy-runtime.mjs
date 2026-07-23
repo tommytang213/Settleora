@@ -20,11 +20,12 @@ const repoRoot = path.resolve(values.get("--repo-root") || "");
 const sourceRoot = path.resolve(values.get("--source-root") || path.join(repoRoot, "tools/auto-runner"));
 const destination = path.resolve(values.get("--destination") || "");
 const logsRoot = path.resolve(values.get("--logs-root") || "");
-const deploymentLock = acquireRuntimeDeploymentLock(destination);
+let deploymentLock = null;
 try {
 const quiescence = inspectDeploymentQuiescence(logsRoot);
 const runtimeConsumers = inspectRuntimeConsumers(destination);
 if (values.has("--rollback")) {
+  deploymentLock = acquireRuntimeDeploymentLock(destination);
   const result = rollbackRuntimeBundle({
     destination,
     expectedCurrentDigest: values.get("--expected-old-digest"),
@@ -45,6 +46,7 @@ if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("
 const approvedSha = values.get("--approved-sha");
 if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not equal --approved-sha");
 verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha });
+if (!values.has("--dry-run")) deploymentLock = acquireRuntimeDeploymentLock(destination);
 const result = deployRuntimeBundle({
   sourceRoot,
   destination,
