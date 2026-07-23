@@ -123,7 +123,7 @@ import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCan
 import { continuePostMergeCleanup, createPostMergeCleanupGitAdapter, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup } from "./lib/post-merge-cleanup.mjs";
 import { canonicalGithubEvidenceDigest } from "./lib/github-effect-consumer.mjs";
 import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
-import { completionHygieneReady } from "./lib/completion-hygiene.mjs";
+import { completeMergedIssueHygiene, completionHygieneReady } from "./lib/completion-hygiene.mjs";
 
 async function main() {
   const cliArgs = parseCliArgs(process.argv.slice(2));
@@ -2407,7 +2407,20 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
   const branchAbsent = branchRead.status !== 0 && /HTTP 404|not found/i.test(`${branchRead.stderr || ""} ${branchRead.stdout || ""}`);
   try { pr = JSON.parse(prRead.stdout || "null"); openHead = JSON.parse(openHeadRead.stdout || "[]"); openBase = JSON.parse(openBaseRead.stdout || "[]"); branch = branchRead.status === 0 ? JSON.parse(branchRead.stdout || "null") : null; repository = JSON.parse(repositoryRead.stdout || "null"); } catch { return { repository: owner.repository, excluded: true }; }
   const evidence = continuation.effects?.github_convergence?.evidence || {};
-  const hygiene = state.postMergeCompletionHygiene || evidence.completionHygiene || {};
+  const persistedHygiene = state.postMergeCompletionHygiene || evidence.completionHygiene || {};
+  const hygiene = completeMergedIssueHygiene(config, {
+    ...state,
+    issue: state.issue,
+    pr: { number: owner.prNumber, url: owner.prUrl, headRefName: owner.branchName, headRefOid: owner.reviewedHeadSha, baseRefName: owner.targetBranch, state: "MERGED" },
+    mergeSha: owner.mergeSha,
+    sourceHeadSha: owner.reviewedHeadSha,
+    closeRuleSatisfied: true,
+    currentMainResult: "current_target_accepted",
+    ciSecurityResult: "exact_head_checks_passed",
+    sessionLifecycle: state.sessionLifecycle || null,
+    parentIssue: persistedHygiene.parentIssue || state.parentIssue || null,
+    ledgerEvidence: persistedHygiene.ledger?.result ? { results: [persistedHygiene.ledger.result] } : state.ledgerEvidence,
+  }, { runner: (command, args) => run(command, args) });
   const otherRecoveryReferences = listRecoverableRecoveryStates(config).filter((record) => record.branch?.name === owner.branchName && (record.taskKey !== owner.rootTaskKey || record.issue?.number !== owner.issueNumber)).length;
   const durableInventory = inspectDurableCleanupReferences(config, owner);
   const pendingBranchEffects = findPreEffectIntents(config, (intent) => intent.branchName === owner.branchName || intent.effect?.branchName === owner.branchName).filter((intent) => !["live_confirmed", "adopted_after_recovery"].includes(intent.status)).length;
