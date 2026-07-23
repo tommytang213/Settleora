@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import {
@@ -2320,8 +2320,12 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const ownershipResult = continuation.effects?.github_convergence?.evidence?.postMergeCleanupOwnership;
       const ownership = state.postMergeCleanupOwnership || (ownershipResult?.ok ? ownershipResult.ownership : null);
       if (!ownership) return { ok: false, outcome: "cleanup_required", reasonCode: "post_merge_cleanup_ownership_missing" };
-      const authorityReader = async (owner) => readOrdinaryCleanupAuthority(config, state, continuation, owner, currentRunId);
-      const adapter = createPostMergeCleanupGitAdapter({ repoRoot: config.repoRoot, authorityReader, checkpoint: async (cleanup) => { const written = persistPostMergeCleanupState(config, cleanup); if (!written.ok) throw new Error(written.reasonCode); } });
+      const cleanupRoot = primaryWorktreeRoot(config.repoRoot);
+      if (!cleanupRoot) return { ok: false, outcome: "cleanup_required", reasonCode: "cleanup_primary_worktree_unavailable" };
+      const cleanupConfig = { ...config, repoRoot: cleanupRoot };
+      try { process.chdir(cleanupRoot); } catch { return { ok: false, outcome: "cleanup_required", reasonCode: "cleanup_primary_worktree_unavailable" }; }
+      const authorityReader = async (owner) => readOrdinaryCleanupAuthority(cleanupConfig, state, continuation, owner, currentRunId);
+      const adapter = createPostMergeCleanupGitAdapter({ repoRoot: cleanupRoot, authorityReader, checkpoint: async (cleanup) => { const written = persistPostMergeCleanupState(cleanupConfig, cleanup); if (!written.ok) throw new Error(written.reasonCode); } });
       let loaded = loadPostMergeCleanupState(config, ownership);
       if (!loaded.ok && loaded.reasonCode === "cleanup_state_unavailable_or_corrupt") {
         const planned = planPostMergeCleanup(ownership, await adapter.readLive(ownership));
@@ -2421,7 +2425,7 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
     parentIssue: persistedHygiene.parentIssue || state.parentIssue || null,
     ledgerEvidence: persistedHygiene.ledger?.result ? { results: [persistedHygiene.ledger.result] } : state.ledgerEvidence,
   }, { runner: (command, args) => run(command, args) });
-  const otherRecoveryReferences = listRecoverableRecoveryStates(config).filter((record) => record.branch?.name === owner.branchName && (record.taskKey !== owner.rootTaskKey || record.issue?.number !== owner.issueNumber)).length;
+  const otherRecoveryReferences = listRecoverableRecoveryStates(config).filter((record) => record.branch?.name === owner.branchName && !sameCleanupExecutionLineage(record, owner)).length;
   const durableInventory = inspectDurableCleanupReferences(config, owner);
   const pendingBranchEffects = findPreEffectIntents(config, (intent) => intent.branchName === owner.branchName || intent.effect?.branchName === owner.branchName).filter((intent) => !["live_confirmed", "adopted_after_recovery"].includes(intent.status)).length;
   const processInventory = run("ps", ["-eo", "pid=,args="]);
@@ -2504,14 +2508,30 @@ function inspectDurableCleanupReferences(config, owner) {
         const serialized = JSON.stringify(value);
         if (!serialized.includes(owner.branchName)) continue;
         const taskKey = value.taskKey || value.logicalTask?.taskKey || value.sourceTaskKey || null;
-        const exactOwner = taskKey === owner.rootTaskKey && (category !== "session" || !owner.correlations?.session || value.sessionId === owner.correlations.session || value.sessions?.currentSessionId === owner.correlations.session);
+        const exactOwner = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || (taskKey === owner.rootTaskKey && (category !== "session" || !owner.correlations?.session || value.sessionId === owner.correlations.session || value.sessions?.currentSessionId === owner.correlations.session));
         const posture = String(value.status || value.state || value.phase || value.controller?.phase || "").toLowerCase();
-        const terminal = ["complete", "completed", "merged", "cleanup_complete", "post_merge_ephemeral_cleanup"].includes(posture);
+        const terminal = (category === "recovery" && sameCleanupExecutionLineage(value, owner)) || ["complete", "completed", "merged", "cleanup_complete", "post_merge_ephemeral_cleanup"].includes(posture);
         if (!exactOwner || !terminal) result[category] += 1;
       }
     }
   }
   return result;
+}
+
+export function sameCleanupExecutionLineage(record, owner) {
+  const runId = record.run?.runId || record.runId || null;
+  return record.issue?.number === owner.issueNumber
+    && record.branch?.name === owner.branchName
+    && typeof runId === "string"
+    && owner.executionLineage.startsWith(`${runId}:`);
+}
+
+export function primaryWorktreeRoot(repoRoot) {
+  const listed = spawnSync("git", ["worktree", "list", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
+  if (listed.status !== 0) return null;
+  const first = String(listed.stdout || "").split("\n").find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
+  if (!first) return null;
+  try { return realpathSync(first); } catch { return null; }
 }
 
 function ordinaryIdentityForHead(baseSha, headSha) {
