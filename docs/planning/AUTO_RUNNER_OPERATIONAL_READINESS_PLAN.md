@@ -1,7 +1,7 @@
 # Auto-Runner Operational Readiness Plan
 
-Issue #947 is the approved pre-activation cleanup prerequisite. Its authority
-applies only to newly completed positively owned ephemeral state after exact
+Issue #947 completed through PR #949. Its cleanup authority applies only to
+newly completed positively owned ephemeral state after exact
 merge/current-target/hygiene proof. It does not activate #912, perform
 historical cleanup, retire release lines, or broaden deferred #946.
 
@@ -14,14 +14,14 @@ convergence and adds an Android debug APK build to ordinary
 external profile, deployment, credential, or scanner-disposition authority.
 
 Acceptance-chain reconciliation snapshot: `origin/main` at
-`2db4d4af13e8b56edb2452d95fc3360c3295bc77` after PR #945. The foundation
+`210310d4cf292c63d2d2ba4a85845780144cbe2f` after PR #949. The foundation
 issues #800, #889, and #894 remain closed. #913 and #921 are closed under their
 narrow close rules. PR #917 is closed without merge as fully superseded, with
 its source branch retained. #911 completed through PR #915, #902 through PR
 #916, #923/#932 through PR #936, #928/#929 through PR #938, #924 through
-PR #940, #927 through PR #942, and #944 through PR #945. #910 remains the
-readiness umbrella and #912 remains the separate manual production activation
-gate.
+PR #940, #927 through PR #942, #944 through PRs #945/#948, and #947 through
+PR #949. #910 remains the readiness umbrella and #912 remains the separate
+manual production activation gate.
 
 This plan records the remaining operational activation work. It does not change
 runner behavior, enable external profiles, mutate canaries, dismiss alerts, run
