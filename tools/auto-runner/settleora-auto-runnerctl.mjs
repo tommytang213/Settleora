@@ -43,7 +43,7 @@ async function main() {
     run: false,
     configPath: cli.configPath,
   }, {
-    outageResubmissionControllerAvailable: true,
+    outageResubmissionObserverAvailable: true,
   });
   if (cli.command === "submit") {
     const result = await submit(cli, config);
@@ -127,7 +127,7 @@ export function loadProjectionConfig(cli, deps = {}) {
   if (cli.configPath) {
     return configLoader(
       { dryRun: true, run: false, configPath: cli.configPath },
-      { outageResubmissionControllerAvailable: true },
+      { outageResubmissionObserverAvailable: true },
     );
   }
   const bootstrap = { ...(deps.defaultConfig || defaultConfig) };

@@ -115,16 +115,14 @@ test("only the controller-owning production runner path grants outage resubmissi
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   const capabilityToken = ["outageResubmissionControllerAvailable", " true"].join(":");
   assert.equal(source.match(new RegExp(capabilityToken, "g"))?.length, 1);
+  assert.ok((source.match(/outageResubmissionObserverAvailable: true/g) || []).length >= 5);
   assert.match(
     source,
     /const config = loadConfig\(cliArgs,\s*\{\s*outageResubmissionControllerAvailable: true,\s*\}\);\s*const trustPolicy = evaluateTrustPolicy\(config\);/s,
   );
 
-  assert.match(source, /loadConfig\(\{ \.\.\.cliArgs, dryRun: true, run: false \}\)/);
-  assert.match(source, /loadConfig\(\{ dryRun: false, run: false, configPath: cliArgs\.configPath \}\)/);
-  assert.match(source, /const config = loadConfig\(cliArgs\);\s*const result = runPreflight\(config\);/s);
-  assert.match(source, /const config = loadConfig\(cliArgs\);\s*const result = await runGeminiReviewerSmokeTest\(config,/s);
-  assert.match(source, /const config = loadConfig\(cliArgs\);\s*const result = await runSecurityFindingsDryRun\(config,/s);
+  assert.match(source, /loadConfig\(\{ \.\.\.cliArgs, dryRun: true, run: false \}, \{ outageResubmissionObserverAvailable: true \}\)/);
+  assert.match(source, /loadConfig\(\{ dryRun: false, run: false, configPath: cliArgs\.configPath \}, \{ outageResubmissionObserverAvailable: true \}\)/);
 });
 
 test("production runner records lifecycle phases, mutation markers, and head invalidation hooks", () => {

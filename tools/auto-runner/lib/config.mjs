@@ -516,7 +516,8 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.prStackExecution = normalizePrStackExecutionConfig(config.prStackExecution);
   if (
     config.outageResubmission.allowBoundedOutageResubmission === true &&
-    trustedCapabilities?.outageResubmissionControllerAvailable !== true
+    trustedCapabilities?.outageResubmissionControllerAvailable !== true &&
+    !(trustedCapabilities?.outageResubmissionObserverAvailable === true && cliArgs.run !== true)
   ) {
     throw new Error("Bounded outage resubmission requires trusted controller capability.");
   }

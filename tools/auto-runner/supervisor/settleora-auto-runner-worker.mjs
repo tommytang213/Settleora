@@ -173,7 +173,7 @@ async function main() {
   failureLogsRoot = selectedLogsRoot;
   const config = loadConfig(
     { dryRun: true, run: false, configPath },
-    { outageResubmissionControllerAvailable: true },
+    { outageResubmissionObserverAvailable: true },
   );
   if (config.logsRoot !== selectedLogsRoot) throw new Error("supervisor worker logsRoot does not match config");
   failureLogsRoot = config.logsRoot;
