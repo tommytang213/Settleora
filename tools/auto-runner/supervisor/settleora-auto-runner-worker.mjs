@@ -3,6 +3,7 @@
 import { createWriteStream } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import path from "node:path";
 import process from "node:process";
 import { defaultLogsRoot, loadConfig } from "../lib/config.mjs";
 import { getRefSha } from "../lib/git-workspace.mjs";
@@ -163,8 +164,15 @@ export async function runSupervisorWorker(
 async function main() {
   const configIndex = process.argv.indexOf("--config");
   const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : null;
+  const logsIndex = process.argv.indexOf("--logs-root");
+  const selectedLogsRoot = logsIndex >= 0 ? process.argv[logsIndex + 1] : null;
   if (!configPath) throw new Error("supervisor worker requires --config");
+  if (!selectedLogsRoot || !path.isAbsolute(selectedLogsRoot) || path.resolve(selectedLogsRoot) !== selectedLogsRoot) {
+    throw new Error("supervisor worker requires canonical absolute --logs-root");
+  }
+  failureLogsRoot = selectedLogsRoot;
   const config = loadConfig({ dryRun: true, run: false, configPath });
+  if (config.logsRoot !== selectedLogsRoot) throw new Error("supervisor worker logsRoot does not match config");
   failureLogsRoot = config.logsRoot;
   const result = await runSupervisorWorker(process.argv[2], {
     logsRoot: config.logsRoot,

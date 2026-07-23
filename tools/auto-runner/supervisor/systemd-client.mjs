@@ -19,7 +19,7 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
       "--property=SendSIGKILL=no", "--property=UMask=0077",
       `--property=EnvironmentFile=-${path.join(logsRoot, "secrets/supervisor.env")}`,
       `--working-directory=${repoRoot}`,
-      process.execPath, worker, runId, "--config", configPath,
+      process.execPath, worker, runId, "--config", configPath, "--logs-root", logsRoot,
     ],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
     showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],

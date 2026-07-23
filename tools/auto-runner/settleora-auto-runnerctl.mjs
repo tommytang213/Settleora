@@ -122,6 +122,7 @@ export function loadProjectionConfig(cli, deps = {}) {
   const profileResolver = deps.resolveProfile || resolveProfile;
   const configPathValidator = deps.validateRunnerConfigPath || validateRunnerConfigPath;
   const pathExists = deps.existsSync || existsSync;
+  if (cli.configPath) return configLoader({ dryRun: true, run: false, configPath: cli.configPath });
   const bootstrap = { ...(deps.defaultConfig || defaultConfig) };
   const status = suppressRetainedTaskForPreChildSupervisor(bootstrap, statusReader(bootstrap), deps.latestSupervisorRun || latestSupervisorRun);
   let configPath;
