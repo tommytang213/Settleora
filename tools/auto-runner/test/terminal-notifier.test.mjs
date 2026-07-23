@@ -288,8 +288,18 @@ test("terminal notifier CLI rejects caller-controlled production arguments and s
   for (const arg of ["--base-url", "--topic", "--token", "--config-path"]) {
     const result = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs", arg, "x"], { encoding: "utf8" });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /requires absolute --config/);
+    assert.match(result.stderr, /requires trusted --config/);
     assert.doesNotMatch(result.stderr, /tk_|Bearer|Authorization/);
+  }
+  for (const configPath of [
+    "/tmp/settleora.json",
+    "/workspace/auto-runner/config/../settleora.json",
+    "/workspace/auto-runner/config/settleora/child.json",
+    "/workspace/auto-runner/config/.json",
+  ]) {
+    const result = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs", "--config", configPath], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /requires trusted --config/);
   }
   const notifierService = readFileSync("tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.service", "utf8");
   const notifierTimer = readFileSync("tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.timer", "utf8");

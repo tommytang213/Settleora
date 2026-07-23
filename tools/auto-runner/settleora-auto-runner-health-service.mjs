@@ -2,6 +2,7 @@
 
 import { pathToFileURL } from "node:url";
 import process from "node:process";
+import path from "node:path";
 import {
   createAutoRunnerHealthServer,
   validateHealthServiceConfigWithFixedRoot,
@@ -39,6 +40,16 @@ function parseArgs(argv) {
     else if (arg === "--config") config.configPath = readValue(argv, ++index, arg);
     else if (arg === "--allow-non-loopback") config.allowNonLoopback = true;
     else throw new Error(`Unknown argument: ${arg}`);
+  }
+  if (
+    config.configPath
+    && (
+      !path.isAbsolute(config.configPath)
+      || path.normalize(config.configPath) !== config.configPath
+      || !/^\/workspace\/auto-runner\/config\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.json$/u.test(config.configPath)
+    )
+  ) {
+    throw new Error("health service requires trusted --config");
   }
   return config;
 }

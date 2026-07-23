@@ -26,8 +26,16 @@ async function main() {
 }
 
 function parseArgs(argv) {
-  if (argv.length === 2 && argv[0] === "--config" && path.isAbsolute(argv[1])) return { configPath: argv[1] };
-  throw new Error("terminal notifier requires absolute --config");
+  if (argv.length !== 2 || argv[0] !== "--config") throw new Error("terminal notifier requires trusted --config");
+  const configPath = argv[1];
+  if (
+    !path.isAbsolute(configPath)
+    || path.normalize(configPath) !== configPath
+    || !/^\/workspace\/auto-runner\/config\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.json$/u.test(configPath)
+  ) {
+    throw new Error("terminal notifier requires trusted --config");
+  }
+  return { configPath };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
