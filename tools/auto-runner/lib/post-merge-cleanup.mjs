@@ -7,7 +7,8 @@ export const postMergeCleanupSchemaVersion = 1;
 export const postMergeCleanupPolicyVersion = "ephemeral_cleanup_v1";
 export const postMergeCleanupPhases = Object.freeze([
   "cleanup_planned", "final_reread_passed", "remote_delete_intended",
-  "remote_delete_confirmed", "worktree_remove_intended", "worktree_remove_confirmed",
+  "remote_delete_confirmed", "checkout_handoff_intended", "checkout_handoff_confirmed",
+  "worktree_remove_intended", "worktree_remove_confirmed",
   "local_branch_delete_intended", "local_branch_delete_confirmed", "cleanup_complete",
 ]);
 const cleanupRoot = "post-merge-cleanup";
@@ -90,7 +91,8 @@ export function evaluateCleanupGate(owner, live = {}) {
   if (live.protected === true || live.defaultBranch === owner.branchName || live.manualOwned === true || live.excluded === true) blockers.push("branch_excluded_or_protected");
   if (live.remoteHead && live.remoteHead !== owner.reviewedHeadSha) blockers.push("remote_head_drift");
   if (live.localHead && live.localHead !== owner.reviewedHeadSha) blockers.push("local_head_drift");
-  if (live.worktree?.present && (live.worktree.identity !== owner.worktree?.identity || live.worktree.primary || live.worktree.dirty || live.worktree.active || live.worktree.shared || live.worktree.symlinked || live.worktree.unexportedEvidence)) blockers.push("worktree_not_disposable_clean_owned");
+  const primaryHandoff = live.worktree?.primary === true && !owner.worktree && live.worktree.handoffEligible === true;
+  if (live.worktree?.present && ((!primaryHandoff && (live.worktree.identity !== owner.worktree?.identity || live.worktree.primary)) || live.worktree.dirty || live.worktree.active || live.worktree.shared || live.worktree.symlinked || live.worktree.unexportedEvidence)) blockers.push("worktree_not_disposable_clean_owned");
   if (blockers.length) return { ok: false, reasonCode: blockers[0], blockers: blockers.slice(0, 20), nextAction: nextAction(blockers[0]) };
   return { ok: true, evidence: { remotePresent: Boolean(live.remoteHead), localPresent: Boolean(live.localHead), worktreePresent: Boolean(live.worktree?.present), activeReferenceCategories: refs, activeReferenceCount: refs.reduce((n, key) => n + Number(live.activeReferences[key] || 0), 0) } };
 }
@@ -104,10 +106,22 @@ export async function continuePostMergeCleanup(input, adapter = {}) {
   const gate = evaluateCleanupGate(state.ownership, live || {});
   if (!gate.ok) return blocked(state, gate.reasonCode, gate.nextAction);
   if (digest({ ownership: state.ownership }) !== state.targetDigest) return blocked(state, "cleanup_plan_identity_drift", "inspect_cleanup_ownership_drift");
-  state = checkpoint(state, "final_reread_passed", "final_reread_passed", "reconcile_remote_branch"); await adapter.checkpoint?.(state);
+  if (!phaseAtLeast(state.phase, "final_reread_passed")) { state = checkpoint(state, "final_reread_passed", "final_reread_passed", "reconcile_remote_branch"); await adapter.checkpoint?.(state); }
   const remote = await effect(state, adapter, "remote", Boolean(live.remoteHead)); if (!remote.ok) return remote; state = remote.state;
   const afterRemote = await adapter.readLive?.(state.ownership); const afterRemoteGate = evaluateCleanupGate(state.ownership, afterRemote || {}); if (!afterRemoteGate.ok) return blocked(state, afterRemoteGate.reasonCode, afterRemoteGate.nextAction); if (afterRemote?.remoteHead) return blocked(state, "remote_delete_unconfirmed", "retry_exact_remote_absence_readback");
-  const worktree = await effect(state, adapter, "worktree", Boolean(afterRemote?.worktree?.present)); if (!worktree.ok) return worktree; state = worktree.state;
+  if (state.phase === "checkout_handoff_intended" && !afterRemote?.worktree?.present) {
+    state = checkpoint(state, "checkout_handoff_confirmed", "checkout_handoff_already_adopted", "reconcile_owned_worktree"); await adapter.checkpoint?.(state);
+  } else if (!phaseAtLeast(state.phase, "checkout_handoff_confirmed") && afterRemote?.worktree?.primary && afterRemote.worktree.handoffEligible) {
+    if (state.phase !== "checkout_handoff_intended") { state = checkpoint(state, "checkout_handoff_intended", "checkout_handoff_intended", "detach_exact_primary_source_checkout"); await adapter.checkpoint?.(state); }
+    const handedOff = await adapter.handoffPrimaryCheckout?.(state.ownership);
+    if (!handedOff?.ok) return blocked(state, handedOff?.reasonCode || "checkout_handoff_failed", "retry_exact_primary_checkout_handoff");
+    const afterHandoff = await adapter.readLive?.(state.ownership); const afterHandoffGate = evaluateCleanupGate(state.ownership, afterHandoff || {});
+    if (!afterHandoffGate.ok) return blocked(state, afterHandoffGate.reasonCode, afterHandoffGate.nextAction);
+    if (afterHandoff?.worktree?.present) return blocked(state, "checkout_handoff_unconfirmed", "inspect_primary_checkout_handoff");
+    state = checkpoint(state, "checkout_handoff_confirmed", "checkout_handoff_confirmed", "reconcile_owned_worktree"); await adapter.checkpoint?.(state);
+  }
+  const beforeWorktree = await adapter.readLive?.(state.ownership);
+  const worktree = await effect(state, adapter, "worktree", Boolean(beforeWorktree?.worktree?.present)); if (!worktree.ok) return worktree; state = worktree.state;
   const afterWorktree = await adapter.readLive?.(state.ownership); const afterWorktreeGate = evaluateCleanupGate(state.ownership, afterWorktree || {}); if (!afterWorktreeGate.ok) return blocked(state, afterWorktreeGate.reasonCode, afterWorktreeGate.nextAction); if (afterWorktree?.worktree?.present) return blocked(state, "worktree_remove_unconfirmed", "inspect_exact_owned_worktree");
   const local = await effect(state, adapter, "local_branch", Boolean(afterWorktree?.localHead)); if (!local.ok) return local; state = local.state;
   const finalLive = await adapter.readLive?.(state.ownership); const finalGate = evaluateCleanupGate(state.ownership, finalLive || {}); if (!finalGate.ok) return blocked(state, finalGate.reasonCode, finalGate.nextAction); if (finalLive?.remoteHead || finalLive?.localHead || finalLive?.worktree?.present) return blocked(state, "cleanup_final_readback_incomplete", "reconcile_exact_cleanup_effects");
@@ -177,14 +191,20 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
         const candidate = wt.worktree; let symlinked = true; let primary = true; let dirty = true;
         try { symlinked = lstatSync(candidate).isSymbolicLink(); const real = realpathSync(candidate); primary = real === root; const status = run(["status", "--porcelain=v1", "--untracked-files=normal"], real); dirty = status.status !== 0 || Boolean(String(status.stdout || "").trim()); } catch { /* fail closed */ }
         const actualIdentity = symlinked ? null : digest({ repository: owner.repository, branchName: owner.branchName, headSha: local.status === 0 ? String(local.stdout || "").trim() : null, realPath: realpathSync(candidate) });
-        const processActive = !symlinked && processOwnsPath(realpathSync(candidate));
-        worktree = { present: true, identity: actualIdentity, primary, dirty, active: authority.worktree?.active === true || processActive, shared: authority.worktree?.shared === true, symlinked, unexportedEvidence: authority.worktree?.unexportedEvidence === true };
+        const processActive = !symlinked && processOwnsPath(realpathSync(candidate), primary ? process.pid : null);
+        worktree = { present: true, identity: actualIdentity, primary, handoffEligible: primary && !owner.worktree && !dirty && !processActive, dirty, active: authority.worktree?.active === true || processActive, shared: authority.worktree?.shared === true, symlinked, unexportedEvidence: authority.worktree?.unexportedEvidence === true };
       }
       const remoteHead = String(remote.stdout || "").trim().split(/\s+/)[0] || null;
       const localHead = local.status === 0 ? String(local.stdout || "").trim() : null;
       return { ...authority, remoteHead, localHead, worktree };
     },
     deleteRemote: async (owner) => commandResult(run(["push", `--force-with-lease=refs/heads/${owner.branchName}:${owner.reviewedHeadSha}`, "origin", `:refs/heads/${owner.branchName}`]), "remote_branch_delete_failed"),
+    handoffPrimaryCheckout: async (owner) => {
+      const wt = worktreeFor(owner.branchName); if (!wt || wt.error) return fail(wt?.error || "checkout_handoff_target_missing");
+      const candidate = realpathSync(wt.worktree); const status = run(["status", "--porcelain=v1", "--untracked-files=normal"], candidate); const local = localRef(owner.branchName);
+      if (candidate !== root || status.status !== 0 || String(status.stdout || "").trim() || local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha || processOwnsPath(candidate, process.pid)) return fail("checkout_handoff_target_drift");
+      return commandResult(run(["switch", "--detach", owner.acceptance.targetHeadSha], candidate), "checkout_handoff_failed");
+    },
     removeWorktree: async (owner) => {
       const wt = worktreeFor(owner.branchName); if (!wt) return { ok: true, adopted: true }; if (wt.error) return fail(wt.error);
       if (!owner.worktree?.identity || lstatSync(wt.worktree).isSymbolicLink()) return fail("worktree_remove_target_unsafe");
@@ -219,15 +239,20 @@ function safeReason(value) { return typeof value === "string" && /^[a-z0-9_:-]{1
 function commandResult(result, reasonCode) { return result?.status === 0 && !result?.error ? { ok: true } : { ok: false, reasonCode }; }
 function writeOwnerOnlyAtomic(file, value, unsafeReason) { const dir = path.dirname(file); mkdirSync(dir, { recursive: true, mode: 0o700 }); const info = lstatSync(dir); if ((info.mode & 0o077) !== 0 || info.isSymbolicLink()) return fail(unsafeReason); const tmp = `${file}.${process.pid}.${Date.now()}.tmp`; writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" }); renameSync(tmp, file); return { ok: true, statePath: file, value }; }
 function readOwnerOnlyJson(file, validator, prefix) { let fd; try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); const stat = fstatSync(fd); if (!stat.isFile() || stat.size < 2 || stat.size > 1024 * 1024 || (stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())) return fail(`${prefix}_state_unsafe`); const value = JSON.parse(readFileSync(fd, "utf8")); const valid = validator(value); return valid.ok ? { ok: true, value } : valid; } catch { return fail(`${prefix}_state_unavailable_or_corrupt`); } finally { if (fd !== undefined) closeSync(fd); } }
-function processOwnsPath(candidate) {
+function processOwnsPath(candidate, ignoredPid = null) {
   const lsof = spawnSync("lsof", ["-t", "+D", candidate], { encoding: "utf8", windowsHide: true });
   if (lsof.error && lsof.error.code !== "ENOENT") return true;
   if (!lsof.error && ![0, 1].includes(lsof.status)) return true;
-  if (!lsof.error && lsof.status === 0 && String(lsof.stdout || "").trim()) return true;
+  if (!lsof.error && lsof.status === 0) {
+    const owners = String(lsof.stdout || "").trim().split(/\s+/).filter(Boolean).map(Number);
+    if (owners.some((pid) => pid !== ignoredPid)) return true;
+    if (owners.length > 0) return false;
+  }
   if (!lsof.error && lsof.status === 1) return false;
   try {
     for (const entry of readdirSync("/proc")) {
       if (!/^[1-9][0-9]*$/.test(entry)) continue;
+      if (Number(entry) === ignoredPid) continue;
       for (const link of [`/proc/${entry}/cwd`, `/proc/${entry}/root`, `/proc/${entry}/exe`]) {
         try { if (insidePath(readlinkSync(link), candidate)) return true; } catch (error) { if (!transientProcfsError(error)) return true; }
       }

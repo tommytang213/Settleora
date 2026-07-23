@@ -83,6 +83,14 @@ test("crash adoption after every boundary never replays completed effects", asyn
   const first = await continuePostMergeCleanup(planPostMergeCleanup(o, current).state, adapter); const second = await continuePostMergeCleanup(first.state, adapter); assert.equal(second.ok, true); assert.deepEqual(calls, ["r", "w", "l"]);
 });
 
+test("primary checkout handoff crash is adopted without replay", async () => {
+  const o = owner({ worktree: null }); let current = live(o, { remoteHead: null, worktree: { present: true, primary: true, handoffEligible: true, dirty: false, active: false, shared: false, symlinked: false, unexportedEvidence: false } }); let checkpoint; let handoffs = 0;
+  await assert.rejects(() => continuePostMergeCleanup(planPostMergeCleanup(o, current).state, { readLive: async () => structuredClone(current), checkpoint: async (state) => { checkpoint = structuredClone(state); }, handoffPrimaryCheckout: async () => { handoffs += 1; current.worktree = { present: false }; throw new Error("simulated crash after detach"); } }));
+  assert.equal(checkpoint.phase, "checkout_handoff_intended");
+  const resumed = await continuePostMergeCleanup(checkpoint, { readLive: async () => structuredClone(current), checkpoint: async () => {}, deleteLocalBranch: async () => { current.localHead = null; return { ok: true }; } });
+  assert.equal(resumed.ok, true); assert.equal(handoffs, 1); assert.equal(resumed.state.effects.checkout_handoff_confirmed !== undefined, true);
+});
+
 test("effect failure preserves merge success and projects bounded sanitized cleanup_required", async () => {
   const o = owner(); const initial = live(o); const planned = planPostMergeCleanup(o, initial).state;
   const result = await continuePostMergeCleanup(planned, { readLive: async () => initial, checkpoint: async () => {}, deleteRemote: async () => ({ ok: false, reasonCode: "provider_transport" }) });
@@ -117,4 +125,17 @@ test("production-shaped isolated repository deletes only the exact owned remote,
   const authority = { ...live(o), remoteHead: undefined, localHead: undefined, worktree: {} };
   const adapter = createPostMergeCleanupGitAdapter({ repoRoot: repo, authorityReader: async () => authority, checkpoint: async () => {} }); const initial = await adapter.readLive(o); const result = await continuePostMergeCleanup(planPostMergeCleanup(o, initial).state, adapter);
   assert.equal(result.ok, true, JSON.stringify({ reasonCode: result.reasonCode, phase: result.state?.phase, blocker: result.state?.blocker })); assert.equal(git(repo, "ls-remote", "--heads", "origin", "refs/heads/feature/auto-947-cleanup"), ""); assert.match(git(repo, "ls-remote", "--heads", "origin", "refs/heads/manual-keep"), /refs\/heads\/manual-keep/); assert.throws(() => git(repo, "show-ref", "--verify", "refs/heads/feature/auto-947-cleanup")); assert.equal(git(repo, "rev-parse", "refs/heads/manual-keep"), base);
+});
+
+test("production-shaped primary checkout hands off before exact local cleanup", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-cleanup-primary-")); const bare = path.join(root, "remote.git"); const repo = path.join(root, "repo"); const integrator = path.join(root, "integrator");
+  const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+  execFileSync("git", ["init", "--bare", bare]); execFileSync("git", ["clone", bare, repo]); git(repo, "config", "user.email", "runner@example.test"); git(repo, "config", "user.name", "Runner Test");
+  writeFileSync(path.join(repo, "base.txt"), "base\n"); git(repo, "add", "base.txt"); git(repo, "commit", "-m", "base"); git(repo, "branch", "-M", "main"); git(repo, "push", "-u", "origin", "main"); const base = git(repo, "rev-parse", "HEAD");
+  git(repo, "switch", "-c", "feature/auto-947-primary"); writeFileSync(path.join(repo, "change.txt"), "change\n"); git(repo, "add", "change.txt"); git(repo, "commit", "-m", "change"); const reviewed = git(repo, "rev-parse", "HEAD"); git(repo, "push", "-u", "origin", "feature/auto-947-primary");
+  execFileSync("git", ["clone", bare, integrator]); git(integrator, "config", "user.email", "runner@example.test"); git(integrator, "config", "user.name", "Runner Test"); git(integrator, "switch", "main"); git(integrator, "merge", "--no-ff", "origin/feature/auto-947-primary", "-m", "merge"); const merge = git(integrator, "rev-parse", "HEAD"); git(integrator, "push", "origin", "main"); git(repo, "fetch", "origin", "main");
+  const o = owner({ branchName: "feature/auto-947-primary", baseSha: base, reviewedHeadSha: reviewed, mergeSha: merge, acceptance: { passed: true, targetHeadSha: merge, evidenceDigest: d("e") }, worktree: null });
+  const authority = { ...live(o), remoteHead: undefined, localHead: undefined, worktree: {} }; const adapter = createPostMergeCleanupGitAdapter({ repoRoot: repo, authorityReader: async () => authority, checkpoint: async () => {} });
+  const initial = await adapter.readLive(o); assert.equal(initial.worktree.primary, true); assert.equal(initial.worktree.handoffEligible, true);
+  const result = await continuePostMergeCleanup(planPostMergeCleanup(o, initial).state, adapter); assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(git(repo, "branch", "--show-current"), ""); assert.throws(() => git(repo, "show-ref", "--verify", "refs/heads/feature/auto-947-primary"));
 });
