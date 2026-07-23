@@ -166,7 +166,9 @@ export function inspectDeploymentQuiescence(logsRoot) {
     if (!existsSync(root)) continue;
     for (const file of regularJsonFiles(root, 4)) {
       const record = JSON.parse(readFileSync(file, "utf8"));
-      const terminal = record.completed === true || record.status === "completed" || record.phase === "cleanup_complete";
+      const terminalStatuses = new Set(["completed", "finalized", "failed_closed"]);
+      const terminalPhases = new Set(["completed", "cleanup_complete"]);
+      const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
       if (!terminal) return { active: false, pendingEffects: true };
     }
   }
