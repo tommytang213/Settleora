@@ -28,11 +28,11 @@ export function acquireRuntimeConsumer(runtimeRoot) {
   }
   if (existsSync(deploymentLock)) throw new Error("runtime startup refused during deployment");
   const marker = path.join(consumers, `${process.pid}.lock`);
-  const identity = { pid: process.pid, startToken: processStartToken(process.pid) };
+  const identity = { pid: process.pid, processBirthId: processBirthId(process.pid) };
   if (existsSync(marker)) {
     let existing;
     try { existing = JSON.parse(readFileSync(marker, "utf8")); } catch { existing = null; }
-    if (existing?.pid !== identity.pid || existing?.startToken !== identity.startToken) {
+    if (existing?.pid !== identity.pid || existing?.processBirthId !== identity.processBirthId) {
       throw new Error("runtime consumer marker identity collision");
     }
     return { marker, owned: false };
@@ -75,12 +75,12 @@ export function acquireRuntimeDeploymentLock(destination) {
       try { identity = JSON.parse(readFileSync(marker, "utf8")); } catch { identity = null; }
       if (!match || !info.isFile() || info.isSymbolicLink() || (info.mode & 0o022) !== 0
           || (typeof process.getuid === "function" && info.uid !== process.getuid())
-          || identity?.pid !== Number(match[1]) || !/^\d+$/u.test(String(identity?.startToken || ""))) {
+          || identity?.pid !== Number(match[1]) || !/^\d+$/u.test(String(identity?.processBirthId || ""))) {
         rmSync(lock);
         throw new Error("runtime consumer marker is unsafe");
       }
-      const activeToken = processStartToken(Number(match[1]), { missingOk: true });
-      if (activeToken !== null && activeToken === identity.startToken) {
+      const activeBirthId = processBirthId(Number(match[1]), { missingOk: true });
+      if (activeBirthId !== null && activeBirthId === identity.processBirthId) {
         rmSync(lock);
         throw new Error("runtime deployment refused while runtime consumers are registered");
       }
@@ -424,7 +424,7 @@ function processIsActive(pid) {
   }
 }
 
-function processStartToken(pid, { missingOk = false } = {}) {
+function processBirthId(pid, { missingOk = false } = {}) {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const fields = stat.slice(stat.lastIndexOf(") ") + 2).trim().split(/\s+/u);

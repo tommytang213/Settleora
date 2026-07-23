@@ -275,7 +275,7 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
     const consumers = path.join(parent, ".runtime.consumers");
     mkdirSync(consumers, { mode: 0o700 });
     const staleMarker = path.join(consumers, `${process.pid}.lock`);
-    writeFileSync(staleMarker, `${JSON.stringify({ pid: process.pid, startToken: "0" })}\n`, { mode: 0o600 });
+    writeFileSync(staleMarker, `${JSON.stringify({ pid: process.pid, processBirthId: "0" })}\n`, { mode: 0o600 });
     const deploymentLock = acquireRuntimeDeploymentLock(destination);
     assert.equal(existsSync(consumers), true);
     assert.equal(existsSync(staleMarker), false);
