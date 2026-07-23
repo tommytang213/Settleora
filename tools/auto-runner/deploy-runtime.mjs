@@ -13,6 +13,9 @@ for (let index = 2; index < process.argv.length; index += 1) {
     values.set(arg, value);
   }
 }
+if (!values.has("--destination")) throw new Error("--destination is required");
+if (!values.has("--logs-root")) throw new Error("--logs-root is required");
+if (values.has("--rollback") && values.has("--dry-run")) throw new Error("--rollback and --dry-run cannot be combined");
 const repoRoot = path.resolve(values.get("--repo-root") || "");
 const sourceRoot = path.resolve(values.get("--source-root") || path.join(repoRoot, "tools/auto-runner"));
 const destination = path.resolve(values.get("--destination") || "");

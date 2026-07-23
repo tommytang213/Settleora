@@ -107,7 +107,7 @@ test("post-merge cleanup uses the supported head filter and terminalizes its own
   assert.match(source, /sessions\.includes\(ownerSession\)/);
   assert.match(source, /issueLinkageEvidence,\s*sessionLifecycle,\s*recoveryState,/s);
   assert.match(source, /primaryHandoffIgnoredPids: authorizedSupervisorProcessIds\(state\)/);
-  assert.match(source, /argv\[worker \+ 1\] === supervisorRunId/);
+  assert.match(source, /matchAuthorizedSupervisorProcess\(\{/);
   assert.match(source, /expectedReportPaths: \{ durableReportPath: iteration\.report\.copyPath \}/);
 });
 

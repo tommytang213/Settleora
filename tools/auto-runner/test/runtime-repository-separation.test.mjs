@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
-import { absoluteRuntimeEntry, assertSeparatedRoots, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
+import { absoluteRuntimeEntry, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
@@ -73,6 +73,41 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("deployment CLI requires project logs and keeps rollback dry-run non-mutating", () => {
+  const entry = path.join(sourceRoot, "deploy-runtime.mjs");
+  const missingLogs = spawnSync(process.execPath, [entry, "--rollback", "--destination", "/tmp/runtime"], { encoding: "utf8" });
+  assert.notEqual(missingLogs.status, 0);
+  assert.match(missingLogs.stderr, /--logs-root is required/);
+  const rollbackDryRun = spawnSync(process.execPath, [
+    entry,
+    "--rollback",
+    "--dry-run",
+    "--destination",
+    "/tmp/runtime",
+    "--logs-root",
+    "/tmp/project-logs",
+  ], { encoding: "utf8" });
+  assert.notEqual(rollbackDryRun.status, 0);
+  assert.match(rollbackDryRun.stderr, /cannot be combined/);
+});
+
+test("cleanup recognizes only the exact worker in the executing runtime bundle", () => {
+  const supervisorRunId = "supervisor-2026-07-23T114800Z-1234";
+  const expectedWorker = path.join(sourceRoot, "supervisor/settleora-auto-runner-worker.mjs");
+  const options = {
+    parentPid: 4321,
+    supervisorRunId,
+    runtimeRoot: sourceRoot,
+    active: true,
+    parentCmdline: `node\0${expectedWorker}\0${supervisorRunId}\0`,
+  };
+  assert.deepEqual(matchAuthorizedSupervisorProcess(options), [4321]);
+  assert.deepEqual(matchAuthorizedSupervisorProcess({
+    ...options,
+    parentCmdline: `node\0/workspace/repos/Other/tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs\0${supervisorRunId}\0`,
+  }), []);
 });
 
 test("copied runtime remains authoritative after managed branch and source changes", () => {

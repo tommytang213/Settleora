@@ -18,6 +18,7 @@ import { runPreflight } from "./lib/preflight.mjs";
 import { evaluateCanaryIssuePolicy, evaluateTrustPolicy, writeCanaryEvidence } from "./lib/canary-policy.mjs";
 import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
 import { acquireRunnerLock, processAppearsActive, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
+import { matchAuthorizedSupervisorProcess, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
 import { pollEligibleIssues, claimIssue, commentIssueOutcome, readIssueLive } from "./lib/github-issues.mjs";
 import {
@@ -2547,13 +2548,21 @@ export function cleanupSessionLifecycleMatches(lifecycle, owner) {
     && sessions.includes(ownerSession);
 }
 
-export function authorizedSupervisorProcessIds(state) {
+export function authorizedSupervisorProcessIds(state, {
+  parentPid = process.ppid,
+  readParentCmdline = (pid) => readFileSync(`/proc/${pid}/cmdline`, "utf8"),
+  appearsActive = processAppearsActive,
+} = {}) {
   const supervisorRunId = state?.run?.supervisorRunId;
-  if (typeof supervisorRunId !== "string" || supervisorRunId.length === 0 || !Number.isSafeInteger(process.ppid) || process.ppid <= 1) return [];
+  if (typeof supervisorRunId !== "string" || supervisorRunId.length === 0 || !Number.isSafeInteger(parentPid) || parentPid <= 1) return [];
   try {
-    const argv = readFileSync(`/proc/${process.ppid}/cmdline`, "utf8").split("\0").filter(Boolean);
-    const worker = argv.findIndex((value) => value.endsWith("/tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs") || value === "tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs");
-    return worker >= 0 && argv[worker + 1] === supervisorRunId && processAppearsActive(process.ppid) === true ? [process.ppid] : [];
+    return matchAuthorizedSupervisorProcess({
+      supervisorRunId,
+      parentPid,
+      parentCmdline: readParentCmdline(parentPid),
+      runtimeRoot: moduleRuntimeRoot(),
+      active: appearsActive(parentPid),
+    });
   } catch { return []; }
 }
 

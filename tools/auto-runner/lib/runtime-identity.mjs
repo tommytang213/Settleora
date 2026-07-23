@@ -103,6 +103,20 @@ export function absoluteRuntimeEntry(runtimeRoot, relativeEntry) {
   return real;
 }
 
+export function matchAuthorizedSupervisorProcess({
+  supervisorRunId,
+  parentPid,
+  parentCmdline,
+  runtimeRoot = moduleRuntimeRoot(),
+  active,
+} = {}) {
+  if (typeof supervisorRunId !== "string" || supervisorRunId.length === 0 || !Number.isSafeInteger(parentPid) || parentPid <= 1 || active !== true) return [];
+  const argv = String(parentCmdline || "").split("\0").filter(Boolean);
+  const expectedWorker = absoluteRuntimeEntry(runtimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
+  const worker = argv.findIndex((value) => value === expectedWorker);
+  return worker >= 0 && argv[worker + 1] === supervisorRunId ? [parentPid] : [];
+}
+
 export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspace/logs/auto-runner/repository-locks") {
   mkdirSync(authorityRoot, { recursive: true, mode: 0o700 });
   const authority = lstatSync(authorityRoot);
