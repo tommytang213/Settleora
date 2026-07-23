@@ -357,8 +357,8 @@ export function parseCliArgs(argv) {
   if (args.runnerRunId && (!args.supervisorRunId || !args.run || args.dryRun || specialMode)) {
     throw new Error("--runner-run-id is only valid with a supervised normal real --run");
   }
-  if (args.expectedConfigSha256 && (!args.runnerRunId || !/^[a-f0-9]{64}$/u.test(args.expectedConfigSha256))) {
-    throw new Error("--expected-config-sha256 requires a supervised run and a SHA-256 digest");
+  if (args.expectedConfigSha256 && ((!args.runnerRunId && !args.controlCommand) || !/^[a-f0-9]{64}$/u.test(args.expectedConfigSha256))) {
+    throw new Error("--expected-config-sha256 requires a supervised run or control and a SHA-256 digest");
   }
   if (args.outageRecoveryOnly && (!args.run || args.dryRun || specialMode || args.canary || !args.supervisorRunId)) {
     throw new Error("--outage-recovery-only is only valid for supervised non-canary real --run");
@@ -551,6 +551,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
       path.join(config.logsRoot, "tasks"),
       path.join(config.logsRoot, "codex-runs"),
       path.join(config.logsRoot, "reports"),
+      path.join(config.logsRoot, "run-logs"),
       path.join(config.logsRoot, "reviews"),
       path.join(config.logsRoot, "review-fix"),
       path.join(config.logsRoot, "recovery"),

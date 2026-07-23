@@ -29,7 +29,9 @@ verified launcher on first install and refuses a mismatched replacement.
 Before importing any replaceable bundle module, the launcher checks the
 deployment lock and records a PID plus process-start identity in the shared
 consumer directory. Deployment reclaims only markers whose process-start
-identity is stale and otherwise refuses the handoff.
+identity is stale and otherwise refuses the handoff. The deployment lock uses
+the same PID-birth proof so a crashed deploy can be reclaimed safely before
+the atomic exchange is reconciled.
 The supervisor worker derives its selected profile path from the immutable
 run spec under the fixed project `logsRoot`; the installed unit therefore
 contains no hard-coded active-profile path. The runner child receives the

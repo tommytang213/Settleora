@@ -17,7 +17,7 @@ export function processAppearsActive(pid) {
 
 export function acquireRunnerLock(config, metadata = {}) {
   const lockPath = path.join(config.logsRoot, "locks", "settleora-auto-runner.lock");
-  const repositoryLockPath = repositoryAuthorityLockPath(config.repoRoot);
+  const repositoryLockPath = repositoryAuthorityLockPath(config.repoRoot, undefined, config.runtimeMode === "external" ? config.repositorySlug : null);
   const acquired = [];
   let runtimeConsumerLock = null;
   try {

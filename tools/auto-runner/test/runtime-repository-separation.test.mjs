@@ -303,6 +303,10 @@ test("distinct repositories isolate authority while the same canonical repositor
     const b = repositoryAuthorityLockPath(repoB, authority);
     assert.equal(a1, a2);
     assert.notEqual(a1, b);
+    assert.equal(
+      repositoryAuthorityLockPath(repoA, authority, "tommytang213/Settleora"),
+      repositoryAuthorityLockPath(repoB, authority, "tommytang213/Settleora"),
+    );
     const linked = path.join(root, "repo-a-linked");
     git(repoA, ["worktree", "add", "--detach", linked]);
     assert.equal(repositoryAuthorityLockPath(realpathSync(linked), authority), a1);
@@ -346,6 +350,7 @@ test("operational logs children refuse symlink escapes and unsafe permissions", 
     const state = path.join(logsRoot, "state");
     symlinkSync(outside, state);
     assert.throws(() => ensureOperationalDirectory(state, logsRoot), /unsafe/);
+    assert.match(readFileSync(path.join(sourceRoot, "lib/config.mjs"), "utf8"), /path\.join\(config\.logsRoot, "run-logs"\)/);
     rmSync(state);
     mkdirSync(state, { mode: 0o777 });
     chmodSync(state, 0o777);
@@ -367,6 +372,23 @@ test("deployment quiescence detects active owners and unresolved effects", () =>
     assert.equal(inspectDeploymentQuiescence(root).pendingEffects, true);
   } finally {
     rmSync(root, { recursive: true });
+  }
+});
+
+test("deployment lock refuses an active owner and reclaims a proven stale owner", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-deploy-lock-"));
+  try {
+    const destination = path.join(root, "runtime");
+    const active = acquireRuntimeDeploymentLock(destination);
+    assert.throws(() => acquireRuntimeDeploymentLock(destination), /already active/);
+    releaseRuntimeDeploymentLock(active);
+    const lock = path.join(root, ".runtime.deployment.lock");
+    writeFileSync(lock, `${JSON.stringify({ pid: 999999999, processBirthId: "1" })}\n`, { mode: 0o600 });
+    const reclaimed = acquireRuntimeDeploymentLock(destination);
+    assert.equal(reclaimed, lock);
+    releaseRuntimeDeploymentLock(reclaimed);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

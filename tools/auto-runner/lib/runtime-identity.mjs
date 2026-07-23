@@ -140,7 +140,7 @@ export function matchAuthorizedSupervisorProcess({
   return launcherShapeMatches ? [parentPid] : [];
 }
 
-export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspace/logs/auto-runner/repository-locks") {
+export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspace/logs/auto-runner/repository-locks", repositorySlug = null) {
   mkdirSync(authorityRoot, { recursive: true, mode: 0o700 });
   const authority = lstatSync(authorityRoot);
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
@@ -149,8 +149,9 @@ export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspac
   }
   if (currentUid !== null && authority.uid !== currentUid) throw new Error("repository authority root owner is invalid");
   if ((authority.mode & 0o022) !== 0) throw new Error("repository authority root must not be group/world writable");
-  const repository = verifyRepositoryIdentity(canonicalExistingDirectory(repoRoot, "repoRoot"));
-  return path.join(authorityRoot, `${createHash("sha256").update(repository.commonDir).digest("hex")}.lock`);
+  const repository = verifyRepositoryIdentity(canonicalExistingDirectory(repoRoot, "repoRoot"), repositorySlug);
+  const authorityIdentity = repositorySlug ? `github.com/${repositorySlug}` : repository.commonDir;
+  return path.join(authorityRoot, `${createHash("sha256").update(authorityIdentity).digest("hex")}.lock`);
 }
 
 export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {

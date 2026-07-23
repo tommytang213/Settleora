@@ -410,6 +410,7 @@ export function executeAutoMerge(config, context, options = {}) {
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
   const cleanupBranchSafety = inspectCleanupBranchSafety(config, finalContext, runner);
+  assertRepositoryRemoteIdentity(config);
   const merge = finalContext.sessionLifecycle
     ? executeCanonicalMergeEffect(config, finalContext, { runner, repositorySlug, prNumber, finalDecision })
     : runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
@@ -459,6 +460,7 @@ export function executeAutoMerge(config, context, options = {}) {
     return { ...mergedCleanupRequired, mergeSha, mergeReadback: mergeProof, sourceBranchRestoration: branchRestore, completionHygiene: hygiene, postMergeCleanupOwnership: cleanupOwnership, evidence: writeAutoMergeEvidence(config, mergedCleanupRequired, finalContext) };
   }
   const summaryBody = mergeSummaryBody(finalContext, mergeSha);
+  assertRepositoryRemoteIdentity(config);
   const prComment = finalContext.sessionLifecycle
     ? executeCanonicalPrComment(config, finalContext, { runner, repositorySlug, prNumber: Number(prNumber), mergeSha, body: summaryBody })
     : runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", summaryBody], { cwd: config.repoRoot });
@@ -640,6 +642,7 @@ function executeCanonicalMergeEffect(config, context, { runner, repositorySlug, 
       return { complete: true, ambiguous: true };
     },
     execute: () => {
+      assertRepositoryRemoteIdentity(config);
       const result = runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
       if (result.error || result.status !== 0) throw new Error("Exact-head merge command did not confirm success");
       return { ok: true, status: result.status };
@@ -660,8 +663,9 @@ function executeCanonicalPrComment(config, context, { runner, repositorySlug, pr
       if (matches.length > 1) return { complete: true, ambiguous: true };
       return matches.length === 1 ? { complete: true, present: true, identity: intent.identity, effect } : { complete: true, present: false };
     },
-    execute: () => {
-      const result = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", markedBody], { cwd: config.repoRoot });
+      execute: () => {
+        assertRepositoryRemoteIdentity(config);
+        const result = runner("gh", ["pr", "comment", String(prNumber), "--repo", repositorySlug, "--body", markedBody], { cwd: config.repoRoot });
       if (result.error || result.status !== 0) throw new Error("Canonical PR merge comment did not confirm success");
       return { ok: true, status: result.status };
     },
@@ -713,6 +717,7 @@ export function executeAutoMergeMergeOnly(config, context, options = {}) {
     const failed = { ...finalDecision, attempted: false, eligible: false, result: "merge_failed", reason: "configured_repository_invalid" };
     return { ...failed, evidence: writeAutoMergeEvidence(config, failed, finalContext) };
   }
+  assertRepositoryRemoteIdentity(config);
   const merge = finalContext.sessionLifecycle
     ? executeCanonicalMergeEffect(config, finalContext, { runner, repositorySlug, prNumber, finalDecision })
     : runner("gh", ["pr", "merge", String(prNumber), "--repo", repositorySlug, "--merge", "--match-head-commit", String(finalDecision.expectedHeadSha)], { cwd: config.repoRoot });
@@ -1626,6 +1631,7 @@ export function cleanupIssueLifecycleLabels(config, context, runner = defaultRun
       completedAt: new Date().toISOString(),
     };
   }
+  assertRepositoryRemoteIdentity(config);
   const remove = runner("gh", ["issue", "edit", String(issueNumber), "--repo", repositoryContext.repositorySlug, "--remove-label", labelsRemoved.join(",")], {
     cwd: config.repoRoot,
   });

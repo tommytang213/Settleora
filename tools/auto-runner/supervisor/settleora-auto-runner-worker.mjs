@@ -88,6 +88,8 @@ export async function runSupervisorWorker(
       "--stop-after-current",
       "--config",
       verified.config.realPath,
+      "--expected-config-sha256",
+      verified.config.sha256,
     ], {
       cwd: runtimeRoot,
       encoding: "utf8",
