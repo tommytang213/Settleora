@@ -216,6 +216,9 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   });
   assert.deepEqual(plan.startArgv, ["systemctl", "--user", "start", `settleora-auto-runner@${runId}.service`]);
   assert.equal(plan.expectedExecArgv.some((value) => value.endsWith("/.auto-runner.launcher.mjs")), true);
+  assert.equal(plan.expectedExecArgv.includes("--config"), false);
+  const workerSource = readFileSync("tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs", "utf8");
+  assert.match(workerSource, /resolveProfile\(verifiedSpec\.spec\.profile, selectedLogsRoot\)\.runnerConfigPath/);
   assert.deepEqual(plan.inspectArgv, ["systemctl", "--user", "cat", plan.unitName, "--no-pager"]);
   assert.deepEqual(plan.reloadArgv, ["systemctl", "--user", "daemon-reload"]);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);

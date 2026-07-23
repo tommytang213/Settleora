@@ -532,6 +532,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
       throw new Error("external runtime mode requires an explicit runtimeBundleDigest");
     }
     config.runtimeManifest = verifyRuntimeBundle(config.runtimeIdentity.runtimeRoot, config.runtimeBundleDigest);
+    verifyProjectNamespaceMarker(config, { create: !readOnlyObserver });
     bindTrustedRepositoryContext(config.runtimeIdentity.repoRoot);
   }
 
@@ -575,6 +576,36 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+export function verifyProjectNamespaceMarker(config, { create = false } = {}) {
+  const markerPath = path.join(config.logsRoot, ".project-namespace.json");
+  const expected = {
+    version: 1,
+    namespace: config.runtimeIdentity.namespace,
+    projectId: config.projectId,
+    repositorySlug: config.repositorySlug,
+    repositoryCommonDirDigest: createHash("sha256").update(config.runtimeIdentity.repositoryCommonDir).digest("hex"),
+  };
+  if (!existsSync(markerPath)) {
+    if (!create) throw new Error("trusted project namespace marker is required");
+    writeFileSync(markerPath, `${JSON.stringify(expected)}\n`, { flag: "wx", mode: 0o600 });
+  }
+  const info = lstatSync(markerPath);
+  if (!info.isFile() || info.isSymbolicLink() || info.size > 4096 || (info.mode & 0o077) !== 0
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+    throw new Error("trusted project namespace marker is unsafe");
+  }
+  let actual;
+  try {
+    actual = JSON.parse(readFileSync(markerPath, "utf8"));
+  } catch {
+    throw new Error("trusted project namespace marker is invalid");
+  }
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error("trusted project namespace marker does not match repository identity");
+  }
+  return expected;
 }
 
 function normalizeOutageRecoveryCliTarget(value = {}) {

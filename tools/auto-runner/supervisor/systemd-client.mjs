@@ -7,7 +7,7 @@ import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity
 
 export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot(), configPath = null, repoRoot = null, logsRoot = null } = {}) {
   validateRunId(runId);
-  const safeConfigPath = validateSystemdPath(configPath, "configPath");
+  if (configPath !== null) validateSystemdPath(configPath, "configPath");
   const safeRepoRoot = validateSystemdPath(repoRoot, "repoRoot");
   const safeLogsRoot = validateSystemdPath(logsRoot, "logsRoot");
   const safeRuntimeRoot = validateSystemdPath(runtimeRoot, "runtimeRoot");
@@ -18,7 +18,7 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
     unitName: unitNameForRunId(runId),
     expectedExecArgv: [
       "/usr/bin/env", "node", launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
-      runId, "--config", safeConfigPath, "--logs-root", safeLogsRoot,
+      runId, "--logs-root", safeLogsRoot,
     ],
     unitTemplate,
     reloadArgv: ["systemctl", "--user", "daemon-reload"],

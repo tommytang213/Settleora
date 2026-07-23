@@ -10,6 +10,10 @@ the executing module tree equals `runtimeRoot`, its versioned manifest and
 digest verify, and runtime, repository, `.git`, and project logs are disjoint
 canonical real paths. Project Git commands continue to use `repoRoot`;
 controller-owned children use absolute entries below `runtimeRoot`.
+The first trusted non-observer preflight creates an owner-only
+`.project-namespace.json` marker in `logsRoot`; every later process verifies
+that marker before reading project state, so a logs directory cannot be
+adopted by another repository that reuses the same project ID.
 
 `deploy-runtime.mjs` is an explicit stopped-runner utility. It builds a sorted
 generic-only manifest with per-file SHA-256/mode, a file-list digest, bundle
@@ -26,6 +30,9 @@ Before importing any replaceable bundle module, the launcher checks the
 deployment lock and records a PID plus process-start identity in the shared
 consumer directory. Deployment reclaims only markers whose process-start
 identity is stale and otherwise refuses the handoff.
+The supervisor worker derives its selected profile path from the immutable
+run spec under the fixed project `logsRoot`; the installed unit therefore
+contains no hard-coded active-profile path.
 
 Future manual command shapes (not executed by issue #951):
 

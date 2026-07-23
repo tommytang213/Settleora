@@ -7,6 +7,7 @@ import test from "node:test";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
 import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
+import { verifyProjectNamespaceMarker } from "../lib/config.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
@@ -310,6 +311,31 @@ test("distinct repositories isolate authority while the same canonical repositor
   }
 });
 
+test("project logs namespace marker refuses state adoption by another repository", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-project-marker-"));
+  try {
+    const repoA = createRepo(root, "repo-a");
+    const repoB = createRepo(root, "repo-b");
+    const logsRoot = path.join(root, "Settleora");
+    mkdirSync(logsRoot, { mode: 0o700 });
+    const identityFor = (repoRoot) => validateProjectRuntimeIdentity({
+      runtimeMode: "development",
+      runtimeRoot: sourceRoot,
+      repoRoot,
+      logsRoot,
+      projectId: "Settleora",
+      repositorySlug: "tommytang213/Settleora",
+    }, { actualRuntimeRoot: sourceRoot, trusted: false });
+    const configA = { projectId: "Settleora", repositorySlug: "tommytang213/Settleora", logsRoot, runtimeIdentity: identityFor(repoA) };
+    assert.equal(verifyProjectNamespaceMarker(configA, { create: true }).namespace, configA.runtimeIdentity.namespace);
+    assert.deepEqual(verifyProjectNamespaceMarker(configA), verifyProjectNamespaceMarker(configA));
+    const configB = { ...configA, runtimeIdentity: identityFor(repoB) };
+    assert.throws(() => verifyProjectNamespaceMarker(configB), /does not match repository identity/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("deployment quiescence detects active owners and unresolved effects", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-deploy-quiescence-"));
   try {
@@ -429,5 +455,34 @@ test("manual rollback exchanges only exact verified stopped bundles", () => {
     }), /digest mismatch/);
   } finally {
     rmSync(root, { recursive: true });
+  }
+});
+
+test("deployment adopts a crash after retaining the prior rollback", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-retained-rollback-"));
+  try {
+    const repo = createRepo(root, "project");
+    const logs = path.join(root, "logs");
+    const parent = path.join(root, "install");
+    mkdirSync(logs);
+    mkdirSync(parent);
+    const destination = path.join(parent, "runtime");
+    const first = deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha });
+    const secondSource = path.join(root, "second");
+    cpSync(sourceRoot, secondSource, { recursive: true });
+    writeFileSync(path.join(secondSource, "lib/runtime-identity.mjs"), `${readFileSync(path.join(secondSource, "lib/runtime-identity.mjs"), "utf8")}\n`);
+    const second = deployRuntimeBundle({ sourceRoot: secondSource, destination, repoRoot: repo, logsRoot: logs, sourceSha: "b".repeat(40), expectedOldDigest: first.manifest.bundleDigest });
+    const retired = path.join(parent, ".runtime.rollback-retired");
+    renameSync(path.join(parent, ".runtime.rollback"), retired);
+    assert.equal(verifyRuntimeBundle(retired).bundleDigest, first.manifest.bundleDigest);
+    const thirdSource = path.join(root, "third");
+    cpSync(secondSource, thirdSource, { recursive: true });
+    writeFileSync(path.join(thirdSource, "lib/runtime-identity.mjs"), `${readFileSync(path.join(thirdSource, "lib/runtime-identity.mjs"), "utf8")}\n`);
+    const third = deployRuntimeBundle({ sourceRoot: thirdSource, destination, repoRoot: repo, logsRoot: logs, sourceSha: "c".repeat(40), expectedOldDigest: second.manifest.bundleDigest });
+    assert.equal(verifyRuntimeBundle(destination).bundleDigest, third.manifest.bundleDigest);
+    assert.equal(verifyRuntimeBundle(path.join(parent, ".runtime.rollback")).bundleDigest, second.manifest.bundleDigest);
+    assert.equal(existsSync(retired), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });

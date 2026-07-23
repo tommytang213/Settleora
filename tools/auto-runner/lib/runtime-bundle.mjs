@@ -246,6 +246,7 @@ export function deployRuntimeBundle({
   if (dryRun) return { dryRun: true, destination, manifest };
   const temporary = path.join(destinationParent, `.${path.basename(destination)}.deploy-incoming`);
   const rollback = path.join(destinationParent, `.${path.basename(destination)}.rollback`);
+  const retiredRollback = path.join(destinationParent, `.${path.basename(destination)}.rollback-retired`);
   if (existsSync(destination)) {
     const current = verifyRuntimeBundle(destination);
     if (current.bundleDigest === manifest.bundleDigest && !expectedOldDigest) {
@@ -255,6 +256,7 @@ export function deployRuntimeBundle({
     if (current.bundleDigest === manifest.bundleDigest && expectedOldDigest && existsSync(rollback)) {
       verifyRuntimeBundle(rollback, expectedOldDigest);
       writeRuntimeApproval(destination, current);
+      if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest: current };
     }
     if (!expectedOldDigest || current.bundleDigest !== expectedOldDigest) throw new Error("installed runtime does not match expected old digest");
@@ -263,6 +265,7 @@ export function deployRuntimeBundle({
     verifyRuntimeBundle(temporary, manifest.bundleDigest);
     renameSync(temporary, destination);
     writeRuntimeApproval(destination, manifest);
+    if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
     return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest };
   } else if (expectedOldDigest) {
     throw new Error("expected old runtime is absent");
@@ -299,7 +302,10 @@ export function deployRuntimeBundle({
     cpSync(stagedLauncher, launcher, { dereference: false });
     chmodSync(launcher, 0o500);
   }
-  if (existsSync(rollback)) rmSync(rollback, { recursive: true });
+  if (existsSync(rollback)) {
+    if (existsSync(retiredRollback)) throw new Error("runtime rollback retirement state is contradictory");
+    renameSync(rollback, retiredRollback);
+  }
   const movedOldRuntime = existsSync(destination);
   if (movedOldRuntime) renameSync(destination, rollback);
   try {
@@ -309,6 +315,7 @@ export function deployRuntimeBundle({
     throw error;
   }
   writeRuntimeApproval(destination, manifest);
+  if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
   return { dryRun: false, destination: realpathSync(destination), launcher, rollback: existsSync(rollback) ? rollback : null, manifest };
 }
 

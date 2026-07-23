@@ -8,7 +8,7 @@ import process from "node:process";
 import { defaultLogsRoot, loadConfig } from "../lib/config.mjs";
 import { getRefSha } from "../lib/git-workspace.mjs";
 import { safeTimestamp } from "../lib/logger.mjs";
-import { readAndVerifyRunSpec, validateRunId } from "./run-spec.mjs";
+import { readAndVerifyRunSpec, resolveProfile, validateRunId } from "./run-spec.mjs";
 import { buildHeartbeat, writeHeartbeat } from "./heartbeat.mjs";
 import { recordMonitoringEvent } from "./monitoring-outbox.mjs";
 import { resolveRunnerSummaryForSupervisor } from "./runner-summary-resolver.mjs";
@@ -165,17 +165,15 @@ export async function runSupervisorWorker(
 export async function main() {
   const runtimeConsumer = acquireRuntimeConsumer(moduleRuntimeRoot());
   try {
-  const configIndex = process.argv.indexOf("--config");
-  const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : null;
   const logsIndex = process.argv.indexOf("--logs-root");
   const selectedLogsRoot = logsIndex >= 0 ? process.argv[logsIndex + 1] : null;
-  if (!configPath) throw new Error("supervisor worker requires --config");
   if (!selectedLogsRoot || !path.isAbsolute(selectedLogsRoot) || path.resolve(selectedLogsRoot) !== selectedLogsRoot) {
     throw new Error("supervisor worker requires canonical absolute --logs-root");
   }
   failureLogsRoot = selectedLogsRoot;
   const priorState = readSupervisorState(process.argv[2], selectedLogsRoot).state;
   const verifiedSpec = readAndVerifyRunSpec(process.argv[2], priorState?.specSha256 || null, selectedLogsRoot);
+  const configPath = resolveProfile(verifiedSpec.spec.profile, selectedLogsRoot).runnerConfigPath;
   const config = loadConfig(
     { dryRun: true, run: false, configPath },
     { outageResubmissionObserverAvailable: true },
