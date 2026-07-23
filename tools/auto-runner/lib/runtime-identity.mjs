@@ -65,7 +65,11 @@ export function validateProjectRuntimeIdentity(config, {
   if (runtimeRoot !== canonicalExistingDirectory(actualRuntimeRoot, "actual runtimeRoot")) {
     throw new Error("configured runtimeRoot does not match the executing runtime bundle");
   }
-  if (trusted) assertSeparatedRoots({ runtimeRoot, repoRoot, logsRoot });
+  if (trusted) {
+    assertSeparatedRoots({ runtimeRoot, repoRoot, logsRoot });
+    assertOwnerControlledDirectory(runtimeRoot, "runtimeRoot");
+    assertOwnerControlledDirectory(canonicalExistingDirectory(path.dirname(runtimeRoot), "runtime deployment-control parent"), "runtime deployment-control parent");
+  }
   const logsStat = statSync(logsRoot);
   if (trusted && path.basename(logsRoot) !== projectId) {
     throw new Error("trusted logsRoot must be project-bound by its terminal directory name");
@@ -87,6 +91,14 @@ export function validateProjectRuntimeIdentity(config, {
     repositoryCommonDir: repository.commonDir,
     originUrl: repository.originUrl,
   });
+}
+
+function assertOwnerControlledDirectory(directory, field) {
+  const info = statSync(directory);
+  if (typeof process.getuid === "function" && info.uid !== process.getuid()) {
+    throw new Error(`${field} must be owned by the runner user`);
+  }
+  if ((info.mode & 0o022) !== 0) throw new Error(`${field} must not be group/world writable`);
 }
 
 export function absoluteRuntimeEntry(runtimeRoot, relativeEntry) {

@@ -117,7 +117,7 @@ test("copied runtime remains authoritative after managed branch and source chang
     const logs = path.join(root, "Settleora");
     const runtimeParent = path.join(root, "installed");
     mkdirSync(logs, { mode: 0o700 });
-    mkdirSync(runtimeParent);
+    mkdirSync(runtimeParent, { mode: 0o700 });
     const runtime = path.join(runtimeParent, "runtime");
     const deployed = deployRuntimeBundle({ sourceRoot, destination: runtime, repoRoot: repo, logsRoot: logs, sourceSha });
     assert.equal(verifyRuntimeBundle(runtime).bundleDigest, deployed.manifest.bundleDigest);
@@ -181,6 +181,34 @@ test("path overlap, aliases, manifest drift, missing entry, and digest mismatch 
     assert.throws(() => absoluteRuntimeEntry(runtime, "missing.mjs"), /missing/);
   } finally {
     rmSync(root, { recursive: true });
+  }
+});
+
+test("trusted external identity rejects writable runtime and deployment-control directories", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-permissions-"));
+  try {
+    const repo = createRepo(root, "project");
+    const logs = path.join(root, "Settleora");
+    const runtimeParent = path.join(root, "install");
+    mkdirSync(logs, { mode: 0o700 });
+    mkdirSync(runtimeParent, { mode: 0o700 });
+    const runtime = path.join(runtimeParent, "runtime");
+    deployRuntimeBundle({ sourceRoot, destination: runtime, repoRoot: repo, logsRoot: logs, sourceSha });
+    const config = {
+      runtimeMode: "external",
+      runtimeRoot: runtime,
+      repoRoot: repo,
+      logsRoot: logs,
+      projectId: "Settleora",
+      repositorySlug: "tommytang213/Settleora",
+    };
+    chmodSync(runtime, 0o777);
+    assert.throws(() => validateProjectRuntimeIdentity(config, { actualRuntimeRoot: runtime }), /runtimeRoot must not be group\/world writable/);
+    chmodSync(runtime, 0o755);
+    chmodSync(runtimeParent, 0o777);
+    assert.throws(() => validateProjectRuntimeIdentity(config, { actualRuntimeRoot: runtime }), /deployment-control parent must not be group\/world writable/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
