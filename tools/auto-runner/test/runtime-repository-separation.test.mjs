@@ -73,6 +73,12 @@ test("copied runtime remains authoritative after managed branch and source chang
   }
 });
 
+test("control CLI resolves runner children from its runtime bundle", () => {
+  const source = readFileSync(path.join(sourceRoot, "settleora-auto-runnerctl.mjs"), "utf8");
+  assert.match(source, /absoluteRuntimeEntry\(runtimeRoot, "settleora-auto-runner\.mjs"\)/);
+  assert.doesNotMatch(source, /spawnSync\(process\.execPath, \["tools\/auto-runner\/settleora-auto-runner\.mjs"/);
+});
+
 test("path overlap, aliases, manifest drift, missing entry, and digest mismatch fail closed", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-refusal-"));
   try {

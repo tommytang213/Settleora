@@ -3136,7 +3136,7 @@ function spawnLike(command, args, cwd) {
 
 function createLiveFixedArgvRunner(config = {}) {
   const repositorySlug = String(config.repositorySlug || "");
-  const repoRoot = path.resolve(config.repoRoot || process.cwd());
+  const repoRoot = path.resolve(config.repoRoot);
   const maxOutputBytes = Number.isInteger(config.prStackExecution?.runnerMaxOutputBytes)
     ? Math.max(1024, Math.min(config.prStackExecution.runnerMaxOutputBytes, 1024 * 1024))
     : 128 * 1024;
@@ -3989,7 +3989,8 @@ async function writeReviewPackage(config, payload) {
   return { packagePath, summary, diff: diff.text };
 }
 
-function integrationBoundaryMaterial(repoRoot = process.cwd(), paths) {
+function integrationBoundaryMaterial(repoRoot, paths) {
+  if (!repoRoot) throw new Error("integration boundary material requires repoRoot");
   return paths.map((relativePath) => {
     const content = readFileSync(path.join(repoRoot, relativePath), "utf8");
     return { path: relativePath, sha256: createHash("sha256").update(content).digest("hex"), content };

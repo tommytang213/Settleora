@@ -1615,7 +1615,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
     },
     async readRepositoryOperationContext({ config: cfg, prNumber }) {
       const targetConfig = cfg || config;
-      const cwd = path.resolve(targetConfig.repoRoot || process.cwd());
+      const cwd = path.resolve(targetConfig.repoRoot);
       const worktree = run("git", ["rev-parse", "--show-toplevel"], { cwd });
       if (!isRunnerResult(worktree)) return fail("repository_operation_runner_malformed", "live runner did not return fixed-argv command evidence");
       if (worktree.status !== 0 || worktree.error) return fail("repository_operation_root_unreadable", boundedText(worktree.stderr || worktree.error || worktree.stdout));
@@ -1942,7 +1942,7 @@ export function createProductionPrStackAdapter(config = {}, options = {}) {
 function createProductionBatchFixAdapters(config = {}, options = {}) {
   const runner = options.runner || defaultRunner;
   const codexPromptRunner = options.runCodexPrompt || runCodexPrompt;
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   return {
     async runCodexBatchFix({ fixTask, pr, exactHead, sessionLifecycle = null }) {
       const loopState = loadOrCreateLocalCandidateLoopState({ config, pr, exactHead });
@@ -2432,7 +2432,7 @@ function stackDispatchProgressDigest(state = {}) {
 async function buildRepositoryOperationContext({ config = {}, plan = null, state = null, prNumber = null, adapter = null } = {}) {
   const configuredRepositorySlug = canonicalRepositorySlug(config.repositorySlug || plan?.repository || state?.repository || "tommytang213/Settleora");
   if (!configuredRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
-  const repoRoot = path.resolve(config.repoRoot || process.cwd());
+  const repoRoot = path.resolve(config.repoRoot);
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
   if (repoRoot === protectedRoot) return fail("repository_operation_protected_root_refused", "stack repository operations cannot use the protected root");
   let worktreePath = repoRoot;
@@ -3807,7 +3807,7 @@ function canonicalRepositoryFromOriginUrl(value, { expectedRepositorySlug = null
 }
 
 function readOriginRepositoryProof({ config = {}, runner = defaultRunner } = {}) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const expectedRepositorySlug = canonicalRepositorySlug(config.repositorySlug || "tommytang213/Settleora");
   if (!expectedRepositorySlug) return fail("configured_repository_invalid", "configured repository slug must be owner/name");
   const result = runner("git", ["remote", "get-url", "--push", "origin"], { cwd });
@@ -3914,7 +3914,7 @@ function repositoryBoundGhRunner(runner, repositoryContext = {}) {
 }
 
 function proveTargetBatchFixWorktree({ config, pr, runner, recoveryState = null }) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
   const worktreePath = path.resolve(cwd);
   if (worktreePath === protectedRoot) return fail("existing_pr_batch_fix_protected_root_refused", "protected root cannot be used as a source-mutation worktree");
@@ -4005,7 +4005,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner, recoveryState = null 
 }
 
 function prepareExactHeadFinalGateWorktree({ config, pr, expectedHead, runner, repositoryContext = null }) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const protectedRoot = path.resolve(config.protectedRoot || "/workspace/repos/Settleora");
   const worktreePath = path.resolve(cwd);
   if (worktreePath === protectedRoot) return fail("exact_head_gate_protected_root_refused", "protected root cannot be used for exact-head final gates");
@@ -4060,7 +4060,7 @@ function readLivePrProof({ config, pr, expectedHead, runner }) {
   const result = runner(
     "gh",
     ["pr", "view", String(pr?.number), "--repo", config.repositorySlug || "tommytang213/Settleora", "--json", "number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository"],
-    { cwd: config.repoRoot || process.cwd() },
+    { cwd: config.repoRoot },
   );
   if (result.status !== 0 || result.error) return fail("existing_pr_batch_fix_pr_read_failed", boundedText(result.stderr || result.error || result.stdout));
   let proof;
@@ -4511,7 +4511,7 @@ function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = fa
   const validation = validatePushIntentShape({ config, pr, intent });
   if (!validation.ok) return validation;
   const branch = intent.sourceBranch;
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const fetch = runner("git", ["fetch", "origin", branch], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("push_intent_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const baseFetch = runner("git", ["fetch", "origin", "main"], { cwd });
@@ -4880,7 +4880,7 @@ function validateCanonicalCommitChain(values = [], { oldHead, newHead, candidate
 }
 
 function fetchAndReadOriginMain({ config, runner, reasonPrefix }) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const fetch = runner("git", ["fetch", "origin", "main"], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail(`${reasonPrefix}_base_fetch_failed`, boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const base = readGitSha({ runner, cwd, ref: "origin/main", reasonCode: `${reasonPrefix}_base_unreadable` });
@@ -5601,7 +5601,7 @@ function validateReviewEvidenceObject(review, { name, expectedHead, expectedBase
 }
 
 function readMergeWorktreeCleanProof({ config, expectedHead, runner }) {
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   const head = runner("git", ["rev-parse", "HEAD"], { cwd });
   if (head.status !== 0 || head.error) {
     return fail("merge_worktree_head_unreadable", boundedText(head.stderr || head.error || head.stdout), {
@@ -5641,7 +5641,7 @@ function readMergeWorktreeCleanProof({ config, expectedHead, runner }) {
 }
 
 function readExactFinalGateWorktreeProof({ config, pr = {}, expectedHead, expectedBranch, expectedRepository, runner, proofType }) {
-  const cwd = path.resolve(config.repoRoot || process.cwd());
+  const cwd = path.resolve(config.repoRoot);
   const worktree = runner("git", ["rev-parse", "--show-toplevel"], { cwd });
   if (worktree.status !== 0 || worktree.error) return fail("exact_worktree_root_unreadable", boundedText(worktree.stderr || worktree.error || worktree.stdout));
   const worktreePath = path.resolve(String(worktree.stdout || "").trim() || cwd);

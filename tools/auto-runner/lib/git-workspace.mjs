@@ -8,9 +8,24 @@ import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { findPreEffectIntents, loadPreEffectIntent, preparePreEffectIntent } from "./pre-effect-intent.mjs";
 import { assertMutationAuthority, loadSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 
+let trustedRepositoryContext = null;
+
+export function bindTrustedRepositoryContext(repoRoot) {
+  const canonical = path.resolve(repoRoot || "");
+  if (!path.isAbsolute(repoRoot || "") || canonical !== repoRoot) {
+    throw new Error("trusted repository context requires an absolute normalized repoRoot");
+  }
+  if (trustedRepositoryContext && trustedRepositoryContext !== canonical) {
+    throw new Error("trusted repository context cannot be rebound to another repository");
+  }
+  trustedRepositoryContext = canonical;
+  return canonical;
+}
+
 export function runGit(args, options = {}) {
+  const cwd = options.cwd || trustedRepositoryContext || process.cwd();
   const result = spawnSync("git", args, {
-    cwd: options.cwd || process.cwd(),
+    cwd,
     env: options.env ? { ...process.env, ...options.env } : process.env,
     encoding: "utf8",
     windowsHide: true,
@@ -42,7 +57,7 @@ export function getRefSha(ref, options = {}) {
   return result.stdout.trim();
 }
 
-export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef = "HEAD", cwd = process.cwd() } = {}) {
+export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef = "HEAD", cwd = trustedRepositoryContext || process.cwd() } = {}) {
   const exactHead = getRefSha(headRef, { cwd });
   const treeResult = runGit(["rev-parse", `${headRef}^{tree}`], { cwd });
   assertGitSuccess(treeResult, `Unable to resolve tree for ${headRef}`);
@@ -79,7 +94,7 @@ export function getStatusShort(options = {}) {
 }
 
 export function ensureLaunchWorkspace(config, logger, options = {}) {
-  const cwd = options.cwd || config.repoRoot || process.cwd();
+  const cwd = options.cwd || config.repoRoot;
   const status = getStatusShort({ cwd });
   const branch = getCurrentBranch({ cwd });
   const originMainSha = getRefSha("origin/main", { cwd });
@@ -96,7 +111,7 @@ export function ensureLaunchWorkspace(config, logger, options = {}) {
 }
 
 export function ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha }, options = {}) {
-  const cwd = options.cwd || config.repoRoot || process.cwd();
+  const cwd = options.cwd || config.repoRoot;
   const status = getStatusShort({ cwd });
   const branch = getCurrentBranch({ cwd });
   const originMainSha = getRefSha("origin/main", { cwd });
@@ -131,7 +146,7 @@ export function fetchOriginMain(config) {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run" };
   }
-  const result = runGit(["fetch", "origin", "main"], { cwd: config.repoRoot || process.cwd() });
+  const result = runGit(["fetch", "origin", "main"], { cwd: config.repoRoot });
   assertGitSuccess(result, "Unable to fetch origin/main");
   return { skipped: false, status: result.status };
 }
@@ -140,7 +155,7 @@ export function createTaskBranch(config, branchName) {
   if (config.dryRun) {
     return { skipped: true, branchName, reason: "dry-run" };
   }
-  const result = runGit(["switch", "-C", branchName, "origin/main"], { cwd: config.repoRoot || process.cwd() });
+  const result = runGit(["switch", "-C", branchName, "origin/main"], { cwd: config.repoRoot });
   assertGitSuccess(result, `Unable to create task branch ${branchName}`);
   return { skipped: false, branchName };
 }
@@ -200,7 +215,7 @@ export function getBoundedWorkingTreeDiff(maxChars = providerBoundReviewDiffChar
 export async function commitExplicitPaths(config, files, message, options = {}) {
   if (files.length === 0) return { skipped: true, reason: "no-changes" };
   if (config.dryRun) return { skipped: true, reason: "dry-run", files };
-  const cwd = config.repoRoot || process.cwd();
+  const cwd = config.repoRoot;
   if (!options.effectContext) {
     const add = runGit(["add", "--", ...files], { cwd });
     assertGitSuccess(add, "Unable to stage explicit paths");

@@ -31,6 +31,7 @@ import {
   writeSupervisorState,
 } from "./supervisor/supervisor-state.mjs";
 import { defaultConfig, loadConfig } from "./lib/config.mjs";
+import { absoluteRuntimeEntry, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 import { getRunnerStatus, writeControlCommand } from "./lib/control-plane.mjs";
 import { evaluateSupervisorControlPolicy } from "./supervisor/control-policy.mjs";
 import { buildOperationalStatusProjection, renderOperationalStatusMarkdown } from "./lib/operational-status-projection.mjs";
@@ -285,21 +286,23 @@ async function submit(cli, config) {
       state: event,
       payload: "sanitized bounded JSON",
     })),
-    statusCommand: `node tools/auto-runner/settleora-auto-runnerctl.mjs status --run ${runId} --json`,
+    statusCommand: `node ${absoluteRuntimeEntry(moduleRuntimeRoot(), "settleora-auto-runnerctl.mjs")} status --run ${runId} --json`,
   };
   if (cli.dryRun) return rendered;
 
-  const status = getStatusShort();
+  const runtimeRoot = moduleRuntimeRoot();
+  const runnerEntry = absoluteRuntimeEntry(runtimeRoot, "settleora-auto-runner.mjs");
+  const status = getStatusShort({ cwd: config.repoRoot });
   if (status) throw new Error("Refusing supervisor submit with a dirty worktree");
-  const runnerStatus = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--status", "--json"], {
-    cwd: config.repoRoot,
+  const runnerStatus = spawnSync(process.execPath, [runnerEntry, "--status", "--json"], {
+    cwd: runtimeRoot,
     encoding: "utf8",
   });
   if (runnerStatus.status !== 0) throw new Error("Unable to read existing runner status");
   const parsedRunnerStatus = JSON.parse(runnerStatus.stdout);
   if (parsedRunnerStatus.active || parsedRunnerStatus.lock?.exists) throw new Error("Existing runner is active or locked");
-  const readiness = spawnSync(process.execPath, ["tools/auto-runner/settleora-auto-runner.mjs", "--readiness", "--config", profile.runnerConfigPath], {
-    cwd: config.repoRoot,
+  const readiness = spawnSync(process.execPath, [runnerEntry, "--readiness", "--config", profile.runnerConfigPath], {
+    cwd: runtimeRoot,
     encoding: "utf8",
   });
   if (readiness.status !== 0) throw new Error("Runner readiness failed for selected config");

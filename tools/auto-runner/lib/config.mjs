@@ -12,6 +12,7 @@ import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } fr
 import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./session-lifecycle.mjs";
 import { moduleRuntimeRoot, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
 import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
+import { bindTrustedRepositoryContext } from "./git-workspace.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -555,6 +556,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
       throw new Error("external runtime mode requires an explicit runtimeBundleDigest");
     }
     config.runtimeManifest = verifyRuntimeBundle(config.runtimeIdentity.runtimeRoot, config.runtimeBundleDigest);
+    bindTrustedRepositoryContext(config.runtimeIdentity.repoRoot);
   }
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
