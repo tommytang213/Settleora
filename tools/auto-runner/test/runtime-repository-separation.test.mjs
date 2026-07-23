@@ -243,6 +243,15 @@ test("copied runtime remains authoritative after managed branch and source chang
     assert.notEqual(refused.status, 0);
     assert.match(refused.stderr, /startup refused during deployment/);
     releaseRuntimeDeploymentLock(deploymentLock);
+    const runtimeMode = statSync(runtime).mode & 0o777;
+    chmodSync(runtime, 0o770);
+    const writableRuntime = spawnSync(process.execPath, [
+      deployed.launcher, "--runtime-root", runtime, "--entry", "settleora-auto-runnerctl.mjs", "--", "list",
+      "--config", "/workspace/auto-runner/config/settleora.json",
+    ], { encoding: "utf8" });
+    assert.notEqual(writableRuntime.status, 0);
+    assert.match(writableRuntime.stderr, /runtime bundle root must not be group\/world writable/);
+    chmodSync(runtime, runtimeMode);
     const launcherSource = readFileSync(deployed.launcher, "utf8");
     assert.ok(launcherSource.indexOf("await import(") < launcherSource.indexOf("process.argv = [process.execPath, target"));
     const launcherMain = launcherSource.slice(launcherSource.indexOf("export async function main"));

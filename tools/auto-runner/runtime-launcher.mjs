@@ -143,7 +143,9 @@ export async function main(argv = process.argv.slice(2)) {
   writeFileSync(marker, `${JSON.stringify({ pid: process.pid, processBirthId: processBirthId(process.pid) })}\n`, { flag: "wx", mode: 0o600 });
   try {
     if (lockExists(deploymentLock)) throw new Error("runtime startup raced with deployment");
+    assertOwnerControlledDirectory(runtimeRoot, "runtime bundle root");
     verifyApprovedRuntime(runtimeRoot, launcherPath);
+    assertOwnerControlledDirectory(runtimeRoot, "runtime bundle root");
     const target = path.join(runtimeRoot, entry);
     const loaded = await import(pathToFileURL(target).href);
     if (typeof loaded.main !== "function") throw new Error("runtime entry does not export main");

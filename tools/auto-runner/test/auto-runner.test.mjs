@@ -1419,6 +1419,24 @@ test("readiness preflight uses durable foundation completion and ignores later t
   }
 });
 
+test("readiness preflight binds every GitHub read to a non-Settleora repository", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "appb-readiness-repository-"));
+  try {
+    const repositorySlug = "example/AppB";
+    const runner = createReadinessRunner({ repositorySlug });
+    const result = runPreflight({ ...readinessConfig(tempRoot), repositorySlug }, { runner });
+    assert.equal(result.repo, repositorySlug);
+    assert.equal(result.summary.fail, 0);
+    assert.equal(result.checks.some((check) => check.name === "issue-800-state" || check.name === "issue-805-state"), false);
+    const githubReads = runner.commands.filter((command) => command.startsWith("gh ") && !command.startsWith("gh --version") && !command.startsWith("gh auth "));
+    assert.ok(githubReads.length > 0);
+    assert.equal(githubReads.every((command) => command.includes(repositorySlug)), true);
+    assert.equal(githubReads.some((command) => command.includes("tommytang213/Settleora")), false);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("readiness preflight fails on foundation regression and GitHub issue polling failures", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-foundation-regression-"));
   try {
@@ -7657,6 +7675,7 @@ function readinessConfig(logsRoot) {
   return {
     ...baseConfig,
     repoRoot: process.cwd(),
+    repositorySlug: "tommytang213/Settleora",
     logsRoot,
     codexCommand: "codex-vm-full",
     trustedRealRunApproved: false,
@@ -8015,7 +8034,7 @@ function createReadinessRunner(overrides = {}) {
     if (command === "git" && args[0] === "merge-base") return ok("");
     if (command === "gh" && args[0] === "--version") return ok("gh version 2.0.0\n");
     if (command === "gh" && args[0] === "auth") return ok("Logged in to github.com\n");
-    if (command === "gh" && args[0] === "repo") return ok("tommytang213/Settleora\n");
+    if (command === "gh" && args[0] === "repo") return ok(`${overrides.repositorySlug || "tommytang213/Settleora"}\n`);
     if (command === "gh" && args[0] === "issue" && args[1] === "view") {
       const number = Number(args[2]);
       const state = issueStates[number] || (number === 800 || number === 805 ? "CLOSED" : "OPEN");
