@@ -4,12 +4,26 @@ import { pathToFileURL } from "node:url";
 import process from "node:process";
 import {
   createAutoRunnerHealthServer,
-  validateHealthServiceConfig,
+  validateHealthServiceConfigWithFixedRoot,
 } from "./lib/health-service.mjs";
+import { loadConfig } from "./lib/config.mjs";
+import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "./lib/runtime-bundle.mjs";
+import { moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 
 async function main() {
-  const config = validateHealthServiceConfig(parseArgs(process.argv.slice(2)));
+  const args = parseArgs(process.argv.slice(2));
+  if (!args.configPath) throw new Error("health service requires --config");
+  const project = loadConfig(
+    { dryRun: true, run: false, configPath: args.configPath },
+    { outageResubmissionObserverAvailable: true },
+  );
+  const consumer = acquireRuntimeConsumer(moduleRuntimeRoot());
+  const config = validateHealthServiceConfigWithFixedRoot({ ...args, logsRoot: project.logsRoot });
   const server = createAutoRunnerHealthServer(config);
+  server.once("close", () => releaseRuntimeConsumer(consumer));
+  const stop = () => server.close();
+  process.once("SIGTERM", stop);
+  process.once("SIGINT", stop);
   server.listen(config.port, config.host, () => {
     const address = server.address();
     process.stderr.write(`settleora-auto-runner-health listening on ${address.address}:${address.port}\n`);
@@ -22,6 +36,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === "--host") config.host = readValue(argv, ++index, arg);
     else if (arg === "--port") config.port = readValue(argv, ++index, arg);
+    else if (arg === "--config") config.configPath = readValue(argv, ++index, arg);
     else if (arg === "--allow-non-loopback") config.allowNonLoopback = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }

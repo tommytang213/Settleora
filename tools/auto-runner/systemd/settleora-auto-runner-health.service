@@ -8,7 +8,7 @@ StartLimitBurst=5
 [Service]
 Type=exec
 WorkingDirectory=/workspace/repos/Settleora
-ExecStart=/usr/bin/env node tools/auto-runner/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787
+ExecStart=/usr/bin/env node /workspace/auto-runner/runtime/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json
 EnvironmentFile=-/workspace/logs/settleora-auto-runner/secrets/health-service.env
 UMask=0077
 Restart=on-failure

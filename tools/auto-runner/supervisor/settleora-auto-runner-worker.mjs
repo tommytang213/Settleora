@@ -16,6 +16,7 @@ import { runnerArgvForSpec } from "./systemd-client.mjs";
 import { readSupervisorState, writeSupervisorState } from "./supervisor-state.mjs";
 import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
 import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
+import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "../lib/runtime-bundle.mjs";
 
 const exitCodes = {
   completed: 0,
@@ -162,6 +163,8 @@ export async function runSupervisorWorker(
 }
 
 async function main() {
+  const runtimeConsumer = acquireRuntimeConsumer(moduleRuntimeRoot());
+  try {
   const configIndex = process.argv.indexOf("--config");
   const configPath = configIndex >= 0 ? process.argv[configIndex + 1] : null;
   const logsIndex = process.argv.indexOf("--logs-root");
@@ -187,7 +190,10 @@ async function main() {
     repoRoot: config.repoRoot,
     runtimeRoot: config.runtimeRoot,
   });
-  process.exit(result.exitCode);
+    process.exitCode = result.exitCode;
+  } finally {
+    releaseRuntimeConsumer(runtimeConsumer);
+  }
 }
 
 function waitForChild(child) {
