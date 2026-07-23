@@ -418,6 +418,24 @@ function writeRuntimeApproval(destination, manifest) {
   renameSync(temporary, approval);
 }
 
+function restoreStableLauncherFromInstalledBundle(destination) {
+  const parent = path.dirname(destination);
+  const base = path.basename(destination);
+  const launcher = path.join(parent, `.${base}.launcher.mjs`);
+  const incoming = path.join(parent, `.${base}.launcher.incoming`);
+  const bundledLauncher = path.join(destination, "runtime-launcher.mjs");
+  const launcherInfo = lstatSync(launcher);
+  const bundledInfo = lstatSync(bundledLauncher);
+  if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0
+      || !bundledInfo.isFile() || bundledInfo.isSymbolicLink()) {
+    throw new Error("runtime rollback launcher state is unsafe");
+  }
+  if (existsSync(incoming)) rmSync(incoming);
+  cpSync(bundledLauncher, incoming, { dereference: false });
+  chmodSync(incoming, 0o500);
+  renameSync(incoming, launcher);
+}
+
 export function rollbackRuntimeBundle({
   destination,
   expectedCurrentDigest,
@@ -441,6 +459,7 @@ export function rollbackRuntimeBundle({
     const installed = verifyRuntimeBundle(destination);
     const retained = verifyRuntimeBundle(rollback);
     if (installed.bundleDigest === expectedRollbackDigest && retained.bundleDigest === expectedCurrentDigest) {
+      restoreStableLauncherFromInstalledBundle(destination);
       writeRuntimeApproval(destination, installed);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: installed };
     }
@@ -450,6 +469,7 @@ export function rollbackRuntimeBundle({
     if (!existsSync(destination)) {
       verifyRuntimeBundle(rollback, expectedCurrentDigest);
       renameSync(incoming, destination);
+      restoreStableLauncherFromInstalledBundle(destination);
       writeRuntimeApproval(destination, staged);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
     }
@@ -457,6 +477,7 @@ export function rollbackRuntimeBundle({
       verifyRuntimeBundle(destination, expectedCurrentDigest);
       renameSync(destination, rollback);
       renameSync(incoming, destination);
+      restoreStableLauncherFromInstalledBundle(destination);
       writeRuntimeApproval(destination, staged);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
     }
@@ -476,6 +497,7 @@ export function rollbackRuntimeBundle({
     throw error;
   }
   const installed = verifyRuntimeBundle(destination, expectedRollbackDigest);
+  restoreStableLauncherFromInstalledBundle(destination);
   writeRuntimeApproval(destination, installed);
   return {
     adopted: false,

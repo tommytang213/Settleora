@@ -713,6 +713,17 @@ test("deployment atomically upgrades an authenticated stable launcher", () => {
     );
     assert.equal(verifyRuntimeBundle(destination).bundleDigest, upgraded.manifest.bundleDigest);
     assert.equal(existsSync(path.join(parent, ".runtime.launcher.incoming")), false);
+    const rolledBack = rollbackRuntimeBundle({
+      destination,
+      expectedCurrentDigest: upgraded.manifest.bundleDigest,
+      expectedRollbackDigest: installed.manifest.bundleDigest,
+    });
+    assert.equal(rolledBack.manifest.bundleDigest, installed.manifest.bundleDigest);
+    assert.equal(createHash("sha256").update(readFileSync(launcher)).digest("hex"), oldLauncherDigest);
+    assert.equal(
+      createHash("sha256").update(readFileSync(launcher)).digest("hex"),
+      createHash("sha256").update(readFileSync(path.join(destination, "runtime-launcher.mjs"))).digest("hex"),
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

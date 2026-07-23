@@ -30,7 +30,11 @@ verified launcher on first install. During an expected-old-digest protected,
 quiescent upgrade, it may atomically replace the stable launcher only when the
 installed launcher matches the launcher inside the verified old bundle; all
 other mismatches fail closed. The old bundle's approval is refreshed after
-that replacement so an interrupted upgrade remains safely retryable.
+that replacement so an interrupted upgrade remains safely retryable. Rollback
+exchanges the verified runtime directories, then atomically restores the
+launcher embedded in the newly installed bundle before writing its approval;
+either crash gap therefore fails closed and can be adopted on retry without
+pairing a retained bundle with another bundle's launcher.
 Before importing any replaceable bundle module, the launcher checks the
 deployment lock and records a PID plus process-start identity in the shared
 consumer directory. It also evaluates the Node version against the constraint
