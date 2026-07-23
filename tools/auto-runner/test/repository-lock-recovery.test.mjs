@@ -15,6 +15,8 @@ function metadata() {
   };
 }
 
+const authorityLockName = `${"a".repeat(64)}.lock`;
+
 function childAcquire(lock, holdMs) {
   const stateStore = new URL("../lib/state-store.mjs", import.meta.url).href;
   const source = `import { acquireOneLock } from ${JSON.stringify(stateStore)};
@@ -33,7 +35,7 @@ function finished(child) {
 
 test("repository authority lock acquires and releases with PID birth identity", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-authority-lock-"));
-  const lock = path.join(root, "repository.lock");
+  const lock = path.join(root, authorityLockName);
   try {
     acquireOneLock(lock, metadata(), { repositoryAuthority: true });
     const parsed = JSON.parse(readFileSync(lock, "utf8"));
@@ -64,7 +66,7 @@ test("caller metadata cannot override local lock owner identity", () => {
 
 test("repository authority lock refuses a live owner and reclaims dead or PID-reused owners", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-authority-stale-"));
-  const lock = path.join(root, "repository.lock");
+  const lock = path.join(root, authorityLockName);
   try {
     acquireOneLock(lock, metadata(), { repositoryAuthority: true });
     assert.throws(() => acquireOneLock(lock, metadata(), { repositoryAuthority: true }), /active pid/);
@@ -83,7 +85,7 @@ test("repository authority lock refuses a live owner and reclaims dead or PID-re
 
 test("repository authority lock fails closed for corrupt, partial, symlinked, or writable state", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-authority-unsafe-"));
-  const lock = path.join(root, "repository.lock");
+  const lock = path.join(root, authorityLockName);
   try {
     for (const value of ["{", "{}", `${JSON.stringify({ pid: 1, processBirthId: "x" })}\n`]) {
       writeFileSync(lock, value, { mode: 0o600 });
@@ -98,6 +100,15 @@ test("repository authority lock fails closed for corrupt, partial, symlinked, or
     writeFileSync(outside, "{}\n", { mode: 0o600 });
     symlinkSync(outside, lock);
     assert.throws(() => acquireOneLock(lock, metadata(), { repositoryAuthority: true }), /unsafe/);
+    rmSync(lock);
+    assert.throws(
+      () => acquireOneLock(path.join(root, "..", authorityLockName), metadata(), { repositoryAuthority: true }),
+      /invalid/,
+    );
+    assert.throws(
+      () => acquireOneLock(path.join(root, "repository.lock"), metadata(), { repositoryAuthority: true }),
+      /name is invalid/,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -105,7 +116,7 @@ test("repository authority lock fails closed for corrupt, partial, symlinked, or
 
 test("two stale-lock contenders serialize and only one live owner is admitted", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-authority-race-"));
-  const lock = path.join(root, "repository.lock");
+  const lock = path.join(root, authorityLockName);
   try {
     writeFileSync(lock, `${JSON.stringify({ pid: 999999999, processBirthId: "1" })}\n`, { mode: 0o600 });
     const first = childAcquire(lock, 400);

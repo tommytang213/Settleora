@@ -1,4 +1,5 @@
-import { existsSync, lstatSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
@@ -12,6 +13,24 @@ function processBirthId(pid, { missingOk = false } = {}) {
     if (missingOk && error?.code === "ENOENT") return null;
     throw error;
   }
+}
+
+function canonicalAuthorityLockPath(candidate) {
+  if (typeof candidate !== "string" || !path.isAbsolute(candidate) || path.resolve(candidate) !== candidate) {
+    throw new Error("repository authority lock path is invalid");
+  }
+  const name = path.basename(candidate);
+  if (!/^[a-f0-9]{64}\.lock$/u.test(name)) throw new Error("repository authority lock name is invalid");
+  const parent = realpathSync(path.dirname(candidate));
+  const parentInfo = lstatSync(parent);
+  if (!parentInfo.isDirectory() || parentInfo.isSymbolicLink()
+      || (parentInfo.mode & 0o022) !== 0
+      || (typeof process.getuid === "function" && parentInfo.uid !== process.getuid())) {
+    throw new Error("repository authority lock parent is unsafe");
+  }
+  const rebuilt = path.join(parent, name);
+  if (rebuilt !== candidate) throw new Error("repository authority lock path escaped its canonical parent");
+  return rebuilt;
 }
 
 function trustedLock(lockPath) {
@@ -34,26 +53,27 @@ function trustedLock(lockPath) {
 }
 
 export function acquireRepositoryAuthorityLock(lockPath, owner, metadata = {}) {
+  const target = canonicalAuthorityLockPath(lockPath);
   if (!Number.isSafeInteger(owner?.pid) || owner.pid <= 1
       || !/^\d+$/u.test(String(owner?.processBirthId || ""))
       || processBirthId(owner.pid, { missingOk: true }) !== owner.processBirthId) {
     throw new Error("repository authority requester identity is not active");
   }
-  if (existsSync(lockPath)) {
-    const { info, lock } = trustedLock(lockPath);
+  if (existsSync(target)) {
+    const { info, lock } = trustedLock(target);
     const activeBirth = processBirthId(lock.pid, { missingOk: true });
     if (activeBirth === lock.processBirthId) {
       throw new Error(`repository authority lock is held by active pid ${lock.pid}`);
     }
-    const quarantine = `${lockPath}.stale-${owner.pid}-${owner.processBirthId}`;
-    renameSync(lockPath, quarantine);
+    const quarantine = `${target}.stale-${owner.pid}-${owner.processBirthId}`;
+    renameSync(target, quarantine);
     const moved = lstatSync(quarantine);
     if (moved.dev !== info.dev || moved.ino !== info.ino) {
       throw new Error("repository authority lock changed during stale recovery");
     }
     rmSync(quarantine);
   }
-  writeFileSync(lockPath, `${JSON.stringify({
+  writeFileSync(target, `${JSON.stringify({
     ...metadata,
     pid: owner.pid,
     processBirthId: owner.processBirthId,
