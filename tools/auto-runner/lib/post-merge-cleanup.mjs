@@ -198,7 +198,7 @@ export function createPostMergeCleanupGitAdapter({ repoRoot, authorityReader, ch
       const local = localRef(owner.branchName); if (local.status === 1) return { ok: true, adopted: true };
       if (local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha) return fail("local_branch_delete_target_drift");
       const merged = run(["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]); if (merged.status !== 0) return fail("local_branch_unmerged");
-      return commandResult(run(["branch", "-d", "--", owner.branchName]), "local_branch_delete_failed");
+      return commandResult(run(["-c", `branch.${owner.branchName}.remote=origin`, "-c", `branch.${owner.branchName}.merge=refs/heads/${owner.targetBranch}`, "branch", "-d", "--", owner.branchName]), "local_branch_delete_failed");
     },
   };
 }

@@ -2483,6 +2483,7 @@ function inspectDurableCleanupReferences(config, owner) {
       for (const entry of entries) {
         if (++visited > 2_000) { result.complete = false; return result; }
         const file = path.join(current, entry.name);
+        if (entry.isSymbolicLink()) { result.complete = false; continue; }
         if (entry.isDirectory()) { pending.push(file); continue; }
         if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
         let value; try { value = JSON.parse(readFileSync(file, "utf8")); } catch { result.complete = false; continue; }
@@ -2490,7 +2491,9 @@ function inspectDurableCleanupReferences(config, owner) {
         if (!serialized.includes(owner.branchName)) continue;
         const taskKey = value.taskKey || value.logicalTask?.taskKey || value.sourceTaskKey || null;
         const exactOwner = taskKey === owner.rootTaskKey && (category !== "session" || !owner.correlations?.session || value.sessionId === owner.correlations.session || value.sessions?.currentSessionId === owner.correlations.session);
-        if (!exactOwner) result[category] += 1;
+        const posture = String(value.status || value.state || value.phase || value.controller?.phase || "").toLowerCase();
+        const terminal = ["complete", "completed", "merged", "cleanup_complete", "post_merge_ephemeral_cleanup"].includes(posture);
+        if (!exactOwner || !terminal) result[category] += 1;
       }
     }
   }
