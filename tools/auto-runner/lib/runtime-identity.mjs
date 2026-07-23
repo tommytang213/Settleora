@@ -90,6 +90,7 @@ export function validateProjectRuntimeIdentity(config, {
       .digest("hex"),
     repositoryCommonDir: repository.commonDir,
     originUrl: repository.originUrl,
+    pushUrl: repository.pushUrl,
   });
 }
 
@@ -159,10 +160,15 @@ export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
   const commonDir = realpathSync(path.resolve(repoRoot, commonRaw));
   const originResult = spawnSync("git", ["remote", "get-url", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
   const originUrl = originResult.status === 0 ? originResult.stdout.trim() : null;
+  const pushResult = spawnSync("git", ["remote", "get-url", "--push", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
+  const pushUrl = pushResult.status === 0 ? pushResult.stdout.trim() : null;
   if (expectedSlug && (!originUrl || repositorySlugFromRemote(originUrl) !== expectedSlug)) {
     throw new Error("repoRoot origin does not match repositorySlug");
   }
-  return { topLevel: repoRoot, commonDir, originUrl };
+  if (expectedSlug && (!pushUrl || repositorySlugFromRemote(pushUrl) !== expectedSlug || !isApprovedGitHubRemote(pushUrl))) {
+    throw new Error("repoRoot push URL does not match the approved GitHub repository");
+  }
+  return { topLevel: repoRoot, commonDir, originUrl, pushUrl };
 }
 
 function gitValue(cwd, args, label) {
@@ -176,4 +182,10 @@ function repositorySlugFromRemote(remote) {
   const match = value.match(/(?:^|[:/])([^/:]+\/[^/]+)$/);
   if (!match) throw new Error("origin URL does not contain a repository slug");
   return match[1];
+}
+
+function isApprovedGitHubRemote(remote) {
+  return /^https:\/\/github\.com\/[^/]+\/[^/]+(?:\.git)?$/u.test(remote)
+    || /^git@github\.com(?:-[A-Za-z0-9._-]+)?:[^/]+\/[^/]+(?:\.git)?$/u.test(remote)
+    || /^ssh:\/\/git@github\.com\/[^/]+\/[^/]+(?:\.git)?$/u.test(remote);
 }

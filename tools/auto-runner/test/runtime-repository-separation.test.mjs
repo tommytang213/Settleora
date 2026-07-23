@@ -37,6 +37,7 @@ test("runtime manifest is deterministic, sorted, generic, and digest verified", 
   assert.equal(first.files.some((file) => /(^|\/)(\.git|node_modules|AGENTS\.md|logs|reports|config)(\/|$)/.test(file.path)), false);
   assert.equal(first.bundleDigest.length, 64);
   assert.deepEqual(runtimeBundleFileList(sourceRoot), first.files.map((file) => file.path));
+  assert.equal(first.files.every((file) => file.mode === 0o400 || file.mode === 0o500), true);
 });
 
 test("deployment source verification rejects assume-unchanged bytes and ignored runtime files", () => {
@@ -165,6 +166,17 @@ test("copied runtime remains authoritative after managed branch and source chang
     }, { actualRuntimeRoot: runtime });
     assert.equal(identity.repoRoot, repo);
     assert.equal(identity.runtimeRoot, runtime);
+    assert.equal(identity.pushUrl, "git@github.com-settleora:tommytang213/Settleora.git");
+    git(repo, ["config", "remote.origin.pushurl", "file:///tmp/tommytang213/Settleora.git"]);
+    assert.throws(() => validateProjectRuntimeIdentity({
+      runtimeMode: "external",
+      runtimeRoot: runtime,
+      repoRoot: repo,
+      logsRoot: logs,
+      projectId: "Settleora",
+      repositorySlug: "tommytang213/Settleora",
+    }, { actualRuntimeRoot: runtime }), /push URL/);
+    git(repo, ["config", "--unset", "remote.origin.pushurl"]);
     assert.throws(() => validateProjectRuntimeIdentity({
       runtimeMode: "external",
       runtimeRoot: runtime,
@@ -201,6 +213,7 @@ test("path overlap, aliases, manifest drift, missing entry, and digest mismatch 
     assert.throws(() => validateProjectRuntimeIdentity({
       runtimeMode: "external", runtimeRoot: alias, repoRoot: repo, logsRoot: logs, projectId: "Settleora", repositorySlug: "tommytang213/Settleora",
     }, { actualRuntimeRoot: alias }), /real directory/);
+    chmodSync(path.join(runtime, "lib/runtime-identity.mjs"), 0o600);
     writeFileSync(path.join(runtime, "lib/runtime-identity.mjs"), "\n// drift\n", { flag: "a" });
     assert.throws(() => verifyRuntimeBundle(runtime), /drift/);
     assert.throws(() => verifyRuntimeBundle(runtime, "0".repeat(64)), /drift|mismatch/);

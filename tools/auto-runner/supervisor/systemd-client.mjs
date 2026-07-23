@@ -15,9 +15,10 @@ export function buildSystemdStartPlan(runId, { runtimeRoot = moduleRuntimeRoot()
   return {
     unitName: unitNameForRunId(runId),
     expectedExecArgv: [
-      process.execPath, launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
+      "/usr/bin/env", "node", launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
       runId, "--config", safeConfigPath, "--logs-root", safeLogsRoot,
     ],
+    inspectArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ExecStart", "--value"],
     startArgv: ["systemctl", "--user", "start", unitNameForRunId(runId)],
     isActiveArgv: ["systemctl", "--user", "is-active", unitNameForRunId(runId)],
     showArgv: ["systemctl", "--user", "show", unitNameForRunId(runId), "--property=ActiveState,SubState,Result"],
@@ -39,6 +40,12 @@ function validateSystemdPath(value, label) {
 
 export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath, repoRoot, logsRoot } = {}) {
   const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath, repoRoot, logsRoot });
+  const inspected = runner(plan.inspectArgv[0], plan.inspectArgv.slice(1), { encoding: "utf8", windowsHide: true });
+  const execMatch = /argv\[\]=([^;]+)\s+;/u.exec(String(inspected.stdout || ""));
+  const installedArgv = execMatch ? execMatch[1].trim().split(/\s+/u) : [];
+  if (inspected.error || inspected.status !== 0 || JSON.stringify(installedArgv) !== JSON.stringify(plan.expectedExecArgv)) {
+    return { ok: false, unitName: plan.unitName, state: "submission_failed", status: inspected.status, stderr: "installed supervisor unit identity mismatch" };
+  }
   const start = runner(plan.startArgv[0], plan.startArgv.slice(1), { encoding: "utf8", windowsHide: true });
   if (start.error || start.status !== 0) {
     return { ok: false, unitName: plan.unitName, state: "submission_failed", status: start.status, stderr: start.stderr || start.error?.message || "" };

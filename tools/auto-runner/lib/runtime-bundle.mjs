@@ -193,7 +193,7 @@ export function buildRuntimeManifest(sourceRoot, { sourceSha, generatedAt = new 
   if (!/^[a-f0-9]{40}$/.test(String(sourceSha || ""))) throw new Error("approved source SHA is required");
   const files = runtimeBundleFileList(sourceRoot).map((relativePath) => {
     const absolute = path.join(sourceRoot, relativePath);
-    const mode = statSync(absolute).mode & 0o777;
+    const mode = (statSync(absolute).mode & 0o111) !== 0 ? 0o500 : 0o400;
     return {
       path: relativePath,
       sha256: createHash("sha256").update(readFileSync(absolute)).digest("hex"),

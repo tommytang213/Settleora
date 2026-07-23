@@ -216,6 +216,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   });
   assert.deepEqual(plan.startArgv, ["systemctl", "--user", "start", `settleora-auto-runner@${runId}.service`]);
   assert.equal(plan.expectedExecArgv.some((value) => value.endsWith("/.auto-runner.launcher.mjs")), true);
+  assert.deepEqual(plan.inspectArgv, ["systemctl", "--user", "show", plan.unitName, "--property=ExecStart", "--value"]);
   assert.equal(plan.unitName, `settleora-auto-runner@${runId}.service`);
   assert.throws(() => buildSystemdStartPlan("bad;systemctl reboot"), /Invalid supervisor run ID/);
   for (const unsafePath of [
@@ -804,6 +805,36 @@ test("systemd start failure records no foreground fallback shape", () => {
   assert.equal(result.state, "submission_failed");
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "systemctl");
+});
+
+test("systemd start verifies the installed exact ExecStart before activation", () => {
+  const runId = generateRunId();
+  const options = {
+    configPath: "/workspace/logs/configs/default.json",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/settleora-auto-runner",
+  };
+  const plan = buildSystemdStartPlan(runId, options);
+  const calls = [];
+  const result = startUserUnit(runId, {
+    ...options,
+    runner: (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (args.includes("--property=ExecStart")) {
+        return { status: 0, stdout: `{ path=/usr/bin/env ; argv[]=${plan.expectedExecArgv.join(" ")} ; ignore_errors=no ; }\n` };
+      }
+      if (args.includes("is-active")) return { status: 0, stdout: "active\n" };
+      return { status: 0, stdout: "" };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls[1], plan.startArgv);
+  const refused = startUserUnit(runId, {
+    ...options,
+    runner: () => ({ status: 0, stdout: "{ path=/usr/bin/node ; argv[]=/usr/bin/node tools/auto-runner/settleora-auto-runner.mjs ; }\n" }),
+  });
+  assert.equal(refused.ok, false);
+  assert.match(refused.stderr, /identity mismatch/);
 });
 
 test("heartbeat defaults, stale detection, terminal state, and sanitization", () => {

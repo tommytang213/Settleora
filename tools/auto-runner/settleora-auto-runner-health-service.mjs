@@ -21,14 +21,23 @@ export async function main() {
   const consumer = acquireRuntimeConsumer(moduleRuntimeRoot());
   const config = validateHealthServiceConfigWithFixedRoot({ ...args, logsRoot: project.logsRoot });
   const server = createAutoRunnerHealthServer(config);
-  server.once("close", () => releaseRuntimeConsumer(consumer));
   const stop = () => server.close();
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
-  server.listen(config.port, config.host, () => {
-    const address = server.address();
-    process.stderr.write(`settleora-auto-runner-health listening on ${address.address}:${address.port}\n`);
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.once("close", resolve);
+      server.listen(config.port, config.host, () => {
+        const address = server.address();
+        process.stderr.write(`settleora-auto-runner-health listening on ${address.address}:${address.port}\n`);
+      });
+    });
+  } finally {
+    releaseRuntimeConsumer(consumer);
+    process.removeListener("SIGTERM", stop);
+    process.removeListener("SIGINT", stop);
+  }
 }
 
 function parseArgs(argv) {
