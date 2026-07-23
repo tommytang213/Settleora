@@ -299,8 +299,10 @@ export function deployRuntimeBundle({
   const temporary = path.join(destinationParent, `.${path.basename(destination)}.deploy-incoming`);
   const rollback = path.join(destinationParent, `.${path.basename(destination)}.rollback`);
   const retiredRollback = path.join(destinationParent, `.${path.basename(destination)}.rollback-retired`);
+  let currentManifest = null;
   if (existsSync(destination)) {
     const current = verifyRuntimeBundle(destination);
+    currentManifest = current;
     if (current.bundleDigest === manifest.bundleDigest && !expectedOldDigest) {
       writeRuntimeApproval(destination, current);
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback: null, manifest: current };
@@ -344,15 +346,39 @@ export function deployRuntimeBundle({
   }
   const launcher = path.join(destinationParent, `.${path.basename(destination)}.launcher.mjs`);
   const stagedLauncher = path.join(temporary, "runtime-launcher.mjs");
+  const incomingLauncher = path.join(destinationParent, `.${path.basename(destination)}.launcher.incoming`);
   if (existsSync(launcher)) {
     const launcherInfo = lstatSync(launcher);
-    if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink()
-        || createHash("sha256").update(readFileSync(launcher)).digest("hex") !== createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex")) {
+    if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0) {
       throw new Error("stable runtime launcher does not match the approved bundle");
     }
+    const installedLauncherDigest = createHash("sha256").update(readFileSync(launcher)).digest("hex");
+    const stagedLauncherDigest = createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex");
+    if (installedLauncherDigest !== stagedLauncherDigest) {
+      const currentLauncher = currentManifest && path.join(destination, "runtime-launcher.mjs");
+      const authenticatedCurrentDigest = currentLauncher && createHash("sha256").update(readFileSync(currentLauncher)).digest("hex");
+      if (!currentManifest || currentManifest.bundleDigest !== expectedOldDigest
+          || installedLauncherDigest !== authenticatedCurrentDigest) {
+        throw new Error("stable runtime launcher does not match the approved bundle");
+      }
+      if (existsSync(incomingLauncher)) rmSync(incomingLauncher);
+      cpSync(stagedLauncher, incomingLauncher, { dereference: false });
+      chmodSync(incomingLauncher, 0o500);
+      renameSync(incomingLauncher, launcher);
+      // The deployment lock, quiescence checks, exact old digest, and verified
+      // current bundle authenticate this bounded launcher replacement. Keep the
+      // old bundle launchable if the process stops before the runtime exchange.
+      writeRuntimeApproval(destination, currentManifest);
+    }
   } else {
-    cpSync(stagedLauncher, launcher, { dereference: false });
-    chmodSync(launcher, 0o500);
+    if (existsSync(incomingLauncher)) rmSync(incomingLauncher);
+    cpSync(stagedLauncher, incomingLauncher, { dereference: false });
+    chmodSync(incomingLauncher, 0o500);
+    renameSync(incomingLauncher, launcher);
+  }
+  if (createHash("sha256").update(readFileSync(launcher)).digest("hex")
+      !== createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex")) {
+      throw new Error("stable runtime launcher does not match the approved bundle");
   }
   if (existsSync(rollback)) {
     if (existsSync(retiredRollback)) throw new Error("runtime rollback retirement state is contradictory");
@@ -392,6 +418,24 @@ function writeRuntimeApproval(destination, manifest) {
   renameSync(temporary, approval);
 }
 
+function restoreStableLauncherFromInstalledBundle(destination) {
+  const parent = path.dirname(destination);
+  const base = path.basename(destination);
+  const launcher = path.join(parent, `.${base}.launcher.mjs`);
+  const incoming = path.join(parent, `.${base}.launcher.incoming`);
+  const bundledLauncher = path.join(destination, "runtime-launcher.mjs");
+  const launcherInfo = lstatSync(launcher);
+  const bundledInfo = lstatSync(bundledLauncher);
+  if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0
+      || !bundledInfo.isFile() || bundledInfo.isSymbolicLink()) {
+    throw new Error("runtime rollback launcher state is unsafe");
+  }
+  if (existsSync(incoming)) rmSync(incoming);
+  cpSync(bundledLauncher, incoming, { dereference: false });
+  chmodSync(incoming, 0o500);
+  renameSync(incoming, launcher);
+}
+
 export function rollbackRuntimeBundle({
   destination,
   expectedCurrentDigest,
@@ -415,6 +459,7 @@ export function rollbackRuntimeBundle({
     const installed = verifyRuntimeBundle(destination);
     const retained = verifyRuntimeBundle(rollback);
     if (installed.bundleDigest === expectedRollbackDigest && retained.bundleDigest === expectedCurrentDigest) {
+      restoreStableLauncherFromInstalledBundle(destination);
       writeRuntimeApproval(destination, installed);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: installed };
     }
@@ -424,6 +469,7 @@ export function rollbackRuntimeBundle({
     if (!existsSync(destination)) {
       verifyRuntimeBundle(rollback, expectedCurrentDigest);
       renameSync(incoming, destination);
+      restoreStableLauncherFromInstalledBundle(destination);
       writeRuntimeApproval(destination, staged);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
     }
@@ -431,6 +477,7 @@ export function rollbackRuntimeBundle({
       verifyRuntimeBundle(destination, expectedCurrentDigest);
       renameSync(destination, rollback);
       renameSync(incoming, destination);
+      restoreStableLauncherFromInstalledBundle(destination);
       writeRuntimeApproval(destination, staged);
       return { adopted: true, destination: realpathSync(destination), rollback, manifest: staged };
     }
@@ -450,6 +497,7 @@ export function rollbackRuntimeBundle({
     throw error;
   }
   const installed = verifyRuntimeBundle(destination, expectedRollbackDigest);
+  restoreStableLauncherFromInstalledBundle(destination);
   writeRuntimeApproval(destination, installed);
   return {
     adopted: false,

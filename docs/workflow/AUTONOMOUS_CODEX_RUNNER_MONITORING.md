@@ -230,10 +230,13 @@ heartbeat is stale only while non-terminal and after the lease expires.
 Terminal heartbeat age alone must not make an unchanged completed/idle run
 unhealthy.
 
-Lock orphan detection should use the existing runner lock semantics: active or
-unparsable locks require inspection; stale locks are removable only by the
-runner code when the recorded PID is no longer active. The health service must
-never delete locks.
+Lock orphan detection should use the existing runner lock semantics. A matching
+live PID and process-birth identity blocks. Repository authority recovery is
+serialized by its owner-only OS lock and may replace only trusted authority
+state whose recorded owner is proven stale; PID reuse is not treated as the
+original owner. Unparsable, partial, symlinked, foreign-owned, writable, or
+otherwise ambiguous state requires inspection and fails closed. The health
+service must never delete locks.
 
 ## Health Service Boundary
 
