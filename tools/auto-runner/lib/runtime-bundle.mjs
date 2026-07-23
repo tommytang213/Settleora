@@ -181,7 +181,7 @@ function regularJsonFiles(root, depth) {
     const target = path.join(root, entry.name);
     if (entry.isSymbolicLink()) throw new Error("runtime deployment refused because operational state contains a symlink");
     if (entry.isDirectory()) return regularJsonFiles(target, depth - 1);
-    return entry.isFile() && entry.name.endsWith(".json") ? [target] : [];
+    return entry.isFile() && (entry.name.endsWith(".json") || entry.name.endsWith(".lock")) ? [target] : [];
   });
 }
 

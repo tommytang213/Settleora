@@ -11,6 +11,7 @@ import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
 import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./session-lifecycle.mjs";
 import { moduleRuntimeRoot, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
+import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
 
 export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
@@ -549,6 +550,12 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     actualRuntimeRoot: moduleRuntimeRoot(),
     trusted: config.runtimeMode === "external",
   });
+  if (config.runtimeMode === "external") {
+    if (!/^[a-f0-9]{64}$/.test(String(config.runtimeBundleDigest || ""))) {
+      throw new Error("external runtime mode requires an explicit runtimeBundleDigest");
+    }
+    config.runtimeManifest = verifyRuntimeBundle(config.runtimeIdentity.runtimeRoot, config.runtimeBundleDigest);
+  }
 
   const localConfigPath = path.join(config.logsRoot, "runner-config.last.json");
   if (!existsSync(localConfigPath)) {

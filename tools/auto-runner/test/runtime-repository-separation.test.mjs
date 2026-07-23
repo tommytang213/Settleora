@@ -122,9 +122,9 @@ test("deployment quiescence detects active owners and unresolved effects", () =>
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-deploy-quiescence-"));
   try {
     mkdirSync(path.join(root, "locks"));
-    writeFileSync(path.join(root, "locks", "runner.json"), `${JSON.stringify({ pid: process.pid })}\n`);
+    writeFileSync(path.join(root, "locks", "settleora-auto-runner.lock"), `${JSON.stringify({ pid: process.pid })}\n`);
     assert.equal(inspectDeploymentQuiescence(root).active, true);
-    rmSync(path.join(root, "locks", "runner.json"));
+    rmSync(path.join(root, "locks", "settleora-auto-runner.lock"));
     mkdirSync(path.join(root, "pre-effect-intents"));
     writeFileSync(path.join(root, "pre-effect-intents", "pending.json"), `${JSON.stringify({ status: "prepared" })}\n`);
     assert.equal(inspectDeploymentQuiescence(root).pendingEffects, true);
