@@ -42,6 +42,8 @@ async function main() {
     dryRun: true,
     run: false,
     configPath: cli.configPath,
+  }, {
+    outageResubmissionControllerAvailable: true,
   });
   if (cli.command === "submit") {
     const result = await submit(cli, config);

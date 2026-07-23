@@ -5,16 +5,16 @@ Documentation=file:/workspace/repos/Settleora/docs/workflow/AUTONOMOUS_CODEX_RUN
 [Service]
 Type=exec
 WorkingDirectory=/workspace/repos/Settleora
-ExecStart=/usr/bin/env node /workspace/repos/Settleora/tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs %i
+ExecStart=/usr/bin/env node /workspace/auto-runner/runtime/supervisor/settleora-auto-runner-worker.mjs %i --config /workspace/auto-runner/config/settleora.json --logs-root /workspace/logs/auto-runner/Settleora
 UMask=0077
 Restart=no
 KillMode=process
 TimeoutStopSec=30min
 SendSIGKILL=no
-EnvironmentFile=-/workspace/logs/settleora-auto-runner/secrets/supervisor.env
+EnvironmentFile=-/workspace/logs/auto-runner/Settleora/secrets/supervisor.env
 StandardOutput=journal
 StandardError=journal
 
 [Install]
-# Template only. Do not enable instances automatically; runs are started
-# explicitly with systemctl --user start settleora-auto-runner@<run-id>.service.
+# Future #912 template only. Do not install or enable before the external runtime
+# and profile paths above are manually deployed and verified.
