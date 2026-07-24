@@ -130,7 +130,9 @@ node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
   --expected-rollback-digest <retained-rollback-bundle-digest>
 
 node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
-  --entry settleora-auto-runner.mjs -- --run --config /workspace/auto-runner/config/settleora.json
+  --entry settleora-auto-runnerctl.mjs -- submit --mode trusted \
+  --config /workspace/auto-runner/config/settleora.json \
+  --max-tasks 500 --max-runtime 14d --json
 node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
   --entry settleora-auto-runner.mjs -- --status --json --config /workspace/auto-runner/config/settleora.json
 node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \

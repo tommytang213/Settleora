@@ -109,8 +109,8 @@ cancellation, or another terminal condition. They intentionally remain
 `Restart=no`; failed, incomplete, killed, reboot-interrupted, or ambiguous
 mutation runs require operator review.
 
-The future health service is separate. It remains callable after a runner exits
-and may use `Restart=on-failure` because it is read-only and has no runner,
+The installed health service is separate. It remains callable after a runner
+exits and uses `Restart=on-failure` because it is read-only and has no runner,
 GitHub, branch, lock-removal, resume, retry, or merge authority.
 
 The service reads only bounded owner-only persisted state:
@@ -119,8 +119,7 @@ The service reads only bounded owner-only persisted state:
 - strict supervisor/runner report-correlation results;
 - sanitized runner summaries and counts already present in trusted summaries;
 - runner active/lock readback;
-- bounded systemd readback if a later deployment-approved readback helper is
-  added.
+- bounded systemd readback through the accepted deployment helper.
 
 Uptime Kuma must not poll GitHub for eligible issues on every health check. No
 eligible work is a successful terminal result, not an outage. Idle does not
@@ -473,9 +472,10 @@ Do not select or configure live email, Slack, Discord, Telegram, Gotify,
 webhook, public ntfy topics, or other credentials in repository code or docs
 examples for this task.
 
-## Follow-Up Slices
+## Historical Implementation Slices
 
-Focused child issues under #800:
+These focused child issues under #800 record implementation history; their
+pre-deployment wording does not override the accepted #912 live posture:
 
 1. #879: repository implementation for the read-only DevBox health service,
    state evaluator, tests, systemd template, docs, and terminal-event dedupe
@@ -484,15 +484,15 @@ Focused child issues under #800:
    fixed external config boundary, confirmed-delivery dedupe, tests, docs, and
    repository-only systemd service/timer templates. No installation,
    deployment, live secrets, or live ntfy calls.
-3. #880: manual deployment and acceptance to install/enable the health service
-   and notifier timer on the DevBox, install/configure Uptime Kuma and ntfy on
-   TrueNAS SCALE, choose private topics/tokens, prove alert/recovery/activity
-   dedupe, and document rollback. No automatic runner restart.
+3. #880: originally tracked manual deployment. #912 subsequently accepted the
+   DevBox health service, notifier timer, existing private provider
+   prerequisites, and dedupe. Uptime Kuma/TrueNAS deployment and any new
+   topic/token choice remain separate manual work. No automatic runner restart.
 4. #885: repository compatibility fix for the Node-based health and notifier
    systemd templates after the `20260712-1609` rollback. This removes the
    Node/V8-incompatible `MemoryDenyWriteExecute` directive, preserves the
    remaining hardening controls, fixes health unit metadata/enablement, and
-   leaves deployment retry gated by #880.
+   historically left deployment retry gated by #880 before #912 acceptance.
 
 Both slices must preserve #865/#866 as unrelated protected canaries and must
 not expose the health endpoint publicly or configure secrets without explicit
