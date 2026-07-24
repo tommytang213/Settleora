@@ -46,7 +46,7 @@ export const trustedDeploymentGitBinary = "/usr/bin/git";
 export const preservedRecoveryTargetFields = Object.freeze([
   "repository", "issueNumber", "taskKey", "runnerRunId", "supervisorRunId", "claimIdentity",
   "chargeId", "branch", "baseSha", "headSha", "treeSha", "changedFilesDigest", "reportName",
-  "promptName", "acceptedLogicalTasks", "localSourceChangingRounds", "githubTriggeredFixEpochs",
+  "diffDigest", "promptName", "acceptedLogicalTasks", "localSourceChangingRounds", "githubTriggeredFixEpochs",
   "lifetimeLocalSourceChangingRounds",
 ]);
 
@@ -81,6 +81,7 @@ export function normalizePreservedRecoveryDeploymentTarget(input) {
     headSha: requiredMatch(input.headSha, shaPattern, "head SHA"),
     treeSha: requiredMatch(input.treeSha, shaPattern, "tree SHA"),
     changedFilesDigest: requiredMatch(input.changedFilesDigest, digestPattern, "changed-files digest"),
+    diffDigest: requiredMatch(input.diffDigest, digestPattern, "diff digest"),
     reportName: requiredMatch(input.reportName, safeNamePattern, "report name"),
     promptName: requiredMatch(input.promptName, safeNamePattern, "prompt name"),
     acceptedLogicalTasks: boundedInteger(input.acceptedLogicalTasks, 1, 1, "accepted logical tasks"),
@@ -169,10 +170,12 @@ function exactStateIdentity(state, target) {
     && identity.headSha === target.headSha
     && identity.treeSha === target.treeSha
     && identity.changedFilesDigest === target.changedFilesDigest
+    && identity.diffDigest === target.diffDigest
     && candidate?.baseSha === target.baseSha
     && candidate?.headSha === target.headSha
     && candidate?.treeSha === target.treeSha
     && candidate?.changedFilesDigest === target.changedFilesDigest
+    && candidate?.diffDigest === target.diffDigest
     && canonical(candidate?.changedFiles) === canonical(identity?.changedFiles)
     && digestChangedFiles(identity?.changedFiles) === target.changedFilesDigest
     && path.basename(state.expectedReportPaths?.repoReportPath || "") === target.reportName
@@ -348,10 +351,25 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   }
   const cumulativeFiles = readGit(["diff", "--name-only", target.baseSha, target.headSha]).split("\n").filter(Boolean).sort();
   if (unmatched.size || readGit(["rev-parse", `${target.headSha}^{tree}`]) !== target.treeSha
+      || authoritativeDiffDigest(root, target, gitEnvironment) !== target.diffDigest
       || canonical(cumulativeFiles) !== canonical([...expectedChangedFiles].sort())) {
     return { ok: false, reasonCode: "preserved_recovery_commit_lineage_mismatch" };
   }
   return { ok: true };
+}
+
+function authoritativeDiffDigest(root, target, environment) {
+  const result = spawnSync(trustedDeploymentGitBinary, [
+    "--no-replace-objects", "-c", "core.fsmonitor=false",
+    "diff", "--binary", `${target.baseSha}...${target.headSha}`,
+  ], {
+    cwd: root,
+    encoding: "utf8",
+    env: sanitizedDeploymentGitEnvironment(environment),
+    maxBuffer: 2 * 1024 * 1024,
+  });
+  if (result.status !== 0 || result.stderr) throw new Error("authoritative Git diff unavailable");
+  return createHash("sha256").update(result.stdout.slice(0, 512_000)).digest("hex");
 }
 
 function git(root, args, environment = process.env) {

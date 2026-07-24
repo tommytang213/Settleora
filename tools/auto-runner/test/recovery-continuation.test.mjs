@@ -278,6 +278,10 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     const headSha = git(config.repoRoot, ["rev-parse", "HEAD"]);
     const treeSha = git(config.repoRoot, ["rev-parse", "HEAD^{tree}"]);
     const filesDigest = createHash("sha256").update(JSON.stringify(files)).digest("hex");
+    const diffDigest = createHash("sha256").update(spawnSync(
+      "git", ["diff", "--binary", `${baseSha}...${headSha}`],
+      { cwd: config.repoRoot, encoding: "utf8" },
+    ).stdout).digest("hex");
     const charge = chargeAcceptedLogicalTask(config, {
       budgetScopeId: "supervised-20260724T075831Z-fixture",
       maxTasks: 1,
@@ -309,7 +313,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       ordinaryContinuation: {
         identity: {
           repository: "owner/repo", baseSha, headSha,
-          treeSha, changedFiles: files, changedFilesDigest: filesDigest,
+          treeSha, changedFiles: files, changedFilesDigest: filesDigest, diffDigest,
         },
         counters: {
           acceptedLogicalTasks: 1, localSourceChangingRoundsPerEpoch: 1,
@@ -318,7 +322,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
         sourceFailureBatch: {
           candidate: {
             baseSha, headSha, treeSha,
-            changedFiles: files, changedFilesDigest: filesDigest,
+            changedFiles: files, changedFilesDigest: filesDigest, diffDigest,
           },
           findings: [{ sourceFixEligible: false, nextAction: "stop_fail_closed", classification: "unsafe_or_ambiguous" }],
         },
@@ -340,7 +344,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       runnerRunId: recovery.run.runId, supervisorRunId: recovery.run.supervisorRunId,
       claimIdentity: "owner/repo#959", chargeId: charge.chargeId, branch: recovery.branch.name,
       baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha,
-      treeSha, changedFilesDigest: filesDigest,
+      treeSha, changedFilesDigest: filesDigest, diffDigest,
       reportName: "settleora-codex-report-20260724T075849-issue-959-fixture.md",
       promptName: "20260724T075849-issue-959-fixture.md",
       acceptedLogicalTasks: 1, localSourceChangingRounds: 1,
@@ -350,6 +354,13 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       () => normalizePreservedRecoveryDeploymentTarget({ ...target, branch: `${target.branch}^{}` }),
       /literal Git branch name/,
       "revision expressions cannot be used as preserved branch authority",
+    );
+    assert.throws(
+      () => normalizePreservedRecoveryDeploymentTarget(Object.fromEntries(
+        Object.entries(target).filter(([key]) => key !== "diffDigest"),
+      )),
+      /missing.*extra authority/,
+      "the persisted raw diff identity is mandatory operator authority",
     );
     let priorCommitIntent = preparePreEffectIntent(config, {
       repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
@@ -395,6 +406,13 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(inspectDeploymentQuiescence(config.logsRoot).unresolvedExternalEffects, true);
     const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot });
     assert.equal(admitted.preservedRecoveryAdmitted, true, JSON.stringify(admitted));
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, {
+        ...target, diffDigest: "0".repeat(64),
+      }, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted,
+      false,
+      "a wrong operator diff digest must not identify the preserved recovery",
+    );
     assert.equal(admitted.unresolvedExternalEffects, false);
     assert.equal(admitted.revalidationRequired, true);
     assert.deepEqual(readdirSync(config.logsRoot, { recursive: true }).sort(), before);

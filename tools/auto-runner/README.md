@@ -96,7 +96,9 @@ intent by default. One preserved validation-recovery checkpoint may be
 admitted only when the operator supplies the complete fixed
 `--preserved-recovery-*` option set: repository, issue, full task key,
 runner/supervisor IDs, claim, charge ID, branch, base/head/tree, changed-file
-digest, report/prompt basenames, and all four logical-task counters. Partial,
+digest, bounded raw-diff digest, report/prompt basenames, and all four
+logical-task counters. The raw-diff digest must match both persisted candidate
+identities and the trusted base-to-head Git diff. Partial,
 duplicate, unknown, contradictory, or extra options are rejected. The
 read-only verifier requires one canonical recovery after the existing
 provisional/full-key suppression rule, exact charge/lifecycle/candidate/commit
