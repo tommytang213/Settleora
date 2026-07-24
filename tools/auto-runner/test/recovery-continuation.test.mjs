@@ -1048,9 +1048,12 @@ test("failed resumed validation is re-terminalized instead of retried on every s
         outcome: "blocked_recovery_state",
         reasonCode: "checkpoint_validation_not_source_fix_safe",
         state: {
-          phase: "local_validation",
-          sourceFailureBatch: {
-            findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+          ...state,
+          ordinaryContinuation: {
+            phase: "local_validation",
+            sourceFailureBatch: {
+              findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+            },
           },
         },
       }),

@@ -462,9 +462,12 @@ function isValidationFailureRetryAuthorized(state) {
 }
 
 function isRepeatedUnsafeValidationResult(result) {
-  const findings = result?.state?.sourceFailureBatch?.findings;
+  const continuation = result?.ordinaryContinuation
+    || result?.state?.ordinaryContinuation
+    || result?.state;
+  const findings = continuation?.sourceFailureBatch?.findings;
   return result?.ok === false
-    && result?.state?.phase === "local_validation"
+    && continuation?.phase === "local_validation"
     && Array.isArray(findings)
     && findings.length > 0
     && findings.every((finding) => finding?.sourceFixEligible === false
