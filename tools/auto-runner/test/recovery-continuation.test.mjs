@@ -479,6 +479,8 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       ["LD_AUDIT", path.join(config.logsRoot, "hostile-audit.so")],
       ["LD_DEBUG_OUTPUT", path.join(config.logsRoot, "hostile-debug")],
       ["GIT_PAGER", path.join(config.logsRoot, "hostile-pager")],
+      ["SSH_ASKPASS", path.join(config.logsRoot, "hostile-askpass")],
+      ["SSH_ASKPASS_REQUIRE", "force"],
     ]) {
       assert.equal(
         inspectPreservedRecoveryForDeployment(config.logsRoot, target, {

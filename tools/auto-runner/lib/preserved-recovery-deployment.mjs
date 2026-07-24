@@ -525,7 +525,7 @@ function resumedGitEnvironmentIsTrusted(environment) {
       || (environment?.XDG_CONFIG_HOME != null && environment.XDG_CONFIG_HOME !== xdgHome)
       || resolvePathExecutable(environment?.PATH, "git") !== realpathSync(trustedDeploymentGitBinary)) return false;
   return !Object.keys(environment || {}).some((key) =>
-    key.startsWith("LD_") || key.startsWith("DYLD_")
+    key.startsWith("LD_") || key.startsWith("DYLD_") || key.startsWith("SSH_ASKPASS")
       || (key.startsWith("GIT_")
         && !(key === "GIT_PAGER" && environment[key] === "cat"
           && resolvePathExecutable(environment.PATH, "cat") === realpathSync("/usr/bin/cat"))));

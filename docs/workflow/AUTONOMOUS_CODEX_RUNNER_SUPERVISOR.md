@@ -484,7 +484,7 @@ shape documented in `tools/auto-runner/README.md`; admission requires canonical
 recovery/charge/lifecycle/commit/counter/report/prompt proof, terminal
 reconciled external effects, no live owner, matching persisted and recomputed
 bounded raw-diff identity, and an exact bounded Git authority shape for the
-later resumed runner. Ambient executable/redirection authority, untrusted Git
+later resumed runner. Ambient executable/redirection or SSH askpass authority, untrusted Git
 resolution, SSH-form remotes, executable repository hooks, default user/system
 attribute files, and unsupported
 repository, worktree, global, or system Git configuration fail closed. The

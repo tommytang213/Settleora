@@ -110,7 +110,7 @@ inherit, not only the sanitized deployment reads. Bare `git` must resolve to
 trusted `/usr/bin/git`, and the canonical origin must use HTTPS because SSH
 configuration can delegate to ambient executable helpers. Loader,
 repository-redirection, and other
-effect-bearing `GIT_*` environment variables are rejected. Repository and
+effect-bearing `GIT_*` and `SSH_ASKPASS*` environment variables are rejected. Repository and
 worktree config must contain no executable or transport override, recognized
 default hooks must not be executable, and global/system config must match the
 bounded installed GitHub credential-helper and inert standard Git-LFS shapes.
