@@ -100,15 +100,16 @@ spec's expected profile SHA-256 and refuses admission if the profile is
 replaced between supervisor verification and child startup.
 
 The reviewed supervisor unit source is a placeholder template, not an
-installable Settleora singleton. Future manual activation renders it from the
-verified runtime for one admitted `projectId`, `runtimeRoot`, and `logsRoot`,
-installs it as `<projectId>-auto-runner@.service`, and retains the
-rendered bytes for the controller's pre-start identity comparison. Settleora
-retains the legacy-compatible `settleora-auto-runner@.service` exception; an
-AppB profile selects `AppB-auto-runner@.service`. The rendered working directory and every
-controller-owned executable remain runtime-bound.
+installable singleton. Manual activation renders it for one admitted
+`projectId`, `runtimeRoot`, and `logsRoot`, installs it as
+`<projectId>-auto-runner@.service`, and retains the rendered bytes for
+pre-start identity comparison. #912 completed this process for Settleora using
+the legacy-compatible `settleora-auto-runner@.service` identity; a future AppB
+profile would select `AppB-auto-runner@.service`. The rendered working
+directory and every controller-owned executable remain runtime-bound.
 
-Future manual command shapes (not executed by issue #951):
+Manual operator command shapes (not executed by issue #951; the Settleora
+external posture was subsequently accepted by #912):
 
 ```bash
 node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
@@ -138,10 +139,11 @@ node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto
   --entry settleora-auto-runnerctl.mjs -- status --latest --json --config /workspace/auto-runner/config/settleora.json
 ```
 
-The non-dry-run deploy and all start/profile commands require the separate
-manual #912 activation. Rollback is a stopped-process atomic exchange of the
-retained sibling `.runtime.rollback` after verifying its manifest and expected
-digest; no automatic rollback or restart authority is granted.
+Non-dry deploy and start/profile commands require an accepted project-specific
+manual activation. Settleora has that #912 acceptance; future projects do not
+inherit it. Rollback is a stopped-process atomic exchange of the retained
+sibling `.runtime.rollback` after verifying its manifest and expected digest;
+no automatic rollback or restart authority is granted.
 
 ## Final ephemeral cleanup
 
@@ -390,8 +392,8 @@ reporting an active source run and repeated controller passes become stable
 terminal no-ops. A profile config digest mismatch blocks child planning before
 any submission. Head/base/PR drift invalidates old exact-head evidence instead
 of reusing it. Pause/stop and manual gates always win. The dry-run fixture path
-reports intended child specs and mutation-call counters only; production
-activation remains a separate manual #912 task.
+reports intended child specs and mutation-call counters only. #912 completed
+the separate Settleora activation; other project activations remain manual.
 
 Preflight diagnostics:
 
@@ -1244,11 +1246,11 @@ named checks block. `pubspec.yaml`, `pubspec.lock`, tracked assets, and
 localizations are cross-platform build/dependency inputs and receive this
 native/build posture rather than Dart-only proof. This lane does not activate
 #912 external production profiles and does not claim Day 1 product completion.
-Auto-merge, stale-claim stealing, follow-up issue creation, review-fix
-mutation, trusted overnight real-run operation, and systemd enablement remain
-disabled/gated. Review-fix mutation is built as a default-off low-risk
-foundation only; built-in config keeps `allowReviewFixMutation: false` and
-`maxReviewFixCycles: 0`.
+Built-in/default profiles keep auto-merge, stale-claim stealing, follow-up
+creation, review-fix mutation, trusted real runs, and systemd enablement
+disabled/gated. The accepted external Settleora profile selectively enables
+only its documented bounded capabilities. Review-fix mutation remains
+default-off outside that explicit profile.
 
 Normal real-run is refused by default. A plain `--run` requires
 `trustedRealRunApproved: true` in config and still refuses unsafe mutation

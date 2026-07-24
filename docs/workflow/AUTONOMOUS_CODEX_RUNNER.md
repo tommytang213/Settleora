@@ -19,6 +19,11 @@ runtime with separate processes and state. Legacy
 `/workspace/logs/auto-runner/Settleora` was the manual #912 decision and is now
 the accepted Settleora project namespace.
 
+Paths under `/workspace/logs/settleora-auto-runner` in older examples below
+describe the retained historical/development layout only. Live Settleora
+status, control, readiness, review, and summary operations use
+`/workspace/logs/auto-runner/Settleora` through the accepted external profile.
+
 ## Positively owned post-merge cleanup
 
 Issue #947 adds `ephemeral_cleanup_v1` as the final ordinary-continuation

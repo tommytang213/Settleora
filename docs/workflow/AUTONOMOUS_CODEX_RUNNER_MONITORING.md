@@ -9,6 +9,10 @@ from `runtimeRoot` and project evidence from `logsRoot`; colliding run/task IDs
 from another project are not adoption authority. Shared runtime files are
 read-only inputs and do not create a cross-project mutation lock.
 
+References below to `/workspace/logs/settleora-auto-runner` are retained
+historical/development examples. Accepted live Settleora monitoring reads
+`/workspace/logs/auto-runner/Settleora`.
+
 ## Status
 
 This document is the authoritative Settleora auto-runner monitoring design.

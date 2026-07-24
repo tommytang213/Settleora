@@ -32,6 +32,10 @@ DevBox deployment posture. Repository changes alone do not install or enable
 services; the separate authorized #912 activation installed the project units,
 confirmed lingering, and admitted the reviewed external profiles.
 
+Older path examples under `/workspace/logs/settleora-auto-runner` describe the
+historical/development layout only. The accepted Settleora supervisor reads
+and writes `/workspace/logs/auto-runner/Settleora`.
+
 ## Operator Surface
 
 Default submission is intentionally bounded:
@@ -136,10 +140,10 @@ The repository template is:
 tools/auto-runner/systemd/settleora-auto-runner@.service
 ```
 
-It is a reviewed placeholder template. A later manual activation must render
+It is a reviewed placeholder template. Each manual project activation renders
 the exact admitted `projectId`, canonical external `runtimeRoot`, canonical
-`logsRoot`, and sibling launcher path, then install it under the matching
-project-specific template identity. For Settleora that identity remains:
+`logsRoot`, and sibling launcher path, then installs it under the matching
+project-specific identity. #912 completed this for Settleora using:
 
 ```text
 ~/.config/systemd/user/settleora-auto-runner@.service
