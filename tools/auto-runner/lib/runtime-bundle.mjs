@@ -563,6 +563,9 @@ export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget 
       }
     }
   }
+  if (hasUnresolvedOperationalRecords(logsRoot, "pre-effect-intents")) {
+    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
+  }
   if (preservedRecoveryTarget) {
     return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget, { repositoryRoot });
   }
@@ -570,20 +573,23 @@ export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget 
   if (recoverableStates.length > 0) {
     return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "recoverable_operational_state" });
   }
-  for (const name of ["pre-effect-intents", "recovery"]) {
-    const root = path.join(logsRoot, name);
-    if (!existsSync(root)) continue;
-    for (const file of regularJsonFiles(root, 4)) {
-      const record = JSON.parse(readFileSync(file, "utf8"));
-      const terminalStatuses = new Set(["completed", "finalized", "failed_closed", "recovered", "exhausted", "blocked"]);
-      const terminalPhases = new Set(["completed", "cleanup_complete", "stopped"]);
-      const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
-      if (!terminal) {
-        return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
-      }
-    }
+  if (hasUnresolvedOperationalRecords(logsRoot, "recovery")) {
+    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
   }
   return quiescenceEvidence({ active: false, unresolvedExternalEffects: false, reasonCode: "default_quiescent" });
+}
+
+function hasUnresolvedOperationalRecords(logsRoot, name) {
+  const root = path.join(logsRoot, name);
+  if (!existsSync(root)) return false;
+  for (const file of regularJsonFiles(root, 4)) {
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    const terminalStatuses = new Set(["completed", "finalized", "failed_closed", "recovered", "exhausted", "blocked"]);
+    const terminalPhases = new Set(["completed", "cleanup_complete", "stopped"]);
+    const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
+    if (!terminal) return true;
+  }
+  return false;
 }
 
 function quiescenceEvidence({ active, unresolvedExternalEffects, reasonCode }) {

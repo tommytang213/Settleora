@@ -394,6 +394,8 @@ function isGitTransportAuthorityKey(key) {
     || normalized === "core.sshcommand"
     || normalized === "core.gitproxy"
     || normalized === "core.askpass"
+    || normalized === "core.hookspath"
+    || normalized === "core.fsmonitor"
     || normalized === "ssh.variant"
     || normalized.startsWith("http.")
     || normalized.startsWith("https.")

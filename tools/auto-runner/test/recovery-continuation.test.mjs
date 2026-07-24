@@ -382,6 +382,16 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       preservedRecoveryTarget: target,
       repositoryRoot: config.repoRoot,
     }).preservedRecoveryAdmitted, true);
+    mkdirSync(path.join(config.logsRoot, "pre-effect-intents"));
+    const legacyPendingIntent = path.join(config.logsRoot, "pre-effect-intents", "legacy-pending.json");
+    writeFileSync(legacyPendingIntent, `${JSON.stringify({ status: "prepared" })}\n`, { mode: 0o600 });
+    const legacyBlocked = inspectDeploymentQuiescence(config.logsRoot, {
+      preservedRecoveryTarget: target,
+      repositoryRoot: config.repoRoot,
+    });
+    assert.equal(legacyBlocked.unresolvedExternalEffects, true);
+    assert.equal(legacyBlocked.reasonCode, "unresolved_operational_state");
+    unlinkSync(legacyPendingIntent);
     git(config.repoRoot, ["replace", target.headSha, intermediateHead]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted,
@@ -477,6 +487,20 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "worktree-scoped credential authority must not execute during later GitHub effects",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "credential.helper"]);
+    git(config.repoRoot, ["config", "--local", "core.hooksPath", path.join(hostileHome, "hooks")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "local hook authority must not execute during later Git effects",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "core.hooksPath"]);
+    git(config.repoRoot, ["config", "--worktree", "core.fsmonitor", path.join(hostileHome, "hostile-fsmonitor")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped fsmonitor authority must not execute during later Git reads",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "core.fsmonitor"]);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
