@@ -42,6 +42,7 @@ const allowedSystemGitConfig = new Map([
   ["filter.lfs.required", ["true"]],
 ]);
 export const trustedDeploymentGitBinary = "/usr/bin/git";
+export const trustedDeploymentSshBinary = "/usr/bin/ssh";
 
 export const preservedRecoveryTargetFields = Object.freeze([
   "repository", "issueNumber", "taskKey", "runnerRunId", "supervisorRunId", "claimIdentity",
@@ -480,14 +481,35 @@ function validateResumedGitAuthority(root, target, environment, readGit) {
   const systemRecords = gitConfigRecords(root, "system", configEnvironment);
   return resumedGitConfigIsTrusted(globalRecords, systemRecords, {
     repositoryDefinesFilter: systemRecords.length > 0 && repositoryDefinesFilterAttributes(root, target, readGit),
+    defaultAttributesPresent: systemRecords.length > 0 && !defaultGitAttributeFilesAreAbsent(),
   });
 }
 
-export function resumedGitConfigIsTrusted(globalRecords, systemRecords, { repositoryDefinesFilter = false } = {}) {
+export function resumedGitConfigIsTrusted(globalRecords, systemRecords, {
+  repositoryDefinesFilter = false,
+  defaultAttributesPresent = false,
+} = {}) {
   if (!boundedConfigRecords(globalRecords) || !boundedConfigRecords(systemRecords)) return false;
   return exactAllowedConfig(globalRecords, allowedGlobalGitConfig)
     && exactAllowedConfig(systemRecords, allowedSystemGitConfig)
-    && !(systemRecords.length && repositoryDefinesFilter);
+    && !(systemRecords.length && (repositoryDefinesFilter || defaultAttributesPresent));
+}
+
+export function defaultGitAttributeFilesAreAbsent(
+  paths = defaultGitAttributePaths(),
+  artifactExists = existsSync,
+) {
+  return paths.length === 4 && paths.every((file) => !artifactExists(file));
+}
+
+function defaultGitAttributePaths() {
+  const home = userInfo().homedir;
+  return [
+    path.join(home, ".config", "git", "attributes"),
+    path.join(home, ".gitattributes"),
+    "/etc/gitattributes",
+    "/usr/etc/gitattributes",
+  ];
 }
 
 function boundedConfigRecords(records) {
@@ -502,7 +524,8 @@ function resumedGitEnvironmentIsTrusted(environment) {
   const xdgHome = path.join(home, ".config");
   if (environment?.HOME !== home
       || (environment?.XDG_CONFIG_HOME != null && environment.XDG_CONFIG_HOME !== xdgHome)
-      || resolvePathExecutable(environment?.PATH, "git") !== realpathSync(trustedDeploymentGitBinary)) return false;
+      || resolvePathExecutable(environment?.PATH, "git") !== realpathSync(trustedDeploymentGitBinary)
+      || resolvePathExecutable(environment?.PATH, "ssh") !== realpathSync(trustedDeploymentSshBinary)) return false;
   return !Object.keys(environment || {}).some((key) =>
     key.startsWith("LD_") || key.startsWith("DYLD_")
       || (key.startsWith("GIT_")

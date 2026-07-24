@@ -9,6 +9,7 @@ import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSe
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import {
+  defaultGitAttributeFilesAreAbsent,
   inspectPreservedRecoveryForDeployment,
   normalizePreservedRecoveryDeploymentTarget,
   resumedGitConfigIsTrusted,
@@ -73,7 +74,10 @@ test("deployment Git environment disables lazy object fetching and ignores ambie
     systemLfs,
   ), false);
   assert.equal(resumedGitConfigIsTrusted(githubCredential, systemLfs, { repositoryDefinesFilter: true }), false);
+  assert.equal(resumedGitConfigIsTrusted(githubCredential, systemLfs, { defaultAttributesPresent: true }), false);
   assert.equal(resumedGitConfigIsTrusted([["core.hookspath", "/tmp/hooks"]], []), false);
+  assert.equal(defaultGitAttributeFilesAreAbsent(["a", "b", "c", "d"], () => false), true);
+  assert.equal(defaultGitAttributeFilesAreAbsent(["a", "b", "c", "d"], (file) => file === "c"), false);
 });
 
 test("one trusted recovery reconstructs a genuinely missing lifecycle exactly once", () => {
@@ -510,6 +514,18 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "an earlier symlinked pager executable must not be skipped during PATH validation",
+    );
+    unlinkSync(path.join(hostilePath, "git"));
+    symlinkSync("/usr/bin/git", path.join(hostilePath, "git"));
+    writeFileSync(path.join(hostilePath, "hostile-ssh"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    symlinkSync(path.join(hostilePath, "hostile-ssh"), path.join(hostilePath, "ssh"));
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        gitEnvironment: { ...process.env, PATH: `${hostilePath}:${process.env.PATH}` },
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an earlier SSH transport helper must not control resumed Git effects",
     );
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:foreign/repo.git"]);
     const hostileHome = path.join(config.logsRoot, "hostile-home");
