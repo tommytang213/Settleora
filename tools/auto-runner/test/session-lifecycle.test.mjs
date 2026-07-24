@@ -157,10 +157,11 @@ test("repeated rotations preserve task, charge, counters, reservations, and evid
 test("checkpoint persistence and identity validation are durable", () => {
   const root = mkdtempSync(path.join(tmpdir(), "session-lifecycle-"));
   const config = { logsRoot: root, repositorySlug: "owner/repo" };
-  const written = persistSessionLifecycleState(config, fixture());
+  const written = persistSessionLifecycleState(config, fixture({ supervisorRunId: "supervised-1" }));
   assert.equal(written.ok, true);
   assert.equal(loadSessionLifecycleState(config, { repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1", claimIdentity: "claim-1" }).ok, true);
   assert.equal(loadSessionLifecycleState(config, { repository: "owner/repo", issueNumber: 929, taskKey: "wrong", runId: "run-1", claimIdentity: "claim-1" }).ok, false);
+  assert.equal(loadSessionLifecycleState(config, { repository: "owner/repo", issueNumber: 929, taskKey: "20260720-2110", runId: "run-1", claimIdentity: "claim-1", supervisorRunId: null }).reasonCode, "session_lifecycle_supervisorRunId_mismatch");
   const persisted = JSON.parse(readFileSync(written.statePath, "utf8"));
   assert.equal(Object.hasOwn(persisted, "prompt"), false);
   assert.equal(Object.hasOwn(persisted, "rawProviderPayload"), false);

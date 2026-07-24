@@ -1017,6 +1017,47 @@ test("non-source validation failure resumes validation without implementation re
   }
 });
 
+test("failed resumed validation is re-terminalized instead of retried on every startup", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+        },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ state }) => ({
+        ok: false,
+        outcome: "blocked_recovery_state",
+        reasonCode: "checkpoint_validation_not_source_fix_safe",
+        state,
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.result.state.phase, "stopped");
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("interruption at major phase resumes first incomplete phase", () => {
   for (const phase of ["external_review", "ci_wait", "merge", "issue_parent_ledger_hygiene"]) {
     const resumed = firstIncompleteContinuationAction(

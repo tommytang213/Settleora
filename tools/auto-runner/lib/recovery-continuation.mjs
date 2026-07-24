@@ -199,6 +199,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
+  const validationRetryTerminal = isValidationFailureRetryAuthorized(loaded.state) ? loaded.state : null;
   let state = normalizeValidationFailureContinuation(loaded.state);
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, recovery.interruption || {});
   if (!lifecycleRecovery.ok) {
@@ -272,6 +273,21 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   const result = await handler({ state, boundary, loaded });
+  if (validationRetryTerminal && result?.ok === false) {
+    const current = loadRecoveryState(config, recovery.state);
+    const terminal = {
+      ...(current.ok ? current.state : state),
+      phase: "stopped",
+      firstIncompleteAction: validationRetryTerminal.firstIncompleteAction,
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: result?.reasonCode || validationRetryTerminal.stopReason?.reason || "Recovered validation remained unsafe or unclassified.",
+      },
+    };
+    writeRecoveryState(config, terminal);
+    result.state = terminal;
+  }
   return {
     ok: result?.ok !== false,
     outcome: result?.outcome || "recovery_continuation_executed",
@@ -313,8 +329,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   if (!loaded.ok) return loaded;
   const taskIntents = findPreEffectIntents(config, (intent) => intent.repository === loaded.state.repository
     && intent.sourceTaskKey === loaded.state.logicalTask.taskKey
-    && intent.runId === loaded.state.logicalTask.runId
-    && intent.claimIdentity === loaded.state.logicalTask.claimIdentity);
+    && intent.runId === loaded.state.logicalTask.runId);
   if (taskIntents.some((intent) => !intentMatchesRecoveryAuthority(intent, {
     issueNumber: loaded.state.logicalTask.issueNumber,
     claimIdentity: loaded.state.logicalTask.claimIdentity,
@@ -402,17 +417,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
 }
 
 function normalizeValidationFailureContinuation(state) {
-  const findings = state?.ordinaryContinuation?.sourceFailureBatch?.findings;
-  if (state?.phase !== "stopped" || state?.evidence?.localValidation?.status !== "failed"
-    || !Array.isArray(findings) || findings.length === 0
-    || state.branch?.currentHeadSha !== state.ordinaryContinuation?.identity?.headSha) return state;
-  const validationRetryAuthorized = state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
-    && state.firstIncompleteAction === "run_validation_and_commit"
-    && state.nextSafeAction === "stop_fail_closed"
-    && findings.every((finding) => finding?.sourceFixEligible === false
-      && finding?.nextAction === "stop_fail_closed"
-      && finding?.classification === "unsafe_or_ambiguous");
-  if (!validationRetryAuthorized) return state;
+  if (!isValidationFailureRetryAuthorized(state)) return state;
   // This legacy stop shape is not authority to change source. It re-enters only
   // the validation checkpoint so the preserved candidate can be classified
   // under the now-available production toolchain; implementation stays skipped.
@@ -422,6 +427,21 @@ function normalizeValidationFailureContinuation(state) {
     firstIncompleteAction: nextAction,
     nextSafeAction: nextAction,
   });
+}
+
+function isValidationFailureRetryAuthorized(state) {
+  const findings = state?.ordinaryContinuation?.sourceFailureBatch?.findings;
+  return state?.phase === "stopped"
+    && state?.evidence?.localValidation?.status === "failed"
+    && Array.isArray(findings)
+    && findings.length > 0
+    && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
+    && state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+    && state.firstIncompleteAction === "run_validation_and_commit"
+    && state.nextSafeAction === "stop_fail_closed"
+    && findings.every((finding) => finding?.sourceFixEligible === false
+      && finding?.nextAction === "stop_fail_closed"
+      && finding?.classification === "unsafe_or_ambiguous");
 }
 
 export function reconstructMissingSessionLifecycle(config, recoveryState, identity) {
@@ -481,8 +501,7 @@ export function reconstructMissingSessionLifecycle(config, recoveryState, identi
   try {
     intents = findPreEffectIntents(config, (intent) => intent.repository === config.repositorySlug
       && intent.sourceTaskKey === identity.taskKey
-      && intent.runId === identity.runId
-      && intent.claimIdentity === claimIdentity);
+      && intent.runId === identity.runId);
   } catch {
     return { ok: false, reasonCode: "session_lifecycle_migration_intent_state_untrusted" };
   }
