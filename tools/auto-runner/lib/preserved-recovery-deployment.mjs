@@ -35,6 +35,8 @@ export function sanitizedDeploymentGitEnvironment(environment = process.env) {
   return {
     ...Object.fromEntries(Object.entries(environment).filter(([key]) => !key.toUpperCase().startsWith("GIT_"))),
     GIT_OPTIONAL_LOCKS: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
   };
 }
 
@@ -87,7 +89,11 @@ export function normalizePreservedRecoveryDeploymentTarget(input) {
   return Object.freeze(target);
 }
 
-export function inspectPreservedRecoveryForDeployment(logsRoot, input, { processActive = defaultProcessActive, repositoryRoot = null } = {}) {
+export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
+  processActive = defaultProcessActive,
+  repositoryRoot = null,
+  gitEnvironment = process.env,
+} = {}) {
   let target;
   try {
     target = normalizePreservedRecoveryDeploymentTarget(input);
@@ -109,7 +115,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, { process
     if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
     const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath);
     if (!lifecycleProof.ok) return denied(lifecycleProof.reasonCode, target);
-    const intentProof = validateIntents(config, state, target, chargeProof.statePath, repositoryRoot);
+    const intentProof = validateIntents(config, state, target, chargeProof.statePath, repositoryRoot, gitEnvironment);
     if (!intentProof.ok) return denied(intentProof.reasonCode, target);
     if (operationalOwnerIsLive(config.logsRoot, target, processActive)) return denied("preserved_recovery_live_owner", target);
     return evidence({
@@ -221,7 +227,7 @@ function validateLifecycle(config, state, target, chargeMarkerRef) {
   return { ok: true };
 }
 
-function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot) {
+function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot, gitEnvironment) {
   const intentRoot = path.join(config.logsRoot, "recovery", "pre-effect-intents");
   const intents = existsSync(intentRoot) ? findPreEffectIntents(config) : [];
   const commitIntents = [];
@@ -250,41 +256,42 @@ function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot)
     }
     if (intent.effectType === "commit") commitIntents.push(intent);
   }
-  return validateCommitLineage(repositoryRoot, target, commitIntents, state.ordinaryContinuation.identity.changedFiles);
+  return validateCommitLineage(repositoryRoot, target, commitIntents, state.ordinaryContinuation.identity.changedFiles, gitEnvironment);
 }
 
-function validateCommitLineage(repositoryRoot, target, intents, expectedChangedFiles) {
+function validateCommitLineage(repositoryRoot, target, intents, expectedChangedFiles, gitEnvironment) {
   if (!repositoryRoot || intents.some((intent) => intent.status !== "finalized")) {
     return { ok: false, reasonCode: "preserved_recovery_commit_proof_missing" };
   }
   const root = path.resolve(repositoryRoot);
+  const readGit = (args) => git(root, args, gitEnvironment);
   const info = lstatSync(root);
   if (!info.isDirectory() || info.isSymbolicLink() || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
     return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
   }
-  if (path.resolve(git(root, ["rev-parse", "--show-toplevel"])) !== realpathSync(root)) {
+  if (path.resolve(readGit(["rev-parse", "--show-toplevel"])) !== realpathSync(root)) {
     return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
   }
   const expectedRepository = target.repository.toLowerCase();
-  const fetchRepository = canonicalGitHubRepository(git(root, ["remote", "get-url", "origin"]));
-  const pushUrls = git(root, ["remote", "get-url", "--push", "--all", "origin"]).split("\n").filter(Boolean);
+  const fetchRepository = canonicalGitHubRepository(readGit(["remote", "get-url", "origin"]));
+  const pushUrls = readGit(["remote", "get-url", "--push", "--all", "origin"]).split("\n").filter(Boolean);
   if (fetchRepository !== expectedRepository || pushUrls.length !== 1
       || canonicalGitHubRepository(pushUrls[0]) !== expectedRepository) {
     return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
   }
   let branchHead;
   try {
-    if (git(root, ["check-ref-format", "--branch", target.branch]) !== target.branch) {
+    if (readGit(["check-ref-format", "--branch", target.branch]) !== target.branch) {
       return { ok: false, reasonCode: "preserved_recovery_branch_ref_mismatch" };
     }
-    branchHead = git(root, ["show-ref", "--verify", "--hash", `refs/heads/${target.branch}`]);
+    branchHead = readGit(["show-ref", "--verify", "--hash", `refs/heads/${target.branch}`]);
   } catch {
     return { ok: false, reasonCode: "preserved_recovery_branch_ref_mismatch" };
   }
   if (branchHead !== target.headSha) {
     return { ok: false, reasonCode: "preserved_recovery_branch_ref_mismatch" };
   }
-  const lineage = git(root, ["rev-list", "--reverse", "--parents", `${target.baseSha}..${target.headSha}`])
+  const lineage = readGit(["rev-list", "--reverse", "--parents", `${target.baseSha}..${target.headSha}`])
     .split("\n").filter(Boolean).map((line) => line.split(" "));
   if (!lineage.length || lineage.length > 100 || lineage.some((entry) => entry.length !== 2)
       || lineage[0][1] !== target.baseSha || lineage.at(-1)[0] !== target.headSha
@@ -294,9 +301,9 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   }
   const unmatched = new Set(intents);
   for (const [commitSha, parentSha] of lineage) {
-    const treeSha = git(root, ["rev-parse", `${commitSha}^{tree}`]);
-    const messageDigest = createHash("sha256").update(git(root, ["show", "-s", "--format=%B", commitSha])).digest("hex");
-    const changedFiles = git(root, ["diff-tree", "--no-commit-id", "--name-only", "-r", parentSha, commitSha])
+    const treeSha = readGit(["rev-parse", `${commitSha}^{tree}`]);
+    const messageDigest = createHash("sha256").update(readGit(["show", "-s", "--format=%B", commitSha])).digest("hex");
+    const changedFiles = readGit(["diff-tree", "--no-commit-id", "--name-only", "-r", parentSha, commitSha])
       .split("\n").filter(Boolean).sort();
     const matches = [...unmatched].filter((intent) => intent.identity.candidateIdentity === parentSha
       && canonical(intent.effect.expectedParents) === canonical([parentSha])
@@ -306,19 +313,19 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
     if (matches.length !== 1) return { ok: false, reasonCode: "preserved_recovery_commit_lineage_mismatch" };
     unmatched.delete(matches[0]);
   }
-  const cumulativeFiles = git(root, ["diff", "--name-only", target.baseSha, target.headSha]).split("\n").filter(Boolean).sort();
-  if (unmatched.size || git(root, ["rev-parse", `${target.headSha}^{tree}`]) !== target.treeSha
+  const cumulativeFiles = readGit(["diff", "--name-only", target.baseSha, target.headSha]).split("\n").filter(Boolean).sort();
+  if (unmatched.size || readGit(["rev-parse", `${target.headSha}^{tree}`]) !== target.treeSha
       || canonical(cumulativeFiles) !== canonical([...expectedChangedFiles].sort())) {
     return { ok: false, reasonCode: "preserved_recovery_commit_lineage_mismatch" };
   }
   return { ok: true };
 }
 
-function git(root, args) {
+function git(root, args, environment = process.env) {
   const result = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "-c", "core.fsmonitor=false", ...args], {
     cwd: root,
     encoding: "utf8",
-    env: sanitizedDeploymentGitEnvironment(),
+    env: sanitizedDeploymentGitEnvironment(environment),
     maxBuffer: 1024 * 1024,
   });
   if (result.status !== 0 || result.stderr) throw new Error("authoritative Git read unavailable");

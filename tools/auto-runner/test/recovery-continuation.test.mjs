@@ -381,10 +381,20 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       else process.env.GIT_DIR = previousGitDir;
     }
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:foreign/repo.git"]);
+    const hostileHome = path.join(config.logsRoot, "hostile-home");
+    const hostileXdg = path.join(config.logsRoot, "hostile-xdg");
+    mkdirSync(hostileHome);
+    mkdirSync(hostileXdg);
+    writeFileSync(path.join(hostileHome, ".gitconfig"), `[include]\n\tpath = ${path.join(hostileHome, "rewrite.config")}\n`);
+    writeFileSync(path.join(hostileHome, "rewrite.config"), "[url \"git@github.com:owner/repo.git\"]\n\tinsteadOf = git@github.com:foreign/repo.git\n");
+    const foreignReason = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+      repositoryRoot: config.repoRoot,
+      gitEnvironment: { ...process.env, HOME: hostileHome, XDG_CONFIG_HOME: hostileXdg },
+    }).reasonCode;
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      foreignReason,
       "preserved_recovery_repository_identity_mismatch",
-      "matching local objects cannot substitute a foreign repository checkout",
+      "hostile global/XDG config and includes cannot rewrite a foreign repository into authority",
     );
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
     git(config.repoRoot, ["branch", "-m", "moved-preserved-branch"]);
