@@ -120,3 +120,19 @@ touching product runtime behavior.
   storage/privacy, money/settlement/bill calculation, schema/migration,
   OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
   release change is intended by this canary entry.
+
+## 20260724-0946 runnable canary A
+
+- Source issue: `#982` - Runnable documentation evidence A.
+- Generated task key: `20260724T034402`.
+- Lane: `workflow-docs-tooling`.
+- Allowed path: `docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md`.
+- Validation profile: `docs-only`.
+- Merge policy: bounded low-risk canary auto-merge eligible after runner-owned
+  review, validation, PR creation, CI, and auto-merge gates.
+- Canary checkpoint: this is runnable canary A for issue `#912` live
+  acceptance.
+- Forbidden-scope confirmation: no product runtime, API, auth/session/security,
+  storage/privacy, money/settlement/bill calculation, schema/migration,
+  OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
+  release change is intended by this canary entry.
