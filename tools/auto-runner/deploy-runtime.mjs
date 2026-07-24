@@ -65,13 +65,19 @@ const quiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarg
 const runtimeConsumers = inspectRuntimeConsumers(destination);
 if (values.has("--rollback")) {
   deploymentLock = acquireRuntimeDeploymentLock(destination);
+  const lockedQuiescence = inspectDeploymentQuiescence(logsRoot);
+  const lockedRuntimeConsumers = inspectRuntimeConsumers(destination);
+  if (JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence)) throw new Error("runtime rollback quiescence proof changed after lock acquisition");
+  if (lockedRuntimeConsumers.length || JSON.stringify(lockedRuntimeConsumers) !== JSON.stringify(runtimeConsumers)) {
+    throw new Error("runtime rollback consumer proof changed after lock acquisition");
+  }
   const result = rollbackRuntimeBundle({
     destination,
     expectedCurrentDigest: values.get("--expected-old-digest"),
     expectedRollbackDigest: values.get("--expected-rollback-digest"),
-    active: quiescence.active,
-    pendingEffects: quiescence.pendingEffects,
-    runtimeConsumers,
+    active: lockedQuiescence.active,
+    pendingEffects: lockedQuiescence.pendingEffects,
+    runtimeConsumers: lockedRuntimeConsumers,
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   process.exitCode = 0;

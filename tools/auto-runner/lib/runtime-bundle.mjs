@@ -297,6 +297,12 @@ export function deployRuntimeBundle({
     reasonCode: pendingEffects ? "unresolved_operational_state" : "default_quiescent",
   };
   assertDeploymentQuiescence(initialQuiescence);
+  const verifyFinalQuiescence = () => {
+    if (!finalQuiescenceVerifier) return;
+    const finalQuiescence = finalQuiescenceVerifier();
+    assertSameQuiescenceProof(initialQuiescence, finalQuiescence);
+    assertDeploymentQuiescence(finalQuiescence);
+  };
   if (runtimeConsumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
   const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
   const destinationParent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
@@ -313,11 +319,13 @@ export function deployRuntimeBundle({
     const current = verifyRuntimeBundle(destination);
     currentManifest = current;
     if (current.bundleDigest === manifest.bundleDigest && !expectedOldDigest) {
+      verifyFinalQuiescence();
       writeRuntimeApproval(destination, current);
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback: null, manifest: current };
     }
     if (current.bundleDigest === manifest.bundleDigest && expectedOldDigest && existsSync(rollback)) {
       verifyRuntimeBundle(rollback, expectedOldDigest);
+      verifyFinalQuiescence();
       writeRuntimeApproval(destination, current);
       if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest: current };
@@ -326,6 +334,7 @@ export function deployRuntimeBundle({
   } else if (expectedOldDigest && existsSync(rollback) && existsSync(temporary)) {
     verifyRuntimeBundle(rollback, expectedOldDigest);
     verifyRuntimeBundle(temporary, manifest.bundleDigest);
+    verifyFinalQuiescence();
     renameSync(temporary, destination);
     writeRuntimeApproval(destination, manifest);
     if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
@@ -353,11 +362,7 @@ export function deployRuntimeBundle({
   if (buildRuntimeManifest(source, { sourceSha }).bundleDigest !== manifest.bundleDigest) {
     throw new Error("runtime source changed during deployment");
   }
-  if (finalQuiescenceVerifier) {
-    const finalQuiescence = finalQuiescenceVerifier();
-    assertSameQuiescenceProof(initialQuiescence, finalQuiescence);
-    assertDeploymentQuiescence(finalQuiescence);
-  }
+  verifyFinalQuiescence();
   const launcher = path.join(destinationParent, `.${path.basename(destination)}.launcher.mjs`);
   const stagedLauncher = path.join(temporary, "runtime-launcher.mjs");
   const incomingLauncher = path.join(destinationParent, `.${path.basename(destination)}.launcher.incoming`);

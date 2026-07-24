@@ -765,6 +765,17 @@ test("manual rollback exchanges only exact verified stopped bundles", () => {
       expectedOldDigest: first.manifest.bundleDigest,
     });
     renameSync(destination, path.join(parent, ".runtime.deploy-incoming"));
+    assert.throws(() => deployRuntimeBundle({
+      sourceRoot: changedSource,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha: "b".repeat(40),
+      expectedOldDigest: first.manifest.bundleDigest,
+      finalQuiescenceVerifier: () => { throw new Error("fixture quiescence drift"); },
+    }), /fixture quiescence drift/);
+    assert.equal(existsSync(destination), false);
+    assert.equal(existsSync(path.join(parent, ".runtime.deploy-incoming")), true);
     const adoptedDeploy = deployRuntimeBundle({
       sourceRoot: changedSource,
       destination,
