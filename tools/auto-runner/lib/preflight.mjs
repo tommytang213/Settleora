@@ -4,7 +4,12 @@ import { freemem } from "node:os";
 import path from "node:path";
 import { resolveCodexCommand } from "./codex-runner.mjs";
 import { getCurrentBranch, getRefSha, getStatusShort, runGit } from "./git-workspace.mjs";
-import { evaluateLowRiskAutoMergeCanaryApproval, evaluateReviewFixMutationApproval, evaluateTrustPolicy } from "./canary-policy.mjs";
+import {
+  evaluateLowRiskAutoMergeCanaryApproval,
+  evaluateProductionFollowupIssueApproval,
+  evaluateReviewFixMutationApproval,
+  evaluateTrustPolicy,
+} from "./canary-policy.mjs";
 import { evaluateReviewFixCanaryFixtureApproval } from "./review-fix-fixture.mjs";
 import { buildEligibleLabelSearches } from "./github-issues.mjs";
 import { safeTimestamp } from "./logger.mjs";
@@ -56,8 +61,10 @@ export function runPreflight(config, options = {}) {
   checks.push(
     policyCheck(
       "follow-up-issue-creation-disabled",
-      !config.allowFollowupIssueCreation,
-      "allowFollowupIssueCreation is disabled.",
+      !config.allowFollowupIssueCreation || evaluateProductionFollowupIssueApproval(config).approved,
+      config.allowFollowupIssueCreation
+        ? `follow-up issue creation approval: ${evaluateProductionFollowupIssueApproval(config).reason}.`
+        : "allowFollowupIssueCreation is disabled.",
     ),
   );
   checks.push(
@@ -116,11 +123,19 @@ export function runPreflight(config, options = {}) {
 }
 
 function buildRemainingManualGates(config) {
-  const gates = [...alwaysManualGates];
+  const productionTrust = evaluateTrustPolicy({ ...config, dryRun: false, run: true, canary: false, mode: "run" });
+  const gates = alwaysManualGates.filter((gate) =>
+    gate !== "external production profile activation and live acceptance tracked by #912" ||
+    !productionTrust.allowed,
+  );
   if (!config.allowStaleClaimSteal) gates.push("stale-claim stealing is disabled by current config");
-  if (!config.allowFollowupIssueCreation) gates.push("follow-up issue creation is disabled by current config");
-  if (!config.allowReviewFixMutation || config.maxReviewFixCycles === 0) {
-    gates.push("review-fix mutation is disabled by current config");
+  const followupApproval = evaluateProductionFollowupIssueApproval(config);
+  if (!followupApproval.approved) {
+    gates.push(`follow-up issue creation is not approved: ${followupApproval.reason}`);
+  }
+  const reviewFixApproval = evaluateReviewFixMutationApproval(config);
+  if (!reviewFixApproval.approved) {
+    gates.push(`review-fix mutation is not approved: ${reviewFixApproval.reason}`);
   }
   if (!config.allowAutoMerge || !Array.isArray(config.autoMergePolicy?.approvedLanes) || config.autoMergePolicy.approvedLanes.length === 0) {
     gates.push("approved-domain auto-merge remains disabled until an external profile explicitly approves lanes and checks");
@@ -349,6 +364,7 @@ function checkConfig(config) {
   const missing = requiredArrays.filter((key) => !Array.isArray(config[key]) || config[key].length === 0);
   const autoMergeApproval = evaluateLowRiskAutoMergeCanaryApproval(config);
   const reviewFixApproval = evaluateReviewFixMutationApproval(config);
+  const productionTrust = evaluateTrustPolicy({ ...config, dryRun: false, run: true, canary: false, mode: "run" });
   const riskyEnabled = riskyGateKeys.filter((key) => Boolean(config[key]));
   if (config.allowAutoMerge && autoMergeApproval.approved) {
     const index = riskyEnabled.indexOf("allowAutoMerge");
@@ -357,6 +373,12 @@ function checkConfig(config) {
   if (config.allowReviewFixMutation && reviewFixApproval.approved) {
     const index = riskyEnabled.indexOf("allowReviewFixMutation");
     if (index >= 0) riskyEnabled.splice(index, 1);
+  }
+  if (config.configPath && config.trustedRealRunApproved && productionTrust.allowed) {
+    for (const key of ["allowAutoMerge", "allowFollowupIssueCreation"]) {
+      const index = riskyEnabled.indexOf(key);
+      if (index >= 0) riskyEnabled.splice(index, 1);
+    }
   }
   if (config.maxReviewFixCycles > 0 && !reviewFixApproval.approved && !riskyEnabled.includes("allowReviewFixMutation")) {
     riskyEnabled.push("maxReviewFixCycles");
@@ -415,11 +437,12 @@ function checkTrustedRealRunPolicy(config) {
   });
   return {
     name: "trusted-real-run-policy",
-    status: policy.allowed ? "fail" : "pass",
+    status: config.trustedRealRunApproved ? (policy.allowed ? "pass" : "fail") : (policy.allowed ? "fail" : "pass"),
     detail: bounded(
       JSON.stringify({
         trustedRealRunApproved: Boolean(config.trustedRealRunApproved),
         normalRunWouldRefuse: !policy.allowed,
+        explicitProductionApprovalExpected: Boolean(config.trustedRealRunApproved),
         reason: policy.reason,
         unsafeToggles: policy.unsafeToggles,
       }),

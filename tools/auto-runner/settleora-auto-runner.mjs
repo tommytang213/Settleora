@@ -504,7 +504,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   }
 
   const selection = selectDistinctEligibleIssue(config, polled.issues, issueTracker, (issueNumber) =>
-    readIssueLive(config, issueNumber),
+    readIssueLive(config, issueNumber), (_issue, laneDecision) =>
+    evaluateCanaryIssuePolicy(config, laneDecision),
   );
   iteration.candidateSelection = {
     events: selection.events,

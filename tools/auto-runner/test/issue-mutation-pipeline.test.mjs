@@ -41,7 +41,22 @@ function runnerWith(script = []) {
 }
 
 function mutationConfig(overrides = {}) {
-  return { run: true, allowFollowupIssueCreation: true, logsRoot: logsRoot(), repositorySlug: "tommytang213/Settleora", ...overrides };
+  return {
+    run: true,
+    configPath: "/workspace/auto-runner/config/test-production.json",
+    trustedRealRunApproved: true,
+    allowAutoMerge: true,
+    autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] },
+    allowFollowupIssueCreation: true,
+    maxFollowupIssuesPerRun: 3,
+    allowReviewFixMutation: true,
+    maxReviewFixCycles: 50,
+    allowStaleClaimSteal: false,
+    allowSystemdEnablement: false,
+    logsRoot: logsRoot(),
+    repositorySlug: "tommytang213/Settleora",
+    ...overrides,
+  };
 }
 
 function issueViewBody(number, repositorySlug = "tommytang213/Settleora", overrides = {}) {

@@ -1,5 +1,27 @@
 # Settleora Auto-Runner Tooling
 
+## Production capability and canary lane admission
+
+An owner-only external production profile may enable bounded follow-up issue
+creation and review-fix mutation together only when normal trusted operation,
+approved-domain auto-merge, an external config path, and the existing
+review-fix hard bound are explicit. Stale-claim stealing and systemd
+self-enablement remain incompatible with that production approval. Individual
+issue contracts, lane policy, exact-head review/validation/check gates, and
+follow-up deduplication still fail closed; enabling both capabilities does not
+let one issue expand another issue's allowed paths or authority.
+
+For a low-risk auto-merge canary, the active profile's
+`autoMergePolicy.approvedLanes` is also an admission boundary. A historical
+canary in another otherwise supported low-risk lane is rejected before
+implementation. This lets a task-scoped `workflow-docs-tooling` profile coexist
+with retained client-UI canary evidence without claiming or modifying it.
+
+Reviewer secret metadata accepts the retained legacy owner-only reviewer
+location and the fixed project namespace
+`/workspace/logs/auto-runner/Settleora/secrets`. Both remain strict regular,
+non-symlink, owner-only boundaries; arbitrary external secret roots are refused.
+
 ## External runtime and managed repository separation
 
 The controller now has five explicit identities: `runtimeRoot`, `repoRoot`,
