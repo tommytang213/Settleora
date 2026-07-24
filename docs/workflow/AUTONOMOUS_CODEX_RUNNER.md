@@ -16,7 +16,8 @@ roots, expected repository identity, and one mutation owner per canonical
 repository. Different canonical repositories may use the same read-only
 runtime with separate processes and state. Legacy
 `/workspace/logs/settleora-auto-runner` remains historical evidence; adopting
-`/workspace/logs/auto-runner/Settleora` is a later manual #912 decision.
+`/workspace/logs/auto-runner/Settleora` was the manual #912 decision and is now
+the accepted Settleora project namespace.
 
 ## Positively owned post-merge cleanup
 
@@ -281,7 +282,8 @@ defects, review/scanner findings, policy/manual/destructive gates,
 unsupported sources, unknown failures, or terminal application failures.
 Minimum outage age, backoff, jitter, max attempts, wall-clock deadline, and
 provider/global circuit breaker are explicit config values. Production
-activation remains separate/manual under #912.
+activation was separately accepted under #912; changing this policy remains a
+manual profile decision.
 - `pr-stacks/` and task-scoped live-stack directories store sanitized durable
   dependent-PR stack state. Stack execution is available only through the
   explicit `--run-pr-stack --config <absolute-path> --stack-plan

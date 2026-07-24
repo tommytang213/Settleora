@@ -27,10 +27,10 @@ raw CI/scanner payloads. Restart adopts persisted batch/fix effects by identity
 and must not duplicate fix invocations, commits, pushes, reviews, task charges,
 or hygiene effects.
 
-This document defines the repository-side foundation for running the existing
-Settleora auto-runner as a detached DevBox background job. It does not install
-or enable a service, enable user lingering, deploy monitoring, or approve any
-broader runner lane.
+This document defines the repository-side foundation and accepted Settleora
+DevBox deployment posture. Repository changes alone do not install or enable
+services; the separate authorized #912 activation installed the project units,
+confirmed lingering, and admitted the reviewed external profiles.
 
 ## Operator Surface
 
@@ -327,8 +327,9 @@ priority and defers terminalization until a later allowed pass.
 Rollback is disabling `outageResubmission.allowBoundedOutageResubmission` in
 the external profile. Existing sanitized state is preserved for operator
 inspection; no branch/history rewrite, state deletion, systemd change, or
-production deployment is required. #912 remains the separate manual activation
-and live-configuration acceptance gate.
+production deployment is required. #912 separately completed the initial
+manual activation and live-configuration acceptance; future authority changes
+remain manual.
 
 ## State And Heartbeat
 
@@ -377,8 +378,8 @@ stores `pause`, `extend`, or `stop-after-current` as `state`; it records only a
 bounded `lastControl` object with the command, request timestamp, accepted or
 failed status, extension deltas when present, and sanitized correlation IDs.
 Raw config paths, command lines, environment values, provider payloads, and
-secrets are not stored in this metadata. Live supervisor acceptance remains
-deferred until this control-state boundary is merged and reviewed.
+secrets are not stored in this metadata. The control-state boundary was merged
+and the live supervisor was accepted under #912.
 
 ## Monitoring Contract
 

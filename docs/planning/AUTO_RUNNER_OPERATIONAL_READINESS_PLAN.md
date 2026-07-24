@@ -2,10 +2,11 @@
 
 Issue #947 completed through PR #949. Its cleanup authority applies only to
 newly completed positively owned ephemeral state after exact
-merge/current-target/hygiene proof. It does not activate #912, perform
+merge/current-target/hygiene proof. PR #949 did not activate #912, perform
 historical cleanup, retire release lines, or broaden deferred #946.
 
-Status: implementation acceptance advanced; production profile not activated.
+Status: #912 live activation accepted; acceptance documentation and tracker
+hygiene remain in progress through PR #988.
 
 Issue #944 completed through PR #945. The merged implementation extends the
 #923/#924/#928/#929/#932 authorities with bounded recursive source-failure
@@ -309,21 +310,17 @@ paths are added.
 
 ## Current Remaining Sequence
 
-Issue #951 implements the repository-side external-runtime separation,
+Issue #951 implemented the repository-side external-runtime separation,
 deterministic bundle/deploy utility, absolute child resolution, explicit
-project identities, and same-repository ownership exclusion. It does not
-deploy the runtime, create the future Settleora profile, migrate legacy logs,
-or activate services. Those actions remain manual under #912.
+project identities, and same-repository ownership exclusion. It did not itself
+deploy the runtime or activate services; those manual actions subsequently
+completed under #912 without migrating the retained legacy logs.
 
 The original planning PR and the #913/#921 implementation acceptance chain are
-complete. Current live issues now own the remaining work:
-
-1. Activate the external production profile only through #912's separate
-   manual live-configuration acceptance after all required implementation and
-   non-production acceptance gates pass.
-2. Run live canaries only in a separate canary task; do not use #865/#866 unless
-   the task explicitly authorizes mutation and fingerprints are checked before
-   and after.
+complete. #912 subsequently deployed the external production/canary profiles,
+accepted the units and monitoring, completed two runnable task-scoped
+canaries, and preserved #865/#866 without mutation. PR #988 and exact
+post-merge tracker hygiene are the remaining acceptance steps.
 
 Tracking issues created by this planning task:
 
