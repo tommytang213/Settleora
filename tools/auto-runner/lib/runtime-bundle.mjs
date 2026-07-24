@@ -413,6 +413,10 @@ export function deployRuntimeBundle({
       !== createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex")) {
       throw new Error("stable runtime launcher does not match the approved bundle");
   }
+  // Launcher preparation is deliberately outside the runtime directory exchange.
+  // Re-read operational authority after that preparation so no unrelated work
+  // separates the final proof from the first rollback/runtime rename.
+  verifyFinalQuiescence();
   if (existsSync(rollback)) {
     if (existsSync(retiredRollback)) throw new Error("runtime rollback retirement state is contradictory");
     renameSync(rollback, retiredRollback);

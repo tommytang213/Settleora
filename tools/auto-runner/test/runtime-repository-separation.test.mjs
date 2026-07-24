@@ -772,6 +772,47 @@ test("runtime consumer discovery covers every project using the shared bundle", 
   }
 });
 
+test("quiescence drift after launcher preparation leaves installed and rollback runtimes unchanged", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-final-boundary-"));
+  try {
+    const repo = createRepo(root, "project");
+    const logs = path.join(root, "logs");
+    const parent = path.join(root, "install");
+    mkdirSync(logs);
+    mkdirSync(parent);
+    const destination = path.join(parent, "runtime");
+    const first = deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha });
+    const changedSource = path.join(root, "changed-source");
+    cpSync(sourceRoot, changedSource, { recursive: true });
+    writeFileSync(path.join(changedSource, "lib/runtime-identity.mjs"), `${readFileSync(path.join(changedSource, "lib/runtime-identity.mjs"), "utf8")}\n`);
+    const rollback = path.join(parent, ".runtime.rollback");
+    let inspections = 0;
+    assert.throws(() => deployRuntimeBundle({
+      sourceRoot: changedSource,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha: "b".repeat(40),
+      expectedOldDigest: first.manifest.bundleDigest,
+      finalQuiescenceVerifier: () => {
+        inspections += 1;
+        if (inspections === 2) throw new Error("fixture drift after launcher preparation");
+        return {
+          active: false,
+          unresolvedExternalEffects: false,
+          preservedRecoveryAdmitted: false,
+          reasonCode: "default_quiescent",
+        };
+      },
+    }), /fixture drift after launcher preparation/);
+    assert.equal(inspections, 2);
+    assert.equal(verifyRuntimeBundle(destination).bundleDigest, first.manifest.bundleDigest);
+    assert.equal(existsSync(rollback), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("manual rollback exchanges only exact verified stopped bundles", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-rollback-"));
   try {
