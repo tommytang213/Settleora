@@ -508,7 +508,7 @@ export function reconstructMissingSessionLifecycle(config, recoveryState, identi
     issueNumber: identity.issueNumber,
     taskKey: identity.taskKey,
     runId: identity.runId,
-    supervisorRunId: budgetScopeId,
+    supervisorRunId: recoverySupervisorRunId,
     claimIdentity,
     chargeMarkerRef: budget.statePath,
     sessionId: `${identity.runId}:recovery-bootstrap:1`,

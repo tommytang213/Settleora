@@ -97,6 +97,31 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
       baseSha: recovery.branch.baseSha,
       headSha: recovery.branch.currentHeadSha,
     };
+    const directConfig = tempConfig({ repositorySlug: "owner/repo", maxIterations: 1, sessionLifecycle: { enabled: true, allowRecoveryTakeover: true } });
+    try {
+      const directCharge = chargeAcceptedLogicalTask(directConfig, {
+        budgetScopeId: recovery.run.runId,
+        maxTasks: 1,
+        issue: recovery.issue,
+        taskLineageId: "issue-959",
+        claimIdentity: "owner/repo#959",
+        acceptedAt: "2026-07-24T07:58:49.248Z",
+      });
+      assert.equal(directCharge.chargeId, charged.chargeId);
+      const directRecovery = {
+        ...withEvidence,
+        run: { ...withEvidence.run, supervisorRunId: null },
+        expectedReportPaths: {
+          repoReportPath: path.join(directConfig.repoRoot, ".codex", "reports", "settleora-codex-report-20260724T075849-issue-959-recovery.md"),
+          promptPath: path.join(directConfig.logsRoot, "tasks", "20260724T075849-issue-959-recovery.md"),
+        },
+      };
+      const direct = reconstructMissingSessionLifecycle(directConfig, directRecovery, { ...identity, supervisorRunId: null });
+      assert.equal(direct.ok, true, JSON.stringify(direct));
+      assert.equal(direct.state.logicalTask.supervisorRunId, null);
+    } finally {
+      directConfig.cleanup();
+    }
     const first = reconstructMissingSessionLifecycle(config, withEvidence, identity);
     assert.equal(first.ok, true);
     assert.equal(first.migrated, true);
@@ -168,15 +193,6 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
     assert.equal(
       reconstructMissingSessionLifecycle(config, withEvidence, identity).reasonCode,
       "session_lifecycle_migration_intent_identity_mismatch",
-    );
-    const directIdentity = { ...identity, supervisorRunId: null };
-    const directRecovery = {
-      ...withEvidence,
-      run: { ...withEvidence.run, supervisorRunId: null },
-    };
-    assert.notEqual(
-      reconstructMissingSessionLifecycle(config, directRecovery, directIdentity).reasonCode,
-      "session_lifecycle_migration_supervisor_mismatch",
     );
     assert.equal(
       consumeStartupInterruptionPlanner(config, withEvidence).reasonCode,
