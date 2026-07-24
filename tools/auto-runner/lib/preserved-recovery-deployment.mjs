@@ -267,7 +267,7 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
 }
 
 function git(root, args) {
-  const result = spawnSync("git", ["-c", "core.fsmonitor=false", ...args], {
+  const result = spawnSync("git", ["--no-replace-objects", "-c", "core.fsmonitor=false", ...args], {
     cwd: root,
     encoding: "utf8",
     env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },

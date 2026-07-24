@@ -349,6 +349,12 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       preservedRecoveryTarget: target,
       repositoryRoot: config.repoRoot,
     }).preservedRecoveryAdmitted, true);
+    git(config.repoRoot, ["replace", target.headSha, intermediateHead]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted,
+      true,
+      "local replacement objects must not influence authoritative lineage",
+    );
     assert.equal(inspectPreservedRecoveryForDeployment(config.logsRoot, {
       ...target,
       headSha: intermediateHead,
