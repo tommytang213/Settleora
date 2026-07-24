@@ -263,7 +263,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["branch", "-m", "feature/auto-959-recovery"]);
     git(config.repoRoot, ["config", "user.email", "fixture@example.invalid"]);
     git(config.repoRoot, ["config", "user.name", "Fixture"]);
-    git(config.repoRoot, ["remote", "add", "origin", "git@github.com:owner/repo.git"]);
+    git(config.repoRoot, ["remote", "add", "origin", "https://github.com/owner/repo.git"]);
     writeFileSync(path.join(config.repoRoot, "README.md"), "base\n");
     git(config.repoRoot, ["add", "README.md"]);
     git(config.repoRoot, ["commit", "-m", "base"]);
@@ -410,6 +410,13 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(inspectDeploymentQuiescence(config.logsRoot).unresolvedExternalEffects, true);
     const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot });
     assert.equal(admitted.preservedRecoveryAdmitted, true, JSON.stringify(admitted));
+    git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "SSH remotes must not expose ambient SSH configuration or helper execution",
+    );
+    git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/owner/repo.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, {
         ...target, diffDigest: "0".repeat(64),
@@ -517,16 +524,6 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     );
     unlinkSync(path.join(hostilePath, "git"));
     symlinkSync("/usr/bin/git", path.join(hostilePath, "git"));
-    writeFileSync(path.join(hostilePath, "hostile-ssh"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
-    symlinkSync(path.join(hostilePath, "hostile-ssh"), path.join(hostilePath, "ssh"));
-    assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
-        repositoryRoot: config.repoRoot,
-        gitEnvironment: { ...process.env, PATH: `${hostilePath}:${process.env.PATH}` },
-      }).reasonCode,
-      "preserved_recovery_repository_identity_mismatch",
-      "an earlier SSH transport helper must not control resumed Git effects",
-    );
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:foreign/repo.git"]);
     const hostileHome = path.join(config.logsRoot, "hostile-home");
     const hostileXdg = path.join(config.logsRoot, "hostile-xdg");
@@ -545,7 +542,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "hostile global/XDG config and includes cannot rewrite a foreign repository into authority",
     );
     git(config.repoRoot, ["config", "--local", "--unset-all", "include.path"]);
-    git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
+    git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/owner/repo.git"]);
     git(config.repoRoot, ["config", "extensions.worktreeConfig", "true"]);
     git(config.repoRoot, ["config", "--worktree", "remote.origin.pushurl", "git@github.com:foreign/repo.git"]);
     assert.equal(
@@ -661,7 +658,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "multiple raw fetch URLs are ambiguous repository authority",
     );
     git(config.repoRoot, ["config", "--unset-all", "remote.origin.url"]);
-    git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/repo.git"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", "https://github.com/owner/repo.git"]);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", ""]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
@@ -669,7 +666,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "an empty additional fetch URL still counts as ambiguous authority",
     );
     git(config.repoRoot, ["config", "--unset-all", "remote.origin.url"]);
-    git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/repo.git"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", "https://github.com/owner/repo.git"]);
     git(config.repoRoot, ["branch", "-m", "moved-preserved-branch"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,

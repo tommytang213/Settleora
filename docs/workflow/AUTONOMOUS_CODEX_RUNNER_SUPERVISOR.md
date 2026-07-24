@@ -485,7 +485,7 @@ recovery/charge/lifecycle/commit/counter/report/prompt proof, terminal
 reconciled external effects, no live owner, matching persisted and recomputed
 bounded raw-diff identity, and an exact bounded Git authority shape for the
 later resumed runner. Ambient executable/redirection authority, untrusted Git
-or SSH-helper resolution, executable repository hooks, default user/system
+resolution, SSH-form remotes, executable repository hooks, default user/system
 attribute files, and unsupported
 repository, worktree, global, or system Git configuration fail closed. The
 proof is re-read under the deployment lock and immediately before exchange.

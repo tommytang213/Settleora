@@ -42,7 +42,6 @@ const allowedSystemGitConfig = new Map([
   ["filter.lfs.required", ["true"]],
 ]);
 export const trustedDeploymentGitBinary = "/usr/bin/git";
-export const trustedDeploymentSshBinary = "/usr/bin/ssh";
 
 export const preservedRecoveryTargetFields = Object.freeze([
   "repository", "issueNumber", "taskKey", "runnerRunId", "supervisorRunId", "claimIdentity",
@@ -524,8 +523,7 @@ function resumedGitEnvironmentIsTrusted(environment) {
   const xdgHome = path.join(home, ".config");
   if (environment?.HOME !== home
       || (environment?.XDG_CONFIG_HOME != null && environment.XDG_CONFIG_HOME !== xdgHome)
-      || resolvePathExecutable(environment?.PATH, "git") !== realpathSync(trustedDeploymentGitBinary)
-      || resolvePathExecutable(environment?.PATH, "ssh") !== realpathSync(trustedDeploymentSshBinary)) return false;
+      || resolvePathExecutable(environment?.PATH, "git") !== realpathSync(trustedDeploymentGitBinary)) return false;
   return !Object.keys(environment || {}).some((key) =>
     key.startsWith("LD_") || key.startsWith("DYLD_")
       || (key.startsWith("GIT_")
@@ -598,8 +596,8 @@ function repositoryDefinesFilterAttributes(root, target, readGit) {
 
 function canonicalGitHubRepository(remote) {
   const value = String(remote || "").trim().replace(/\/+$/u, "").replace(/\.git$/u, "");
-  const match = value.match(/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/u);
-  if (!match) throw new Error("authoritative Git remote is unsupported");
+  const match = value.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/u);
+  if (!match) return null;
   return match[1].toLowerCase();
 }
 

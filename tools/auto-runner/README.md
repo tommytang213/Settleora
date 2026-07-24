@@ -106,9 +106,10 @@ proof, terminal reconciled intents, and no live owner. Its output is sanitized
 structured evidence with a target-identity digest and reason code.
 
 Admission also proves the Git authority that the later resumed runner will
-inherit, not only the sanitized deployment reads. Bare `git` and its SSH
-transport helper must resolve to trusted `/usr/bin/git` and `/usr/bin/ssh`;
-loader, repository-redirection, and other
+inherit, not only the sanitized deployment reads. Bare `git` must resolve to
+trusted `/usr/bin/git`, and the canonical origin must use HTTPS because SSH
+configuration can delegate to ambient executable helpers. Loader,
+repository-redirection, and other
 effect-bearing `GIT_*` environment variables are rejected. Repository and
 worktree config must contain no executable or transport override, recognized
 default hooks must not be executable, and global/system config must match the
