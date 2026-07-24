@@ -1,5 +1,16 @@
 # Issue Progress Ledger
 
+### Current checkpoint — #912 production activation (2026-07-24)
+
+- #912 live activation is accepted: external runtime/profiles, project user
+  units, loopback health, notifier timer, two runnable canaries, skip fixtures,
+  rollback/refusal/restore, and the unexecuted 500-task/14-day dry-run passed.
+- Acceptance-doc PR #988 is the remaining repository/current-main gate; #912
+  and #910 remain open only until that merge and exact close-rule hygiene.
+- The detailed task `20260724-0946` evidence appears in the activation section
+  below. Older entries are historical snapshots and do not override this
+  checkpoint or live GitHub/systemd/runtime evidence.
+
 ### Issue #951 — external runtime/repository separation implementation (2026-07-23)
 
 - Root task `20260723-1455` started from exact main
@@ -11,7 +22,8 @@
   manifest, and an expected-old-digest protected manual deployment utility.
 - Acceptance uses isolated temporary repositories and copied runtime paths;
   no external runtime, profile, service, or historical log root is changed.
-  #910 and #912 remain open; #912 remains manual-gated and unactivated.
+  At that historical #951 checkpoint, #910/#912 remained open and #912 was
+  manual-gated and unactivated; #912 subsequently completed activation.
 
 ### Issue #947 and PR #949 — merged safe ephemeral cleanup (2026-07-23)
 
@@ -9138,3 +9150,28 @@ state.
   - `.codex/reports/settleora-codex-report-20260630-1913-user-web-local-backup-personal-bill-data-package-preview-pr-merge.md`
   - Issue checkpoint comment:
     `https://github.com/tommytang213/Settleora/issues/461#issuecomment-4842928407`
+
+## Auto-runner Production Activation — Task 20260724-0946
+
+- Tracker: #910; activation issue: #912.
+- Runtime source: `fe60b4440e6d90141ddc9a379c95b04361861ff1`.
+- Runtime bundle:
+  `08c1c0c184fa3f939328472c784f4ac31f25d6019f1a84f55643cc1d9a04a992`.
+- Corrective implementation PRs: #968, #984, and #987.
+- Runnable acceptance: #982 / PR #985 / merge
+  `dabd2893242a6985dc5a9d81ed4ca526f64617a7`; #983 / PR #986 / merge
+  `22f18c32bf74ae53db0ee369df5258063942bc99`.
+- Skip fixtures #978-#981 were excluded before claim, de-labeled, and closed.
+- Final post-fix canary: `supervised-20260724T053439Z-282e0da15c99`;
+  zero accepted logical tasks and terminal `no-eligible-work`.
+- Rollback/refusal/restore and the unexecuted 500-task/14-day dry-run passed.
+- Historical logs at `/workspace/logs/settleora-auto-runner` were retained
+  unchanged; the product queue was not started.
+- Current GitHub state at this candidate: #912 and #910 remain open;
+  acceptance-doc PR #988 is open and remains manual-merge-gated.
+- Remaining gate: exact-head docs validation/reviews/checks, normal merge,
+  current-main acceptance, then #912 and #910 close-rule rereads.
+- Close/keep-open recommendation: keep #912 and #910 open until PR #988 merges
+  and both live close rules pass; then close with one complete evidence comment.
+- Last verified report reference:
+  `/workspace/logs/settleora-codex-report-20260724-0946-auto-runner-production-activation-912.md`

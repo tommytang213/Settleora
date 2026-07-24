@@ -100,15 +100,16 @@ spec's expected profile SHA-256 and refuses admission if the profile is
 replaced between supervisor verification and child startup.
 
 The reviewed supervisor unit source is a placeholder template, not an
-installable Settleora singleton. Future manual activation renders it from the
-verified runtime for one admitted `projectId`, `runtimeRoot`, and `logsRoot`,
-installs it as `<projectId>-auto-runner@.service`, and retains the
-rendered bytes for the controller's pre-start identity comparison. Settleora
-retains the legacy-compatible `settleora-auto-runner@.service` exception; an
-AppB profile selects `AppB-auto-runner@.service`. The rendered working directory and every
-controller-owned executable remain runtime-bound.
+installable singleton. Manual activation renders it for one admitted
+`projectId`, `runtimeRoot`, and `logsRoot`, installs it as
+`<projectId>-auto-runner@.service`, and retains the rendered bytes for
+pre-start identity comparison. #912 completed this process for Settleora using
+the legacy-compatible `settleora-auto-runner@.service` identity; a future AppB
+profile would select `AppB-auto-runner@.service`. The rendered working
+directory and every controller-owned executable remain runtime-bound.
 
-Future manual command shapes (not executed by issue #951):
+Manual operator command shapes (not executed by issue #951; the Settleora
+external posture was subsequently accepted by #912):
 
 ```bash
 node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
@@ -128,8 +129,12 @@ node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
   --expected-old-digest <current-bundle-digest> \
   --expected-rollback-digest <retained-rollback-bundle-digest>
 
+# MUTATING: starts the normal product queue. #912 proved this command only by
+# dry-run; it was not executed. Run it only with explicit operator intent.
 node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
-  --entry settleora-auto-runner.mjs -- --run --config /workspace/auto-runner/config/settleora.json
+  --entry settleora-auto-runnerctl.mjs -- submit --mode trusted \
+  --config /workspace/auto-runner/config/settleora.json \
+  --max-tasks 500 --max-runtime 14d --json
 node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
   --entry settleora-auto-runner.mjs -- --status --json --config /workspace/auto-runner/config/settleora.json
 node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
@@ -138,10 +143,11 @@ node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto
   --entry settleora-auto-runnerctl.mjs -- status --latest --json --config /workspace/auto-runner/config/settleora.json
 ```
 
-The non-dry-run deploy and all start/profile commands require the separate
-manual #912 activation. Rollback is a stopped-process atomic exchange of the
-retained sibling `.runtime.rollback` after verifying its manifest and expected
-digest; no automatic rollback or restart authority is granted.
+Non-dry deploy and start/profile commands require an accepted project-specific
+manual activation. Settleora has that #912 acceptance; future projects do not
+inherit it. Rollback is a stopped-process atomic exchange of the retained
+sibling `.runtime.rollback` after verifying its manifest and expected digest;
+no automatic rollback or restart authority is granted.
 
 ## Final ephemeral cleanup
 
@@ -390,8 +396,8 @@ reporting an active source run and repeated controller passes become stable
 terminal no-ops. A profile config digest mismatch blocks child planning before
 any submission. Head/base/PR drift invalidates old exact-head evidence instead
 of reusing it. Pause/stop and manual gates always win. The dry-run fixture path
-reports intended child specs and mutation-call counters only; production
-activation remains a separate manual #912 task.
+reports intended child specs and mutation-call counters only. #912 completed
+the separate Settleora activation; other project activations remain manual.
 
 Preflight diagnostics:
 
@@ -585,7 +591,10 @@ remains an operator diagnostic path. See
 Read-only health service foundation:
 
 ```bash
-node tools/auto-runner/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner-health-service.mjs -- \
+  --config /workspace/auto-runner/config/settleora.json \
+  --host 127.0.0.1 --port 8787
 curl -fsS http://127.0.0.1:8787/health/auto-runner
 ```
 
@@ -598,14 +607,14 @@ requires explicit deployment configuration plus an external request-secret file
 under `/workspace/logs/settleora-auto-runner/secrets/`; no live secret is
 created or configured by the repository.
 
-The repository-only user-unit template is
+The repository user-unit template is
 `tools/auto-runner/systemd/settleora-auto-runner-health.service`. It uses
 `Restart=on-failure` only for this read-only monitor service and includes
-`[Install] WantedBy=default.target` so a later approved user-scope deployment
-can use normal `systemctl --user enable --now` semantics. The mutation
-supervisor template remains `Restart=no`. Installing, starting, enabling,
-disabling, or exposing the health service remains a separate manual deployment
-gate.
+`[Install] WantedBy=default.target` for normal user-scope
+`systemctl --user enable --now` semantics. #912 installed and enabled the
+Settleora project-bound loopback service; other installations and any
+non-loopback exposure remain separate manual deployment gates. The mutation
+supervisor template remains `Restart=no`.
 
 The Node-based health service intentionally does not use
 `MemoryDenyWriteExecute=yes`. The `20260712-1609` deployment attempt proved
@@ -618,11 +627,13 @@ read/write path allowlists, `RestrictSUIDSGID=yes`, `LockPersonality=yes`,
 Terminal ntfy activity notifier foundation:
 
 ```bash
-node tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner-terminal-notifier.mjs -- \
+  --config /workspace/auto-runner/config/settleora.json
 ```
 
-The notifier is a separate one-shot command intended for a later manually
-installed user timer. It reads the trusted health/supervisor state model,
+The notifier is a separate one-shot command installed for Settleora under the
+#912 accepted user timer. It reads the trusted health/supervisor state model,
 selects only newly observed healthy terminal supervised runs, sends one
 sanitized activity notification for `completed`, `no-eligible-work`, or
 successful budget exhaustion, and records local delivery only after confirmed
@@ -630,13 +641,14 @@ ntfy `2xx` response. It does not start, stop, resume, retry, pause, extend,
 repair, relabel, branch, comment, merge, delete locks, mutate supervisor or
 runner state, call GitHub, or run from the health endpoint.
 
-Production ntfy configuration is fixed at
-`/workspace/logs/settleora-auto-runner/secrets/ntfy-notifier.json`. The CLI
+The accepted Settleora ntfy configuration is fixed at
+`/workspace/logs/auto-runner/Settleora/secrets/ntfy-notifier.json`. The CLI
 does not accept base URL, topic, token, config path, or shell-command
 arguments. The config file must be owner-only under the approved secrets root,
-use a strict schema, and contain redacted deployment values supplied later by
-the #880 manual deployment task. Tests use only local HTTP stubs; this repo
-foundation does not make live ntfy calls.
+use a strict schema, and contain deployment-owned values. #912 adopted the
+existing approved provider choice without creating, rotating, or disclosing
+credentials. Tests use only local HTTP stubs; repository validation does not
+make live ntfy calls.
 
 Repository-only templates:
 
@@ -644,19 +656,19 @@ Repository-only templates:
 - `tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.timer`
 
 They use `Type=oneshot`, `UMask=0077`, a fixed working directory and entry
-point, and a roughly 60-second timer cadence. They are not installed, started,
-enabled, reloaded, or connected to live secrets by repository implementation
-tasks.
+point, and a roughly 60-second timer cadence. #912 installed the exact
+project-bound templates and enabled the Settleora timer after safe prerequisite
+proof; repository implementation alone still grants no installation authority.
 
 The Node-based notifier service intentionally omits
 `MemoryDenyWriteExecute=yes` for the same Node/V8 runtime compatibility reason
 as the health service. It remains timer-owned, one-shot, `Restart=no`, and
-confined to the existing read-only/read-write path boundaries. The rolled-back
-deployment created external secret files that remain deployment-owned; do not
-read, print, rotate, delete, or replace them merely because the units were
-rolled back. The retry remains gated by #880 and must not include TrueNAS,
-Uptime Kuma, ntfy server, Cloudflare, router, firewall, or live publication
-changes in repository-only work.
+confined to the existing read-only/read-write path boundaries. External secret
+files remain deployment-owned; do not read, print, rotate, delete, or replace
+them through repository-only work. #912 accepted only the existing private
+provider path. TrueNAS, Uptime Kuma, a new ntfy server/topic/token, Cloudflare,
+router, firewall, or other live publication changes remain manual and outside
+that acceptance.
 
 Supervised runs pass a validated `--supervisor-run-id` into the runner. The
 runner writes it as sanitized summary metadata, and supervisor status/report/
@@ -1244,11 +1256,11 @@ named checks block. `pubspec.yaml`, `pubspec.lock`, tracked assets, and
 localizations are cross-platform build/dependency inputs and receive this
 native/build posture rather than Dart-only proof. This lane does not activate
 #912 external production profiles and does not claim Day 1 product completion.
-Auto-merge, stale-claim stealing, follow-up issue creation, review-fix
-mutation, trusted overnight real-run operation, and systemd enablement remain
-disabled/gated. Review-fix mutation is built as a default-off low-risk
-foundation only; built-in config keeps `allowReviewFixMutation: false` and
-`maxReviewFixCycles: 0`.
+Built-in/default profiles keep auto-merge, stale-claim stealing, follow-up
+creation, review-fix mutation, trusted real runs, and systemd enablement
+disabled/gated. The accepted external Settleora profile selectively enables
+only its documented bounded capabilities. Review-fix mutation remains
+default-off outside that explicit profile.
 
 Normal real-run is refused by default. A plain `--run` requires
 `trustedRealRunApproved: true` in config and still refuses unsafe mutation

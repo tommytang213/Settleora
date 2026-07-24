@@ -2,10 +2,11 @@
 
 Issue #947 completed through PR #949. Its cleanup authority applies only to
 newly completed positively owned ephemeral state after exact
-merge/current-target/hygiene proof. It does not activate #912, perform
+merge/current-target/hygiene proof. PR #949 did not activate #912, perform
 historical cleanup, retire release lines, or broaden deferred #946.
 
-Status: implementation acceptance advanced; production profile not activated.
+Status: #912 live activation accepted; acceptance documentation and tracker
+hygiene remain in progress through PR #988.
 
 Issue #944 completed through PR #945. The merged implementation extends the
 #923/#924/#928/#929/#932 authorities with bounded recursive source-failure
@@ -20,12 +21,12 @@ narrow close rules. PR #917 is closed without merge as fully superseded, with
 its source branch retained. #911 completed through PR #915, #902 through PR
 #916, #923/#932 through PR #936, #928/#929 through PR #938, #924 through
 PR #940, #927 through PR #942, #944 through PRs #945/#948, and #947 through
-PR #949. #910 remains the readiness umbrella and #912 remains the separate
-manual production activation gate.
+PR #949. #910 remains the readiness umbrella; #912 has completed its separate
+manual production activation and awaits PR #988 plus close-rule hygiene.
 
-This plan records the remaining operational activation work. It does not change
-runner behavior, enable external profiles, mutate canaries, dismiss alerts, run
-real issues, or perform live deployment/release actions.
+This plan records the completed implementation and activation chain. Its
+repository text does not itself change runner behavior, profiles, alerts, live
+issues, or deployment/release state.
 
 ## Authority Rules
 
@@ -309,21 +310,17 @@ paths are added.
 
 ## Current Remaining Sequence
 
-Issue #951 implements the repository-side external-runtime separation,
+Issue #951 implemented the repository-side external-runtime separation,
 deterministic bundle/deploy utility, absolute child resolution, explicit
-project identities, and same-repository ownership exclusion. It does not
-deploy the runtime, create the future Settleora profile, migrate legacy logs,
-or activate services. Those actions remain manual under #912.
+project identities, and same-repository ownership exclusion. It did not itself
+deploy the runtime or activate services; those manual actions subsequently
+completed under #912 without migrating the retained legacy logs.
 
 The original planning PR and the #913/#921 implementation acceptance chain are
-complete. Current live issues now own the remaining work:
-
-1. Activate the external production profile only through #912's separate
-   manual live-configuration acceptance after all required implementation and
-   non-production acceptance gates pass.
-2. Run live canaries only in a separate canary task; do not use #865/#866 unless
-   the task explicitly authorizes mutation and fingerprints are checked before
-   and after.
+complete. #912 subsequently deployed the external production/canary profiles,
+accepted the units and monitoring, completed two runnable task-scoped
+canaries, and preserved #865/#866 without mutation. PR #988 and exact
+post-merge tracker hygiene are the remaining acceptance steps.
 
 Tracking issues created by this planning task:
 
@@ -387,9 +384,27 @@ Operational readiness is complete only when:
 - CI, scanners, independent review, Codex review, issue-state, and exact-head
   gates all pass on the exact PR heads involved.
 
-## Next Task
+## Production Activation Acceptance (20260724-0946)
 
-#910 remains open for the one remaining readiness gate: #912. External
-production-profile activation remains manual, unactivated, and permitted only
-through a separately authorized #912 task; do not repeat completed
-implementation work.
+Issue #912 completed the authorized live activation against current-main
+runtime source `fe60b4440e6d90141ddc9a379c95b04361861ff1`. The installed external
+bundle digest is
+`08c1c0c184fa3f939328472c784f4ac31f25d6019f1a84f55643cc1d9a04a992`;
+the accepted production and canary profile digests are respectively
+`6e8ba6f1a5d55198a10ef08086c35711f8f4ec11be889f11c982bfd1dbec246d`
+and
+`8e95967ce99b96e0d6228519b771d266fd72541bd6701a03b9f6a7e3b2e8e120`.
+
+The project supervisor, loopback health service, terminal notifier, and timer
+were installed and accepted. Runnable canaries #982 and #983 merged through
+PRs #985 and #986. Fixtures #978-#981 were excluded before claim and closed
+after eligibility cleanup. The final post-fix canary
+`supervised-20260724T053439Z-282e0da15c99` ended with
+`no-eligible-work`, zero accepted tasks, and no duplicate effect.
+
+The rollback drill disabled all mutation authority, refused a real submission
+before claim, retained read-only status/health, and restored the exact
+production profile. The 500-task/14-day submission was dry-run only. No
+product queue, application deployment, production-data action, public
+exposure, secret rotation, migration, branch deletion, or force-like history
+action occurred.

@@ -27,24 +27,35 @@ raw CI/scanner payloads. Restart adopts persisted batch/fix effects by identity
 and must not duplicate fix invocations, commits, pushes, reviews, task charges,
 or hygiene effects.
 
-This document defines the repository-side foundation for running the existing
-Settleora auto-runner as a detached DevBox background job. It does not install
-or enable a service, enable user lingering, deploy monitoring, or approve any
-broader runner lane.
+This document defines the repository-side foundation and accepted Settleora
+DevBox deployment posture. Repository changes alone do not install or enable
+services; the separate authorized #912 activation installed the project units,
+confirmed lingering, and admitted the reviewed external profiles.
+
+Older path examples under `/workspace/logs/settleora-auto-runner` describe the
+historical/development layout only. The accepted Settleora supervisor reads
+and writes `/workspace/logs/auto-runner/Settleora`.
 
 ## Operator Surface
 
 Default submission is intentionally bounded:
 
 ```bash
-node tools/auto-runner/settleora-auto-runnerctl.mjs submit --profile default
+node /workspace/auto-runner/.runtime.launcher.mjs \
+  --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runnerctl.mjs -- submit \
+  --mode trusted \
+  --config /workspace/auto-runner/config/settleora.json
 ```
 
 Defaults are `1` task and `3h`. Explicit bounded syntax is available:
 
 ```bash
-node tools/auto-runner/settleora-auto-runnerctl.mjs submit \
-  --profile default \
+node /workspace/auto-runner/.runtime.launcher.mjs \
+  --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runnerctl.mjs -- submit \
+  --mode trusted \
+  --config /workspace/auto-runner/config/settleora.json \
   --max-tasks 8 \
   --max-runtime 8h
 ```
@@ -57,9 +68,12 @@ security rules, and merge policy remain authoritative.
 Dry-run submit is non-mutating:
 
 ```bash
-node tools/auto-runner/settleora-auto-runnerctl.mjs submit \
+node /workspace/auto-runner/.runtime.launcher.mjs \
+  --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runnerctl.mjs -- submit \
   --dry-run \
-  --profile default \
+  --mode trusted \
+  --config /workspace/auto-runner/config/settleora.json \
   --max-tasks 8 \
   --max-runtime 8h \
   --json
@@ -136,10 +150,10 @@ The repository template is:
 tools/auto-runner/systemd/settleora-auto-runner@.service
 ```
 
-It is a reviewed placeholder template. A later manual activation must render
+It is a reviewed placeholder template. Each manual project activation renders
 the exact admitted `projectId`, canonical external `runtimeRoot`, canonical
-`logsRoot`, and sibling launcher path, then install it under the matching
-project-specific template identity. For Settleora that identity remains:
+`logsRoot`, and sibling launcher path, then installs it under the matching
+project-specific identity. #912 completed this for Settleora using:
 
 ```text
 ~/.config/systemd/user/settleora-auto-runner@.service
@@ -327,8 +341,9 @@ priority and defers terminalization until a later allowed pass.
 Rollback is disabling `outageResubmission.allowBoundedOutageResubmission` in
 the external profile. Existing sanitized state is preserved for operator
 inspection; no branch/history rewrite, state deletion, systemd change, or
-production deployment is required. #912 remains the separate manual activation
-and live-configuration acceptance gate.
+production deployment is required. #912 separately completed the initial
+manual activation and live-configuration acceptance; future authority changes
+remain manual.
 
 ## State And Heartbeat
 
@@ -377,8 +392,8 @@ stores `pause`, `extend`, or `stop-after-current` as `state`; it records only a
 bounded `lastControl` object with the command, request timestamp, accepted or
 failed status, extension deltas when present, and sanitized correlation IDs.
 Raw config paths, command lines, environment values, provider payloads, and
-secrets are not stored in this metadata. Live supervisor acceptance remains
-deferred until this control-state boundary is merged and reviewed.
+secrets are not stored in this metadata. The control-state boundary was merged
+and the live supervisor was accepted under #912.
 
 ## Monitoring Contract
 
@@ -397,11 +412,14 @@ config paths, webhook URLs, authorization headers, full issue bodies, raw
 Codex/Gemini output, provider payloads, or full diffs. Event write failures
 are recorded locally where possible and never change the runner outcome.
 
-The future primary monitor uses a pull model through Uptime Kuma on TrueNAS
-SCALE. Uptime Kuma polls a separate permanent read-only DevBox health service
-over trusted-LAN HTTP, and that service reads persisted supervisor/runner
-state, heartbeat, strict report-correlation results, lock state, and bounded
-systemd readback. The design is defined in
+The monitoring design supports a future pull model through Uptime Kuma on
+TrueNAS SCALE. The currently accepted DevBox health service remains
+loopback-only; LAN binding and Uptime Kuma deployment/configuration were not
+part of #912. The service reads persisted supervisor/runner state, heartbeat,
+strict report-correlation results, lock state, and persisted deployment/runtime
+identity. Operators inspect systemd state separately; the health endpoint does
+not call systemd.
+The design is defined in
 [Autonomous Codex Runner Monitoring](AUTONOMOUS_CODEX_RUNNER_MONITORING.md).
 
 The repository-side health service foundation now lives at
@@ -409,10 +427,11 @@ The repository-side health service foundation now lives at
 template at
 `tools/auto-runner/systemd/settleora-auto-runner-health.service`. It remains
 read-only, loopback-bound by default, and independent of temporary supervisor
-or runner jobs. The mutation supervisor template remains `Restart=no`; only
-the read-only health service template uses `Restart=on-failure`. Installing,
-starting, enabling, LAN binding, Uptime Kuma configuration, and notification
-destination setup remain manual deployment gates.
+or runner jobs. The mutation supervisor remains `Restart=no`; only the
+read-only health service uses `Restart=on-failure`. The project-bound
+supervisor, loopback health service, notifier, and notifier timer were
+installed and accepted under #912. LAN binding, Uptime Kuma deployment, and
+new notification-destination setup remain separate manual gates.
 
 The health service remains separate from the temporary supervisor/runner jobs,
 so healthy idle after `completed` or `no-eligible-work` remains callable and
@@ -424,11 +443,11 @@ incident notification.
 
 SSH remains available for operator diagnostics and manual wrapper readback, but
 it is not the primary monitoring architecture. Terminal healthy-run summary
-notifications are handled by the separate one-shot ntfy notifier foundation
+notifications are handled by the separate one-shot ntfy notifier
 with atomic confirmed-delivery deduplication, not by manufacturing false
-Uptime Kuma DOWN/UP transitions. The notifier remains repository-only until
-the later manual #880 deployment gate installs a timer and supplies live
-external ntfy configuration.
+Uptime Kuma DOWN/UP transitions. The project-bound notifier timer and existing
+external provider configuration were accepted under #912; no new destination,
+topic, token, or credential was selected.
 
 ## Windows Templates
 
@@ -442,14 +461,13 @@ execution to continue.
 
 ## Installation And Recovery Gates
 
-Remaining manual gates include PR merge, user-unit installation,
-`loginctl enable-linger`, Windows wrapper deployment, SSH-disconnect and
-Windows-shutdown canary acceptance, repository implementation of the read-only
-health service, manual DevBox health-service installation, manual Uptime Kuma
-deployment/configuration on TrueNAS SCALE, notification-secret configuration,
-and any broader lane/run approval. Recovery from stale or orphaned state is
-explicit and evidence-bound; this foundation does not implement automatic
-resume.
+The Settleora user units, lingering, loopback health service, existing
+notification prerequisites, and bounded live canaries were accepted under
+#912. Remaining separate manual gates are Windows wrapper deployment,
+SSH-disconnect/Windows-shutdown host canaries, Uptime Kuma
+deployment/configuration on TrueNAS SCALE, any new notification destination or
+credential, and any broader lane/run approval. Recovery from stale or orphaned
+state remains explicit and evidence-bound.
 
 Recovery continuation preserves supervisor correlation when an operator starts
 a bounded recovery run. Recovery state stores only sanitized `supervisorRunId`,
@@ -484,3 +502,20 @@ scope, and idempotency markers. A restart skips already completed exact-
 manifest review calls and split effects; a source identity change discards
 them. Sectioning, provider retries, polling, recovery, and session rotation do
 not create a new logical task or consume review source-round counters.
+
+## Settleora User-unit Acceptance (20260724-0946)
+
+The installed `settleora-auto-runner@.service` binds the stable external
+launcher, runtime, repository, and project logs. Readback confirmed
+`Restart=no`, `KillMode=process`, `TimeoutStopSec=30min`, `SendSIGKILL=no`,
+`UMask=0077`, and no drop-ins. No worker instance is enabled.
+
+The accepted production command remains unexecuted. It is **MUTATING** and
+starts the normal product queue; run it only with explicit operator intent:
+
+```bash
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runnerctl.mjs -- submit --mode trusted --config /workspace/auto-runner/config/settleora.json --max-tasks 500 --max-runtime 14d --json
+```
+
+Its matching `--dry-run` form passed. Task and time values are upper bounds
+and stop early on `no-eligible-work`.

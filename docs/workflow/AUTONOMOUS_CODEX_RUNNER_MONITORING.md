@@ -9,14 +9,18 @@ from `runtimeRoot` and project evidence from `logsRoot`; colliding run/task IDs
 from another project are not adoption authority. Shared runtime files are
 read-only inputs and do not create a cross-project mutation lock.
 
+References below to `/workspace/logs/settleora-auto-runner` are retained
+historical/development examples. Accepted live Settleora monitoring reads
+`/workspace/logs/auto-runner/Settleora`.
+
 ## Status
 
-This document is the authoritative design for future Settleora auto-runner
-health monitoring. It supersedes the earlier provisional SSH-primary TrueNAS
-monitoring direction. It does not implement the health service, install or
-enable a DevBox unit, install Uptime Kuma, configure TrueNAS SCALE, expose a
-network port, configure notification credentials, or prove deployment
-acceptance.
+This document is the authoritative Settleora auto-runner monitoring design.
+It supersedes the earlier provisional SSH-primary TrueNAS direction. The
+project-bound loopback health service and terminal notifier timer were
+installed and accepted under #912. Uptime Kuma/TrueNAS deployment, LAN/public
+exposure, and selection or mutation of notification credentials remain outside
+that acceptance.
 
 Repository implementation foundation now exists for the repo-only portion:
 
@@ -35,14 +39,13 @@ Repository implementation foundation now exists for the repo-only portion:
 - `tools/auto-runner/lib/ntfy-terminal-notifier.mjs` implements the
   provider-specific ntfy publisher behind a fixed external config boundary and
   local confirmed-delivery dedupe.
-- `tools/auto-runner/systemd/settleora-auto-runner-health.service` is a
-  repository template only. It has not been installed, started, enabled, bound
-  to a LAN address, or connected to Uptime Kuma by the repository foundation.
-  It includes an `[Install]` section for normal user-scope
-  `systemctl enable --now` during the later #880 deployment gate.
+- `tools/auto-runner/systemd/settleora-auto-runner-health.service` is the
+  reviewed source for the installed project-bound unit. The live service
+  remains bound to `127.0.0.1:8787` and is not connected to Uptime Kuma.
 - `tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.service`
-  and `.timer` are repository templates only. They have not been installed,
-  started, enabled, reloaded, or connected to live ntfy credentials.
+  and `.timer` are the reviewed sources for the installed one-shot notifier and
+  enabled timer. They use the existing owner-only external provider
+  configuration; #912 did not create or rotate credentials.
 
 Approved architecture:
 
@@ -106,8 +109,8 @@ cancellation, or another terminal condition. They intentionally remain
 `Restart=no`; failed, incomplete, killed, reboot-interrupted, or ambiguous
 mutation runs require operator review.
 
-The future health service is separate. It remains callable after a runner exits
-and may use `Restart=on-failure` because it is read-only and has no runner,
+The installed health service is separate. It remains callable after a runner
+exits and uses `Restart=on-failure` because it is read-only and has no runner,
 GitHub, branch, lock-removal, resume, retry, or merge authority.
 
 The service reads only bounded owner-only persisted state:
@@ -116,8 +119,9 @@ The service reads only bounded owner-only persisted state:
 - strict supervisor/runner report-correlation results;
 - sanitized runner summaries and counts already present in trusted summaries;
 - runner active/lock readback;
-- bounded systemd readback if a later deployment-approved readback helper is
-  added.
+- persisted deployment and runtime identity recorded under the project logs
+  root. Operators inspect systemd unit state separately with `systemctl --user`;
+  the HTTP endpoint does not call systemd.
 
 Uptime Kuma must not poll GitHub for eligible issues on every health check. No
 eligible work is a successful terminal result, not an outage. Idle does not
@@ -308,7 +312,8 @@ health binding by default.
 
 The service default bind is `127.0.0.1:8787`. Non-loopback binding is rejected
 unless explicit deployment configuration opts in and supplies an external
-request-secret file under `/workspace/logs/settleora-auto-runner/secrets/`.
+request-secret file under
+`/workspace/logs/auto-runner/Settleora/secrets/`.
 The secret is checked as a static request header and is never printed by the
 service. No repository code creates a live secret, selects a notification
 provider, or configures a Uptime Kuma monitor.
@@ -375,7 +380,7 @@ Deduplication key:
 Notifier state is persisted atomically outside the repo:
 
 ```text
-/workspace/logs/settleora-auto-runner/monitoring/notifier-state.json
+/workspace/logs/auto-runner/Settleora/monitoring/notifier-state.json
 ```
 
 The repository foundation performs owner-only atomic writes, rejects malformed,
@@ -386,7 +391,7 @@ not mark or claim terminal events.
 Production ntfy configuration is read only from:
 
 ```text
-/workspace/logs/settleora-auto-runner/secrets/ntfy-notifier.json
+/workspace/logs/auto-runner/Settleora/secrets/ntfy-notifier.json
 ```
 
 The file must be a regular non-symlink owner-only file under the approved
@@ -470,9 +475,10 @@ Do not select or configure live email, Slack, Discord, Telegram, Gotify,
 webhook, public ntfy topics, or other credentials in repository code or docs
 examples for this task.
 
-## Follow-Up Slices
+## Historical Implementation Slices
 
-Focused child issues under #800:
+These focused child issues under #800 record implementation history; their
+pre-deployment wording does not override the accepted #912 live posture:
 
 1. #879: repository implementation for the read-only DevBox health service,
    state evaluator, tests, systemd template, docs, and terminal-event dedupe
@@ -481,15 +487,15 @@ Focused child issues under #800:
    fixed external config boundary, confirmed-delivery dedupe, tests, docs, and
    repository-only systemd service/timer templates. No installation,
    deployment, live secrets, or live ntfy calls.
-3. #880: manual deployment and acceptance to install/enable the health service
-   and notifier timer on the DevBox, install/configure Uptime Kuma and ntfy on
-   TrueNAS SCALE, choose private topics/tokens, prove alert/recovery/activity
-   dedupe, and document rollback. No automatic runner restart.
+3. #880: originally tracked manual deployment. #912 subsequently accepted the
+   DevBox health service, notifier timer, existing private provider
+   prerequisites, and dedupe. Uptime Kuma/TrueNAS deployment and any new
+   topic/token choice remain separate manual work. No automatic runner restart.
 4. #885: repository compatibility fix for the Node-based health and notifier
    systemd templates after the `20260712-1609` rollback. This removes the
    Node/V8-incompatible `MemoryDenyWriteExecute` directive, preserves the
    remaining hardening controls, fixes health unit metadata/enablement, and
-   leaves deployment retry gated by #880.
+   historically left deployment retry gated by #880 before #912 acceptance.
 
 Both slices must preserve #865/#866 as unrelated protected canaries and must
 not expose the health endpoint publicly or configure secrets without explicit
@@ -503,3 +509,18 @@ prompts/diffs/provider payloads, unrestricted paths, secrets, credentials,
 OCR/user data, and storage internals. Split-required, context-blocked, and
 coverage-incomplete states are blocking health evidence, never successful
 review verdicts.
+
+## Live Monitoring Acceptance (20260724-0946)
+
+The health service is installed and active on `127.0.0.1:8787` only. The
+terminal notifier timer is enabled with owner-only external provider
+configuration and confirmed-delivery dedupe. Unit readback retained the
+reviewed sandbox posture and intentional Node/V8 exception. Journal/report
+inspection found no secret values.
+
+The final post-fix canary
+`supervised-20260724T053439Z-282e0da15c99` resolved its exact correlated
+summary and reached a healthy terminal state. The rollback drill kept
+read-only status and health available while mutation authority was disabled,
+then restored the exact production profile. No mutation-worker timer or
+recurring queue start was installed.
