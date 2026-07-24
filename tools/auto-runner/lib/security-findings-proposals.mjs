@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { digestProposal, validateIssueProposal } from "./issue-proposals.mjs";
+import { evaluateProductionFollowupIssueApproval } from "./canary-policy.mjs";
 
 export function buildSecurityFindingProposal({ finding = {}, classification = {}, reconciliation = {}, route = {}, sourceIssue = 902, parentIssue = 910 } = {}) {
   if (route.route !== "propose_issue") return { ok: false, reason: "route_not_proposal_eligible" };
@@ -84,12 +85,14 @@ export function buildSecurityFindingProposal({ finding = {}, classification = {}
 }
 
 export function securityFindingIssueCreationCapability(config = {}) {
+  const productionApproval = evaluateProductionFollowupIssueApproval(config);
   return {
-    allowed: Boolean(config.run && !config.dryRun && config.allowFollowupIssueCreation && config.securityFindings?.allowSecurityFindingIssueCreation),
+    allowed: Boolean(config.run && !config.dryRun && productionApproval.approved && config.securityFindings?.allowSecurityFindingIssueCreation),
     run: Boolean(config.run),
     dryRun: Boolean(config.dryRun),
     allowFollowupIssueCreation: Boolean(config.allowFollowupIssueCreation),
     allowSecurityFindingIssueCreation: Boolean(config.securityFindings?.allowSecurityFindingIssueCreation),
+    productionApproval,
   };
 }
 

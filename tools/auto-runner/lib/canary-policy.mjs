@@ -3,6 +3,7 @@ import path from "node:path";
 import { safeTimestamp, slugify } from "./logger.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
+import { hasVerifiedExternalRuntimeEvidence } from "./runtime-identity.mjs";
 
 export const canaryAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const lowRiskAutoMergeCanaryAllowedPathsByLane = Object.freeze({
@@ -109,14 +110,21 @@ export function evaluateTrustPolicy(config) {
     };
   }
   const normalUnsafeToggles = unsafeToggles.filter((toggle) => toggle !== "allowAutoMerge");
-  if (normalUnsafeToggles.length > 0) {
+  const productionFollowupApproval = evaluateProductionFollowupIssueApproval(config);
+  const unapprovedNormalToggles = normalUnsafeToggles.filter((toggle) => {
+    if (toggle === "allowFollowupIssueCreation") return !productionFollowupApproval.approved;
+    if (toggle === "reviewFixMutation") return !reviewFixMutationApproval.approved;
+    return true;
+  });
+  if (unapprovedNormalToggles.length > 0) {
     return {
       allowed: false,
       mode: "normal",
-      reason: `Normal trusted real-run requires disabled mutation toggles: ${normalUnsafeToggles.join(", ")}.`,
-      unsafeToggles: normalUnsafeToggles,
+      reason: `Normal trusted real-run requires disabled mutation toggles: ${unapprovedNormalToggles.join(", ")}.`,
+      unsafeToggles: unapprovedNormalToggles,
       autoMergeCanaryApproval,
       reviewFixMutationApproval,
+      productionFollowupApproval,
     };
   }
   return {
@@ -126,7 +134,38 @@ export function evaluateTrustPolicy(config) {
     unsafeToggles,
     autoMergeCanaryApproval,
     reviewFixMutationApproval,
+    productionFollowupApproval,
   };
+}
+
+export function evaluateProductionFollowupIssueApproval(config) {
+  const approvedLanes = Array.isArray(config.autoMergePolicy?.approvedLanes)
+    ? config.autoMergePolicy.approvedLanes.filter((lane) => typeof lane === "string" && lane.length > 0)
+    : [];
+  const maxPerRun = Number(config.maxFollowupIssuesPerRun);
+  const base = {
+    approved: false,
+    approvedLanes,
+    maxFollowupIssuesPerRun: Number.isInteger(maxPerRun) ? maxPerRun : null,
+  };
+  if (!config.allowFollowupIssueCreation) return { ...base, reason: "follow-up issue creation is disabled" };
+  if (!config.configPath || !config.trustedRealRunApproved || !hasVerifiedExternalRuntimeEvidence(config)) {
+    return { ...base, reason: "verified external runtime and trusted production config are required" };
+  }
+  if (!config.allowAutoMerge || approvedLanes.length === 0) {
+    return { ...base, reason: "approved-domain auto-merge lanes are required" };
+  }
+  if (!Number.isInteger(maxPerRun) || maxPerRun < 1 || maxPerRun > 3) {
+    return { ...base, reason: "maxFollowupIssuesPerRun must be an integer from 1 through 3" };
+  }
+  const reviewFixApproval = evaluateReviewFixMutationApproval(config);
+  if (!reviewFixApproval.approved) {
+    return { ...base, reason: `bounded production review-fix approval is required: ${reviewFixApproval.reason}` };
+  }
+  if (config.allowStaleClaimSteal || config.allowSystemdEnablement) {
+    return { ...base, reason: "follow-up creation cannot mix with stale-claim stealing or systemd self-enablement" };
+  }
+  return { ...base, approved: true, reviewFixApprovalMode: reviewFixApproval.mode, reason: "bounded external production follow-up approval" };
 }
 
 export function evaluateCanaryIssuePolicy(config, laneDecision) {
@@ -143,6 +182,9 @@ export function evaluateCanaryIssuePolicy(config, laneDecision) {
     laneDecision.manualMergeRequired === false ||
     laneDecision.contract?.manualMergeRequired === false;
   if (autoMergeContract) {
+    if (!config.autoMergePolicy?.approvedLanes?.includes(laneDecision.lane)) {
+      return { allowed: false, reason: `Canary auto-merge lane is not approved by the active profile: ${laneDecision.lane}.` };
+    }
     const approval = evaluateLowRiskAutoMergeCanaryApproval(config);
     if (!approval.approved) {
       return { allowed: false, reason: `Canary auto-merge contract requires explicit low-risk approval: ${approval.reason}.` };
@@ -255,6 +297,27 @@ export function evaluateReviewFixMutationApproval(config) {
   };
   if (!config.allowReviewFixMutation || reviewFix.maxAttempts <= 0) return base;
   if (!config.configPath) return { ...base, mode: "unsafe", reason: "external config path is required" };
+  if (config.trustedRealRunApproved) {
+    if (!hasVerifiedExternalRuntimeEvidence(config)) {
+      return { ...base, mode: "unsafe", reason: "verified external runtime evidence is required for production review-fix mutation" };
+    }
+    const approvedLanes = Array.isArray(config.autoMergePolicy?.approvedLanes)
+      ? config.autoMergePolicy.approvedLanes.filter((lane) => typeof lane === "string" && lane.length > 0)
+      : [];
+    if (!config.allowAutoMerge) {
+      return { ...base, mode: "unsafe", reason: "production review-fix mutation requires approved-domain auto-merge" };
+    }
+    if (approvedLanes.length === 0) {
+      return { ...base, mode: "unsafe", reason: "production review-fix mutation requires non-empty approved auto-merge lanes" };
+    }
+    if (config.allowStaleClaimSteal || config.allowSystemdEnablement) {
+      return { ...base, mode: "unsafe", reason: "production review-fix mutation cannot mix with stale-claim stealing or systemd self-enablement" };
+    }
+    if (reviewFix.requestedMaxAttempts > reviewFix.maxAllowedAttempts) {
+      return { ...base, allowedLanes: approvedLanes, mode: "approved_production_clamped", approved: true, reason: "explicit production review-fix approval with attempts clamped to safe maximum" };
+    }
+    return { ...base, allowedLanes: approvedLanes, approved: true, mode: "approved_production", reason: "explicit external production review-fix mutation approval" };
+  }
   if (!config.trustedRealRunCanaryApproved) {
     return { ...base, mode: "unsafe", reason: "trustedRealRunCanaryApproved must be true" };
   }

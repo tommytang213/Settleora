@@ -43,13 +43,13 @@ export function markIssueProcessed(tracker, issueNumber) {
   return trackerSnapshot(tracker);
 }
 
-export function selectDistinctEligibleIssue(config, candidates, tracker, readLiveIssue) {
+export function selectDistinctEligibleIssue(config, candidates, tracker, readLiveIssue, evaluateCandidatePolicy = null) {
   const events = [];
   const boundedCandidates = Array.isArray(candidates) ? candidates.slice(0, config.pollLimit || candidates.length) : [];
   for (const candidate of boundedCandidates) {
     const candidateEvent = candidateReturnedEvent(candidate);
     events.push(candidateEvent);
-    const evaluation = validateCandidateForClaim(config, candidate, tracker, readLiveIssue);
+    const evaluation = validateCandidateForClaim(config, candidate, tracker, readLiveIssue, evaluateCandidatePolicy);
     events.push(evaluation.event);
     if (evaluation.ok) {
       return {
@@ -76,7 +76,7 @@ export function selectDistinctEligibleIssue(config, candidates, tracker, readLiv
   };
 }
 
-export function validateCandidateForClaim(config, candidate, tracker, readLiveIssue) {
+export function validateCandidateForClaim(config, candidate, tracker, readLiveIssue, evaluateCandidatePolicy = null) {
   const number = normalizeIssueNumber(candidate?.number);
   const attempted = tracker?.attemptedIssueNumbers || new Set();
   if (!number) {
@@ -134,6 +134,17 @@ export function validateCandidateForClaim(config, candidate, tracker, readLiveIs
       manualGate: Boolean(laneDecision.manualGate),
       dangerGate: Boolean(laneDecision.dangerGate),
     });
+  }
+  if (typeof evaluateCandidatePolicy === "function") {
+    const policy = evaluateCandidatePolicy(liveIssue, laneDecision);
+    if (!policy?.allowed) {
+      markIssueAttempted(tracker, number);
+      return skip(`live_issue_profile_policy_not_allowed:${policy?.reason || "unspecified"}`, candidate, liveEvent, {
+        lane: laneDecision.lane || null,
+        canonicalLane: laneDecision.canonicalLane || null,
+        profilePolicy: policy || null,
+      });
+    }
   }
   return {
     ok: true,

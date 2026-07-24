@@ -10,6 +10,7 @@ import {
 } from "./issue-proposals.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { planFeatureBundleIssue } from "./feature-bundle-contract.mjs";
+import { evaluateProductionFollowupIssueApproval } from "./canary-policy.mjs";
 
 const defaultMaxIssuesPerRun = 3;
 const knownLabelSet = new Set([
@@ -288,11 +289,13 @@ function renderContractOnlyBody(contract) {
 }
 
 export function mutationCapability(config = {}) {
+  const productionApproval = evaluateProductionFollowupIssueApproval(config);
   return {
-    allowed: Boolean(config.run && !config.dryRun && config.allowFollowupIssueCreation),
+    allowed: Boolean(config.run && !config.dryRun && productionApproval.approved),
     run: Boolean(config.run),
     dryRun: Boolean(config.dryRun),
     allowFollowupIssueCreation: Boolean(config.allowFollowupIssueCreation),
+    productionApproval,
   };
 }
 

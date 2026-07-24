@@ -304,7 +304,33 @@ test("security finding proposal is sanitized parser-valid exact-path generated w
 test("dual issue creation gates stay default-off and require global plus security capability", () => {
   assert.equal(securityFindingIssueCreationCapability({ run: true, allowFollowupIssueCreation: true, securityFindings: { allowSecurityFindingIssueCreation: false } }).allowed, false);
   assert.equal(securityFindingIssueCreationCapability({ run: true, allowFollowupIssueCreation: false, securityFindings: { allowSecurityFindingIssueCreation: true } }).allowed, false);
-  assert.equal(securityFindingIssueCreationCapability({ run: true, allowFollowupIssueCreation: true, securityFindings: { allowSecurityFindingIssueCreation: true } }).allowed, true);
+  assert.equal(securityFindingIssueCreationCapability({
+    run: true,
+    configPath: "/workspace/auto-runner/config/test-production.json",
+    runtimeMode: "external",
+    runtimeRoot: "/workspace/auto-runner/runtime",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/auto-runner/Settleora",
+    projectId: "Settleora",
+    repositorySlug: "tommytang213/Settleora",
+    runtimeBundleDigest: "a".repeat(64),
+    runtimeIdentity: Object.freeze({
+      version: 1, projectId: "Settleora", repositorySlug: "tommytang213/settleora",
+      runtimeRoot: "/workspace/auto-runner/runtime", repoRoot: "/workspace/repos/Settleora",
+      logsRoot: "/workspace/logs/auto-runner/Settleora", namespace: "b".repeat(64),
+    }),
+    runtimeManifest: Object.freeze({ bundleDigest: "a".repeat(64), sourceSha: "c".repeat(40) }),
+    trustedRealRunApproved: true,
+    allowAutoMerge: true,
+    autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] },
+    allowFollowupIssueCreation: true,
+    maxFollowupIssuesPerRun: 3,
+    allowReviewFixMutation: true,
+    maxReviewFixCycles: 50,
+    allowStaleClaimSteal: false,
+    allowSystemdEnablement: false,
+    securityFindings: { allowSecurityFindingIssueCreation: true },
+  }).allowed, true);
 });
 
 test("lifecycle state reads checkpoint-1 records compatibly and rejects invalid transitions", () => {

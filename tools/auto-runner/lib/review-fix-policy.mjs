@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { hasVerifiedExternalRuntimeEvidence } from "./runtime-identity.mjs";
 import { safeTimestamp, slugify } from "./logger.mjs";
 import { filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
 import { validateDiagnosticReviewFixAuthorization } from "./review-convergence-state.mjs";
@@ -302,6 +303,9 @@ export function evaluateReviewFixMutationDecision(input) {
   if (normalized.malformed) return block("review_fix_budget_malformed");
   if (!config.allowReviewFixMutation || !normalized.enabled) return block("review_fix_mutation_disabled_by_config");
   if (!config.configPath) return block("review_fix_requires_external_config");
+  if (config.trustedRealRunApproved && !hasVerifiedExternalRuntimeEvidence(config)) {
+    return block("production_review_fix_requires_verified_external_runtime");
+  }
   let diagnosticAuthorization = null;
   if (attemptCount >= normalized.maxAttempts) {
     const diagnosticDecision = validateDiagnosticReviewFixAuthorization({
@@ -317,13 +321,22 @@ export function evaluateReviewFixMutationDecision(input) {
     };
   }
   if (config.allowStaleClaimSteal) return block("review_fix_refuses_stale_claim_stealing");
-  if (config.allowFollowupIssueCreation) return block("review_fix_refuses_followup_issue_creation");
+  if (config.allowFollowupIssueCreation && !config.trustedRealRunApproved) return block("review_fix_refuses_followup_issue_creation");
   if (config.allowSystemdEnablement) return block("review_fix_refuses_systemd_enablement");
+  if (config.trustedRealRunApproved && !config.allowAutoMerge) return block("production_review_fix_requires_auto_merge");
   if (trigger.source === "review_fix_canary_fixture" && !config.reviewFixCanaryFixture?.enabled) {
     return block("review_fix_fixture_trigger_without_fixture_mode");
   }
   if (!laneDecision.allowedToImplement) return block("lane_not_allowed_to_implement");
   if (!reviewFixMutationLanes.includes(laneDecision.lane)) return block("lane_not_review_fix_approved");
+  if (
+    config.trustedRealRunApproved &&
+    !Array.isArray(config.autoMergePolicy?.approvedLanes)
+  ) return block("production_review_fix_approved_lanes_missing");
+  if (
+    config.trustedRealRunApproved &&
+    !config.autoMergePolicy.approvedLanes.includes(laneDecision.canonicalLane || laneDecision.lane)
+  ) return block("lane_not_approved_for_production_auto_merge");
   if (!laneDecision.autoMergeEligible || laneDecision.contract?.autoMergeEligible !== true) {
     return block("contract_not_auto_merge_eligible");
   }

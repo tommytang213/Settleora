@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -30,6 +30,7 @@ test("read-only observer config loading creates and chmods no project state", ()
 import {
   evaluateCanaryIssuePolicy,
   evaluateLowRiskAutoMergeCanaryApproval,
+  evaluateProductionFollowupIssueApproval,
   evaluateReviewFixMutationApproval,
   evaluateTrustPolicy,
   writeCanaryEvidence,
@@ -587,6 +588,57 @@ test("canary real-run allows auto-merge only for explicit external max-2 low-ris
   const tooMany = evaluateTrustPolicy({ ...approved, requestedMaxIterations: 3, maxIterations: 2 });
   assert.equal(tooMany.allowed, false);
   assert.match(tooMany.reason, /maxIterations must be <= 2/);
+});
+
+test("normal trusted production profile admits bounded follow-up and review-fix capabilities", () => {
+  const config = {
+    ...loadConfig({
+      ...parseCliArgs(["--run"]),
+      configPath: null,
+    }),
+    configPath: "/workspace/auto-runner/config/settleora.json",
+    runtimeMode: "external",
+    runtimeRoot: "/workspace/auto-runner/runtime",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/auto-runner/Settleora",
+    projectId: "Settleora",
+    repositorySlug: "tommytang213/Settleora",
+    runtimeBundleDigest: "a".repeat(64),
+    runtimeIdentity: Object.freeze({
+      version: 1,
+      projectId: "Settleora",
+      repositorySlug: "tommytang213/settleora",
+      runtimeRoot: "/workspace/auto-runner/runtime",
+      repoRoot: "/workspace/repos/Settleora",
+      logsRoot: "/workspace/logs/auto-runner/Settleora",
+      namespace: "b".repeat(64),
+    }),
+    runtimeManifest: Object.freeze({ bundleDigest: "a".repeat(64), sourceSha: "c".repeat(40) }),
+    trustedRealRunApproved: true,
+    allowAutoMerge: true,
+    allowFollowupIssueCreation: true,
+    allowReviewFixMutation: true,
+    maxReviewFixCycles: 50,
+    maxFollowupIssuesPerRun: 3,
+    autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] },
+    allowStaleClaimSteal: false,
+    allowSystemdEnablement: false,
+  };
+  config.reviewFixMutation = normalizeReviewFixMutationConfig(config);
+  const approval = evaluateReviewFixMutationApproval(config);
+  assert.equal(approval.approved, true);
+  assert.equal(approval.mode, "approved_production");
+  const policy = evaluateTrustPolicy(config);
+  assert.equal(policy.allowed, true);
+  assert.equal(policy.mode, "normal");
+  assert.equal(evaluateProductionFollowupIssueApproval(config).approved, true);
+  assert.equal(evaluateTrustPolicy({ ...config, autoMergePolicy: { approvedLanes: [] } }).allowed, false);
+  assert.equal(evaluateTrustPolicy({ ...config, maxFollowupIssuesPerRun: 4 }).allowed, false);
+  assert.equal(evaluateTrustPolicy({ ...config, runtimeMode: "bundled", runtimeIdentity: null }).allowed, false);
+  assert.equal(
+    evaluateReviewFixMutationApproval({ ...config, autoMergePolicy: { approvedLanes: [] } }).approved,
+    false,
+  );
 });
 
 test("review-fix mutation defaults off and clamps explicit approval to fifty cycles", () => {
@@ -1278,6 +1330,32 @@ test("review-fix mutation decision requires actionable low-risk auto-merge contr
   assert.equal(decision.allowed, true);
   assert.equal(decision.reason, "review_fix_mutation_gates_passed");
 
+  const productionConfig = {
+    ...config,
+    ...productionRuntimeEvidence(),
+    trustedRealRunCanaryApproved: false,
+    trustedRealRunApproved: true,
+    lowRiskAutoMergeCanaryApproved: false,
+    allowFollowupIssueCreation: true,
+    autoMergePolicy: { approvedLanes: [laneDecision.canonicalLane || laneDecision.lane] },
+  };
+  const productionDecision = evaluateReviewFixMutationDecision({
+    config: { ...productionConfig, reviewFixMutation: normalizeReviewFixMutationConfig(productionConfig) },
+    issue,
+    laneDecision,
+    changedFiles: ["tools/auto-runner/lib/review-fix-policy.mjs"],
+    validation: { passed: true },
+    review: {
+      verdict: {
+        verdict: "changes_requested",
+        recommended_next_action: "run_safe_fix_cycle",
+        blocking_findings: ["Tighten the production policy guard."],
+      },
+    },
+  });
+  assert.equal(productionDecision.allowed, true);
+  assert.equal(productionDecision.reason, "review_fix_mutation_gates_passed");
+
   const broad = evaluateReviewFixMutationDecision({
     config: { ...config, reviewFixMutation: normalizeReviewFixMutationConfig(config) },
     issue,
@@ -1321,7 +1399,15 @@ test("review-fix mutation blocks stop labels and non-actionable reviewer output 
     },
   };
   assert.match(evaluateReviewFixMutationDecision({ ...common, issue: { ...common.issue, labels: ["blocked"] } }).reason, /issue_stop_label/);
-  assert.equal(evaluateReviewFixMutationDecision({ ...common, config: { ...config, trustedRealRunApproved: true } }).allowed, true);
+  assert.equal(evaluateReviewFixMutationDecision({
+    ...common,
+    config: {
+      ...config,
+      ...productionRuntimeEvidence(),
+      trustedRealRunApproved: true,
+      autoMergePolicy: { approvedLanes: [common.laneDecision.canonicalLane || common.laneDecision.lane] },
+    },
+  }).allowed, true);
   assert.match(
     evaluateReviewFixMutationDecision({
       ...common,
@@ -1948,15 +2034,30 @@ test("Gemini smoke sends API key only in headers, never URL or evidence", async 
 
 test("Gemini approved secret metadata rejects unsafe files without reading values", () => {
   const secretRoot = "/workspace/logs/settleora-auto-runner/secrets";
+  const projectSecretRoot = "/workspace/logs/auto-runner/Settleora/secrets";
   const filePath = path.join(secretRoot, `reviewer-test-${process.pid}-${Date.now()}.env`);
+  const projectFilePath = path.join(projectSecretRoot, `reviewer-test-${process.pid}-${Date.now()}.env`);
+  const symlinkTarget = mkdtempSync(path.join(tmpdir(), "settleora-reviewer-secret-target-"));
+  const symlinkDir = path.join(projectSecretRoot, `reviewer-link-${process.pid}-${Date.now()}`);
+  const symlinkFilePath = path.join(symlinkDir, "reviewer.env");
   mkdirSync(secretRoot, { recursive: true, mode: 0o700 });
+  mkdirSync(projectSecretRoot, { recursive: true, mode: 0o700 });
   writeFileSync(filePath, "GEMINI_API_KEY=test\n", { mode: 0o600 });
+  writeFileSync(projectFilePath, "GEMINI_API_KEY=test\n", { mode: 0o600 });
+  chmodSync(symlinkTarget, 0o700);
+  writeFileSync(path.join(symlinkTarget, "reviewer.env"), "GEMINI_API_KEY=test\n", { mode: 0o600 });
+  symlinkSync(symlinkTarget, symlinkDir, "dir");
   try {
     assert.equal(validateReviewerSecretMetadata(filePath).ok, true);
+    assert.equal(validateReviewerSecretMetadata(projectFilePath).ok, true);
+    assert.equal(validateReviewerSecretMetadata(symlinkFilePath).reason, "blocked_secret_env_dir_symlink");
     chmodSync(filePath, 0o644);
     assert.equal(validateReviewerSecretMetadata(filePath).reason, "blocked_secret_env_file_mode");
   } finally {
     rmSync(filePath, { force: true });
+    rmSync(projectFilePath, { force: true });
+    rmSync(symlinkDir, { force: true });
+    rmSync(symlinkTarget, { recursive: true, force: true });
   }
 });
 
@@ -2852,6 +2953,37 @@ test("bounded selection scans stale candidates once and stops cleanly when none 
   assert.equal(result.selected, null);
   assert.equal(result.events.at(-1).action, "no_eligible_work_after_exclusions");
   assert.equal(result.events.at(-1).scannedCandidateCount, 3);
+});
+
+test("profile policy excludes a candidate before claim selection and selects the next allowed lane", () => {
+  const config = selectionConfig();
+  const tracker = createRunIssueTracker();
+  const protectedIssue = selectionIssue(865, "Protected UI canary", {
+    body: contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+  });
+  const workflowIssue = selectionIssue(9121, "Task-scoped workflow canary");
+  const result = selectDistinctEligibleIssue(
+    config,
+    [protectedIssue, workflowIssue],
+    tracker,
+    liveIssueReader({ 865: protectedIssue, 9121: workflowIssue }),
+    (_issue, laneDecision) => ({
+      allowed: laneDecision.lane === "workflow-docs-tooling",
+      reason: "lane_not_approved_by_active_profile",
+    }),
+  );
+  assert.equal(result.selected.number, 9121);
+  assert.deepEqual(trackerSnapshot(tracker).attemptedIssueNumbers, [865]);
+  assert.equal(
+    result.events.some((event) => event.reason?.startsWith("live_issue_profile_policy_not_allowed:")),
+    true,
+  );
 });
 
 test("selection evidence and status expose attempted counts without full issue bodies", () => {
@@ -4074,6 +4206,27 @@ test("approved low-risk auto-merge canary accepts exact lane globs and least-pri
     labels: ["auto-canary-ready", "canary"],
   });
   assert.equal(evaluateCanaryIssuePolicy(config, lowRiskUi).allowed, true);
+});
+
+test("canary profile lane allowlist excludes historical canaries before implementation", () => {
+  const config = {
+    ...approvedLowRiskAutoMergeCanaryConfig(),
+    autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] },
+  };
+  const historicalClientUi = classifyIssueLane({
+    title: "Historical protected client UI canary",
+    body: contractBody({
+      lane: "client-ui-low-risk",
+      allowedPaths: ["apps/mobile/lib/ui/settleora_components.dart"],
+      validationProfile: "mobile-ui-low-risk",
+      manualMergeRequired: false,
+      autoMergeEligible: true,
+    }),
+    labels: ["auto-canary-ready", "canary"],
+  });
+  const decision = evaluateCanaryIssuePolicy(config, historicalClientUi);
+  assert.equal(decision.allowed, false);
+  assert.match(decision.reason, /not approved by the active profile/);
 });
 
 test("approved low-risk auto-merge canary rejects broad, runtime, traversal, and non-canary lane paths", () => {
@@ -7704,6 +7857,28 @@ function selectionConfig(overrides = {}) {
   };
 }
 
+function productionRuntimeEvidence() {
+  return {
+    runtimeMode: "external",
+    runtimeRoot: "/workspace/auto-runner/runtime",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/auto-runner/Settleora",
+    projectId: "Settleora",
+    repositorySlug: "tommytang213/Settleora",
+    runtimeBundleDigest: "a".repeat(64),
+    runtimeIdentity: Object.freeze({
+      version: 1,
+      projectId: "Settleora",
+      repositorySlug: "tommytang213/settleora",
+      runtimeRoot: "/workspace/auto-runner/runtime",
+      repoRoot: "/workspace/repos/Settleora",
+      logsRoot: "/workspace/logs/auto-runner/Settleora",
+      namespace: "b".repeat(64),
+    }),
+    runtimeManifest: Object.freeze({ bundleDigest: "a".repeat(64), sourceSha: "c".repeat(40) }),
+  };
+}
+
 function selectionIssue(number, title = `Issue ${number}`, overrides = {}) {
   return {
     number,
@@ -7743,6 +7918,9 @@ function approvedLowRiskAutoMergeCanaryConfig() {
     trustedRealRunCanaryMaxIterations: 2,
     lowRiskAutoMergeCanaryApproved: true,
     allowAutoMerge: true,
+    autoMergePolicy: {
+      approvedLanes: ["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"],
+    },
     allowFollowupIssueCreation: false,
     allowStaleClaimSteal: false,
     allowReviewFixMutation: false,

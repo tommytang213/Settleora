@@ -270,7 +270,7 @@ export function verifyRuntimeBundle(runtimeRoot, expectedDigest = null) {
   const rebuilt = buildRuntimeManifest(runtimeRoot, { sourceSha: manifest.sourceSha, generatedAt: manifest.generatedAt });
   if (canonicalJson(manifest) !== canonicalJson(rebuilt)) throw new Error("runtime bundle manifest or file digest drift");
   if (expectedDigest && rebuilt.bundleDigest !== expectedDigest) throw new Error("runtime bundle digest mismatch");
-  return rebuilt;
+  return Object.freeze(rebuilt);
 }
 
 export function deployRuntimeBundle({

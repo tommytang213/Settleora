@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { digestChangedFiles } from "./config.mjs";
@@ -23,7 +23,10 @@ export const supportedGeminiModelEndpoints = Object.freeze({
   "gemini-flash-lite-latest": `${geminiApiOrigin}/v1beta/models/gemini-flash-lite-latest:generateContent`,
   "gemini-3.1-pro-preview": `${geminiApiOrigin}/v1beta/models/gemini-3.1-pro-preview:generateContent`,
 });
-const approvedSecretRoot = "/workspace/logs/settleora-auto-runner/secrets";
+const approvedSecretRoots = Object.freeze([
+  "/workspace/logs/settleora-auto-runner/secrets",
+  "/workspace/logs/auto-runner/Settleora/secrets",
+]);
 const smokeInputTokenEstimate = 900;
 const smokeOutputTokenEstimate = 320;
 const integratedOutputTokenEstimate = 1000;
@@ -546,8 +549,23 @@ export function loadGeminiApiKey({ env = process.env, envFilePath = null, envKey
 
 export function validateReviewerSecretMetadata(envFilePath) {
   const resolved = path.resolve(envFilePath || "");
-  if (!resolved.startsWith(`${approvedSecretRoot}/`)) return { ok: false, reason: "blocked_unapproved_secret_env_file_path" };
+  const approvedRoot = approvedSecretRoots.find((root) => resolved.startsWith(`${root}/`));
+  if (!approvedRoot) {
+    return { ok: false, reason: "blocked_unapproved_secret_env_file_path" };
+  }
   if (!existsSync(resolved)) return { ok: false, reason: "blocked_for_live_smoke_test_key_missing" };
+  let current = approvedRoot;
+  const relativeParent = path.relative(approvedRoot, path.dirname(resolved));
+  const directoryParts = relativeParent === "" ? [] : relativeParent.split(path.sep);
+  for (const part of ["", ...directoryParts]) {
+    if (part) current = path.join(current, part);
+    const link = lstatSync(current);
+    if (link.isSymbolicLink()) return { ok: false, reason: "blocked_secret_env_dir_symlink" };
+    if (!link.isDirectory()) return { ok: false, reason: "blocked_secret_env_dir_not_directory" };
+    if ((link.mode & 0o777) !== 0o700) return { ok: false, reason: "blocked_secret_env_dir_mode" };
+    if (link.uid !== process.getuid?.()) return { ok: false, reason: "blocked_secret_env_dir_owner" };
+    if (realpathSync(current) !== current) return { ok: false, reason: "blocked_secret_env_dir_noncanonical" };
+  }
   const link = lstatSync(resolved);
   if (link.isSymbolicLink()) return { ok: false, reason: "blocked_secret_env_file_symlink" };
   const file = statSync(resolved);
@@ -555,10 +573,6 @@ export function validateReviewerSecretMetadata(envFilePath) {
   if ((file.mode & 0o777) !== 0o600) return { ok: false, reason: "blocked_secret_env_file_mode" };
   if (file.uid !== process.getuid?.()) return { ok: false, reason: "blocked_secret_env_file_owner" };
   if (file.size <= 0 || file.size > 4096) return { ok: false, reason: "blocked_secret_env_file_size" };
-  const dir = statSync(path.dirname(resolved));
-  if (!dir.isDirectory()) return { ok: false, reason: "blocked_secret_env_dir_not_directory" };
-  if ((dir.mode & 0o777) !== 0o700) return { ok: false, reason: "blocked_secret_env_dir_mode" };
-  if (dir.uid !== process.getuid?.()) return { ok: false, reason: "blocked_secret_env_dir_owner" };
   return { ok: true, path: resolved, size: file.size, fileMode: "0600", dirMode: "0700" };
 }
 
