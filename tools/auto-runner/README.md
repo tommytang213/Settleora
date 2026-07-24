@@ -973,8 +973,11 @@ attempt stores separate sanitized stdout, stderr, prompt, and combined log
 metadata; summaries report attempt count, process status/signal, selected
 response boundary, parse or contract failure category, final reason, and final
 verdict when available. Stdout is primary. Stderr fallback is allowed only when
-stdout is empty and stderr contains exactly one valid verdict object. Multiple
-verdict objects across stdout/stderr are ambiguous and fail closed. The bounded
+stdout is empty and stderr contains exactly one valid verdict object.
+Contract-distinct verdict objects across stdout/stderr are ambiguous and fail
+closed. One normalized verdict repeated with the same contract meaning in the
+diagnostic stderr transcript is treated as one contract verdict; the selected
+stdout payload must still contain exactly one valid verdict object. The bounded
 retry cap is two total attempts, and retry is limited to process/transport
 failures such as missing selected payload or output-transport failure. Valid
 `changes_requested`, `needs_tommy`, `danger_gate`, substantive
@@ -1456,12 +1459,14 @@ Before review, the runner checks for a remote task branch or PR for the task
 branch and fails closed if either exists unexpectedly.
 
 The reviewer subprocess boundary is channel-separated. The runner selects the
-reviewer process `stdout` stream as the only machine-parseable response
+reviewer process `stdout` stream as the primary machine-parseable response
 payload and writes the full raw review log, including `stderr` and diagnostic
-session transcript material, for human inspection. The verdict extractor does
-not parse the full raw log. If the selected `stdout` payload is empty, missing,
-or invalid, review fails closed instead of falling back to transcript/log
-content.
+session transcript material, for human inspection. When stdout is empty,
+stderr may be selected only if it has exactly one valid verdict. Combined
+stdout/stderr candidates are parsed separately only to reject contract-distinct
+cross-stream verdicts or recognize one contract-identical diagnostic echo;
+combined raw-log text is never selected as the verdict payload. Missing or
+invalid selected payload fails closed.
 
 Within the selected response payload, the review verdict parser extracts JSON
 object candidates from raw JSON, fenced `json`, or JSON surrounded by

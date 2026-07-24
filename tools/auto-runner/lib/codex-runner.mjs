@@ -284,10 +284,12 @@ function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecyc
   const selected = selectReviewResponseBoundary(stdout, stderr);
   const selectedPayload = selected.payload;
   const rawOutput = `${stdout}\n${stderr}`;
-  const rawCandidateDiagnostics = reviewDiagnostics(extractReviewVerdictCandidates(rawOutput));
+  const rawCandidates = extractReviewVerdictCandidates(rawOutput);
+  const rawCandidateDiagnostics = reviewDiagnostics(rawCandidates);
+  const conflictingRawVerdicts = hasConflictingReviewVerdicts(rawCandidates.valid);
   const selectedVerdict = parseReviewVerdict(selectedPayload);
   const parsedVerdict = withReviewOutputBoundary(
-    rawCandidateDiagnostics.valid_verdict_count > 1
+    conflictingRawVerdicts
       ? unableToReview("Reviewer output contained multiple verdict JSON objects across stdout/stderr; refusing ambiguous review output.", {
           valid_verdict_count: rawCandidateDiagnostics.valid_verdict_count,
           invalid_candidate_count: rawCandidateDiagnostics.invalid_candidate_count,
@@ -346,6 +348,16 @@ function runReviewPromptAttempt(config, command, prompt, attempt, sessionLifecyc
     ...classification,
     sessionLifecycle,
   };
+}
+
+function hasConflictingReviewVerdicts(candidates = []) {
+  if (candidates.length < 2) return false;
+  const fingerprints = new Set(candidates.map(({ verdict, comparisonFingerprint }) => {
+    if (comparisonFingerprint) return comparisonFingerprint;
+    const { json_source: _jsonSource, ...contractVerdict } = verdict;
+    return JSON.stringify(contractVerdict);
+  }));
+  return fingerprints.size > 1;
 }
 
 function selectReviewResponseBoundary(stdout, stderr) {
@@ -524,6 +536,7 @@ export function extractReviewVerdictCandidates(output) {
     if (validation.ok) {
       valid.push({
         source: candidate.source,
+        comparisonFingerprint: validation.comparisonFingerprint,
         verdict: {
           ...validation.verdict,
           json_source: candidate.source,
@@ -604,8 +617,21 @@ function validateReviewVerdictObject(parsed) {
   if (!Array.isArray(parsed.blocking_findings) || !Array.isArray(parsed.non_blocking_findings)) {
     return { ok: false, reason: "Reviewer verdict findings fields must be arrays." };
   }
+  const comparisonFingerprint = createHash("sha256").update(JSON.stringify({
+    verdict: parsed.verdict,
+    reviewed_base_sha: parsed.reviewed_base_sha,
+    confidence: parsed.confidence,
+    requirement_match: parsed.requirement_match,
+    code_quality: parsed.code_quality,
+    scope_control: parsed.scope_control,
+    validation_adequacy: parsed.validation_adequacy,
+    blocking_findings: parsed.blocking_findings,
+    non_blocking_findings: parsed.non_blocking_findings,
+    recommended_next_action: parsed.recommended_next_action,
+  })).digest("hex");
   return {
     ok: true,
+    comparisonFingerprint,
     verdict: {
       verdict: parsed.verdict,
       reviewed_base_sha: parsed.reviewed_base_sha,
