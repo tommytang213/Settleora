@@ -7312,6 +7312,18 @@ test("enabled session lifecycle builds and persists an exact implementation invo
   assert.match(source, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
 });
 
+test("ordinary recovery is born with the final task branch identity", () => {
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const iteration = source.slice(source.indexOf("logger.info(`Iteration"), source.indexOf("const claim = claimIssue"));
+  assert.match(iteration, /const plannedBranchName =/);
+  assert.match(iteration, /branchName: plannedBranchName/);
+  assert.doesNotMatch(iteration, /pending\/issue-/);
+  const merge = source.slice(source.indexOf("async function evaluateOrExecuteAutoMerge"), source.indexOf("async function runReviewFixCycle"));
+  assert.match(merge, /decision\.reason === "required_checks_not_successful"/);
+  assert.match(merge, /attempt < 60/);
+  assert.match(merge, /setTimeout\(resolve, 30_000\)/);
+});
+
 test("existing-PR recovery creates lifecycle authority before merge execution", () => {
   const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const recovery = source.slice(source.indexOf("async function recoverExistingPrIfConfigured"), source.indexOf("async function generateExistingPrRecoveryEvidence"));

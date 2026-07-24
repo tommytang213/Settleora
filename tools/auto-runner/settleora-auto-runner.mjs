@@ -533,12 +533,14 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   checkpoint(iteration);
   logger.info(`Iteration ${index}: selected issue #${issue.number} ${issue.title}`);
 
+  const taskTimestamp = safeTimestamp();
+  const plannedBranchName = `${laneDecision.branchStrategy === "focused" ? "focused" : "feature"}/auto-${issue.number}-${slugify(issue.title, 40)}-${taskTimestamp.slice(0, 15).toLowerCase()}`;
   let recoveryRecorder = createProductionRecoveryRecorder(config, {
-    taskKey: safeTimestamp().slice(0, 13).replace(/[^0-9T]/g, ""),
+    taskKey: taskTimestamp.slice(0, 13).replace(/[^0-9T]/g, ""),
     issue,
     runId,
     supervisorRunId: config.supervisorRunId || null,
-    branchName: `pending/issue-${issue.number}-${runId}`,
+    branchName: plannedBranchName,
     baseSha: config.dryRun ? null : getRefSha("origin/main"),
     currentHeadSha: config.dryRun ? null : getRefSha("HEAD"),
     phase: "issue_poll_claim",
@@ -747,7 +749,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   const slug = slugify(issue.title, 40);
   const branchPrefix = laneDecision.branchStrategy === "focused" ? "focused" : "feature";
-  const branchName = `${branchPrefix}/auto-${issue.number}-${slug}-${safeTimestamp().slice(0, 15).toLowerCase()}`;
+  const branchName = `${branchPrefix}/auto-${issue.number}-${slug}-${taskTimestamp.slice(0, 15).toLowerCase()}`;
+  if (branchName !== plannedBranchName) throw new Error("planned recovery branch identity drifted");
   iteration.branchName = branchName;
   fetchOriginMain(config);
   iteration.baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
@@ -3382,20 +3385,28 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     baseContext.currentOriginMainSha = getRefSha("origin/main");
   }
   const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
-  const githubState =
-    config.dryRun || !iteration.pr?.url
-      ? {}
-      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url, laneDecision: iteration.laneDecision }, { runner: autoMergeRunner });
-  return executeAutoMerge(config, {
-    ...baseContext,
-    ...githubState,
-    issue: githubState.issue || baseContext.issue,
-    pr: { ...baseContext.pr, ...(githubState.pr || {}) },
-    requiredChecks: githubState.requiredChecks || baseContext.requiredChecks,
-    reviewThreads: githubState.reviewThreads || baseContext.reviewThreads,
-    codeScanningAlerts: githubState.codeScanningAlerts || baseContext.codeScanningAlerts,
-    blockingMarkers: githubState.blockingMarkers || baseContext.blockingMarkers,
-  }, { runner: autoMergeRunner });
+  const inspectAndExecute = () => {
+    const githubState =
+      config.dryRun || !iteration.pr?.url
+        ? {}
+        : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url, laneDecision: iteration.laneDecision }, { runner: autoMergeRunner });
+    return executeAutoMerge(config, {
+      ...baseContext,
+      ...githubState,
+      issue: githubState.issue || baseContext.issue,
+      pr: { ...baseContext.pr, ...(githubState.pr || {}) },
+      requiredChecks: githubState.requiredChecks || baseContext.requiredChecks,
+      reviewThreads: githubState.reviewThreads || baseContext.reviewThreads,
+      codeScanningAlerts: githubState.codeScanningAlerts || baseContext.codeScanningAlerts,
+      blockingMarkers: githubState.blockingMarkers || baseContext.blockingMarkers,
+    }, { runner: autoMergeRunner });
+  };
+  let decision = await inspectAndExecute();
+  for (let attempt = 1; !config.dryRun && decision.reason === "required_checks_not_successful" && attempt < 60; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 30_000));
+    decision = await inspectAndExecute();
+  }
+  return decision;
 }
 
 async function runReviewFixCycle(config, context) {
