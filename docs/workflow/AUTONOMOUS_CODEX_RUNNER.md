@@ -642,8 +642,11 @@ Codex mechanics review evidence is machine-readable. Each attempt records
 status, signal, selected response boundary, parse/contract diagnostics, final
 verdict when present, sanitized prompt/log paths, reviewed head, and changed
 files. Reviewer stdout is the primary response boundary. If stdout is empty,
-stderr may be selected only when it contains exactly one valid verdict object;
-multiple verdict objects across stdout/stderr are ambiguous and fail closed.
+stderr may be selected only when it contains exactly one valid verdict object.
+Contract-distinct verdict objects across stdout/stderr are ambiguous and fail
+closed. One normalized verdict repeated with the same contract meaning in the
+diagnostic stderr transcript is treated as one contract verdict, while the
+selected stdout payload still requires exactly one valid verdict object.
 The runner captures stdout/stderr through files to avoid buffered-output
 transport failures. A bounded retry, capped at two total attempts, is reserved
 for process/transport categories such as missing selected payload or launch

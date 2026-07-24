@@ -973,8 +973,11 @@ attempt stores separate sanitized stdout, stderr, prompt, and combined log
 metadata; summaries report attempt count, process status/signal, selected
 response boundary, parse or contract failure category, final reason, and final
 verdict when available. Stdout is primary. Stderr fallback is allowed only when
-stdout is empty and stderr contains exactly one valid verdict object. Multiple
-verdict objects across stdout/stderr are ambiguous and fail closed. The bounded
+stdout is empty and stderr contains exactly one valid verdict object.
+Contract-distinct verdict objects across stdout/stderr are ambiguous and fail
+closed. One normalized verdict repeated with the same contract meaning in the
+diagnostic stderr transcript is treated as one contract verdict; the selected
+stdout payload must still contain exactly one valid verdict object. The bounded
 retry cap is two total attempts, and retry is limited to process/transport
 failures such as missing selected payload or output-transport failure. Valid
 `changes_requested`, `needs_tommy`, `danger_gate`, substantive
