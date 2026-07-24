@@ -281,12 +281,12 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   const worktreeConfigEnabled = gitConfigBoolean(root, "extensions.worktreeConfig", gitEnvironment);
   const worktreeFetchUrls = worktreeConfigEnabled ? gitConfigValues(root, "remote.origin.url", gitEnvironment, "worktree") : [];
   const worktreePushUrls = worktreeConfigEnabled ? gitConfigValues(root, "remote.origin.pushurl", gitEnvironment, "worktree") : [];
-  const localRewriteAuthority = gitConfigNames(root, gitEnvironment, "local").some(isGitUrlRewriteKey);
-  const worktreeRewriteAuthority = worktreeConfigEnabled
-    && gitConfigNames(root, gitEnvironment, "worktree").some(isGitUrlRewriteKey);
+  const localTransportAuthority = gitConfigNames(root, gitEnvironment, "local").some(isGitTransportAuthorityKey);
+  const worktreeTransportAuthority = worktreeConfigEnabled
+    && gitConfigNames(root, gitEnvironment, "worktree").some(isGitTransportAuthorityKey);
   const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
   if (fetchUrls.length !== 1 || pushUrls.length > 1 || worktreeFetchUrls.length || worktreePushUrls.length
-      || localRewriteAuthority || worktreeRewriteAuthority
+      || localTransportAuthority || worktreeTransportAuthority
       || canonicalGitHubRepository(fetchUrls[0]) !== expectedRepository
       || canonicalGitHubRepository(effectivePushUrl) !== expectedRepository) {
     return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
@@ -387,10 +387,21 @@ function gitConfigNames(root, environment, scope) {
   return values;
 }
 
-function isGitUrlRewriteKey(key) {
+function isGitTransportAuthorityKey(key) {
   const normalized = String(key).toLowerCase();
-  return normalized.startsWith("url.")
-    && (normalized.endsWith(".insteadof") || normalized.endsWith(".pushinsteadof"));
+  return normalized === "include.path"
+    || (normalized.startsWith("includeif.") && normalized.endsWith(".path"))
+    || normalized === "core.sshcommand"
+    || normalized === "core.gitproxy"
+    || normalized === "ssh.variant"
+    || (normalized.startsWith("url.")
+      && (normalized.endsWith(".insteadof") || normalized.endsWith(".pushinsteadof")))
+    || [
+      "remote.origin.receivepack",
+      "remote.origin.uploadpack",
+      "remote.origin.proxy",
+      "remote.origin.vcs",
+    ].includes(normalized);
 }
 
 function canonicalGitHubRepository(remote) {

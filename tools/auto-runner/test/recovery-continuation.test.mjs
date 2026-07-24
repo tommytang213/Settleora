@@ -442,6 +442,27 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "worktree-scoped URL rewrites must not redirect later Git effects",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "url.git@github.com:foreign/repo.git.pushInsteadOf"]);
+    git(config.repoRoot, ["config", "--worktree", "include.path", path.join(hostileHome, "rewrite.config")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped include authority must not hide transport configuration",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "include.path"]);
+    git(config.repoRoot, ["config", "--local", "core.sshCommand", path.join(hostileHome, "hostile-ssh")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "local SSH command authority must not control later GitHub reads or effects",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "core.sshCommand"]);
+    git(config.repoRoot, ["config", "--worktree", "remote.origin.receivepack", "hostile-receive-pack"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped receive-pack authority must not control later pushes",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "remote.origin.receivepack"]);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
