@@ -396,6 +396,11 @@ function isGitTransportAuthorityKey(key) {
     || normalized === "core.askpass"
     || normalized === "core.hookspath"
     || normalized === "core.fsmonitor"
+    || normalized.startsWith("filter.")
+    || normalized === "diff.external"
+    || (normalized.startsWith("diff.")
+      && (normalized.endsWith(".command") || normalized.endsWith(".textconv")))
+    || (normalized.startsWith("merge.") && normalized.endsWith(".driver"))
     || normalized === "ssh.variant"
     || normalized.startsWith("http.")
     || normalized.startsWith("https.")

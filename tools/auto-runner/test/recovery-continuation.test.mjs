@@ -509,6 +509,20 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "worktree-scoped fsmonitor authority must not execute during later Git reads",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "core.fsmonitor"]);
+    git(config.repoRoot, ["config", "--local", "filter.hostile.process", path.join(hostileHome, "hostile-filter")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "local filter process authority must not execute during deployment Git reads",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "filter.hostile.process"]);
+    git(config.repoRoot, ["config", "--worktree", "filter.hostile.clean", path.join(hostileHome, "hostile-clean-filter")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped clean filter authority must not execute during deployment Git reads",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "filter.hostile.clean"]);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
