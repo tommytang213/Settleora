@@ -97,6 +97,7 @@ export function createSessionLifecycleState(input = {}) {
       issueNumber: input.issueNumber ?? null,
       taskKey: bounded(input.taskKey, 100),
       runId: bounded(input.runId, 160),
+      supervisorRunId: bounded(input.supervisorRunId, 160),
       claimIdentity: bounded(input.claimIdentity, 200),
       chargeMarkerRef: bounded(input.chargeMarkerRef, 500),
     },
@@ -158,7 +159,7 @@ export function validateSessionLifecycleState(state, expected = {}) {
   for (const key of ["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]) if (!Number.isSafeInteger(state.controller?.[key]) || state.controller[key] < 0) return fail("session_lifecycle_counter_invalid");
   try { normalizeContextBudgetPolicy(state.context?.policy); } catch { return fail("session_lifecycle_policy_invalid"); }
   if (state.report?.correlationKey !== state.logicalTask.taskKey) return fail("session_lifecycle_report_correlation_mismatch");
-  for (const [key, value] of Object.entries({ repository: state.repository, taskKey: state.logicalTask.taskKey, runId: state.logicalTask.runId, claimIdentity: state.logicalTask.claimIdentity, sessionId: state.sessions.current })) if (expected[key] && expected[key] !== value) return fail(`session_lifecycle_${key}_mismatch`);
+  for (const [key, value] of Object.entries({ repository: state.repository, taskKey: state.logicalTask.taskKey, runId: state.logicalTask.runId, supervisorRunId: state.logicalTask.supervisorRunId, claimIdentity: state.logicalTask.claimIdentity, sessionId: state.sessions.current })) if (expected[key] && expected[key] !== value) return fail(`session_lifecycle_${key}_mismatch`);
   if (state.checkpoint?.digest !== checkpointDigest(state)) return fail("session_lifecycle_checkpoint_digest_mismatch");
   return { ok: true };
 }

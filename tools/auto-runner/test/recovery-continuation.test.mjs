@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
+import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -32,7 +33,7 @@ import {
 } from "../lib/recovery-continuation.mjs";
 
 test("one trusted recovery reconstructs a genuinely missing lifecycle exactly once", () => {
-  const config = tempConfig({ repositorySlug: "owner/repo", maxIterations: 1 });
+  const config = tempConfig({ repositorySlug: "owner/repo", maxIterations: 1, sessionLifecycle: { enabled: true, allowRecoveryTakeover: true } });
   try {
     const recovery = createInitialRecoveryState({
       taskKey: "20260724T075849",
@@ -56,11 +57,17 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
     let withEvidence = recordIdempotentMutation({
       ...recovery,
       expectedReportPaths: {
-        repoReportPath: "/repo/settleora-codex-report-20260724T075849-issue-959.md",
-        promptPath: "/logs/20260724T075849-issue-959.md",
+        repoReportPath: path.join(config.repoRoot, ".codex", "reports", "settleora-codex-report-20260724T075849-issue-959-recovery.md"),
+        promptPath: path.join(config.logsRoot, "tasks", "20260724T075849-issue-959-recovery.md"),
       },
       ordinaryContinuation: {
         identity: { baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha },
+        counters: {
+          acceptedLogicalTasks: 1,
+          localSourceChangingRoundsPerEpoch: 2,
+          githubTriggeredFixEpochsPerPr: 1,
+          lifetimeLocalSourceChangingRounds: 3,
+        },
         sourceFailureBatch: {
           candidate: { baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha },
         },
@@ -93,6 +100,8 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
     assert.equal(first.ok, true);
     assert.equal(first.migrated, true);
     assert.equal(first.state.logicalTask.chargeMarkerRef, charged.statePath);
+    assert.equal(first.state.logicalTask.supervisorRunId, "supervised-959");
+    assert.equal(first.state.controller.localSourceChangingRoundsPerEpoch, 2);
     const second = loadSessionLifecycleForRecovery(config, identity);
     assert.equal(second.ok, true);
     assert.equal(second.state.sessions.generation, first.state.sessions.generation);
@@ -111,6 +120,43 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
     }, identity);
     assert.equal(mismatched.ok, false);
     assert.equal(mismatched.reasonCode, "session_lifecycle_migration_ownership_mismatch");
+
+    const contradictory = preparePreEffectIntent(config, {
+      repository: config.repositorySlug,
+      sourceTaskKey: identity.taskKey,
+      runId: identity.runId,
+      logicalTaskIdentity: "owner/repo#959",
+      claimIdentity: "owner/repo#959",
+      chargeIdentity: "wrong-charge",
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      effectType: "push",
+      issueNumber: identity.issueNumber,
+      branchName: identity.branchName,
+      baseSha: identity.baseSha,
+      headSha: identity.headSha,
+      effect: { localCommitSha: identity.headSha, remoteBranch: identity.branchName },
+    }, { intentId: "contradictory-charge" });
+    const executing = transitionPreEffectIntent({ ...config, currentAuthority: {
+      runId: identity.runId,
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      status: "active",
+    } }, contradictory, "executing");
+    transitionPreEffectIntent({ ...config, currentAuthority: {
+      runId: identity.runId,
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      status: "active",
+    } }, executing, "failed_closed");
+    assert.equal(
+      reconstructMissingSessionLifecycle(config, withEvidence, identity).reasonCode,
+      "session_lifecycle_migration_intent_identity_mismatch",
+    );
+    assert.equal(
+      consumeStartupInterruptionPlanner(config, withEvidence).reasonCode,
+      "session_lifecycle_intent_identity_mismatch",
+    );
   } finally {
     config.cleanup();
   }
@@ -198,6 +244,7 @@ function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-recovery-continuation-"));
   return {
     logsRoot,
+    repoRoot: path.join(logsRoot, "repo"),
     allowExistingPrRecovery: false,
     sessionLifecycle: { allowRecoveryTakeover: true },
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),

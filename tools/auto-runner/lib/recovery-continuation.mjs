@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   advanceRecoveryPhase,
   classifyRecoveryOutcome,
@@ -313,6 +314,14 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     && intent.sourceTaskKey === loaded.state.logicalTask.taskKey
     && intent.runId === loaded.state.logicalTask.runId
     && intent.claimIdentity === loaded.state.logicalTask.claimIdentity);
+  if (taskIntents.some((intent) => !intentMatchesRecoveryAuthority(intent, {
+    issueNumber: loaded.state.logicalTask.issueNumber,
+    claimIdentity: loaded.state.logicalTask.claimIdentity,
+    chargeIdentity: loaded.state.logicalTask.chargeMarkerRef,
+    branchName: loaded.state.branch.name,
+    baseSha: loaded.state.branch.baseSha,
+    headSha: loaded.state.branch.headSha,
+  }))) return { ok: false, reasonCode: "session_lifecycle_intent_identity_mismatch" };
   const pendingIntents = taskIntents.filter((intent) => !["finalized", "failed_closed"].includes(intent.status));
   const authoritative = collectAuthoritativeRecoveryEvidence(config, {
     repository: loaded.state.repository,
@@ -453,7 +462,12 @@ export function reconstructMissingSessionLifecycle(config, recoveryState, identi
   }
   const reportPath = recoveryState.expectedReportPaths?.repoReportPath;
   const promptPath = recoveryState.expectedReportPaths?.promptPath;
-  if (!reportPath || !promptPath || !reportPath.includes(identity.taskKey) || !promptPath.includes(identity.taskKey)) {
+  const reportRoot = path.join(config.repoRoot, ".codex", "reports");
+  const promptRoot = path.join(config.logsRoot, "tasks");
+  const reportPrefix = `settleora-codex-report-${identity.taskKey}-issue-${identity.issueNumber}-`;
+  const promptPrefix = `${identity.taskKey}-issue-${identity.issueNumber}-`;
+  if (!isCanonicalCorrelatedPath(reportPath, reportRoot, reportPrefix)
+    || !isCanonicalCorrelatedPath(promptPath, promptRoot, promptPrefix)) {
     return { ok: false, reasonCode: "session_lifecycle_migration_report_correlation_mismatch" };
   }
   let intents;
@@ -465,24 +479,38 @@ export function reconstructMissingSessionLifecycle(config, recoveryState, identi
   } catch {
     return { ok: false, reasonCode: "session_lifecycle_migration_intent_state_untrusted" };
   }
+  if (intents.some((intent) => !intentMatchesRecoveryAuthority(intent, {
+    issueNumber: identity.issueNumber,
+    claimIdentity,
+    chargeIdentity: budget.statePath,
+    branchName: identity.branchName,
+    baseSha: identity.baseSha,
+    headSha: identity.headSha,
+  }))) return { ok: false, reasonCode: "session_lifecycle_migration_intent_identity_mismatch" };
   if (intents.some((intent) => !["finalized", "failed_closed"].includes(intent.status))) {
     return { ok: false, reasonCode: "session_lifecycle_migration_pending_intents" };
   }
-  const counters = recoveryState.ordinaryContinuation?.counters || {};
+  const counters = recoveryState.ordinaryContinuation?.counters;
+  if (!counters || counters.acceptedLogicalTasks !== 1
+    || !["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]
+      .every((key) => Number.isSafeInteger(counters[key]) && counters[key] >= 0)) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_counter_mismatch" };
+  }
   const migrated = migrateRecoveryStateToSessionLifecycle(recoveryState, {
     repository: config.repositorySlug,
     issueNumber: identity.issueNumber,
     taskKey: identity.taskKey,
     runId: identity.runId,
+    supervisorRunId: budgetScopeId,
     claimIdentity,
     chargeMarkerRef: budget.statePath,
     sessionId: `${identity.runId}:recovery-bootstrap:1`,
     branchName: identity.branchName,
     baseSha: identity.baseSha,
     headSha: identity.headSha,
-    localSourceChangingRoundsPerEpoch: counters.localSourceChangingRoundsPerEpoch || 0,
-    githubTriggeredFixEpochsPerPr: counters.githubTriggeredFixEpochsPerPr || 0,
-    lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds || 0,
+    localSourceChangingRoundsPerEpoch: counters.localSourceChangingRoundsPerEpoch,
+    githubTriggeredFixEpochsPerPr: counters.githubTriggeredFixEpochsPerPr,
+    lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds,
     reportPath,
     reportCorrelationKey: identity.taskKey,
   });
@@ -491,6 +519,31 @@ export function reconstructMissingSessionLifecycle(config, recoveryState, identi
   if (!written.ok) return written;
   const readback = loadSessionLifecycleForRecovery(config, identity);
   return readback.ok ? { ...readback, migrated: true } : readback;
+}
+
+function isCanonicalCorrelatedPath(candidate, root, requiredPrefix) {
+  if (typeof candidate !== "string" || typeof root !== "string") return false;
+  const resolved = path.resolve(candidate);
+  return path.dirname(resolved) === path.resolve(root)
+    && path.basename(resolved).startsWith(requiredPrefix)
+    && path.basename(resolved).endsWith(".md");
+}
+
+function intentMatchesRecoveryAuthority(intent, expected) {
+  const identity = intent?.identity;
+  return intent.logicalTaskIdentity === expected.claimIdentity
+    && intent.claimIdentity === expected.claimIdentity
+    && intent.chargeIdentity === expected.chargeIdentity
+    && identity?.repository === intent.repository
+    && identity?.sourceTaskKey === intent.sourceTaskKey
+    && identity?.runId === intent.runId
+    && identity?.logicalTaskIdentity === expected.claimIdentity
+    && identity?.claimIdentity === expected.claimIdentity
+    && identity?.chargeIdentity === expected.chargeIdentity
+    && identity?.issueNumber === expected.issueNumber
+    && identity?.branchName === expected.branchName
+    && identity?.baseSha === expected.baseSha
+    && identity?.headSha === expected.headSha;
 }
 
 export function reconcileAuthoritativeLifecycleHead(state, authoritative) {
