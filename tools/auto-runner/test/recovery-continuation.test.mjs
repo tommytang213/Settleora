@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createSessionLifecycleState, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
+import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -23,11 +26,183 @@ import {
   planIdempotentGithubMutation,
   recoveryStatusSummary,
   reconcileAuthoritativeLifecycleHead,
+  reconstructMissingSessionLifecycle,
   projectStartupRecoveryIssueIdentity,
   shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
   consumeStartupInterruptionPlanner,
 } from "../lib/recovery-continuation.mjs";
+
+test("one trusted recovery reconstructs a genuinely missing lifecycle exactly once", () => {
+  const config = tempConfig({ repositorySlug: "owner/repo", maxIterations: 1, sessionLifecycle: { enabled: true, allowRecoveryTakeover: true } });
+  try {
+    const recovery = createInitialRecoveryState({
+      taskKey: "20260724T075849",
+      issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+      runId: "run-959",
+      supervisorRunId: "supervised-959",
+      branchName: "feature/auto-959-recovery",
+      baseSha: "a".repeat(40),
+      currentHeadSha: "b".repeat(40),
+      phase: "checkpoint_validation_commit",
+      firstIncompleteAction: "run_source_failure_convergence",
+    });
+    const charged = chargeAcceptedLogicalTask(config, {
+      budgetScopeId: "supervised-959",
+      maxTasks: 1,
+      issue: recovery.issue,
+      taskLineageId: "issue-959",
+      claimIdentity: "owner/repo#959",
+      acceptedAt: "2026-07-24T07:58:49.248Z",
+    });
+    let withEvidence = recordIdempotentMutation({
+      ...recovery,
+      expectedReportPaths: {
+        repoReportPath: path.join(config.repoRoot, ".codex", "reports", "settleora-codex-report-20260724T075849-issue-959-recovery.md"),
+        promptPath: path.join(config.logsRoot, "tasks", "20260724T075849-issue-959-recovery.md"),
+      },
+      ordinaryContinuation: {
+        identity: { baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha },
+        counters: {
+          acceptedLogicalTasks: 1,
+          localSourceChangingRoundsPerEpoch: 2,
+          githubTriggeredFixEpochsPerPr: 1,
+          lifetimeLocalSourceChangingRounds: 3,
+        },
+        sourceFailureBatch: {
+          candidate: { baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha },
+        },
+      },
+    }, {
+      kind: "claim",
+      key: "issue-959",
+      marker: { target: recovery.issue.url, correlation: recovery.run.runId },
+    });
+    withEvidence = recordIdempotentMutation(withEvidence, {
+      kind: "logical_task_charge",
+      key: charged.chargeId,
+      marker: { target: "issue-959", correlation: charged.chargeId },
+    });
+    withEvidence = recordIdempotentMutation(withEvidence, {
+      kind: "branch_ownership_created",
+      key: `${recovery.branch.name}:${recovery.branch.baseSha}`,
+      marker: { target: recovery.branch.name, correlation: recovery.branch.baseSha },
+    });
+    const identity = {
+      repository: "owner/repo",
+      issueNumber: 959,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      supervisorRunId: recovery.run.supervisorRunId,
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+    };
+    const directConfig = tempConfig({ repositorySlug: "owner/repo", maxIterations: 1, sessionLifecycle: { enabled: true, allowRecoveryTakeover: true } });
+    try {
+      const directCharge = chargeAcceptedLogicalTask(directConfig, {
+        budgetScopeId: recovery.run.runId,
+        maxTasks: 1,
+        issue: recovery.issue,
+        taskLineageId: "issue-959",
+        claimIdentity: "owner/repo#959",
+        acceptedAt: "2026-07-24T07:58:49.248Z",
+      });
+      assert.equal(directCharge.chargeId, charged.chargeId);
+      const directRecovery = {
+        ...withEvidence,
+        run: { ...withEvidence.run, supervisorRunId: null },
+        expectedReportPaths: {
+          repoReportPath: path.join(directConfig.repoRoot, ".codex", "reports", "settleora-codex-report-20260724T075849-issue-959-recovery.md"),
+          promptPath: path.join(directConfig.logsRoot, "tasks", "20260724T075849-issue-959-recovery.md"),
+        },
+      };
+      const direct = reconstructMissingSessionLifecycle(directConfig, directRecovery, { ...identity, supervisorRunId: null });
+      assert.equal(direct.ok, true, JSON.stringify(direct));
+      assert.equal(direct.state.logicalTask.supervisorRunId, null);
+    } finally {
+      directConfig.cleanup();
+    }
+    const first = reconstructMissingSessionLifecycle(config, withEvidence, identity);
+    assert.equal(first.ok, true);
+    assert.equal(first.migrated, true);
+    assert.equal(first.state.logicalTask.chargeMarkerRef, charged.statePath);
+    assert.equal(first.state.logicalTask.supervisorRunId, "supervised-959");
+    assert.equal(first.state.controller.localSourceChangingRoundsPerEpoch, 2);
+    const recoveryAdapters = {
+      readProcess: () => ({ complete: true, pid: 959, ownerRunId: identity.runId, alive: false, source: "fixture_pid_probe" }),
+      readLease: () => ({ complete: true, runId: "supervised-959", runnerRunId: identity.runId, heartbeatAt: "2026-07-24T07:59:00Z", expiresAt: "2026-07-24T08:00:00Z", valid: false, source: "fixture_heartbeat" }),
+      readGit: () => ({ complete: true, source: "fixture_git", headSha: identity.headSha, remoteHeadSha: null, branchName: identity.branchName, baseSha: identity.baseSha, worktreeClean: true, indexClean: true, untrackedClean: true, stagedPaths: [], unstagedPaths: [], untrackedPaths: [] }),
+      readGithub: () => ({ complete: true, source: "fixture_github", issue: { number: identity.issueNumber, state: "OPEN" }, pr: null, comments: [], checks: { state: "unknown" }, hygiene: [] }),
+    };
+    const resumed = consumeStartupInterruptionPlanner(config, withEvidence, {}, recoveryAdapters);
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
+    assert.match(resumed.successorSessionId, /^run-959:recovery:[0-9a-f-]{36}$/);
+    assert.equal(resumed.mutationGeneration, 2);
+    assert.equal(resumed.state.logicalTask.supervisorRunId, "supervised-959");
+    const second = loadSessionLifecycleForRecovery(config, identity);
+    assert.equal(second.ok, true);
+    assert.equal(second.state.sessions.generation, resumed.state.sessions.generation);
+    assert.equal(second.state.mutationAuthority.generation, resumed.state.mutationAuthority.generation);
+    const repeated = consumeStartupInterruptionPlanner(config, withEvidence, {}, recoveryAdapters);
+    assert.equal(repeated.ok, true, JSON.stringify(repeated));
+    assert.equal(repeated.mutationGeneration, resumed.mutationGeneration);
+    assert.equal(repeated.successorSessionId, resumed.successorSessionId);
+    const mismatched = reconstructMissingSessionLifecycle(config, {
+      ...withEvidence,
+      mutationMarkers: {
+        ...withEvidence.mutationMarkers,
+        claim: {
+          "issue-959": {
+            ...withEvidence.mutationMarkers.claim["issue-959"],
+            correlation: "wrong-run",
+          },
+        },
+      },
+    }, identity);
+    assert.equal(mismatched.ok, false);
+    assert.equal(mismatched.reasonCode, "session_lifecycle_migration_ownership_mismatch");
+
+    const contradictory = preparePreEffectIntent(config, {
+      repository: config.repositorySlug,
+      sourceTaskKey: identity.taskKey,
+      runId: identity.runId,
+      logicalTaskIdentity: "owner/repo#959",
+      claimIdentity: "owner/repo#959",
+      chargeIdentity: "wrong-charge",
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      effectType: "push",
+      issueNumber: identity.issueNumber,
+      branchName: identity.branchName,
+      baseSha: identity.baseSha,
+      headSha: identity.headSha,
+      effect: { localCommitSha: identity.headSha, remoteBranch: identity.branchName },
+    }, { intentId: "contradictory-charge" });
+    const executing = transitionPreEffectIntent({ ...config, currentAuthority: {
+      runId: identity.runId,
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      status: "active",
+    } }, contradictory, "executing");
+    transitionPreEffectIntent({ ...config, currentAuthority: {
+      runId: identity.runId,
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      status: "active",
+    } }, executing, "failed_closed");
+    assert.equal(
+      reconstructMissingSessionLifecycle(config, withEvidence, identity).reasonCode,
+      "session_lifecycle_migration_intent_identity_mismatch",
+    );
+    assert.equal(
+      consumeStartupInterruptionPlanner(config, withEvidence).reasonCode,
+      "session_lifecycle_intent_identity_mismatch",
+    );
+  } finally {
+    config.cleanup();
+  }
+});
 
 test("disabled lifecycle preserves legacy startup continuation before takeover gating", () => {
   assert.deepEqual(
@@ -62,6 +237,7 @@ test("disabled lifecycle refuses legacy fallback when a lifecycle checkpoint exi
       issueNumber: recovery.issue.number,
       taskKey: recovery.taskKey,
       runId: recovery.run.runId,
+      supervisorRunId: recovery.run.supervisorRunId,
       claimIdentity: "claim-893",
       chargeMarkerRef: "charge-893",
       sessionId: "session-893",
@@ -73,6 +249,81 @@ test("disabled lifecycle refuses legacy fallback when a lifecycle checkpoint exi
     });
     assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
     assert.equal(consumeStartupInterruptionPlanner(config, recovery).reasonCode, "session_lifecycle_disabled_existing_state");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("enabled recovery atomically backfills only a missing legacy supervisor identity", () => {
+  const config = tempConfig({ repositorySlug: "owner/repo", sessionLifecycle: { enabled: true, allowRecoveryTakeover: true } });
+  try {
+    const recovery = state({ supervisorRunId: "supervised-legacy" });
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      claimIdentity: "owner/repo#893",
+      chargeMarkerRef: "charge-893",
+      sessionId: "session-893",
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+      phase: "push",
+      nextExactAction: "push",
+    });
+    assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
+    const lifecyclePath = sessionLifecyclePath(config, lifecycle);
+    const legacy = JSON.parse(readFileSync(lifecyclePath, "utf8"));
+    delete legacy.logicalTask.supervisorRunId;
+    legacy.checkpoint.digest = null;
+    const digestInput = structuredClone(legacy);
+    digestInput.timestamps.updatedAt = null;
+    legacy.checkpoint.digest = createHash("sha256").update(JSON.stringify(digestInput)).digest("hex");
+    writeFileSync(lifecyclePath, `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
+    assert.equal(Object.hasOwn(JSON.parse(readFileSync(lifecyclePath, "utf8")).logicalTask, "supervisorRunId"), false);
+    assert.equal(validateSessionLifecycleState(legacy, {
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+      claimIdentity: legacy.logicalTask.claimIdentity,
+    }).ok, true);
+    assert.equal(loadSessionLifecycleForRecovery(config, {
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      supervisorRunId: recovery.run.supervisorRunId,
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: "d".repeat(40),
+    }).reasonCode, "session_lifecycle_legacy_supervisor_backfill_head_mismatch");
+    const loaded = loadSessionLifecycleForRecovery(config, {
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      supervisorRunId: recovery.run.supervisorRunId,
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+    });
+    assert.equal(loaded.ok, true);
+    assert.equal(loaded.state.logicalTask.supervisorRunId, "supervised-legacy");
+    assert.equal(loadSessionLifecycleForRecovery(config, {
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      supervisorRunId: "wrong-supervisor",
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+    }).reasonCode, "session_lifecycle_supervisorRunId_mismatch");
   } finally {
     config.cleanup();
   }
@@ -111,6 +362,7 @@ function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-recovery-continuation-"));
   return {
     logsRoot,
+    repoRoot: path.join(logsRoot, "repo"),
     allowExistingPrRecovery: false,
     sessionLifecycle: { allowRecoveryTakeover: true },
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
@@ -640,6 +892,226 @@ test("multiple recoverable active states fail closed", () => {
     const discovery = discoverStartupRecovery(config);
     assert.equal(discovery.allowed, false);
     assert.equal(discovery.reasonCode, "multiple_recoverable_states");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("one exact validation-failure successor supersedes its provisional pre-prompt record", () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    let provisional = createInitialRecoveryState({
+      taskKey: "20260724T07",
+      issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+      runId: "run-959",
+      supervisorRunId: "supervised-959",
+      branchName: "feature/auto-959-recovery",
+      baseSha: "a".repeat(40),
+      currentHeadSha: "a".repeat(40),
+      phase: "implementation_or_bundle_slice",
+      firstIncompleteAction: "run_implementation",
+    });
+    for (const [kind, key] of [["claim", "issue-959"], ["logical_task_charge", "charge-959"], ["branch_ownership_created", "branch-959"]]) {
+      provisional = recordIdempotentMutation(provisional, { kind, key });
+    }
+    let successor = {
+      ...provisional,
+      taskKey: "20260724T075849",
+      branch: { ...provisional.branch, currentHeadSha: "b".repeat(40) },
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      expectedReportPaths: {
+        repoReportPath: "/repo/.codex/reports/settleora-codex-report-20260724T075849-issue-959-recovery.md",
+        promptPath: "/logs/tasks/20260724T075849-issue-959-recovery.md",
+      },
+      evidence: { ...provisional.evidence, localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          batchIdentity: "batch-959",
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+      timestamps: { ...provisional.timestamps, updatedAt: new Date(Date.parse(provisional.timestamps.updatedAt) + 1000).toISOString() },
+    };
+    writeRecoveryState(config, provisional);
+    writeRecoveryState(config, successor);
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.allowed, true);
+    assert.equal(discovery.states.length, 1);
+    assert.equal(discovery.state.taskKey, successor.taskKey);
+    assert.equal(discovery.state.currentHeadSha, successor.branch.currentHeadSha);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("terminal validation rejection is not revived as recoverable work", () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      nextSafeAction: "stop_fail_closed",
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("non-source validation failure resumes validation without implementation replay", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.allowed, true);
+    let implementationCalls = 0;
+    const continued = await executeStartupContinuation(config, discovery, {
+      checkpoint_validation_commit: async ({ boundary }) => ({
+        ok: true,
+        outcome: "validation_resumed",
+        boundary,
+      }),
+      implementation_or_bundle_slice: async () => {
+        implementationCalls += 1;
+        return { ok: false };
+      },
+    });
+    assert.equal(continued.ok, true);
+    assert.equal(continued.result.boundary.nextSafeAction, "run_validation_and_commit");
+    assert.equal(implementationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("failed resumed validation is re-terminalized instead of retried on every startup", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+        },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ state }) => ({
+        ok: false,
+        outcome: "blocked_recovery_state",
+        reasonCode: "checkpoint_validation_not_source_fix_safe",
+        state: {
+          ...state,
+          ordinaryContinuation: {
+            phase: "local_validation",
+            sourceFailureBatch: {
+              findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+            },
+          },
+        },
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.result.state.phase, "stopped");
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("later continuation failures after recovered validation remain recoverable", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849", issue: { number: 959, title: "Recovery", url: "u" }, runId: "run-959",
+        branchName: "feature/auto-959-recovery", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped", firstIncompleteAction: "run_validation_and_commit", nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: { findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }] },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async () => ({
+        ok: false,
+        reasonCode: "ordinary_continuation_external_review_unavailable",
+        state: { phase: "external_review", sourceFailureBatch: null },
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(discoverStartupRecovery(config).found, true);
   } finally {
     config.cleanup();
   }

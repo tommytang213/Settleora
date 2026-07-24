@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -319,22 +319,85 @@ export function loadRecoveryState(config, keyOrState) {
 export function listRecoverableRecoveryStates(config) {
   const root = path.join(config.logsRoot, recoveryStateRootName);
   if (!existsSync(root)) return [];
-  return readdirSync(root)
-    .filter((name) => name.endsWith(".json"))
+  const artifactNames = readdirSync(root).filter((name) => name.endsWith(".json"));
+  if (artifactNames.length === 0) return [];
+  const rootInfo = lstatSync(root);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0 || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())) {
+    throw new Error("recovery_state_root_untrusted");
+  }
+  const states = artifactNames
     .map((name) => path.join(root, name))
     .map((statePath) => {
       try {
+        const info = lstatSync(statePath);
+        if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || info.size <= 0 || info.size > 1024 * 1024 || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+          throw new Error("recovery_state_artifact_untrusted");
+        }
         const parsed = JSON.parse(readFileSync(statePath, "utf8"));
         const validation = validateRecoveryStateShape(parsed);
         if (!validation.ok) return null;
-        if (["completed", "stopped"].includes(parsed.phase)) return null;
+        if (parsed.phase === "completed") return null;
+        if (parsed.phase === "stopped" && !isValidationFailureContinuation(parsed)) return null;
         return sanitizeRecoveryState({ ...parsed, statePath });
       } catch {
-        return null;
+        throw new Error("recovery_state_artifact_untrusted");
       }
     })
-    .filter(Boolean)
+    .filter(Boolean);
+  const superseded = new Set();
+  for (const candidate of states) {
+    if (!isProvisionalTaskKey(candidate.taskKey)) continue;
+    const successors = states.filter((other) => other !== candidate && isExactRecoverySuccessor(candidate, other));
+    if (successors.length === 1) superseded.add(candidate.statePath);
+  }
+  return states
+    .filter((state) => !superseded.has(state.statePath))
     .sort((left, right) => String(left.timestamps?.updatedAt || "").localeCompare(String(right.timestamps?.updatedAt || "")));
+}
+
+function isValidationFailureContinuation(state) {
+  return state?.evidence?.localValidation?.status === "failed"
+    && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
+    && isValidationRetryCheckpoint(state);
+}
+
+function isValidationRetryCheckpoint(state) {
+  return state?.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+    && state?.firstIncompleteAction === "run_validation_and_commit"
+    && state?.nextSafeAction === "stop_fail_closed"
+    && Array.isArray(state?.ordinaryContinuation?.sourceFailureBatch?.findings)
+    && state.ordinaryContinuation.sourceFailureBatch.findings.length > 0
+    && state.ordinaryContinuation.sourceFailureBatch.findings.every((finding) =>
+      finding?.sourceFixEligible === false
+      && finding?.nextAction === "stop_fail_closed"
+      && finding?.classification === "unsafe_or_ambiguous");
+}
+
+function isProvisionalTaskKey(value) {
+  return /^\d{8}T\d{2}$/.test(String(value || ""));
+}
+
+function isExactRecoverySuccessor(older, newer) {
+  const reportPath = newer.expectedReportPaths?.repoReportPath;
+  const promptPath = newer.expectedReportPaths?.promptPath;
+  return /^\d{8}T\d{6}$/.test(String(newer.taskKey || ""))
+    && newer.taskKey.startsWith(older.taskKey)
+    && newer.issue?.number === older.issue?.number
+    && newer.run?.runId === older.run?.runId
+    && newer.run?.supervisorRunId === older.run?.supervisorRunId
+    && newer.branch?.name === older.branch?.name
+    && newer.branch?.baseSha === older.branch?.baseSha
+    && newer.branch?.currentHeadSha !== older.branch?.currentHeadSha
+    && newer.timestamps?.createdAt === older.timestamps?.createdAt
+    && newer.ordinaryContinuation?.identity?.baseSha === newer.branch.baseSha
+    && newer.ordinaryContinuation?.identity?.headSha === newer.branch.currentHeadSha
+    && typeof reportPath === "string"
+    && path.basename(reportPath).startsWith(`settleora-codex-report-${newer.taskKey}-issue-${newer.issue.number}-`)
+    && typeof promptPath === "string"
+    && path.basename(promptPath).startsWith(`${newer.taskKey}-issue-${newer.issue.number}-`)
+    && JSON.stringify(newer.mutationMarkers?.claim || {}) === JSON.stringify(older.mutationMarkers?.claim || {})
+    && JSON.stringify(newer.mutationMarkers?.logical_task_charge || {}) === JSON.stringify(older.mutationMarkers?.logical_task_charge || {})
+    && JSON.stringify(newer.mutationMarkers?.branch_ownership_created || {}) === JSON.stringify(older.mutationMarkers?.branch_ownership_created || {});
 }
 
 export function recoverRecoveryState(config, expected = {}) {

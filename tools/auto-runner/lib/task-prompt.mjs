@@ -2,8 +2,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { hktTimestamp, safeTimestamp, slugify } from "./logger.mjs";
 
-export function generateTaskPrompt(config, issue, laneDecision, targetBranch) {
-  const timestampKey = safeTimestamp().replace(/[^0-9TZ]/g, "").slice(0, 15);
+export function generateTaskPrompt(config, issue, laneDecision, targetBranch, options = {}) {
+  const timestampKey = options.timestampKey || safeTimestamp().replace(/[^0-9TZ]/g, "").slice(0, 15);
+  if (!/^\d{8}T\d{6}$/.test(timestampKey)) throw new Error("task_prompt_timestamp_key_invalid");
   const reportPath = path.join(
     config.repoRoot,
     ".codex",

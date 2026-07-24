@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   advanceRecoveryPhase,
   classifyRecoveryOutcome,
@@ -7,9 +8,10 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
-import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
 import { findPreEffectIntents, handoffPreEffectIntentAuthority } from "./pre-effect-intent.mjs";
+import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -197,7 +199,8 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
-  let state = loaded.state;
+  const validationRetryTerminal = isValidationFailureRetryAuthorized(loaded.state) ? loaded.state : null;
+  let state = normalizeValidationFailureContinuation(loaded.state);
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, recovery.interruption || {});
   if (!lifecycleRecovery.ok) {
     return {
@@ -270,6 +273,38 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   const result = await handler({ state, boundary, loaded });
+  if (validationRetryTerminal && isRepeatedUnsafeValidationResult(result)) {
+    const current = loadRecoveryState(config, recovery.state);
+    let terminal = {
+      ...(current.ok ? current.state : state),
+      phase: "stopped",
+      firstIncompleteAction: validationRetryTerminal.firstIncompleteAction,
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: result?.reasonCode || validationRetryTerminal.stopReason?.reason || "Recovered validation remained unsafe or unclassified.",
+      },
+    };
+    if (terminal.sessionLifecycle) {
+      const lifecycleTerminal = transitionSessionLifecyclePhase(config, terminal.sessionLifecycle, {
+        phase: "stopped",
+        nextExactAction: "checkpoint_validation_recovery_failed_closed",
+      });
+      if (!lifecycleTerminal.ok) {
+        result.reasonCode = lifecycleTerminal.reasonCode;
+        return {
+          ok: false,
+          outcome: "blocked_recovery_state",
+          reasonCode: lifecycleTerminal.reasonCode,
+          recovery: { ...recovery, state: summarizeRecoverableState(current.ok ? current.state : state) },
+          result,
+        };
+      }
+      terminal = { ...terminal, sessionLifecycle: lifecycleTerminal.state };
+    }
+    writeRecoveryState(config, terminal);
+    result.state = terminal;
+  }
   return {
     ok: result?.ok !== false,
     outcome: result?.outcome || "recovery_continuation_executed",
@@ -291,6 +326,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     issueNumber: recoveryState.issue?.number,
     taskKey: recoveryState.taskKey,
     runId: recoveryState.run?.runId,
+    supervisorRunId: recoveryState.run?.supervisorRunId,
     branchName: recoveryState.branch?.name,
     baseSha: recoveryState.branch?.baseSha,
     headSha: recoveryState.branch?.currentHeadSha,
@@ -303,12 +339,22 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
   }
   if (config.sessionLifecycle?.allowRecoveryTakeover !== true) return { ok: false, reasonCode: "session_lifecycle_recovery_takeover_disabled" };
-  const loaded = loadSessionLifecycleForRecovery(config, identity);
+  let loaded = loadSessionLifecycleForRecovery(config, identity);
+  if (!loaded.ok && loaded.reasonCode === "session_lifecycle_state_missing") {
+    loaded = reconstructMissingSessionLifecycle(config, recoveryState, identity);
+  }
   if (!loaded.ok) return loaded;
   const taskIntents = findPreEffectIntents(config, (intent) => intent.repository === loaded.state.repository
     && intent.sourceTaskKey === loaded.state.logicalTask.taskKey
-    && intent.runId === loaded.state.logicalTask.runId
-    && intent.claimIdentity === loaded.state.logicalTask.claimIdentity);
+    && intent.runId === loaded.state.logicalTask.runId);
+  if (taskIntents.some((intent) => !intentMatchesRecoveryAuthority(intent, {
+    issueNumber: loaded.state.logicalTask.issueNumber,
+    claimIdentity: loaded.state.logicalTask.claimIdentity,
+    chargeIdentity: loaded.state.logicalTask.chargeMarkerRef,
+    branchName: loaded.state.branch.name,
+    baseSha: loaded.state.branch.baseSha,
+    headSha: loaded.state.branch.headSha,
+  }))) return { ok: false, reasonCode: "session_lifecycle_intent_identity_mismatch" };
   const pendingIntents = taskIntents.filter((intent) => !["finalized", "failed_closed"].includes(intent.status));
   const authoritative = collectAuthoritativeRecoveryEvidence(config, {
     repository: loaded.state.repository,
@@ -356,7 +402,10 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     if (!headPersisted.ok) return headPersisted;
     lifecycleState = headPersisted.state;
   }
-  const planned = planInterruptionRecovery(lifecycleState, inputs.liveEffects, { ...inputs.interruption, ...interruption });
+  const trustedInterruption = loaded.migrated === true
+    ? { processExited: true, terminalReportTrusted: false, checkpointValid: true, ...inputs.interruption, ...interruption }
+    : { ...inputs.interruption, ...interruption };
+  const planned = planInterruptionRecovery(lifecycleState, inputs.liveEffects, trustedInterruption);
   if (!planned.ok) return planned;
   if (planned.active) return { ok: false, reasonCode: planned.reasonCode };
   if (planned.terminal) return { ...planned, state: lifecycleState, statePath: loaded.statePath };
@@ -382,6 +431,179 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     return { ok: false, reasonCode: "pre_effect_intent_authority_handoff_failed", state: persisted.state };
   }
   return { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation, handedOffIntentIds: pendingIntents.map((intent) => intent.intentId) };
+}
+
+function normalizeValidationFailureContinuation(state) {
+  if (!isValidationFailureRetryAuthorized(state)) return state;
+  // This legacy stop shape is not authority to change source. It re-enters only
+  // the validation checkpoint so the preserved candidate can be classified
+  // under the now-available production toolchain; implementation stays skipped.
+  const nextAction = "run_validation_and_commit";
+  return advanceRecoveryPhase({ ...state, stopReason: null }, {
+    phase: "checkpoint_validation_commit",
+    firstIncompleteAction: nextAction,
+    nextSafeAction: nextAction,
+  });
+}
+
+function isValidationFailureRetryAuthorized(state) {
+  const findings = state?.ordinaryContinuation?.sourceFailureBatch?.findings;
+  return state?.phase === "stopped"
+    && state?.evidence?.localValidation?.status === "failed"
+    && Array.isArray(findings)
+    && findings.length > 0
+    && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
+    && state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+    && state.firstIncompleteAction === "run_validation_and_commit"
+    && state.nextSafeAction === "stop_fail_closed"
+    && findings.every((finding) => finding?.sourceFixEligible === false
+      && finding?.nextAction === "stop_fail_closed"
+      && finding?.classification === "unsafe_or_ambiguous");
+}
+
+function isRepeatedUnsafeValidationResult(result) {
+  const continuation = result?.ordinaryContinuation
+    || result?.state?.ordinaryContinuation
+    || result?.state;
+  const findings = continuation?.sourceFailureBatch?.findings;
+  return result?.ok === false
+    && continuation?.phase === "local_validation"
+    && Array.isArray(findings)
+    && findings.length > 0
+    && findings.every((finding) => finding?.sourceFixEligible === false
+      && finding?.nextAction === "stop_fail_closed"
+      && finding?.classification === "unsafe_or_ambiguous");
+}
+
+export function reconstructMissingSessionLifecycle(config, recoveryState, identity) {
+  const claimIdentity = `${config.repositorySlug}#${identity.issueNumber}`;
+  const recoverySupervisorRunId = recoveryState.run?.supervisorRunId || null;
+  const budgetScopeId = recoverySupervisorRunId || recoveryState.run?.runId;
+  if (!budgetScopeId || (identity.supervisorRunId || null) !== recoverySupervisorRunId) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_supervisor_mismatch" };
+  }
+  const claimMarker = recoveryState.mutationMarkers?.claim?.[`issue-${identity.issueNumber}`];
+  const branchMarkerKey = `${identity.branchName}:${identity.baseSha}`;
+  const branchMarker = recoveryState.mutationMarkers?.branch_ownership_created?.[branchMarkerKey];
+  if (Object.keys(recoveryState.mutationMarkers?.claim || {}).length !== 1
+    || claimMarker?.status !== "completed"
+    || claimMarker?.correlation !== identity.runId
+    || Object.keys(recoveryState.mutationMarkers?.branch_ownership_created || {}).length !== 1
+    || branchMarker?.status !== "completed"
+    || branchMarker?.target !== identity.branchName
+    || branchMarker?.correlation !== identity.baseSha) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_ownership_mismatch" };
+  }
+  const continuationIdentity = recoveryState.ordinaryContinuation?.identity;
+  const sourceFailureCandidate = recoveryState.ordinaryContinuation?.sourceFailureBatch?.candidate;
+  if (continuationIdentity?.baseSha !== identity.baseSha
+    || continuationIdentity?.headSha !== identity.headSha
+    || (identity.headSha !== identity.baseSha
+      && (sourceFailureCandidate?.baseSha !== identity.baseSha
+        || sourceFailureCandidate?.headSha !== identity.headSha))) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_candidate_mismatch" };
+  }
+  const budget = loadLogicalTaskBudget(config, budgetScopeId);
+  if (!budget.ok) return { ok: false, reasonCode: budget.reasonCode };
+  const chargeIds = Object.entries(budget.state.charges || {}).filter(([, marker]) =>
+    marker.identity?.repository === config.repositorySlug
+      && marker.identity?.issueNumber === identity.issueNumber
+      && marker.identity?.taskLineageId === `issue-${identity.issueNumber}`
+      && marker.identity?.claimIdentity === claimIdentity);
+  const recoveryChargeIds = Object.keys(recoveryState.mutationMarkers?.logical_task_charge || {});
+  const chargeMarker = recoveryState.mutationMarkers?.logical_task_charge?.[recoveryChargeIds[0]];
+  if (chargeIds.length !== 1 || recoveryChargeIds.length !== 1 || chargeIds[0][0] !== recoveryChargeIds[0]
+    || chargeMarker?.status !== "completed"
+    || chargeMarker?.target !== `issue-${identity.issueNumber}`
+    || chargeMarker?.correlation !== recoveryChargeIds[0]) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_charge_mismatch" };
+  }
+  const reportPath = recoveryState.expectedReportPaths?.repoReportPath;
+  const promptPath = recoveryState.expectedReportPaths?.promptPath;
+  const reportRoot = path.join(config.repoRoot, ".codex", "reports");
+  const promptRoot = path.join(config.logsRoot, "tasks");
+  const reportPrefix = `settleora-codex-report-${identity.taskKey}-issue-${identity.issueNumber}-`;
+  const promptPrefix = `${identity.taskKey}-issue-${identity.issueNumber}-`;
+  if (!isCanonicalCorrelatedPath(reportPath, reportRoot, reportPrefix)
+    || !isCanonicalCorrelatedPath(promptPath, promptRoot, promptPrefix)) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_report_correlation_mismatch" };
+  }
+  let intents;
+  try {
+    intents = findPreEffectIntents(config, (intent) => intent.repository === config.repositorySlug
+      && intent.sourceTaskKey === identity.taskKey
+      && intent.runId === identity.runId);
+  } catch {
+    return { ok: false, reasonCode: "session_lifecycle_migration_intent_state_untrusted" };
+  }
+  if (intents.some((intent) => !intentMatchesRecoveryAuthority(intent, {
+    issueNumber: identity.issueNumber,
+    claimIdentity,
+    chargeIdentity: budget.statePath,
+    branchName: identity.branchName,
+    baseSha: identity.baseSha,
+    headSha: identity.headSha,
+  }))) return { ok: false, reasonCode: "session_lifecycle_migration_intent_identity_mismatch" };
+  if (intents.some((intent) => !["finalized", "failed_closed"].includes(intent.status))) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_pending_intents" };
+  }
+  const counters = recoveryState.ordinaryContinuation?.counters;
+  if (!counters || counters.acceptedLogicalTasks !== 1
+    || !["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]
+      .every((key) => Number.isSafeInteger(counters[key]) && counters[key] >= 0)) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_counter_mismatch" };
+  }
+  const migrated = migrateRecoveryStateToSessionLifecycle(recoveryState, {
+    repository: config.repositorySlug,
+    issueNumber: identity.issueNumber,
+    taskKey: identity.taskKey,
+    runId: identity.runId,
+    supervisorRunId: recoverySupervisorRunId,
+    claimIdentity,
+    chargeMarkerRef: budget.statePath,
+    sessionId: `${identity.runId}:recovery-bootstrap:1`,
+    branchName: identity.branchName,
+    baseSha: identity.baseSha,
+    headSha: identity.headSha,
+    localSourceChangingRoundsPerEpoch: counters.localSourceChangingRoundsPerEpoch,
+    githubTriggeredFixEpochsPerPr: counters.githubTriggeredFixEpochsPerPr,
+    lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds,
+    reportPath,
+    reportCorrelationKey: identity.taskKey,
+  });
+  if (!migrated.ok) return migrated;
+  const written = persistSessionLifecycleState(config, migrated.state);
+  if (!written.ok) return written;
+  const readback = loadSessionLifecycleForRecovery(config, identity);
+  return readback.ok ? { ...readback, migrated: true } : readback;
+}
+
+function isCanonicalCorrelatedPath(candidate, root, requiredPrefix) {
+  if (typeof candidate !== "string" || typeof root !== "string") return false;
+  const resolved = path.resolve(candidate);
+  return path.dirname(resolved) === path.resolve(root)
+    && path.basename(resolved).startsWith(requiredPrefix)
+    && path.basename(resolved).endsWith(".md");
+}
+
+function intentMatchesRecoveryAuthority(intent, expected) {
+  const identity = intent?.identity;
+  return intent.logicalTaskIdentity === expected.claimIdentity
+    && intent.claimIdentity === expected.claimIdentity
+    && intent.chargeIdentity === expected.chargeIdentity
+    && identity?.repository === intent.repository
+    && identity?.sourceTaskKey === intent.sourceTaskKey
+    && identity?.runId === intent.runId
+    && identity?.logicalTaskIdentity === expected.claimIdentity
+    && identity?.claimIdentity === expected.claimIdentity
+    && identity?.chargeIdentity === expected.chargeIdentity
+    && identity?.issueNumber === expected.issueNumber
+    && identity?.branchName === expected.branchName
+    && identity?.baseSha === expected.baseSha
+    // Intent heads describe effect-time state (a commit intent uses its parent),
+    // so live authoritative reconciliation validates them against the effect.
+    // Stable task/charge/branch/base authority remains exact here.
+    && /^[a-f0-9]{40}$/.test(String(identity?.headSha || ""));
 }
 
 export function reconcileAuthoritativeLifecycleHead(state, authoritative) {

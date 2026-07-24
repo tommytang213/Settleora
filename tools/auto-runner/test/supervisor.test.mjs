@@ -241,7 +241,7 @@ test("systemd and runner argv stay lane-neutral and shell-free", () => {
   });
   assert.equal(appBPlan.unitName, `AppB-auto-runner@${runId}.service`);
   assert.match(appBPlan.unitTemplate, /Description=AppB detached auto-runner/);
-  assert.match(appBPlan.unitTemplate, /WorkingDirectory=\/workspace\/repos\/Settleora\/tools\/auto-runner/);
+  assert.equal(appBPlan.unitTemplate.includes(`WorkingDirectory=${process.cwd()}/tools/auto-runner`), true);
   assert.match(appBPlan.unitTemplate, /--logs-root \/workspace\/logs\/auto-runner\/AppB/);
   assert.doesNotMatch(appBPlan.unitTemplate, /\{\{[A-Z_]+\}\}|\/workspace\/repos\/AppB\/tools\/auto-runner/);
   assert.throws(

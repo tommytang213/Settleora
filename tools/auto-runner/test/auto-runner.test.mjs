@@ -7294,7 +7294,7 @@ test("implementation path verifies mutation workspace after task branch creation
   const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const branchIndex = source.indexOf("createTaskBranch(config, branchName);");
   const guardIndex = source.indexOf("ensureTaskMutationWorkspace(config", branchIndex);
-  const promptIndex = source.indexOf("generateTaskPrompt(config, issue, laneDecision, branchName)", branchIndex);
+  const promptIndex = source.indexOf("generateTaskPrompt(config, issue, laneDecision, branchName, { timestampKey: taskKey })", branchIndex);
   const codexIndex = source.indexOf("const codexResult = runCodexPrompt(config", branchIndex);
   assert.notEqual(branchIndex, -1);
   assert.notEqual(guardIndex, -1);

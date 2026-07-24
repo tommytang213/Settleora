@@ -97,6 +97,7 @@ export function createSessionLifecycleState(input = {}) {
       issueNumber: input.issueNumber ?? null,
       taskKey: bounded(input.taskKey, 100),
       runId: bounded(input.runId, 160),
+      supervisorRunId: bounded(input.supervisorRunId, 160),
       claimIdentity: bounded(input.claimIdentity, 200),
       chargeMarkerRef: bounded(input.chargeMarkerRef, 500),
     },
@@ -158,7 +159,10 @@ export function validateSessionLifecycleState(state, expected = {}) {
   for (const key of ["localSourceChangingRoundsPerEpoch", "githubTriggeredFixEpochsPerPr", "lifetimeLocalSourceChangingRounds"]) if (!Number.isSafeInteger(state.controller?.[key]) || state.controller[key] < 0) return fail("session_lifecycle_counter_invalid");
   try { normalizeContextBudgetPolicy(state.context?.policy); } catch { return fail("session_lifecycle_policy_invalid"); }
   if (state.report?.correlationKey !== state.logicalTask.taskKey) return fail("session_lifecycle_report_correlation_mismatch");
-  for (const [key, value] of Object.entries({ repository: state.repository, taskKey: state.logicalTask.taskKey, runId: state.logicalTask.runId, claimIdentity: state.logicalTask.claimIdentity, sessionId: state.sessions.current })) if (expected[key] && expected[key] !== value) return fail(`session_lifecycle_${key}_mismatch`);
+  for (const [key, value] of Object.entries({ repository: state.repository, taskKey: state.logicalTask.taskKey, runId: state.logicalTask.runId, supervisorRunId: state.logicalTask.supervisorRunId, claimIdentity: state.logicalTask.claimIdentity, sessionId: state.sessions.current })) {
+    const comparisonRequested = key === "supervisorRunId" ? Object.hasOwn(expected, key) : Boolean(expected[key]);
+    if (comparisonRequested && expected[key] !== value) return fail(`session_lifecycle_${key}_mismatch`);
+  }
   if (state.checkpoint?.digest !== checkpointDigest(state)) return fail("session_lifecycle_checkpoint_digest_mismatch");
   return { ok: true };
 }
@@ -362,12 +366,28 @@ export function loadSessionLifecycleForRecovery(config, identity) {
     try { state = JSON.parse(readFileSync(statePath, "utf8")); } catch { return fail("session_lifecycle_state_corrupt", null, { statePath }); }
     if (state.repository !== identity.repository || state.logicalTask?.issueNumber !== identity.issueNumber || state.logicalTask?.taskKey !== identity.taskKey || state.logicalTask?.runId !== identity.runId) continue;
     if (state.branch?.name !== identity.branchName || state.branch?.baseSha !== identity.baseSha) continue;
-    const validation = validateSessionLifecycleState(state, { ...identity, claimIdentity: state.logicalTask.claimIdentity });
+    const hasSupervisorIdentity = Object.hasOwn(state.logicalTask || {}, "supervisorRunId");
+    const expectedIdentity = { ...identity, claimIdentity: state.logicalTask.claimIdentity };
+    if (!hasSupervisorIdentity) delete expectedIdentity.supervisorRunId;
+    const validation = validateSessionLifecycleState(state, expectedIdentity);
     if (!validation.ok) return { ...validation, statePath };
     matches.push({ state, statePath });
   }
   if (matches.length !== 1) return fail(matches.length === 0 ? "session_lifecycle_state_missing" : "session_lifecycle_state_ambiguous");
-  const match = matches[0];
+  let match = matches[0];
+  if (config.sessionLifecycle?.enabled === true
+    && identity.supervisorRunId
+    && !Object.hasOwn(match.state.logicalTask || {}, "supervisorRunId")) {
+    if (match.state.branch.headSha !== identity.headSha) {
+      return fail("session_lifecycle_legacy_supervisor_backfill_head_mismatch", null, { statePath: match.statePath });
+    }
+    const upgraded = structuredClone(match.state);
+    upgraded.logicalTask.supervisorRunId = identity.supervisorRunId;
+    refreshDigest(upgraded);
+    const written = persistSessionLifecycleState(config, upgraded);
+    if (!written.ok) return written;
+    match = { state: written.state, statePath: written.statePath };
+  }
   return {
     ok: true,
     state: match.state,
