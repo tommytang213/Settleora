@@ -810,6 +810,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       issueNumber: issue.number,
       taskKey: promptInfo.timestampKey,
       runId,
+      supervisorRunId: recoveryRecorder?.state?.run?.supervisorRunId,
       claimIdentity: `${config.repositorySlug}#${issue.number}`,
       chargeMarkerRef: iteration.logicalTaskBudget.statePath,
       sessionId: controllerSessionId,

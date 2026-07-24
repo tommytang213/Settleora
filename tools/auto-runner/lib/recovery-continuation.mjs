@@ -293,6 +293,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     issueNumber: recoveryState.issue?.number,
     taskKey: recoveryState.taskKey,
     runId: recoveryState.run?.runId,
+    supervisorRunId: recoveryState.run?.supervisorRunId,
     branchName: recoveryState.branch?.name,
     baseSha: recoveryState.branch?.baseSha,
     headSha: recoveryState.branch?.currentHeadSha,
@@ -369,7 +370,10 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     if (!headPersisted.ok) return headPersisted;
     lifecycleState = headPersisted.state;
   }
-  const planned = planInterruptionRecovery(lifecycleState, inputs.liveEffects, { ...inputs.interruption, ...interruption });
+  const trustedInterruption = loaded.migrated === true
+    ? { processExited: true, terminalReportTrusted: false, checkpointValid: true, ...inputs.interruption, ...interruption }
+    : { ...inputs.interruption, ...interruption };
+  const planned = planInterruptionRecovery(lifecycleState, inputs.liveEffects, trustedInterruption);
   if (!planned.ok) return planned;
   if (planned.active) return { ok: false, reasonCode: planned.reasonCode };
   if (planned.terminal) return { ...planned, state: lifecycleState, statePath: loaded.statePath };
@@ -413,6 +417,9 @@ function normalizeValidationFailureContinuation(state) {
       && finding?.nextAction === "stop_fail_closed"
       && finding?.classification === "unsafe_or_ambiguous");
   if (!sourceFixAuthorized && !validationRetryAuthorized) return state;
+  // This legacy stop shape is not authority to change source. It re-enters only
+  // the validation checkpoint so the preserved candidate can be classified
+  // under the now-available production toolchain; implementation stays skipped.
   const nextAction = sourceFixAuthorized ? "run_source_failure_convergence" : "run_validation_and_commit";
   return advanceRecoveryPhase({ ...state, stopReason: null }, {
     phase: "checkpoint_validation_commit",

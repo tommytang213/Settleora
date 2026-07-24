@@ -102,10 +102,25 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
     assert.equal(first.state.logicalTask.chargeMarkerRef, charged.statePath);
     assert.equal(first.state.logicalTask.supervisorRunId, "supervised-959");
     assert.equal(first.state.controller.localSourceChangingRoundsPerEpoch, 2);
+    const recoveryAdapters = {
+      readProcess: () => ({ complete: true, pid: 959, ownerRunId: identity.runId, alive: false, source: "fixture_pid_probe" }),
+      readLease: () => ({ complete: true, runId: "supervised-959", runnerRunId: identity.runId, heartbeatAt: "2026-07-24T07:59:00Z", expiresAt: "2026-07-24T08:00:00Z", valid: false, source: "fixture_heartbeat" }),
+      readGit: () => ({ complete: true, source: "fixture_git", headSha: identity.headSha, remoteHeadSha: null, branchName: identity.branchName, baseSha: identity.baseSha, worktreeClean: true, indexClean: true, untrackedClean: true, stagedPaths: [], unstagedPaths: [], untrackedPaths: [] }),
+      readGithub: () => ({ complete: true, source: "fixture_github", issue: { number: identity.issueNumber, state: "OPEN" }, pr: null, comments: [], checks: { state: "unknown" }, hygiene: [] }),
+    };
+    const resumed = consumeStartupInterruptionPlanner(config, withEvidence, {}, recoveryAdapters);
+    assert.equal(resumed.ok, true, JSON.stringify(resumed));
+    assert.match(resumed.successorSessionId, /^run-959:recovery:[0-9a-f-]{36}$/);
+    assert.equal(resumed.mutationGeneration, 2);
+    assert.equal(resumed.state.logicalTask.supervisorRunId, "supervised-959");
     const second = loadSessionLifecycleForRecovery(config, identity);
     assert.equal(second.ok, true);
-    assert.equal(second.state.sessions.generation, first.state.sessions.generation);
-    assert.equal(second.state.mutationAuthority.generation, first.state.mutationAuthority.generation);
+    assert.equal(second.state.sessions.generation, resumed.state.sessions.generation);
+    assert.equal(second.state.mutationAuthority.generation, resumed.state.mutationAuthority.generation);
+    const repeated = consumeStartupInterruptionPlanner(config, withEvidence, {}, recoveryAdapters);
+    assert.equal(repeated.ok, true, JSON.stringify(repeated));
+    assert.equal(repeated.mutationGeneration, resumed.mutationGeneration);
+    assert.equal(repeated.successorSessionId, resumed.successorSessionId);
     const mismatched = reconstructMissingSessionLifecycle(config, {
       ...withEvidence,
       mutationMarkers: {
@@ -195,6 +210,7 @@ test("disabled lifecycle refuses legacy fallback when a lifecycle checkpoint exi
       issueNumber: recovery.issue.number,
       taskKey: recovery.taskKey,
       runId: recovery.run.runId,
+      supervisorRunId: recovery.run.supervisorRunId,
       claimIdentity: "claim-893",
       chargeMarkerRef: "charge-893",
       sessionId: "session-893",
