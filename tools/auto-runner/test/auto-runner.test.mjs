@@ -7337,6 +7337,13 @@ test("ordinary recovery is born with the final task branch identity", () => {
   assert.match(iteration, /fetchOriginMain\(config\)/);
   assert.match(iteration, /baseSha: initialBaseSha/);
   assert.doesNotMatch(iteration, /pending\/issue-/);
+  const bundleCallStart = source.indexOf("const bundleResult = await runFeatureBundleIteration");
+  const bundleCall = source.slice(bundleCallStart, source.indexOf("iteration.bundle =", bundleCallStart));
+  assert.match(bundleCall, /baseSha: initialBaseSha/);
+  const bundle = readFileSync("tools/auto-runner/lib/feature-bundle-orchestrator.mjs", "utf8");
+  assert.match(bundle, /if \(!baseSha\) fetchOriginMain\(config\)/);
+  assert.match(bundle, /const baseOriginMainSha = baseSha \|\|/);
+  assert.match(bundle, /createTaskBranch\(config, bundleBranchName, baseOriginMainSha \|\| "origin\/main"\)/);
 });
 
 test("existing-PR recovery creates lifecycle authority before merge execution", () => {

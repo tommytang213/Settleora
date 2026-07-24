@@ -69,7 +69,7 @@ import {
   writeRecoveryState,
 } from "./recovery-state.mjs";
 
-export async function runFeatureBundleIteration(config, logger, { runId, index, issue, laneDecision, branchName = null, controlCheck = null, recoveryState = null, autoMergeRunner = null, operationalCheckpoint = null }) {
+export async function runFeatureBundleIteration(config, logger, { runId, index, issue, laneDecision, branchName = null, baseSha = null, controlCheck = null, recoveryState = null, autoMergeRunner = null, operationalCheckpoint = null }) {
   const planned = planFeatureBundleIssue(issue);
   if (!planned.ok) {
     return {
@@ -109,8 +109,8 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     ...projected,
   });
 
-  fetchOriginMain(config);
-  const baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
+  if (!baseSha) fetchOriginMain(config);
+  const baseOriginMainSha = baseSha || (config.dryRun ? null : getRefSha("origin/main"));
   result.baseOriginMainSha = baseOriginMainSha;
   if (!config.dryRun) {
     const loaded = recoverExistingBundleCheckout(config, { plan, baseOriginMainSha });
@@ -124,7 +124,7 @@ export async function runFeatureBundleIteration(config, logger, { runId, index, 
     }
   }
   if (!state) {
-    createTaskBranch(config, bundleBranchName);
+    createTaskBranch(config, bundleBranchName, baseOriginMainSha || "origin/main");
     const startingHead = config.dryRun ? baseOriginMainSha : getRefSha("HEAD");
     state = createInitialBundleState({
       plan,
