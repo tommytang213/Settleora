@@ -426,7 +426,10 @@ function normalizeValidationFailureContinuation(state) {
 
 export function reconstructMissingSessionLifecycle(config, recoveryState, identity) {
   const claimIdentity = `${config.repositorySlug}#${identity.issueNumber}`;
-  const budgetScopeId = recoveryState.run?.supervisorRunId || recoveryState.run?.runId;
+  const budgetScopeId = recoveryState.run?.supervisorRunId;
+  if (!budgetScopeId || identity.supervisorRunId !== budgetScopeId) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_supervisor_mismatch" };
+  }
   const claimMarker = recoveryState.mutationMarkers?.claim?.[`issue-${identity.issueNumber}`];
   const branchMarkerKey = `${identity.branchName}:${identity.baseSha}`;
   const branchMarker = recoveryState.mutationMarkers?.branch_ownership_created?.[branchMarkerKey];

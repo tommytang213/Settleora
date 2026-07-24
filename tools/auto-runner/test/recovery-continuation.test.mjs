@@ -92,6 +92,7 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
       issueNumber: 959,
       taskKey: recovery.taskKey,
       runId: recovery.run.runId,
+      supervisorRunId: recovery.run.supervisorRunId,
       branchName: recovery.branch.name,
       baseSha: recovery.branch.baseSha,
       headSha: recovery.branch.currentHeadSha,
@@ -246,6 +247,16 @@ test("enabled recovery atomically backfills only a missing legacy supervisor ide
       nextExactAction: "push",
     });
     assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
+    assert.equal(loadSessionLifecycleForRecovery(config, {
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      supervisorRunId: recovery.run.supervisorRunId,
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: "d".repeat(40),
+    }).reasonCode, "session_lifecycle_legacy_supervisor_backfill_head_mismatch");
     const loaded = loadSessionLifecycleForRecovery(config, {
       repository: config.repositorySlug,
       issueNumber: recovery.issue.number,

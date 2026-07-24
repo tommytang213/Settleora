@@ -375,6 +375,9 @@ export function loadSessionLifecycleForRecovery(config, identity) {
   if (config.sessionLifecycle?.enabled === true
     && identity.supervisorRunId
     && match.state.logicalTask.supervisorRunId == null) {
+    if (match.state.branch.headSha !== identity.headSha) {
+      return fail("session_lifecycle_legacy_supervisor_backfill_head_mismatch", null, { statePath: match.statePath });
+    }
     const upgraded = structuredClone(match.state);
     upgraded.logicalTask.supervisorRunId = identity.supervisorRunId;
     refreshDigest(upgraded);
