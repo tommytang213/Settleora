@@ -392,6 +392,14 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(legacyBlocked.unresolvedExternalEffects, true);
     assert.equal(legacyBlocked.reasonCode, "unresolved_operational_state");
     unlinkSync(legacyPendingIntent);
+    writeFileSync(legacyPendingIntent, `${JSON.stringify({ status: "failed_closed", effectType: "push" })}\n`, { mode: 0o600 });
+    const legacyFailedClosedBlocked = inspectDeploymentQuiescence(config.logsRoot, {
+      preservedRecoveryTarget: target,
+      repositoryRoot: config.repoRoot,
+    });
+    assert.equal(legacyFailedClosedBlocked.unresolvedExternalEffects, true);
+    assert.equal(legacyFailedClosedBlocked.reasonCode, "unresolved_operational_state");
+    unlinkSync(legacyPendingIntent);
     git(config.repoRoot, ["replace", target.headSha, intermediateHead]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted,

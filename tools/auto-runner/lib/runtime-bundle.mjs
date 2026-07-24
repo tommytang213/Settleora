@@ -563,7 +563,9 @@ export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget 
       }
     }
   }
-  if (hasUnresolvedOperationalRecords(logsRoot, "pre-effect-intents")) {
+  if (hasUnresolvedOperationalRecords(logsRoot, "pre-effect-intents", {
+    rejectFailedClosed: preservedRecoveryTarget !== null,
+  })) {
     return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
   }
   if (preservedRecoveryTarget) {
@@ -579,11 +581,12 @@ export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget 
   return quiescenceEvidence({ active: false, unresolvedExternalEffects: false, reasonCode: "default_quiescent" });
 }
 
-function hasUnresolvedOperationalRecords(logsRoot, name) {
+function hasUnresolvedOperationalRecords(logsRoot, name, { rejectFailedClosed = false } = {}) {
   const root = path.join(logsRoot, name);
   if (!existsSync(root)) return false;
   for (const file of regularJsonFiles(root, 4)) {
     const record = JSON.parse(readFileSync(file, "utf8"));
+    if (rejectFailedClosed && record.status === "failed_closed") return true;
     const terminalStatuses = new Set(["completed", "finalized", "failed_closed", "recovered", "exhausted", "blocked"]);
     const terminalPhases = new Set(["completed", "cleanup_complete", "stopped"]);
     const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
