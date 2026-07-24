@@ -31,9 +31,11 @@ export const preservedRecoveryTargetFields = Object.freeze([
   "lifetimeLocalSourceChangingRounds",
 ]);
 
-export function sanitizedDeploymentGitEnvironment(environment = process.env) {
+export function sanitizedDeploymentGitEnvironment(_environment = process.env) {
   return {
-    ...Object.fromEntries(Object.entries(environment).filter(([key]) => !key.toUpperCase().startsWith("GIT_"))),
+    PATH: "/usr/bin:/bin",
+    LANG: "C",
+    LC_ALL: "C",
     GIT_OPTIONAL_LOCKS: "0",
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
@@ -335,15 +337,17 @@ function git(root, args, environment = process.env) {
 }
 
 function gitConfigValues(root, key, environment) {
-  const result = spawnSync(trustedDeploymentGitBinary, ["config", "--local", "--no-includes", "--get-all", key], {
+  const result = spawnSync(trustedDeploymentGitBinary, ["config", "--local", "--no-includes", "-z", "--get-all", key], {
     cwd: root,
-    encoding: "utf8",
+    encoding: "buffer",
     env: sanitizedDeploymentGitEnvironment(environment),
     maxBuffer: 64 * 1024,
   });
-  if (result.status === 1 && !result.stdout && !result.stderr) return [];
-  if (result.status !== 0 || result.stderr) throw new Error("authoritative Git configuration read unavailable");
-  return result.stdout.split("\n").filter(Boolean);
+  if (result.status === 1 && result.stdout.length === 0 && result.stderr.length === 0) return [];
+  if (result.status !== 0 || result.stderr.length !== 0) throw new Error("authoritative Git configuration read unavailable");
+  const values = result.stdout.toString("utf8").split("\0");
+  if (values.at(-1) === "") values.pop();
+  return values;
 }
 
 function canonicalGitHubRepository(remote) {

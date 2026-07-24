@@ -380,6 +380,14 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       if (previousGitDir === undefined) delete process.env.GIT_DIR;
       else process.env.GIT_DIR = previousGitDir;
     }
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        gitEnvironment: { ...process.env, LD_PRELOAD: path.join(config.logsRoot, "hostile-loader.so") },
+      }).preservedRecoveryAdmitted,
+      true,
+      "dynamic-loader environment cannot alter the trusted Git executable",
+    );
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:foreign/repo.git"]);
     const hostileHome = path.join(config.logsRoot, "hostile-home");
     const hostileXdg = path.join(config.logsRoot, "hostile-xdg");
@@ -404,6 +412,14 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "multiple raw fetch URLs are ambiguous repository authority",
+    );
+    git(config.repoRoot, ["config", "--unset-all", "remote.origin.url"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/repo.git"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", ""]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an empty additional fetch URL still counts as ambiguous authority",
     );
     git(config.repoRoot, ["config", "--unset-all", "remote.origin.url"]);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/repo.git"]);
