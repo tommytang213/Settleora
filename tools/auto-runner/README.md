@@ -129,6 +129,8 @@ node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
   --expected-old-digest <current-bundle-digest> \
   --expected-rollback-digest <retained-rollback-bundle-digest>
 
+# MUTATING: starts the normal product queue. #912 proved this command only by
+# dry-run; it was not executed. Run it only with explicit operator intent.
 node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
   --entry settleora-auto-runnerctl.mjs -- submit --mode trusted \
   --config /workspace/auto-runner/config/settleora.json \
@@ -602,14 +604,14 @@ requires explicit deployment configuration plus an external request-secret file
 under `/workspace/logs/settleora-auto-runner/secrets/`; no live secret is
 created or configured by the repository.
 
-The repository-only user-unit template is
+The repository user-unit template is
 `tools/auto-runner/systemd/settleora-auto-runner-health.service`. It uses
 `Restart=on-failure` only for this read-only monitor service and includes
-`[Install] WantedBy=default.target` so a later approved user-scope deployment
-can use normal `systemctl --user enable --now` semantics. The mutation
-supervisor template remains `Restart=no`. Installing, starting, enabling,
-disabling, or exposing the health service remains a separate manual deployment
-gate.
+`[Install] WantedBy=default.target` for normal user-scope
+`systemctl --user enable --now` semantics. #912 installed and enabled the
+Settleora project-bound loopback service; other installations and any
+non-loopback exposure remain separate manual deployment gates. The mutation
+supervisor template remains `Restart=no`.
 
 The Node-based health service intentionally does not use
 `MemoryDenyWriteExecute=yes`. The `20260712-1609` deployment attempt proved
@@ -625,8 +627,8 @@ Terminal ntfy activity notifier foundation:
 node tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs
 ```
 
-The notifier is a separate one-shot command intended for a later manually
-installed user timer. It reads the trusted health/supervisor state model,
+The notifier is a separate one-shot command installed for Settleora under the
+#912 accepted user timer. It reads the trusted health/supervisor state model,
 selects only newly observed healthy terminal supervised runs, sends one
 sanitized activity notification for `completed`, `no-eligible-work`, or
 successful budget exhaustion, and records local delivery only after confirmed
@@ -634,13 +636,14 @@ ntfy `2xx` response. It does not start, stop, resume, retry, pause, extend,
 repair, relabel, branch, comment, merge, delete locks, mutate supervisor or
 runner state, call GitHub, or run from the health endpoint.
 
-Production ntfy configuration is fixed at
-`/workspace/logs/settleora-auto-runner/secrets/ntfy-notifier.json`. The CLI
+The accepted Settleora ntfy configuration is fixed at
+`/workspace/logs/auto-runner/Settleora/secrets/ntfy-notifier.json`. The CLI
 does not accept base URL, topic, token, config path, or shell-command
 arguments. The config file must be owner-only under the approved secrets root,
-use a strict schema, and contain redacted deployment values supplied later by
-the #880 manual deployment task. Tests use only local HTTP stubs; this repo
-foundation does not make live ntfy calls.
+use a strict schema, and contain deployment-owned values. #912 adopted the
+existing approved provider choice without creating, rotating, or disclosing
+credentials. Tests use only local HTTP stubs; repository validation does not
+make live ntfy calls.
 
 Repository-only templates:
 
@@ -648,19 +651,19 @@ Repository-only templates:
 - `tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.timer`
 
 They use `Type=oneshot`, `UMask=0077`, a fixed working directory and entry
-point, and a roughly 60-second timer cadence. They are not installed, started,
-enabled, reloaded, or connected to live secrets by repository implementation
-tasks.
+point, and a roughly 60-second timer cadence. #912 installed the exact
+project-bound templates and enabled the Settleora timer after safe prerequisite
+proof; repository implementation alone still grants no installation authority.
 
 The Node-based notifier service intentionally omits
 `MemoryDenyWriteExecute=yes` for the same Node/V8 runtime compatibility reason
 as the health service. It remains timer-owned, one-shot, `Restart=no`, and
-confined to the existing read-only/read-write path boundaries. The rolled-back
-deployment created external secret files that remain deployment-owned; do not
-read, print, rotate, delete, or replace them merely because the units were
-rolled back. The retry remains gated by #880 and must not include TrueNAS,
-Uptime Kuma, ntfy server, Cloudflare, router, firewall, or live publication
-changes in repository-only work.
+confined to the existing read-only/read-write path boundaries. External secret
+files remain deployment-owned; do not read, print, rotate, delete, or replace
+them through repository-only work. #912 accepted only the existing private
+provider path. TrueNAS, Uptime Kuma, a new ntfy server/topic/token, Cloudflare,
+router, firewall, or other live publication changes remain manual and outside
+that acceptance.
 
 Supervised runs pass a validated `--supervisor-run-id` into the runner. The
 runner writes it as sanitized summary metadata, and supervisor status/report/
