@@ -7321,11 +7321,21 @@ test("ordinary recovery is born with the final task branch identity", () => {
     }),
     "feature/auto-983-runnable-documentation-evidence-b-2026-07-24t0433",
   );
+  assert.equal(
+    planOrdinaryRecoveryBranch({
+      issue: { number: 900, title: "Bundle recovery fixture", labels: ["auto-bundle"] },
+      laneDecision: { branchStrategy: "feature" },
+      taskTimestamp: "2026-07-24T043318Z",
+    }),
+    "feature-bundle/auto-900-bundle-recovery-fixture-2026-07-24t0433",
+  );
   const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const iteration = source.slice(source.indexOf("logger.info(`Iteration"), source.indexOf("const claim = claimIssue"));
   assert.ok(iteration.indexOf("const laneDecision =") < iteration.indexOf("const plannedBranchName ="));
   assert.match(iteration, /const plannedBranchName =/);
   assert.match(iteration, /branchName: plannedBranchName/);
+  assert.match(iteration, /fetchOriginMain\(config\)/);
+  assert.match(iteration, /baseSha: initialBaseSha/);
   assert.doesNotMatch(iteration, /pending\/issue-/);
 });
 

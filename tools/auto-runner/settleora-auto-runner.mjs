@@ -386,6 +386,9 @@ function isFatalRunStopReason(stopReason) {
 export function planOrdinaryRecoveryBranch({ issue, laneDecision, taskTimestamp }) {
   if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) throw new Error("ordinary recovery issue identity invalid");
   if (!taskTimestamp) throw new Error("ordinary recovery timestamp missing");
+  if ((issue.labels || []).includes("auto-bundle")) {
+    return `feature-bundle/auto-${issue.number}-${slugify(issue.title, 36)}-${String(taskTimestamp).slice(0, 15).toLowerCase()}`;
+  }
   const branchPrefix = laneDecision?.branchStrategy === "focused" ? "focused" : "feature";
   return `${branchPrefix}/auto-${issue.number}-${slugify(issue.title, 40)}-${String(taskTimestamp).slice(0, 15).toLowerCase()}`;
 }
@@ -543,13 +546,15 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   const laneDecision = selection.laneDecision || classifyIssueLane(issue);
   const taskTimestamp = safeTimestamp();
   const plannedBranchName = planOrdinaryRecoveryBranch({ issue, laneDecision, taskTimestamp });
+  if (!config.dryRun) fetchOriginMain(config);
+  const initialBaseSha = config.dryRun ? null : getRefSha("origin/main");
   let recoveryRecorder = createProductionRecoveryRecorder(config, {
     taskKey: taskTimestamp.slice(0, 13).replace(/[^0-9T]/g, ""),
     issue,
     runId,
     supervisorRunId: config.supervisorRunId || null,
     branchName: plannedBranchName,
-    baseSha: config.dryRun ? null : getRefSha("origin/main"),
+    baseSha: initialBaseSha,
     currentHeadSha: config.dryRun ? null : getRefSha("HEAD"),
     phase: "issue_poll_claim",
     firstIncompleteAction: "claim_issue",
@@ -649,6 +654,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       index,
       issue,
       laneDecision,
+      branchName: plannedBranchName,
       recoveryState: recoveryRecorder?.state || null,
       autoMergeRunner,
       operationalCheckpoint,
@@ -759,8 +765,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   const branchName = `${branchPrefix}/auto-${issue.number}-${slug}-${taskTimestamp.slice(0, 15).toLowerCase()}`;
   if (branchName !== plannedBranchName) throw new Error("planned recovery branch identity drifted");
   iteration.branchName = branchName;
-  fetchOriginMain(config);
-  iteration.baseOriginMainSha = config.dryRun ? null : getRefSha("origin/main");
+  iteration.baseOriginMainSha = initialBaseSha;
   recoveryRecorder?.setBranch({ branchName, baseSha: iteration.baseOriginMainSha, currentHeadSha: iteration.baseOriginMainSha });
   recoveryRecorder?.marker("branch_ownership_created", `${branchName}:${iteration.baseOriginMainSha}`, {
     target: branchName,
