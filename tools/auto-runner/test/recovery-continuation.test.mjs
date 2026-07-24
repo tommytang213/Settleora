@@ -219,6 +219,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["branch", "-m", "feature/auto-959-recovery"]);
     git(config.repoRoot, ["config", "user.email", "fixture@example.invalid"]);
     git(config.repoRoot, ["config", "user.name", "Fixture"]);
+    git(config.repoRoot, ["remote", "add", "origin", "git@github.com:owner/repo.git"]);
     writeFileSync(path.join(config.repoRoot, "README.md"), "base\n");
     git(config.repoRoot, ["add", "README.md"]);
     git(config.repoRoot, ["commit", "-m", "base"]);
@@ -379,6 +380,13 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       if (previousGitDir === undefined) delete process.env.GIT_DIR;
       else process.env.GIT_DIR = previousGitDir;
     }
+    git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:foreign/repo.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "matching local objects cannot substitute a foreign repository checkout",
+    );
+    git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
     git(config.repoRoot, ["branch", "-m", "moved-preserved-branch"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,

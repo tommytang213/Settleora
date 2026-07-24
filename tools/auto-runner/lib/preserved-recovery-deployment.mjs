@@ -262,6 +262,13 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   if (path.resolve(git(root, ["rev-parse", "--show-toplevel"])) !== realpathSync(root)) {
     return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
   }
+  const expectedRepository = target.repository.toLowerCase();
+  const fetchRepository = canonicalGitHubRepository(git(root, ["remote", "get-url", "origin"]));
+  const pushUrls = git(root, ["remote", "get-url", "--push", "--all", "origin"]).split("\n").filter(Boolean);
+  if (fetchRepository !== expectedRepository || pushUrls.length !== 1
+      || canonicalGitHubRepository(pushUrls[0]) !== expectedRepository) {
+    return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
+  }
   let branchHead;
   try {
     if (git(root, ["check-ref-format", "--branch", target.branch]) !== target.branch) {
@@ -313,6 +320,13 @@ function git(root, args) {
   });
   if (result.status !== 0 || result.stderr) throw new Error("authoritative Git read unavailable");
   return result.stdout.trim();
+}
+
+function canonicalGitHubRepository(remote) {
+  const value = String(remote || "").trim().replace(/\/+$/u, "").replace(/\.git$/u, "");
+  const match = value.match(/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)$/u);
+  if (!match) throw new Error("authoritative Git remote is unsupported");
+  return match[1].toLowerCase();
 }
 
 function operationalOwnerIsLive(logsRoot, target, processActive) {
