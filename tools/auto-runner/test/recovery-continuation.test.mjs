@@ -427,6 +427,14 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     );
     git(config.repoRoot, ["config", "--local", "--unset-all", "include.path"]);
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
+    git(config.repoRoot, ["config", "extensions.worktreeConfig", "true"]);
+    git(config.repoRoot, ["config", "--worktree", "remote.origin.pushurl", "git@github.com:foreign/repo.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped remote authority must not supplement the canonical repository",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "remote.origin.pushurl"]);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,

@@ -278,8 +278,11 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   const expectedRepository = target.repository.toLowerCase();
   const fetchUrls = gitConfigValues(root, "remote.origin.url", gitEnvironment);
   const pushUrls = gitConfigValues(root, "remote.origin.pushurl", gitEnvironment);
+  const worktreeConfigEnabled = gitConfigBoolean(root, "extensions.worktreeConfig", gitEnvironment);
+  const worktreeFetchUrls = worktreeConfigEnabled ? gitConfigValues(root, "remote.origin.url", gitEnvironment, "worktree") : [];
+  const worktreePushUrls = worktreeConfigEnabled ? gitConfigValues(root, "remote.origin.pushurl", gitEnvironment, "worktree") : [];
   const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
-  if (fetchUrls.length !== 1 || pushUrls.length > 1
+  if (fetchUrls.length !== 1 || pushUrls.length > 1 || worktreeFetchUrls.length || worktreePushUrls.length
       || canonicalGitHubRepository(fetchUrls[0]) !== expectedRepository
       || canonicalGitHubRepository(effectivePushUrl) !== expectedRepository) {
     return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
@@ -337,8 +340,8 @@ function git(root, args, environment = process.env) {
   return result.stdout.trim();
 }
 
-function gitConfigValues(root, key, environment) {
-  const result = spawnSync(trustedDeploymentGitBinary, ["config", "--local", "--no-includes", "-z", "--get-all", key], {
+function gitConfigValues(root, key, environment, scope = "local") {
+  const result = spawnSync(trustedDeploymentGitBinary, ["config", `--${scope}`, "--no-includes", "-z", "--get-all", key], {
     cwd: root,
     encoding: "buffer",
     env: sanitizedDeploymentGitEnvironment(environment),
@@ -349,6 +352,22 @@ function gitConfigValues(root, key, environment) {
   const values = result.stdout.toString("utf8").split("\0");
   if (values.at(-1) === "") values.pop();
   return values;
+}
+
+function gitConfigBoolean(root, key, environment) {
+  const result = spawnSync(trustedDeploymentGitBinary, ["config", "--local", "--no-includes", "--bool", "--get-all", key], {
+    cwd: root,
+    encoding: "buffer",
+    env: sanitizedDeploymentGitEnvironment(environment),
+    maxBuffer: 64 * 1024,
+  });
+  if (result.status === 1 && result.stdout.length === 0 && result.stderr.length === 0) return false;
+  if (result.status !== 0 || result.stderr.length !== 0) throw new Error("authoritative Git configuration read unavailable");
+  const values = result.stdout.toString("utf8").trimEnd().split("\n");
+  if (values.length !== 1 || !["true", "false"].includes(values[0])) {
+    throw new Error("authoritative Git configuration is ambiguous");
+  }
+  return values[0] === "true";
 }
 
 function canonicalGitHubRepository(remote) {
