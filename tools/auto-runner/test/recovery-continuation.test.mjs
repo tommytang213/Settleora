@@ -523,6 +523,20 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "worktree-scoped clean filter authority must not execute during deployment Git reads",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "filter.hostile.clean"]);
+    for (const [scope, key, description] of [
+      ["--local", "diff.external", "external diff"],
+      ["--worktree", "diff.Hostile.command", "worktree diff command"],
+      ["--local", "diff.Hostile.textconv", "mixed-case text conversion"],
+      ["--worktree", "merge.Hostile.driver", "worktree merge driver"],
+    ]) {
+      git(config.repoRoot, ["config", scope, key, path.join(hostileHome, `hostile-${description.replaceAll(" ", "-")}`)]);
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+        "preserved_recovery_repository_identity_mismatch",
+        `${description} authority must not execute during current or later Git operations`,
+      );
+      git(config.repoRoot, ["config", scope, "--unset-all", key]);
+    }
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
