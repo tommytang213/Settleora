@@ -169,6 +169,15 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
       reconstructMissingSessionLifecycle(config, withEvidence, identity).reasonCode,
       "session_lifecycle_migration_intent_identity_mismatch",
     );
+    const directIdentity = { ...identity, supervisorRunId: null };
+    const directRecovery = {
+      ...withEvidence,
+      run: { ...withEvidence.run, supervisorRunId: null },
+    };
+    assert.notEqual(
+      reconstructMissingSessionLifecycle(config, directRecovery, directIdentity).reasonCode,
+      "session_lifecycle_migration_supervisor_mismatch",
+    );
     assert.equal(
       consumeStartupInterruptionPlanner(config, withEvidence).reasonCode,
       "session_lifecycle_intent_identity_mismatch",

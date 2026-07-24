@@ -426,8 +426,9 @@ function normalizeValidationFailureContinuation(state) {
 
 export function reconstructMissingSessionLifecycle(config, recoveryState, identity) {
   const claimIdentity = `${config.repositorySlug}#${identity.issueNumber}`;
-  const budgetScopeId = recoveryState.run?.supervisorRunId;
-  if (!budgetScopeId || identity.supervisorRunId !== budgetScopeId) {
+  const recoverySupervisorRunId = recoveryState.run?.supervisorRunId || null;
+  const budgetScopeId = recoverySupervisorRunId || recoveryState.run?.runId;
+  if (!budgetScopeId || (identity.supervisorRunId || null) !== recoverySupervisorRunId) {
     return { ok: false, reasonCode: "session_lifecycle_migration_supervisor_mismatch" };
   }
   const claimMarker = recoveryState.mutationMarkers?.claim?.[`issue-${identity.issueNumber}`];
@@ -549,7 +550,10 @@ function intentMatchesRecoveryAuthority(intent, expected) {
     && identity?.issueNumber === expected.issueNumber
     && identity?.branchName === expected.branchName
     && identity?.baseSha === expected.baseSha
-    && identity?.headSha === expected.headSha;
+    // Intent heads describe effect-time state (a commit intent uses its parent),
+    // so live authoritative reconciliation validates them against the effect.
+    // Stable task/charge/branch/base authority remains exact here.
+    && /^[a-f0-9]{40}$/.test(String(identity?.headSha || ""));
 }
 
 export function reconcileAuthoritativeLifecycleHead(state, authoritative) {
