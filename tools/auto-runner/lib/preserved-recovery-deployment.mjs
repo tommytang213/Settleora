@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { userInfo } from "node:os";
 import path from "node:path";
 import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
@@ -29,6 +30,16 @@ const executableGitHookNames = new Set([
   "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite",
   "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist",
   "p4-post-changelist", "p4-pre-submit", "post-index-change",
+]);
+const allowedGlobalGitConfig = new Map([
+  ["credential.https://github.com.helper", ["", "!/usr/bin/gh auth git-credential"]],
+  ["credential.https://gist.github.com.helper", ["", "!/usr/bin/gh auth git-credential"]],
+]);
+const allowedSystemGitConfig = new Map([
+  ["filter.lfs.clean", ["git-lfs clean -- %f"]],
+  ["filter.lfs.smudge", ["git-lfs smudge -- %f"]],
+  ["filter.lfs.process", ["git-lfs filter-process"]],
+  ["filter.lfs.required", ["true"]],
 ]);
 export const trustedDeploymentGitBinary = "/usr/bin/git";
 
@@ -293,9 +304,10 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   const worktreeTransportAuthority = worktreeConfigEnabled
     && gitConfigNames(root, gitEnvironment, "worktree").some(isGitTransportAuthorityKey);
   const executableDefaultHooks = defaultGitHooksAreExecutable(root, readGit);
+  const resumedGitAuthority = validateResumedGitAuthority(root, target, gitEnvironment, readGit);
   const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
   if (fetchUrls.length !== 1 || pushUrls.length > 1 || worktreeFetchUrls.length || worktreePushUrls.length
-      || localTransportAuthority || worktreeTransportAuthority || executableDefaultHooks
+      || localTransportAuthority || worktreeTransportAuthority || executableDefaultHooks || !resumedGitAuthority
       || canonicalGitHubRepository(fetchUrls[0]) !== expectedRepository
       || canonicalGitHubRepository(effectivePushUrl) !== expectedRepository) {
     return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
@@ -440,6 +452,104 @@ function defaultGitHooksAreExecutable(root, readGit) {
     if (info.isSymbolicLink() || !info.isFile() || (info.mode & 0o111) !== 0) return true;
   }
   return false;
+}
+
+function validateResumedGitAuthority(root, target, environment, readGit) {
+  if (!resumedGitEnvironmentIsTrusted(environment)) return false;
+  const configEnvironment = trustedUserGitConfigEnvironment();
+  const globalRecords = gitConfigRecords(root, "global", configEnvironment);
+  const systemRecords = gitConfigRecords(root, "system", configEnvironment);
+  return resumedGitConfigIsTrusted(globalRecords, systemRecords, {
+    repositoryDefinesFilter: systemRecords.length > 0 && repositoryDefinesFilterAttributes(root, target, readGit),
+  });
+}
+
+export function resumedGitConfigIsTrusted(globalRecords, systemRecords, { repositoryDefinesFilter = false } = {}) {
+  if (!boundedConfigRecords(globalRecords) || !boundedConfigRecords(systemRecords)) return false;
+  return exactAllowedConfig(globalRecords, allowedGlobalGitConfig)
+    && exactAllowedConfig(systemRecords, allowedSystemGitConfig)
+    && !(systemRecords.length && repositoryDefinesFilter);
+}
+
+function boundedConfigRecords(records) {
+  return Array.isArray(records) && records.length <= 100
+    && records.every((record) => Array.isArray(record) && record.length === 2
+      && typeof record[0] === "string" && record[0].length <= 240
+      && typeof record[1] === "string" && record[1].length <= 1000);
+}
+
+function resumedGitEnvironmentIsTrusted(environment) {
+  const home = userInfo().homedir;
+  const xdgHome = path.join(home, ".config");
+  if (environment?.HOME !== home
+      || (environment?.XDG_CONFIG_HOME != null && environment.XDG_CONFIG_HOME !== xdgHome)
+      || resolvePathExecutable(environment?.PATH, "git") !== realpathSync(trustedDeploymentGitBinary)) return false;
+  return !Object.keys(environment || {}).some((key) =>
+    key === "LD_PRELOAD" || key === "LD_LIBRARY_PATH" || key.startsWith("DYLD_")
+      || (key.startsWith("GIT_") && !["GIT_PAGER"].includes(key)));
+}
+
+function resolvePathExecutable(searchPath, name) {
+  for (const directory of String(searchPath || "").split(path.delimiter)) {
+    if (!directory) continue;
+    const candidate = path.join(directory, name);
+    if (!existsSync(candidate)) continue;
+    const info = lstatSync(candidate);
+    if (info.isFile() && (info.mode & 0o111) !== 0) return realpathSync(candidate);
+  }
+  return null;
+}
+
+function trustedUserGitConfigEnvironment() {
+  const home = userInfo().homedir;
+  return {
+    PATH: "/usr/bin:/bin",
+    LANG: "C",
+    LC_ALL: "C",
+    HOME: home,
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_NO_LAZY_FETCH: "1",
+  };
+}
+
+function gitConfigRecords(root, scope, environment) {
+  const result = spawnSync(trustedDeploymentGitBinary, ["config", `--${scope}`, "--no-includes", "--null", "--list"], {
+    cwd: root,
+    encoding: "buffer",
+    env: environment,
+    maxBuffer: 64 * 1024,
+  });
+  if (result.status === 1 && result.stdout.length === 0 && result.stderr.length === 0) return [];
+  if (result.status !== 0 || result.stderr.length !== 0) throw new Error("resumed Git configuration read unavailable");
+  return result.stdout.toString("utf8").split("\0").filter(Boolean).map((record) => {
+    const separator = record.indexOf("\n");
+    if (separator < 0) throw new Error("resumed Git configuration is malformed");
+    return [record.slice(0, separator).toLowerCase(), record.slice(separator + 1)];
+  });
+}
+
+function exactAllowedConfig(records, allowed) {
+  const actual = new Map();
+  for (const [key, value] of records) actual.set(key, [...(actual.get(key) || []), value]);
+  if ([...actual.keys()].some((key) => !allowed.has(key))) return false;
+  if (actual.size === 0) return true;
+  for (const [key, values] of allowed) {
+    const present = actual.get(key) || [];
+    if (canonical(present) !== canonical(values)) return false;
+  }
+  return true;
+}
+
+function repositoryDefinesFilterAttributes(root, target, readGit) {
+  const infoAttributes = path.join(path.resolve(root, readGit(["rev-parse", "--git-common-dir"])), "info", "attributes");
+  if (existsSync(infoAttributes) && readFileSync(infoAttributes, "utf8").trim()) return true;
+  const attributeFiles = readGit(["ls-tree", "-r", "--name-only", target.headSha])
+    .split("\n").filter((name) => path.basename(name) === ".gitattributes");
+  if (attributeFiles.length > 100) return true;
+  return attributeFiles.some((name) => /(?:^|\s)-?filter(?:=|\s|$)/mu.test(
+    readGit(["show", `${target.headSha}:${name}`]).replace(/#.*$/gmu, ""),
+  ));
 }
 
 function canonicalGitHubRepository(remote) {

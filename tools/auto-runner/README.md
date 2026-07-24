@@ -103,6 +103,16 @@ provisional/full-key suppression rule, exact charge/lifecycle/candidate/commit
 proof, terminal reconciled intents, and no live owner. Its output is sanitized
 structured evidence with a target-identity digest and reason code.
 
+Admission also proves the Git authority that the later resumed runner will
+inherit, not only the sanitized deployment reads. Bare `git` must resolve to
+the trusted `/usr/bin/git`; loader, repository-redirection, and other
+effect-bearing `GIT_*` environment variables are rejected. Repository and
+worktree config must contain no executable or transport override, recognized
+default hooks must not be executable, and global/system config must match the
+bounded installed GitHub credential-helper and inert standard Git-LFS shapes.
+System Git-LFS definitions are accepted only when neither committed nor local
+attributes can select a filter. Any other global/system entry fails closed.
+
 For a non-dry deployment, this proof is read initially, read again after the
 deployment lock is acquired, and read a third time immediately before launcher
 or runtime exchange. Runtime consumers and source bytes are also rechecked.

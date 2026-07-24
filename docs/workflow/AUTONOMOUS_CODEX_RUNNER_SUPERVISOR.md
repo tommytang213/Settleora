@@ -482,10 +482,14 @@ rejects every unresolved recovery and intent. A separately reviewed deployment
 may name one exact preserved recovery through the complete fixed CLI identity
 shape documented in `tools/auto-runner/README.md`; admission requires canonical
 recovery/charge/lifecycle/commit/counter/report/prompt proof, terminal
-reconciled external effects, and no live owner. The proof is re-read under the
-deployment lock and immediately before exchange. Runtime consumers remain an
-independent hard gate, rollback has no preserved-recovery exception, and the
-deployment neither resumes nor mutates the preserved task.
+reconciled external effects, no live owner, and an exact bounded Git authority
+shape for the later resumed runner. Ambient executable/redirection authority,
+untrusted Git resolution, executable repository hooks, and unsupported
+repository, worktree, global, or system Git configuration fail closed. The
+proof is re-read under the deployment lock and immediately before exchange.
+Runtime consumers remain an independent hard gate, rollback has no
+preserved-recovery exception, and the deployment neither resumes nor mutates
+the preserved task.
 
 The session-lifecycle checkpoint is the coordinated authority for proactive
 Codex rotation and reportless process recovery. A planned rotation is a

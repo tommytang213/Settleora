@@ -11,6 +11,7 @@ import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-ef
 import {
   inspectPreservedRecoveryForDeployment,
   normalizePreservedRecoveryDeploymentTarget,
+  resumedGitConfigIsTrusted,
   sanitizedDeploymentGitEnvironment,
 } from "../lib/preserved-recovery-deployment.mjs";
 import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
@@ -54,6 +55,25 @@ test("deployment Git environment disables lazy object fetching and ignores ambie
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
   });
+  const githubCredential = [
+    ["credential.https://github.com.helper", ""],
+    ["credential.https://github.com.helper", "!/usr/bin/gh auth git-credential"],
+    ["credential.https://gist.github.com.helper", ""],
+    ["credential.https://gist.github.com.helper", "!/usr/bin/gh auth git-credential"],
+  ];
+  const systemLfs = [
+    ["filter.lfs.clean", "git-lfs clean -- %f"],
+    ["filter.lfs.smudge", "git-lfs smudge -- %f"],
+    ["filter.lfs.process", "git-lfs filter-process"],
+    ["filter.lfs.required", "true"],
+  ];
+  assert.equal(resumedGitConfigIsTrusted(githubCredential, systemLfs), true);
+  assert.equal(resumedGitConfigIsTrusted(
+    [...githubCredential, ["url.git@github.com:foreign/repo.git.pushinsteadof", "git@github.com:owner/repo.git"]],
+    systemLfs,
+  ), false);
+  assert.equal(resumedGitConfigIsTrusted(githubCredential, systemLfs, { repositoryDefinesFilter: true }), false);
+  assert.equal(resumedGitConfigIsTrusted([["core.hookspath", "/tmp/hooks"]], []), false);
 });
 
 test("one trusted recovery reconstructs a genuinely missing lifecycle exactly once", () => {
@@ -410,9 +430,9 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     process.env.GIT_DIR = path.join(config.logsRoot, "hostile-git-dir");
     try {
       assert.equal(
-        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted,
-        true,
-        "ambient Git repository redirection must not influence authoritative lineage",
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+        "preserved_recovery_repository_identity_mismatch",
+        "ambient Git repository redirection must not survive into the resumed runner",
       );
     } finally {
       if (previousGitDir === undefined) delete process.env.GIT_DIR;
@@ -422,9 +442,21 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
         repositoryRoot: config.repoRoot,
         gitEnvironment: { ...process.env, LD_PRELOAD: path.join(config.logsRoot, "hostile-loader.so") },
-      }).preservedRecoveryAdmitted,
-      true,
-      "dynamic-loader environment cannot alter the trusted Git executable",
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "dynamic-loader environment must not survive into the resumed runner",
+    );
+    const hostilePath = path.join(config.logsRoot, "hostile-path");
+    mkdirSync(hostilePath);
+    writeFileSync(path.join(hostilePath, "git"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(path.join(hostilePath, "git"), 0o700);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        gitEnvironment: { ...process.env, PATH: `${hostilePath}:${process.env.PATH}` },
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "the resumed runner must resolve bare Git commands to the trusted binary",
     );
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:foreign/repo.git"]);
     const hostileHome = path.join(config.logsRoot, "hostile-home");
