@@ -232,6 +232,9 @@ function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot)
     }
     const correlated = intent.repository === target.repository && intent.sourceTaskKey === target.taskKey && intent.runId === target.runnerRunId;
     if (!correlated) continue;
+    if (externalEffectTypes.has(intent.effectType)) {
+      return { ok: false, reasonCode: "preserved_recovery_external_effect_present" };
+    }
     const identity = intent.identity;
     const commitIntent = intent.effectType === "commit";
     const commitParent = commitIntent

@@ -436,6 +436,39 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot });
     assert.equal(pending.preservedRecoveryAdmitted, false);
     assert.equal(pending.reasonCode, "pending_external_effect");
+    let finalizedExternal = transitionPreEffectIntent(config, intent, "executing");
+    finalizedExternal = transitionPreEffectIntent(config, finalizedExternal, "live_confirmed");
+    finalizedExternal = transitionPreEffectIntent(config, finalizedExternal, "finalized");
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_external_effect_present",
+    );
+    const deleteIntent = (value) => unlinkSync(path.join(
+      config.logsRoot,
+      "recovery",
+      "pre-effect-intents",
+      `${createHash("sha256").update(value.intentId).digest("hex")}.json`,
+    ));
+    deleteIntent(finalizedExternal);
+    for (const effectType of ["push", "merge"]) {
+      let external = preparePreEffectIntent(config, {
+        repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+        logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+        chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+        effectType, issueNumber: 959, prNumber: 959, branchName: target.branch, baseSha: target.baseSha,
+        headSha: target.headSha, candidateIdentity: target.headSha,
+        effect: { remote: "origin", branchName: target.branch, headSha: target.headSha, prNumber: 959 },
+      });
+      external = transitionPreEffectIntent(config, external, "executing");
+      external = transitionPreEffectIntent(config, external, "live_confirmed");
+      external = transitionPreEffectIntent(config, external, "finalized");
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+        "preserved_recovery_external_effect_present",
+        `finalized ${effectType} must not become preserved-recovery authority`,
+      );
+      deleteIntent(external);
+    }
   } finally {
     config.cleanup();
   }
