@@ -53,13 +53,33 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
       claimIdentity: "owner/repo#959",
       acceptedAt: "2026-07-24T07:58:49.248Z",
     });
-    const withEvidence = recordIdempotentMutation({
+    let withEvidence = recordIdempotentMutation({
       ...recovery,
       expectedReportPaths: {
         repoReportPath: "/repo/settleora-codex-report-20260724T075849-issue-959.md",
         promptPath: "/logs/20260724T075849-issue-959.md",
       },
-    }, { kind: "logical_task_charge", key: charged.chargeId });
+      ordinaryContinuation: {
+        identity: { baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha },
+        sourceFailureBatch: {
+          candidate: { baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha },
+        },
+      },
+    }, {
+      kind: "claim",
+      key: "issue-959",
+      marker: { target: recovery.issue.url, correlation: recovery.run.runId },
+    });
+    withEvidence = recordIdempotentMutation(withEvidence, {
+      kind: "logical_task_charge",
+      key: charged.chargeId,
+      marker: { target: "issue-959", correlation: charged.chargeId },
+    });
+    withEvidence = recordIdempotentMutation(withEvidence, {
+      kind: "branch_ownership_created",
+      key: `${recovery.branch.name}:${recovery.branch.baseSha}`,
+      marker: { target: recovery.branch.name, correlation: recovery.branch.baseSha },
+    });
     const identity = {
       repository: "owner/repo",
       issueNumber: 959,
@@ -77,6 +97,20 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
     assert.equal(second.ok, true);
     assert.equal(second.state.sessions.generation, first.state.sessions.generation);
     assert.equal(second.state.mutationAuthority.generation, first.state.mutationAuthority.generation);
+    const mismatched = reconstructMissingSessionLifecycle(config, {
+      ...withEvidence,
+      mutationMarkers: {
+        ...withEvidence.mutationMarkers,
+        claim: {
+          "issue-959": {
+            ...withEvidence.mutationMarkers.claim["issue-959"],
+            correlation: "wrong-run",
+          },
+        },
+      },
+    }, identity);
+    assert.equal(mismatched.ok, false);
+    assert.equal(mismatched.reasonCode, "session_lifecycle_migration_ownership_mismatch");
   } finally {
     config.cleanup();
   }

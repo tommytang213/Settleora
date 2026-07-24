@@ -415,6 +415,27 @@ function normalizeValidationFailureContinuation(state) {
 export function reconstructMissingSessionLifecycle(config, recoveryState, identity) {
   const claimIdentity = `${config.repositorySlug}#${identity.issueNumber}`;
   const budgetScopeId = recoveryState.run?.supervisorRunId || recoveryState.run?.runId;
+  const claimMarker = recoveryState.mutationMarkers?.claim?.[`issue-${identity.issueNumber}`];
+  const branchMarkerKey = `${identity.branchName}:${identity.baseSha}`;
+  const branchMarker = recoveryState.mutationMarkers?.branch_ownership_created?.[branchMarkerKey];
+  if (Object.keys(recoveryState.mutationMarkers?.claim || {}).length !== 1
+    || claimMarker?.status !== "completed"
+    || claimMarker?.correlation !== identity.runId
+    || Object.keys(recoveryState.mutationMarkers?.branch_ownership_created || {}).length !== 1
+    || branchMarker?.status !== "completed"
+    || branchMarker?.target !== identity.branchName
+    || branchMarker?.correlation !== identity.baseSha) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_ownership_mismatch" };
+  }
+  const continuationIdentity = recoveryState.ordinaryContinuation?.identity;
+  const sourceFailureCandidate = recoveryState.ordinaryContinuation?.sourceFailureBatch?.candidate;
+  if (continuationIdentity?.baseSha !== identity.baseSha
+    || continuationIdentity?.headSha !== identity.headSha
+    || (identity.headSha !== identity.baseSha
+      && (sourceFailureCandidate?.baseSha !== identity.baseSha
+        || sourceFailureCandidate?.headSha !== identity.headSha))) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_candidate_mismatch" };
+  }
   const budget = loadLogicalTaskBudget(config, budgetScopeId);
   if (!budget.ok) return { ok: false, reasonCode: budget.reasonCode };
   const chargeIds = Object.entries(budget.state.charges || {}).filter(([, marker]) =>
@@ -423,7 +444,11 @@ export function reconstructMissingSessionLifecycle(config, recoveryState, identi
       && marker.identity?.taskLineageId === `issue-${identity.issueNumber}`
       && marker.identity?.claimIdentity === claimIdentity);
   const recoveryChargeIds = Object.keys(recoveryState.mutationMarkers?.logical_task_charge || {});
-  if (chargeIds.length !== 1 || recoveryChargeIds.length !== 1 || chargeIds[0][0] !== recoveryChargeIds[0]) {
+  const chargeMarker = recoveryState.mutationMarkers?.logical_task_charge?.[recoveryChargeIds[0]];
+  if (chargeIds.length !== 1 || recoveryChargeIds.length !== 1 || chargeIds[0][0] !== recoveryChargeIds[0]
+    || chargeMarker?.status !== "completed"
+    || chargeMarker?.target !== `issue-${identity.issueNumber}`
+    || chargeMarker?.correlation !== recoveryChargeIds[0]) {
     return { ok: false, reasonCode: "session_lifecycle_migration_charge_mismatch" };
   }
   const reportPath = recoveryState.expectedReportPaths?.repoReportPath;
