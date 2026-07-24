@@ -335,7 +335,7 @@ export function listRecoverableRecoveryStates(config) {
         }
         const parsed = JSON.parse(readFileSync(statePath, "utf8"));
         const validation = validateRecoveryStateShape(parsed);
-        if (!validation.ok) return null;
+        if (!validation.ok) throw new Error("recovery_state_schema_invalid");
         if (parsed.phase === "completed") return null;
         if (parsed.phase === "stopped" && !isValidationFailureContinuation(parsed)) return null;
         return sanitizeRecoveryState({ ...parsed, statePath });

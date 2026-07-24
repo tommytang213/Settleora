@@ -431,6 +431,17 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       preservedRecoveryTarget: target,
       repositoryRoot: config.repoRoot,
     }).preservedRecoveryAdmitted, true);
+    const invalidSiblingRecovery = path.join(config.logsRoot, "recovery", "schema-invalid-sibling.json");
+    writeFileSync(invalidSiblingRecovery, `${JSON.stringify({ taskKey: "20260724T999999" })}\n`, { mode: 0o600 });
+    assert.equal(
+      inspectDeploymentQuiescence(config.logsRoot, {
+        preservedRecoveryTarget: target,
+        repositoryRoot: config.repoRoot,
+      }).reasonCode,
+      "preserved_recovery_authoritative_read_unavailable",
+      "a schema-invalid sibling recovery must make canonical recovery authority unavailable",
+    );
+    unlinkSync(invalidSiblingRecovery);
     mkdirSync(path.join(config.logsRoot, "pre-effect-intents"));
     const legacyPendingIntent = path.join(config.logsRoot, "pre-effect-intents", "legacy-pending.json");
     writeFileSync(legacyPendingIntent, `${JSON.stringify({ status: "prepared" })}\n`, { mode: 0o600 });
