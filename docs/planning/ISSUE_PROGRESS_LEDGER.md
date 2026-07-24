@@ -9155,3 +9155,11 @@ state.
 - Rollback/refusal/restore and the unexecuted 500-task/14-day dry-run passed.
 - Historical logs at `/workspace/logs/settleora-auto-runner` were retained
   unchanged; the product queue was not started.
+- Current GitHub state at this candidate: #912 and #910 remain open;
+  acceptance-doc PR #988 is open and remains manual-merge-gated.
+- Remaining gate: exact-head docs validation/reviews/checks, normal merge,
+  current-main acceptance, then #912 and #910 close-rule rereads.
+- Close/keep-open recommendation: keep #912 and #910 open until PR #988 merges
+  and both live close rules pass; then close with one complete evidence comment.
+- Last verified report reference:
+  `/workspace/logs/settleora-codex-report-20260724-0946-auto-runner-production-activation-912.md`

@@ -397,11 +397,12 @@ config paths, webhook URLs, authorization headers, full issue bodies, raw
 Codex/Gemini output, provider payloads, or full diffs. Event write failures
 are recorded locally where possible and never change the runner outcome.
 
-The future primary monitor uses a pull model through Uptime Kuma on TrueNAS
-SCALE. Uptime Kuma polls a separate permanent read-only DevBox health service
-over trusted-LAN HTTP, and that service reads persisted supervisor/runner
-state, heartbeat, strict report-correlation results, lock state, and bounded
-systemd readback. The design is defined in
+The monitoring design supports a future pull model through Uptime Kuma on
+TrueNAS SCALE. The currently accepted DevBox health service remains
+loopback-only; LAN binding and Uptime Kuma deployment/configuration were not
+part of #912. The service reads persisted supervisor/runner state, heartbeat,
+strict report-correlation results, lock state, and bounded systemd readback.
+The design is defined in
 [Autonomous Codex Runner Monitoring](AUTONOMOUS_CODEX_RUNNER_MONITORING.md).
 
 The repository-side health service foundation now lives at
@@ -409,10 +410,11 @@ The repository-side health service foundation now lives at
 template at
 `tools/auto-runner/systemd/settleora-auto-runner-health.service`. It remains
 read-only, loopback-bound by default, and independent of temporary supervisor
-or runner jobs. The mutation supervisor template remains `Restart=no`; only
-the read-only health service template uses `Restart=on-failure`. Installing,
-starting, enabling, LAN binding, Uptime Kuma configuration, and notification
-destination setup remain manual deployment gates.
+or runner jobs. The mutation supervisor remains `Restart=no`; only the
+read-only health service uses `Restart=on-failure`. The project-bound
+supervisor, loopback health service, notifier, and notifier timer were
+installed and accepted under #912. LAN binding, Uptime Kuma deployment, and
+new notification-destination setup remain separate manual gates.
 
 The health service remains separate from the temporary supervisor/runner jobs,
 so healthy idle after `completed` or `no-eligible-work` remains callable and
@@ -424,11 +426,11 @@ incident notification.
 
 SSH remains available for operator diagnostics and manual wrapper readback, but
 it is not the primary monitoring architecture. Terminal healthy-run summary
-notifications are handled by the separate one-shot ntfy notifier foundation
+notifications are handled by the separate one-shot ntfy notifier
 with atomic confirmed-delivery deduplication, not by manufacturing false
-Uptime Kuma DOWN/UP transitions. The notifier remains repository-only until
-the later manual #880 deployment gate installs a timer and supplies live
-external ntfy configuration.
+Uptime Kuma DOWN/UP transitions. The project-bound notifier timer and existing
+external provider configuration were accepted under #912; no new destination,
+topic, token, or credential was selected.
 
 ## Windows Templates
 

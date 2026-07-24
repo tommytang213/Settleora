@@ -11,12 +11,12 @@ read-only inputs and do not create a cross-project mutation lock.
 
 ## Status
 
-This document is the authoritative design for future Settleora auto-runner
-health monitoring. It supersedes the earlier provisional SSH-primary TrueNAS
-monitoring direction. It does not implement the health service, install or
-enable a DevBox unit, install Uptime Kuma, configure TrueNAS SCALE, expose a
-network port, configure notification credentials, or prove deployment
-acceptance.
+This document is the authoritative Settleora auto-runner monitoring design.
+It supersedes the earlier provisional SSH-primary TrueNAS direction. The
+project-bound loopback health service and terminal notifier timer were
+installed and accepted under #912. Uptime Kuma/TrueNAS deployment, LAN/public
+exposure, and selection or mutation of notification credentials remain outside
+that acceptance.
 
 Repository implementation foundation now exists for the repo-only portion:
 
@@ -35,14 +35,13 @@ Repository implementation foundation now exists for the repo-only portion:
 - `tools/auto-runner/lib/ntfy-terminal-notifier.mjs` implements the
   provider-specific ntfy publisher behind a fixed external config boundary and
   local confirmed-delivery dedupe.
-- `tools/auto-runner/systemd/settleora-auto-runner-health.service` is a
-  repository template only. It has not been installed, started, enabled, bound
-  to a LAN address, or connected to Uptime Kuma by the repository foundation.
-  It includes an `[Install]` section for normal user-scope
-  `systemctl enable --now` during the later #880 deployment gate.
+- `tools/auto-runner/systemd/settleora-auto-runner-health.service` is the
+  reviewed source for the installed project-bound unit. The live service
+  remains bound to `127.0.0.1:8787` and is not connected to Uptime Kuma.
 - `tools/auto-runner/systemd/settleora-auto-runner-terminal-notifier.service`
-  and `.timer` are repository templates only. They have not been installed,
-  started, enabled, reloaded, or connected to live ntfy credentials.
+  and `.timer` are the reviewed sources for the installed one-shot notifier and
+  enabled timer. They use the existing owner-only external provider
+  configuration; #912 did not create or rotate credentials.
 
 Approved architecture:
 

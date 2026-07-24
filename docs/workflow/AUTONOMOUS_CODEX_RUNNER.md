@@ -1575,20 +1575,24 @@ node tools/auto-runner/settleora-auto-runner.mjs --write-summary --since 24h
 ls /workspace/logs/settleora-auto-runner/summaries/
 ```
 
-To stop a foreground run, send `Ctrl+C`. This tooling only provides example
-systemd user templates and does not install or enable them.
+To stop a foreground run, send `Ctrl+C`. Repository source provides templates;
+the Settleora project-bound user units were separately installed and accepted
+under the authorized #912 activation.
 
 ## Known Limitations
 
-- Real issue mutation is guarded but not yet trusted for unattended production
-  use.
-- Follow-up issue creation is modeled and gated, not enabled by default.
+- Real issue mutation is trusted only through the accepted external production
+  profile and an explicit bounded operator submission; no recurring product
+  queue is enabled.
+- Follow-up issue creation is enabled only within its accepted production
+  profile bounds and remains disabled in canary and rollback profiles.
 - Stale-claim stealing is disabled.
 - Safe review-fix cycles are modeled but intentionally conservative.
-- Auto-merge to `main` is disabled by default; the first low-risk lane
-  foundation exists but requires explicit external config and issue-contract
-  opt-in before it can attempt a normal GitHub merge commit.
-- Manual review is still required before enabling real unattended mutation.
+- Conditional auto-merge to `main` is enabled only for an eligible contracted
+  issue after all exact-head validation, review, CI, scanner, and manual-action
+  gates pass.
+- Production queue start remains a deliberate operator action; activation did
+  not start it.
 # Large-candidate review routing
 
 Large-candidate routing is a distinct versioned authority. Size alone routes a
