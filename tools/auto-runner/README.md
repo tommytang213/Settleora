@@ -591,7 +591,10 @@ remains an operator diagnostic path. See
 Read-only health service foundation:
 
 ```bash
-node tools/auto-runner/settleora-auto-runner-health-service.mjs --host 127.0.0.1 --port 8787
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner-health-service.mjs -- \
+  --config /workspace/auto-runner/config/settleora.json \
+  --host 127.0.0.1 --port 8787
 curl -fsS http://127.0.0.1:8787/health/auto-runner
 ```
 
@@ -624,7 +627,9 @@ read/write path allowlists, `RestrictSUIDSGID=yes`, `LockPersonality=yes`,
 Terminal ntfy activity notifier foundation:
 
 ```bash
-node tools/auto-runner/settleora-auto-runner-terminal-notifier.mjs
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runner-terminal-notifier.mjs -- \
+  --config /workspace/auto-runner/config/settleora.json
 ```
 
 The notifier is a separate one-shot command installed for Settleora under the
