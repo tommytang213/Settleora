@@ -209,6 +209,9 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
 test("deployment admits only one exact effect-free preserved recovery and remains fail-closed", () => {
   const config = tempConfig({ repositorySlug: "owner/repo" });
   try {
+    const rejectedAuthority = inspectDeploymentQuiescence(config.logsRoot, { preservedRecoveryTarget: {} });
+    assert.equal(rejectedAuthority.preservedRecoveryAdmitted, false);
+    assert.equal(rejectedAuthority.reasonCode, "preserved_recovery_target_or_root_untrusted");
     const files = ["apps/mobile/lib/parser.dart", "apps/mobile/test/parser_test.dart"];
     const filesDigest = createHash("sha256").update(JSON.stringify(files)).digest("hex");
     const charge = chargeAcceptedLogicalTask(config, {
@@ -245,8 +248,8 @@ test("deployment admits only one exact effect-free preserved recovery and remain
           treeSha: "c".repeat(40), changedFiles: files, changedFilesDigest: filesDigest,
         },
         counters: {
-          acceptedLogicalTasks: 1, localSourceChangingRoundsPerEpoch: 0,
-          githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 0,
+          acceptedLogicalTasks: 1, localSourceChangingRoundsPerEpoch: 1,
+          githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 1,
         },
         sourceFailureBatch: {
           candidate: {
@@ -276,18 +279,30 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       treeSha: "c".repeat(40), changedFilesDigest: filesDigest,
       reportName: "settleora-codex-report-20260724T075849-issue-959-fixture.md",
       promptName: "20260724T075849-issue-959-fixture.md",
-      acceptedLogicalTasks: 1, localSourceChangingRounds: 0,
-      githubTriggeredFixEpochs: 0, lifetimeLocalSourceChangingRounds: 0,
+      acceptedLogicalTasks: 1, localSourceChangingRounds: 1,
+      githubTriggeredFixEpochs: 0, lifetimeLocalSourceChangingRounds: 1,
     };
-    let commitIntent = preparePreEffectIntent(config, {
+    let priorCommitIntent = preparePreEffectIntent(config, {
       repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
       logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
       chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
       effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
       headSha: target.baseSha, candidateIdentity: target.baseSha,
-      effect: { expectedParents: [target.baseSha], treeSha: target.treeSha, stagedPaths: files },
+      effect: { expectedParents: [target.baseSha], treeSha: "d".repeat(40), stagedPaths: files },
     });
     config.currentAuthority = { retired: false, status: "active", sessionId: "fixture-session", authorityGeneration: 1, runId: target.runnerRunId };
+    priorCommitIntent = transitionPreEffectIntent(config, priorCommitIntent, "executing");
+    priorCommitIntent = transitionPreEffectIntent(config, priorCommitIntent, "live_confirmed");
+    transitionPreEffectIntent(config, priorCommitIntent, "finalized");
+    const intermediateHead = "e".repeat(40);
+    let commitIntent = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
+      headSha: intermediateHead, candidateIdentity: intermediateHead,
+      effect: { expectedParents: [intermediateHead], treeSha: target.treeSha, stagedPaths: files },
+    });
     commitIntent = transitionPreEffectIntent(config, commitIntent, "executing");
     commitIntent = transitionPreEffectIntent(config, commitIntent, "live_confirmed");
     transitionPreEffectIntent(config, commitIntent, "finalized");
@@ -298,8 +313,8 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       sessionId: "fixture-session", branchName: target.branch, baseSha: target.baseSha,
       headSha: target.headSha, phase: "implementation_or_bundle_slice",
       nextExactAction: "run_implementation", reportPath: recovery.expectedReportPaths.repoReportPath,
-      reportCorrelationKey: target.taskKey, localSourceChangingRoundsPerEpoch: 0,
-      githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 0,
+      reportCorrelationKey: target.taskKey, localSourceChangingRoundsPerEpoch: 1,
+      githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 1,
     });
     assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
     const before = readdirSync(config.logsRoot, { recursive: true }).sort();

@@ -209,11 +209,15 @@ function validateIntents(config, state, target, chargeMarkerRef) {
     if (!correlated) continue;
     const identity = intent.identity;
     const commitIntent = intent.effectType === "commit";
+    const commitParent = commitIntent
+      && shaPattern.test(identity?.candidateIdentity || "")
+      && identity?.headSha === identity.candidateIdentity
+      && canonical(intent.effect?.expectedParents) === canonical([identity.candidateIdentity]);
     if (intent.logicalTaskIdentity !== target.claimIdentity || intent.claimIdentity !== target.claimIdentity
         || intent.chargeIdentity !== chargeMarkerRef || identity?.repository !== target.repository
         || (!commitIntent && identity?.issueNumber !== target.issueNumber) || identity?.branchName !== target.branch
         || identity?.baseSha !== target.baseSha
-        || (commitIntent ? identity?.candidateIdentity !== target.baseSha : identity?.candidateIdentity !== target.headSha)) {
+        || (commitIntent ? !commitParent : identity?.candidateIdentity !== target.headSha)) {
       return { ok: false, reasonCode: "preserved_recovery_intent_identity_mismatch" };
     }
     if (externalEffectTypes.has(intent.effectType) && intent.status === "failed_closed") {

@@ -549,9 +549,11 @@ export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget 
       }
     }
   }
+  if (preservedRecoveryTarget) {
+    return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget);
+  }
   const recoverableStates = listRecoverableRecoveryStates({ logsRoot });
   if (recoverableStates.length > 0) {
-    if (preservedRecoveryTarget) return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget);
     return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "recoverable_operational_state" });
   }
   for (const name of ["pre-effect-intents", "recovery"]) {
@@ -563,7 +565,6 @@ export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget 
       const terminalPhases = new Set(["completed", "cleanup_complete", "stopped"]);
       const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
       if (!terminal) {
-        if (preservedRecoveryTarget) return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget);
         return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
       }
     }
