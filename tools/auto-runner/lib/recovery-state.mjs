@@ -357,8 +357,17 @@ export function listRecoverableRecoveryStates(config) {
 
 function isValidationFailureContinuation(state) {
   return state?.evidence?.localValidation?.status === "failed"
-    && state?.ordinaryContinuation?.sourceFailureBatch
+    && isAuthorizedSourceFailureBatch(state?.ordinaryContinuation?.sourceFailureBatch)
     && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha;
+}
+
+function isAuthorizedSourceFailureBatch(batch) {
+  return Array.isArray(batch?.findings)
+    && batch.findings.length > 0
+    && batch.findings.every((finding) =>
+      finding?.sourceFixEligible === true
+      && finding?.nextAction === "run_focused_fix"
+      && ["review_fix_safe", "ci_fix_safe", "code_scanning_fix_safe"].includes(finding?.classification));
 }
 
 function isProvisionalTaskKey(value) {

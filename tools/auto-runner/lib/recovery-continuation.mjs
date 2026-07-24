@@ -390,7 +390,12 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
 
 function normalizeValidationFailureContinuation(state) {
   if (state?.phase !== "stopped" || state?.evidence?.localValidation?.status !== "failed"
-    || !state?.ordinaryContinuation?.sourceFailureBatch
+    || !Array.isArray(state?.ordinaryContinuation?.sourceFailureBatch?.findings)
+    || state.ordinaryContinuation.sourceFailureBatch.findings.length === 0
+    || !state.ordinaryContinuation.sourceFailureBatch.findings.every((finding) =>
+      finding?.sourceFixEligible === true
+      && finding?.nextAction === "run_focused_fix"
+      && ["review_fix_safe", "ci_fix_safe", "code_scanning_fix_safe"].includes(finding?.classification))
     || state.branch?.currentHeadSha !== state.ordinaryContinuation?.identity?.headSha) return state;
   return advanceRecoveryPhase({ ...state, stopReason: null }, {
     phase: "checkpoint_validation_commit",

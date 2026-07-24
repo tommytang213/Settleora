@@ -723,7 +723,14 @@ test("one exact validation-failure successor supersedes its provisional pre-prom
       evidence: { ...provisional.evidence, localValidation: { status: "failed" } },
       ordinaryContinuation: {
         identity: { headSha: "b".repeat(40) },
-        sourceFailureBatch: { batchIdentity: "batch-959" },
+        sourceFailureBatch: {
+          batchIdentity: "batch-959",
+          findings: [{
+            classification: "review_fix_safe",
+            sourceFixEligible: true,
+            nextAction: "run_focused_fix",
+          }],
+        },
       },
       timestamps: { ...provisional.timestamps, updatedAt: "2026-07-24T08:03:39.974Z" },
     };
@@ -734,6 +741,40 @@ test("one exact validation-failure successor supersedes its provisional pre-prom
     assert.equal(discovery.states.length, 1);
     assert.equal(discovery.state.taskKey, successor.taskKey);
     assert.equal(discovery.state.currentHeadSha, successor.branch.currentHeadSha);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("terminal validation rejection is not revived as recoverable work", () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      nextSafeAction: "stop_fail_closed",
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    assert.equal(discoverStartupRecovery(config).found, false);
   } finally {
     config.cleanup();
   }
