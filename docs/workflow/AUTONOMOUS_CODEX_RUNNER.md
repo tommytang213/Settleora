@@ -1442,12 +1442,13 @@ Reviewer output must contain:
 `changes_requested` may trigger a bounded safe fix cycle only when the lane
 allows it, the requested changes stay inside original scope, and retry budget
 remains. `needs_tommy`, `danger_gate`, and `unable_to_review` block PR creation.
-Reviewer verdict JSON is parsed against the allowed enum values. The parser
-does not parse the full diagnostic review log. The runner treats the reviewer
-process `stdout` stream as the selected machine-parseable response payload and
-keeps `stderr`/session transcript material only in the raw review log for human
-diagnostics. If the selected `stdout` payload is empty or invalid, the review
-fails closed; the runner must not fall back to parsing the combined raw log.
+Reviewer verdict JSON is parsed against the allowed enum values. The runner
+treats reviewer process `stdout` as the primary selected machine-parseable
+response payload. When stdout is empty, stderr may be selected only if it has
+exactly one valid verdict. The combined stdout/stderr candidates are parsed
+separately only to reject contract-distinct cross-stream verdicts or recognize
+one contract-identical diagnostic echo; combined raw-log text is never selected
+as the verdict payload. Missing or invalid selected payload fails closed.
 
 Within the selected response payload, the parser extracts JSON object
 candidates from raw JSON, fenced `json` blocks, and JSON surrounded by
