@@ -227,6 +227,52 @@ test("disabled lifecycle refuses legacy fallback when a lifecycle checkpoint exi
   }
 });
 
+test("enabled recovery atomically backfills only a missing legacy supervisor identity", () => {
+  const config = tempConfig({ repositorySlug: "owner/repo", sessionLifecycle: { enabled: true, allowRecoveryTakeover: true } });
+  try {
+    const recovery = state({ supervisorRunId: "supervised-legacy" });
+    const lifecycle = createSessionLifecycleState({
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      claimIdentity: "owner/repo#893",
+      chargeMarkerRef: "charge-893",
+      sessionId: "session-893",
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+      phase: "push",
+      nextExactAction: "push",
+    });
+    assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
+    const loaded = loadSessionLifecycleForRecovery(config, {
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      supervisorRunId: recovery.run.supervisorRunId,
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+    });
+    assert.equal(loaded.ok, true);
+    assert.equal(loaded.state.logicalTask.supervisorRunId, "supervised-legacy");
+    assert.equal(loadSessionLifecycleForRecovery(config, {
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      supervisorRunId: "wrong-supervisor",
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+    }).reasonCode, "session_lifecycle_supervisorRunId_mismatch");
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("successor lifecycle adopts only an exact authoritatively proven commit head", () => {
   const oldHead = "a".repeat(40);
   const newHead = "b".repeat(40);

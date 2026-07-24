@@ -363,12 +363,25 @@ export function loadSessionLifecycleForRecovery(config, identity) {
     try { state = JSON.parse(readFileSync(statePath, "utf8")); } catch { return fail("session_lifecycle_state_corrupt", null, { statePath }); }
     if (state.repository !== identity.repository || state.logicalTask?.issueNumber !== identity.issueNumber || state.logicalTask?.taskKey !== identity.taskKey || state.logicalTask?.runId !== identity.runId) continue;
     if (state.branch?.name !== identity.branchName || state.branch?.baseSha !== identity.baseSha) continue;
-    const validation = validateSessionLifecycleState(state, { ...identity, claimIdentity: state.logicalTask.claimIdentity });
+    const expectedIdentity = state.logicalTask?.supervisorRunId == null
+      ? { ...identity, supervisorRunId: null, claimIdentity: state.logicalTask.claimIdentity }
+      : { ...identity, claimIdentity: state.logicalTask.claimIdentity };
+    const validation = validateSessionLifecycleState(state, expectedIdentity);
     if (!validation.ok) return { ...validation, statePath };
     matches.push({ state, statePath });
   }
   if (matches.length !== 1) return fail(matches.length === 0 ? "session_lifecycle_state_missing" : "session_lifecycle_state_ambiguous");
-  const match = matches[0];
+  let match = matches[0];
+  if (config.sessionLifecycle?.enabled === true
+    && identity.supervisorRunId
+    && match.state.logicalTask.supervisorRunId == null) {
+    const upgraded = structuredClone(match.state);
+    upgraded.logicalTask.supervisorRunId = identity.supervisorRunId;
+    refreshDigest(upgraded);
+    const written = persistSessionLifecycleState(config, upgraded);
+    if (!written.ok) return written;
+    match = { state: written.state, statePath: written.statePath };
+  }
   return {
     ok: true,
     state: match.state,
