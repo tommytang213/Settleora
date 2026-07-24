@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
@@ -213,6 +214,27 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(rejectedAuthority.preservedRecoveryAdmitted, false);
     assert.equal(rejectedAuthority.reasonCode, "preserved_recovery_target_or_root_untrusted");
     const files = ["apps/mobile/lib/parser.dart", "apps/mobile/test/parser_test.dart"];
+    mkdirSync(config.repoRoot, { recursive: true });
+    git(config.repoRoot, ["init"]);
+    git(config.repoRoot, ["config", "user.email", "fixture@example.invalid"]);
+    git(config.repoRoot, ["config", "user.name", "Fixture"]);
+    writeFileSync(path.join(config.repoRoot, "README.md"), "base\n");
+    git(config.repoRoot, ["add", "README.md"]);
+    git(config.repoRoot, ["commit", "-m", "base"]);
+    const baseSha = git(config.repoRoot, ["rev-parse", "HEAD"]);
+    for (const file of files) {
+      mkdirSync(path.dirname(path.join(config.repoRoot, file)), { recursive: true });
+      writeFileSync(path.join(config.repoRoot, file), "first\n");
+    }
+    git(config.repoRoot, ["add", ...files]);
+    git(config.repoRoot, ["commit", "-m", "first"]);
+    const intermediateHead = git(config.repoRoot, ["rev-parse", "HEAD"]);
+    const intermediateTree = git(config.repoRoot, ["rev-parse", "HEAD^{tree}"]);
+    writeFileSync(path.join(config.repoRoot, files[0]), "second\n");
+    git(config.repoRoot, ["add", files[0]]);
+    git(config.repoRoot, ["commit", "-m", "second"]);
+    const headSha = git(config.repoRoot, ["rev-parse", "HEAD"]);
+    const treeSha = git(config.repoRoot, ["rev-parse", "HEAD^{tree}"]);
     const filesDigest = createHash("sha256").update(JSON.stringify(files)).digest("hex");
     const charge = chargeAcceptedLogicalTask(config, {
       budgetScopeId: "supervised-20260724T075831Z-fixture",
@@ -228,8 +250,8 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       runId: "run-2026-07-24T075839Z-fixture",
       supervisorRunId: "supervised-20260724T075831Z-fixture",
       branchName: "feature/auto-959-recovery",
-      baseSha: "a".repeat(40),
-      currentHeadSha: "b".repeat(40),
+      baseSha,
+      currentHeadSha: headSha,
       phase: "stopped",
       firstIncompleteAction: "run_validation_and_commit",
     });
@@ -244,8 +266,8 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       evidence: { ...recovery.evidence, localValidation: { status: "failed", headSha: "a".repeat(40) } },
       ordinaryContinuation: {
         identity: {
-          repository: "owner/repo", baseSha: "a".repeat(40), headSha: "b".repeat(40),
-          treeSha: "c".repeat(40), changedFiles: files, changedFilesDigest: filesDigest,
+          repository: "owner/repo", baseSha, headSha,
+          treeSha, changedFiles: files, changedFilesDigest: filesDigest,
         },
         counters: {
           acceptedLogicalTasks: 1, localSourceChangingRoundsPerEpoch: 1,
@@ -253,7 +275,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
         },
         sourceFailureBatch: {
           candidate: {
-            baseSha: "a".repeat(40), headSha: "b".repeat(40), treeSha: "c".repeat(40),
+            baseSha, headSha, treeSha,
             changedFiles: files, changedFilesDigest: filesDigest,
           },
           findings: [{ sourceFixEligible: false, nextAction: "stop_fail_closed", classification: "unsafe_or_ambiguous" }],
@@ -276,7 +298,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       runnerRunId: recovery.run.runId, supervisorRunId: recovery.run.supervisorRunId,
       claimIdentity: "owner/repo#959", chargeId: charge.chargeId, branch: recovery.branch.name,
       baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha,
-      treeSha: "c".repeat(40), changedFilesDigest: filesDigest,
+      treeSha, changedFilesDigest: filesDigest,
       reportName: "settleora-codex-report-20260724T075849-issue-959-fixture.md",
       promptName: "20260724T075849-issue-959-fixture.md",
       acceptedLogicalTasks: 1, localSourceChangingRounds: 1,
@@ -288,20 +310,19 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
       effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
       headSha: target.baseSha, candidateIdentity: target.baseSha,
-      effect: { expectedParents: [target.baseSha], treeSha: "d".repeat(40), stagedPaths: files },
+      effect: { expectedParents: [target.baseSha], treeSha: intermediateTree, stagedPaths: files },
     });
     config.currentAuthority = { retired: false, status: "active", sessionId: "fixture-session", authorityGeneration: 1, runId: target.runnerRunId };
     priorCommitIntent = transitionPreEffectIntent(config, priorCommitIntent, "executing");
     priorCommitIntent = transitionPreEffectIntent(config, priorCommitIntent, "live_confirmed");
     transitionPreEffectIntent(config, priorCommitIntent, "finalized");
-    const intermediateHead = "e".repeat(40);
     let commitIntent = preparePreEffectIntent(config, {
       repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
       logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
       chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
       effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
       headSha: intermediateHead, candidateIdentity: intermediateHead,
-      effect: { expectedParents: [intermediateHead], treeSha: target.treeSha, stagedPaths: files },
+      effect: { expectedParents: [intermediateHead], treeSha: target.treeSha, stagedPaths: [files[0]] },
     });
     commitIntent = transitionPreEffectIntent(config, commitIntent, "executing");
     commitIntent = transitionPreEffectIntent(config, commitIntent, "live_confirmed");
@@ -319,13 +340,19 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
     const before = readdirSync(config.logsRoot, { recursive: true }).sort();
     assert.equal(inspectDeploymentQuiescence(config.logsRoot).unresolvedExternalEffects, true);
-    const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target);
+    const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot });
     assert.equal(admitted.preservedRecoveryAdmitted, true, JSON.stringify(admitted));
     assert.equal(admitted.unresolvedExternalEffects, false);
     assert.equal(admitted.revalidationRequired, true);
     assert.deepEqual(readdirSync(config.logsRoot, { recursive: true }).sort(), before);
-    assert.equal(inspectDeploymentQuiescence(config.logsRoot, { preservedRecoveryTarget: target }).preservedRecoveryAdmitted, true);
-    assert.equal(inspectPreservedRecoveryForDeployment(config.logsRoot, { ...target, headSha: "d".repeat(40) }).preservedRecoveryAdmitted, false);
+    assert.equal(inspectDeploymentQuiescence(config.logsRoot, {
+      preservedRecoveryTarget: target,
+      repositoryRoot: config.repoRoot,
+    }).preservedRecoveryAdmitted, true);
+    assert.equal(inspectPreservedRecoveryForDeployment(config.logsRoot, {
+      ...target,
+      headSha: intermediateHead,
+    }, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted, false);
     const intent = preparePreEffectIntent(config, {
       repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
       logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
@@ -335,7 +362,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       effect: { issueNumber: 959, bodyDigest: "e".repeat(64) },
     });
     assert.equal(intent.status, "prepared");
-    const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target);
+    const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot });
     assert.equal(pending.preservedRecoveryAdmitted, false);
     assert.equal(pending.reasonCode, "pending_external_effect");
   } finally {
@@ -507,6 +534,12 @@ function tempConfig(extra = {}) {
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
     ...extra,
   };
+}
+
+function git(repoRoot, args) {
+  const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
 }
 
 function state(overrides = {}) {

@@ -526,7 +526,7 @@ export function rollbackRuntimeBundle({
   };
 }
 
-export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget = null } = {}) {
+export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget = null, repositoryRoot = null } = {}) {
   canonicalExistingDirectory(logsRoot, "logsRoot");
   const activePaths = [
     path.join(logsRoot, "locks"),
@@ -550,7 +550,7 @@ export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget 
     }
   }
   if (preservedRecoveryTarget) {
-    return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget);
+    return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget, { repositoryRoot });
   }
   const recoverableStates = listRecoverableRecoveryStates({ logsRoot });
   if (recoverableStates.length > 0) {

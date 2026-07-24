@@ -61,7 +61,7 @@ const preservedRecoveryTarget = preservedOptionsPresent.length === 0 ? null : {
 if (values.has("--rollback") && preservedRecoveryTarget) throw new Error("rollback does not accept preserved recovery authority");
 let deploymentLock = null;
 try {
-const quiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget });
+const quiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
 const runtimeConsumers = inspectRuntimeConsumers(destination);
 if (values.has("--rollback")) {
   deploymentLock = acquireRuntimeDeploymentLock(destination);
@@ -93,7 +93,7 @@ if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not eq
 verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha });
 if (!values.has("--dry-run")) deploymentLock = acquireRuntimeDeploymentLock(destination);
 if (!values.has("--dry-run")) {
-  const lockedQuiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget });
+  const lockedQuiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
   if (JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence)) throw new Error("runtime deployment quiescence proof changed after lock acquisition");
 }
 const result = deployRuntimeBundle({
@@ -119,7 +119,7 @@ const result = deployRuntimeBundle({
     : () => {
         const consumers = inspectRuntimeConsumers(destination);
         if (consumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
-        return inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget });
+        return inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
       },
 });
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
