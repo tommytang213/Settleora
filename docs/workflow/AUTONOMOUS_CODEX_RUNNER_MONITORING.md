@@ -119,7 +119,9 @@ The service reads only bounded owner-only persisted state:
 - strict supervisor/runner report-correlation results;
 - sanitized runner summaries and counts already present in trusted summaries;
 - runner active/lock readback;
-- bounded systemd readback through the accepted deployment helper.
+- persisted deployment and runtime identity recorded under the project logs
+  root. Operators inspect systemd unit state separately with `systemctl --user`;
+  the HTTP endpoint does not call systemd.
 
 Uptime Kuma must not poll GitHub for eligible issues on every health check. No
 eligible work is a successful terminal result, not an outage. Idle does not
