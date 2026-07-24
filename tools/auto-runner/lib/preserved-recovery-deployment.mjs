@@ -238,6 +238,9 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   if (!info.isDirectory() || info.isSymbolicLink() || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
     return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
   }
+  if (path.resolve(git(root, ["rev-parse", "--show-toplevel"])) !== realpathSync(root)) {
+    return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
+  }
   let branchHead;
   try {
     branchHead = git(root, ["rev-parse", "--verify", `refs/heads/${target.branch}`]);
@@ -278,10 +281,11 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
 }
 
 function git(root, args) {
+  const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")));
   const result = spawnSync("git", ["--no-replace-objects", "-c", "core.fsmonitor=false", ...args], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    env: { ...cleanEnv, GIT_OPTIONAL_LOCKS: "0" },
     maxBuffer: 1024 * 1024,
   });
   if (result.status !== 0 || result.stderr) throw new Error("authoritative Git read unavailable");

@@ -362,6 +362,18 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       true,
       "local replacement objects must not influence authoritative lineage",
     );
+    const previousGitDir = process.env.GIT_DIR;
+    process.env.GIT_DIR = path.join(config.logsRoot, "hostile-git-dir");
+    try {
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted,
+        true,
+        "ambient Git repository redirection must not influence authoritative lineage",
+      );
+    } finally {
+      if (previousGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = previousGitDir;
+    }
     git(config.repoRoot, ["branch", "-m", "moved-preserved-branch"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
