@@ -17,6 +17,7 @@ import { readSupervisorState, writeSupervisorState } from "./supervisor-state.mj
 import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
 import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "../lib/runtime-bundle.mjs";
+import { resumedGitEnvironmentIsTrusted } from "../lib/preserved-recovery-deployment.mjs";
 
 const exitCodes = {
   completed: 0,
@@ -38,9 +39,13 @@ export async function runSupervisorWorker(
     resolveSummary = resolveRunnerSummaryForSupervisor,
     runtimeRoot = moduleRuntimeRoot(),
     projectId = "Settleora",
+    runnerEnvironment = process.env,
   } = {},
 ) {
   validateRunId(runId);
+  if (!resumedGitEnvironmentIsTrusted(runnerEnvironment)) {
+    throw new Error("supervisor worker Git environment is not trusted");
+  }
   const previous = readSupervisorState(runId, logsRoot).state;
   const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, logsRoot);
   const currentMain = getRefSha("origin/main", { cwd: repoRoot });
@@ -75,7 +80,11 @@ export async function runSupervisorWorker(
   const stdout = createWriteStream(stdoutPath, { flags: "a", mode: 0o600 });
   const stderr = createWriteStream(stderrPath, { flags: "a", mode: 0o600 });
   const runnerArgs = argv.slice(1);
-  const child = spawnImpl(process.execPath, runnerArgs, { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnImpl(process.execPath, runnerArgs, {
+    cwd: repoRoot,
+    env: runnerEnvironment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   child.stdout.pipe(stdout);
   child.stderr.pipe(stderr);
 

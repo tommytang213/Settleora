@@ -97,6 +97,8 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
 
 test("stable-launched supervisor main persists startup failures before rethrow", () => {
   const worker = readFileSync("tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs", "utf8");
+  assert.match(worker, /if \(!resumedGitEnvironmentIsTrusted\(runnerEnvironment\)\)/);
+  assert.match(worker, /env: runnerEnvironment/);
   const exportedMain = worker.slice(worker.indexOf("export async function main()"), worker.indexOf("function waitForChild"));
   assert.match(exportedMain, /catch \(error\)[\s\S]*writeSupervisorState\(runId, \{ state: "failed"/);
   assert.match(exportedMain, /throw error/);

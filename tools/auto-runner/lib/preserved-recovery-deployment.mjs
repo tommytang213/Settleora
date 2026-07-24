@@ -518,7 +518,7 @@ function boundedConfigRecords(records) {
       && typeof record[1] === "string" && record[1].length <= 1000);
 }
 
-function resumedGitEnvironmentIsTrusted(environment) {
+export function resumedGitEnvironmentIsTrusted(environment) {
   const home = userInfo().homedir;
   const xdgHome = path.join(home, ".config");
   if (environment?.HOME !== home
