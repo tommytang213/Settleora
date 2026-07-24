@@ -21,12 +21,12 @@ narrow close rules. PR #917 is closed without merge as fully superseded, with
 its source branch retained. #911 completed through PR #915, #902 through PR
 #916, #923/#932 through PR #936, #928/#929 through PR #938, #924 through
 PR #940, #927 through PR #942, #944 through PRs #945/#948, and #947 through
-PR #949. #910 remains the readiness umbrella and #912 remains the separate
-manual production activation gate.
+PR #949. #910 remains the readiness umbrella; #912 has completed its separate
+manual production activation and awaits PR #988 plus close-rule hygiene.
 
-This plan records the remaining operational activation work. It does not change
-runner behavior, enable external profiles, mutate canaries, dismiss alerts, run
-real issues, or perform live deployment/release actions.
+This plan records the completed implementation and activation chain. Its
+repository text does not itself change runner behavior, profiles, alerts, live
+issues, or deployment/release state.
 
 ## Authority Rules
 

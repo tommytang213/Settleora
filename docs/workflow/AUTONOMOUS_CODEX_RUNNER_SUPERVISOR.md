@@ -445,14 +445,13 @@ execution to continue.
 
 ## Installation And Recovery Gates
 
-Remaining manual gates include PR merge, user-unit installation,
-`loginctl enable-linger`, Windows wrapper deployment, SSH-disconnect and
-Windows-shutdown canary acceptance, repository implementation of the read-only
-health service, manual DevBox health-service installation, manual Uptime Kuma
-deployment/configuration on TrueNAS SCALE, notification-secret configuration,
-and any broader lane/run approval. Recovery from stale or orphaned state is
-explicit and evidence-bound; this foundation does not implement automatic
-resume.
+The Settleora user units, lingering, loopback health service, existing
+notification prerequisites, and bounded live canaries were accepted under
+#912. Remaining separate manual gates are Windows wrapper deployment,
+SSH-disconnect/Windows-shutdown host canaries, Uptime Kuma
+deployment/configuration on TrueNAS SCALE, any new notification destination or
+credential, and any broader lane/run approval. Recovery from stale or orphaned
+state remains explicit and evidence-bound.
 
 Recovery continuation preserves supervisor correlation when an operator starts
 a bounded recovery run. Recovery state stores only sanitized `supervisorRunId`,
