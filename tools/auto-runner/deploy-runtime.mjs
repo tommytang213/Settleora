@@ -2,7 +2,7 @@
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { acquireRuntimeDeploymentLock, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "./lib/runtime-bundle.mjs";
-import { sanitizedDeploymentGitEnvironment } from "./lib/preserved-recovery-deployment.mjs";
+import { sanitizedDeploymentGitEnvironment, trustedDeploymentGitBinary } from "./lib/preserved-recovery-deployment.mjs";
 
 const booleanOptions = new Set(["--dry-run", "--rollback"]);
 const valueOptions = new Set([
@@ -86,9 +86,9 @@ if (values.has("--rollback")) {
 if (sourceRoot !== path.join(repoRoot, "tools/auto-runner")) {
   throw new Error("sourceRoot must be the approved repository tools/auto-runner directory");
 }
-const topLevel = spawnSync("git", ["--no-replace-objects", "rev-parse", "--show-toplevel"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
-const head = spawnSync("git", ["--no-replace-objects", "rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
-const status = spawnSync("git", ["--no-replace-objects", "-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+const topLevel = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "--show-toplevel"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+const head = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+const status = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
 if (topLevel.status !== 0 || path.resolve(topLevel.stdout.trim()) !== repoRoot) throw new Error("source repository identity is unreadable");
 if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("source repository must be clean and readable");
 const approvedSha = values.get("--approved-sha");
@@ -110,9 +110,9 @@ const result = deployRuntimeBundle({
   quiescence,
   runtimeConsumers,
   sourceVerifier: () => {
-    const verifiedTopLevel = spawnSync("git", ["--no-replace-objects", "rev-parse", "--show-toplevel"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
-    const verifiedHead = spawnSync("git", ["--no-replace-objects", "rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
-    const verifiedStatus = spawnSync("git", ["--no-replace-objects", "-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+    const verifiedTopLevel = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "--show-toplevel"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+    const verifiedHead = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+    const verifiedStatus = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
     if (verifiedTopLevel.status !== 0 || path.resolve(verifiedTopLevel.stdout.trim()) !== repoRoot
         || verifiedHead.status !== 0 || verifiedHead.stdout.trim() !== approvedSha || verifiedStatus.status !== 0 || verifiedStatus.stdout) {
       throw new Error("source repository changed during deployment");

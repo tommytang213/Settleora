@@ -64,8 +64,14 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
     assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, runtimeBundleFileList(runtimeSource).length);
+    const hostileBin = path.join(root, "hostile-bin");
+    mkdirSync(hostileBin);
+    writeFileSync(path.join(hostileBin, "git"), "#!/bin/sh\nprintf 'fabricated-authority\\n'\n");
+    chmodSync(path.join(hostileBin, "git"), 0o700);
     const previousGitDir = process.env.GIT_DIR;
+    const previousPath = process.env.PATH;
     process.env.GIT_DIR = path.join(root, "hostile-git-dir");
+    process.env.PATH = hostileBin;
     try {
       assert.equal(
         verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount,
@@ -75,6 +81,8 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     } finally {
       if (previousGitDir === undefined) delete process.env.GIT_DIR;
       else process.env.GIT_DIR = previousGitDir;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
     }
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
@@ -248,6 +256,10 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
     const indexMtimeBefore = statSync(index).mtimeMs;
     const fsmonitorSentinel = path.join(root, "fsmonitor-ran");
     const fsmonitorHook = path.join(root, "fsmonitor-hook");
+    const hostileGitSentinel = path.join(root, "hostile-git-ran");
+    const hostileBin = path.join(root, "hostile-bin");
+    mkdirSync(hostileBin);
+    writeFileSync(path.join(hostileBin, "git"), `#!/bin/sh\nprintf called > '${hostileGitSentinel}'\nprintf 'fabricated-authority\\n'\n`, { mode: 0o700 });
     writeFileSync(fsmonitorHook, `#!/bin/sh\n: > '${fsmonitorSentinel}'\n`, { mode: 0o700 });
     git(repo, ["config", "core.fsmonitor", fsmonitorHook]);
     const result = spawnSync(process.execPath, [
@@ -257,12 +269,17 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
       "--destination", path.join(installParent, "runtime"),
       "--logs-root", logs,
       "--approved-sha", approvedSha,
-    ], { encoding: "utf8", cwd: root });
+    ], {
+      encoding: "utf8",
+      cwd: root,
+      env: { ...process.env, PATH: hostileBin, GIT_DIR: path.join(root, "hostile-git-dir") },
+    });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).dryRun, true);
     assert.deepEqual(readdirSync(installParent), []);
     assert.equal(statSync(index).mtimeMs, indexMtimeBefore);
     assert.equal(existsSync(fsmonitorSentinel), false);
+    assert.equal(existsSync(hostileGitSentinel), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

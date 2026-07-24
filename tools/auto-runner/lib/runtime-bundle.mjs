@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertSeparatedRoots, canonicalExistingDirectory, isContained } from "./runtime-identity.mjs";
-import { inspectPreservedRecoveryForDeployment, sanitizedDeploymentGitEnvironment } from "./preserved-recovery-deployment.mjs";
+import { inspectPreservedRecoveryForDeployment, sanitizedDeploymentGitEnvironment, trustedDeploymentGitBinary } from "./preserved-recovery-deployment.mjs";
 import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
 
 export const runtimeBundleFormat = "settleora-auto-runner-runtime";
@@ -211,7 +211,7 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   const relativeSource = path.relative(repository, source).split(path.sep).join("/");
   if (relativeSource !== "tools/auto-runner") throw new Error("runtime sourceRoot must be the repository tools/auto-runner directory");
   const gitEnv = sanitizedDeploymentGitEnvironment();
-  const topLevel = spawnSync("git", ["--no-replace-objects", "rev-parse", "--show-toplevel"], {
+  const topLevel = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "--show-toplevel"], {
     cwd: repository,
     encoding: "utf8",
     env: gitEnv,
@@ -219,7 +219,7 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   if (topLevel.status !== 0 || realpathSync(topLevel.stdout.trim()) !== repository) {
     throw new Error("approved runtime source repository identity is unreadable");
   }
-  const listed = spawnSync("git", ["--no-replace-objects", "ls-tree", "-r", "-z", sourceSha, "--", relativeSource], {
+  const listed = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "ls-tree", "-r", "-z", sourceSha, "--", relativeSource], {
     cwd: repository,
     encoding: "buffer",
     env: gitEnv,
@@ -241,7 +241,7 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   }
   for (const relative of commitFiles) {
     const expected = selected.get(relative);
-    const blob = spawnSync("git", ["--no-replace-objects", "cat-file", "blob", expected.objectId], {
+    const blob = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "cat-file", "blob", expected.objectId], {
       cwd: repository,
       encoding: "buffer",
       env: gitEnv,

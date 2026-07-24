@@ -22,6 +22,7 @@ const externalEffectTypes = new Set([
   "review_trigger", "docs_pr_ready", "docs_pr_merge", "hygiene_component", "project_status_update",
   "branch_retention_verify",
 ]);
+export const trustedDeploymentGitBinary = "/usr/bin/git";
 
 export const preservedRecoveryTargetFields = Object.freeze([
   "repository", "issueNumber", "taskKey", "runnerRunId", "supervisorRunId", "claimIdentity",
@@ -304,7 +305,7 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
 }
 
 function git(root, args) {
-  const result = spawnSync("git", ["--no-replace-objects", "-c", "core.fsmonitor=false", ...args], {
+  const result = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "-c", "core.fsmonitor=false", ...args], {
     cwd: root,
     encoding: "utf8",
     env: sanitizedDeploymentGitEnvironment(),
