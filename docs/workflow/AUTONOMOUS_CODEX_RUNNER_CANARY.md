@@ -66,6 +66,22 @@ touching product runtime behavior.
   OpenAPI/generated-client, Docker/CI/deployment, secret, production, or mobile
   release change is intended by this canary entry.
 
+## 20260724-0946 live acceptance result
+
+- Runnable A: #982, source `ba5d6adee1580f5d4612474befa0dba450ddd6ff`,
+  PR #985, merge `dabd2893242a6985dc5a9d81ed4ca526f64617a7`.
+- Runnable B: #983, source `36c75b55c50cb1a00593e0861eedc7086b6c1f83`,
+  PR #986, merge `22f18c32bf74ae53db0ee369df5258063942bc99`.
+- Fixtures #978-#981 were excluded before implementation, de-labeled, and
+  closed with retained evidence.
+- Corrective runtime PRs #984 and #987 passed full validation, fresh Gemini
+  and local Codex review, GitHub checks/scanners, and exact-head merge.
+- Final run `supervised-20260724T053439Z-282e0da15c99` /
+  `run-2026-07-24T053447Z-282e0da15c99` ended `no-eligible-work` with zero
+  accepted tasks and no duplicate mutation.
+- Historical protected canaries #865/#866 were not mutated. No product issue
+  was changed, and the normal product queue was not started.
+
 ## 2026-07-09 Issue 818
 
 - Source issue: `#818` - Auto-runner canary: Gemini integrated workflow docs

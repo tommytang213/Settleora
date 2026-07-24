@@ -503,3 +503,18 @@ prompts/diffs/provider payloads, unrestricted paths, secrets, credentials,
 OCR/user data, and storage internals. Split-required, context-blocked, and
 coverage-incomplete states are blocking health evidence, never successful
 review verdicts.
+
+## Live Monitoring Acceptance (20260724-0946)
+
+The health service is installed and active on `127.0.0.1:8787` only. The
+terminal notifier timer is enabled with owner-only external provider
+configuration and confirmed-delivery dedupe. Unit readback retained the
+reviewed sandbox posture and intentional Node/V8 exception. Journal/report
+inspection found no secret values.
+
+The final post-fix canary
+`supervised-20260724T053439Z-282e0da15c99` resolved its exact correlated
+summary and reached a healthy terminal state. The rollback drill kept
+read-only status and health available while mutation authority was disabled,
+then restored the exact production profile. No mutation-worker timer or
+recurring queue start was installed.

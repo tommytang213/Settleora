@@ -484,3 +484,19 @@ scope, and idempotency markers. A restart skips already completed exact-
 manifest review calls and split effects; a source identity change discards
 them. Sectioning, provider retries, polling, recovery, and session rotation do
 not create a new logical task or consume review source-round counters.
+
+## Settleora User-unit Acceptance (20260724-0946)
+
+The installed `settleora-auto-runner@.service` binds the stable external
+launcher, runtime, repository, and project logs. Readback confirmed
+`Restart=no`, `KillMode=process`, `TimeoutStopSec=30min`, `SendSIGKILL=no`,
+`UMask=0077`, and no drop-ins. No worker instance is enabled.
+
+The accepted production command remains unexecuted:
+
+```bash
+node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runnerctl.mjs -- submit --mode trusted --config /workspace/auto-runner/config/settleora.json --max-tasks 500 --max-runtime 14d --json
+```
+
+Its matching `--dry-run` form passed. Task and time values are upper bounds
+and stop early on `no-eligible-work`.

@@ -387,9 +387,27 @@ Operational readiness is complete only when:
 - CI, scanners, independent review, Codex review, issue-state, and exact-head
   gates all pass on the exact PR heads involved.
 
-## Next Task
+## Production Activation Acceptance (20260724-0946)
 
-#910 remains open for the one remaining readiness gate: #912. External
-production-profile activation remains manual, unactivated, and permitted only
-through a separately authorized #912 task; do not repeat completed
-implementation work.
+Issue #912 completed the authorized live activation against current-main
+runtime source `fe60b4440e6d90141ddc9a379c95b04361861ff1`. The installed external
+bundle digest is
+`08c1c0c184fa3f939328472c784f4ac31f25d6019f1a84f55643cc1d9a04a992`;
+the accepted production and canary profile digests are respectively
+`6e8ba6f1a5d55198a10ef08086c35711f8f4ec11be889f11c982bfd1dbec246d`
+and
+`8e95967ce99b96e0d6228519b771d266fd72541bd6701a03b9f6a7e3b2e8e120`.
+
+The project supervisor, loopback health service, terminal notifier, and timer
+were installed and accepted. Runnable canaries #982 and #983 merged through
+PRs #985 and #986. Fixtures #978-#981 were excluded before claim and closed
+after eligibility cleanup. The final post-fix canary
+`supervised-20260724T053439Z-282e0da15c99` ended with
+`no-eligible-work`, zero accepted tasks, and no duplicate effect.
+
+The rollback drill disabled all mutation authority, refused a real submission
+before claim, retained read-only status/health, and restored the exact
+production profile. The 500-task/14-day submission was dry-run only. No
+product queue, application deployment, production-data action, public
+exposure, secret rotation, migration, branch deletion, or force-like history
+action occurred.

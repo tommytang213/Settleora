@@ -1634,3 +1634,17 @@ Repository ledger updates are milestone/batched documentation. Ephemeral waits,
 retries, heartbeats, polls, source cycles, rotations, and control transitions do
 not schedule ledger work. The ledger never selects work or influences completion,
 closure, recovery, merge, or duplicate suppression.
+
+## Accepted External Production Posture
+
+Task `20260724-0946` activated the project-bound external runtime from
+current-main source `fe60b4440e6d90141ddc9a379c95b04361861ff1`, bundle
+`08c1c0c184fa3f939328472c784f4ac31f25d6019f1a84f55643cc1d9a04a992`.
+The production profile remains owner-only and external. Product work starts
+only through an explicit bounded operator submission.
+
+The accepted production envelope is 500 logical tasks and 14 days. These are
+upper bounds and exit earlier on `no-eligible-work`; activation did not start
+that queue. Stale-claim stealing, direct-main push, branch deletion, force-like
+history, product deployment, secret/auth mutation, public/admin exposure, and
+product-authority capabilities remain disabled.

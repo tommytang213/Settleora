@@ -9138,3 +9138,20 @@ state.
   - `.codex/reports/settleora-codex-report-20260630-1913-user-web-local-backup-personal-bill-data-package-preview-pr-merge.md`
   - Issue checkpoint comment:
     `https://github.com/tommytang213/Settleora/issues/461#issuecomment-4842928407`
+
+## Auto-runner Production Activation — Task 20260724-0946
+
+- Tracker: #910; activation issue: #912.
+- Runtime source: `fe60b4440e6d90141ddc9a379c95b04361861ff1`.
+- Runtime bundle:
+  `08c1c0c184fa3f939328472c784f4ac31f25d6019f1a84f55643cc1d9a04a992`.
+- Corrective implementation PRs: #968, #984, and #987.
+- Runnable acceptance: #982 / PR #985 / merge
+  `dabd2893242a6985dc5a9d81ed4ca526f64617a7`; #983 / PR #986 / merge
+  `22f18c32bf74ae53db0ee369df5258063942bc99`.
+- Skip fixtures #978-#981 were excluded before claim, de-labeled, and closed.
+- Final post-fix canary: `supervised-20260724T053439Z-282e0da15c99`;
+  zero accepted logical tasks and terminal `no-eligible-work`.
+- Rollback/refusal/restore and the unexecuted 500-task/14-day dry-run passed.
+- Historical logs at `/workspace/logs/settleora-auto-runner` were retained
+  unchanged; the product queue was not started.
