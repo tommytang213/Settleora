@@ -1047,12 +1047,48 @@ test("failed resumed validation is re-terminalized instead of retried on every s
         ok: false,
         outcome: "blocked_recovery_state",
         reasonCode: "checkpoint_validation_not_source_fix_safe",
-        state,
+        state: {
+          phase: "local_validation",
+          sourceFailureBatch: {
+            findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+          },
+        },
       }),
     });
     assert.equal(continued.ok, false);
     assert.equal(continued.result.state.phase, "stopped");
     assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("later continuation failures after recovered validation remain recoverable", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849", issue: { number: 959, title: "Recovery", url: "u" }, runId: "run-959",
+        branchName: "feature/auto-959-recovery", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped", firstIncompleteAction: "run_validation_and_commit", nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: { findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }] },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async () => ({
+        ok: false,
+        reasonCode: "ordinary_continuation_external_review_unavailable",
+        state: { phase: "external_review", sourceFailureBatch: null },
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(discoverStartupRecovery(config).found, true);
   } finally {
     config.cleanup();
   }

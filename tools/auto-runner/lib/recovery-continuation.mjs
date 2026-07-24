@@ -8,7 +8,7 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
-import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
 import { findPreEffectIntents, handoffPreEffectIntentAuthority } from "./pre-effect-intent.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
@@ -273,9 +273,9 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   const result = await handler({ state, boundary, loaded });
-  if (validationRetryTerminal && result?.ok === false) {
+  if (validationRetryTerminal && isRepeatedUnsafeValidationResult(result)) {
     const current = loadRecoveryState(config, recovery.state);
-    const terminal = {
+    let terminal = {
       ...(current.ok ? current.state : state),
       phase: "stopped",
       firstIncompleteAction: validationRetryTerminal.firstIncompleteAction,
@@ -285,6 +285,23 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
         reason: result?.reasonCode || validationRetryTerminal.stopReason?.reason || "Recovered validation remained unsafe or unclassified.",
       },
     };
+    if (terminal.sessionLifecycle) {
+      const lifecycleTerminal = transitionSessionLifecyclePhase(config, terminal.sessionLifecycle, {
+        phase: "stopped",
+        nextExactAction: "checkpoint_validation_recovery_failed_closed",
+      });
+      if (!lifecycleTerminal.ok) {
+        result.reasonCode = lifecycleTerminal.reasonCode;
+        return {
+          ok: false,
+          outcome: "blocked_recovery_state",
+          reasonCode: lifecycleTerminal.reasonCode,
+          recovery: { ...recovery, state: summarizeRecoverableState(current.ok ? current.state : state) },
+          result,
+        };
+      }
+      terminal = { ...terminal, sessionLifecycle: lifecycleTerminal.state };
+    }
     writeRecoveryState(config, terminal);
     result.state = terminal;
   }
@@ -439,6 +456,17 @@ function isValidationFailureRetryAuthorized(state) {
     && state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
     && state.firstIncompleteAction === "run_validation_and_commit"
     && state.nextSafeAction === "stop_fail_closed"
+    && findings.every((finding) => finding?.sourceFixEligible === false
+      && finding?.nextAction === "stop_fail_closed"
+      && finding?.classification === "unsafe_or_ambiguous");
+}
+
+function isRepeatedUnsafeValidationResult(result) {
+  const findings = result?.state?.sourceFailureBatch?.findings;
+  return result?.ok === false
+    && result?.state?.phase === "local_validation"
+    && Array.isArray(findings)
+    && findings.length > 0
     && findings.every((finding) => finding?.sourceFixEligible === false
       && finding?.nextAction === "stop_fail_closed"
       && finding?.classification === "unsafe_or_ambiguous");
