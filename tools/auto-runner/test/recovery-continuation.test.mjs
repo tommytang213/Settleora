@@ -8,7 +8,11 @@ import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
-import { inspectPreservedRecoveryForDeployment, normalizePreservedRecoveryDeploymentTarget } from "../lib/preserved-recovery-deployment.mjs";
+import {
+  inspectPreservedRecoveryForDeployment,
+  normalizePreservedRecoveryDeploymentTarget,
+  sanitizedDeploymentGitEnvironment,
+} from "../lib/preserved-recovery-deployment.mjs";
 import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
 import {
   advanceRecoveryPhase,
@@ -35,6 +39,22 @@ import {
   shouldSkipCompletedBundleSlice,
   consumeStartupInterruptionPlanner,
 } from "../lib/recovery-continuation.mjs";
+
+test("deployment Git environment disables lazy object fetching and ignores ambient execution authority", () => {
+  assert.deepEqual(sanitizedDeploymentGitEnvironment({
+    LD_PRELOAD: "/tmp/hostile.so",
+    GIT_DIR: "/tmp/foreign.git",
+    HOME: "/tmp/hostile-home",
+  }), {
+    PATH: "/usr/bin:/bin",
+    LANG: "C",
+    LC_ALL: "C",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+  });
+});
 
 test("one trusted recovery reconstructs a genuinely missing lifecycle exactly once", () => {
   const config = tempConfig({ repositorySlug: "owner/repo", maxIterations: 1, sessionLifecycle: { enabled: true, allowRecoveryTakeover: true } });

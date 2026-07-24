@@ -37,6 +37,7 @@ export function sanitizedDeploymentGitEnvironment(_environment = process.env) {
     LANG: "C",
     LC_ALL: "C",
     GIT_OPTIONAL_LOCKS: "0",
+    GIT_NO_LAZY_FETCH: "1",
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
   };
