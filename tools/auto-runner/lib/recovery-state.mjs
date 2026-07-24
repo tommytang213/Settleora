@@ -357,8 +357,9 @@ export function listRecoverableRecoveryStates(config) {
 
 function isValidationFailureContinuation(state) {
   return state?.evidence?.localValidation?.status === "failed"
-    && isAuthorizedSourceFailureBatch(state?.ordinaryContinuation?.sourceFailureBatch)
-    && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha;
+    && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
+    && (isAuthorizedSourceFailureBatch(state?.ordinaryContinuation?.sourceFailureBatch)
+      || isValidationRetryCheckpoint(state));
 }
 
 function isAuthorizedSourceFailureBatch(batch) {
@@ -368,6 +369,18 @@ function isAuthorizedSourceFailureBatch(batch) {
       finding?.sourceFixEligible === true
       && finding?.nextAction === "run_focused_fix"
       && ["review_fix_safe", "ci_fix_safe", "code_scanning_fix_safe"].includes(finding?.classification));
+}
+
+function isValidationRetryCheckpoint(state) {
+  return state?.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+    && state?.firstIncompleteAction === "run_validation_and_commit"
+    && state?.nextSafeAction === "stop_fail_closed"
+    && Array.isArray(state?.ordinaryContinuation?.sourceFailureBatch?.findings)
+    && state.ordinaryContinuation.sourceFailureBatch.findings.length > 0
+    && state.ordinaryContinuation.sourceFailureBatch.findings.every((finding) =>
+      finding?.sourceFixEligible === false
+      && finding?.nextAction === "stop_fail_closed"
+      && finding?.classification === "unsafe_or_ambiguous");
 }
 
 function isProvisionalTaskKey(value) {

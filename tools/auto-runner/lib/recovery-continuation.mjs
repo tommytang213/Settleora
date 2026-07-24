@@ -389,18 +389,26 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
 }
 
 function normalizeValidationFailureContinuation(state) {
+  const findings = state?.ordinaryContinuation?.sourceFailureBatch?.findings;
   if (state?.phase !== "stopped" || state?.evidence?.localValidation?.status !== "failed"
-    || !Array.isArray(state?.ordinaryContinuation?.sourceFailureBatch?.findings)
-    || state.ordinaryContinuation.sourceFailureBatch.findings.length === 0
-    || !state.ordinaryContinuation.sourceFailureBatch.findings.every((finding) =>
+    || !Array.isArray(findings) || findings.length === 0
+    || state.branch?.currentHeadSha !== state.ordinaryContinuation?.identity?.headSha) return state;
+  const sourceFixAuthorized = findings.every((finding) =>
       finding?.sourceFixEligible === true
       && finding?.nextAction === "run_focused_fix"
-      && ["review_fix_safe", "ci_fix_safe", "code_scanning_fix_safe"].includes(finding?.classification))
-    || state.branch?.currentHeadSha !== state.ordinaryContinuation?.identity?.headSha) return state;
+      && ["review_fix_safe", "ci_fix_safe", "code_scanning_fix_safe"].includes(finding?.classification));
+  const validationRetryAuthorized = state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+    && state.firstIncompleteAction === "run_validation_and_commit"
+    && state.nextSafeAction === "stop_fail_closed"
+    && findings.every((finding) => finding?.sourceFixEligible === false
+      && finding?.nextAction === "stop_fail_closed"
+      && finding?.classification === "unsafe_or_ambiguous");
+  if (!sourceFixAuthorized && !validationRetryAuthorized) return state;
+  const nextAction = sourceFixAuthorized ? "run_source_failure_convergence" : "run_validation_and_commit";
   return advanceRecoveryPhase({ ...state, stopReason: null }, {
     phase: "checkpoint_validation_commit",
-    firstIncompleteAction: "run_source_failure_convergence",
-    nextSafeAction: "run_source_failure_convergence",
+    firstIncompleteAction: nextAction,
+    nextSafeAction: nextAction,
   });
 }
 

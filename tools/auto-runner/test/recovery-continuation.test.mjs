@@ -780,6 +780,57 @@ test("terminal validation rejection is not revived as recoverable work", () => {
   }
 });
 
+test("non-source validation failure resumes validation without implementation replay", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.allowed, true);
+    let implementationCalls = 0;
+    const continued = await executeStartupContinuation(config, discovery, {
+      checkpoint_validation_commit: async ({ boundary }) => ({
+        ok: true,
+        outcome: "validation_resumed",
+        boundary,
+      }),
+      implementation_or_bundle_slice: async () => {
+        implementationCalls += 1;
+        return { ok: false };
+      },
+    });
+    assert.equal(continued.ok, true);
+    assert.equal(continued.result.boundary.nextSafeAction, "run_validation_and_commit");
+    assert.equal(implementationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("interruption at major phase resumes first incomplete phase", () => {
   for (const phase of ["external_review", "ci_wait", "merge", "issue_parent_ledger_hygiene"]) {
     const resumed = firstIncompleteContinuationAction(
