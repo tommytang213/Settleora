@@ -1659,3 +1659,18 @@ upper bounds and exit earlier on `no-eligible-work`; activation did not start
 that queue. Stale-claim stealing, direct-main push, branch deletion, force-like
 history, product deployment, secret/auth mutation, public/admin exposure, and
 product-authority capabilities remain disabled.
+
+## Missing Session-Lifecycle Recovery
+
+The ordinary recovery recorder and generated task prompt use one timestamp key
+from their first durable write. A later prompt write must not rename recovery
+identity and orphan a pre-implementation record.
+
+Startup may reconstruct a genuinely missing session-lifecycle checkpoint only
+from one owner-trusted ordinary recovery record whose repository, issue,
+task/run and supervisor correlation, claim, accepted-task charge,
+branch/base/head, report correlation, counters, and pre-effect intents agree.
+Reconstruction is atomic, is read back before takeover, and never replaces an
+existing corrupt, contradictory, mismatched, or ambiguous lifecycle artifact.
+A validation-failed candidate resumes source-failure/validation convergence at
+its preserved head; it does not re-enter implementation.

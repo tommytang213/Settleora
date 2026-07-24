@@ -7,9 +7,10 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
-import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
+import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState } from "./session-lifecycle.mjs";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
 import { findPreEffectIntents, handoffPreEffectIntentAuthority } from "./pre-effect-intent.mjs";
+import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -197,7 +198,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
-  let state = loaded.state;
+  let state = normalizeValidationFailureContinuation(loaded.state);
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, recovery.interruption || {});
   if (!lifecycleRecovery.ok) {
     return {
@@ -303,7 +304,10 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     return { ok: true, skipped: true, reasonCode: "session_lifecycle_disabled" };
   }
   if (config.sessionLifecycle?.allowRecoveryTakeover !== true) return { ok: false, reasonCode: "session_lifecycle_recovery_takeover_disabled" };
-  const loaded = loadSessionLifecycleForRecovery(config, identity);
+  let loaded = loadSessionLifecycleForRecovery(config, identity);
+  if (!loaded.ok && loaded.reasonCode === "session_lifecycle_state_missing") {
+    loaded = reconstructMissingSessionLifecycle(config, recoveryState, identity);
+  }
   if (!loaded.ok) return loaded;
   const taskIntents = findPreEffectIntents(config, (intent) => intent.repository === loaded.state.repository
     && intent.sourceTaskKey === loaded.state.logicalTask.taskKey
@@ -382,6 +386,73 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     return { ok: false, reasonCode: "pre_effect_intent_authority_handoff_failed", state: persisted.state };
   }
   return { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation, handedOffIntentIds: pendingIntents.map((intent) => intent.intentId) };
+}
+
+function normalizeValidationFailureContinuation(state) {
+  if (state?.phase !== "stopped" || state?.evidence?.localValidation?.status !== "failed"
+    || !state?.ordinaryContinuation?.sourceFailureBatch
+    || state.branch?.currentHeadSha !== state.ordinaryContinuation?.identity?.headSha) return state;
+  return advanceRecoveryPhase({ ...state, stopReason: null }, {
+    phase: "checkpoint_validation_commit",
+    firstIncompleteAction: "run_source_failure_convergence",
+    nextSafeAction: "run_source_failure_convergence",
+  });
+}
+
+export function reconstructMissingSessionLifecycle(config, recoveryState, identity) {
+  const claimIdentity = `${config.repositorySlug}#${identity.issueNumber}`;
+  const budgetScopeId = recoveryState.run?.supervisorRunId || recoveryState.run?.runId;
+  const budget = loadLogicalTaskBudget(config, budgetScopeId);
+  if (!budget.ok) return { ok: false, reasonCode: budget.reasonCode };
+  const chargeIds = Object.entries(budget.state.charges || {}).filter(([, marker]) =>
+    marker.identity?.repository === config.repositorySlug
+      && marker.identity?.issueNumber === identity.issueNumber
+      && marker.identity?.taskLineageId === `issue-${identity.issueNumber}`
+      && marker.identity?.claimIdentity === claimIdentity);
+  const recoveryChargeIds = Object.keys(recoveryState.mutationMarkers?.logical_task_charge || {});
+  if (chargeIds.length !== 1 || recoveryChargeIds.length !== 1 || chargeIds[0][0] !== recoveryChargeIds[0]) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_charge_mismatch" };
+  }
+  const reportPath = recoveryState.expectedReportPaths?.repoReportPath;
+  const promptPath = recoveryState.expectedReportPaths?.promptPath;
+  if (!reportPath || !promptPath || !reportPath.includes(identity.taskKey) || !promptPath.includes(identity.taskKey)) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_report_correlation_mismatch" };
+  }
+  let intents;
+  try {
+    intents = findPreEffectIntents(config, (intent) => intent.repository === config.repositorySlug
+      && intent.sourceTaskKey === identity.taskKey
+      && intent.runId === identity.runId
+      && intent.claimIdentity === claimIdentity);
+  } catch {
+    return { ok: false, reasonCode: "session_lifecycle_migration_intent_state_untrusted" };
+  }
+  if (intents.some((intent) => !["finalized", "failed_closed"].includes(intent.status))) {
+    return { ok: false, reasonCode: "session_lifecycle_migration_pending_intents" };
+  }
+  const counters = recoveryState.ordinaryContinuation?.counters || {};
+  const migrated = migrateRecoveryStateToSessionLifecycle(recoveryState, {
+    repository: config.repositorySlug,
+    issueNumber: identity.issueNumber,
+    taskKey: identity.taskKey,
+    runId: identity.runId,
+    claimIdentity,
+    chargeMarkerRef: budget.statePath,
+    sessionId: `${identity.runId}:recovery-bootstrap:1`,
+    branchName: identity.branchName,
+    baseSha: identity.baseSha,
+    headSha: identity.headSha,
+    localSourceChangingRoundsPerEpoch: counters.localSourceChangingRoundsPerEpoch || 0,
+    githubTriggeredFixEpochsPerPr: counters.githubTriggeredFixEpochsPerPr || 0,
+    lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds || 0,
+    reportPath,
+    reportCorrelationKey: identity.taskKey,
+  });
+  if (!migrated.ok) return migrated;
+  const written = persistSessionLifecycleState(config, migrated.state);
+  if (!written.ok) return written;
+  const readback = loadSessionLifecycleForRecovery(config, identity);
+  return readback.ok ? { ...readback, migrated: true } : readback;
 }
 
 export function reconcileAuthoritativeLifecycleHead(state, authoritative) {

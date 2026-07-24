@@ -159,6 +159,8 @@ test("production runner records lifecycle phases, mutation markers, and head inv
   assert.match(source, /marker\("worktree_ownership_created"/);
   assert.match(source, /invalidateEvidenceForHeadChange/);
   assert.match(source, /writeRecoveryState/);
+  assert.match(source, /const taskKey = taskTimestamp\.replace\(\/\[\^0-9TZ\]\/g, ""\)\.slice\(0, 15\)/);
+  assert.match(source, /generateTaskPrompt\(config, issue, laneDecision, branchName, \{ timestampKey: taskKey \}\)/);
 });
 
 test("feature-bundle production path records linked recovery state", () => {

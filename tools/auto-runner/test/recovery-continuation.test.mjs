@@ -3,7 +3,8 @@ import test from "node:test";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createSessionLifecycleState, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -23,11 +24,63 @@ import {
   planIdempotentGithubMutation,
   recoveryStatusSummary,
   reconcileAuthoritativeLifecycleHead,
+  reconstructMissingSessionLifecycle,
   projectStartupRecoveryIssueIdentity,
   shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
   consumeStartupInterruptionPlanner,
 } from "../lib/recovery-continuation.mjs";
+
+test("one trusted recovery reconstructs a genuinely missing lifecycle exactly once", () => {
+  const config = tempConfig({ repositorySlug: "owner/repo", maxIterations: 1 });
+  try {
+    const recovery = createInitialRecoveryState({
+      taskKey: "20260724T075849",
+      issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+      runId: "run-959",
+      supervisorRunId: "supervised-959",
+      branchName: "feature/auto-959-recovery",
+      baseSha: "a".repeat(40),
+      currentHeadSha: "b".repeat(40),
+      phase: "checkpoint_validation_commit",
+      firstIncompleteAction: "run_source_failure_convergence",
+    });
+    const charged = chargeAcceptedLogicalTask(config, {
+      budgetScopeId: "supervised-959",
+      maxTasks: 1,
+      issue: recovery.issue,
+      taskLineageId: "issue-959",
+      claimIdentity: "owner/repo#959",
+      acceptedAt: "2026-07-24T07:58:49.248Z",
+    });
+    const withEvidence = recordIdempotentMutation({
+      ...recovery,
+      expectedReportPaths: {
+        repoReportPath: "/repo/settleora-codex-report-20260724T075849-issue-959.md",
+        promptPath: "/logs/20260724T075849-issue-959.md",
+      },
+    }, { kind: "logical_task_charge", key: charged.chargeId });
+    const identity = {
+      repository: "owner/repo",
+      issueNumber: 959,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+    };
+    const first = reconstructMissingSessionLifecycle(config, withEvidence, identity);
+    assert.equal(first.ok, true);
+    assert.equal(first.migrated, true);
+    assert.equal(first.state.logicalTask.chargeMarkerRef, charged.statePath);
+    const second = loadSessionLifecycleForRecovery(config, identity);
+    assert.equal(second.ok, true);
+    assert.equal(second.state.sessions.generation, first.state.sessions.generation);
+    assert.equal(second.state.mutationAuthority.generation, first.state.mutationAuthority.generation);
+  } finally {
+    config.cleanup();
+  }
+});
 
 test("disabled lifecycle preserves legacy startup continuation before takeover gating", () => {
   assert.deepEqual(
@@ -640,6 +693,47 @@ test("multiple recoverable active states fail closed", () => {
     const discovery = discoverStartupRecovery(config);
     assert.equal(discovery.allowed, false);
     assert.equal(discovery.reasonCode, "multiple_recoverable_states");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("one exact validation-failure successor supersedes its provisional pre-prompt record", () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    let provisional = createInitialRecoveryState({
+      taskKey: "20260724T07",
+      issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+      runId: "run-959",
+      supervisorRunId: "supervised-959",
+      branchName: "feature/auto-959-recovery",
+      baseSha: "a".repeat(40),
+      currentHeadSha: "a".repeat(40),
+      phase: "implementation_or_bundle_slice",
+      firstIncompleteAction: "run_implementation",
+    });
+    for (const [kind, key] of [["claim", "issue-959"], ["logical_task_charge", "charge-959"], ["branch_ownership_created", "branch-959"]]) {
+      provisional = recordIdempotentMutation(provisional, { kind, key });
+    }
+    let successor = {
+      ...provisional,
+      taskKey: "20260724T075849",
+      branch: { ...provisional.branch, currentHeadSha: "b".repeat(40) },
+      phase: "stopped",
+      evidence: { ...provisional.evidence, localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { headSha: "b".repeat(40) },
+        sourceFailureBatch: { batchIdentity: "batch-959" },
+      },
+      timestamps: { ...provisional.timestamps, updatedAt: "2026-07-24T08:03:39.974Z" },
+    };
+    writeRecoveryState(config, provisional);
+    writeRecoveryState(config, successor);
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.allowed, true);
+    assert.equal(discovery.states.length, 1);
+    assert.equal(discovery.state.taskKey, successor.taskKey);
+    assert.equal(discovery.state.currentHeadSha, successor.branch.currentHeadSha);
   } finally {
     config.cleanup();
   }

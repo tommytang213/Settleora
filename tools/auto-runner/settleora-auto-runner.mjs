@@ -545,11 +545,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   const laneDecision = selection.laneDecision || classifyIssueLane(issue);
   const taskTimestamp = safeTimestamp();
+  const taskKey = taskTimestamp.replace(/[^0-9TZ]/g, "").slice(0, 15);
   const plannedBranchName = planOrdinaryRecoveryBranch({ issue, laneDecision, taskTimestamp });
   if (!config.dryRun) fetchOriginMain(config);
   const initialBaseSha = config.dryRun ? null : getRefSha("origin/main");
   let recoveryRecorder = createProductionRecoveryRecorder(config, {
-    taskKey: taskTimestamp.slice(0, 13).replace(/[^0-9T]/g, ""),
+    taskKey,
     issue,
     runId,
     supervisorRunId: config.supervisorRunId || null,
@@ -787,14 +788,13 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName);
   }
 
-  const promptInfo = generateTaskPrompt(config, issue, laneDecision, branchName);
+  const promptInfo = generateTaskPrompt(config, issue, laneDecision, branchName, { timestampKey: taskKey });
   iteration.taskPrompt = {
     promptPath: promptInfo.promptPath,
     reportPath: promptInfo.reportPath,
     timestampKey: promptInfo.timestampKey,
   };
   recoveryRecorder?.annotate({
-    taskKey: promptInfo.timestampKey,
     lane: laneDecision.lane,
     expectedReportPaths: {
       repoReportPath: promptInfo.reportPath,
