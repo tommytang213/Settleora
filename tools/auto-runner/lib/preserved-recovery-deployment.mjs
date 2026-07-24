@@ -393,15 +393,18 @@ function isGitTransportAuthorityKey(key) {
     || (normalized.startsWith("includeif.") && normalized.endsWith(".path"))
     || normalized === "core.sshcommand"
     || normalized === "core.gitproxy"
+    || normalized === "core.askpass"
     || normalized === "ssh.variant"
+    || normalized.startsWith("http.")
+    || normalized.startsWith("https.")
+    || normalized.startsWith("credential.")
+    || normalized.startsWith("protocol.")
+    || normalized === "remote.pushdefault"
+    || (normalized.startsWith("branch.") && normalized.endsWith(".pushremote"))
     || (normalized.startsWith("url.")
       && (normalized.endsWith(".insteadof") || normalized.endsWith(".pushinsteadof")))
-    || [
-      "remote.origin.receivepack",
-      "remote.origin.uploadpack",
-      "remote.origin.proxy",
-      "remote.origin.vcs",
-    ].includes(normalized);
+    || (normalized.startsWith("remote.origin.")
+      && !["remote.origin.url", "remote.origin.pushurl", "remote.origin.fetch"].includes(normalized));
 }
 
 function canonicalGitHubRepository(remote) {

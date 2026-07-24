@@ -463,6 +463,20 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "worktree-scoped receive-pack authority must not control later pushes",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "remote.origin.receivepack"]);
+    git(config.repoRoot, ["config", "--local", "http.sslVerify", "false"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "local HTTP transport authority must not weaken later GitHub TLS reads or effects",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "http.sslVerify"]);
+    git(config.repoRoot, ["config", "--worktree", "credential.helper", path.join(hostileHome, "hostile-credential-helper")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped credential authority must not execute during later GitHub effects",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "credential.helper"]);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
