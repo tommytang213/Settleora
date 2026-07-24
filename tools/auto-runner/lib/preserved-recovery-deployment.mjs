@@ -181,19 +181,19 @@ function validateLifecycle(config, state, target, chargeMarkerRef) {
     runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
     baseSha: target.baseSha, headSha: target.headSha,
   });
-  if (!loaded.ok) return loaded.reasonCode === "session_lifecycle_state_missing"
-    ? { ok: true, absent: true } : { ok: false, reasonCode: "preserved_recovery_lifecycle_untrusted" };
+  if (!loaded.ok) return { ok: false, reasonCode: "preserved_recovery_lifecycle_untrusted" };
   const lifecycle = loaded.state;
-  const progress = lifecycle.progress?.counters;
+  const counters = lifecycle.controller;
   if (lifecycle.logicalTask?.claimIdentity !== target.claimIdentity
       || lifecycle.logicalTask?.chargeMarkerRef !== chargeMarkerRef
-      || lifecycle.logicalTask?.supervisorRunId !== target.supervisorRunId
+      || (Object.hasOwn(lifecycle.logicalTask || {}, "supervisorRunId")
+        && lifecycle.logicalTask.supervisorRunId !== target.supervisorRunId)
       || lifecycle.branch?.headSha !== target.headSha
       || lifecycle.report?.correlationKey !== target.taskKey
       || path.basename(lifecycle.report?.path || "") !== target.reportName
-      || progress?.localSourceChangingRoundsPerEpoch !== target.localSourceChangingRounds
-      || progress?.githubTriggeredFixEpochsPerPr !== target.githubTriggeredFixEpochs
-      || progress?.lifetimeLocalSourceChangingRounds !== target.lifetimeLocalSourceChangingRounds) {
+      || counters?.localSourceChangingRoundsPerEpoch !== target.localSourceChangingRounds
+      || counters?.githubTriggeredFixEpochsPerPr !== target.githubTriggeredFixEpochs
+      || counters?.lifetimeLocalSourceChangingRounds !== target.lifetimeLocalSourceChangingRounds) {
     return { ok: false, reasonCode: "preserved_recovery_lifecycle_mismatch" };
   }
   return { ok: true };

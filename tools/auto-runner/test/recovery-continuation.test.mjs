@@ -291,6 +291,17 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     commitIntent = transitionPreEffectIntent(config, commitIntent, "executing");
     commitIntent = transitionPreEffectIntent(config, commitIntent, "live_confirmed");
     transitionPreEffectIntent(config, commitIntent, "finalized");
+    const lifecycle = createSessionLifecycleState({
+      repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
+      runId: target.runnerRunId, supervisorRunId: target.supervisorRunId,
+      claimIdentity: target.claimIdentity, chargeMarkerRef: charge.statePath,
+      sessionId: "fixture-session", branchName: target.branch, baseSha: target.baseSha,
+      headSha: target.headSha, phase: "implementation_or_bundle_slice",
+      nextExactAction: "run_implementation", reportPath: recovery.expectedReportPaths.repoReportPath,
+      reportCorrelationKey: target.taskKey, localSourceChangingRoundsPerEpoch: 0,
+      githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 0,
+    });
+    assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
     const before = readdirSync(config.logsRoot, { recursive: true }).sort();
     assert.equal(inspectDeploymentQuiescence(config.logsRoot).unresolvedExternalEffects, true);
     const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target);
