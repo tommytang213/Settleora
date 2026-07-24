@@ -1,5 +1,16 @@
 # Issue Progress Ledger
 
+### Current checkpoint — #912 production activation (2026-07-24)
+
+- #912 live activation is accepted: external runtime/profiles, project user
+  units, loopback health, notifier timer, two runnable canaries, skip fixtures,
+  rollback/refusal/restore, and the unexecuted 500-task/14-day dry-run passed.
+- Acceptance-doc PR #988 is the remaining repository/current-main gate; #912
+  and #910 remain open only until that merge and exact close-rule hygiene.
+- The detailed task `20260724-0946` evidence appears in the activation section
+  below. Older entries are historical snapshots and do not override this
+  checkpoint or live GitHub/systemd/runtime evidence.
+
 ### Issue #951 — external runtime/repository separation implementation (2026-07-23)
 
 - Root task `20260723-1455` started from exact main
@@ -11,7 +22,8 @@
   manifest, and an expected-old-digest protected manual deployment utility.
 - Acceptance uses isolated temporary repositories and copied runtime paths;
   no external runtime, profile, service, or historical log root is changed.
-  #910 and #912 remain open; #912 remains manual-gated and unactivated.
+  At that historical #951 checkpoint, #910/#912 remained open and #912 was
+  manual-gated and unactivated; #912 subsequently completed activation.
 
 ### Issue #947 and PR #949 — merged safe ephemeral cleanup (2026-07-23)
 
