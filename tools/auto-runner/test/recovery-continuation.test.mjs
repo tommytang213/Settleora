@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
+import { inspectPreservedRecoveryForDeployment } from "../lib/preserved-recovery-deployment.mjs";
+import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -199,6 +201,117 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
       consumeStartupInterruptionPlanner(config, withEvidence).reasonCode,
       "session_lifecycle_intent_identity_mismatch",
     );
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("deployment admits only one exact effect-free preserved recovery and remains fail-closed", () => {
+  const config = tempConfig({ repositorySlug: "owner/repo" });
+  try {
+    const files = ["apps/mobile/lib/parser.dart", "apps/mobile/test/parser_test.dart"];
+    const filesDigest = createHash("sha256").update(JSON.stringify(files)).digest("hex");
+    const charge = chargeAcceptedLogicalTask(config, {
+      budgetScopeId: "supervised-20260724T075831Z-fixture",
+      maxTasks: 1,
+      issue: { number: 959 },
+      taskLineageId: "issue-959",
+      claimIdentity: "owner/repo#959",
+      acceptedAt: "2026-07-24T07:58:49.248Z",
+    });
+    let recovery = createInitialRecoveryState({
+      taskKey: "20260724T075849",
+      issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+      runId: "run-2026-07-24T075839Z-fixture",
+      supervisorRunId: "supervised-20260724T075831Z-fixture",
+      branchName: "feature/auto-959-recovery",
+      baseSha: "a".repeat(40),
+      currentHeadSha: "b".repeat(40),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+    });
+    recovery = {
+      ...recovery,
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe", reason: "fixture" },
+      expectedReportPaths: {
+        repoReportPath: path.join(config.repoRoot, ".codex", "reports", "settleora-codex-report-20260724T075849-issue-959-fixture.md"),
+        promptPath: path.join(config.logsRoot, "tasks", "20260724T075849-issue-959-fixture.md"),
+      },
+      evidence: { ...recovery.evidence, localValidation: { status: "failed", headSha: "a".repeat(40) } },
+      ordinaryContinuation: {
+        identity: {
+          repository: "owner/repo", baseSha: "a".repeat(40), headSha: "b".repeat(40),
+          treeSha: "c".repeat(40), changedFiles: files, changedFilesDigest: filesDigest,
+        },
+        counters: {
+          acceptedLogicalTasks: 1, localSourceChangingRoundsPerEpoch: 0,
+          githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 0,
+        },
+        sourceFailureBatch: {
+          candidate: {
+            baseSha: "a".repeat(40), headSha: "b".repeat(40), treeSha: "c".repeat(40),
+            changedFiles: files, changedFilesDigest: filesDigest,
+          },
+          findings: [{ sourceFixEligible: false, nextAction: "stop_fail_closed", classification: "unsafe_or_ambiguous" }],
+        },
+      },
+    };
+    recovery = recordIdempotentMutation(recovery, {
+      kind: "claim", key: "issue-959", marker: { target: recovery.issue.url, correlation: recovery.run.runId },
+    });
+    recovery = recordIdempotentMutation(recovery, {
+      kind: "logical_task_charge", key: charge.chargeId, marker: { target: "issue-959", correlation: charge.chargeId },
+    });
+    recovery = recordIdempotentMutation(recovery, {
+      kind: "branch_ownership_created", key: `${recovery.branch.name}:${recovery.branch.baseSha}`,
+      marker: { target: recovery.branch.name, correlation: recovery.branch.baseSha },
+    });
+    writeRecoveryState(config, recovery);
+    const target = {
+      repository: "owner/repo", issueNumber: 959, taskKey: recovery.taskKey,
+      runnerRunId: recovery.run.runId, supervisorRunId: recovery.run.supervisorRunId,
+      claimIdentity: "owner/repo#959", chargeId: charge.chargeId, branch: recovery.branch.name,
+      baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha,
+      treeSha: "c".repeat(40), changedFilesDigest: filesDigest,
+      reportName: "settleora-codex-report-20260724T075849-issue-959-fixture.md",
+      promptName: "20260724T075849-issue-959-fixture.md",
+      acceptedLogicalTasks: 1, localSourceChangingRounds: 0,
+      githubTriggeredFixEpochs: 0, lifetimeLocalSourceChangingRounds: 0,
+    };
+    let commitIntent = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
+      headSha: target.baseSha, candidateIdentity: target.baseSha,
+      effect: { expectedParents: [target.baseSha], treeSha: target.treeSha, stagedPaths: files },
+    });
+    config.currentAuthority = { retired: false, status: "active", sessionId: "fixture-session", authorityGeneration: 1, runId: target.runnerRunId };
+    commitIntent = transitionPreEffectIntent(config, commitIntent, "executing");
+    commitIntent = transitionPreEffectIntent(config, commitIntent, "live_confirmed");
+    transitionPreEffectIntent(config, commitIntent, "finalized");
+    const before = readdirSync(config.logsRoot, { recursive: true }).sort();
+    assert.equal(inspectDeploymentQuiescence(config.logsRoot).unresolvedExternalEffects, true);
+    const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target);
+    assert.equal(admitted.preservedRecoveryAdmitted, true, JSON.stringify(admitted));
+    assert.equal(admitted.unresolvedExternalEffects, false);
+    assert.equal(admitted.revalidationRequired, true);
+    assert.deepEqual(readdirSync(config.logsRoot, { recursive: true }).sort(), before);
+    assert.equal(inspectDeploymentQuiescence(config.logsRoot, { preservedRecoveryTarget: target }).preservedRecoveryAdmitted, true);
+    assert.equal(inspectPreservedRecoveryForDeployment(config.logsRoot, { ...target, headSha: "d".repeat(40) }).preservedRecoveryAdmitted, false);
+    const intent = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "comment", issueNumber: 959, branchName: target.branch, baseSha: target.baseSha,
+      headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: { issueNumber: 959, bodyDigest: "e".repeat(64) },
+    });
+    assert.equal(intent.status, "prepared");
+    const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target);
+    assert.equal(pending.preservedRecoveryAdmitted, false);
+    assert.equal(pending.reasonCode, "pending_external_effect");
   } finally {
     config.cleanup();
   }

@@ -90,6 +90,25 @@ each ancestor are canonical, runner- or system-owned, and not writable by
 another principal. Manifest source verification disables local Git replacement
 objects, and project namespace markers store the same case-normalized
 repository slug used by repository locks and runtime identity.
+
+Deployment remains fail-closed for every non-terminal recovery or pre-effect
+intent by default. One preserved validation-recovery checkpoint may be
+admitted only when the operator supplies the complete fixed
+`--preserved-recovery-*` option set: repository, issue, full task key,
+runner/supervisor IDs, claim, charge ID, branch, base/head/tree, changed-file
+digest, report/prompt basenames, and all four logical-task counters. Partial,
+duplicate, unknown, contradictory, or extra options are rejected. The
+read-only verifier requires one canonical recovery after the existing
+provisional/full-key suppression rule, exact charge/lifecycle/candidate/commit
+proof, terminal reconciled intents, and no live owner. Its output is sanitized
+structured evidence with a target-identity digest and reason code.
+
+For a non-dry deployment, this proof is read initially, read again after the
+deployment lock is acquired, and read a third time immediately before launcher
+or runtime exchange. Runtime consumers and source bytes are also rechecked.
+Any drift stops before installed-runtime exchange. The exception is never
+available to rollback and never excuses a pending push, PR, merge, comment,
+closure, label, hygiene, cleanup, or branch effect.
 The supervisor binds the already admitted canonical profile path and its
 SHA-256 into the immutable run spec; the installed unit therefore contains no
 hard-coded active-profile path, and the worker never reconstructs the profile

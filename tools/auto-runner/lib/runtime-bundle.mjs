@@ -4,6 +4,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertSeparatedRoots, canonicalExistingDirectory, isContained } from "./runtime-identity.mjs";
+import { inspectPreservedRecoveryForDeployment } from "./preserved-recovery-deployment.mjs";
+import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
 
 export const runtimeBundleFormat = "settleora-auto-runner-runtime";
 export const runtimeBundleVersion = 1;
@@ -283,11 +285,18 @@ export function deployRuntimeBundle({
   dryRun = false,
   active = false,
   pendingEffects = false,
+  quiescence = null,
   runtimeConsumers = [],
   sourceVerifier = null,
+  finalQuiescenceVerifier = null,
 } = {}) {
-  if (active) throw new Error("runtime deployment refused while a runner or supervisor is active");
-  if (pendingEffects) throw new Error("runtime deployment refused with unresolved effects or recovery");
+  const initialQuiescence = quiescence || {
+    active,
+    unresolvedExternalEffects: pendingEffects,
+    preservedRecoveryAdmitted: false,
+    reasonCode: pendingEffects ? "unresolved_operational_state" : "default_quiescent",
+  };
+  assertDeploymentQuiescence(initialQuiescence);
   if (runtimeConsumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
   const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
   const destinationParent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
@@ -343,6 +352,11 @@ export function deployRuntimeBundle({
   if (sourceVerifier) sourceVerifier(manifest);
   if (buildRuntimeManifest(source, { sourceSha }).bundleDigest !== manifest.bundleDigest) {
     throw new Error("runtime source changed during deployment");
+  }
+  if (finalQuiescenceVerifier) {
+    const finalQuiescence = finalQuiescenceVerifier();
+    assertSameQuiescenceProof(initialQuiescence, finalQuiescence);
+    assertDeploymentQuiescence(finalQuiescence);
   }
   const launcher = path.join(destinationParent, `.${path.basename(destination)}.launcher.mjs`);
   const stagedLauncher = path.join(temporary, "runtime-launcher.mjs");
@@ -507,7 +521,7 @@ export function rollbackRuntimeBundle({
   };
 }
 
-export function inspectDeploymentQuiescence(logsRoot) {
+export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget = null } = {}) {
   canonicalExistingDirectory(logsRoot, "logsRoot");
   const activePaths = [
     path.join(logsRoot, "locks"),
@@ -523,12 +537,17 @@ export function inspectDeploymentQuiescence(logsRoot) {
         throw new Error("runtime deployment refused because operational state is unreadable");
       }
       if (Number.isInteger(record.pid) && processIsActive(record.pid)) {
-        return { active: true, pendingEffects: false };
+        return quiescenceEvidence({ active: true, unresolvedExternalEffects: false, reasonCode: "live_operational_owner" });
       }
       if (["submitted", "starting", "running", "stopping_after_current"].includes(record.state)) {
-        return { active: true, pendingEffects: false };
+        return quiescenceEvidence({ active: true, unresolvedExternalEffects: false, reasonCode: "live_operational_state" });
       }
     }
+  }
+  const recoverableStates = listRecoverableRecoveryStates({ logsRoot });
+  if (recoverableStates.length > 0) {
+    if (preservedRecoveryTarget) return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget);
+    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "recoverable_operational_state" });
   }
   for (const name of ["pre-effect-intents", "recovery"]) {
     const root = path.join(logsRoot, name);
@@ -538,10 +557,45 @@ export function inspectDeploymentQuiescence(logsRoot) {
       const terminalStatuses = new Set(["completed", "finalized", "failed_closed", "recovered", "exhausted", "blocked"]);
       const terminalPhases = new Set(["completed", "cleanup_complete", "stopped"]);
       const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
-      if (!terminal) return { active: false, pendingEffects: true };
+      if (!terminal) {
+        if (preservedRecoveryTarget) return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget);
+        return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
+      }
     }
   }
-  return { active: false, pendingEffects: false };
+  return quiescenceEvidence({ active: false, unresolvedExternalEffects: false, reasonCode: "default_quiescent" });
+}
+
+function quiescenceEvidence({ active, unresolvedExternalEffects, reasonCode }) {
+  return Object.freeze({
+    active: active === true,
+    unresolvedExternalEffects: unresolvedExternalEffects === true,
+    pendingEffects: unresolvedExternalEffects === true,
+    preservedRecoveryAdmitted: false,
+    targetIdentityDigest: null,
+    reasonCode,
+    revalidationRequired: false,
+  });
+}
+
+function assertDeploymentQuiescence(value) {
+  if (!value || typeof value !== "object") throw new Error("runtime deployment quiescence evidence is required");
+  if (value.active === true) throw new Error("runtime deployment refused while a runner or supervisor is active");
+  if (value.unresolvedExternalEffects === true || value.pendingEffects === true) {
+    throw new Error("runtime deployment refused with unresolved effects or recovery");
+  }
+  if (value.preservedRecoveryAdmitted === true
+      && (!/^[a-f0-9]{64}$/u.test(String(value.targetIdentityDigest || ""))
+        || value.reasonCode !== "exact_preserved_recovery_admitted"
+        || value.revalidationRequired !== true)) {
+    throw new Error("runtime deployment preserved recovery proof is invalid");
+  }
+}
+
+function assertSameQuiescenceProof(initial, current) {
+  for (const key of ["active", "unresolvedExternalEffects", "preservedRecoveryAdmitted", "targetIdentityDigest", "reasonCode"]) {
+    if ((initial?.[key] ?? null) !== (current?.[key] ?? null)) throw new Error("runtime deployment quiescence proof changed");
+  }
 }
 
 function regularJsonFiles(root, depth) {
