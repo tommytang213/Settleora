@@ -115,7 +115,7 @@ import {
 } from "../lib/review-fix-policy.mjs";
 import { bindValidationEvidence, inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
-import { loadSummaryConfig } from "../settleora-auto-runner.mjs";
+import { loadSummaryConfig, planOrdinaryRecoveryBranch } from "../settleora-auto-runner.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";
@@ -7313,6 +7313,14 @@ test("enabled session lifecycle builds and persists an exact implementation invo
 });
 
 test("ordinary recovery is born with the final task branch identity", () => {
+  assert.equal(
+    planOrdinaryRecoveryBranch({
+      issue: { number: 983, title: "Runnable documentation evidence B" },
+      laneDecision: { branchStrategy: "feature" },
+      taskTimestamp: "2026-07-24T043318Z",
+    }),
+    "feature/auto-983-runnable-documentation-evidence-b-2026-07-24t0433",
+  );
   const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const iteration = source.slice(source.indexOf("logger.info(`Iteration"), source.indexOf("const claim = claimIssue"));
   assert.ok(iteration.indexOf("const laneDecision =") < iteration.indexOf("const plannedBranchName ="));

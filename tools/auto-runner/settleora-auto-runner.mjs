@@ -383,6 +383,13 @@ function isFatalRunStopReason(stopReason) {
   return typeof stopReason === "string" && stopReason.startsWith("recoverable-work-blocked:");
 }
 
+export function planOrdinaryRecoveryBranch({ issue, laneDecision, taskTimestamp }) {
+  if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) throw new Error("ordinary recovery issue identity invalid");
+  if (!taskTimestamp) throw new Error("ordinary recovery timestamp missing");
+  const branchPrefix = laneDecision?.branchStrategy === "focused" ? "focused" : "feature";
+  return `${branchPrefix}/auto-${issue.number}-${slugify(issue.title, 40)}-${String(taskTimestamp).slice(0, 15).toLowerCase()}`;
+}
+
 async function runIteration(config, logger, runId, index, issueTracker = createRunIssueTracker(), startupRecoveryOverride = null) {
   const checkpoint = config.operationalIterationCheckpoint || (() => {});
   const iteration = {
@@ -535,7 +542,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   const laneDecision = selection.laneDecision || classifyIssueLane(issue);
   const taskTimestamp = safeTimestamp();
-  const plannedBranchName = `${laneDecision.branchStrategy === "focused" ? "focused" : "feature"}/auto-${issue.number}-${slugify(issue.title, 40)}-${taskTimestamp.slice(0, 15).toLowerCase()}`;
+  const plannedBranchName = planOrdinaryRecoveryBranch({ issue, laneDecision, taskTimestamp });
   let recoveryRecorder = createProductionRecoveryRecorder(config, {
     taskKey: taskTimestamp.slice(0, 13).replace(/[^0-9T]/g, ""),
     issue,
