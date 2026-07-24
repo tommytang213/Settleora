@@ -7315,6 +7315,7 @@ test("enabled session lifecycle builds and persists an exact implementation invo
 test("ordinary recovery is born with the final task branch identity", () => {
   const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
   const iteration = source.slice(source.indexOf("logger.info(`Iteration"), source.indexOf("const claim = claimIssue"));
+  assert.ok(iteration.indexOf("const laneDecision =") < iteration.indexOf("const plannedBranchName ="));
   assert.match(iteration, /const plannedBranchName =/);
   assert.match(iteration, /branchName: plannedBranchName/);
   assert.doesNotMatch(iteration, /pending\/issue-/);

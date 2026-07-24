@@ -533,6 +533,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   checkpoint(iteration);
   logger.info(`Iteration ${index}: selected issue #${issue.number} ${issue.title}`);
 
+  const laneDecision = selection.laneDecision || classifyIssueLane(issue);
   const taskTimestamp = safeTimestamp();
   const plannedBranchName = `${laneDecision.branchStrategy === "focused" ? "focused" : "feature"}/auto-${issue.number}-${slugify(issue.title, 40)}-${taskTimestamp.slice(0, 15).toLowerCase()}`;
   let recoveryRecorder = createProductionRecoveryRecorder(config, {
@@ -605,7 +606,6 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     correlation: iteration.logicalTaskBudget.chargeId,
   });
 
-  const laneDecision = selection.laneDecision || classifyIssueLane(issue);
   iteration.laneDecision = laneDecision;
   iteration.canaryPolicy = evaluateCanaryIssuePolicy(config, laneDecision);
   if (!iteration.canaryPolicy.allowed) {
