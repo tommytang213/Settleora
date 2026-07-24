@@ -64,6 +64,18 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
     assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, runtimeBundleFileList(runtimeSource).length);
+    const previousGitDir = process.env.GIT_DIR;
+    process.env.GIT_DIR = path.join(root, "hostile-git-dir");
+    try {
+      assert.equal(
+        verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount,
+        runtimeBundleFileList(runtimeSource).length,
+        "ambient Git repository redirection must not influence approved source verification",
+      );
+    } finally {
+      if (previousGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = previousGitDir;
+    }
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
     writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);

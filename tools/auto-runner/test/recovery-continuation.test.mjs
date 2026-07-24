@@ -8,7 +8,7 @@ import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
-import { inspectPreservedRecoveryForDeployment } from "../lib/preserved-recovery-deployment.mjs";
+import { inspectPreservedRecoveryForDeployment, normalizePreservedRecoveryDeploymentTarget } from "../lib/preserved-recovery-deployment.mjs";
 import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
 import {
   advanceRecoveryPhase,
@@ -305,6 +305,11 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       acceptedLogicalTasks: 1, localSourceChangingRounds: 1,
       githubTriggeredFixEpochs: 0, lifetimeLocalSourceChangingRounds: 1,
     };
+    assert.throws(
+      () => normalizePreservedRecoveryDeploymentTarget({ ...target, branch: `${target.branch}^{}` }),
+      /literal Git branch name/,
+      "revision expressions cannot be used as preserved branch authority",
+    );
     let priorCommitIntent = preparePreEffectIntent(config, {
       repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
       logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,

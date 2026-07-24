@@ -30,6 +30,13 @@ export const preservedRecoveryTargetFields = Object.freeze([
   "lifetimeLocalSourceChangingRounds",
 ]);
 
+export function sanitizedDeploymentGitEnvironment(environment = process.env) {
+  return {
+    ...Object.fromEntries(Object.entries(environment).filter(([key]) => !key.toUpperCase().startsWith("GIT_"))),
+    GIT_OPTIONAL_LOCKS: "0",
+  };
+}
+
 export function normalizePreservedRecoveryDeploymentTarget(input) {
   if (input == null) return null;
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("preserved recovery target must be a bounded object");
@@ -56,6 +63,19 @@ export function normalizePreservedRecoveryDeploymentTarget(input) {
     githubTriggeredFixEpochs: boundedInteger(input.githubTriggeredFixEpochs, 0, 100, "GitHub-triggered fix epochs"),
     lifetimeLocalSourceChangingRounds: boundedInteger(input.lifetimeLocalSourceChangingRounds, 0, 1000, "lifetime source-changing rounds"),
   };
+  const branchParts = target.branch.split("/");
+  if (
+    target.branch.startsWith("-")
+    || target.branch.endsWith(".")
+    || target.branch.endsWith("/")
+    || target.branch.includes("..")
+    || target.branch.includes("@{")
+    || target.branch.includes("//")
+    || /[~^:?*[\]\\\s\x00-\x1f\x7f]/u.test(target.branch)
+    || branchParts.some((part) => part.length === 0 || part.startsWith(".") || part.endsWith(".lock"))
+  ) {
+    throw new Error("preserved recovery branch is not a literal Git branch name");
+  }
   if (target.claimIdentity !== `${target.repository}#${target.issueNumber}`) throw new Error("preserved recovery claim identity is contradictory");
   if (!target.reportName.startsWith(`settleora-codex-report-${target.taskKey}-issue-${target.issueNumber}-`) || !target.reportName.endsWith(".md")) {
     throw new Error("preserved recovery report correlation is invalid");
@@ -243,7 +263,10 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   }
   let branchHead;
   try {
-    branchHead = git(root, ["rev-parse", "--verify", `refs/heads/${target.branch}`]);
+    if (git(root, ["check-ref-format", "--branch", target.branch]) !== target.branch) {
+      return { ok: false, reasonCode: "preserved_recovery_branch_ref_mismatch" };
+    }
+    branchHead = git(root, ["show-ref", "--verify", "--hash", `refs/heads/${target.branch}`]);
   } catch {
     return { ok: false, reasonCode: "preserved_recovery_branch_ref_mismatch" };
   }
@@ -281,11 +304,10 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
 }
 
 function git(root, args) {
-  const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")));
   const result = spawnSync("git", ["--no-replace-objects", "-c", "core.fsmonitor=false", ...args], {
     cwd: root,
     encoding: "utf8",
-    env: { ...cleanEnv, GIT_OPTIONAL_LOCKS: "0" },
+    env: sanitizedDeploymentGitEnvironment(),
     maxBuffer: 1024 * 1024,
   });
   if (result.status !== 0 || result.stderr) throw new Error("authoritative Git read unavailable");

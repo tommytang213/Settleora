@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertSeparatedRoots, canonicalExistingDirectory, isContained } from "./runtime-identity.mjs";
-import { inspectPreservedRecoveryForDeployment } from "./preserved-recovery-deployment.mjs";
+import { inspectPreservedRecoveryForDeployment, sanitizedDeploymentGitEnvironment } from "./preserved-recovery-deployment.mjs";
 import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
 
 export const runtimeBundleFormat = "settleora-auto-runner-runtime";
@@ -210,9 +210,19 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
   const relativeSource = path.relative(repository, source).split(path.sep).join("/");
   if (relativeSource !== "tools/auto-runner") throw new Error("runtime sourceRoot must be the repository tools/auto-runner directory");
+  const gitEnv = sanitizedDeploymentGitEnvironment();
+  const topLevel = spawnSync("git", ["--no-replace-objects", "rev-parse", "--show-toplevel"], {
+    cwd: repository,
+    encoding: "utf8",
+    env: gitEnv,
+  });
+  if (topLevel.status !== 0 || realpathSync(topLevel.stdout.trim()) !== repository) {
+    throw new Error("approved runtime source repository identity is unreadable");
+  }
   const listed = spawnSync("git", ["--no-replace-objects", "ls-tree", "-r", "-z", sourceSha, "--", relativeSource], {
     cwd: repository,
     encoding: "buffer",
+    env: gitEnv,
   });
   if (listed.status !== 0) throw new Error("approved runtime source tree is unreadable");
   const selected = new Map();
@@ -231,7 +241,11 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   }
   for (const relative of commitFiles) {
     const expected = selected.get(relative);
-    const blob = spawnSync("git", ["--no-replace-objects", "cat-file", "blob", expected.objectId], { cwd: repository, encoding: "buffer" });
+    const blob = spawnSync("git", ["--no-replace-objects", "cat-file", "blob", expected.objectId], {
+      cwd: repository,
+      encoding: "buffer",
+      env: gitEnv,
+    });
     if (blob.status !== 0) throw new Error(`approved runtime blob is unreadable: ${relative}`);
     const worktreePath = path.join(source, relative);
     const worktreeDigest = createHash("sha256").update(readFileSync(worktreePath)).digest("hex");
