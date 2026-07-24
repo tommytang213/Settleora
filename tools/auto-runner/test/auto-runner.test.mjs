@@ -6850,6 +6850,35 @@ test("review prompt fails closed for conflicting verdicts across stdout and stde
   }
 });
 
+test("review prompt accepts one identical verdict duplicated into the diagnostic stream", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-boundary-"));
+  try {
+    const logsRoot = path.join(tempRoot, "logs");
+    mkdirSync(path.join(logsRoot, "reviews"), { recursive: true });
+    const duplicated = reviewVerdictJson();
+    const reviewer = writeFakeReviewer(tempRoot, [
+      `printf '%s\\n' ${shellArg(duplicated)}`,
+      `printf '%s\\n' ${shellArg(`Diagnostic transcript repeated final response:\n${duplicated}`)} >&2`,
+    ]);
+    const result = runReviewPrompt(
+      {
+        dryRun: false,
+        logsRoot,
+        repoRoot: process.cwd(),
+        reviewerCommand: reviewer,
+      },
+      { packagePath: path.join(tempRoot, "package.json"), summary: { issue: { number: 805 } } },
+    );
+
+    assert.equal(result.verdict.verdict, "approve");
+    assert.equal(result.reviewStatus, "passed");
+    assert.equal(result.responsePayloadBoundary, "process.stdout");
+    assert.equal(result.rawCandidateDiagnostics.valid_verdict_count, 2);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("review prompt still fails closed for multiple verdicts inside selected stdout payload", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-review-boundary-"));
   try {
