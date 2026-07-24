@@ -22,6 +22,14 @@ const externalEffectTypes = new Set([
   "review_trigger", "docs_pr_ready", "docs_pr_merge", "hygiene_component", "project_status_update",
   "branch_retention_verify",
 ]);
+const executableGitHookNames = new Set([
+  "applypatch-msg", "pre-applypatch", "post-applypatch", "pre-commit", "pre-merge-commit",
+  "prepare-commit-msg", "commit-msg", "post-commit", "pre-rebase", "post-checkout",
+  "post-merge", "pre-push", "pre-receive", "update", "proc-receive", "post-receive",
+  "post-update", "reference-transaction", "push-to-checkout", "pre-auto-gc", "post-rewrite",
+  "sendemail-validate", "fsmonitor-watchman", "p4-changelist", "p4-prepare-changelist",
+  "p4-post-changelist", "p4-pre-submit", "post-index-change",
+]);
 export const trustedDeploymentGitBinary = "/usr/bin/git";
 
 export const preservedRecoveryTargetFields = Object.freeze([
@@ -284,9 +292,10 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   const localTransportAuthority = gitConfigNames(root, gitEnvironment, "local").some(isGitTransportAuthorityKey);
   const worktreeTransportAuthority = worktreeConfigEnabled
     && gitConfigNames(root, gitEnvironment, "worktree").some(isGitTransportAuthorityKey);
+  const executableDefaultHooks = defaultGitHooksAreExecutable(root, readGit);
   const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
   if (fetchUrls.length !== 1 || pushUrls.length > 1 || worktreeFetchUrls.length || worktreePushUrls.length
-      || localTransportAuthority || worktreeTransportAuthority
+      || localTransportAuthority || worktreeTransportAuthority || executableDefaultHooks
       || canonicalGitHubRepository(fetchUrls[0]) !== expectedRepository
       || canonicalGitHubRepository(effectivePushUrl) !== expectedRepository) {
     return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
@@ -412,6 +421,25 @@ function isGitTransportAuthorityKey(key) {
       && (normalized.endsWith(".insteadof") || normalized.endsWith(".pushinsteadof")))
     || (normalized.startsWith("remote.origin.")
       && !["remote.origin.url", "remote.origin.pushurl", "remote.origin.fetch"].includes(normalized));
+}
+
+function defaultGitHooksAreExecutable(root, readGit) {
+  const commonDirValue = readGit(["rev-parse", "--git-common-dir"]);
+  const commonDir = path.resolve(root, commonDirValue);
+  const commonInfo = lstatSync(commonDir);
+  if (!commonInfo.isDirectory() || commonInfo.isSymbolicLink()
+      || (typeof process.getuid === "function" && commonInfo.uid !== process.getuid())) return true;
+  const hooksDir = path.join(commonDir, "hooks");
+  if (!existsSync(hooksDir)) return false;
+  const hooksInfo = lstatSync(hooksDir);
+  if (!hooksInfo.isDirectory() || hooksInfo.isSymbolicLink()
+      || (typeof process.getuid === "function" && hooksInfo.uid !== process.getuid())) return true;
+  for (const name of readdirSync(hooksDir)) {
+    if (!executableGitHookNames.has(name)) continue;
+    const info = lstatSync(path.join(hooksDir, name));
+    if (info.isSymbolicLink() || !info.isFile() || (info.mode & 0o111) !== 0) return true;
+  }
+  return false;
 }
 
 function canonicalGitHubRepository(remote) {

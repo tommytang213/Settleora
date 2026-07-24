@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
@@ -537,6 +537,15 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       );
       git(config.repoRoot, ["config", scope, "--unset-all", key]);
     }
+    const prePushHook = path.join(config.repoRoot, ".git", "hooks", "pre-push");
+    writeFileSync(prePushHook, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(prePushHook, 0o700);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an executable default pre-push hook must not run during later Git effects",
+    );
+    unlinkSync(prePushHook);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
