@@ -281,8 +281,12 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   const worktreeConfigEnabled = gitConfigBoolean(root, "extensions.worktreeConfig", gitEnvironment);
   const worktreeFetchUrls = worktreeConfigEnabled ? gitConfigValues(root, "remote.origin.url", gitEnvironment, "worktree") : [];
   const worktreePushUrls = worktreeConfigEnabled ? gitConfigValues(root, "remote.origin.pushurl", gitEnvironment, "worktree") : [];
+  const localRewriteAuthority = gitConfigNames(root, gitEnvironment, "local").some(isGitUrlRewriteKey);
+  const worktreeRewriteAuthority = worktreeConfigEnabled
+    && gitConfigNames(root, gitEnvironment, "worktree").some(isGitUrlRewriteKey);
   const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
   if (fetchUrls.length !== 1 || pushUrls.length > 1 || worktreeFetchUrls.length || worktreePushUrls.length
+      || localRewriteAuthority || worktreeRewriteAuthority
       || canonicalGitHubRepository(fetchUrls[0]) !== expectedRepository
       || canonicalGitHubRepository(effectivePushUrl) !== expectedRepository) {
     return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
@@ -368,6 +372,25 @@ function gitConfigBoolean(root, key, environment) {
     throw new Error("authoritative Git configuration is ambiguous");
   }
   return values[0] === "true";
+}
+
+function gitConfigNames(root, environment, scope) {
+  const result = spawnSync(trustedDeploymentGitBinary, ["config", `--${scope}`, "--no-includes", "--name-only", "-z", "--list"], {
+    cwd: root,
+    encoding: "buffer",
+    env: sanitizedDeploymentGitEnvironment(environment),
+    maxBuffer: 64 * 1024,
+  });
+  if (result.status !== 0 || result.stderr.length !== 0) throw new Error("authoritative Git configuration read unavailable");
+  const values = result.stdout.toString("utf8").split("\0");
+  if (values.at(-1) === "") values.pop();
+  return values;
+}
+
+function isGitUrlRewriteKey(key) {
+  const normalized = String(key).toLowerCase();
+  return normalized.startsWith("url.")
+    && (normalized.endsWith(".insteadof") || normalized.endsWith(".pushinsteadof"));
 }
 
 function canonicalGitHubRepository(remote) {
