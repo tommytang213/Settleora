@@ -3385,28 +3385,20 @@ async function evaluateOrExecuteAutoMerge(config, { issue, iteration, branchName
     baseContext.currentOriginMainSha = getRefSha("origin/main");
   }
   const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
-  const inspectAndExecute = () => {
-    const githubState =
-      config.dryRun || !iteration.pr?.url
-        ? {}
-        : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url, laneDecision: iteration.laneDecision }, { runner: autoMergeRunner });
-    return executeAutoMerge(config, {
-      ...baseContext,
-      ...githubState,
-      issue: githubState.issue || baseContext.issue,
-      pr: { ...baseContext.pr, ...(githubState.pr || {}) },
-      requiredChecks: githubState.requiredChecks || baseContext.requiredChecks,
-      reviewThreads: githubState.reviewThreads || baseContext.reviewThreads,
-      codeScanningAlerts: githubState.codeScanningAlerts || baseContext.codeScanningAlerts,
-      blockingMarkers: githubState.blockingMarkers || baseContext.blockingMarkers,
-    }, { runner: autoMergeRunner });
-  };
-  let decision = await inspectAndExecute();
-  for (let attempt = 1; !config.dryRun && decision.reason === "required_checks_not_successful" && attempt < 60; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 30_000));
-    decision = await inspectAndExecute();
-  }
-  return decision;
+  const githubState =
+    config.dryRun || !iteration.pr?.url
+      ? {}
+      : inspectAutoMergeGithubState(config, { issue, prUrlOrNumber: iteration.pr.url, laneDecision: iteration.laneDecision }, { runner: autoMergeRunner });
+  return executeAutoMerge(config, {
+    ...baseContext,
+    ...githubState,
+    issue: githubState.issue || baseContext.issue,
+    pr: { ...baseContext.pr, ...(githubState.pr || {}) },
+    requiredChecks: githubState.requiredChecks || baseContext.requiredChecks,
+    reviewThreads: githubState.reviewThreads || baseContext.reviewThreads,
+    codeScanningAlerts: githubState.codeScanningAlerts || baseContext.codeScanningAlerts,
+    blockingMarkers: githubState.blockingMarkers || baseContext.blockingMarkers,
+  }, { runner: autoMergeRunner });
 }
 
 async function runReviewFixCycle(config, context) {

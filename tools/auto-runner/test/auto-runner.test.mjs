@@ -7318,10 +7318,6 @@ test("ordinary recovery is born with the final task branch identity", () => {
   assert.match(iteration, /const plannedBranchName =/);
   assert.match(iteration, /branchName: plannedBranchName/);
   assert.doesNotMatch(iteration, /pending\/issue-/);
-  const merge = source.slice(source.indexOf("async function evaluateOrExecuteAutoMerge"), source.indexOf("async function runReviewFixCycle"));
-  assert.match(merge, /decision\.reason === "required_checks_not_successful"/);
-  assert.match(merge, /attempt < 60/);
-  assert.match(merge, /setTimeout\(resolve, 30_000\)/);
 });
 
 test("existing-PR recovery creates lifecycle authority before merge execution", () => {
