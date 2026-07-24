@@ -311,7 +311,10 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
       effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
       headSha: target.baseSha, candidateIdentity: target.baseSha,
-      effect: { expectedParents: [target.baseSha], treeSha: intermediateTree, stagedPaths: files },
+      effect: {
+        expectedParents: [target.baseSha], treeSha: intermediateTree, stagedPaths: files,
+        messageDigest: createHash("sha256").update("first").digest("hex"),
+      },
     });
     config.currentAuthority = { retired: false, status: "active", sessionId: "fixture-session", authorityGeneration: 1, runId: target.runnerRunId };
     priorCommitIntent = transitionPreEffectIntent(config, priorCommitIntent, "executing");
@@ -323,7 +326,10 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
       effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
       headSha: intermediateHead, candidateIdentity: intermediateHead,
-      effect: { expectedParents: [intermediateHead], treeSha: target.treeSha, stagedPaths: [files[0]] },
+      effect: {
+        expectedParents: [intermediateHead], treeSha: target.treeSha, stagedPaths: [files[0]],
+        messageDigest: createHash("sha256").update("second").digest("hex"),
+      },
     });
     commitIntent = transitionPreEffectIntent(config, commitIntent, "executing");
     commitIntent = transitionPreEffectIntent(config, commitIntent, "live_confirmed");

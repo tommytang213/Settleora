@@ -258,11 +258,13 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   const unmatched = new Set(intents);
   for (const [commitSha, parentSha] of lineage) {
     const treeSha = git(root, ["rev-parse", `${commitSha}^{tree}`]);
+    const messageDigest = createHash("sha256").update(git(root, ["show", "-s", "--format=%B", commitSha])).digest("hex");
     const changedFiles = git(root, ["diff-tree", "--no-commit-id", "--name-only", "-r", parentSha, commitSha])
       .split("\n").filter(Boolean).sort();
     const matches = [...unmatched].filter((intent) => intent.identity.candidateIdentity === parentSha
       && canonical(intent.effect.expectedParents) === canonical([parentSha])
       && intent.effect.treeSha === treeSha
+      && intent.effect.messageDigest === messageDigest
       && canonical(intent.effect.stagedPaths) === canonical(changedFiles));
     if (matches.length !== 1) return { ok: false, reasonCode: "preserved_recovery_commit_lineage_mismatch" };
     unmatched.delete(matches[0]);
