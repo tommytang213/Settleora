@@ -416,7 +416,9 @@ The monitoring design supports a future pull model through Uptime Kuma on
 TrueNAS SCALE. The currently accepted DevBox health service remains
 loopback-only; LAN binding and Uptime Kuma deployment/configuration were not
 part of #912. The service reads persisted supervisor/runner state, heartbeat,
-strict report-correlation results, lock state, and bounded systemd readback.
+strict report-correlation results, lock state, and persisted deployment/runtime
+identity. Operators inspect systemd state separately; the health endpoint does
+not call systemd.
 The design is defined in
 [Autonomous Codex Runner Monitoring](AUTONOMOUS_CODEX_RUNNER_MONITORING.md).
 
@@ -508,7 +510,8 @@ launcher, runtime, repository, and project logs. Readback confirmed
 `Restart=no`, `KillMode=process`, `TimeoutStopSec=30min`, `SendSIGKILL=no`,
 `UMask=0077`, and no drop-ins. No worker instance is enabled.
 
-The accepted production command remains unexecuted:
+The accepted production command remains unexecuted. It is **MUTATING** and
+starts the normal product queue; run it only with explicit operator intent:
 
 ```bash
 node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runnerctl.mjs -- submit --mode trusted --config /workspace/auto-runner/config/settleora.json --max-tasks 500 --max-runtime 14d --json

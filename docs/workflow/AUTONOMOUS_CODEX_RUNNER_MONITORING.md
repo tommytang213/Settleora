@@ -312,7 +312,8 @@ health binding by default.
 
 The service default bind is `127.0.0.1:8787`. Non-loopback binding is rejected
 unless explicit deployment configuration opts in and supplies an external
-request-secret file under `/workspace/logs/settleora-auto-runner/secrets/`.
+request-secret file under
+`/workspace/logs/auto-runner/Settleora/secrets/`.
 The secret is checked as a static request header and is never printed by the
 service. No repository code creates a live secret, selects a notification
 provider, or configures a Uptime Kuma monitor.
@@ -379,7 +380,7 @@ Deduplication key:
 Notifier state is persisted atomically outside the repo:
 
 ```text
-/workspace/logs/settleora-auto-runner/monitoring/notifier-state.json
+/workspace/logs/auto-runner/Settleora/monitoring/notifier-state.json
 ```
 
 The repository foundation performs owner-only atomic writes, rejects malformed,
@@ -390,7 +391,7 @@ not mark or claim terminal events.
 Production ntfy configuration is read only from:
 
 ```text
-/workspace/logs/settleora-auto-runner/secrets/ntfy-notifier.json
+/workspace/logs/auto-runner/Settleora/secrets/ntfy-notifier.json
 ```
 
 The file must be a regular non-symlink owner-only file under the approved
