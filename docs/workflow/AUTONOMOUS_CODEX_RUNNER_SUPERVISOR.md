@@ -41,14 +41,21 @@ and writes `/workspace/logs/auto-runner/Settleora`.
 Default submission is intentionally bounded:
 
 ```bash
-node tools/auto-runner/settleora-auto-runnerctl.mjs submit --profile default
+node /workspace/auto-runner/.runtime.launcher.mjs \
+  --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runnerctl.mjs -- submit \
+  --mode trusted \
+  --config /workspace/auto-runner/config/settleora.json
 ```
 
 Defaults are `1` task and `3h`. Explicit bounded syntax is available:
 
 ```bash
-node tools/auto-runner/settleora-auto-runnerctl.mjs submit \
-  --profile default \
+node /workspace/auto-runner/.runtime.launcher.mjs \
+  --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runnerctl.mjs -- submit \
+  --mode trusted \
+  --config /workspace/auto-runner/config/settleora.json \
   --max-tasks 8 \
   --max-runtime 8h
 ```
@@ -61,9 +68,12 @@ security rules, and merge policy remain authoritative.
 Dry-run submit is non-mutating:
 
 ```bash
-node tools/auto-runner/settleora-auto-runnerctl.mjs submit \
+node /workspace/auto-runner/.runtime.launcher.mjs \
+  --runtime-root /workspace/auto-runner/runtime \
+  --entry settleora-auto-runnerctl.mjs -- submit \
   --dry-run \
-  --profile default \
+  --mode trusted \
+  --config /workspace/auto-runner/config/settleora.json \
   --max-tasks 8 \
   --max-runtime 8h \
   --json
