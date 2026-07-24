@@ -358,17 +358,7 @@ export function listRecoverableRecoveryStates(config) {
 function isValidationFailureContinuation(state) {
   return state?.evidence?.localValidation?.status === "failed"
     && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
-    && (isAuthorizedSourceFailureBatch(state?.ordinaryContinuation?.sourceFailureBatch)
-      || isValidationRetryCheckpoint(state));
-}
-
-function isAuthorizedSourceFailureBatch(batch) {
-  return Array.isArray(batch?.findings)
-    && batch.findings.length > 0
-    && batch.findings.every((finding) =>
-      finding?.sourceFixEligible === true
-      && finding?.nextAction === "run_focused_fix"
-      && ["review_fix_safe", "ci_fix_safe", "code_scanning_fix_safe"].includes(finding?.classification));
+    && isValidationRetryCheckpoint(state);
 }
 
 function isValidationRetryCheckpoint(state) {
@@ -388,13 +378,23 @@ function isProvisionalTaskKey(value) {
 }
 
 function isExactRecoverySuccessor(older, newer) {
+  const reportPath = newer.expectedReportPaths?.repoReportPath;
+  const promptPath = newer.expectedReportPaths?.promptPath;
   return /^\d{8}T\d{6}$/.test(String(newer.taskKey || ""))
+    && newer.taskKey.startsWith(older.taskKey)
     && newer.issue?.number === older.issue?.number
     && newer.run?.runId === older.run?.runId
     && newer.run?.supervisorRunId === older.run?.supervisorRunId
     && newer.branch?.name === older.branch?.name
     && newer.branch?.baseSha === older.branch?.baseSha
     && newer.branch?.currentHeadSha !== older.branch?.currentHeadSha
+    && newer.timestamps?.createdAt === older.timestamps?.createdAt
+    && newer.ordinaryContinuation?.identity?.baseSha === newer.branch.baseSha
+    && newer.ordinaryContinuation?.identity?.headSha === newer.branch.currentHeadSha
+    && typeof reportPath === "string"
+    && path.basename(reportPath).startsWith(`settleora-codex-report-${newer.taskKey}-issue-${newer.issue.number}-`)
+    && typeof promptPath === "string"
+    && path.basename(promptPath).startsWith(`${newer.taskKey}-issue-${newer.issue.number}-`)
     && JSON.stringify(newer.mutationMarkers?.claim || {}) === JSON.stringify(older.mutationMarkers?.claim || {})
     && JSON.stringify(newer.mutationMarkers?.logical_task_charge || {}) === JSON.stringify(older.mutationMarkers?.logical_task_charge || {})
     && JSON.stringify(newer.mutationMarkers?.branch_ownership_created || {}) === JSON.stringify(older.mutationMarkers?.branch_ownership_created || {});

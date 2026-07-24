@@ -817,19 +817,26 @@ test("one exact validation-failure successor supersedes its provisional pre-prom
       taskKey: "20260724T075849",
       branch: { ...provisional.branch, currentHeadSha: "b".repeat(40) },
       phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      expectedReportPaths: {
+        repoReportPath: "/repo/.codex/reports/settleora-codex-report-20260724T075849-issue-959-recovery.md",
+        promptPath: "/logs/tasks/20260724T075849-issue-959-recovery.md",
+      },
       evidence: { ...provisional.evidence, localValidation: { status: "failed" } },
       ordinaryContinuation: {
-        identity: { headSha: "b".repeat(40) },
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
         sourceFailureBatch: {
           batchIdentity: "batch-959",
           findings: [{
-            classification: "review_fix_safe",
-            sourceFixEligible: true,
-            nextAction: "run_focused_fix",
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
           }],
         },
       },
-      timestamps: { ...provisional.timestamps, updatedAt: "2026-07-24T08:03:39.974Z" },
+      timestamps: { ...provisional.timestamps, updatedAt: new Date(Date.parse(provisional.timestamps.updatedAt) + 1000).toISOString() },
     };
     writeRecoveryState(config, provisional);
     writeRecoveryState(config, successor);
