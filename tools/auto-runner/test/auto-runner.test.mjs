@@ -115,7 +115,7 @@ import {
 } from "../lib/review-fix-policy.mjs";
 import { bindValidationEvidence, inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
-import { loadSummaryConfig } from "../settleora-auto-runner.mjs";
+import { loadSummaryConfig, planOrdinaryRecoveryBranch } from "../settleora-auto-runner.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";
@@ -7310,6 +7310,40 @@ test("enabled session lifecycle builds and persists an exact implementation invo
   assert.match(source, /createSessionLifecycleState\(\{/);
   assert.match(source, /persistSessionLifecycleState\(config, lifecycle\)/);
   assert.match(source, /promptInfo\.sessionLifecycle = lifecycleInvocation/);
+});
+
+test("ordinary recovery is born with the final task branch identity", () => {
+  assert.equal(
+    planOrdinaryRecoveryBranch({
+      issue: { number: 983, title: "Runnable documentation evidence B" },
+      laneDecision: { branchStrategy: "feature" },
+      taskTimestamp: "2026-07-24T043318Z",
+    }),
+    "feature/auto-983-runnable-documentation-evidence-b-2026-07-24t0433",
+  );
+  assert.equal(
+    planOrdinaryRecoveryBranch({
+      issue: { number: 900, title: "Bundle recovery fixture", labels: ["auto-bundle"] },
+      laneDecision: { branchStrategy: "feature" },
+      taskTimestamp: "2026-07-24T043318Z",
+    }),
+    "feature-bundle/auto-900-bundle-recovery-fixture-2026-07-24t0433",
+  );
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const iteration = source.slice(source.indexOf("logger.info(`Iteration"), source.indexOf("const claim = claimIssue"));
+  assert.ok(iteration.indexOf("const laneDecision =") < iteration.indexOf("const plannedBranchName ="));
+  assert.match(iteration, /const plannedBranchName =/);
+  assert.match(iteration, /branchName: plannedBranchName/);
+  assert.match(iteration, /fetchOriginMain\(config\)/);
+  assert.match(iteration, /baseSha: initialBaseSha/);
+  assert.doesNotMatch(iteration, /pending\/issue-/);
+  const bundleCallStart = source.indexOf("const bundleResult = await runFeatureBundleIteration");
+  const bundleCall = source.slice(bundleCallStart, source.indexOf("iteration.bundle =", bundleCallStart));
+  assert.match(bundleCall, /baseSha: initialBaseSha/);
+  const bundle = readFileSync("tools/auto-runner/lib/feature-bundle-orchestrator.mjs", "utf8");
+  assert.match(bundle, /if \(!baseSha\) fetchOriginMain\(config\)/);
+  assert.match(bundle, /const baseOriginMainSha = baseSha \|\|/);
+  assert.match(bundle, /createTaskBranch\(config, bundleBranchName, baseOriginMainSha \|\| "origin\/main"\)/);
 });
 
 test("existing-PR recovery creates lifecycle authority before merge execution", () => {

@@ -153,13 +153,13 @@ export function fetchOriginMain(config) {
   return { skipped: false, status: result.status };
 }
 
-export function createTaskBranch(config, branchName) {
+export function createTaskBranch(config, branchName, baseRef = "origin/main") {
   if (config.dryRun) {
-    return { skipped: true, branchName, reason: "dry-run" };
+    return { skipped: true, branchName, baseRef, reason: "dry-run" };
   }
-  const result = runGit(["switch", "-C", branchName, "origin/main"], { cwd: config.repoRoot });
+  const result = runGit(["switch", "-C", branchName, baseRef], { cwd: config.repoRoot });
   assertGitSuccess(result, `Unable to create task branch ${branchName}`);
-  return { skipped: false, branchName };
+  return { skipped: false, branchName, baseRef };
 }
 
 export function listChangedFiles(baseRef = "origin/main", headRef = "HEAD") {
