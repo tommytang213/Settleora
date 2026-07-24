@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
@@ -497,7 +497,7 @@ function resolvePathExecutable(searchPath, name) {
     if (!directory) continue;
     const candidate = path.join(directory, name);
     if (!existsSync(candidate)) continue;
-    const info = lstatSync(candidate);
+    const info = statSync(candidate);
     if (info.isFile() && (info.mode & 0o111) !== 0) return realpathSync(candidate);
   }
   return null;

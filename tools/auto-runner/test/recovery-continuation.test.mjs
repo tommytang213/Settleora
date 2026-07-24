@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
@@ -471,6 +471,27 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "the resumed runner must resolve bare Git commands to the trusted binary",
+    );
+    writeFileSync(path.join(hostilePath, "hostile-git"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    unlinkSync(path.join(hostilePath, "git"));
+    symlinkSync(path.join(hostilePath, "hostile-git"), path.join(hostilePath, "git"));
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        gitEnvironment: { ...process.env, PATH: `${hostilePath}:${process.env.PATH}` },
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an earlier symlinked Git executable must not be skipped during PATH validation",
+    );
+    writeFileSync(path.join(hostilePath, "hostile-cat"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    symlinkSync(path.join(hostilePath, "hostile-cat"), path.join(hostilePath, "cat"));
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        gitEnvironment: { ...process.env, GIT_PAGER: "cat", PATH: `${hostilePath}:${process.env.PATH}` },
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an earlier symlinked pager executable must not be skipped during PATH validation",
     );
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:foreign/repo.git"]);
     const hostileHome = path.join(config.logsRoot, "hostile-home");
