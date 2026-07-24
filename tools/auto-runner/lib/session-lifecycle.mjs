@@ -366,9 +366,9 @@ export function loadSessionLifecycleForRecovery(config, identity) {
     try { state = JSON.parse(readFileSync(statePath, "utf8")); } catch { return fail("session_lifecycle_state_corrupt", null, { statePath }); }
     if (state.repository !== identity.repository || state.logicalTask?.issueNumber !== identity.issueNumber || state.logicalTask?.taskKey !== identity.taskKey || state.logicalTask?.runId !== identity.runId) continue;
     if (state.branch?.name !== identity.branchName || state.branch?.baseSha !== identity.baseSha) continue;
-    const expectedIdentity = state.logicalTask?.supervisorRunId == null
-      ? { ...identity, supervisorRunId: null, claimIdentity: state.logicalTask.claimIdentity }
-      : { ...identity, claimIdentity: state.logicalTask.claimIdentity };
+    const hasSupervisorIdentity = Object.hasOwn(state.logicalTask || {}, "supervisorRunId");
+    const expectedIdentity = { ...identity, claimIdentity: state.logicalTask.claimIdentity };
+    if (!hasSupervisorIdentity) delete expectedIdentity.supervisorRunId;
     const validation = validateSessionLifecycleState(state, expectedIdentity);
     if (!validation.ok) return { ...validation, statePath };
     matches.push({ state, statePath });
@@ -377,7 +377,7 @@ export function loadSessionLifecycleForRecovery(config, identity) {
   let match = matches[0];
   if (config.sessionLifecycle?.enabled === true
     && identity.supervisorRunId
-    && match.state.logicalTask.supervisorRunId == null) {
+    && !Object.hasOwn(match.state.logicalTask || {}, "supervisorRunId")) {
     if (match.state.branch.headSha !== identity.headSha) {
       return fail("session_lifecycle_legacy_supervisor_backfill_head_mismatch", null, { statePath: match.statePath });
     }

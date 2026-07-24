@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import {
@@ -272,6 +273,25 @@ test("enabled recovery atomically backfills only a missing legacy supervisor ide
       nextExactAction: "push",
     });
     assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
+    const lifecyclePath = sessionLifecyclePath(config, lifecycle);
+    const legacy = JSON.parse(readFileSync(lifecyclePath, "utf8"));
+    delete legacy.logicalTask.supervisorRunId;
+    legacy.checkpoint.digest = null;
+    const digestInput = structuredClone(legacy);
+    digestInput.timestamps.updatedAt = null;
+    legacy.checkpoint.digest = createHash("sha256").update(JSON.stringify(digestInput)).digest("hex");
+    writeFileSync(lifecyclePath, `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
+    assert.equal(Object.hasOwn(JSON.parse(readFileSync(lifecyclePath, "utf8")).logicalTask, "supervisorRunId"), false);
+    assert.equal(validateSessionLifecycleState(legacy, {
+      repository: config.repositorySlug,
+      issueNumber: recovery.issue.number,
+      taskKey: recovery.taskKey,
+      runId: recovery.run.runId,
+      branchName: recovery.branch.name,
+      baseSha: recovery.branch.baseSha,
+      headSha: recovery.branch.currentHeadSha,
+      claimIdentity: legacy.logicalTask.claimIdentity,
+    }).ok, true);
     assert.equal(loadSessionLifecycleForRecovery(config, {
       repository: config.repositorySlug,
       issueNumber: recovery.issue.number,
