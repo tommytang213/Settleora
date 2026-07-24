@@ -206,6 +206,9 @@ function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot)
   const commitIntents = [];
   for (const intent of intents) {
     if (!terminalIntentStatuses.has(intent.status)) return { ok: false, reasonCode: "pending_external_effect" };
+    if (externalEffectTypes.has(intent.effectType) && intent.status === "failed_closed") {
+      return { ok: false, reasonCode: "external_effect_failed_closed_not_admissible" };
+    }
     const correlated = intent.repository === target.repository && intent.sourceTaskKey === target.taskKey && intent.runId === target.runnerRunId;
     if (!correlated) continue;
     const identity = intent.identity;
@@ -221,9 +224,6 @@ function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot)
         || (commitIntent ? !commitParent : identity?.candidateIdentity !== target.headSha)) {
       return { ok: false, reasonCode: "preserved_recovery_intent_identity_mismatch" };
     }
-    if (externalEffectTypes.has(intent.effectType) && intent.status === "failed_closed") {
-      return { ok: false, reasonCode: "external_effect_failed_closed_not_admissible" };
-    }
     if (intent.effectType === "commit") commitIntents.push(intent);
   }
   return validateCommitLineage(repositoryRoot, target, commitIntents, state.ordinaryContinuation.identity.changedFiles);
@@ -237,6 +237,15 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   const info = lstatSync(root);
   if (!info.isDirectory() || info.isSymbolicLink() || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
     return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
+  }
+  let branchHead;
+  try {
+    branchHead = git(root, ["rev-parse", "--verify", `refs/heads/${target.branch}`]);
+  } catch {
+    return { ok: false, reasonCode: "preserved_recovery_branch_ref_mismatch" };
+  }
+  if (branchHead !== target.headSha) {
+    return { ok: false, reasonCode: "preserved_recovery_branch_ref_mismatch" };
   }
   const lineage = git(root, ["rev-list", "--reverse", "--parents", `${target.baseSha}..${target.headSha}`])
     .split("\n").filter(Boolean).map((line) => line.split(" "));

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
@@ -216,6 +216,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     const files = ["apps/mobile/lib/parser.dart", "apps/mobile/test/parser_test.dart"];
     mkdirSync(config.repoRoot, { recursive: true });
     git(config.repoRoot, ["init"]);
+    git(config.repoRoot, ["branch", "-m", "feature/auto-959-recovery"]);
     git(config.repoRoot, ["config", "user.email", "fixture@example.invalid"]);
     git(config.repoRoot, ["config", "user.name", "Fixture"]);
     writeFileSync(path.join(config.repoRoot, "README.md"), "base\n");
@@ -355,6 +356,39 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       true,
       "local replacement objects must not influence authoritative lineage",
     );
+    git(config.repoRoot, ["branch", "-m", "moved-preserved-branch"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_branch_ref_mismatch",
+    );
+    git(config.repoRoot, ["branch", "-m", target.branch]);
+    let unrelatedIntent = preparePreEffectIntent(config, {
+      repository: "foreign/repo", sourceTaskKey: "20260724T090000", runId: "run-2026-07-24T090000Z-foreign",
+      logicalTaskIdentity: "foreign/repo#1000", claimIdentity: "foreign/repo#1000",
+      chargeIdentity: "foreign-charge", sessionId: "foreign-session", authorityGeneration: 1,
+      effectType: "push", branchName: "feature/foreign", baseSha: target.baseSha,
+      headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: { remote: "origin", branchName: "feature/foreign", headSha: target.headSha },
+    });
+    config.currentAuthority = {
+      retired: false, status: "active", sessionId: "foreign-session",
+      authorityGeneration: 1, runId: "run-2026-07-24T090000Z-foreign",
+    };
+    unrelatedIntent = transitionPreEffectIntent(config, unrelatedIntent, "failed_closed");
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "external_effect_failed_closed_not_admissible",
+    );
+    unlinkSync(path.join(
+      config.logsRoot,
+      "recovery",
+      "pre-effect-intents",
+      `${createHash("sha256").update(unrelatedIntent.intentId).digest("hex")}.json`,
+    ));
+    config.currentAuthority = {
+      retired: false, status: "active", sessionId: "fixture-session",
+      authorityGeneration: 1, runId: target.runnerRunId,
+    };
     assert.equal(inspectPreservedRecoveryForDeployment(config.logsRoot, {
       ...target,
       headSha: intermediateHead,
