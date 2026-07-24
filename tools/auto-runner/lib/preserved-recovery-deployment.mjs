@@ -417,6 +417,7 @@ function isGitTransportAuthorityKey(key) {
     || normalized === "core.askpass"
     || normalized === "core.hookspath"
     || normalized === "core.fsmonitor"
+    || normalized === "core.attributesfile"
     || normalized.startsWith("filter.")
     || normalized === "diff.external"
     || (normalized.startsWith("diff.")
@@ -485,8 +486,10 @@ function resumedGitEnvironmentIsTrusted(environment) {
       || (environment?.XDG_CONFIG_HOME != null && environment.XDG_CONFIG_HOME !== xdgHome)
       || resolvePathExecutable(environment?.PATH, "git") !== realpathSync(trustedDeploymentGitBinary)) return false;
   return !Object.keys(environment || {}).some((key) =>
-    key === "LD_PRELOAD" || key === "LD_LIBRARY_PATH" || key.startsWith("DYLD_")
-      || (key.startsWith("GIT_") && !["GIT_PAGER"].includes(key)));
+    key.startsWith("LD_") || key.startsWith("DYLD_")
+      || (key.startsWith("GIT_")
+        && !(key === "GIT_PAGER" && environment[key] === "cat"
+          && resolvePathExecutable(environment.PATH, "cat") === realpathSync("/usr/bin/cat"))));
 }
 
 function resolvePathExecutable(searchPath, name) {

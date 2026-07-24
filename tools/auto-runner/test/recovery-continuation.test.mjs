@@ -446,6 +446,20 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "preserved_recovery_repository_identity_mismatch",
       "dynamic-loader environment must not survive into the resumed runner",
     );
+    for (const [key, value] of [
+      ["LD_AUDIT", path.join(config.logsRoot, "hostile-audit.so")],
+      ["LD_DEBUG_OUTPUT", path.join(config.logsRoot, "hostile-debug")],
+      ["GIT_PAGER", path.join(config.logsRoot, "hostile-pager")],
+    ]) {
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+          repositoryRoot: config.repoRoot,
+          gitEnvironment: { ...process.env, [key]: value },
+        }).reasonCode,
+        "preserved_recovery_repository_identity_mismatch",
+        `${key} execution authority must not survive into the resumed runner`,
+      );
+    }
     const hostilePath = path.join(config.logsRoot, "hostile-path");
     mkdirSync(hostilePath);
     writeFileSync(path.join(hostilePath, "git"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
@@ -541,6 +555,13 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "worktree-scoped fsmonitor authority must not execute during later Git reads",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "core.fsmonitor"]);
+    git(config.repoRoot, ["config", "--local", "core.attributesFile", path.join(hostileHome, "attributes")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "external attributes must not select an installed Git filter",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "core.attributesFile"]);
     git(config.repoRoot, ["config", "--local", "filter.hostile.process", path.join(hostileHome, "hostile-filter")]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
