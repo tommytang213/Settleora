@@ -100,6 +100,27 @@ export function validateProjectRuntimeIdentity(config, {
   });
 }
 
+export function hasVerifiedExternalRuntimeEvidence(config = {}) {
+  const identity = config.runtimeIdentity;
+  const manifest = config.runtimeManifest;
+  return Boolean(
+    config.runtimeMode === "external" &&
+    Object.isFrozen(identity) &&
+    Object.isFrozen(manifest) &&
+    identity?.version === 1 &&
+    identity.projectId === config.projectId &&
+    identity.repositorySlug === String(config.repositorySlug || "").toLowerCase() &&
+    identity.runtimeRoot === config.runtimeRoot &&
+    identity.repoRoot === config.repoRoot &&
+    identity.logsRoot === config.logsRoot &&
+    typeof identity.namespace === "string" &&
+    /^[a-f0-9]{64}$/.test(identity.namespace) &&
+    manifest?.bundleDigest === config.runtimeBundleDigest &&
+    /^[a-f0-9]{64}$/.test(String(manifest?.bundleDigest || "")) &&
+    /^[a-f0-9]{40}$/.test(String(manifest?.sourceSha || "")),
+  );
+}
+
 function assertOwnerControlledDirectory(directory, field) {
   const info = statSync(directory);
   if (typeof process.getuid === "function" && info.uid !== process.getuid()) {

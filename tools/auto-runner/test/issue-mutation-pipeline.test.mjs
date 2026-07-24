@@ -41,9 +41,16 @@ function runnerWith(script = []) {
 }
 
 function mutationConfig(overrides = {}) {
-  return {
+  const generatedLogsRoot = logsRoot();
+  const config = {
     run: true,
     configPath: "/workspace/auto-runner/config/test-production.json",
+    runtimeMode: "external",
+    runtimeRoot: "/workspace/auto-runner/runtime",
+    repoRoot: "/workspace/repos/Settleora",
+    projectId: "Settleora",
+    runtimeBundleDigest: "a".repeat(64),
+    runtimeManifest: Object.freeze({ bundleDigest: "a".repeat(64), sourceSha: "c".repeat(40) }),
     trustedRealRunApproved: true,
     allowAutoMerge: true,
     autoMergePolicy: { approvedLanes: ["workflow-docs-tooling"] },
@@ -53,10 +60,20 @@ function mutationConfig(overrides = {}) {
     maxReviewFixCycles: 50,
     allowStaleClaimSteal: false,
     allowSystemdEnablement: false,
-    logsRoot: logsRoot(),
+    logsRoot: generatedLogsRoot,
     repositorySlug: "tommytang213/Settleora",
     ...overrides,
   };
+  config.runtimeIdentity = Object.freeze({
+    version: 1,
+    projectId: config.projectId,
+    repositorySlug: config.repositorySlug.toLowerCase(),
+    runtimeRoot: config.runtimeRoot,
+    repoRoot: config.repoRoot,
+    logsRoot: config.logsRoot,
+    namespace: "b".repeat(64),
+  });
+  return config;
 }
 
 function issueViewBody(number, repositorySlug = "tommytang213/Settleora", overrides = {}) {

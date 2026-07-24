@@ -3,6 +3,7 @@ import path from "node:path";
 import { safeTimestamp, slugify } from "./logger.mjs";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { normalizeReviewFixMutationConfig } from "./review-fix-policy.mjs";
+import { hasVerifiedExternalRuntimeEvidence } from "./runtime-identity.mjs";
 
 export const canaryAllowedLanes = Object.freeze(["workflow-docs-tooling", "docs-planning", "client-ui-low-risk"]);
 export const lowRiskAutoMergeCanaryAllowedPathsByLane = Object.freeze({
@@ -148,8 +149,8 @@ export function evaluateProductionFollowupIssueApproval(config) {
     maxFollowupIssuesPerRun: Number.isInteger(maxPerRun) ? maxPerRun : null,
   };
   if (!config.allowFollowupIssueCreation) return { ...base, reason: "follow-up issue creation is disabled" };
-  if (!config.configPath || !config.trustedRealRunApproved) {
-    return { ...base, reason: "external trusted production config is required" };
+  if (!config.configPath || !config.trustedRealRunApproved || !hasVerifiedExternalRuntimeEvidence(config)) {
+    return { ...base, reason: "verified external runtime and trusted production config are required" };
   }
   if (!config.allowAutoMerge || approvedLanes.length === 0) {
     return { ...base, reason: "approved-domain auto-merge lanes are required" };
@@ -297,6 +298,9 @@ export function evaluateReviewFixMutationApproval(config) {
   if (!config.allowReviewFixMutation || reviewFix.maxAttempts <= 0) return base;
   if (!config.configPath) return { ...base, mode: "unsafe", reason: "external config path is required" };
   if (config.trustedRealRunApproved) {
+    if (!hasVerifiedExternalRuntimeEvidence(config)) {
+      return { ...base, mode: "unsafe", reason: "verified external runtime evidence is required for production review-fix mutation" };
+    }
     const approvedLanes = Array.isArray(config.autoMergePolicy?.approvedLanes)
       ? config.autoMergePolicy.approvedLanes.filter((lane) => typeof lane === "string" && lane.length > 0)
       : [];

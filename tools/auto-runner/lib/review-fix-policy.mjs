@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { hasVerifiedExternalRuntimeEvidence } from "./runtime-identity.mjs";
 import { safeTimestamp, slugify } from "./logger.mjs";
 import { filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
 import { validateDiagnosticReviewFixAuthorization } from "./review-convergence-state.mjs";
@@ -302,6 +303,9 @@ export function evaluateReviewFixMutationDecision(input) {
   if (normalized.malformed) return block("review_fix_budget_malformed");
   if (!config.allowReviewFixMutation || !normalized.enabled) return block("review_fix_mutation_disabled_by_config");
   if (!config.configPath) return block("review_fix_requires_external_config");
+  if (config.trustedRealRunApproved && !hasVerifiedExternalRuntimeEvidence(config)) {
+    return block("production_review_fix_requires_verified_external_runtime");
+  }
   let diagnosticAuthorization = null;
   if (attemptCount >= normalized.maxAttempts) {
     const diagnosticDecision = validateDiagnosticReviewFixAuthorization({

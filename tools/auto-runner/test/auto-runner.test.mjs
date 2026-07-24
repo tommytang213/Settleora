@@ -597,6 +597,23 @@ test("normal trusted production profile admits bounded follow-up and review-fix 
       configPath: null,
     }),
     configPath: "/workspace/auto-runner/config/settleora.json",
+    runtimeMode: "external",
+    runtimeRoot: "/workspace/auto-runner/runtime",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/auto-runner/Settleora",
+    projectId: "Settleora",
+    repositorySlug: "tommytang213/Settleora",
+    runtimeBundleDigest: "a".repeat(64),
+    runtimeIdentity: Object.freeze({
+      version: 1,
+      projectId: "Settleora",
+      repositorySlug: "tommytang213/settleora",
+      runtimeRoot: "/workspace/auto-runner/runtime",
+      repoRoot: "/workspace/repos/Settleora",
+      logsRoot: "/workspace/logs/auto-runner/Settleora",
+      namespace: "b".repeat(64),
+    }),
+    runtimeManifest: Object.freeze({ bundleDigest: "a".repeat(64), sourceSha: "c".repeat(40) }),
     trustedRealRunApproved: true,
     allowAutoMerge: true,
     allowFollowupIssueCreation: true,
@@ -617,6 +634,7 @@ test("normal trusted production profile admits bounded follow-up and review-fix 
   assert.equal(evaluateProductionFollowupIssueApproval(config).approved, true);
   assert.equal(evaluateTrustPolicy({ ...config, autoMergePolicy: { approvedLanes: [] } }).allowed, false);
   assert.equal(evaluateTrustPolicy({ ...config, maxFollowupIssuesPerRun: 4 }).allowed, false);
+  assert.equal(evaluateTrustPolicy({ ...config, runtimeMode: "bundled", runtimeIdentity: null }).allowed, false);
   assert.equal(
     evaluateReviewFixMutationApproval({ ...config, autoMergePolicy: { approvedLanes: [] } }).approved,
     false,
@@ -1314,6 +1332,7 @@ test("review-fix mutation decision requires actionable low-risk auto-merge contr
 
   const productionConfig = {
     ...config,
+    ...productionRuntimeEvidence(),
     trustedRealRunCanaryApproved: false,
     trustedRealRunApproved: true,
     lowRiskAutoMergeCanaryApproved: false,
@@ -1384,6 +1403,7 @@ test("review-fix mutation blocks stop labels and non-actionable reviewer output 
     ...common,
     config: {
       ...config,
+      ...productionRuntimeEvidence(),
       trustedRealRunApproved: true,
       autoMergePolicy: { approvedLanes: [common.laneDecision.canonicalLane || common.laneDecision.lane] },
     },
@@ -7834,6 +7854,28 @@ function selectionConfig(overrides = {}) {
     eligibleLabels: ["auto-canary-ready"],
     pollLimit: 10,
     ...overrides,
+  };
+}
+
+function productionRuntimeEvidence() {
+  return {
+    runtimeMode: "external",
+    runtimeRoot: "/workspace/auto-runner/runtime",
+    repoRoot: "/workspace/repos/Settleora",
+    logsRoot: "/workspace/logs/auto-runner/Settleora",
+    projectId: "Settleora",
+    repositorySlug: "tommytang213/Settleora",
+    runtimeBundleDigest: "a".repeat(64),
+    runtimeIdentity: Object.freeze({
+      version: 1,
+      projectId: "Settleora",
+      repositorySlug: "tommytang213/settleora",
+      runtimeRoot: "/workspace/auto-runner/runtime",
+      repoRoot: "/workspace/repos/Settleora",
+      logsRoot: "/workspace/logs/auto-runner/Settleora",
+      namespace: "b".repeat(64),
+    }),
+    runtimeManifest: Object.freeze({ bundleDigest: "a".repeat(64), sourceSha: "c".repeat(40) }),
   };
 }
 

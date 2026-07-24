@@ -4,8 +4,10 @@
 
 An owner-only external production profile may enable bounded follow-up issue
 creation and review-fix mutation together only when normal trusted operation,
-approved-domain auto-merge, an external config path, and the existing
-review-fix hard bound are explicit. Stale-claim stealing and systemd
+approved-domain auto-merge, a verified external runtime identity and manifest,
+an external config path, and the existing review-fix hard bound are explicit.
+Source-tree or arbitrary-path profiles cannot satisfy this production
+capability approval. Stale-claim stealing and systemd
 self-enablement remain incompatible with that production approval. Individual
 issue contracts, lane policy, exact-head review/validation/check gates, and
 follow-up deduplication still fail closed; enabling both capabilities does not
