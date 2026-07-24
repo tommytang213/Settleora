@@ -387,6 +387,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     mkdirSync(hostileXdg);
     writeFileSync(path.join(hostileHome, ".gitconfig"), `[include]\n\tpath = ${path.join(hostileHome, "rewrite.config")}\n`);
     writeFileSync(path.join(hostileHome, "rewrite.config"), "[url \"git@github.com:owner/repo.git\"]\n\tinsteadOf = git@github.com:foreign/repo.git\n");
+    git(config.repoRoot, ["config", "--local", "include.path", path.join(hostileHome, "rewrite.config")]);
     const foreignReason = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
       repositoryRoot: config.repoRoot,
       gitEnvironment: { ...process.env, HOME: hostileHome, XDG_CONFIG_HOME: hostileXdg },
@@ -396,7 +397,16 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "preserved_recovery_repository_identity_mismatch",
       "hostile global/XDG config and includes cannot rewrite a foreign repository into authority",
     );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "include.path"]);
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "multiple raw fetch URLs are ambiguous repository authority",
+    );
+    git(config.repoRoot, ["config", "--unset-all", "remote.origin.url"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/repo.git"]);
     git(config.repoRoot, ["branch", "-m", "moved-preserved-branch"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,

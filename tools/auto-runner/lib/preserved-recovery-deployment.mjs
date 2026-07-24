@@ -273,10 +273,12 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
     return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
   }
   const expectedRepository = target.repository.toLowerCase();
-  const fetchRepository = canonicalGitHubRepository(readGit(["remote", "get-url", "origin"]));
-  const pushUrls = readGit(["remote", "get-url", "--push", "--all", "origin"]).split("\n").filter(Boolean);
-  if (fetchRepository !== expectedRepository || pushUrls.length !== 1
-      || canonicalGitHubRepository(pushUrls[0]) !== expectedRepository) {
+  const fetchUrls = gitConfigValues(root, "remote.origin.url", gitEnvironment);
+  const pushUrls = gitConfigValues(root, "remote.origin.pushurl", gitEnvironment);
+  const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
+  if (fetchUrls.length !== 1 || pushUrls.length > 1
+      || canonicalGitHubRepository(fetchUrls[0]) !== expectedRepository
+      || canonicalGitHubRepository(effectivePushUrl) !== expectedRepository) {
     return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
   }
   let branchHead;
@@ -330,6 +332,18 @@ function git(root, args, environment = process.env) {
   });
   if (result.status !== 0 || result.stderr) throw new Error("authoritative Git read unavailable");
   return result.stdout.trim();
+}
+
+function gitConfigValues(root, key, environment) {
+  const result = spawnSync(trustedDeploymentGitBinary, ["config", "--local", "--no-includes", "--get-all", key], {
+    cwd: root,
+    encoding: "utf8",
+    env: sanitizedDeploymentGitEnvironment(environment),
+    maxBuffer: 64 * 1024,
+  });
+  if (result.status === 1 && !result.stdout && !result.stderr) return [];
+  if (result.status !== 0 || result.stderr) throw new Error("authoritative Git configuration read unavailable");
+  return result.stdout.split("\n").filter(Boolean);
 }
 
 function canonicalGitHubRepository(remote) {
