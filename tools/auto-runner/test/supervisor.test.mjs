@@ -856,21 +856,30 @@ test("systemd start verifies the installed exact ExecStart before activation", (
     ...options,
     runner: (cmd, args) => {
       calls.push([cmd, ...args]);
+      if (args.includes("--version")) return { status: 0, stdout: "systemd 255 (255.4-1ubuntu8.8)\n" };
       if (args.includes("cat")) {
         return { status: 0, stdout: `# /home/runner/.config/systemd/user/settleora-auto-runner@.service\n${plan.unitTemplate}` };
       }
       if (args.includes("--property=ExecStart")) {
-        return { status: 0, stdout: `{ path=/usr/bin/env ; argv[]=${plan.expectedExecArgv.join(" ")} ; ignore_errors=no ; }\n` };
+        return { status: 0, stdout: `{ path=${plan.expectedExecArgv[0]} ; argv[]=${plan.expectedExecArgv.join(" ")} ; ignore_errors=no ; }\n` };
+      }
+      if (args.includes("--property=Environment,UnsetEnvironment")) {
+        return {
+          status: 0,
+          stdout: `${plan.unitTemplate.split(/\r?\n/u).filter((line) => line.startsWith("UnsetEnvironment=")).map((line) => line.slice("UnsetEnvironment=".length)).join(" ")}\n`,
+        };
       }
       if (args.includes("is-active")) return { status: 0, stdout: "active\n" };
       return { status: 0, stdout: "" };
     },
   });
   assert.equal(result.ok, true);
-  assert.deepEqual(calls[3], plan.startArgv);
+  assert.deepEqual(calls[5], plan.startArgv);
   const refused = startUserUnit(runId, {
     ...options,
-    runner: () => ({ status: 0, stdout: `${plan.unitTemplate}\n# /home/runner/.config/systemd/user/settleora-auto-runner@.service.d/override.conf\n[Service]\nEnvironment=NODE_OPTIONS=--import=evil\n` }),
+    runner: (_cmd, args) => args.includes("--version")
+      ? ({ status: 0, stdout: "systemd 255\n" })
+      : ({ status: 0, stdout: `${plan.unitTemplate}\n# /home/runner/.config/systemd/user/settleora-auto-runner@.service.d/override.conf\n[Service]\nEnvironment=NODE_OPTIONS=--import=evil\n` }),
   });
   assert.equal(refused.ok, false);
   assert.match(refused.stderr, /identity mismatch/);
@@ -1005,8 +1014,11 @@ test("systemd template is fixed, no restart, no enablement, and no embedded secr
   const text = readFileSync("tools/auto-runner/systemd/settleora-auto-runner@.service", "utf8");
   assert.match(text, /Type=exec/);
   assert.match(text, /WorkingDirectory=\{\{RUNTIME_ROOT\}\}/);
-  assert.match(text, /ExecStart=\/usr\/bin\/env node \{\{LAUNCHER\}\} --runtime-root \{\{RUNTIME_ROOT\}\} --entry supervisor\/settleora-auto-runner-worker\.mjs -- %i --logs-root \{\{LOGS_ROOT\}\}/);
-  assert.match(text, /EnvironmentFile=-\{\{LOGS_ROOT\}\}\/secrets\/supervisor\.env/);
+  assert.match(text, /ExecStart=\/usr\/bin\/env -i HOME=%h USER=%u LOGNAME=%u .*XDG_RUNTIME_DIR=%t DBUS_SESSION_BUS_ADDRESS=unix:path=%t\/bus \{\{NODE_EXECUTABLE\}\} \{\{LAUNCHER\}\}/);
+  assert.match(text, /UnsetEnvironment=.*NODE_OPTIONS.*NODE_PATH.*NODE_V8_COVERAGE/);
+  assert.match(text, /UnsetEnvironment=.*LD_PRELOAD.*BASH_ENV/);
+  assert.match(text, /UnsetEnvironment=.*GIT_CONFIG_GLOBAL.*GIT_SSH_COMMAND/);
+  assert.doesNotMatch(text, /EnvironmentFile=/);
   assert.doesNotMatch(text, /\/workspace\/repos\/Settleora|\/workspace\/logs\/auto-runner\/Settleora/);
   assert.match(text, /Restart=no/);
   assert.match(text, /SendSIGKILL=no/);
