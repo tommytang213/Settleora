@@ -113,6 +113,14 @@ function verifyApprovedRuntime(runtimeRoot, launcherPath) {
       || !Array.isArray(manifest.files) || !Array.isArray(manifest.entryPoints)) {
     throw new Error("runtime manifest identity is invalid");
   }
+  const stableBoundary = path.join(parent, ".runtime.node-exec-boundary");
+  if (manifest.version >= 2 || approval.nodeBoundarySha256 !== undefined) {
+    const boundaryInfo = lstatSync(stableBoundary);
+    if (!boundaryInfo.isFile() || boundaryInfo.isSymbolicLink() || (boundaryInfo.mode & 0o077) !== 0
+        || approval.nodeBoundarySha256 !== createHash("sha256").update(readFileSync(stableBoundary)).digest("hex")) {
+      throw new Error("runtime Node execution boundary approval mismatch");
+    }
+  }
   const paths = manifest.files.map((file) => file.path);
   if (canonicalJson(paths) !== canonicalJson([...paths].sort()) || new Set(paths).size !== paths.length) {
     throw new Error("runtime manifest file list is invalid");

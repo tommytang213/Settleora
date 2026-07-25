@@ -162,7 +162,8 @@ project-specific identity. #912 completed this for Settleora using:
 The controller renders and verifies the installed unit byte-for-byte before
 submission. The rendered unit uses `Type=exec`, `WorkingDirectory` bound to the
 verified external runtime, a manifest-covered pre-Node boundary helper, the
-absolute sibling launcher and Node worker entry point, project-specific unit
+authenticated stable sibling boundary and launcher, and Node worker entry
+point, project-specific unit
 identity, validated `%i` run IDs, `UMask=0077`, `Restart=no`, bounded graceful
 stop behavior, `SendSIGKILL=no`, journal output, and dedicated worker log
 files. It does not use `EnvironmentFile=`. Another project uses its own lower-cased
@@ -174,7 +175,10 @@ The supported activation contract is systemd 235 or newer and a canonical,
 root-owned, non-group/world-writable absolute Node executable in the reviewed
 major-22 range. `UnsetEnvironment=` removes Node, dynamic-loader, shell-startup,
 Git, SSH, and askpass execution controls as systemd's final environment step
-before the helper starts. The helper immediately re-execs itself through
+before the helper starts. The deployment copies the manifest-covered helper to
+the approval-digest-bound stable sibling `.runtime.node-exec-boundary`; runtime
+directory rollback preserves that boundary just as it restores the separately
+authenticated stable launcher. The helper immediately re-execs itself through
 `/usr/bin/env -i`, validates its mode, home, and Node identities, constructs
 only `HOME`, `USER`, `LOGNAME`, a fixed `PATH`, `LANG`, `LC_ALL`, `TMPDIR`, and
 the shell-maintained `PWD`, verifies `node --version`, and then execs the stable

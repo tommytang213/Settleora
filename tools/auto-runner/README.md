@@ -154,7 +154,10 @@ no automatic rollback or restart authority is granted.
 Every supported Node-launching repository unit enters through
 `systemd/settleora-node-exec-boundary`, never `/usr/bin/env node`. The helper is
 an explicit runtime-bundle artifact with reviewed bytes, executable mode, and
-manifest digest. Supervisor rendering binds its exact absolute path and the
+manifest digest. Deployment installs those authenticated bytes as the stable
+sibling `.runtime.node-exec-boundary`, records its digest in the runtime
+approval, and preserves it across versioned runtime-directory rollback.
+Supervisor rendering binds that exact absolute path and the
 canonical Node executable. Settleora's fixed health/notifier templates support
 `/usr/bin/node`; another host must render and verify an equivalent canonical
 identity rather than relying on `PATH`.

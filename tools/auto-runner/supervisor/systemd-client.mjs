@@ -20,7 +20,8 @@ export function buildSystemdStartPlan(runId, {
   const safeRuntimeRoot = validateSystemdPath(runtimeRoot, "runtimeRoot");
   absoluteRuntimeEntry(safeRuntimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
   const launcher = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.launcher.mjs`);
-  const boundary = absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-node-exec-boundary");
+  absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-node-exec-boundary");
+  const boundary = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.node-exec-boundary`);
   const nodeExecutable = validateNodeExecutable(process.execPath);
   const homeDirectory = validateSystemdPath(process.env.HOME, "homeDirectory");
   const unitName = unitNameForRunId(runId, safeProjectId);

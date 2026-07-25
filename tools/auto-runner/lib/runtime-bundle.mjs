@@ -314,11 +314,13 @@ export function deployRuntimeBundle({
     const current = verifyRuntimeBundle(destination);
     currentManifest = current;
     if (current.bundleDigest === manifest.bundleDigest && !expectedOldDigest) {
+      installStableBoundary(destination, current);
       writeRuntimeApproval(destination, current);
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback: null, manifest: current };
     }
     if (current.bundleDigest === manifest.bundleDigest && expectedOldDigest && existsSync(rollback)) {
       verifyRuntimeBundle(rollback, expectedOldDigest);
+      installStableBoundary(destination, current);
       writeRuntimeApproval(destination, current);
       if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest: current };
@@ -328,6 +330,7 @@ export function deployRuntimeBundle({
     verifyRuntimeBundle(rollback, expectedOldDigest);
     verifyRuntimeBundle(temporary, manifest.bundleDigest);
     renameSync(temporary, destination);
+    installStableBoundary(destination, manifest);
     writeRuntimeApproval(destination, manifest);
     if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
     return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest };
@@ -354,6 +357,12 @@ export function deployRuntimeBundle({
   if (buildRuntimeManifest(source, { sourceSha }).bundleDigest !== manifest.bundleDigest) {
     throw new Error("runtime source changed during deployment");
   }
+  installStableBoundary(temporary, manifest, {
+    allowReplace: true,
+    currentRoot: existsSync(destination) ? destination : null,
+    currentManifest,
+    expectedOldDigest,
+  });
   const launcher = path.join(destinationParent, `.${path.basename(destination)}.launcher.mjs`);
   const stagedLauncher = path.join(temporary, "runtime-launcher.mjs");
   const incomingLauncher = path.join(destinationParent, `.${path.basename(destination)}.launcher.incoming`);
@@ -411,21 +420,75 @@ function writeRuntimeApproval(destination, manifest) {
   const parent = path.dirname(destination);
   const base = path.basename(destination);
   const launcher = path.join(parent, `.${base}.launcher.mjs`);
+  const boundary = path.join(parent, `.${base}.node-exec-boundary`);
   const approval = path.join(parent, `.${base}.approved.json`);
   const temporary = path.join(parent, `.${base}.approved.incoming`);
   const launcherInfo = lstatSync(launcher);
   if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0) {
     throw new Error("stable runtime launcher is unsafe");
   }
+  const boundarySha256 = existsSync(boundary) ? trustedStableBoundaryDigest(boundary) : null;
+  if (manifest.version >= 2 && boundarySha256 === null) throw new Error("stable Node execution boundary is missing");
   if (existsSync(temporary)) rmSync(temporary);
   writeFileSync(temporary, `${JSON.stringify({
-    version: 1,
+    version: boundarySha256 === null ? 1 : 2,
     sourceSha: manifest.sourceSha,
     bundleDigest: manifest.bundleDigest,
     launcherSha256: createHash("sha256").update(readFileSync(launcher)).digest("hex"),
+    ...(boundarySha256 === null ? {} : { nodeBoundarySha256: boundarySha256 }),
   })}\n`, { mode: 0o600 });
   chmodSync(temporary, 0o400);
   renameSync(temporary, approval);
+}
+
+function installStableBoundary(bundleRoot, manifest, {
+  allowReplace = false,
+  currentRoot = null,
+  currentManifest = null,
+  expectedOldDigest = null,
+} = {}) {
+  if (manifest.version < 2) return null;
+  const parent = path.dirname(bundleRoot);
+  const base = path.basename(bundleRoot).replace(/^\./u, "").replace(/\.deploy-incoming$/u, "");
+  const boundary = path.join(parent, `.${base}.node-exec-boundary`);
+  const incoming = path.join(parent, `.${base}.node-exec-boundary.incoming`);
+  const bundled = path.join(bundleRoot, "systemd", "settleora-node-exec-boundary");
+  const desiredDigest = createHash("sha256").update(readFileSync(bundled)).digest("hex");
+  if (existsSync(boundary)) {
+    const installedDigest = trustedStableBoundaryDigest(boundary);
+    if (installedDigest === desiredDigest) return boundary;
+    if (!allowReplace || !currentManifest || currentManifest.bundleDigest !== expectedOldDigest) {
+      throw new Error("stable Node execution boundary does not match the approved bundle");
+    }
+    let authenticatedDigest = null;
+    if (currentManifest.version >= 2 && currentRoot) {
+      authenticatedDigest = createHash("sha256")
+        .update(readFileSync(path.join(currentRoot, "systemd", "settleora-node-exec-boundary")))
+        .digest("hex");
+    } else if (currentRoot) {
+      const approvalPath = path.join(path.dirname(currentRoot), `.${path.basename(currentRoot)}.approved.json`);
+      if (existsSync(approvalPath)) {
+        authenticatedDigest = JSON.parse(readFileSync(approvalPath, "utf8")).nodeBoundarySha256 || null;
+      }
+    }
+    if (installedDigest !== authenticatedDigest) throw new Error("stable Node execution boundary is unauthenticated");
+  }
+  if (existsSync(incoming)) rmSync(incoming);
+  cpSync(bundled, incoming, { dereference: false });
+  chmodSync(incoming, 0o500);
+  renameSync(incoming, boundary);
+  if (trustedStableBoundaryDigest(boundary) !== desiredDigest) {
+    throw new Error("stable Node execution boundary installation mismatch");
+  }
+  return boundary;
+}
+
+function trustedStableBoundaryDigest(boundary) {
+  const info = lstatSync(boundary);
+  if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
+    throw new Error("stable Node execution boundary is unsafe");
+  }
+  return createHash("sha256").update(readFileSync(boundary)).digest("hex");
 }
 
 function restoreStableLauncherFromInstalledBundle(destination) {

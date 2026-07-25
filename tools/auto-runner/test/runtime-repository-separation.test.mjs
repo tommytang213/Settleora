@@ -702,6 +702,9 @@ test("deployment and rollback preserve verified version-one bundles without the 
       expectedOldDigest: legacy.bundleDigest,
     });
     assert.equal(upgraded.manifest.version, 2);
+    const stableBoundary = path.join(parent, ".runtime.node-exec-boundary");
+    const stableBoundaryDigest = createHash("sha256").update(readFileSync(stableBoundary)).digest("hex");
+    assert.equal(statSync(stableBoundary).mode & 0o777, 0o500);
     assert.equal(verifyRuntimeBundle(path.join(parent, ".runtime.rollback"), legacy.bundleDigest).version, 1);
 
     const rolledBack = rollbackRuntimeBundle({
@@ -711,6 +714,14 @@ test("deployment and rollback preserve verified version-one bundles without the 
     });
     assert.equal(rolledBack.manifest.version, 1);
     assert.equal(verifyRuntimeBundle(destination, legacy.bundleDigest).version, 1);
+    assert.equal(createHash("sha256").update(readFileSync(stableBoundary)).digest("hex"), stableBoundaryDigest);
+    const approval = JSON.parse(readFileSync(path.join(parent, ".runtime.approved.json"), "utf8"));
+    assert.equal(approval.nodeBoundarySha256, stableBoundaryDigest);
+    const postRollbackLaunch = spawnSync(stableBoundary, [
+      "--mode", "supervisor", "--node", process.execPath, "--home", root, "--", "--version",
+    ], { encoding: "utf8" });
+    assert.equal(postRollbackLaunch.status, 0, postRollbackLaunch.stderr);
+    assert.match(postRollbackLaunch.stdout, /^v22\./u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

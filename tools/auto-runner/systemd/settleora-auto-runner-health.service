@@ -8,7 +8,7 @@ StartLimitBurst=5
 [Service]
 Type=exec
 WorkingDirectory=/workspace/repos/Settleora
-ExecStart=/workspace/auto-runner/runtime/systemd/settleora-node-exec-boundary --mode health --node /usr/bin/node --home %h -- /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-health-service.mjs -- --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json
+ExecStart=/workspace/auto-runner/.runtime.node-exec-boundary --mode health --node /usr/bin/node --home %h -- /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-health-service.mjs -- --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json
 UnsetEnvironment=NODE_OPTIONS NODE_PATH NODE_V8_COVERAGE NODE_COMPILE_CACHE NODE_DISABLE_COMPILE_CACHE NODE_EXTRA_CA_CERTS NODE_ICU_DATA NODE_REPL_HISTORY NODE_REDIRECT_WARNINGS NODE_DEBUG NODE_DEBUG_NATIVE OPENSSL_CONF SSL_CERT_FILE SSL_CERT_DIR UV_THREADPOOL_SIZE NODE_PENDING_DEPRECATION NODE_PRESERVE_SYMLINKS NODE_TLS_REJECT_UNAUTHORIZED NODE_USE_SYSTEM_CA
 UnsetEnvironment=LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT LD_DEBUG LD_PROFILE ENV BASH_ENV SHELLOPTS
 UnsetEnvironment=GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_NOSYSTEM GIT_CONFIG_COUNT GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_SSH GIT_SSH_COMMAND GIT_ASKPASS SSH_ASKPASS SSH_ASKPASS_REQUIRE
