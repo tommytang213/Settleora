@@ -50,7 +50,7 @@ test("pre-Node boundary defeats import, require, loader, NODE_PATH, and startup-
         env: {
           ...process.env,
           ...hostile,
-          GEMINI_API_KEY: "must-not-propagate",
+          UNAPPROVED_PROVIDER_VALUE: "must-not-propagate",
           UNAPPROVED_UNKNOWN: "must-not-propagate",
         },
       });
@@ -60,7 +60,7 @@ test("pre-Node boundary defeats import, require, loader, NODE_PATH, and startup-
       assert.deepEqual(Object.keys(observed).sort(), ["DBUS_SESSION_BUS_ADDRESS", "HOME", "LANG", "LC_ALL", "LOGNAME", "PATH", "TMPDIR", "USER", "XDG_RUNTIME_DIR"].sort(), label);
       assert.equal(observed.HOME, root, label);
       assert.equal(observed.NODE_OPTIONS, undefined, label);
-      assert.equal(observed.GEMINI_API_KEY, undefined, label);
+      assert.equal(observed.UNAPPROVED_PROVIDER_VALUE, undefined, label);
       assert.equal(observed.UNAPPROVED_UNKNOWN, undefined, label);
     }
   } finally {
