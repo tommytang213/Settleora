@@ -382,6 +382,7 @@ export function deployRuntimeBundle({
   const incomingLauncher = path.join(destinationParent, `.${path.basename(destination)}.launcher.incoming`);
   const launcherPreviouslyExisted = existsSync(launcher);
   let launcherReplaced = false;
+  try {
   if (existsSync(launcher)) {
     const launcherInfo = lstatSync(launcher);
     if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0) {
@@ -420,8 +421,7 @@ export function deployRuntimeBundle({
   // Launcher preparation is deliberately outside the runtime directory exchange.
   // Re-read operational authority after that preparation so no unrelated work
   // separates the final proof from the first rollback/runtime rename.
-  try {
-    verifyFinalQuiescence();
+  verifyFinalQuiescence();
   } catch (error) {
     if (launcherReplaced) {
       if (launcherPreviouslyExisted && currentManifest) {
