@@ -75,11 +75,11 @@ test("repository templates keep loopback defaults and avoid deployment secrets i
 
   assert.equal(
     getLast(health, "Service", "ExecStart"),
-    "/usr/bin/env node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-health-service.mjs -- --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json",
+    "/workspace/auto-runner/runtime/systemd/settleora-node-exec-boundary --mode health --node /usr/bin/node --home %h -- /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-health-service.mjs -- --host 127.0.0.1 --port 8787 --config /workspace/auto-runner/config/settleora.json",
   );
   assert.equal(
     getLast(notifier, "Service", "ExecStart"),
-    "/usr/bin/env node /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-terminal-notifier.mjs -- --config /workspace/auto-runner/config/settleora.json",
+    "/workspace/auto-runner/runtime/systemd/settleora-node-exec-boundary --mode notifier --node /usr/bin/node --home %h -- /workspace/auto-runner/.runtime.launcher.mjs --runtime-root /workspace/auto-runner/runtime --entry settleora-auto-runner-terminal-notifier.mjs -- --config /workspace/auto-runner/config/settleora.json",
   );
 
   for (const [name, unit] of [["health", health], ["notifier", notifier]]) {
@@ -140,7 +140,11 @@ function assertServiceDirectives(unit, name, expected) {
 
 function assertExecStartIsSafe(unit, name) {
   const execStart = getLast(unit, "Service", "ExecStart");
-  assert.match(execStart, /^\/usr\/bin\/env node \/workspace\/auto-runner\/\.runtime\.launcher\.mjs --runtime-root \/workspace\/auto-runner\/runtime --entry settleora-auto-runner-(?:health-service|terminal-notifier)\.mjs -- (?:--host 127\.0\.0\.1 --port 8787 )?--config \/workspace\/auto-runner\/config\/settleora\.json$/);
+  assert.match(execStart, /^\/workspace\/auto-runner\/runtime\/systemd\/settleora-node-exec-boundary --mode (?:health|notifier) --node \/usr\/bin\/node --home %h -- \/workspace\/auto-runner\/\.runtime\.launcher\.mjs --runtime-root \/workspace\/auto-runner\/runtime --entry settleora-auto-runner-(?:health-service|terminal-notifier)\.mjs -- (?:--host 127\.0\.0\.1 --port 8787 )?--config \/workspace\/auto-runner\/config\/settleora\.json$/);
   assert.doesNotMatch(execStart, /\b(?:sh|bash)\s+-c\b/, name);
-  assert.doesNotMatch(execStart, /%[EfhinpsuU]|\$|\.\.|\/workspace\/logs\/settleora-auto-runner\/secrets/, name);
+  assert.doesNotMatch(execStart, /%[EfinpsuU]|\$|\.\.|\/workspace\/logs\/settleora-auto-runner\/secrets/, name);
+  for (const required of ["NODE_OPTIONS", "NODE_PATH", "NODE_V8_COVERAGE", "LD_PRELOAD", "BASH_ENV", "GIT_CONFIG_GLOBAL", "GIT_SSH_COMMAND"]) {
+    assert.equal(unit.sections.get("Service")?.get("UnsetEnvironment")?.some((line) => line.split(" ").includes(required)), true, `${name} ${required}`);
+  }
+  assert.equal(unit.sections.get("Service")?.has("EnvironmentFile"), false, name);
 }

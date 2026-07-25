@@ -161,14 +161,34 @@ project-specific identity. #912 completed this for Settleora using:
 
 The controller renders and verifies the installed unit byte-for-byte before
 submission. The rendered unit uses `Type=exec`, `WorkingDirectory` bound to the
-verified external runtime, the absolute sibling launcher and Node worker entry
-point, project-specific unit identity, validated `%i` run IDs, `UMask=0077`,
-`Restart=no`, bounded graceful stop behavior, `SendSIGKILL=no`, journal output,
-dedicated worker log files, and an optional environment file only under the
-admitted project `logsRoot`. Another project uses its own lower-cased
+verified external runtime, a manifest-covered pre-Node boundary helper, the
+absolute sibling launcher and Node worker entry point, project-specific unit
+identity, validated `%i` run IDs, `UMask=0077`, `Restart=no`, bounded graceful
+stop behavior, `SendSIGKILL=no`, journal output, and dedicated worker log
+files. It does not use `EnvironmentFile=`. Another project uses its own lower-cased
 `<projectId>-auto-runner@.service` identity and rendered paths; the retained
 lower-case Settleora prefix is an explicit compatibility exception. Shared runtime
 files do not imply a shared unit or mutation authority.
+
+The supported activation contract is systemd 235 or newer and a canonical,
+root-owned, non-group/world-writable absolute Node executable in the reviewed
+major-22 range. `UnsetEnvironment=` removes Node, dynamic-loader, shell-startup,
+Git, SSH, and askpass execution controls as systemd's final environment step
+before the helper starts. The helper immediately re-execs itself through
+`/usr/bin/env -i`, validates its mode, home, and Node identities, constructs
+only `HOME`, `USER`, `LOGNAME`, a fixed `PATH`, `LANG`, `LC_ALL`, `TMPDIR`, and
+the shell-maintained `PWD`, verifies `node --version`, and then execs the stable
+launcher. Unknown ambient names are omitted. Hosts without these capabilities
+or identities refuse submission; there is no compatibility downgrade.
+
+Secrets are not service environment. Gemini credentials continue through the
+existing owner-controlled reviewer credential file selected by the reviewed
+external profile. GitHub/Codex credentials use their owner-controlled client
+stores under the validated home directory. Health and notifier processes
+receive no mutation/provider secret. Repository merge, runtime bundle
+deployment, unit installation/daemon reload, and service start/restart remain
+four distinct operator decisions; this repository contract performs none of
+the latter three.
 
 No instance is enabled by the template. Failed, killed, crashed, timed-out, or
 reboot-interrupted mutation runs recover only through durable runner state and

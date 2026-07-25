@@ -1,0 +1,88 @@
+#!/bin/sh
+set -eu
+
+fail() {
+  /usr/bin/printf '%s\n' "settleora node execution boundary refused: $1" >&2
+  exit 126
+}
+
+if [ "${SETTLEORA_BOUNDARY_CLEAN-}" != "1" ]; then
+  exec /usr/bin/env -i SETTLEORA_BOUNDARY_CLEAN=1 /bin/sh "$0" "$@"
+fi
+
+mode=
+node=
+home=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --mode)
+      [ "$#" -ge 2 ] || fail "missing mode"
+      mode=$2
+      shift 2
+      ;;
+    --node)
+      [ "$#" -ge 2 ] || fail "missing Node executable"
+      node=$2
+      shift 2
+      ;;
+    --home)
+      [ "$#" -ge 2 ] || fail "missing home directory"
+      home=$2
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      fail "unknown boundary argument"
+      ;;
+  esac
+done
+
+case "$mode" in
+  supervisor|health|notifier) ;;
+  *) fail "unsupported process mode" ;;
+esac
+[ "$#" -gt 0 ] || fail "missing Node arguments"
+
+case "$node" in /*) ;; *) fail "Node executable must be absolute" ;; esac
+canonical_node=$(/usr/bin/readlink -f -- "$node") || fail "Node executable is not canonical"
+[ "$canonical_node" = "$node" ] || fail "Node executable path is not canonical"
+[ -f "$node" ] && [ -x "$node" ] && [ ! -L "$node" ] || fail "Node executable is not a regular executable"
+[ "$(/usr/bin/stat -c %u -- "$node")" = "0" ] || fail "Node executable is not root-owned"
+node_mode=$(/usr/bin/stat -c %a -- "$node") || fail "Node executable mode is unavailable"
+group_digit=$(printf '%s' "$node_mode" | /usr/bin/rev | /usr/bin/cut -c 2)
+world_digit=$(printf '%s' "$node_mode" | /usr/bin/rev | /usr/bin/cut -c 1)
+case "$group_digit$world_digit" in
+  *2*|*3*|*6*|*7*) fail "Node executable is group/world writable" ;;
+esac
+
+case "$home" in /*) ;; *) fail "home directory must be absolute" ;; esac
+canonical_home=$(/usr/bin/readlink -f -- "$home") || fail "home directory is unavailable"
+[ "$canonical_home" = "$home" ] && [ -d "$home" ] || fail "home directory is not canonical"
+[ "$(/usr/bin/stat -c %u -- "$home")" = "$(/usr/bin/id -u)" ] || fail "home directory has the wrong owner"
+home_mode=$(/usr/bin/stat -c %a -- "$home") || fail "home directory mode is unavailable"
+group_digit=$(printf '%s' "$home_mode" | /usr/bin/rev | /usr/bin/cut -c 2)
+world_digit=$(printf '%s' "$home_mode" | /usr/bin/rev | /usr/bin/cut -c 1)
+case "$group_digit$world_digit" in
+  *2*|*3*|*6*|*7*) fail "home directory is group/world writable" ;;
+esac
+
+PATH=/usr/local/bin:/usr/bin:/bin
+HOME=$home
+LANG=C.UTF-8
+LC_ALL=C.UTF-8
+TMPDIR=/tmp
+USER=$(/usr/bin/id -un)
+LOGNAME=$USER
+export PATH HOME LANG LC_ALL TMPDIR USER LOGNAME
+unset SETTLEORA_BOUNDARY_CLEAN
+
+node_version=$("$node" --version 2>/dev/null) || fail "Node version check failed"
+case "$node_version" in
+  v22.*) ;;
+  *) fail "Node 22 is required" ;;
+esac
+
+exec "$node" "$@"

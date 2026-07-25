@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { unitNameForRunId } from "./supervisor-state.mjs";
 import { validateRunId } from "./run-spec.mjs";
@@ -20,21 +20,27 @@ export function buildSystemdStartPlan(runId, {
   const safeRuntimeRoot = validateSystemdPath(runtimeRoot, "runtimeRoot");
   absoluteRuntimeEntry(safeRuntimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
   const launcher = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.launcher.mjs`);
+  const boundary = absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-node-exec-boundary");
+  const nodeExecutable = validateNodeExecutable(process.execPath);
+  const homeDirectory = validateSystemdPath(process.env.HOME, "homeDirectory");
   const unitName = unitNameForRunId(runId, safeProjectId);
   const unitTemplate = renderUnitTemplate(
     readFileSync(absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-auto-runner@.service"), "utf8"),
-    { projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot, logsRoot: safeLogsRoot, launcher },
+    { projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot, logsRoot: safeLogsRoot, launcher, boundary, nodeExecutable },
   );
   return {
     unitName,
     expectedExecArgv: [
-      "/usr/bin/env", "node", launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
+      boundary, "--mode", "supervisor", "--node", nodeExecutable, "--home", homeDirectory, "--",
+      launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
       runId, "--logs-root", safeLogsRoot,
     ],
     unitTemplate,
     reloadArgv: ["systemctl", "--user", "daemon-reload"],
     inspectArgv: ["systemctl", "--user", "cat", unitName, "--no-pager"],
     inspectExecArgv: ["systemctl", "--user", "show", unitName, "--property=ExecStart", "--value"],
+    inspectEnvironmentArgv: ["systemctl", "--user", "show", unitName, "--property=Environment,UnsetEnvironment", "--value"],
+    versionArgv: ["systemctl", "--version"],
     startArgv: ["systemctl", "--user", "start", unitName],
     isActiveArgv: ["systemctl", "--user", "is-active", unitName],
     showArgv: ["systemctl", "--user", "show", unitName, "--property=ActiveState,SubState,Result"],
@@ -56,12 +62,24 @@ function renderUnitTemplate(template, values) {
     REPO_ROOT: values.repoRoot,
     LOGS_ROOT: values.logsRoot,
     LAUNCHER: values.launcher,
+    BOUNDARY: values.boundary,
+    NODE_EXECUTABLE: values.nodeExecutable,
   };
   for (const [key, value] of Object.entries(placeholders)) {
     rendered = rendered.replaceAll(`{{${key}}}`, value);
   }
   if (/\{\{[A-Z_]+\}\}/u.test(rendered)) throw new Error("unresolved supervisor unit template identity");
   return rendered;
+}
+
+function validateNodeExecutable(value) {
+  const absolute = validateSystemdPath(value, "nodeExecutable");
+  const info = lstatSync(absolute);
+  if (!info.isFile() || info.isSymbolicLink() || realpathSync(absolute) !== absolute
+      || info.uid !== 0 || (info.mode & 0o022) !== 0 || process.versions.node.split(".")[0] !== "22") {
+    throw new Error("approved canonical root-owned non-writable Node 22 executable is required");
+  }
+  return absolute;
 }
 
 function validateSystemdPath(value, label) {
@@ -79,6 +97,11 @@ function validateSystemdPath(value, label) {
 
 export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtimeRoot, configPath, projectId, repoRoot, logsRoot } = {}) {
   const plan = buildSystemdStartPlan(runId, { runtimeRoot, configPath, projectId, repoRoot, logsRoot });
+  const version = runner(plan.versionArgv[0], plan.versionArgv.slice(1), { encoding: "utf8", windowsHide: true });
+  const versionMatch = /systemd\s+(\d+)/u.exec(String(version.stdout || ""));
+  if (version.error || version.status !== 0 || !versionMatch || Number(versionMatch[1]) < 235) {
+    return { ok: false, unitName: plan.unitName, state: "submission_failed", status: version.status, stderr: "systemd 235 or newer with final UnsetEnvironment support is required" };
+  }
   const reloaded = runner(plan.reloadArgv[0], plan.reloadArgv.slice(1), { encoding: "utf8", windowsHide: true });
   if (reloaded.error || reloaded.status !== 0) {
     return { ok: false, unitName: plan.unitName, state: "submission_failed", status: reloaded.status, stderr: "supervisor unit reload failed" };
@@ -93,6 +116,18 @@ export function startUserUnit(runId, { runner = spawnSync, waitMs = 5000, runtim
   const loadedArgv = execMatch ? execMatch[1].trim().split(/\s+/u) : [];
   if (inspectedExec.error || inspectedExec.status !== 0 || JSON.stringify(loadedArgv) !== JSON.stringify(plan.expectedExecArgv)) {
     return { ok: false, unitName: plan.unitName, state: "submission_failed", status: inspectedExec.status, stderr: "loaded supervisor unit identity mismatch" };
+  }
+  const inspectedEnvironment = runner(plan.inspectEnvironmentArgv[0], plan.inspectEnvironmentArgv.slice(1), { encoding: "utf8", windowsHide: true });
+  const environmentText = String(inspectedEnvironment.stdout || "");
+  const loadedEnvironmentNames = new Set(environmentText.split(/\s+/u).map((value) => value.replace(/^["']|["']$/gu, "")).filter(Boolean));
+  const requiredUnsetNames = plan.unitTemplate
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith("UnsetEnvironment="))
+    .flatMap((line) => line.slice("UnsetEnvironment=".length).split(/\s+/u).filter(Boolean));
+  for (const required of requiredUnsetNames) {
+    if (inspectedEnvironment.error || inspectedEnvironment.status !== 0 || !loadedEnvironmentNames.has(required)) {
+      return { ok: false, unitName: plan.unitName, state: "submission_failed", status: inspectedEnvironment.status, stderr: "loaded supervisor environment boundary mismatch" };
+    }
   }
   const start = runner(plan.startArgv[0], plan.startArgv.slice(1), { encoding: "utf8", windowsHide: true });
   if (start.error || start.status !== 0) {

@@ -63,7 +63,7 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["add", "."]);
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
-    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 93);
+    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 94);
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
     writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);

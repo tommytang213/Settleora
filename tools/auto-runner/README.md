@@ -149,6 +149,46 @@ inherit it. Rollback is a stopped-process atomic exchange of the retained
 sibling `.runtime.rollback` after verifying its manifest and expected digest;
 no automatic rollback or restart authority is granted.
 
+### Pre-Node systemd environment contract
+
+Every supported Node-launching repository unit enters through
+`systemd/settleora-node-exec-boundary`, never `/usr/bin/env node`. The helper is
+an explicit runtime-bundle artifact with reviewed bytes, executable mode, and
+manifest digest. Supervisor rendering binds its exact absolute path and the
+canonical Node executable. Settleora's fixed health/notifier templates support
+`/usr/bin/node`; another host must render and verify an equivalent canonical
+identity rather than relying on `PATH`.
+
+Supported activation requires systemd 235 or newer (the release that provides
+final `UnsetEnvironment=` processing), Node 22, a root-owned non-symlink Node
+binary that is not group/world writable, and an owner-controlled home
+directory. The unit removes documented Node startup/module/cache/coverage/
+debug/OpenSSL controls plus dynamic-loader, shell-startup, Git, SSH, and
+askpass controls before the helper begins. The helper then re-execs under an
+empty environment and supplies only:
+
+- supervisor/runner/children: `HOME`, `USER`, `LOGNAME`, fixed `PATH`,
+  `LANG`, `LC_ALL`, `TMPDIR`, and shell-maintained `PWD`;
+- health: the same non-secret base only; host, port, logs root, secret-file
+  path, and config are fixed reviewed argv/config inputs;
+- notifier: the same non-secret base only; config and owner-controlled
+  notifier credential-file paths are reviewed inputs.
+
+There is no service `EnvironmentFile=` compatibility path. Unknown, duplicate,
+malformed, executable, or oversized environment-file entries therefore cannot
+enter the process tree at all. Provider secrets are read only by the existing
+bounded owner-controlled credential-file readers when needed; they are not
+present in Node, Git, Codex, health, notifier, argv, unit readback, or reports.
+Unsupported systemd/Node identities and drifted unit/drop-in/readback evidence
+fail before activation. This contract does not claim protection from a
+malicious kernel, root administrator, replaced systemd, or replaced trusted
+system binaries.
+
+Repository source review, reviewed runtime-bundle deployment, unit
+installation/daemon reload, and service activation are separate trust
+boundaries. A repository merge performs and authorizes none of the latter
+three.
+
 ## Final ephemeral cleanup
 
 `ephemeral_cleanup_v1` requires positive ownership plus complete live merge,

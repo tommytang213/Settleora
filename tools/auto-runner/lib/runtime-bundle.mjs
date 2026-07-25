@@ -168,6 +168,7 @@ const includedFiles = [
   ...runtimeEntryPoints,
   "runtime-launcher.mjs",
   "systemd/settleora-auto-runner@.service",
+  "systemd/settleora-node-exec-boundary",
   "runner-config.example.json",
   "README.md",
 ];
