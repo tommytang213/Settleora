@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { userInfo } from "node:os";
 import path from "node:path";
 import { unitNameForRunId } from "./supervisor-state.mjs";
 import { validateRunId } from "./run-spec.mjs";
@@ -20,20 +21,23 @@ export function buildSystemdStartPlan(runId, {
   const safeRuntimeRoot = validateSystemdPath(runtimeRoot, "runtimeRoot");
   absoluteRuntimeEntry(safeRuntimeRoot, "supervisor/settleora-auto-runner-worker.mjs");
   const launcher = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.launcher.mjs`);
-  absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-node-exec-boundary");
-  const boundary = path.join(path.dirname(safeRuntimeRoot), `.${path.basename(safeRuntimeRoot)}.node-exec-boundary`);
   const nodeExecutable = validateNodeExecutable(process.execPath);
-  const homeDirectory = validateSystemdPath(process.env.HOME, "homeDirectory");
+  const account = userInfo();
+  const homeDirectory = validateSystemdPath(account.homedir, "homeDirectory");
+  const userName = validateSystemdValue(account.username, "userName");
+  const runtimeDirectory = `/run/user/${account.uid}`;
   const unitName = unitNameForRunId(runId, safeProjectId);
   const unitTemplate = renderUnitTemplate(
     readFileSync(absoluteRuntimeEntry(safeRuntimeRoot, "systemd/settleora-auto-runner@.service"), "utf8"),
-    { projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot, logsRoot: safeLogsRoot, launcher, boundary, nodeExecutable },
+    { projectId: safeProjectId, runtimeRoot: safeRuntimeRoot, repoRoot: safeRepoRoot, logsRoot: safeLogsRoot, launcher, nodeExecutable },
   );
   return {
     unitName,
     expectedExecArgv: [
-      boundary, "--mode", "supervisor", "--node", nodeExecutable, "--home", homeDirectory, "--",
-      launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
+      "/usr/bin/env", "-i", `HOME=${homeDirectory}`, `USER=${userName}`, `LOGNAME=${userName}`,
+      "PATH=/usr/local/bin:/usr/bin:/bin", "LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TMPDIR=/tmp",
+      `XDG_RUNTIME_DIR=${runtimeDirectory}`, `DBUS_SESSION_BUS_ADDRESS=unix:path=${runtimeDirectory}/bus`,
+      nodeExecutable, launcher, "--runtime-root", safeRuntimeRoot, "--entry", "supervisor/settleora-auto-runner-worker.mjs", "--",
       runId, "--logs-root", safeLogsRoot,
     ],
     unitTemplate,
@@ -63,7 +67,6 @@ function renderUnitTemplate(template, values) {
     REPO_ROOT: values.repoRoot,
     LOGS_ROOT: values.logsRoot,
     LAUNCHER: values.launcher,
-    BOUNDARY: values.boundary,
     NODE_EXECUTABLE: values.nodeExecutable,
   };
   for (const [key, value] of Object.entries(placeholders)) {
@@ -92,6 +95,13 @@ function validateSystemdPath(value, label) {
     || value.split("/").some((segment) => segment === "." || segment === "..")
   ) {
     throw new Error(`canonical shell-neutral supervisor ${label} is required`);
+  }
+  return value;
+}
+
+function validateSystemdValue(value, label) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_.-]+$/u.test(value)) {
+    throw new Error(`${label} is invalid`);
   }
   return value;
 }

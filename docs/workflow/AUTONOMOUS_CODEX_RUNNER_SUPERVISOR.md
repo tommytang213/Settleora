@@ -161,9 +161,8 @@ project-specific identity. #912 completed this for Settleora using:
 
 The controller renders and verifies the installed unit byte-for-byte before
 submission. The rendered unit uses `Type=exec`, `WorkingDirectory` bound to the
-verified external runtime, a manifest-covered pre-Node boundary helper, the
-authenticated stable sibling boundary and launcher, and Node worker entry
-point, project-specific unit
+verified external runtime, root-owned `/usr/bin/env -i` as the pre-Node boundary, the
+absolute sibling launcher and Node worker entry point, project-specific unit
 identity, validated `%i` run IDs, `UMask=0077`, `Restart=no`, bounded graceful
 stop behavior, `SendSIGKILL=no`, journal output, and dedicated worker log
 files. It does not use `EnvironmentFile=`. Another project uses its own lower-cased
@@ -173,23 +172,14 @@ files do not imply a shared unit or mutation authority.
 
 The supported activation contract is systemd 235 or newer and a canonical,
 root-owned, non-group/world-writable absolute Node executable in the reviewed
-major-22 range. `UnsetEnvironment=` removes Node, dynamic-loader, shell-startup,
-Git, SSH, and askpass execution controls as systemd's final environment step
-before the helper starts. The deployment copies the manifest-covered helper to
-the approval-digest-bound stable sibling `.runtime.node-exec-boundary`; runtime
-directory rollback preserves that boundary just as it restores the separately
-authenticated stable launcher. The helper immediately re-execs itself through
-`/usr/bin/env -i`, validates its mode, home, and Node identities, constructs
-only `HOME`, `USER`, `LOGNAME`, a fixed `PATH`, `LANG`, `LC_ALL`, `TMPDIR`, and
-the shell-maintained `PWD`, verifies `node --version`, and then execs the stable
-launcher. Unknown ambient names are omitted. Hosts without these capabilities
-or identities refuse supervisor submission; there is no compatibility
-downgrade. The fixed health and notifier files remain repository templates,
-not independently supported activation artifacts, until a separate reviewed
-installer verifies the systemd version, exact installed bytes, absence of
-drop-ins, effective `ExecStart=` and `UnsetEnvironment=`, and the canonical
-helper and Node identities before start. Repository template tests are not
-accepted as installed-unit evidence.
+major-22 range. The unit invokes `/usr/bin/env -i` before Node and constructs
+only `HOME`, `USER`, `LOGNAME`, a fixed `PATH`, `LANG`, `LC_ALL`, `TMPDIR`,
+systemd-derived `XDG_RUNTIME_DIR`, the matching fixed user-bus
+`DBUS_SESSION_BUS_ADDRESS`. `UnsetEnvironment=`
+also removes Node, dynamic-loader, shell-startup, Git, SSH, and askpass
+execution controls as defense in depth. Unknown ambient names are omitted.
+Hosts without these capabilities or identities refuse submission; there is no
+compatibility downgrade.
 
 Secrets are not service environment. Gemini credentials continue through the
 existing owner-controlled reviewer credential file selected by the reviewed
@@ -199,6 +189,11 @@ receive no mutation/provider secret. Repository merge, runtime bundle
 deployment, unit installation/daemon reload, and service start/restart remain
 four distinct operator decisions; this repository contract performs none of
 the latter three.
+
+If the runtime is manually rolled back to a generation whose controller
+predates this contract, its byte-for-byte installed-unit check refuses nested
+submission. Restore a boundary-aware runtime before submitting another unit;
+do not reinstall the legacy `/usr/bin/env node` unit.
 
 No instance is enabled by the template. Failed, killed, crashed, timed-out, or
 reboot-interrupted mutation runs recover only through durable runner state and

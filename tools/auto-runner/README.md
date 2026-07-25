@@ -151,27 +151,25 @@ no automatic rollback or restart authority is granted.
 
 ### Pre-Node systemd environment contract
 
-Every supported Node-launching repository unit enters through
-`systemd/settleora-node-exec-boundary`, never `/usr/bin/env node`. The helper is
-an explicit runtime-bundle artifact with reviewed bytes, executable mode, and
-manifest digest. Deployment installs those authenticated bytes as the stable
-sibling `.runtime.node-exec-boundary`, records its digest in the runtime
-approval, and preserves it across versioned runtime-directory rollback.
-Supervisor rendering binds that exact absolute path and the
-canonical Node executable. Settleora's fixed health/notifier templates support
-`/usr/bin/node`; another host must render and verify an equivalent canonical
-identity rather than relying on `PATH`.
+Every supported Node-launching repository unit starts with the root-owned
+system `/usr/bin/env -i` and passes the canonical absolute Node executable as
+its first command; it never uses `/usr/bin/env node` or a runtime-owned
+pre-Node helper. Supervisor rendering binds and read-backs the exact argv.
+Settleora's fixed health/notifier templates support `/usr/bin/node`; another
+host must render and verify an equivalent canonical identity rather than
+relying on `PATH`.
 
 Supported activation requires systemd 235 or newer (the release that provides
 final `UnsetEnvironment=` processing), Node 22, a root-owned non-symlink Node
 binary that is not group/world writable, and an owner-controlled home
-directory. The unit removes documented Node startup/module/cache/coverage/
-debug/OpenSSL controls plus dynamic-loader, shell-startup, Git, SSH, and
-askpass controls before the helper begins. The helper then re-execs under an
-empty environment and supplies only:
+directory. `/usr/bin/env -i` constructs the child environment from nothing;
+`UnsetEnvironment=` additionally removes documented Node startup/module/cache/
+coverage/debug/OpenSSL controls plus dynamic-loader, shell-startup, Git, SSH,
+and askpass controls as defense in depth. The unit supplies only:
 
 - supervisor/runner/children: `HOME`, `USER`, `LOGNAME`, fixed `PATH`,
-  `LANG`, `LC_ALL`, `TMPDIR`, and shell-maintained `PWD`;
+  `LANG`, `LC_ALL`, `TMPDIR`, systemd-derived `XDG_RUNTIME_DIR`, the matching
+  fixed user-bus `DBUS_SESSION_BUS_ADDRESS`;
 - health: the same non-secret base only; host, port, logs root, secret-file
   path, and config are fixed reviewed argv/config inputs;
 - notifier: the same non-secret base only; config and owner-controlled
@@ -183,13 +181,7 @@ enter the process tree at all. Provider secrets are read only by the existing
 bounded owner-controlled credential-file readers when needed; they are not
 present in Node, Git, Codex, health, notifier, argv, unit readback, or reports.
 Unsupported systemd/Node identities and drifted unit/drop-in/readback evidence
-fail before supervisor activation. The fixed health and notifier files are
-repository templates, not self-authorizing activation artifacts: they remain
-unsupported for a later install/start until a separately reviewed installer
-performs the same version, exact installed-byte, no-drop-in, effective
-`ExecStart=`, effective `UnsetEnvironment=`, helper, and Node identity
-readbacks. Template parsing alone is not activation evidence. This contract
-does not claim protection from a
+fail before activation. This contract does not claim protection from a
 malicious kernel, root administrator, replaced systemd, or replaced trusted
 system binaries.
 
@@ -197,6 +189,11 @@ Repository source review, reviewed runtime-bundle deployment, unit
 installation/daemon reload, and service activation are separate trust
 boundaries. A repository merge performs and authorizes none of the latter
 three.
+
+A rollback to a runtime generation whose controller predates this unit
+contract cannot submit another unit: byte-for-byte readback fails closed.
+Restore a boundary-aware runtime before further submissions; never reinstall
+the legacy `/usr/bin/env node` unit as a compatibility downgrade.
 
 ## Final ephemeral cleanup
 

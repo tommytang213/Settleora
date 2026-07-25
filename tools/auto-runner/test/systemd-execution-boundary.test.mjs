@@ -5,8 +5,18 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const boundary = path.resolve("tools/auto-runner/systemd/settleora-node-exec-boundary");
-const node = "/usr/bin/node";
+const cleanEnvironment = (home) => [
+  "-i",
+  `HOME=${home}`,
+  "USER=fixture",
+  "LOGNAME=fixture",
+  "PATH=/usr/local/bin:/usr/bin:/bin",
+  "LANG=C.UTF-8",
+  "LC_ALL=C.UTF-8",
+  "TMPDIR=/tmp",
+  "XDG_RUNTIME_DIR=/run/user/1234",
+  "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1234/bus",
+];
 
 test("pre-Node boundary defeats import, require, loader, NODE_PATH, and startup-control injection", () => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-node-boundary-"));
@@ -35,31 +45,22 @@ test("pre-Node boundary defeats import, require, loader, NODE_PATH, and startup-
     ];
     for (const [label, hostile] of hostileCases) {
       rmSync(marker, { force: true });
-      const result = spawnSync(boundary, ["--mode", "supervisor", "--node", node, "--home", root, "--", probe], {
+      const result = spawnSync("/usr/bin/env", [...cleanEnvironment(root), process.execPath, probe], {
         encoding: "utf8",
         env: {
           ...process.env,
           ...hostile,
-          SETTLEORA_BOUNDARY_CLEAN: "1",
-          GIT_EXEC_PATH: "/tmp/hostile-git-exec",
-          GIT_ASKPASS: "/tmp/hostile-git-askpass",
-          SSH_ASKPASS: "/tmp/hostile-ssh-askpass",
-          BASH_ENV: preload,
+          GEMINI_API_KEY: "must-not-propagate",
           UNAPPROVED_UNKNOWN: "must-not-propagate",
         },
       });
       assert.equal(result.status, 0, `${label}: ${result.stderr}`);
       assert.equal(readFileIfExists(marker), null, label);
       const observed = JSON.parse(result.stdout);
-      assert.deepEqual(Object.keys(observed).sort(), ["HOME", "LANG", "LC_ALL", "LOGNAME", "PATH", "PWD", "TMPDIR", "USER"].sort(), label);
+      assert.deepEqual(Object.keys(observed).sort(), ["DBUS_SESSION_BUS_ADDRESS", "HOME", "LANG", "LC_ALL", "LOGNAME", "PATH", "TMPDIR", "USER", "XDG_RUNTIME_DIR"].sort(), label);
       assert.equal(observed.HOME, root, label);
       assert.equal(observed.NODE_OPTIONS, undefined, label);
       assert.equal(observed.GEMINI_API_KEY, undefined, label);
-      assert.equal(observed.SETTLEORA_BOUNDARY_CLEAN, undefined, label);
-      assert.equal(observed.GIT_EXEC_PATH, undefined, label);
-      assert.equal(observed.GIT_ASKPASS, undefined, label);
-      assert.equal(observed.SSH_ASKPASS, undefined, label);
-      assert.equal(observed.BASH_ENV, undefined, label);
       assert.equal(observed.UNAPPROVED_UNKNOWN, undefined, label);
     }
   } finally {
@@ -67,17 +68,22 @@ test("pre-Node boundary defeats import, require, loader, NODE_PATH, and startup-
   }
 });
 
-test("boundary rejects unsupported modes and non-approved interpreter identities before application code", () => {
+test("systemd-native boundary selects Node absolutely and retains only the bounded user-bus coordinates", () => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-node-boundary-reject-"));
   chmodSync(root, 0o700);
   try {
-    const unsupported = spawnSync(boundary, ["--mode", "provider", "--node", node, "--home", root, "--", "--version"], { encoding: "utf8" });
-    assert.equal(unsupported.status, 126);
-    assert.match(unsupported.stderr, /unsupported process mode/);
-
-    const wrongInterpreter = spawnSync(boundary, ["--mode", "health", "--node", "/bin/sh", "--home", root, "--", "-c", "exit 0"], { encoding: "utf8" });
-    assert.equal(wrongInterpreter.status, 126);
-    assert.match(wrongInterpreter.stderr, /Node 22 is required|Node executable path is not canonical/);
+    const probe = path.join(root, "probe.mjs");
+    writeFileSync(probe, "process.stdout.write(JSON.stringify({execPath:process.execPath, env:process.env}));\n");
+    const result = spawnSync("/usr/bin/env", [...cleanEnvironment(root), process.execPath, probe], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: root, NODE_OPTIONS: "--inspect", DBUS_SESSION_BUS_ADDRESS: "hostile" },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const observed = JSON.parse(result.stdout);
+    assert.equal(observed.execPath, process.execPath);
+    assert.equal(observed.env.XDG_RUNTIME_DIR, "/run/user/1234");
+    assert.equal(observed.env.DBUS_SESSION_BUS_ADDRESS, "unix:path=/run/user/1234/bus");
+    assert.equal(observed.env.NODE_OPTIONS, undefined);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

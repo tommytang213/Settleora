@@ -1014,7 +1014,7 @@ test("systemd template is fixed, no restart, no enablement, and no embedded secr
   const text = readFileSync("tools/auto-runner/systemd/settleora-auto-runner@.service", "utf8");
   assert.match(text, /Type=exec/);
   assert.match(text, /WorkingDirectory=\{\{RUNTIME_ROOT\}\}/);
-  assert.match(text, /ExecStart=\{\{BOUNDARY\}\} --mode supervisor --node \{\{NODE_EXECUTABLE\}\} --home %h -- \{\{LAUNCHER\}\}/);
+  assert.match(text, /ExecStart=\/usr\/bin\/env -i HOME=%h USER=%u LOGNAME=%u .*XDG_RUNTIME_DIR=%t DBUS_SESSION_BUS_ADDRESS=unix:path=%t\/bus \{\{NODE_EXECUTABLE\}\} \{\{LAUNCHER\}\}/);
   assert.match(text, /UnsetEnvironment=.*NODE_OPTIONS.*NODE_PATH.*NODE_V8_COVERAGE/);
   assert.match(text, /UnsetEnvironment=.*LD_PRELOAD.*BASH_ENV/);
   assert.match(text, /UnsetEnvironment=.*GIT_CONFIG_GLOBAL.*GIT_SSH_COMMAND/);

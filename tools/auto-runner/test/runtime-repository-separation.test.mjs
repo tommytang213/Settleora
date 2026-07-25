@@ -63,7 +63,7 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["add", "."]);
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
-    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 94);
+    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 93);
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
     writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);
@@ -671,59 +671,6 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
     assert.ok(upgraded.rollback);
   } finally {
     rmSync(root, { recursive: true });
-  }
-});
-
-test("deployment and rollback preserve verified version-one bundles without the boundary helper", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-v1-upgrade-"));
-  try {
-    const repo = createRepo(root, "project");
-    const logs = path.join(root, "logs");
-    const parent = path.join(root, "installed");
-    const destination = path.join(parent, "runtime");
-    mkdirSync(logs, { mode: 0o700 });
-    mkdirSync(parent, { mode: 0o700 });
-    cpSync(sourceRoot, destination, { recursive: true });
-    rmSync(path.join(destination, "systemd", "settleora-node-exec-boundary"));
-    const legacy = buildRuntimeManifest(destination, {
-      sourceSha: "a".repeat(40),
-      generatedAt: "2026-07-24T00:00:00.000Z",
-      version: 1,
-    });
-    writeFileSync(path.join(destination, "runtime-bundle-manifest.json"), `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
-    assert.equal(verifyRuntimeBundle(destination, legacy.bundleDigest).version, 1);
-
-    const upgraded = deployRuntimeBundle({
-      sourceRoot,
-      destination,
-      repoRoot: repo,
-      logsRoot: logs,
-      sourceSha,
-      expectedOldDigest: legacy.bundleDigest,
-    });
-    assert.equal(upgraded.manifest.version, 2);
-    const stableBoundary = path.join(parent, ".runtime.node-exec-boundary");
-    const stableBoundaryDigest = createHash("sha256").update(readFileSync(stableBoundary)).digest("hex");
-    assert.equal(statSync(stableBoundary).mode & 0o777, 0o500);
-    assert.equal(verifyRuntimeBundle(path.join(parent, ".runtime.rollback"), legacy.bundleDigest).version, 1);
-
-    const rolledBack = rollbackRuntimeBundle({
-      destination,
-      expectedCurrentDigest: upgraded.manifest.bundleDigest,
-      expectedRollbackDigest: legacy.bundleDigest,
-    });
-    assert.equal(rolledBack.manifest.version, 1);
-    assert.equal(verifyRuntimeBundle(destination, legacy.bundleDigest).version, 1);
-    assert.equal(createHash("sha256").update(readFileSync(stableBoundary)).digest("hex"), stableBoundaryDigest);
-    const approval = JSON.parse(readFileSync(path.join(parent, ".runtime.approved.json"), "utf8"));
-    assert.equal(approval.nodeBoundarySha256, stableBoundaryDigest);
-    const postRollbackLaunch = spawnSync(stableBoundary, [
-      "--mode", "supervisor", "--node", process.execPath, "--home", root, "--", "--version",
-    ], { encoding: "utf8" });
-    assert.equal(postRollbackLaunch.status, 0, postRollbackLaunch.stderr);
-    assert.match(postRollbackLaunch.stdout, /^v22\./u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
   }
 });
 

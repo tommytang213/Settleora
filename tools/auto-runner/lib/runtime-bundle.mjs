@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { assertSeparatedRoots, canonicalExistingDirectory, isContained } from "./runtime-identity.mjs";
 
 export const runtimeBundleFormat = "settleora-auto-runner-runtime";
-export const runtimeBundleVersion = 2;
+export const runtimeBundleVersion = 1;
 export const runtimeManifestName = "runtime-bundle-manifest.json";
 export const runtimeEntryPoints = Object.freeze([
   "settleora-auto-runner.mjs",
@@ -164,14 +164,13 @@ export function inspectRuntimeConsumers(destination, { procRoot = "/proc", selfP
 }
 
 const includedRoots = ["lib", "supervisor"];
-const legacyIncludedFiles = [
+const includedFiles = [
   ...runtimeEntryPoints,
   "runtime-launcher.mjs",
   "systemd/settleora-auto-runner@.service",
   "runner-config.example.json",
   "README.md",
 ];
-const includedFiles = [...legacyIncludedFiles, "systemd/settleora-node-exec-boundary"];
 
 function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -189,14 +188,8 @@ function walk(root, relative) {
 }
 
 export function runtimeBundleFileList(sourceRoot) {
-  return runtimeBundleFileListForVersion(sourceRoot, runtimeBundleVersion);
-}
-
-function runtimeBundleFileListForVersion(sourceRoot, version) {
   canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
-  const fixedFiles = version === 1 ? legacyIncludedFiles : version === runtimeBundleVersion ? includedFiles : null;
-  if (!fixedFiles) throw new Error("runtime bundle version is unsupported");
-  const files = [...fixedFiles, ...includedRoots.flatMap((root) => walk(sourceRoot, root))]
+  const files = [...includedFiles, ...includedRoots.flatMap((root) => walk(sourceRoot, root))]
     .map((entry) => entry.split(path.sep).join("/"))
     .filter((entry, index, all) => all.indexOf(entry) === index)
     .sort();
@@ -249,9 +242,9 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   return { sourceSha, fileCount: commitFiles.length };
 }
 
-export function buildRuntimeManifest(sourceRoot, { sourceSha, generatedAt = new Date().toISOString(), version = runtimeBundleVersion } = {}) {
+export function buildRuntimeManifest(sourceRoot, { sourceSha, generatedAt = new Date().toISOString() } = {}) {
   if (!/^[a-f0-9]{40}$/.test(String(sourceSha || ""))) throw new Error("approved source SHA is required");
-  const files = runtimeBundleFileListForVersion(sourceRoot, version).map((relativePath) => {
+  const files = runtimeBundleFileList(sourceRoot).map((relativePath) => {
     const absolute = path.join(sourceRoot, relativePath);
     const mode = (statSync(absolute).mode & 0o111) !== 0 ? 0o500 : 0o400;
     return {
@@ -260,7 +253,7 @@ export function buildRuntimeManifest(sourceRoot, { sourceSha, generatedAt = new 
       mode,
     };
   });
-  const identity = { format: runtimeBundleFormat, version, sourceSha, files, entryPoints: runtimeEntryPoints, node: ">=22 <23" };
+  const identity = { format: runtimeBundleFormat, version: runtimeBundleVersion, sourceSha, files, entryPoints: runtimeEntryPoints, node: ">=22 <23" };
   return {
     ...identity,
     fileListDigest: createHash("sha256").update(canonicalJson(files.map((file) => file.path))).digest("hex"),
@@ -274,10 +267,7 @@ export function verifyRuntimeBundle(runtimeRoot, expectedDigest = null) {
   const manifestPath = path.join(runtimeRoot, runtimeManifestName);
   if (!existsSync(manifestPath) || lstatSync(manifestPath).isSymbolicLink()) throw new Error("runtime manifest missing or unsafe");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  if (manifest.format !== runtimeBundleFormat || ![1, runtimeBundleVersion].includes(manifest.version)) {
-    throw new Error("runtime manifest version is unsupported");
-  }
-  const rebuilt = buildRuntimeManifest(runtimeRoot, { sourceSha: manifest.sourceSha, generatedAt: manifest.generatedAt, version: manifest.version });
+  const rebuilt = buildRuntimeManifest(runtimeRoot, { sourceSha: manifest.sourceSha, generatedAt: manifest.generatedAt });
   if (canonicalJson(manifest) !== canonicalJson(rebuilt)) throw new Error("runtime bundle manifest or file digest drift");
   if (expectedDigest && rebuilt.bundleDigest !== expectedDigest) throw new Error("runtime bundle digest mismatch");
   return Object.freeze(rebuilt);
@@ -314,13 +304,11 @@ export function deployRuntimeBundle({
     const current = verifyRuntimeBundle(destination);
     currentManifest = current;
     if (current.bundleDigest === manifest.bundleDigest && !expectedOldDigest) {
-      installStableBoundary(destination, current);
       writeRuntimeApproval(destination, current);
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback: null, manifest: current };
     }
     if (current.bundleDigest === manifest.bundleDigest && expectedOldDigest && existsSync(rollback)) {
       verifyRuntimeBundle(rollback, expectedOldDigest);
-      installStableBoundary(destination, current);
       writeRuntimeApproval(destination, current);
       if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest: current };
@@ -330,7 +318,6 @@ export function deployRuntimeBundle({
     verifyRuntimeBundle(rollback, expectedOldDigest);
     verifyRuntimeBundle(temporary, manifest.bundleDigest);
     renameSync(temporary, destination);
-    installStableBoundary(destination, manifest);
     writeRuntimeApproval(destination, manifest);
     if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
     return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest };
@@ -357,12 +344,6 @@ export function deployRuntimeBundle({
   if (buildRuntimeManifest(source, { sourceSha }).bundleDigest !== manifest.bundleDigest) {
     throw new Error("runtime source changed during deployment");
   }
-  installStableBoundary(temporary, manifest, {
-    allowReplace: true,
-    currentRoot: existsSync(destination) ? destination : null,
-    currentManifest,
-    expectedOldDigest,
-  });
   const launcher = path.join(destinationParent, `.${path.basename(destination)}.launcher.mjs`);
   const stagedLauncher = path.join(temporary, "runtime-launcher.mjs");
   const incomingLauncher = path.join(destinationParent, `.${path.basename(destination)}.launcher.incoming`);
@@ -420,75 +401,21 @@ function writeRuntimeApproval(destination, manifest) {
   const parent = path.dirname(destination);
   const base = path.basename(destination);
   const launcher = path.join(parent, `.${base}.launcher.mjs`);
-  const boundary = path.join(parent, `.${base}.node-exec-boundary`);
   const approval = path.join(parent, `.${base}.approved.json`);
   const temporary = path.join(parent, `.${base}.approved.incoming`);
   const launcherInfo = lstatSync(launcher);
   if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0) {
     throw new Error("stable runtime launcher is unsafe");
   }
-  const boundarySha256 = existsSync(boundary) ? trustedStableBoundaryDigest(boundary) : null;
-  if (manifest.version >= 2 && boundarySha256 === null) throw new Error("stable Node execution boundary is missing");
   if (existsSync(temporary)) rmSync(temporary);
   writeFileSync(temporary, `${JSON.stringify({
-    version: boundarySha256 === null ? 1 : 2,
+    version: 1,
     sourceSha: manifest.sourceSha,
     bundleDigest: manifest.bundleDigest,
     launcherSha256: createHash("sha256").update(readFileSync(launcher)).digest("hex"),
-    ...(boundarySha256 === null ? {} : { nodeBoundarySha256: boundarySha256 }),
   })}\n`, { mode: 0o600 });
   chmodSync(temporary, 0o400);
   renameSync(temporary, approval);
-}
-
-function installStableBoundary(bundleRoot, manifest, {
-  allowReplace = false,
-  currentRoot = null,
-  currentManifest = null,
-  expectedOldDigest = null,
-} = {}) {
-  if (manifest.version < 2) return null;
-  const parent = path.dirname(bundleRoot);
-  const base = path.basename(bundleRoot).replace(/^\./u, "").replace(/\.deploy-incoming$/u, "");
-  const boundary = path.join(parent, `.${base}.node-exec-boundary`);
-  const incoming = path.join(parent, `.${base}.node-exec-boundary.incoming`);
-  const bundled = path.join(bundleRoot, "systemd", "settleora-node-exec-boundary");
-  const desiredDigest = createHash("sha256").update(readFileSync(bundled)).digest("hex");
-  if (existsSync(boundary)) {
-    const installedDigest = trustedStableBoundaryDigest(boundary);
-    if (installedDigest === desiredDigest) return boundary;
-    if (!allowReplace || !currentManifest || currentManifest.bundleDigest !== expectedOldDigest) {
-      throw new Error("stable Node execution boundary does not match the approved bundle");
-    }
-    let authenticatedDigest = null;
-    if (currentManifest.version >= 2 && currentRoot) {
-      authenticatedDigest = createHash("sha256")
-        .update(readFileSync(path.join(currentRoot, "systemd", "settleora-node-exec-boundary")))
-        .digest("hex");
-    } else if (currentRoot) {
-      const approvalPath = path.join(path.dirname(currentRoot), `.${path.basename(currentRoot)}.approved.json`);
-      if (existsSync(approvalPath)) {
-        authenticatedDigest = JSON.parse(readFileSync(approvalPath, "utf8")).nodeBoundarySha256 || null;
-      }
-    }
-    if (installedDigest !== authenticatedDigest) throw new Error("stable Node execution boundary is unauthenticated");
-  }
-  if (existsSync(incoming)) rmSync(incoming);
-  cpSync(bundled, incoming, { dereference: false });
-  chmodSync(incoming, 0o500);
-  renameSync(incoming, boundary);
-  if (trustedStableBoundaryDigest(boundary) !== desiredDigest) {
-    throw new Error("stable Node execution boundary installation mismatch");
-  }
-  return boundary;
-}
-
-function trustedStableBoundaryDigest(boundary) {
-  const info = lstatSync(boundary);
-  if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-    throw new Error("stable Node execution boundary is unsafe");
-  }
-  return createHash("sha256").update(readFileSync(boundary)).digest("hex");
 }
 
 function restoreStableLauncherFromInstalledBundle(destination) {
