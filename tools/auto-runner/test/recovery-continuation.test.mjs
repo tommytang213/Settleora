@@ -285,9 +285,18 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       PATH: "/usr/bin:/bin",
       GIT_NO_REPLACE_OBJECTS: "1",
     };
-    assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, recoveryEnvironment), true);
+    assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment), true);
+    git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/foreign/repo.git"]);
+    git(config.repoRoot, ["remote", "set-url", "--push", "origin", "https://github.com/foreign/repo.git"]);
+    assert.equal(
+      resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment),
+      false,
+      "jointly redirected fetch and effective push authority must not satisfy the expected repository",
+    );
+    git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/owner/repo.git"]);
+    git(config.repoRoot, ["config", "--unset-all", "remote.origin.pushurl"]);
     git(config.repoRoot, ["config", "--local", "core.hooksPath", path.join(config.repoRoot, "hostile-hooks")]);
-    assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, recoveryEnvironment), false);
+    assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment), false);
     git(config.repoRoot, ["config", "--local", "--unset-all", "core.hooksPath"]);
     for (const file of files) {
       mkdirSync(path.dirname(path.join(config.repoRoot, file)), { recursive: true });

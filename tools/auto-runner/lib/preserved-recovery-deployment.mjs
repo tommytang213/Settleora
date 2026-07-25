@@ -532,9 +532,11 @@ export function resumedGitEnvironmentIsTrusted(environment) {
           && resolvePathExecutable(environment.PATH, "cat") === realpathSync("/usr/bin/cat"))));
 }
 
-export function resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, environment) {
+export function resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, expectedRepository, environment) {
   try {
     if (!resumedGitEnvironmentIsTrusted(environment)) return false;
+    const canonicalExpectedRepository = String(expectedRepository || "").toLowerCase();
+    if (!repositoryPattern.test(String(expectedRepository || ""))) return false;
     const root = path.resolve(repositoryRoot || "");
     const info = lstatSync(root);
     if (!info.isDirectory() || info.isSymbolicLink()
@@ -556,8 +558,8 @@ export function resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, environme
       && !localTransportAuthority && !worktreeTransportAuthority
       && !defaultGitHooksAreExecutable(root, readGit)
       && validateResumedGitAuthority(root, { headSha }, environment, readGit)
-      && canonicalGitHubRepository(fetchUrls[0]) !== null
-      && canonicalGitHubRepository(effectivePushUrl) === canonicalGitHubRepository(fetchUrls[0]);
+      && canonicalGitHubRepository(fetchUrls[0]) === canonicalExpectedRepository
+      && canonicalGitHubRepository(effectivePushUrl) === canonicalExpectedRepository;
   } catch {
     return false;
   }

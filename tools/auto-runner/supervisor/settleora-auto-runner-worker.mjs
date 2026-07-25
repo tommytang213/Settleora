@@ -39,6 +39,7 @@ export async function runSupervisorWorker(
     resolveSummary = resolveRunnerSummaryForSupervisor,
     runtimeRoot = moduleRuntimeRoot(),
     projectId = "Settleora",
+    repositorySlug = "tommytang213/Settleora",
     runnerEnvironment = process.env,
   } = {},
 ) {
@@ -49,7 +50,7 @@ export async function runSupervisorWorker(
   }
   const previous = readSupervisorState(runId, logsRoot).state;
   const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, logsRoot);
-  if (!resumedGitRepositoryAuthorityIsTrusted(repoRoot, recoveryEnvironment)) {
+  if (!resumedGitRepositoryAuthorityIsTrusted(repoRoot, repositorySlug, recoveryEnvironment)) {
     throw new Error("supervisor worker Git repository authority is not trusted");
   }
   const currentMain = getRefSha("origin/main", { cwd: repoRoot, env: recoveryEnvironment });
@@ -206,6 +207,7 @@ export async function main() {
     repoRoot: config.repoRoot,
     runtimeRoot: config.runtimeRoot,
     projectId: config.projectId,
+    repositorySlug: config.repositorySlug,
   });
     process.exitCode = result.exitCode;
   } catch (error) {
