@@ -436,6 +436,10 @@ function isGitTransportAuthorityKey(key) {
     || normalized === "core.hookspath"
     || normalized === "core.fsmonitor"
     || normalized === "core.attributesfile"
+    || normalized.startsWith("gpg.")
+    || normalized === "user.signingkey"
+    || normalized === "commit.gpgsign"
+    || normalized === "tag.gpgsign"
     || normalized.startsWith("filter.")
     || normalized === "diff.external"
     || (normalized.startsWith("diff.")
@@ -558,11 +562,17 @@ export function resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, expectedR
       && !localTransportAuthority && !worktreeTransportAuthority
       && !defaultGitHooksAreExecutable(root, readGit)
       && validateResumedGitAuthority(root, { headSha }, environment, readGit)
-      && canonicalGitHubRepository(fetchUrls[0]) === canonicalExpectedRepository
-      && canonicalGitHubRepository(effectivePushUrl) === canonicalExpectedRepository;
+      && resumedGitRemotesMatchExpected(fetchUrls[0], effectivePushUrl, canonicalExpectedRepository);
   } catch {
     return false;
   }
+}
+
+export function resumedGitRemotesMatchExpected(fetchUrl, effectivePushUrl, expectedRepository) {
+  const canonicalExpectedRepository = String(expectedRepository || "").toLowerCase();
+  return repositoryPattern.test(String(expectedRepository || ""))
+    && canonicalGitHubRepository(fetchUrl) === canonicalExpectedRepository
+    && canonicalGitHubRepository(effectivePushUrl) === canonicalExpectedRepository;
 }
 
 function resolvePathExecutable(searchPath, name) {

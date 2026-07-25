@@ -14,6 +14,7 @@ import {
   normalizePreservedRecoveryDeploymentTarget,
   resumedGitConfigIsTrusted,
   resumedGitEnvironmentIsTrusted,
+  resumedGitRemotesMatchExpected,
   resumedGitRepositoryAuthorityIsTrusted,
   sanitizedDeploymentGitEnvironment,
 } from "../lib/preserved-recovery-deployment.mjs";
@@ -285,7 +286,22 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       PATH: "/usr/bin:/bin",
       GIT_NO_REPLACE_OBJECTS: "1",
     };
-    assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment), true);
+    assert.equal(
+      resumedGitRemotesMatchExpected(
+        "https://github.com/owner/repo.git",
+        "https://github.com/owner/repo.git",
+        config.repositorySlug,
+      ),
+      true,
+    );
+    assert.equal(
+      resumedGitRemotesMatchExpected(
+        "https://github.com/foreign/repo.git",
+        "https://github.com/foreign/repo.git",
+        config.repositorySlug,
+      ),
+      false,
+    );
     git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/foreign/repo.git"]);
     git(config.repoRoot, ["remote", "set-url", "--push", "origin", "https://github.com/foreign/repo.git"]);
     assert.equal(
@@ -298,6 +314,15 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["config", "--local", "core.hooksPath", path.join(config.repoRoot, "hostile-hooks")]);
     assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment), false);
     git(config.repoRoot, ["config", "--local", "--unset-all", "core.hooksPath"]);
+    git(config.repoRoot, ["config", "--local", "commit.gpgSign", "true"]);
+    git(config.repoRoot, ["config", "--local", "gpg.program", path.join(config.repoRoot, "hostile-gpg")]);
+    assert.equal(
+      resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment),
+      false,
+      "signing programs and automatic signing authority must fail closed",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "commit.gpgSign"]);
+    git(config.repoRoot, ["config", "--local", "--unset-all", "gpg.program"]);
     for (const file of files) {
       mkdirSync(path.dirname(path.join(config.repoRoot, file)), { recursive: true });
       writeFileSync(path.join(config.repoRoot, file), "first\n");
