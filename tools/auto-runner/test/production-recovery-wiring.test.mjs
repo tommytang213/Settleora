@@ -100,6 +100,8 @@ test("stable-launched supervisor main persists startup failures before rethrow",
   assert.match(worker, /const recoveryEnvironment = \{ \.\.\.runnerEnvironment, GIT_NO_REPLACE_OBJECTS: "1" \}/);
   assert.match(worker, /if \(!resumedGitEnvironmentIsTrusted\(recoveryEnvironment\)\)/);
   assert.match(worker, /if \(!resumedGitRepositoryAuthorityIsTrusted\(repoRoot, repositorySlug, recoveryEnvironment\)\)/);
+  assert.match(worker, /export async function main\(\) \{[\s\S]*const recoveryEnvironment = \{ \.\.\.process\.env, GIT_NO_REPLACE_OBJECTS: "1" \};[\s\S]*resumedGitEnvironmentIsTrusted\(recoveryEnvironment\)[\s\S]*process\.env\.GIT_NO_REPLACE_OBJECTS = recoveryEnvironment\.GIT_NO_REPLACE_OBJECTS;[\s\S]*resumedGitRepositoryAuthorityIsTrusted\([\s\S]*"\/workspace\/repos\/Settleora",[\s\S]*"tommytang213\/Settleora",[\s\S]*recoveryEnvironment,[\s\S]*\)[\s\S]*loadConfig\(/);
+  assert.equal((worker.match(/env: recoveryEnvironment,/g) || []).length, 2);
   assert.match(worker, /getRefSha\("origin\/main", \{ cwd: repoRoot, env: recoveryEnvironment \}\)/);
   assert.match(worker, /env: recoveryEnvironment/);
   const exportedMain = worker.slice(worker.indexOf("export async function main()"), worker.indexOf("function waitForChild"));

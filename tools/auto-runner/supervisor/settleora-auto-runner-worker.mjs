@@ -108,6 +108,7 @@ export async function runSupervisorWorker(
     ], {
       cwd: runtimeRoot,
       encoding: "utf8",
+      env: recoveryEnvironment,
     });
   };
   process.once("SIGTERM", requestStopAfterCurrent);
@@ -184,6 +185,18 @@ export async function runSupervisorWorker(
 export async function main() {
   const runtimeConsumer = acquireRuntimeConsumer(moduleRuntimeRoot());
   try {
+  const recoveryEnvironment = { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" };
+  if (!resumedGitEnvironmentIsTrusted(recoveryEnvironment)) {
+    throw new Error("supervisor worker startup Git environment is not trusted");
+  }
+  process.env.GIT_NO_REPLACE_OBJECTS = recoveryEnvironment.GIT_NO_REPLACE_OBJECTS;
+  if (!resumedGitRepositoryAuthorityIsTrusted(
+    "/workspace/repos/Settleora",
+    "tommytang213/Settleora",
+    recoveryEnvironment,
+  )) {
+    throw new Error("supervisor worker startup Git repository authority is not trusted");
+  }
   const logsIndex = process.argv.indexOf("--logs-root");
   const selectedLogsRoot = logsIndex >= 0 ? process.argv[logsIndex + 1] : null;
   if (!selectedLogsRoot || !path.isAbsolute(selectedLogsRoot) || path.resolve(selectedLogsRoot) !== selectedLogsRoot) {
@@ -208,6 +221,7 @@ export async function main() {
     runtimeRoot: config.runtimeRoot,
     projectId: config.projectId,
     repositorySlug: config.repositorySlug,
+    runnerEnvironment: recoveryEnvironment,
   });
     process.exitCode = result.exitCode;
   } catch (error) {
