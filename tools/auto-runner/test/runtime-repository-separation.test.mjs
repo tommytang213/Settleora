@@ -674,6 +674,48 @@ test("deployment dry-run is inert and active/pending/old-digest guards refuse", 
   }
 });
 
+test("deployment and rollback preserve verified version-one bundles without the boundary helper", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-v1-upgrade-"));
+  try {
+    const repo = createRepo(root, "project");
+    const logs = path.join(root, "logs");
+    const parent = path.join(root, "installed");
+    const destination = path.join(parent, "runtime");
+    mkdirSync(logs, { mode: 0o700 });
+    mkdirSync(parent, { mode: 0o700 });
+    cpSync(sourceRoot, destination, { recursive: true });
+    rmSync(path.join(destination, "systemd", "settleora-node-exec-boundary"));
+    const legacy = buildRuntimeManifest(destination, {
+      sourceSha: "a".repeat(40),
+      generatedAt: "2026-07-24T00:00:00.000Z",
+      version: 1,
+    });
+    writeFileSync(path.join(destination, "runtime-bundle-manifest.json"), `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
+    assert.equal(verifyRuntimeBundle(destination, legacy.bundleDigest).version, 1);
+
+    const upgraded = deployRuntimeBundle({
+      sourceRoot,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha,
+      expectedOldDigest: legacy.bundleDigest,
+    });
+    assert.equal(upgraded.manifest.version, 2);
+    assert.equal(verifyRuntimeBundle(path.join(parent, ".runtime.rollback"), legacy.bundleDigest).version, 1);
+
+    const rolledBack = rollbackRuntimeBundle({
+      destination,
+      expectedCurrentDigest: upgraded.manifest.bundleDigest,
+      expectedRollbackDigest: legacy.bundleDigest,
+    });
+    assert.equal(rolledBack.manifest.version, 1);
+    assert.equal(verifyRuntimeBundle(destination, legacy.bundleDigest).version, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("deployment atomically upgrades an authenticated stable launcher", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-launcher-upgrade-"));
   try {

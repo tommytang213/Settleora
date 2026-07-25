@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { assertSeparatedRoots, canonicalExistingDirectory, isContained } from "./runtime-identity.mjs";
 
 export const runtimeBundleFormat = "settleora-auto-runner-runtime";
-export const runtimeBundleVersion = 1;
+export const runtimeBundleVersion = 2;
 export const runtimeManifestName = "runtime-bundle-manifest.json";
 export const runtimeEntryPoints = Object.freeze([
   "settleora-auto-runner.mjs",
@@ -164,14 +164,14 @@ export function inspectRuntimeConsumers(destination, { procRoot = "/proc", selfP
 }
 
 const includedRoots = ["lib", "supervisor"];
-const includedFiles = [
+const legacyIncludedFiles = [
   ...runtimeEntryPoints,
   "runtime-launcher.mjs",
   "systemd/settleora-auto-runner@.service",
-  "systemd/settleora-node-exec-boundary",
   "runner-config.example.json",
   "README.md",
 ];
+const includedFiles = [...legacyIncludedFiles, "systemd/settleora-node-exec-boundary"];
 
 function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -189,8 +189,14 @@ function walk(root, relative) {
 }
 
 export function runtimeBundleFileList(sourceRoot) {
+  return runtimeBundleFileListForVersion(sourceRoot, runtimeBundleVersion);
+}
+
+function runtimeBundleFileListForVersion(sourceRoot, version) {
   canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
-  const files = [...includedFiles, ...includedRoots.flatMap((root) => walk(sourceRoot, root))]
+  const fixedFiles = version === 1 ? legacyIncludedFiles : version === runtimeBundleVersion ? includedFiles : null;
+  if (!fixedFiles) throw new Error("runtime bundle version is unsupported");
+  const files = [...fixedFiles, ...includedRoots.flatMap((root) => walk(sourceRoot, root))]
     .map((entry) => entry.split(path.sep).join("/"))
     .filter((entry, index, all) => all.indexOf(entry) === index)
     .sort();
@@ -243,9 +249,9 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   return { sourceSha, fileCount: commitFiles.length };
 }
 
-export function buildRuntimeManifest(sourceRoot, { sourceSha, generatedAt = new Date().toISOString() } = {}) {
+export function buildRuntimeManifest(sourceRoot, { sourceSha, generatedAt = new Date().toISOString(), version = runtimeBundleVersion } = {}) {
   if (!/^[a-f0-9]{40}$/.test(String(sourceSha || ""))) throw new Error("approved source SHA is required");
-  const files = runtimeBundleFileList(sourceRoot).map((relativePath) => {
+  const files = runtimeBundleFileListForVersion(sourceRoot, version).map((relativePath) => {
     const absolute = path.join(sourceRoot, relativePath);
     const mode = (statSync(absolute).mode & 0o111) !== 0 ? 0o500 : 0o400;
     return {
@@ -254,7 +260,7 @@ export function buildRuntimeManifest(sourceRoot, { sourceSha, generatedAt = new 
       mode,
     };
   });
-  const identity = { format: runtimeBundleFormat, version: runtimeBundleVersion, sourceSha, files, entryPoints: runtimeEntryPoints, node: ">=22 <23" };
+  const identity = { format: runtimeBundleFormat, version, sourceSha, files, entryPoints: runtimeEntryPoints, node: ">=22 <23" };
   return {
     ...identity,
     fileListDigest: createHash("sha256").update(canonicalJson(files.map((file) => file.path))).digest("hex"),
@@ -268,7 +274,10 @@ export function verifyRuntimeBundle(runtimeRoot, expectedDigest = null) {
   const manifestPath = path.join(runtimeRoot, runtimeManifestName);
   if (!existsSync(manifestPath) || lstatSync(manifestPath).isSymbolicLink()) throw new Error("runtime manifest missing or unsafe");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  const rebuilt = buildRuntimeManifest(runtimeRoot, { sourceSha: manifest.sourceSha, generatedAt: manifest.generatedAt });
+  if (manifest.format !== runtimeBundleFormat || ![1, runtimeBundleVersion].includes(manifest.version)) {
+    throw new Error("runtime manifest version is unsupported");
+  }
+  const rebuilt = buildRuntimeManifest(runtimeRoot, { sourceSha: manifest.sourceSha, generatedAt: manifest.generatedAt, version: manifest.version });
   if (canonicalJson(manifest) !== canonicalJson(rebuilt)) throw new Error("runtime bundle manifest or file digest drift");
   if (expectedDigest && rebuilt.bundleDigest !== expectedDigest) throw new Error("runtime bundle digest mismatch");
   return Object.freeze(rebuilt);

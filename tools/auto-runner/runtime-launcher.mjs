@@ -109,7 +109,7 @@ function verifyApprovedRuntime(runtimeRoot, launcherPath) {
   }
   const manifestPath = path.join(runtimeRoot, "runtime-bundle-manifest.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  if (manifest.format !== "settleora-auto-runner-runtime" || manifest.version !== 1
+  if (manifest.format !== "settleora-auto-runner-runtime" || ![1, 2].includes(manifest.version)
       || !Array.isArray(manifest.files) || !Array.isArray(manifest.entryPoints)) {
     throw new Error("runtime manifest identity is invalid");
   }
