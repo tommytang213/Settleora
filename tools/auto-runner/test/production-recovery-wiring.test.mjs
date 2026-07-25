@@ -99,6 +99,7 @@ test("stable-launched supervisor main persists startup failures before rethrow",
   const worker = readFileSync("tools/auto-runner/supervisor/settleora-auto-runner-worker.mjs", "utf8");
   assert.match(worker, /const recoveryEnvironment = \{ \.\.\.runnerEnvironment, GIT_NO_REPLACE_OBJECTS: "1" \}/);
   assert.match(worker, /if \(!resumedGitEnvironmentIsTrusted\(recoveryEnvironment\)\)/);
+  assert.match(worker, /if \(!resumedGitRepositoryAuthorityIsTrusted\(repoRoot, recoveryEnvironment\)\)/);
   assert.match(worker, /getRefSha\("origin\/main", \{ cwd: repoRoot, env: recoveryEnvironment \}\)/);
   assert.match(worker, /env: recoveryEnvironment/);
   const exportedMain = worker.slice(worker.indexOf("export async function main()"), worker.indexOf("function waitForChild"));

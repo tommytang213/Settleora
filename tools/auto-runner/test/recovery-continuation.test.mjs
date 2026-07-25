@@ -14,6 +14,7 @@ import {
   normalizePreservedRecoveryDeploymentTarget,
   resumedGitConfigIsTrusted,
   resumedGitEnvironmentIsTrusted,
+  resumedGitRepositoryAuthorityIsTrusted,
   sanitizedDeploymentGitEnvironment,
 } from "../lib/preserved-recovery-deployment.mjs";
 import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
@@ -279,6 +280,15 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["add", "README.md"]);
     git(config.repoRoot, ["commit", "-m", "base"]);
     const baseSha = git(config.repoRoot, ["rev-parse", "HEAD"]);
+    const recoveryEnvironment = {
+      HOME: homedir(),
+      PATH: "/usr/bin:/bin",
+      GIT_NO_REPLACE_OBJECTS: "1",
+    };
+    assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, recoveryEnvironment), true);
+    git(config.repoRoot, ["config", "--local", "core.hooksPath", path.join(config.repoRoot, "hostile-hooks")]);
+    assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, recoveryEnvironment), false);
+    git(config.repoRoot, ["config", "--local", "--unset-all", "core.hooksPath"]);
     for (const file of files) {
       mkdirSync(path.dirname(path.join(config.repoRoot, file)), { recursive: true });
       writeFileSync(path.join(config.repoRoot, file), "first\n");

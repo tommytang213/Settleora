@@ -113,7 +113,9 @@ repository-redirection, and other
 effect-bearing `GIT_*` and `SSH_ASKPASS*` environment variables are rejected. The
 stable-launched supervisor rechecks the actual runner-child environment before
 any recovery Git read, requires `GIT_NO_REPLACE_OBJECTS=1`, and passes that
-exact inspected environment to the child. Repository and
+exact inspected environment to the child. It also repeats the complete
+repository/worktree/global/system Git configuration, hook, attribute, remote,
+and transport-authority proof before that first read. Repository and
 worktree config must contain no executable or transport override, recognized
 default hooks must not be executable, and global/system config must match the
 bounded installed GitHub credential-helper and inert standard Git-LFS shapes.

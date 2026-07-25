@@ -532,6 +532,37 @@ export function resumedGitEnvironmentIsTrusted(environment) {
           && resolvePathExecutable(environment.PATH, "cat") === realpathSync("/usr/bin/cat"))));
 }
 
+export function resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, environment) {
+  try {
+    if (!resumedGitEnvironmentIsTrusted(environment)) return false;
+    const root = path.resolve(repositoryRoot || "");
+    const info = lstatSync(root);
+    if (!info.isDirectory() || info.isSymbolicLink()
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())) return false;
+    const readGit = (args) => git(root, args, environment);
+    if (path.resolve(readGit(["rev-parse", "--show-toplevel"])) !== realpathSync(root)) return false;
+    const fetchUrls = gitConfigValues(root, "remote.origin.url", environment);
+    const pushUrls = gitConfigValues(root, "remote.origin.pushurl", environment);
+    const worktreeConfigEnabled = gitConfigBoolean(root, "extensions.worktreeConfig", environment);
+    const worktreeFetchUrls = worktreeConfigEnabled ? gitConfigValues(root, "remote.origin.url", environment, "worktree") : [];
+    const worktreePushUrls = worktreeConfigEnabled ? gitConfigValues(root, "remote.origin.pushurl", environment, "worktree") : [];
+    const localTransportAuthority = gitConfigNames(root, environment, "local").some(isGitTransportAuthorityKey);
+    const worktreeTransportAuthority = worktreeConfigEnabled
+      && gitConfigNames(root, environment, "worktree").some(isGitTransportAuthorityKey);
+    const headSha = readGit(["rev-parse", "HEAD"]);
+    const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
+    return fetchUrls.length === 1 && pushUrls.length <= 1
+      && worktreeFetchUrls.length === 0 && worktreePushUrls.length === 0
+      && !localTransportAuthority && !worktreeTransportAuthority
+      && !defaultGitHooksAreExecutable(root, readGit)
+      && validateResumedGitAuthority(root, { headSha }, environment, readGit)
+      && canonicalGitHubRepository(fetchUrls[0]) !== null
+      && canonicalGitHubRepository(effectivePushUrl) === canonicalGitHubRepository(fetchUrls[0]);
+  } catch {
+    return false;
+  }
+}
+
 function resolvePathExecutable(searchPath, name) {
   for (const directory of String(searchPath || "").split(path.delimiter)) {
     if (!directory) continue;

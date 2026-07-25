@@ -17,7 +17,7 @@ import { readSupervisorState, writeSupervisorState } from "./supervisor-state.mj
 import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
 import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "../lib/runtime-bundle.mjs";
-import { resumedGitEnvironmentIsTrusted } from "../lib/preserved-recovery-deployment.mjs";
+import { resumedGitEnvironmentIsTrusted, resumedGitRepositoryAuthorityIsTrusted } from "../lib/preserved-recovery-deployment.mjs";
 
 const exitCodes = {
   completed: 0,
@@ -49,6 +49,9 @@ export async function runSupervisorWorker(
   }
   const previous = readSupervisorState(runId, logsRoot).state;
   const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, logsRoot);
+  if (!resumedGitRepositoryAuthorityIsTrusted(repoRoot, recoveryEnvironment)) {
+    throw new Error("supervisor worker Git repository authority is not trusted");
+  }
   const currentMain = getRefSha("origin/main", { cwd: repoRoot, env: recoveryEnvironment });
   if (currentMain !== verified.spec.initialOriginMainSha) {
     writeSupervisorState(runId, { state: "stale", staleReason: "origin_main_changed", currentMain }, logsRoot);
