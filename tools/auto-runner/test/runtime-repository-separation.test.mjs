@@ -63,7 +63,27 @@ test("deployment source verification rejects assume-unchanged bytes and ignored 
     git(repo, ["add", "."]);
     git(repo, ["commit", "-m", "runtime source"]);
     const approvedSha = git(repo, ["rev-parse", "HEAD"]);
-    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, 93);
+    assert.equal(verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount, runtimeBundleFileList(runtimeSource).length);
+    const hostileBin = path.join(root, "hostile-bin");
+    mkdirSync(hostileBin);
+    writeFileSync(path.join(hostileBin, "git"), "#!/bin/sh\nprintf 'fabricated-authority\\n'\n");
+    chmodSync(path.join(hostileBin, "git"), 0o700);
+    const previousGitDir = process.env.GIT_DIR;
+    const previousPath = process.env.PATH;
+    process.env.GIT_DIR = path.join(root, "hostile-git-dir");
+    process.env.PATH = hostileBin;
+    try {
+      assert.equal(
+        verifyRuntimeSourceAgainstCommit({ repoRoot: repo, sourceRoot: runtimeSource, sourceSha: approvedSha }).fileCount,
+        runtimeBundleFileList(runtimeSource).length,
+        "ambient Git repository redirection must not influence approved source verification",
+      );
+    } finally {
+      if (previousGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = previousGitDir;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
     const hiddenPath = path.join(runtimeSource, "lib/runtime-identity.mjs");
     git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/lib/runtime-identity.mjs"]);
     writeFileSync(hiddenPath, `${readFileSync(hiddenPath, "utf8")}\n`);
@@ -236,6 +256,10 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
     const indexMtimeBefore = statSync(index).mtimeMs;
     const fsmonitorSentinel = path.join(root, "fsmonitor-ran");
     const fsmonitorHook = path.join(root, "fsmonitor-hook");
+    const hostileGitSentinel = path.join(root, "hostile-git-ran");
+    const hostileBin = path.join(root, "hostile-bin");
+    mkdirSync(hostileBin);
+    writeFileSync(path.join(hostileBin, "git"), `#!/bin/sh\nprintf called > '${hostileGitSentinel}'\nprintf 'fabricated-authority\\n'\n`, { mode: 0o700 });
     writeFileSync(fsmonitorHook, `#!/bin/sh\n: > '${fsmonitorSentinel}'\n`, { mode: 0o700 });
     git(repo, ["config", "core.fsmonitor", fsmonitorHook]);
     const result = spawnSync(process.execPath, [
@@ -245,12 +269,17 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
       "--destination", path.join(installParent, "runtime"),
       "--logs-root", logs,
       "--approved-sha", approvedSha,
-    ], { encoding: "utf8", cwd: root });
+    ], {
+      encoding: "utf8",
+      cwd: root,
+      env: { ...process.env, PATH: hostileBin, GIT_DIR: path.join(root, "hostile-git-dir") },
+    });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).dryRun, true);
     assert.deepEqual(readdirSync(installParent), []);
     assert.equal(statSync(index).mtimeMs, indexMtimeBefore);
     assert.equal(existsSync(fsmonitorSentinel), false);
+    assert.equal(existsSync(hostileGitSentinel), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -743,6 +772,50 @@ test("runtime consumer discovery covers every project using the shared bundle", 
   }
 });
 
+test("quiescence drift after launcher preparation leaves installed and rollback runtimes unchanged", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-final-boundary-"));
+  try {
+    const repo = createRepo(root, "project");
+    const logs = path.join(root, "logs");
+    const parent = path.join(root, "install");
+    mkdirSync(logs);
+    mkdirSync(parent);
+    const destination = path.join(parent, "runtime");
+    const first = deployRuntimeBundle({ sourceRoot, destination, repoRoot: repo, logsRoot: logs, sourceSha });
+    const changedSource = path.join(root, "changed-source");
+    cpSync(sourceRoot, changedSource, { recursive: true });
+    writeFileSync(path.join(changedSource, "lib/runtime-identity.mjs"), `${readFileSync(path.join(changedSource, "lib/runtime-identity.mjs"), "utf8")}\n`);
+    const rollback = path.join(parent, ".runtime.rollback");
+    const launcher = path.join(parent, ".runtime.launcher.mjs");
+    const originalLauncherDigest = createHash("sha256").update(readFileSync(launcher)).digest("hex");
+    let inspections = 0;
+    assert.throws(() => deployRuntimeBundle({
+      sourceRoot: changedSource,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha: "b".repeat(40),
+      expectedOldDigest: first.manifest.bundleDigest,
+      finalQuiescenceVerifier: () => {
+        inspections += 1;
+        if (inspections === 2) throw new Error("fixture drift after launcher preparation");
+        return {
+          active: false,
+          unresolvedExternalEffects: false,
+          preservedRecoveryAdmitted: false,
+          reasonCode: "default_quiescent",
+        };
+      },
+    }), /fixture drift after launcher preparation/);
+    assert.equal(inspections, 2);
+    assert.equal(verifyRuntimeBundle(destination).bundleDigest, first.manifest.bundleDigest);
+    assert.equal(createHash("sha256").update(readFileSync(launcher)).digest("hex"), originalLauncherDigest);
+    assert.equal(existsSync(rollback), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("manual rollback exchanges only exact verified stopped bundles", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-rollback-"));
   try {
@@ -765,6 +838,17 @@ test("manual rollback exchanges only exact verified stopped bundles", () => {
       expectedOldDigest: first.manifest.bundleDigest,
     });
     renameSync(destination, path.join(parent, ".runtime.deploy-incoming"));
+    assert.throws(() => deployRuntimeBundle({
+      sourceRoot: changedSource,
+      destination,
+      repoRoot: repo,
+      logsRoot: logs,
+      sourceSha: "b".repeat(40),
+      expectedOldDigest: first.manifest.bundleDigest,
+      finalQuiescenceVerifier: () => { throw new Error("fixture quiescence drift"); },
+    }), /fixture quiescence drift/);
+    assert.equal(existsSync(destination), false);
+    assert.equal(existsSync(path.join(parent, ".runtime.deploy-incoming")), true);
     const adoptedDeploy = deployRuntimeBundle({
       sourceRoot: changedSource,
       destination,

@@ -4,6 +4,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertSeparatedRoots, canonicalExistingDirectory, isContained } from "./runtime-identity.mjs";
+import { inspectPreservedRecoveryForDeployment, sanitizedDeploymentGitEnvironment, trustedDeploymentGitBinary } from "./preserved-recovery-deployment.mjs";
+import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
 
 export const runtimeBundleFormat = "settleora-auto-runner-runtime";
 export const runtimeBundleVersion = 1;
@@ -208,9 +210,19 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
   const relativeSource = path.relative(repository, source).split(path.sep).join("/");
   if (relativeSource !== "tools/auto-runner") throw new Error("runtime sourceRoot must be the repository tools/auto-runner directory");
-  const listed = spawnSync("git", ["--no-replace-objects", "ls-tree", "-r", "-z", sourceSha, "--", relativeSource], {
+  const gitEnv = sanitizedDeploymentGitEnvironment();
+  const topLevel = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "--show-toplevel"], {
+    cwd: repository,
+    encoding: "utf8",
+    env: gitEnv,
+  });
+  if (topLevel.status !== 0 || realpathSync(topLevel.stdout.trim()) !== repository) {
+    throw new Error("approved runtime source repository identity is unreadable");
+  }
+  const listed = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "ls-tree", "-r", "-z", sourceSha, "--", relativeSource], {
     cwd: repository,
     encoding: "buffer",
+    env: gitEnv,
   });
   if (listed.status !== 0) throw new Error("approved runtime source tree is unreadable");
   const selected = new Map();
@@ -229,7 +241,11 @@ export function verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceS
   }
   for (const relative of commitFiles) {
     const expected = selected.get(relative);
-    const blob = spawnSync("git", ["--no-replace-objects", "cat-file", "blob", expected.objectId], { cwd: repository, encoding: "buffer" });
+    const blob = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "cat-file", "blob", expected.objectId], {
+      cwd: repository,
+      encoding: "buffer",
+      env: gitEnv,
+    });
     if (blob.status !== 0) throw new Error(`approved runtime blob is unreadable: ${relative}`);
     const worktreePath = path.join(source, relative);
     const worktreeDigest = createHash("sha256").update(readFileSync(worktreePath)).digest("hex");
@@ -283,11 +299,24 @@ export function deployRuntimeBundle({
   dryRun = false,
   active = false,
   pendingEffects = false,
+  quiescence = null,
   runtimeConsumers = [],
   sourceVerifier = null,
+  finalQuiescenceVerifier = null,
 } = {}) {
-  if (active) throw new Error("runtime deployment refused while a runner or supervisor is active");
-  if (pendingEffects) throw new Error("runtime deployment refused with unresolved effects or recovery");
+  const initialQuiescence = quiescence || {
+    active,
+    unresolvedExternalEffects: pendingEffects,
+    preservedRecoveryAdmitted: false,
+    reasonCode: pendingEffects ? "unresolved_operational_state" : "default_quiescent",
+  };
+  assertDeploymentQuiescence(initialQuiescence);
+  const verifyFinalQuiescence = () => {
+    if (!finalQuiescenceVerifier) return;
+    const finalQuiescence = finalQuiescenceVerifier();
+    assertSameQuiescenceProof(initialQuiescence, finalQuiescence);
+    assertDeploymentQuiescence(finalQuiescence);
+  };
   if (runtimeConsumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
   const source = canonicalExistingDirectory(sourceRoot, "runtime sourceRoot");
   const destinationParent = canonicalExistingDirectory(path.dirname(destination), "runtime destination parent");
@@ -304,11 +333,13 @@ export function deployRuntimeBundle({
     const current = verifyRuntimeBundle(destination);
     currentManifest = current;
     if (current.bundleDigest === manifest.bundleDigest && !expectedOldDigest) {
+      verifyFinalQuiescence();
       writeRuntimeApproval(destination, current);
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback: null, manifest: current };
     }
     if (current.bundleDigest === manifest.bundleDigest && expectedOldDigest && existsSync(rollback)) {
       verifyRuntimeBundle(rollback, expectedOldDigest);
+      verifyFinalQuiescence();
       writeRuntimeApproval(destination, current);
       if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
       return { dryRun: false, adopted: true, destination: realpathSync(destination), rollback, manifest: current };
@@ -317,6 +348,7 @@ export function deployRuntimeBundle({
   } else if (expectedOldDigest && existsSync(rollback) && existsSync(temporary)) {
     verifyRuntimeBundle(rollback, expectedOldDigest);
     verifyRuntimeBundle(temporary, manifest.bundleDigest);
+    verifyFinalQuiescence();
     renameSync(temporary, destination);
     writeRuntimeApproval(destination, manifest);
     if (existsSync(retiredRollback)) rmSync(retiredRollback, { recursive: true });
@@ -344,9 +376,13 @@ export function deployRuntimeBundle({
   if (buildRuntimeManifest(source, { sourceSha }).bundleDigest !== manifest.bundleDigest) {
     throw new Error("runtime source changed during deployment");
   }
+  verifyFinalQuiescence();
   const launcher = path.join(destinationParent, `.${path.basename(destination)}.launcher.mjs`);
   const stagedLauncher = path.join(temporary, "runtime-launcher.mjs");
   const incomingLauncher = path.join(destinationParent, `.${path.basename(destination)}.launcher.incoming`);
+  const launcherPreviouslyExisted = existsSync(launcher);
+  let launcherReplaced = false;
+  try {
   if (existsSync(launcher)) {
     const launcherInfo = lstatSync(launcher);
     if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0) {
@@ -365,6 +401,7 @@ export function deployRuntimeBundle({
       cpSync(stagedLauncher, incomingLauncher, { dereference: false });
       chmodSync(incomingLauncher, 0o500);
       renameSync(incomingLauncher, launcher);
+      launcherReplaced = true;
       // The deployment lock, quiescence checks, exact old digest, and verified
       // current bundle authenticate this bounded launcher replacement. Keep the
       // old bundle launchable if the process stops before the runtime exchange.
@@ -375,10 +412,28 @@ export function deployRuntimeBundle({
     cpSync(stagedLauncher, incomingLauncher, { dereference: false });
     chmodSync(incomingLauncher, 0o500);
     renameSync(incomingLauncher, launcher);
+    launcherReplaced = true;
   }
   if (createHash("sha256").update(readFileSync(launcher)).digest("hex")
       !== createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex")) {
       throw new Error("stable runtime launcher does not match the approved bundle");
+  }
+  // Launcher preparation is deliberately outside the runtime directory exchange.
+  // Re-read operational authority after that preparation so no unrelated work
+  // separates the final proof from the first rollback/runtime rename.
+  verifyFinalQuiescence();
+  } catch (error) {
+    if (launcherReplaced) {
+      if (launcherPreviouslyExisted && currentManifest) {
+        cpSync(path.join(destination, "runtime-launcher.mjs"), incomingLauncher, { dereference: false });
+        chmodSync(incomingLauncher, 0o500);
+        renameSync(incomingLauncher, launcher);
+        writeRuntimeApproval(destination, currentManifest);
+      } else {
+        rmSync(launcher);
+      }
+    }
+    throw error;
   }
   if (existsSync(rollback)) {
     if (existsSync(retiredRollback)) throw new Error("runtime rollback retirement state is contradictory");
@@ -507,7 +562,11 @@ export function rollbackRuntimeBundle({
   };
 }
 
-export function inspectDeploymentQuiescence(logsRoot) {
+export function inspectDeploymentQuiescence(logsRoot, {
+  preservedRecoveryTarget = null,
+  repositoryRoot = null,
+  resumedGitConfigRecords = null,
+} = {}) {
   canonicalExistingDirectory(logsRoot, "logsRoot");
   const activePaths = [
     path.join(logsRoot, "locks"),
@@ -523,25 +582,78 @@ export function inspectDeploymentQuiescence(logsRoot) {
         throw new Error("runtime deployment refused because operational state is unreadable");
       }
       if (Number.isInteger(record.pid) && processIsActive(record.pid)) {
-        return { active: true, pendingEffects: false };
+        return quiescenceEvidence({ active: true, unresolvedExternalEffects: false, reasonCode: "live_operational_owner" });
       }
       if (["submitted", "starting", "running", "stopping_after_current"].includes(record.state)) {
-        return { active: true, pendingEffects: false };
+        return quiescenceEvidence({ active: true, unresolvedExternalEffects: false, reasonCode: "live_operational_state" });
       }
     }
   }
-  for (const name of ["pre-effect-intents", "recovery"]) {
-    const root = path.join(logsRoot, name);
-    if (!existsSync(root)) continue;
-    for (const file of regularJsonFiles(root, 4)) {
-      const record = JSON.parse(readFileSync(file, "utf8"));
-      const terminalStatuses = new Set(["completed", "finalized", "failed_closed", "recovered", "exhausted", "blocked"]);
-      const terminalPhases = new Set(["completed", "cleanup_complete", "stopped"]);
-      const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
-      if (!terminal) return { active: false, pendingEffects: true };
-    }
+  if (hasUnresolvedOperationalRecords(logsRoot, "pre-effect-intents", {
+    rejectFailedClosed: preservedRecoveryTarget !== null,
+  })) {
+    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
   }
-  return { active: false, pendingEffects: false };
+  if (preservedRecoveryTarget) {
+    return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget, {
+      repositoryRoot,
+      resumedGitConfigRecords,
+    });
+  }
+  const recoverableStates = listRecoverableRecoveryStates({ logsRoot });
+  if (recoverableStates.length > 0) {
+    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "recoverable_operational_state" });
+  }
+  if (hasUnresolvedOperationalRecords(logsRoot, "recovery")) {
+    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
+  }
+  return quiescenceEvidence({ active: false, unresolvedExternalEffects: false, reasonCode: "default_quiescent" });
+}
+
+function hasUnresolvedOperationalRecords(logsRoot, name, { rejectFailedClosed = false } = {}) {
+  const root = path.join(logsRoot, name);
+  if (!existsSync(root)) return false;
+  for (const file of regularJsonFiles(root, 4)) {
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    if (rejectFailedClosed && record.status === "failed_closed") return true;
+    const terminalStatuses = new Set(["completed", "finalized", "failed_closed", "recovered", "exhausted", "blocked"]);
+    const terminalPhases = new Set(["completed", "cleanup_complete", "stopped"]);
+    const terminal = record.completed === true || terminalStatuses.has(record.status) || terminalPhases.has(record.phase);
+    if (!terminal) return true;
+  }
+  return false;
+}
+
+function quiescenceEvidence({ active, unresolvedExternalEffects, reasonCode }) {
+  return Object.freeze({
+    active: active === true,
+    unresolvedExternalEffects: unresolvedExternalEffects === true,
+    pendingEffects: unresolvedExternalEffects === true,
+    preservedRecoveryAdmitted: false,
+    targetIdentityDigest: null,
+    reasonCode,
+    revalidationRequired: false,
+  });
+}
+
+function assertDeploymentQuiescence(value) {
+  if (!value || typeof value !== "object") throw new Error("runtime deployment quiescence evidence is required");
+  if (value.active === true) throw new Error("runtime deployment refused while a runner or supervisor is active");
+  if (value.unresolvedExternalEffects === true || value.pendingEffects === true) {
+    throw new Error("runtime deployment refused with unresolved effects or recovery");
+  }
+  if (value.preservedRecoveryAdmitted === true
+      && (!/^[a-f0-9]{64}$/u.test(String(value.targetIdentityDigest || ""))
+        || value.reasonCode !== "exact_preserved_recovery_admitted"
+        || value.revalidationRequired !== true)) {
+    throw new Error("runtime deployment preserved recovery proof is invalid");
+  }
+}
+
+function assertSameQuiescenceProof(initial, current) {
+  for (const key of ["active", "unresolvedExternalEffects", "preservedRecoveryAdmitted", "targetIdentityDigest", "reasonCode"]) {
+    if ((initial?.[key] ?? null) !== (current?.[key] ?? null)) throw new Error("runtime deployment quiescence proof changed");
+  }
 }
 
 function regularJsonFiles(root, depth) {

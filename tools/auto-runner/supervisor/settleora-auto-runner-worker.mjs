@@ -17,6 +17,7 @@ import { readSupervisorState, writeSupervisorState } from "./supervisor-state.mj
 import { ensureTrustedRunPathContext, runArtifactKinds } from "./supervisor-paths.mjs";
 import { absoluteRuntimeEntry, moduleRuntimeRoot } from "../lib/runtime-identity.mjs";
 import { acquireRuntimeConsumer, releaseRuntimeConsumer } from "../lib/runtime-bundle.mjs";
+import { resumedGitEnvironmentIsTrusted, resumedGitRepositoryAuthorityIsTrusted } from "../lib/preserved-recovery-deployment.mjs";
 
 const exitCodes = {
   completed: 0,
@@ -38,12 +39,21 @@ export async function runSupervisorWorker(
     resolveSummary = resolveRunnerSummaryForSupervisor,
     runtimeRoot = moduleRuntimeRoot(),
     projectId = "Settleora",
+    repositorySlug = "tommytang213/Settleora",
+    runnerEnvironment = process.env,
   } = {},
 ) {
   validateRunId(runId);
+  const recoveryEnvironment = { ...runnerEnvironment, GIT_NO_REPLACE_OBJECTS: "1" };
+  if (!resumedGitEnvironmentIsTrusted(recoveryEnvironment)) {
+    throw new Error("supervisor worker Git environment is not trusted");
+  }
   const previous = readSupervisorState(runId, logsRoot).state;
   const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, logsRoot);
-  const currentMain = getRefSha("origin/main", { cwd: repoRoot });
+  if (!resumedGitRepositoryAuthorityIsTrusted(repoRoot, repositorySlug, recoveryEnvironment)) {
+    throw new Error("supervisor worker Git repository authority is not trusted");
+  }
+  const currentMain = getRefSha("origin/main", { cwd: repoRoot, env: recoveryEnvironment });
   if (currentMain !== verified.spec.initialOriginMainSha) {
     writeSupervisorState(runId, { state: "stale", staleReason: "origin_main_changed", currentMain }, logsRoot);
     return { terminal: "stale", exitCode: exitCodes.stale };
@@ -75,7 +85,11 @@ export async function runSupervisorWorker(
   const stdout = createWriteStream(stdoutPath, { flags: "a", mode: 0o600 });
   const stderr = createWriteStream(stderrPath, { flags: "a", mode: 0o600 });
   const runnerArgs = argv.slice(1);
-  const child = spawnImpl(process.execPath, runnerArgs, { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnImpl(process.execPath, runnerArgs, {
+    cwd: repoRoot,
+    env: recoveryEnvironment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   child.stdout.pipe(stdout);
   child.stderr.pipe(stderr);
 
@@ -94,6 +108,7 @@ export async function runSupervisorWorker(
     ], {
       cwd: runtimeRoot,
       encoding: "utf8",
+      env: recoveryEnvironment,
     });
   };
   process.once("SIGTERM", requestStopAfterCurrent);
@@ -170,6 +185,18 @@ export async function runSupervisorWorker(
 export async function main() {
   const runtimeConsumer = acquireRuntimeConsumer(moduleRuntimeRoot());
   try {
+  const recoveryEnvironment = { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" };
+  if (!resumedGitEnvironmentIsTrusted(recoveryEnvironment)) {
+    throw new Error("supervisor worker startup Git environment is not trusted");
+  }
+  process.env.GIT_NO_REPLACE_OBJECTS = recoveryEnvironment.GIT_NO_REPLACE_OBJECTS;
+  if (!resumedGitRepositoryAuthorityIsTrusted(
+    "/workspace/repos/Settleora",
+    "tommytang213/Settleora",
+    recoveryEnvironment,
+  )) {
+    throw new Error("supervisor worker startup Git repository authority is not trusted");
+  }
   const logsIndex = process.argv.indexOf("--logs-root");
   const selectedLogsRoot = logsIndex >= 0 ? process.argv[logsIndex + 1] : null;
   if (!selectedLogsRoot || !path.isAbsolute(selectedLogsRoot) || path.resolve(selectedLogsRoot) !== selectedLogsRoot) {
@@ -193,6 +220,8 @@ export async function main() {
     repoRoot: config.repoRoot,
     runtimeRoot: config.runtimeRoot,
     projectId: config.projectId,
+    repositorySlug: config.repositorySlug,
+    runnerEnvironment: recoveryEnvironment,
   });
     process.exitCode = result.exitCode;
   } catch (error) {

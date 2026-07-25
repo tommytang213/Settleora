@@ -90,6 +90,45 @@ each ancestor are canonical, runner- or system-owned, and not writable by
 another principal. Manifest source verification disables local Git replacement
 objects, and project namespace markers store the same case-normalized
 repository slug used by repository locks and runtime identity.
+
+Deployment remains fail-closed for every non-terminal recovery or pre-effect
+intent by default. One preserved validation-recovery checkpoint may be
+admitted only when the operator supplies the complete fixed
+`--preserved-recovery-*` option set: repository, issue, full task key,
+runner/supervisor IDs, claim, charge ID, branch, base/head/tree, changed-file
+digest, bounded raw-diff digest, report/prompt basenames, and all four
+logical-task counters. The raw-diff digest must match both persisted candidate
+identities and the trusted base-to-head Git diff. Partial,
+duplicate, unknown, contradictory, or extra options are rejected. The
+read-only verifier requires one canonical recovery after the existing
+provisional/full-key suppression rule, exact charge/lifecycle/candidate/commit
+proof, terminal reconciled intents, and no live owner. Its output is sanitized
+structured evidence with a target-identity digest and reason code.
+
+Admission also proves the Git authority that the later resumed runner will
+inherit, not only the sanitized deployment reads. Bare `git` must resolve to
+trusted `/usr/bin/git`, and the canonical origin must use HTTPS because SSH
+configuration can delegate to ambient executable helpers. Loader,
+repository-redirection, and other
+effect-bearing `GIT_*` and `SSH_ASKPASS*` environment variables are rejected. The
+stable-launched supervisor rechecks the actual runner-child environment before
+any recovery Git read, requires `GIT_NO_REPLACE_OBJECTS=1`, and passes that
+exact inspected environment to the child. It also repeats the complete
+repository/worktree/global/system Git configuration, hook, attribute, remote,
+and transport-authority proof before that first read. Repository and
+worktree config must contain no executable or transport override, recognized
+default hooks must not be executable, and global/system config must match the
+bounded installed GitHub credential-helper and inert standard Git-LFS shapes.
+System Git-LFS definitions are accepted only when neither committed, local, nor
+default user/system attribute files can select a filter. Any default attribute
+artifact or other global/system entry fails closed.
+
+For a non-dry deployment, this proof is read initially, read again after the
+deployment lock is acquired, and read a third time immediately before launcher
+or runtime exchange. Runtime consumers and source bytes are also rechecked.
+Any drift stops before installed-runtime exchange. The exception is never
+available to rollback and never excuses a pending push, PR, merge, comment,
+closure, label, hygiene, cleanup, or branch effect.
 The supervisor binds the already admitted canonical profile path and its
 SHA-256 into the immutable run spec; the installed unit therefore contains no
 hard-coded active-profile path, and the worker never reconstructs the profile

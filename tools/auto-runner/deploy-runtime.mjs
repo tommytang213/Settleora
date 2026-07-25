@@ -2,12 +2,28 @@
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { acquireRuntimeDeploymentLock, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "./lib/runtime-bundle.mjs";
+import { sanitizedDeploymentGitEnvironment, trustedDeploymentGitBinary } from "./lib/preserved-recovery-deployment.mjs";
 
+const booleanOptions = new Set(["--dry-run", "--rollback"]);
+const valueOptions = new Set([
+  "--destination", "--logs-root", "--repo-root", "--source-root", "--approved-sha",
+  "--expected-old-digest", "--expected-rollback-digest",
+  "--preserved-recovery-repository", "--preserved-recovery-issue", "--preserved-recovery-task-key",
+  "--preserved-recovery-runner-run-id", "--preserved-recovery-supervisor-run-id",
+  "--preserved-recovery-claim-identity", "--preserved-recovery-charge-id", "--preserved-recovery-branch",
+  "--preserved-recovery-base-sha", "--preserved-recovery-head-sha", "--preserved-recovery-tree-sha",
+  "--preserved-recovery-changed-files-digest", "--preserved-recovery-diff-digest", "--preserved-recovery-report-name",
+  "--preserved-recovery-prompt-name", "--preserved-recovery-accepted-tasks",
+  "--preserved-recovery-local-rounds", "--preserved-recovery-github-epochs",
+  "--preserved-recovery-lifetime-rounds",
+]);
 const values = new Map();
 for (let index = 2; index < process.argv.length; index += 1) {
   const arg = process.argv[index];
-  if (arg === "--dry-run" || arg === "--rollback") values.set(arg, true);
+  if (values.has(arg)) throw new Error(`duplicate option ${arg}`);
+  if (booleanOptions.has(arg)) values.set(arg, true);
   else {
+    if (!valueOptions.has(arg)) throw new Error(`unsupported option ${arg}`);
     const value = process.argv[++index];
     if (!value) throw new Error(`missing value for ${arg}`);
     values.set(arg, value);
@@ -20,20 +36,50 @@ const repoRoot = path.resolve(values.get("--repo-root") || "");
 const sourceRoot = path.resolve(values.get("--source-root") || path.join(repoRoot, "tools/auto-runner"));
 const destination = path.resolve(values.get("--destination") || "");
 const logsRoot = path.resolve(values.get("--logs-root") || "");
-const dryRunGitEnv = values.has("--dry-run") ? { ...process.env, GIT_OPTIONAL_LOCKS: "0" } : process.env;
+const deploymentGitEnv = sanitizedDeploymentGitEnvironment();
+const preservedOptionPrefix = "--preserved-recovery-";
+const preservedOptionsPresent = [...values.keys()].filter((key) => key.startsWith(preservedOptionPrefix));
+const preservedRecoveryTarget = preservedOptionsPresent.length === 0 ? null : {
+  repository: values.get("--preserved-recovery-repository"),
+  issueNumber: values.get("--preserved-recovery-issue"),
+  taskKey: values.get("--preserved-recovery-task-key"),
+  runnerRunId: values.get("--preserved-recovery-runner-run-id"),
+  supervisorRunId: values.get("--preserved-recovery-supervisor-run-id"),
+  claimIdentity: values.get("--preserved-recovery-claim-identity"),
+  chargeId: values.get("--preserved-recovery-charge-id"),
+  branch: values.get("--preserved-recovery-branch"),
+  baseSha: values.get("--preserved-recovery-base-sha"),
+  headSha: values.get("--preserved-recovery-head-sha"),
+  treeSha: values.get("--preserved-recovery-tree-sha"),
+  changedFilesDigest: values.get("--preserved-recovery-changed-files-digest"),
+  diffDigest: values.get("--preserved-recovery-diff-digest"),
+  reportName: values.get("--preserved-recovery-report-name"),
+  promptName: values.get("--preserved-recovery-prompt-name"),
+  acceptedLogicalTasks: values.get("--preserved-recovery-accepted-tasks"),
+  localSourceChangingRounds: values.get("--preserved-recovery-local-rounds"),
+  githubTriggeredFixEpochs: values.get("--preserved-recovery-github-epochs"),
+  lifetimeLocalSourceChangingRounds: values.get("--preserved-recovery-lifetime-rounds"),
+};
+if (values.has("--rollback") && preservedRecoveryTarget) throw new Error("rollback does not accept preserved recovery authority");
 let deploymentLock = null;
 try {
-const quiescence = inspectDeploymentQuiescence(logsRoot);
+const quiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
 const runtimeConsumers = inspectRuntimeConsumers(destination);
 if (values.has("--rollback")) {
   deploymentLock = acquireRuntimeDeploymentLock(destination);
+  const lockedQuiescence = inspectDeploymentQuiescence(logsRoot);
+  const lockedRuntimeConsumers = inspectRuntimeConsumers(destination);
+  if (JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence)) throw new Error("runtime rollback quiescence proof changed after lock acquisition");
+  if (lockedRuntimeConsumers.length || JSON.stringify(lockedRuntimeConsumers) !== JSON.stringify(runtimeConsumers)) {
+    throw new Error("runtime rollback consumer proof changed after lock acquisition");
+  }
   const result = rollbackRuntimeBundle({
     destination,
     expectedCurrentDigest: values.get("--expected-old-digest"),
     expectedRollbackDigest: values.get("--expected-rollback-digest"),
-    active: quiescence.active,
-    pendingEffects: quiescence.pendingEffects,
-    runtimeConsumers,
+    active: lockedQuiescence.active,
+    pendingEffects: lockedQuiescence.pendingEffects,
+    runtimeConsumers: lockedRuntimeConsumers,
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   process.exitCode = 0;
@@ -41,13 +87,19 @@ if (values.has("--rollback")) {
 if (sourceRoot !== path.join(repoRoot, "tools/auto-runner")) {
   throw new Error("sourceRoot must be the approved repository tools/auto-runner directory");
 }
-const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
-const status = spawnSync("git", ["-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: dryRunGitEnv });
+const topLevel = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "--show-toplevel"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+const head = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+const status = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+if (topLevel.status !== 0 || path.resolve(topLevel.stdout.trim()) !== repoRoot) throw new Error("source repository identity is unreadable");
 if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("source repository must be clean and readable");
 const approvedSha = values.get("--approved-sha");
 if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not equal --approved-sha");
 verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha });
 if (!values.has("--dry-run")) deploymentLock = acquireRuntimeDeploymentLock(destination);
+if (!values.has("--dry-run")) {
+  const lockedQuiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
+  if (JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence)) throw new Error("runtime deployment quiescence proof changed after lock acquisition");
+}
 const result = deployRuntimeBundle({
   sourceRoot,
   destination,
@@ -56,17 +108,25 @@ const result = deployRuntimeBundle({
   sourceSha: approvedSha,
   expectedOldDigest: values.get("--expected-old-digest") || null,
   dryRun: values.has("--dry-run"),
-  active: quiescence.active,
-  pendingEffects: quiescence.pendingEffects,
+  quiescence,
   runtimeConsumers,
   sourceVerifier: () => {
-    const verifiedHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" });
-    const verifiedStatus = spawnSync("git", ["-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: dryRunGitEnv });
-    if (verifiedHead.status !== 0 || verifiedHead.stdout.trim() !== approvedSha || verifiedStatus.status !== 0 || verifiedStatus.stdout) {
+    const verifiedTopLevel = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "--show-toplevel"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+    const verifiedHead = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+    const verifiedStatus = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "-c", "core.fsmonitor=false", "status", "--porcelain"], { cwd: repoRoot, encoding: "utf8", env: deploymentGitEnv });
+    if (verifiedTopLevel.status !== 0 || path.resolve(verifiedTopLevel.stdout.trim()) !== repoRoot
+        || verifiedHead.status !== 0 || verifiedHead.stdout.trim() !== approvedSha || verifiedStatus.status !== 0 || verifiedStatus.stdout) {
       throw new Error("source repository changed during deployment");
     }
     verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha });
   },
+  finalQuiescenceVerifier: values.has("--dry-run")
+    ? null
+    : () => {
+        const consumers = inspectRuntimeConsumers(destination);
+        if (consumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
+        return inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
+      },
 });
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }

@@ -504,6 +504,24 @@ guessing. Recovery must not steal active locks, run a second mutating Codex
 process on the same branch, delete source branches, force-push, or push
 directly to `main`.
 
+Runtime deployment is not recovery authority. Its default quiescence gate
+rejects every unresolved recovery and intent. A separately reviewed deployment
+may name one exact preserved recovery through the complete fixed CLI identity
+shape documented in `tools/auto-runner/README.md`; admission requires canonical
+recovery/charge/lifecycle/commit/counter/report/prompt proof, terminal
+reconciled external effects, no live owner, matching persisted and recomputed
+bounded raw-diff identity, and an exact bounded Git authority shape for the
+later resumed runner. The stable-launched worker rechecks the actual child
+environment before its first recovery Git read and binds the spawned runner to
+that same environment. Ambient executable/redirection or SSH askpass authority, untrusted Git
+resolution, SSH-form remotes, executable repository hooks, default user/system
+attribute files, and unsupported
+repository, worktree, global, or system Git configuration fail closed. The
+proof is re-read under the deployment lock and immediately before exchange.
+Runtime consumers remain an independent hard gate, rollback has no
+preserved-recovery exception, and the deployment neither resumes nor mutates
+the preserved task.
+
 The session-lifecycle checkpoint is the coordinated authority for proactive
 Codex rotation and reportless process recovery. A planned rotation is a
 continuation of the accepted logical task: it does not charge another task,

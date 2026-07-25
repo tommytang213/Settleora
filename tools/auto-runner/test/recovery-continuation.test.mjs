@@ -1,12 +1,24 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
+import {
+  defaultGitAttributeFilesAreAbsent,
+  inspectPreservedRecoveryForDeployment,
+  normalizePreservedRecoveryDeploymentTarget,
+  resumedGitConfigIsTrusted,
+  resumedGitEnvironmentIsTrusted,
+  resumedGitRemotesMatchExpected,
+  resumedGitRepositoryAuthorityIsTrusted,
+  sanitizedDeploymentGitEnvironment,
+} from "../lib/preserved-recovery-deployment.mjs";
+import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
 import {
   advanceRecoveryPhase,
   bindRecoveryEvidence,
@@ -32,6 +44,54 @@ import {
   shouldSkipCompletedBundleSlice,
   consumeStartupInterruptionPlanner,
 } from "../lib/recovery-continuation.mjs";
+
+test("deployment Git environment disables lazy object fetching and ignores ambient execution authority", () => {
+  assert.deepEqual(sanitizedDeploymentGitEnvironment({
+    LD_PRELOAD: "/tmp/hostile.so",
+    GIT_DIR: "/tmp/foreign.git",
+    HOME: "/tmp/hostile-home",
+  }), {
+    PATH: "/usr/bin:/bin",
+    LANG: "C",
+    LC_ALL: "C",
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+  });
+  const githubCredential = [
+    ["credential.https://github.com.helper", ""],
+    ["credential.https://github.com.helper", "!/usr/bin/gh auth git-credential"],
+    ["credential.https://gist.github.com.helper", ""],
+    ["credential.https://gist.github.com.helper", "!/usr/bin/gh auth git-credential"],
+  ];
+  const systemLfs = [
+    ["filter.lfs.clean", "git-lfs clean -- %f"],
+    ["filter.lfs.smudge", "git-lfs smudge -- %f"],
+    ["filter.lfs.process", "git-lfs filter-process"],
+    ["filter.lfs.required", "true"],
+  ];
+  assert.equal(resumedGitConfigIsTrusted(githubCredential, systemLfs), true);
+  assert.equal(resumedGitConfigIsTrusted(
+    [...githubCredential, ["url.git@github.com:foreign/repo.git.pushinsteadof", "git@github.com:owner/repo.git"]],
+    systemLfs,
+  ), false);
+  assert.equal(resumedGitConfigIsTrusted(githubCredential, systemLfs, { repositoryDefinesFilter: true }), false);
+  assert.equal(resumedGitConfigIsTrusted(githubCredential, systemLfs, { defaultAttributesPresent: true }), false);
+  assert.equal(resumedGitConfigIsTrusted([["core.hookspath", "/tmp/hooks"]], []), false);
+  assert.equal(defaultGitAttributeFilesAreAbsent(["a", "b", "c", "d"], () => false), true);
+  assert.equal(defaultGitAttributeFilesAreAbsent(["a", "b", "c", "d"], (file) => file === "c"), false);
+  assert.equal(resumedGitEnvironmentIsTrusted({
+    HOME: homedir(),
+    PATH: "/usr/bin:/bin",
+    GIT_NO_REPLACE_OBJECTS: "1",
+  }), true);
+  assert.equal(resumedGitEnvironmentIsTrusted({
+    HOME: homedir(),
+    PATH: "/usr/bin:/bin",
+    GIT_NO_REPLACE_OBJECTS: "0",
+  }), false);
+});
 
 test("one trusted recovery reconstructs a genuinely missing lifecycle exactly once", () => {
   const config = tempConfig({ repositorySlug: "owner/repo", maxIterations: 1, sessionLifecycle: { enabled: true, allowRecoveryTakeover: true } });
@@ -204,6 +264,574 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
   }
 });
 
+test("deployment admits only one exact effect-free preserved recovery and remains fail-closed", () => {
+  const config = tempConfig({ repositorySlug: "owner/repo" });
+  try {
+    const rejectedAuthority = inspectDeploymentQuiescence(config.logsRoot, { preservedRecoveryTarget: {} });
+    assert.equal(rejectedAuthority.preservedRecoveryAdmitted, false);
+    assert.equal(rejectedAuthority.reasonCode, "preserved_recovery_target_or_root_untrusted");
+    const files = ["apps/mobile/lib/parser.dart", "apps/mobile/test/parser_test.dart"];
+    mkdirSync(config.repoRoot, { recursive: true });
+    git(config.repoRoot, ["init"]);
+    git(config.repoRoot, ["branch", "-m", "feature/auto-959-recovery"]);
+    git(config.repoRoot, ["config", "user.email", "fixture@example.invalid"]);
+    git(config.repoRoot, ["config", "user.name", "Fixture"]);
+    git(config.repoRoot, ["remote", "add", "origin", "https://github.com/owner/repo.git"]);
+    writeFileSync(path.join(config.repoRoot, "README.md"), "base\n");
+    git(config.repoRoot, ["add", "README.md"]);
+    git(config.repoRoot, ["commit", "-m", "base"]);
+    const baseSha = git(config.repoRoot, ["rev-parse", "HEAD"]);
+    const recoveryEnvironment = {
+      HOME: homedir(),
+      PATH: "/usr/bin:/bin",
+      GIT_NO_REPLACE_OBJECTS: "1",
+    };
+    assert.equal(
+      resumedGitRemotesMatchExpected(
+        "https://github.com/owner/repo.git",
+        "https://github.com/owner/repo.git",
+        config.repositorySlug,
+      ),
+      true,
+    );
+    assert.equal(
+      resumedGitRemotesMatchExpected(
+        "https://github.com/foreign/repo.git",
+        "https://github.com/foreign/repo.git",
+        config.repositorySlug,
+      ),
+      false,
+    );
+    git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/foreign/repo.git"]);
+    git(config.repoRoot, ["remote", "set-url", "--push", "origin", "https://github.com/foreign/repo.git"]);
+    assert.equal(
+      resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment),
+      false,
+      "jointly redirected fetch and effective push authority must not satisfy the expected repository",
+    );
+    git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/owner/repo.git"]);
+    git(config.repoRoot, ["config", "--unset-all", "remote.origin.pushurl"]);
+    git(config.repoRoot, ["config", "--local", "core.hooksPath", path.join(config.repoRoot, "hostile-hooks")]);
+    assert.equal(resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment), false);
+    git(config.repoRoot, ["config", "--local", "--unset-all", "core.hooksPath"]);
+    git(config.repoRoot, ["config", "--local", "commit.gpgSign", "true"]);
+    git(config.repoRoot, ["config", "--local", "gpg.program", path.join(config.repoRoot, "hostile-gpg")]);
+    assert.equal(
+      resumedGitRepositoryAuthorityIsTrusted(config.repoRoot, config.repositorySlug, recoveryEnvironment),
+      false,
+      "signing programs and automatic signing authority must fail closed",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "commit.gpgSign"]);
+    git(config.repoRoot, ["config", "--local", "--unset-all", "gpg.program"]);
+    for (const file of files) {
+      mkdirSync(path.dirname(path.join(config.repoRoot, file)), { recursive: true });
+      writeFileSync(path.join(config.repoRoot, file), "first\n");
+    }
+    git(config.repoRoot, ["add", ...files]);
+    git(config.repoRoot, ["commit", "-m", "first"]);
+    const intermediateHead = git(config.repoRoot, ["rev-parse", "HEAD"]);
+    const intermediateTree = git(config.repoRoot, ["rev-parse", "HEAD^{tree}"]);
+    writeFileSync(path.join(config.repoRoot, files[0]), "second\n");
+    git(config.repoRoot, ["add", files[0]]);
+    git(config.repoRoot, ["commit", "-m", "second"]);
+    const headSha = git(config.repoRoot, ["rev-parse", "HEAD"]);
+    const treeSha = git(config.repoRoot, ["rev-parse", "HEAD^{tree}"]);
+    const filesDigest = createHash("sha256").update(JSON.stringify(files)).digest("hex");
+    const diffDigest = createHash("sha256").update(spawnSync(
+      "git", ["diff", "--binary", `${baseSha}...${headSha}`],
+      { cwd: config.repoRoot, encoding: "utf8" },
+    ).stdout).digest("hex");
+    const charge = chargeAcceptedLogicalTask(config, {
+      budgetScopeId: "supervised-20260724T075831Z-fixture",
+      maxTasks: 1,
+      issue: { number: 959 },
+      taskLineageId: "issue-959",
+      claimIdentity: "owner/repo#959",
+      acceptedAt: "2026-07-24T07:58:49.248Z",
+    });
+    let recovery = createInitialRecoveryState({
+      taskKey: "20260724T075849",
+      issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+      runId: "run-2026-07-24T075839Z-fixture",
+      supervisorRunId: "supervised-20260724T075831Z-fixture",
+      branchName: "feature/auto-959-recovery",
+      baseSha,
+      currentHeadSha: headSha,
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+    });
+    recovery = {
+      ...recovery,
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe", reason: "fixture" },
+      expectedReportPaths: {
+        repoReportPath: path.join(config.repoRoot, ".codex", "reports", "settleora-codex-report-20260724T075849-issue-959-fixture.md"),
+        promptPath: path.join(config.logsRoot, "tasks", "20260724T075849-issue-959-fixture.md"),
+      },
+      evidence: { ...recovery.evidence, localValidation: { status: "failed", headSha: "a".repeat(40) } },
+      ordinaryContinuation: {
+        identity: {
+          repository: "owner/repo", baseSha, headSha,
+          treeSha, changedFiles: files, changedFilesDigest: filesDigest, diffDigest,
+        },
+        counters: {
+          acceptedLogicalTasks: 1, localSourceChangingRoundsPerEpoch: 1,
+          githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 1,
+        },
+        sourceFailureBatch: {
+          candidate: {
+            baseSha, headSha, treeSha,
+            changedFiles: files, changedFilesDigest: filesDigest, diffDigest,
+          },
+          findings: [{ sourceFixEligible: false, nextAction: "stop_fail_closed", classification: "unsafe_or_ambiguous" }],
+        },
+      },
+    };
+    recovery = recordIdempotentMutation(recovery, {
+      kind: "claim", key: "issue-959", marker: { target: recovery.issue.url, correlation: recovery.run.runId },
+    });
+    recovery = recordIdempotentMutation(recovery, {
+      kind: "logical_task_charge", key: charge.chargeId, marker: { target: "issue-959", correlation: charge.chargeId },
+    });
+    recovery = recordIdempotentMutation(recovery, {
+      kind: "branch_ownership_created", key: `${recovery.branch.name}:${recovery.branch.baseSha}`,
+      marker: { target: recovery.branch.name, correlation: recovery.branch.baseSha },
+    });
+    writeRecoveryState(config, recovery);
+    const target = {
+      repository: "owner/repo", issueNumber: 959, taskKey: recovery.taskKey,
+      runnerRunId: recovery.run.runId, supervisorRunId: recovery.run.supervisorRunId,
+      claimIdentity: "owner/repo#959", chargeId: charge.chargeId, branch: recovery.branch.name,
+      baseSha: recovery.branch.baseSha, headSha: recovery.branch.currentHeadSha,
+      treeSha, changedFilesDigest: filesDigest, diffDigest,
+      reportName: "settleora-codex-report-20260724T075849-issue-959-fixture.md",
+      promptName: "20260724T075849-issue-959-fixture.md",
+      acceptedLogicalTasks: 1, localSourceChangingRounds: 1,
+      githubTriggeredFixEpochs: 0, lifetimeLocalSourceChangingRounds: 1,
+    };
+    assert.throws(
+      () => normalizePreservedRecoveryDeploymentTarget({ ...target, branch: `${target.branch}^{}` }),
+      /literal Git branch name/,
+      "revision expressions cannot be used as preserved branch authority",
+    );
+    assert.throws(
+      () => normalizePreservedRecoveryDeploymentTarget(Object.fromEntries(
+        Object.entries(target).filter(([key]) => key !== "diffDigest"),
+      )),
+      /missing.*extra authority/,
+      "the persisted raw diff identity is mandatory operator authority",
+    );
+    let priorCommitIntent = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
+      headSha: target.baseSha, candidateIdentity: target.baseSha,
+      effect: {
+        expectedParents: [target.baseSha], treeSha: intermediateTree, stagedPaths: files,
+        messageDigest: createHash("sha256").update("first").digest("hex"),
+      },
+    });
+    config.currentAuthority = { retired: false, status: "active", sessionId: "fixture-session", authorityGeneration: 1, runId: target.runnerRunId };
+    priorCommitIntent = transitionPreEffectIntent(config, priorCommitIntent, "executing");
+    priorCommitIntent = transitionPreEffectIntent(config, priorCommitIntent, "live_confirmed");
+    transitionPreEffectIntent(config, priorCommitIntent, "finalized");
+    let commitIntent = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "commit", branchName: target.branch, baseSha: target.baseSha,
+      headSha: intermediateHead, candidateIdentity: intermediateHead,
+      effect: {
+        expectedParents: [intermediateHead], treeSha: target.treeSha, stagedPaths: [files[0]],
+        messageDigest: createHash("sha256").update("second").digest("hex"),
+      },
+    });
+    commitIntent = transitionPreEffectIntent(config, commitIntent, "executing");
+    commitIntent = transitionPreEffectIntent(config, commitIntent, "live_confirmed");
+    transitionPreEffectIntent(config, commitIntent, "finalized");
+    const lifecycle = createSessionLifecycleState({
+      repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
+      runId: target.runnerRunId, supervisorRunId: target.supervisorRunId,
+      claimIdentity: target.claimIdentity, chargeMarkerRef: charge.statePath,
+      sessionId: "fixture-session", branchName: target.branch, baseSha: target.baseSha,
+      headSha: target.headSha, phase: "implementation_or_bundle_slice",
+      nextExactAction: "run_implementation", reportPath: recovery.expectedReportPaths.repoReportPath,
+      reportCorrelationKey: target.taskKey, localSourceChangingRoundsPerEpoch: 1,
+      githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 1,
+    });
+    assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
+    const before = readdirSync(config.logsRoot, { recursive: true }).sort();
+    assert.equal(inspectDeploymentQuiescence(config.logsRoot).unresolvedExternalEffects, true);
+    const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } });
+    assert.equal(admitted.preservedRecoveryAdmitted, true, JSON.stringify(admitted));
+    git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "SSH remotes must not expose ambient SSH configuration or helper execution",
+    );
+    git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/owner/repo.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, {
+        ...target, diffDigest: "0".repeat(64),
+      }, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).preservedRecoveryAdmitted,
+      false,
+      "a wrong operator diff digest must not identify the preserved recovery",
+    );
+    assert.equal(admitted.unresolvedExternalEffects, false);
+    assert.equal(admitted.revalidationRequired, true);
+    assert.deepEqual(readdirSync(config.logsRoot, { recursive: true }).sort(), before);
+    assert.equal(inspectDeploymentQuiescence(config.logsRoot, {
+      preservedRecoveryTarget: target,
+      repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+    }).preservedRecoveryAdmitted, true);
+    const invalidSiblingRecovery = path.join(config.logsRoot, "recovery", "schema-invalid-sibling.json");
+    writeFileSync(invalidSiblingRecovery, `${JSON.stringify({ taskKey: "20260724T999999" })}\n`, { mode: 0o600 });
+    assert.equal(
+      inspectDeploymentQuiescence(config.logsRoot, {
+        preservedRecoveryTarget: target,
+        repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "preserved_recovery_authoritative_read_unavailable",
+      "a schema-invalid sibling recovery must make canonical recovery authority unavailable",
+    );
+    unlinkSync(invalidSiblingRecovery);
+    mkdirSync(path.join(config.logsRoot, "pre-effect-intents"));
+    const legacyPendingIntent = path.join(config.logsRoot, "pre-effect-intents", "legacy-pending.json");
+    writeFileSync(legacyPendingIntent, `${JSON.stringify({ status: "prepared" })}\n`, { mode: 0o600 });
+    const legacyBlocked = inspectDeploymentQuiescence(config.logsRoot, {
+      preservedRecoveryTarget: target,
+      repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+    });
+    assert.equal(legacyBlocked.unresolvedExternalEffects, true);
+    assert.equal(legacyBlocked.reasonCode, "unresolved_operational_state");
+    unlinkSync(legacyPendingIntent);
+    writeFileSync(legacyPendingIntent, `${JSON.stringify({ status: "failed_closed", effectType: "push" })}\n`, { mode: 0o600 });
+    const legacyFailedClosedBlocked = inspectDeploymentQuiescence(config.logsRoot, {
+      preservedRecoveryTarget: target,
+      repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+    });
+    assert.equal(legacyFailedClosedBlocked.unresolvedExternalEffects, true);
+    assert.equal(legacyFailedClosedBlocked.reasonCode, "unresolved_operational_state");
+    unlinkSync(legacyPendingIntent);
+    git(config.repoRoot, ["replace", target.headSha, intermediateHead]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).preservedRecoveryAdmitted,
+      true,
+      "local replacement objects must not influence authoritative lineage",
+    );
+    const previousGitDir = process.env.GIT_DIR;
+    process.env.GIT_DIR = path.join(config.logsRoot, "hostile-git-dir");
+    try {
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+        "preserved_recovery_repository_identity_mismatch",
+        "ambient Git repository redirection must not survive into the resumed runner",
+      );
+    } finally {
+      if (previousGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = previousGitDir;
+    }
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+        gitEnvironment: { ...process.env, LD_PRELOAD: path.join(config.logsRoot, "hostile-loader.so") },
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "dynamic-loader environment must not survive into the resumed runner",
+    );
+    for (const [key, value] of [
+      ["LD_AUDIT", path.join(config.logsRoot, "hostile-audit.so")],
+      ["LD_DEBUG_OUTPUT", path.join(config.logsRoot, "hostile-debug")],
+      ["GIT_PAGER", path.join(config.logsRoot, "hostile-pager")],
+      ["SSH_ASKPASS", path.join(config.logsRoot, "hostile-askpass")],
+      ["SSH_ASKPASS_REQUIRE", "force"],
+    ]) {
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+          repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+          gitEnvironment: { ...process.env, [key]: value },
+        }).reasonCode,
+        "preserved_recovery_repository_identity_mismatch",
+        `${key} execution authority must not survive into the resumed runner`,
+      );
+    }
+    const hostilePath = path.join(config.logsRoot, "hostile-path");
+    mkdirSync(hostilePath);
+    writeFileSync(path.join(hostilePath, "git"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(path.join(hostilePath, "git"), 0o700);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+        gitEnvironment: { ...process.env, PATH: `${hostilePath}:${process.env.PATH}` },
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "the resumed runner must resolve bare Git commands to the trusted binary",
+    );
+    writeFileSync(path.join(hostilePath, "hostile-git"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    unlinkSync(path.join(hostilePath, "git"));
+    symlinkSync(path.join(hostilePath, "hostile-git"), path.join(hostilePath, "git"));
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+        gitEnvironment: { ...process.env, PATH: `${hostilePath}:${process.env.PATH}` },
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an earlier symlinked Git executable must not be skipped during PATH validation",
+    );
+    writeFileSync(path.join(hostilePath, "hostile-cat"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    symlinkSync(path.join(hostilePath, "hostile-cat"), path.join(hostilePath, "cat"));
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+        gitEnvironment: { ...process.env, GIT_PAGER: "cat", PATH: `${hostilePath}:${process.env.PATH}` },
+      }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an earlier symlinked pager executable must not be skipped during PATH validation",
+    );
+    unlinkSync(path.join(hostilePath, "git"));
+    symlinkSync("/usr/bin/git", path.join(hostilePath, "git"));
+    git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:foreign/repo.git"]);
+    const hostileHome = path.join(config.logsRoot, "hostile-home");
+    const hostileXdg = path.join(config.logsRoot, "hostile-xdg");
+    mkdirSync(hostileHome);
+    mkdirSync(hostileXdg);
+    writeFileSync(path.join(hostileHome, ".gitconfig"), `[include]\n\tpath = ${path.join(hostileHome, "rewrite.config")}\n`);
+    writeFileSync(path.join(hostileHome, "rewrite.config"), "[url \"git@github.com:owner/repo.git\"]\n\tinsteadOf = git@github.com:foreign/repo.git\n");
+    git(config.repoRoot, ["config", "--local", "include.path", path.join(hostileHome, "rewrite.config")]);
+    const foreignReason = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+      repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+      gitEnvironment: { ...process.env, HOME: hostileHome, XDG_CONFIG_HOME: hostileXdg },
+    }).reasonCode;
+    assert.equal(
+      foreignReason,
+      "preserved_recovery_repository_identity_mismatch",
+      "hostile global/XDG config and includes cannot rewrite a foreign repository into authority",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "include.path"]);
+    git(config.repoRoot, ["remote", "set-url", "origin", "https://github.com/owner/repo.git"]);
+    git(config.repoRoot, ["config", "extensions.worktreeConfig", "true"]);
+    git(config.repoRoot, ["config", "--worktree", "remote.origin.pushurl", "git@github.com:foreign/repo.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped remote authority must not supplement the canonical repository",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "remote.origin.pushurl"]);
+    git(config.repoRoot, ["config", "--worktree", "url.git@github.com:foreign/repo.git.pushInsteadOf", "git@github.com:owner/repo.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped URL rewrites must not redirect later Git effects",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "url.git@github.com:foreign/repo.git.pushInsteadOf"]);
+    git(config.repoRoot, ["config", "--worktree", "include.path", path.join(hostileHome, "rewrite.config")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped include authority must not hide transport configuration",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "include.path"]);
+    git(config.repoRoot, ["config", "--local", "core.sshCommand", path.join(hostileHome, "hostile-ssh")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "local SSH command authority must not control later GitHub reads or effects",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "core.sshCommand"]);
+    git(config.repoRoot, ["config", "--worktree", "remote.origin.receivepack", "hostile-receive-pack"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped receive-pack authority must not control later pushes",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "remote.origin.receivepack"]);
+    git(config.repoRoot, ["config", "--local", "http.sslVerify", "false"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "local HTTP transport authority must not weaken later GitHub TLS reads or effects",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "http.sslVerify"]);
+    git(config.repoRoot, ["config", "--worktree", "credential.helper", path.join(hostileHome, "hostile-credential-helper")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped credential authority must not execute during later GitHub effects",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "credential.helper"]);
+    git(config.repoRoot, ["config", "--local", "core.hooksPath", path.join(hostileHome, "hooks")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "local hook authority must not execute during later Git effects",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "core.hooksPath"]);
+    git(config.repoRoot, ["config", "--worktree", "core.fsmonitor", path.join(hostileHome, "hostile-fsmonitor")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped fsmonitor authority must not execute during later Git reads",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "core.fsmonitor"]);
+    git(config.repoRoot, ["config", "--local", "core.attributesFile", path.join(hostileHome, "attributes")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "external attributes must not select an installed Git filter",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "core.attributesFile"]);
+    git(config.repoRoot, ["config", "--local", "filter.hostile.process", path.join(hostileHome, "hostile-filter")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "local filter process authority must not execute during deployment Git reads",
+    );
+    git(config.repoRoot, ["config", "--local", "--unset-all", "filter.hostile.process"]);
+    git(config.repoRoot, ["config", "--worktree", "filter.hostile.clean", path.join(hostileHome, "hostile-clean-filter")]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "worktree-scoped clean filter authority must not execute during deployment Git reads",
+    );
+    git(config.repoRoot, ["config", "--worktree", "--unset-all", "filter.hostile.clean"]);
+    for (const [scope, key, description] of [
+      ["--local", "diff.external", "external diff"],
+      ["--worktree", "diff.Hostile.command", "worktree diff command"],
+      ["--local", "diff.Hostile.textconv", "mixed-case text conversion"],
+      ["--worktree", "merge.Hostile.driver", "worktree merge driver"],
+    ]) {
+      git(config.repoRoot, ["config", scope, key, path.join(hostileHome, `hostile-${description.replaceAll(" ", "-")}`)]);
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+        "preserved_recovery_repository_identity_mismatch",
+        `${description} authority must not execute during current or later Git operations`,
+      );
+      git(config.repoRoot, ["config", scope, "--unset-all", key]);
+    }
+    const prePushHook = path.join(config.repoRoot, ".git", "hooks", "pre-push");
+    writeFileSync(prePushHook, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    chmodSync(prePushHook, 0o700);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an executable default pre-push hook must not run during later Git effects",
+    );
+    unlinkSync(prePushHook);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "multiple raw fetch URLs are ambiguous repository authority",
+    );
+    git(config.repoRoot, ["config", "--unset-all", "remote.origin.url"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", "https://github.com/owner/repo.git"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", ""]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_repository_identity_mismatch",
+      "an empty additional fetch URL still counts as ambiguous authority",
+    );
+    git(config.repoRoot, ["config", "--unset-all", "remote.origin.url"]);
+    git(config.repoRoot, ["config", "--add", "remote.origin.url", "https://github.com/owner/repo.git"]);
+    git(config.repoRoot, ["branch", "-m", "moved-preserved-branch"]);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_branch_ref_mismatch",
+    );
+    git(config.repoRoot, ["branch", "-m", target.branch]);
+    let unrelatedIntent = preparePreEffectIntent(config, {
+      repository: "foreign/repo", sourceTaskKey: "20260724T090000", runId: "run-2026-07-24T090000Z-foreign",
+      logicalTaskIdentity: "foreign/repo#1000", claimIdentity: "foreign/repo#1000",
+      chargeIdentity: "foreign-charge", sessionId: "foreign-session", authorityGeneration: 1,
+      effectType: "push", branchName: "feature/foreign", baseSha: target.baseSha,
+      headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: { remote: "origin", branchName: "feature/foreign", headSha: target.headSha },
+    });
+    config.currentAuthority = {
+      retired: false, status: "active", sessionId: "foreign-session",
+      authorityGeneration: 1, runId: "run-2026-07-24T090000Z-foreign",
+    };
+    unrelatedIntent = transitionPreEffectIntent(config, unrelatedIntent, "failed_closed");
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "external_effect_failed_closed_not_admissible",
+    );
+    unlinkSync(path.join(
+      config.logsRoot,
+      "recovery",
+      "pre-effect-intents",
+      `${createHash("sha256").update(unrelatedIntent.intentId).digest("hex")}.json`,
+    ));
+    config.currentAuthority = {
+      retired: false, status: "active", sessionId: "fixture-session",
+      authorityGeneration: 1, runId: target.runnerRunId,
+    };
+    assert.equal(inspectPreservedRecoveryForDeployment(config.logsRoot, {
+      ...target,
+      headSha: intermediateHead,
+    }, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).preservedRecoveryAdmitted, false);
+    const intent = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "comment", issueNumber: 959, branchName: target.branch, baseSha: target.baseSha,
+      headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: { issueNumber: 959, bodyDigest: "e".repeat(64) },
+    });
+    assert.equal(intent.status, "prepared");
+    const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } });
+    assert.equal(pending.preservedRecoveryAdmitted, false);
+    assert.equal(pending.reasonCode, "pending_external_effect");
+    let finalizedExternal = transitionPreEffectIntent(config, intent, "executing");
+    finalizedExternal = transitionPreEffectIntent(config, finalizedExternal, "live_confirmed");
+    finalizedExternal = transitionPreEffectIntent(config, finalizedExternal, "finalized");
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+      "preserved_recovery_external_effect_present",
+    );
+    const deleteIntent = (value) => unlinkSync(path.join(
+      config.logsRoot,
+      "recovery",
+      "pre-effect-intents",
+      `${createHash("sha256").update(value.intentId).digest("hex")}.json`,
+    ));
+    deleteIntent(finalizedExternal);
+    for (const effectType of ["push", "merge"]) {
+      let external = preparePreEffectIntent(config, {
+        repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+        logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+        chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+        effectType, issueNumber: 959, prNumber: 959, branchName: target.branch, baseSha: target.baseSha,
+        headSha: target.headSha, candidateIdentity: target.headSha,
+        effect: { remote: "origin", branchName: target.branch, headSha: target.headSha, prNumber: 959 },
+      });
+      external = transitionPreEffectIntent(config, external, "executing");
+      external = transitionPreEffectIntent(config, external, "live_confirmed");
+      external = transitionPreEffectIntent(config, external, "finalized");
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
+        "preserved_recovery_external_effect_present",
+        `finalized ${effectType} must not become preserved-recovery authority`,
+      );
+      deleteIntent(external);
+    }
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("disabled lifecycle preserves legacy startup continuation before takeover gating", () => {
   assert.deepEqual(
     consumeStartupInterruptionPlanner({ sessionLifecycle: { enabled: false, allowRecoveryTakeover: false } }, {}),
@@ -368,6 +996,12 @@ function tempConfig(extra = {}) {
     cleanup: () => rmSync(logsRoot, { recursive: true, force: true }),
     ...extra,
   };
+}
+
+function git(repoRoot, args) {
+  const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
 }
 
 function state(overrides = {}) {
