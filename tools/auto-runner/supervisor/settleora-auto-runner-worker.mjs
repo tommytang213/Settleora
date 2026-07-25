@@ -43,12 +43,13 @@ export async function runSupervisorWorker(
   } = {},
 ) {
   validateRunId(runId);
-  if (!resumedGitEnvironmentIsTrusted(runnerEnvironment)) {
+  const recoveryEnvironment = { ...runnerEnvironment, GIT_NO_REPLACE_OBJECTS: "1" };
+  if (!resumedGitEnvironmentIsTrusted(recoveryEnvironment)) {
     throw new Error("supervisor worker Git environment is not trusted");
   }
   const previous = readSupervisorState(runId, logsRoot).state;
   const verified = readAndVerifyRunSpec(runId, previous?.specSha256 || null, logsRoot);
-  const currentMain = getRefSha("origin/main", { cwd: repoRoot });
+  const currentMain = getRefSha("origin/main", { cwd: repoRoot, env: recoveryEnvironment });
   if (currentMain !== verified.spec.initialOriginMainSha) {
     writeSupervisorState(runId, { state: "stale", staleReason: "origin_main_changed", currentMain }, logsRoot);
     return { terminal: "stale", exitCode: exitCodes.stale };
@@ -82,7 +83,7 @@ export async function runSupervisorWorker(
   const runnerArgs = argv.slice(1);
   const child = spawnImpl(process.execPath, runnerArgs, {
     cwd: repoRoot,
-    env: runnerEnvironment,
+    env: recoveryEnvironment,
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stdout.pipe(stdout);

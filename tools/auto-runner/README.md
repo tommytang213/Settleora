@@ -112,7 +112,8 @@ configuration can delegate to ambient executable helpers. Loader,
 repository-redirection, and other
 effect-bearing `GIT_*` and `SSH_ASKPASS*` environment variables are rejected. The
 stable-launched supervisor rechecks the actual runner-child environment before
-any recovery Git read and passes that exact inspected environment to the child. Repository and
+any recovery Git read, requires `GIT_NO_REPLACE_OBJECTS=1`, and passes that
+exact inspected environment to the child. Repository and
 worktree config must contain no executable or transport override, recognized
 default hooks must not be executable, and global/system config must match the
 bounded installed GitHub credential-helper and inert standard Git-LFS shapes.

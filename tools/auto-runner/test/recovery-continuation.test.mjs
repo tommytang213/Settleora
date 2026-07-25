@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
@@ -13,6 +13,7 @@ import {
   inspectPreservedRecoveryForDeployment,
   normalizePreservedRecoveryDeploymentTarget,
   resumedGitConfigIsTrusted,
+  resumedGitEnvironmentIsTrusted,
   sanitizedDeploymentGitEnvironment,
 } from "../lib/preserved-recovery-deployment.mjs";
 import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
@@ -78,6 +79,16 @@ test("deployment Git environment disables lazy object fetching and ignores ambie
   assert.equal(resumedGitConfigIsTrusted([["core.hookspath", "/tmp/hooks"]], []), false);
   assert.equal(defaultGitAttributeFilesAreAbsent(["a", "b", "c", "d"], () => false), true);
   assert.equal(defaultGitAttributeFilesAreAbsent(["a", "b", "c", "d"], (file) => file === "c"), false);
+  assert.equal(resumedGitEnvironmentIsTrusted({
+    HOME: homedir(),
+    PATH: "/usr/bin:/bin",
+    GIT_NO_REPLACE_OBJECTS: "1",
+  }), true);
+  assert.equal(resumedGitEnvironmentIsTrusted({
+    HOME: homedir(),
+    PATH: "/usr/bin:/bin",
+    GIT_NO_REPLACE_OBJECTS: "0",
+  }), false);
 });
 
 test("one trusted recovery reconstructs a genuinely missing lifecycle exactly once", () => {

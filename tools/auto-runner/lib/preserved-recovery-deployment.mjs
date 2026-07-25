@@ -527,6 +527,7 @@ export function resumedGitEnvironmentIsTrusted(environment) {
   return !Object.keys(environment || {}).some((key) =>
     key.startsWith("LD_") || key.startsWith("DYLD_") || key.startsWith("SSH_ASKPASS")
       || (key.startsWith("GIT_")
+        && !(key === "GIT_NO_REPLACE_OBJECTS" && environment[key] === "1")
         && !(key === "GIT_PAGER" && environment[key] === "cat"
           && resolvePathExecutable(environment.PATH, "cat") === realpathSync("/usr/bin/cat"))));
 }
