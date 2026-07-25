@@ -40,6 +40,11 @@ test("pre-Node boundary defeats import, require, loader, NODE_PATH, and startup-
         env: {
           ...process.env,
           ...hostile,
+          SETTLEORA_BOUNDARY_CLEAN: "1",
+          GIT_EXEC_PATH: "/tmp/hostile-git-exec",
+          GIT_ASKPASS: "/tmp/hostile-git-askpass",
+          SSH_ASKPASS: "/tmp/hostile-ssh-askpass",
+          BASH_ENV: preload,
           UNAPPROVED_UNKNOWN: "must-not-propagate",
         },
       });
@@ -50,6 +55,11 @@ test("pre-Node boundary defeats import, require, loader, NODE_PATH, and startup-
       assert.equal(observed.HOME, root, label);
       assert.equal(observed.NODE_OPTIONS, undefined, label);
       assert.equal(observed.GEMINI_API_KEY, undefined, label);
+      assert.equal(observed.SETTLEORA_BOUNDARY_CLEAN, undefined, label);
+      assert.equal(observed.GIT_EXEC_PATH, undefined, label);
+      assert.equal(observed.GIT_ASKPASS, undefined, label);
+      assert.equal(observed.SSH_ASKPASS, undefined, label);
+      assert.equal(observed.BASH_ENV, undefined, label);
       assert.equal(observed.UNAPPROVED_UNKNOWN, undefined, label);
     }
   } finally {

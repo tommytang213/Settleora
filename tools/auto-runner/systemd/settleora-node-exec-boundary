@@ -6,9 +6,10 @@ fail() {
   exit 126
 }
 
-if [ "${SETTLEORA_BOUNDARY_CLEAN-}" != "1" ]; then
-  exec /usr/bin/env -i SETTLEORA_BOUNDARY_CLEAN=1 /bin/sh "$0" "$@"
+if [ "${1-}" != "--settleora-internal-clean-v1" ]; then
+  exec /usr/bin/env -i /bin/sh "$0" --settleora-internal-clean-v1 "$@"
 fi
+shift
 
 mode=
 node=
@@ -77,8 +78,6 @@ TMPDIR=/tmp
 USER=$(/usr/bin/id -un)
 LOGNAME=$USER
 export PATH HOME LANG LC_ALL TMPDIR USER LOGNAME
-unset SETTLEORA_BOUNDARY_CLEAN
-
 node_version=$("$node" --version 2>/dev/null) || fail "Node version check failed"
 case "$node_version" in
   v22.*) ;;

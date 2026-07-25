@@ -180,7 +180,13 @@ enter the process tree at all. Provider secrets are read only by the existing
 bounded owner-controlled credential-file readers when needed; they are not
 present in Node, Git, Codex, health, notifier, argv, unit readback, or reports.
 Unsupported systemd/Node identities and drifted unit/drop-in/readback evidence
-fail before activation. This contract does not claim protection from a
+fail before supervisor activation. The fixed health and notifier files are
+repository templates, not self-authorizing activation artifacts: they remain
+unsupported for a later install/start until a separately reviewed installer
+performs the same version, exact installed-byte, no-drop-in, effective
+`ExecStart=`, effective `UnsetEnvironment=`, helper, and Node identity
+readbacks. Template parsing alone is not activation evidence. This contract
+does not claim protection from a
 malicious kernel, root administrator, replaced systemd, or replaced trusted
 system binaries.
 

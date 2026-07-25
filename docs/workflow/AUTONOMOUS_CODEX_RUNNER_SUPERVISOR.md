@@ -179,7 +179,13 @@ before the helper starts. The helper immediately re-execs itself through
 only `HOME`, `USER`, `LOGNAME`, a fixed `PATH`, `LANG`, `LC_ALL`, `TMPDIR`, and
 the shell-maintained `PWD`, verifies `node --version`, and then execs the stable
 launcher. Unknown ambient names are omitted. Hosts without these capabilities
-or identities refuse submission; there is no compatibility downgrade.
+or identities refuse supervisor submission; there is no compatibility
+downgrade. The fixed health and notifier files remain repository templates,
+not independently supported activation artifacts, until a separate reviewed
+installer verifies the systemd version, exact installed bytes, absence of
+drop-ins, effective `ExecStart=` and `UnsetEnvironment=`, and the canonical
+helper and Node identities before start. Repository template tests are not
+accepted as installed-unit evidence.
 
 Secrets are not service environment. Gemini credentials continue through the
 existing owner-controlled reviewer credential file selected by the reviewed
