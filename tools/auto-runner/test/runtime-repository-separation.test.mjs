@@ -786,6 +786,8 @@ test("quiescence drift after launcher preparation leaves installed and rollback 
     cpSync(sourceRoot, changedSource, { recursive: true });
     writeFileSync(path.join(changedSource, "lib/runtime-identity.mjs"), `${readFileSync(path.join(changedSource, "lib/runtime-identity.mjs"), "utf8")}\n`);
     const rollback = path.join(parent, ".runtime.rollback");
+    const launcher = path.join(parent, ".runtime.launcher.mjs");
+    const originalLauncherDigest = createHash("sha256").update(readFileSync(launcher)).digest("hex");
     let inspections = 0;
     assert.throws(() => deployRuntimeBundle({
       sourceRoot: changedSource,
@@ -807,6 +809,7 @@ test("quiescence drift after launcher preparation leaves installed and rollback 
     }), /fixture drift after launcher preparation/);
     assert.equal(inspections, 2);
     assert.equal(verifyRuntimeBundle(destination).bundleDigest, first.manifest.bundleDigest);
+    assert.equal(createHash("sha256").update(readFileSync(launcher)).digest("hex"), originalLauncherDigest);
     assert.equal(existsSync(rollback), false);
   } finally {
     rmSync(root, { recursive: true, force: true });

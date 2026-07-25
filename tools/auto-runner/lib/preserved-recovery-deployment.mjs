@@ -116,6 +116,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
   processActive = defaultProcessActive,
   repositoryRoot = null,
   gitEnvironment = process.env,
+  resumedGitConfigRecords = null,
 } = {}) {
   let target;
   try {
@@ -138,7 +139,15 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
     const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath);
     if (!lifecycleProof.ok) return denied(lifecycleProof.reasonCode, target);
-    const intentProof = validateIntents(config, state, target, chargeProof.statePath, repositoryRoot, gitEnvironment);
+    const intentProof = validateIntents(
+      config,
+      state,
+      target,
+      chargeProof.statePath,
+      repositoryRoot,
+      gitEnvironment,
+      resumedGitConfigRecords,
+    );
     if (!intentProof.ok) return denied(intentProof.reasonCode, target);
     if (operationalOwnerIsLive(config.logsRoot, target, processActive)) return denied("preserved_recovery_live_owner", target);
     return evidence({
@@ -252,7 +261,7 @@ function validateLifecycle(config, state, target, chargeMarkerRef) {
   return { ok: true };
 }
 
-function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot, gitEnvironment) {
+function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot, gitEnvironment, resumedGitConfigRecords) {
   const intentRoot = path.join(config.logsRoot, "recovery", "pre-effect-intents");
   const intents = existsSync(intentRoot) ? findPreEffectIntents(config) : [];
   const commitIntents = [];
@@ -281,10 +290,24 @@ function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot,
     }
     if (intent.effectType === "commit") commitIntents.push(intent);
   }
-  return validateCommitLineage(repositoryRoot, target, commitIntents, state.ordinaryContinuation.identity.changedFiles, gitEnvironment);
+  return validateCommitLineage(
+    repositoryRoot,
+    target,
+    commitIntents,
+    state.ordinaryContinuation.identity.changedFiles,
+    gitEnvironment,
+    resumedGitConfigRecords,
+  );
 }
 
-function validateCommitLineage(repositoryRoot, target, intents, expectedChangedFiles, gitEnvironment) {
+function validateCommitLineage(
+  repositoryRoot,
+  target,
+  intents,
+  expectedChangedFiles,
+  gitEnvironment,
+  resumedGitConfigRecords,
+) {
   if (!repositoryRoot || intents.some((intent) => intent.status !== "finalized")) {
     return { ok: false, reasonCode: "preserved_recovery_commit_proof_missing" };
   }
@@ -307,7 +330,13 @@ function validateCommitLineage(repositoryRoot, target, intents, expectedChangedF
   const worktreeTransportAuthority = worktreeConfigEnabled
     && gitConfigNames(root, gitEnvironment, "worktree").some(isGitTransportAuthorityKey);
   const executableDefaultHooks = defaultGitHooksAreExecutable(root, readGit);
-  const resumedGitAuthority = validateResumedGitAuthority(root, target, gitEnvironment, readGit);
+  const resumedGitAuthority = validateResumedGitAuthority(
+    root,
+    target,
+    gitEnvironment,
+    readGit,
+    resumedGitConfigRecords,
+  );
   const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
   if (fetchUrls.length !== 1 || pushUrls.length > 1 || worktreeFetchUrls.length || worktreePushUrls.length
       || localTransportAuthority || worktreeTransportAuthority || executableDefaultHooks || !resumedGitAuthority
@@ -477,11 +506,16 @@ function defaultGitHooksAreExecutable(root, readGit) {
   return false;
 }
 
-function validateResumedGitAuthority(root, target, environment, readGit) {
+function validateResumedGitAuthority(root, target, environment, readGit, injectedRecords = null) {
   if (!resumedGitEnvironmentIsTrusted(environment)) return false;
   const configEnvironment = trustedUserGitConfigEnvironment();
-  const globalRecords = gitConfigRecords(root, "global", configEnvironment);
-  const systemRecords = gitConfigRecords(root, "system", configEnvironment);
+  const globalRecords = injectedRecords === null
+    ? gitConfigRecords(root, "global", configEnvironment)
+    : injectedRecords.global;
+  const systemRecords = injectedRecords === null
+    ? gitConfigRecords(root, "system", configEnvironment)
+    : injectedRecords.system;
+  if (!Array.isArray(globalRecords) || !Array.isArray(systemRecords)) return false;
   return resumedGitConfigIsTrusted(globalRecords, systemRecords, {
     repositoryDefinesFilter: systemRecords.length > 0 && repositoryDefinesFilterAttributes(root, target, readGit),
     defaultAttributesPresent: systemRecords.length > 0 && !defaultGitAttributeFilesAreAbsent(),

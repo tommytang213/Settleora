@@ -380,6 +380,8 @@ export function deployRuntimeBundle({
   const launcher = path.join(destinationParent, `.${path.basename(destination)}.launcher.mjs`);
   const stagedLauncher = path.join(temporary, "runtime-launcher.mjs");
   const incomingLauncher = path.join(destinationParent, `.${path.basename(destination)}.launcher.incoming`);
+  const launcherPreviouslyExisted = existsSync(launcher);
+  let launcherReplaced = false;
   if (existsSync(launcher)) {
     const launcherInfo = lstatSync(launcher);
     if (!launcherInfo.isFile() || launcherInfo.isSymbolicLink() || (launcherInfo.mode & 0o077) !== 0) {
@@ -398,6 +400,7 @@ export function deployRuntimeBundle({
       cpSync(stagedLauncher, incomingLauncher, { dereference: false });
       chmodSync(incomingLauncher, 0o500);
       renameSync(incomingLauncher, launcher);
+      launcherReplaced = true;
       // The deployment lock, quiescence checks, exact old digest, and verified
       // current bundle authenticate this bounded launcher replacement. Keep the
       // old bundle launchable if the process stops before the runtime exchange.
@@ -408,6 +411,7 @@ export function deployRuntimeBundle({
     cpSync(stagedLauncher, incomingLauncher, { dereference: false });
     chmodSync(incomingLauncher, 0o500);
     renameSync(incomingLauncher, launcher);
+    launcherReplaced = true;
   }
   if (createHash("sha256").update(readFileSync(launcher)).digest("hex")
       !== createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex")) {
@@ -416,7 +420,21 @@ export function deployRuntimeBundle({
   // Launcher preparation is deliberately outside the runtime directory exchange.
   // Re-read operational authority after that preparation so no unrelated work
   // separates the final proof from the first rollback/runtime rename.
-  verifyFinalQuiescence();
+  try {
+    verifyFinalQuiescence();
+  } catch (error) {
+    if (launcherReplaced) {
+      if (launcherPreviouslyExisted && currentManifest) {
+        cpSync(path.join(destination, "runtime-launcher.mjs"), incomingLauncher, { dereference: false });
+        chmodSync(incomingLauncher, 0o500);
+        renameSync(incomingLauncher, launcher);
+        writeRuntimeApproval(destination, currentManifest);
+      } else {
+        rmSync(launcher);
+      }
+    }
+    throw error;
+  }
   if (existsSync(rollback)) {
     if (existsSync(retiredRollback)) throw new Error("runtime rollback retirement state is contradictory");
     renameSync(rollback, retiredRollback);
@@ -544,7 +562,11 @@ export function rollbackRuntimeBundle({
   };
 }
 
-export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget = null, repositoryRoot = null } = {}) {
+export function inspectDeploymentQuiescence(logsRoot, {
+  preservedRecoveryTarget = null,
+  repositoryRoot = null,
+  resumedGitConfigRecords = null,
+} = {}) {
   canonicalExistingDirectory(logsRoot, "logsRoot");
   const activePaths = [
     path.join(logsRoot, "locks"),
@@ -573,7 +595,10 @@ export function inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget 
     return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
   }
   if (preservedRecoveryTarget) {
-    return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget, { repositoryRoot });
+    return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget, {
+      repositoryRoot,
+      resumedGitConfigRecords,
+    });
   }
   const recoverableStates = listRecoverableRecoveryStates({ logsRoot });
   if (recoverableStates.length > 0) {

@@ -463,11 +463,11 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(persistSessionLifecycleState(config, lifecycle).ok, true);
     const before = readdirSync(config.logsRoot, { recursive: true }).sort();
     assert.equal(inspectDeploymentQuiescence(config.logsRoot).unresolvedExternalEffects, true);
-    const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot });
+    const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } });
     assert.equal(admitted.preservedRecoveryAdmitted, true, JSON.stringify(admitted));
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "SSH remotes must not expose ambient SSH configuration or helper execution",
     );
@@ -475,7 +475,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, {
         ...target, diffDigest: "0".repeat(64),
-      }, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted,
+      }, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).preservedRecoveryAdmitted,
       false,
       "a wrong operator diff digest must not identify the preserved recovery",
     );
@@ -485,6 +485,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(inspectDeploymentQuiescence(config.logsRoot, {
       preservedRecoveryTarget: target,
       repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
     }).preservedRecoveryAdmitted, true);
     const invalidSiblingRecovery = path.join(config.logsRoot, "recovery", "schema-invalid-sibling.json");
     writeFileSync(invalidSiblingRecovery, `${JSON.stringify({ taskKey: "20260724T999999" })}\n`, { mode: 0o600 });
@@ -492,6 +493,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       inspectDeploymentQuiescence(config.logsRoot, {
         preservedRecoveryTarget: target,
         repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
       }).reasonCode,
       "preserved_recovery_authoritative_read_unavailable",
       "a schema-invalid sibling recovery must make canonical recovery authority unavailable",
@@ -503,6 +505,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     const legacyBlocked = inspectDeploymentQuiescence(config.logsRoot, {
       preservedRecoveryTarget: target,
       repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
     });
     assert.equal(legacyBlocked.unresolvedExternalEffects, true);
     assert.equal(legacyBlocked.reasonCode, "unresolved_operational_state");
@@ -511,13 +514,14 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     const legacyFailedClosedBlocked = inspectDeploymentQuiescence(config.logsRoot, {
       preservedRecoveryTarget: target,
       repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
     });
     assert.equal(legacyFailedClosedBlocked.unresolvedExternalEffects, true);
     assert.equal(legacyFailedClosedBlocked.reasonCode, "unresolved_operational_state");
     unlinkSync(legacyPendingIntent);
     git(config.repoRoot, ["replace", target.headSha, intermediateHead]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).preservedRecoveryAdmitted,
       true,
       "local replacement objects must not influence authoritative lineage",
     );
@@ -525,7 +529,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     process.env.GIT_DIR = path.join(config.logsRoot, "hostile-git-dir");
     try {
       assert.equal(
-        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
         "preserved_recovery_repository_identity_mismatch",
         "ambient Git repository redirection must not survive into the resumed runner",
       );
@@ -536,6 +540,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
         repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
         gitEnvironment: { ...process.env, LD_PRELOAD: path.join(config.logsRoot, "hostile-loader.so") },
       }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
@@ -551,6 +556,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       assert.equal(
         inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
           repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
           gitEnvironment: { ...process.env, [key]: value },
         }).reasonCode,
         "preserved_recovery_repository_identity_mismatch",
@@ -564,6 +570,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
         repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
         gitEnvironment: { ...process.env, PATH: `${hostilePath}:${process.env.PATH}` },
       }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
@@ -575,6 +582,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
         repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
         gitEnvironment: { ...process.env, PATH: `${hostilePath}:${process.env.PATH}` },
       }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
@@ -585,6 +593,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
         repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
         gitEnvironment: { ...process.env, GIT_PAGER: "cat", PATH: `${hostilePath}:${process.env.PATH}` },
       }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
@@ -602,6 +611,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["config", "--local", "include.path", path.join(hostileHome, "rewrite.config")]);
     const foreignReason = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
       repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
       gitEnvironment: { ...process.env, HOME: hostileHome, XDG_CONFIG_HOME: hostileXdg },
     }).reasonCode;
     assert.equal(
@@ -614,84 +624,84 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["config", "extensions.worktreeConfig", "true"]);
     git(config.repoRoot, ["config", "--worktree", "remote.origin.pushurl", "git@github.com:foreign/repo.git"]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "worktree-scoped remote authority must not supplement the canonical repository",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "remote.origin.pushurl"]);
     git(config.repoRoot, ["config", "--worktree", "url.git@github.com:foreign/repo.git.pushInsteadOf", "git@github.com:owner/repo.git"]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "worktree-scoped URL rewrites must not redirect later Git effects",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "url.git@github.com:foreign/repo.git.pushInsteadOf"]);
     git(config.repoRoot, ["config", "--worktree", "include.path", path.join(hostileHome, "rewrite.config")]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "worktree-scoped include authority must not hide transport configuration",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "include.path"]);
     git(config.repoRoot, ["config", "--local", "core.sshCommand", path.join(hostileHome, "hostile-ssh")]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "local SSH command authority must not control later GitHub reads or effects",
     );
     git(config.repoRoot, ["config", "--local", "--unset-all", "core.sshCommand"]);
     git(config.repoRoot, ["config", "--worktree", "remote.origin.receivepack", "hostile-receive-pack"]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "worktree-scoped receive-pack authority must not control later pushes",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "remote.origin.receivepack"]);
     git(config.repoRoot, ["config", "--local", "http.sslVerify", "false"]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "local HTTP transport authority must not weaken later GitHub TLS reads or effects",
     );
     git(config.repoRoot, ["config", "--local", "--unset-all", "http.sslVerify"]);
     git(config.repoRoot, ["config", "--worktree", "credential.helper", path.join(hostileHome, "hostile-credential-helper")]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "worktree-scoped credential authority must not execute during later GitHub effects",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "credential.helper"]);
     git(config.repoRoot, ["config", "--local", "core.hooksPath", path.join(hostileHome, "hooks")]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "local hook authority must not execute during later Git effects",
     );
     git(config.repoRoot, ["config", "--local", "--unset-all", "core.hooksPath"]);
     git(config.repoRoot, ["config", "--worktree", "core.fsmonitor", path.join(hostileHome, "hostile-fsmonitor")]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "worktree-scoped fsmonitor authority must not execute during later Git reads",
     );
     git(config.repoRoot, ["config", "--worktree", "--unset-all", "core.fsmonitor"]);
     git(config.repoRoot, ["config", "--local", "core.attributesFile", path.join(hostileHome, "attributes")]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "external attributes must not select an installed Git filter",
     );
     git(config.repoRoot, ["config", "--local", "--unset-all", "core.attributesFile"]);
     git(config.repoRoot, ["config", "--local", "filter.hostile.process", path.join(hostileHome, "hostile-filter")]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "local filter process authority must not execute during deployment Git reads",
     );
     git(config.repoRoot, ["config", "--local", "--unset-all", "filter.hostile.process"]);
     git(config.repoRoot, ["config", "--worktree", "filter.hostile.clean", path.join(hostileHome, "hostile-clean-filter")]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "worktree-scoped clean filter authority must not execute during deployment Git reads",
     );
@@ -704,7 +714,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     ]) {
       git(config.repoRoot, ["config", scope, key, path.join(hostileHome, `hostile-${description.replaceAll(" ", "-")}`)]);
       assert.equal(
-        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
         "preserved_recovery_repository_identity_mismatch",
         `${description} authority must not execute during current or later Git operations`,
       );
@@ -714,14 +724,14 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     writeFileSync(prePushHook, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     chmodSync(prePushHook, 0o700);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "an executable default pre-push hook must not run during later Git effects",
     );
     unlinkSync(prePushHook);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "git@github.com:owner/other.git"]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "multiple raw fetch URLs are ambiguous repository authority",
     );
@@ -729,7 +739,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "https://github.com/owner/repo.git"]);
     git(config.repoRoot, ["config", "--add", "remote.origin.url", ""]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_repository_identity_mismatch",
       "an empty additional fetch URL still counts as ambiguous authority",
     );
@@ -737,7 +747,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["config", "--add", "remote.origin.url", "https://github.com/owner/repo.git"]);
     git(config.repoRoot, ["branch", "-m", "moved-preserved-branch"]);
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_branch_ref_mismatch",
     );
     git(config.repoRoot, ["branch", "-m", target.branch]);
@@ -755,7 +765,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     };
     unrelatedIntent = transitionPreEffectIntent(config, unrelatedIntent, "failed_closed");
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "external_effect_failed_closed_not_admissible",
     );
     unlinkSync(path.join(
@@ -771,7 +781,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(inspectPreservedRecoveryForDeployment(config.logsRoot, {
       ...target,
       headSha: intermediateHead,
-    }, { repositoryRoot: config.repoRoot }).preservedRecoveryAdmitted, false);
+    }, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).preservedRecoveryAdmitted, false);
     const intent = preparePreEffectIntent(config, {
       repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
       logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
@@ -781,14 +791,14 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       effect: { issueNumber: 959, bodyDigest: "e".repeat(64) },
     });
     assert.equal(intent.status, "prepared");
-    const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot });
+    const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } });
     assert.equal(pending.preservedRecoveryAdmitted, false);
     assert.equal(pending.reasonCode, "pending_external_effect");
     let finalizedExternal = transitionPreEffectIntent(config, intent, "executing");
     finalizedExternal = transitionPreEffectIntent(config, finalizedExternal, "live_confirmed");
     finalizedExternal = transitionPreEffectIntent(config, finalizedExternal, "finalized");
     assert.equal(
-      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
       "preserved_recovery_external_effect_present",
     );
     const deleteIntent = (value) => unlinkSync(path.join(
@@ -811,7 +821,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       external = transitionPreEffectIntent(config, external, "live_confirmed");
       external = transitionPreEffectIntent(config, external, "finalized");
       assert.equal(
-        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot }).reasonCode,
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
         "preserved_recovery_external_effect_present",
         `finalized ${effectType} must not become preserved-recovery authority`,
       );
