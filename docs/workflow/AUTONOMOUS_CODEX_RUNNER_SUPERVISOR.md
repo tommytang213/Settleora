@@ -172,7 +172,9 @@ files do not imply a shared unit or mutation authority.
 
 The supported activation contract is systemd 235 or newer and a canonical,
 root-owned, non-group/world-writable absolute Node executable in the reviewed
-major-22 range. The unit invokes `/usr/bin/env -i` before Node and constructs
+major-22 range. Every Node ancestor must also be canonical, root-owned, and
+non-writable; the canonical home leaf must be service-account-owned beneath a
+root-owned non-writable directory chain. The unit invokes `/usr/bin/env -i` before Node and constructs
 only `HOME`, `USER`, `LOGNAME`, a fixed `PATH`, `LANG`, `LC_ALL`, `TMPDIR`,
 systemd-derived `XDG_RUNTIME_DIR`, the matching fixed user-bus
 `DBUS_SESSION_BUS_ADDRESS`. `UnsetEnvironment=`

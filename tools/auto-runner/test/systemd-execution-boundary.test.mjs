@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { validateTrustedDirectoryChain } from "../supervisor/systemd-client.mjs";
 
 const cleanEnvironment = (home) => [
   "-i",
@@ -84,6 +85,32 @@ test("systemd-native boundary selects Node absolutely and retains only the bound
     assert.equal(observed.env.XDG_RUNTIME_DIR, "/run/user/1234");
     assert.equal(observed.env.DBUS_SESSION_BUS_ADDRESS, "unix:path=/run/user/1234/bus");
     assert.equal(observed.env.NODE_OPTIONS, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("systemd activation rejects a writable or non-canonical directory trust chain", () => {
+  const home = process.env.HOME;
+  assert.equal(
+    validateTrustedDirectoryChain(home, {
+      leafUid: process.getuid(),
+      ancestorUid: 0,
+      label: "fixture home",
+    }),
+    home,
+  );
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-systemd-chain-"));
+  chmodSync(root, 0o700);
+  try {
+    assert.throws(
+      () => validateTrustedDirectoryChain(root, {
+        leafUid: process.getuid(),
+        ancestorUid: 0,
+        label: "fixture",
+      }),
+      /trust chain is unsafe/,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

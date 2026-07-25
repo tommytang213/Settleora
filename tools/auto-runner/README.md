@@ -161,8 +161,9 @@ relying on `PATH`.
 
 Supported activation requires systemd 235 or newer (the release that provides
 final `UnsetEnvironment=` processing), Node 22, a root-owned non-symlink Node
-binary that is not group/world writable, and an owner-controlled home
-directory. `/usr/bin/env -i` constructs the child environment from nothing;
+binary whose root-owned canonical ancestor chain is not group/world writable,
+and a canonical home directory owned by the service account beneath a
+root-owned non-writable ancestor chain. `/usr/bin/env -i` constructs the child environment from nothing;
 `UnsetEnvironment=` additionally removes documented Node startup/module/cache/
 coverage/debug/OpenSSL controls plus dynamic-loader, shell-startup, Git, SSH,
 and askpass controls as defense in depth. The unit supplies only:

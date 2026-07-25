@@ -24,6 +24,7 @@ export function buildSystemdStartPlan(runId, {
   const nodeExecutable = validateNodeExecutable(process.execPath);
   const account = userInfo();
   const homeDirectory = validateSystemdPath(account.homedir, "homeDirectory");
+  validateTrustedDirectoryChain(homeDirectory, { leafUid: account.uid, ancestorUid: 0, label: "homeDirectory" });
   const userName = validateSystemdValue(account.username, "userName");
   const runtimeDirectory = `/run/user/${account.uid}`;
   const unitName = unitNameForRunId(runId, safeProjectId);
@@ -78,10 +79,33 @@ function renderUnitTemplate(template, values) {
 
 function validateNodeExecutable(value) {
   const absolute = validateSystemdPath(value, "nodeExecutable");
+  validateTrustedDirectoryChain(path.dirname(absolute), {
+    leafUid: 0,
+    ancestorUid: 0,
+    label: "nodeExecutable ancestor",
+  });
   const info = lstatSync(absolute);
   if (!info.isFile() || info.isSymbolicLink() || realpathSync(absolute) !== absolute
       || info.uid !== 0 || (info.mode & 0o022) !== 0 || process.versions.node.split(".")[0] !== "22") {
     throw new Error("approved canonical root-owned non-writable Node 22 executable is required");
+  }
+  return absolute;
+}
+
+export function validateTrustedDirectoryChain(value, { leafUid, ancestorUid, label }) {
+  const absolute = validateSystemdPath(value, label);
+  if (realpathSync(absolute) !== absolute) {
+    throw new Error(`${label} must be canonical`);
+  }
+  const segments = absolute.split("/").filter(Boolean);
+  let current = "/";
+  for (let index = 0; index <= segments.length; index += 1) {
+    if (index > 0) current = path.join(current, segments[index - 1]);
+    const info = lstatSync(current);
+    const expectedUid = index === segments.length ? leafUid : ancestorUid;
+    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== expectedUid || (info.mode & 0o022) !== 0) {
+      throw new Error(`${label} trust chain is unsafe`);
+    }
   }
   return absolute;
 }
