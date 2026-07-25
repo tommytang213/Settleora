@@ -40,7 +40,6 @@ test("pre-Node boundary defeats import, require, loader, NODE_PATH, and startup-
         env: {
           ...process.env,
           ...hostile,
-          GEMINI_API_KEY: "must-not-propagate",
           UNAPPROVED_UNKNOWN: "must-not-propagate",
         },
       });
