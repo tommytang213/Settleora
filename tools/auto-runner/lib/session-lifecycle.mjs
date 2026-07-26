@@ -600,10 +600,21 @@ export function planInterruptionRecovery(state, live = {}, interruption = {}) {
     mutation: live.mutationPresent === true,
     commit: live.commitPresent === true,
     push: live.pushPresent === true,
+    pr: live.prPresent === true,
     merge: live.mergePresent === true,
     comment: live.commentPresent === true,
   };
-  const phase = effects.merge ? "issue_parent_ledger_hygiene" : effects.push ? "ci_wait" : effects.commit ? "push" : effects.mutation ? "checkpoint_validation_commit" : state.controller.phase;
+  const phase = effects.merge
+    ? "issue_parent_ledger_hygiene"
+    : effects.push && effects.pr
+      ? "ci_wait"
+      : effects.push
+        ? "pr_create_recover"
+        : effects.commit
+          ? "push"
+          : effects.mutation
+            ? "checkpoint_validation_commit"
+            : state.controller.phase;
   const next = structuredClone(state);
   next.interruption = { class: classified.interruptionClass, reasonCode: classified.reasonCode, detectedAt: new Date().toISOString() };
   next.recovery = { operationId: live.recoveryOperationId || randomUUID(), status: "pending", attempts: state.recovery.attempts + 1, effectsAlreadyPresent: effects, phaseBefore: state.controller.phase, phaseAfter: phase };

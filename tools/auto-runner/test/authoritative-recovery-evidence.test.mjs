@@ -33,7 +33,9 @@ test("exact reconciled push intent is a live push effect for planning", () => {
   const e = collect();
   e.effects.push.present = false;
   e.intents.push({ effectType: "push", classification: "effect_present_exact_adoptable" });
-  assert.equal(plannerInputsFromAuthoritativeEvidence(e).liveEffects.pushPresent, true);
+  const inputs = plannerInputsFromAuthoritativeEvidence(e);
+  assert.equal(inputs.liveEffects.pushPresent, true);
+  assert.equal(inputs.liveEffects.prPresent, true);
 });
 test("missing process identity fails closed", () => { const a = adapters(); a.readProcess = () => ({ complete: false }); assert.equal(collectAuthoritativeRecoveryEvidence(config, identity, {}, a).ok, false); });
 test("authoritative absent runner lock plus expired lease proves inactive owner", () => { const logsRoot = mkdtempSync(path.join(tmpdir(), "recovery-no-lock-")); const a = adapters(); delete a.readProcess; const e = collectAuthoritativeRecoveryEvidence({ ...config, logsRoot }, identity, {}, a); assert.equal(e.ok, true); assert.equal(e.process.source, "runner_lock_absent"); assert.equal(e.takeoverAllowed, true); });

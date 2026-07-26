@@ -188,6 +188,7 @@ export function plannerInputsFromAuthoritativeEvidence(evidence) {
       mutationPresent: evidence.effects.sourceMutation.present,
       commitPresent: evidence.effects.commit.present || evidence.intents.some((intent) => intent.effectType === "commit" && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification)),
       pushPresent: evidence.effects.push.present || evidence.intents.some((intent) => intent.effectType === "push" && ["effect_present_exact_adoptable", "effect_confirmed"].includes(intent.classification)),
+      prPresent: Boolean(evidence.github?.pr),
       mergePresent: evidence.effects.merge.present,
       commentPresent: evidence.effects.comment.present || evidence.effects.issueClosure.present || evidence.effects.hygiene.present,
     },
