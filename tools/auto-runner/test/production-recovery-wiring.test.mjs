@@ -365,6 +365,22 @@ test("delegated bundle and existing-PR recovery phases use the owning iteration 
   assert.match(runner, /recoverExistingPrIfConfigured\(recoveryConfig, logger, issue, laneDecision, state,[\s\S]*?operationalCheckpoint/);
 });
 
+test("startup PR-create recovery uses ordinary continuation before existing-PR recovery", () => {
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const resume = runner.slice(
+    runner.indexOf("async function resumeStartupRecovery"),
+    runner.indexOf("function ordinaryCountersFromReviewConvergence"),
+  );
+  const ordinaryPrCreate = resume.indexOf('boundary.phase === "pr_create_recover" && state.ordinaryContinuation');
+  const existingPrRecovery = resume.indexOf("recoverExistingPrIfConfigured");
+  assert.ok(ordinaryPrCreate >= 0);
+  assert.ok(existingPrRecovery > ordinaryPrCreate);
+  assert.match(
+    resume.slice(ordinaryPrCreate, existingPrRecovery),
+    /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?boundary,[\s\S]*?operationalCheckpoint/,
+  );
+});
+
 test("projection checkpoints retain recovery, implementation, convergence, split, and stack authority", () => {
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");
