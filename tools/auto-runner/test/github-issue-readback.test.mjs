@@ -59,6 +59,10 @@ test("issue readback rejects missing and unsupported state contracts", () => {
   assert.equal(readGithubIssueState(config, 959, runnerFor(payload({ state: "merged" }))).complete, false);
   assert.equal(readGithubIssueState(config, 959, runnerFor(payload({ state_reason: "unknown" }))).complete, false);
   assert.equal(readGithubIssueState(config, 959, runnerFor(payload({ state_reason: "completed" }))).complete, false);
+  assert.equal(readGithubIssueState(config, 959, runnerFor(payload({ state_reason: "" }))).complete, false);
+  assert.equal(readGithubIssueState(config, 959, runnerFor(payload({ state_reason: { unexpected: true } }))).complete, false);
+  assert.equal(readGithubIssueState(config, 959, runnerFor(payload({ state: "closed", state_reason: "reopened" }))).complete, false);
+  assert.equal(readGithubIssueState(config, 959, runnerFor(payload({ state: "closed", state_reason: null }))).complete, false);
 });
 
 test("issue readback rejects invalid requested identities before subprocess execution", () => {

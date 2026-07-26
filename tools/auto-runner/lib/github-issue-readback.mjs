@@ -44,10 +44,15 @@ export function readGithubIssueState(config, issueNumber, runner = spawnSync) {
   const state = typeof payload.state === "string" ? payload.state.toUpperCase() : "";
   if (!supportedStates.has(state)) return { complete: false, source: "gh_api_issue_state_unsupported" };
   const rawStateReason = payload.state_reason;
-  const stateReason = rawStateReason == null ? null : typeof rawStateReason === "string" ? rawStateReason.toUpperCase() : "";
-  if ((stateReason && !supportedStateReasons.has(stateReason)) || (state === "OPEN" && stateReason && stateReason !== "REOPENED")) {
+  if (rawStateReason != null && (typeof rawStateReason !== "string" || rawStateReason.length === 0)) {
     return { complete: false, source: "gh_api_issue_state_reason_unsupported" };
   }
+  const stateReason = rawStateReason == null ? null : rawStateReason.toUpperCase();
+  const stateReasonValid = supportedStateReasons.has(stateReason)
+    && ((state === "OPEN" && stateReason === "REOPENED")
+      || (state === "CLOSED" && ["COMPLETED", "NOT_PLANNED"].includes(stateReason)));
+  if ((state === "OPEN" && stateReason !== null && !stateReasonValid)
+    || (state === "CLOSED" && !stateReasonValid)) return { complete: false, source: "gh_api_issue_state_reason_unsupported" };
   return {
     complete: true,
     source: "gh_api",
