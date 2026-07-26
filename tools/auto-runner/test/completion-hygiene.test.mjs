@@ -86,6 +86,21 @@ function runnerWith(fixtures = {}) {
       const issue = number === 800 ? fixtures.parentIssue || { number: 800, comments: [] } : fixtures.issue || narrowIssue();
       return { status: 0, stdout: JSON.stringify({ data: { repository: { issue: { number, comments: { nodes: issue.comments || [], pageInfo: { hasNextPage: false, endCursor: null } } } } } }) };
     }
+    if (command === "gh" && args[0] === "api" && /^repos\/[^/]+\/[^/]+\/issues\/\d+$/.test(args[1] || "")) {
+      const parts = args[1].split("/");
+      const number = Number(parts.at(-1));
+      const issue = number === 800 ? fixtures.parentIssue || { number: 800, state: "OPEN" } : fixtures.issue || narrowIssue();
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          number,
+          repository_url: `https://api.github.com/repos/${parts[1]}/${parts[2]}`,
+          state: String(issue.state || "OPEN").toLowerCase(),
+          state_reason: issue.stateReason ? String(issue.stateReason).toLowerCase() : null,
+        }),
+        stderr: "",
+      };
+    }
     return { status: 0, stdout: "" };
   };
   runner.calls = calls;
