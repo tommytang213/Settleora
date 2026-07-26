@@ -7,6 +7,7 @@ import { processAppearsActive } from "./state-store.mjs";
 import { readHeartbeat } from "../supervisor/heartbeat.mjs";
 import { loadPreEffectIntent, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
 import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
+import { readGithubIssueState } from "./github-issue-readback.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 export const authoritativeRecoveryEvidenceVersion = 1;
@@ -232,14 +233,14 @@ function defaultGitRead(config, identity) {
 }
 
 function defaultGithubRead(config, identity) {
-  const issueResult = spawnSync("gh", ["issue", "view", String(identity.issueNumber), "--repo", config.repositorySlug, "--json", "number,state,stateReason"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
-  if (issueResult.status !== 0) return { complete: false, source: "gh_cli" };
-  const issue = JSON.parse(issueResult.stdout);
+  const issueRead = readGithubIssueState(config, identity.issueNumber);
+  if (!issueRead.complete) return issueRead;
+  const issue = issueRead.issue;
   const issueComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${identity.issueNumber}/comments?per_page=100`, { channel: "issue", targetNumber: identity.issueNumber });
   if (!issueComments.complete) return { complete: false, source: "gh_cli" };
   const discovered = identity.prNumber ? { complete: true, prNumber: identity.prNumber } : discoverExactRecoveryPr(config, identity);
   if (!discovered.complete) return { complete: false, source: discovered.source };
-  if (!discovered.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue: { number: issue.number, state: issue.state, stateReason: issue.stateReason }, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
+  if (!discovered.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
   const prNumber = discovered.prNumber;
   const result = spawnSync("gh", ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
   if (result.status !== 0) return { complete: false, source: "gh_cli" };
@@ -255,7 +256,7 @@ function defaultGithubRead(config, identity) {
     try { mergeParentShas = JSON.parse(mergeCommit.stdout || "{}").parents?.map((parent) => parent.sha).filter(sha40).slice(0, 2) || []; }
     catch { return { complete: false, source: "gh_cli_merge_commit_parse_failed" }; }
   }
-  return { complete: true, source: "gh_cli", pr: { number: pr.number, state: pr.state, baseRefName: pr.baseRefName, headRefName: pr.headRefName, headSha: pr.headRefOid, draft: pr.isDraft, mergeable: pr.mergeable, mergeStateStatus: pr.mergeStateStatus, mergeSha: pr.mergeCommit?.oid || null, mergeParentShas }, comments, issue: { number: issue.number, state: issue.state, stateReason: issue.stateReason }, checks: checks(pr.statusCheckRollup), hygiene: [] };
+  return { complete: true, source: "gh_cli", pr: { number: pr.number, state: pr.state, baseRefName: pr.baseRefName, headRefName: pr.headRefName, headSha: pr.headRefOid, draft: pr.isDraft, mergeable: pr.mergeable, mergeStateStatus: pr.mergeStateStatus, mergeSha: pr.mergeCommit?.oid || null, mergeParentShas }, comments, issue, checks: checks(pr.statusCheckRollup), hygiene: [] };
 }
 
 export function discoverExactRecoveryPr(config, identity, runner = spawnSync) {
