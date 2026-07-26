@@ -9,6 +9,13 @@ export const preEffectTypes = Object.freeze(["commit", "push", "pr_create", "pr_
 const maxIntentBytes = 256 * 1024;
 const statusOrder = new Map(preEffectIntentStatuses.map((status, index) => [status, index]));
 
+export function intentIssueAuthorityMatches(intent, expectedIssueNumber) {
+  const identity = intent?.identity;
+  return intent?.effectType === "commit"
+    ? (!Object.hasOwn(identity || {}, "issueNumber") || identity.issueNumber === expectedIssueNumber)
+    : identity?.issueNumber === expectedIssueNumber;
+}
+
 export function preparePreEffectIntent(config, input, { now = new Date(), intentId = randomUUID() } = {}) {
   const effectType = requiredEnum(input.effectType, preEffectTypes, "effectType");
   const identity = boundedIdentity(input);

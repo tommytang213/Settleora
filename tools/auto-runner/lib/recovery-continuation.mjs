@@ -10,7 +10,7 @@ import {
 } from "./recovery-state.mjs";
 import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
-import { findPreEffectIntents, handoffPreEffectIntentAuthority } from "./pre-effect-intent.mjs";
+import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAuthorityMatches } from "./pre-effect-intent.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
@@ -586,7 +586,7 @@ function isCanonicalCorrelatedPath(candidate, root, requiredPrefix) {
     && path.basename(resolved).endsWith(".md");
 }
 
-function intentMatchesRecoveryAuthority(intent, expected) {
+export function intentMatchesRecoveryAuthority(intent, expected) {
   const identity = intent?.identity;
   return intent.logicalTaskIdentity === expected.claimIdentity
     && intent.claimIdentity === expected.claimIdentity
@@ -597,7 +597,10 @@ function intentMatchesRecoveryAuthority(intent, expected) {
     && identity?.logicalTaskIdentity === expected.claimIdentity
     && identity?.claimIdentity === expected.claimIdentity
     && identity?.chargeIdentity === expected.chargeIdentity
-    && identity?.issueNumber === expected.issueNumber
+    // Canonical commit intents are task/claim/charge/branch effects and may omit
+    // the nested issue projection. An explicit contradiction still fails closed.
+    // Every non-commit effect remains issue-bound.
+    && intentIssueAuthorityMatches(intent, expected.issueNumber)
     && identity?.branchName === expected.branchName
     && identity?.baseSha === expected.baseSha
     // Intent heads describe effect-time state (a commit intent uses its parent),
