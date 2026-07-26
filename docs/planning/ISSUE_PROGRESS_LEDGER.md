@@ -9175,3 +9175,49 @@ state.
   and both live close rules pass; then close with one complete evidence comment.
 - Last verified report reference:
   `/workspace/logs/settleora-codex-report-20260724-0946-auto-runner-production-activation-912.md`
+
+## Auto-runner preserved-recovery validation retry — Issues #989, #991, and #959
+
+- GitHub state at merge readback: #989, #991, and #959 remain `OPEN`.
+- Repository repair PR #998 merged normally at exact reviewed source head
+  `f47231b2cdec66a58ea2a6c1026ca3b6811d00f4` as merge/current-main SHA
+  `b6e50f422a0477368a5e8e9143bc3f8251e232c3`.
+- The merge parents are prior main
+  `1b28802fbf7527a44a8cf1e214c1b5e0a57726a4` and the approved source head;
+  the merge and source tree are both
+  `656112fad24b97b6ffc4f3cbd8601f79d3e18da7`.
+- Completed repository scope:
+  - preserve validation-retry precedence and reopen only the exact known
+    failed-closed derivative;
+  - retain the reopened validation phase until recovered validation completes;
+  - adopt exact push effects and route restart-safe ordinary continuation
+    through `push`, `pr_create_recover`, and `ci_wait`;
+  - preserve exact fail-closed lifecycle, deployment-admission, identity, and
+    effect gates.
+- Exact-head evidence: focused tests `161/161`; full auto-runner tests
+  `1215/1215`; npm install, doctor, syntax, docs, scaffold, and diff checks
+  passed; Gemini strong-independent and local Codex reviews passed with zero
+  findings; GitHub Codex found no major issues; CodeQL, Semgrep CE/OSS, Trivy
+  repository/external, and both scaffold checks passed; all nine review
+  threads are resolved; relevant open code-scanning alerts are zero.
+- Remaining operational gates:
+  - deploy the corrected external runtime only under a separate explicit
+    owner operation;
+  - perform one separately authorized trusted `max-tasks=1` adoption of the
+    preserved #959 chain;
+  - prove no duplicate claim, accepted-task charge, branch, implementation
+    replay, or external effect.
+- Keep-open recommendation:
+  - keep #989 open until corrected runtime deployment and trusted #959 restart
+    acceptance satisfy its close rule;
+  - keep #991 open until its deployment-and-resume close rule is satisfied;
+  - keep #959 open until its preserved OCR implementation chain completes and
+    merges.
+- Follow-up workflow hardening: #999 tracks deterministic exact-head
+  review-finding adjudication before source mutation. It is not implemented by
+  PR #998 or this hygiene checkpoint.
+- No runtime deployment, runtime-bundle copy, systemd/service/profile/config/
+  environment/secret change, supervisor restart, or #959 mutation occurred in
+  this repository merge task.
+- Last verified report reference:
+  `/workspace/logs/settleora-codex-report-20260727-0142-pr998-final-exact-head-merge-hygiene.md`
