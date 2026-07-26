@@ -41,6 +41,16 @@ test("issue readback rejects wrong issue and repository identities", () => {
   assert.equal(readGithubIssueState(config, 959, runnerFor(payload({ repository_url: "https://api.github.com/repos/other/repo" }))).complete, false);
 });
 
+test("issue readback accepts GitHub-canonicalized repository casing", () => {
+  const result = readGithubIssueState(
+    config,
+    959,
+    runnerFor(payload({ repository_url: "https://api.github.com/repos/Owner/Repo" })),
+  );
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.issue, { number: 959, state: "OPEN", stateReason: null });
+});
+
 test("issue readback rejects pull request payloads", () => {
   const result = readGithubIssueState(config, 959, runnerFor(payload({ pull_request: { url: "https://api.github.com/pulls/1" } })));
   assert.equal(result.complete, false);

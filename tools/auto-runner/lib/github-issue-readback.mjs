@@ -38,7 +38,8 @@ export function readGithubIssueState(config, issueNumber, runner = spawnSync) {
   }
   const repositoryUrl = String(payload.repository_url || "");
   const expectedRepositorySuffix = `/repos/${repositorySlug}`;
-  if (payload.number !== issueNumber || !repositoryUrl.endsWith(expectedRepositorySuffix)) {
+  if (payload.number !== issueNumber
+    || !repositoryUrl.toLowerCase().endsWith(expectedRepositorySuffix.toLowerCase())) {
     return { complete: false, source: "gh_api_issue_identity_mismatch" };
   }
   const state = typeof payload.state === "string" ? payload.state.toUpperCase() : "";
