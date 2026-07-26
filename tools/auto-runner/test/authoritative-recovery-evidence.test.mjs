@@ -29,6 +29,12 @@ test("live process and valid lease block takeover", () => { const e = collect({ 
 test("live process and stale lease fail closed", () => { const e = collect({ alive: true, leaseValid: false }); assert.equal(e.ok, false); assert.equal(e.contradiction, true); });
 test("dead process and valid lease fail closed and block", () => { const e = collect({ alive: false, leaseValid: true }); assert.equal(e.ok, false); assert.equal(e.ownerBlocked, true); });
 test("dead process and stale lease permit one takeover", () => { const e = collect(); assert.equal(e.ok, true); assert.equal(e.takeoverAllowed, true); assert.equal(plannerInputsFromAuthoritativeEvidence(e).interruption.processExited, true); });
+test("exact reconciled push intent is a live push effect for planning", () => {
+  const e = collect();
+  e.effects.push.present = false;
+  e.intents.push({ effectType: "push", classification: "effect_present_exact_adoptable" });
+  assert.equal(plannerInputsFromAuthoritativeEvidence(e).liveEffects.pushPresent, true);
+});
 test("missing process identity fails closed", () => { const a = adapters(); a.readProcess = () => ({ complete: false }); assert.equal(collectAuthoritativeRecoveryEvidence(config, identity, {}, a).ok, false); });
 test("authoritative absent runner lock plus expired lease proves inactive owner", () => { const logsRoot = mkdtempSync(path.join(tmpdir(), "recovery-no-lock-")); const a = adapters(); delete a.readProcess; const e = collectAuthoritativeRecoveryEvidence({ ...config, logsRoot }, identity, {}, a); assert.equal(e.ok, true); assert.equal(e.process.source, "runner_lock_absent"); assert.equal(e.takeoverAllowed, true); });
 test("missing lease identity fails closed", () => { const a = adapters(); a.readLease = () => ({ complete: false }); assert.equal(collectAuthoritativeRecoveryEvidence(config, identity, {}, a).ok, false); });

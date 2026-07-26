@@ -146,6 +146,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     if (states.some((state) => state.statePath !== matching[0].statePath)) return denied("other_unresolved_recovery_present", target);
     const state = matching[0];
     if (!eligibleValidationCheckpoint(state)) return denied("preserved_recovery_checkpoint_not_eligible", target);
+    const derivative = knownValidationRetryDerivative(state);
     if (!validateProjectNamespace(config.logsRoot, target, repositoryRoot, gitEnvironment)) {
       return denied("preserved_recovery_namespace_identity_mismatch", target);
     }
@@ -153,7 +154,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     if (!markerProof.ok) return denied(markerProof.reasonCode, target);
     const chargeProof = validateCharge(config, state, target);
     if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
-    const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath);
+    const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath, derivative);
     if (!lifecycleProof.ok) return denied(lifecycleProof.reasonCode, target);
     const intentProof = validateIntents(
       config,
@@ -164,6 +165,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
       gitEnvironment,
       resumedGitConfigRecords,
       intentEvidenceCollector,
+      derivative,
     );
     if (!intentProof.ok) return denied(intentProof.reasonCode, target);
     if (operationalOwnerIsLive(config.logsRoot, target, processActive)) return denied("preserved_recovery_live_owner", target);
@@ -219,12 +221,26 @@ function eligibleValidationCheckpoint(state) {
   return state.phase === "stopped"
     && state.firstIncompleteAction === "run_validation_and_commit"
     && state.nextSafeAction === "stop_fail_closed"
-    && state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+    && (state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+      || knownValidationRetryDerivative(state))
     && state.evidence?.localValidation?.status === "failed"
     && Array.isArray(findings) && findings.length > 0
     && findings.every((finding) => finding?.sourceFixEligible === false
       && finding?.nextAction === "stop_fail_closed"
       && finding?.classification === "unsafe_or_ambiguous");
+}
+
+function knownValidationRetryDerivative(state) {
+  return state.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
+    && state.stopReason?.reason === "recovery_existing_pr_context_missing"
+    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state.branch?.baseSha
+    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state.branch?.currentHeadSha
+    && state.pr?.number === null
+    && state.pr?.url === null
+    && state.pr?.headSha === null
+    && state.branch?.expectedRemoteHeadSha === null
+    && !Object.keys(state.mutationMarkers?.push || {}).length
+    && !Object.keys(state.mutationMarkers?.merge || {}).length;
 }
 
 function validateMarkers(state, target) {
@@ -256,7 +272,7 @@ function validateCharge(config, state, target) {
   return { ok: true, statePath: loaded.statePath };
 }
 
-function validateLifecycle(config, state, target, chargeMarkerRef) {
+function validateLifecycle(config, state, target, chargeMarkerRef, derivative) {
   const loaded = loadSessionLifecycleForRecovery(config, {
     repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
     runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
@@ -277,6 +293,21 @@ function validateLifecycle(config, state, target, chargeMarkerRef) {
       || counters?.lifetimeLocalSourceChangingRounds !== target.lifetimeLocalSourceChangingRounds) {
     return { ok: false, reasonCode: "preserved_recovery_lifecycle_mismatch" };
   }
+  if (derivative && (
+    lifecycle.controller?.phase !== "stopped"
+    || lifecycle.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
+    || lifecycle.report?.status !== "stopped"
+    || lifecycle.mutationAuthority?.status !== "terminal"
+    || lifecycle.mutationAuthority?.ownerSessionId !== null
+    || lifecycle.recovery?.status !== "pending"
+    || lifecycle.recovery?.phaseAfter !== "push"
+    || lifecycle.recovery?.effectsAlreadyPresent?.commit !== true
+    || lifecycle.recovery?.effectsAlreadyPresent?.push !== false
+    || lifecycle.recovery?.effectsAlreadyPresent?.merge !== false
+    || lifecycle.recovery?.effectsAlreadyPresent?.comment !== false
+  )) {
+    return { ok: false, reasonCode: "preserved_recovery_derivative_lifecycle_mismatch" };
+  }
   return { ok: true };
 }
 
@@ -289,6 +320,7 @@ function validateIntents(
   gitEnvironment,
   resumedGitConfigRecords,
   intentEvidenceCollector,
+  derivative,
 ) {
   const intentRoot = path.join(config.logsRoot, "recovery", "pre-effect-intents");
   const intents = existsSync(intentRoot) ? findPreEffectIntents(config) : [];
@@ -309,6 +341,7 @@ function validateIntents(
       return { ok: false, reasonCode: "target_intent_status_uncertain" };
     }
     if (externalEffectTypes.has(intent.effectType)) {
+      if (derivative) return { ok: false, reasonCode: "preserved_recovery_derivative_external_intent_present" };
       const identityProof = validateTargetIntentIdentity(intent, target, chargeMarkerRef);
       if (!identityProof.ok) return identityProof;
       if (intent.status === "finalized") continue;

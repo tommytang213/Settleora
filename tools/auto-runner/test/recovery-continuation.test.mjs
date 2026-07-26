@@ -982,6 +982,102 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       );
       deleteIntent(external);
     }
+    const derivativeRecovery = {
+      ...recovery,
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "recovery_existing_pr_context_missing",
+      },
+    };
+    writeRecoveryState(config, derivativeRecovery);
+    let derivativeLifecycle = structuredClone(loadSessionLifecycleForRecovery(config, {
+      repository: target.repository,
+      issueNumber: target.issueNumber,
+      taskKey: target.taskKey,
+      runId: target.runnerRunId,
+      supervisorRunId: target.supervisorRunId,
+      branchName: target.branch,
+      baseSha: target.baseSha,
+      headSha: target.headSha,
+    }).state);
+    derivativeLifecycle.interruption = {
+      class: "main_process_exit_without_terminal_report",
+      reasonCode: "interruption_main_process_exit_without_terminal_report",
+      detectedAt: new Date().toISOString(),
+    };
+    derivativeLifecycle.recovery = {
+      operationId: "fixture-derivative-operation",
+      status: "pending",
+      attempts: 1,
+      effectsAlreadyPresent: { mutation: false, commit: true, push: false, merge: false, comment: false },
+      phaseBefore: "implementation_or_bundle_slice",
+      phaseAfter: "push",
+    };
+    const persistedDerivativeLifecycle = persistSessionLifecycleState(config, derivativeLifecycle);
+    assert.equal(persistedDerivativeLifecycle.ok, true, JSON.stringify(persistedDerivativeLifecycle));
+    derivativeLifecycle = persistedDerivativeLifecycle.state;
+    const stoppedDerivativeLifecycle = transitionSessionLifecyclePhase(config, derivativeLifecycle, {
+      phase: "stopped",
+      nextExactAction: "checkpoint_validation_recovery_failed_closed",
+    });
+    assert.equal(stoppedDerivativeLifecycle.ok, true, JSON.stringify(stoppedDerivativeLifecycle));
+    derivativeLifecycle = stoppedDerivativeLifecycle.state;
+    assert.deepEqual({
+      phase: derivativeLifecycle.controller.phase,
+      nextExactAction: derivativeLifecycle.controller.nextExactAction,
+      reportStatus: derivativeLifecycle.report.status,
+      authorityStatus: derivativeLifecycle.mutationAuthority.status,
+      authorityOwner: derivativeLifecycle.mutationAuthority.ownerSessionId,
+      recoveryStatus: derivativeLifecycle.recovery.status,
+      phaseAfter: derivativeLifecycle.recovery.phaseAfter,
+      effects: derivativeLifecycle.recovery.effectsAlreadyPresent,
+    }, {
+      phase: "stopped",
+      nextExactAction: "checkpoint_validation_recovery_failed_closed",
+      reportStatus: "stopped",
+      authorityStatus: "terminal",
+      authorityOwner: null,
+      recoveryStatus: "pending",
+      phaseAfter: "push",
+      effects: { mutation: false, commit: true, push: false, merge: false, comment: false },
+    });
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "exact_preserved_recovery_admitted",
+      "the exact known derivative must permit installation of its corrective runtime",
+    );
+    let derivativePushIntent = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "push", issueNumber: 959, branchName: target.branch, baseSha: target.baseSha,
+      headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: { remote: "origin", branchName: target.branch, headSha: target.headSha },
+    });
+    derivativePushIntent = transitionPreEffectIntent(config, derivativePushIntent, "executing");
+    derivativePushIntent = transitionPreEffectIntent(config, derivativePushIntent, "live_confirmed");
+    derivativePushIntent = transitionPreEffectIntent(config, derivativePushIntent, "finalized");
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "preserved_recovery_derivative_external_intent_present",
+    );
+    deleteIntent(derivativePushIntent);
+    const contradictoryDerivativeLifecycle = structuredClone(derivativeLifecycle);
+    contradictoryDerivativeLifecycle.recovery.effectsAlreadyPresent.push = true;
+    persistSessionLifecycleState(config, contradictoryDerivativeLifecycle);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "preserved_recovery_derivative_lifecycle_mismatch",
+    );
   } finally {
     config.cleanup();
   }
