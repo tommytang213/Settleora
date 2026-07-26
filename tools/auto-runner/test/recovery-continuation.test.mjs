@@ -1948,14 +1948,15 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
       phase: "stopped",
       nextExactAction: "checkpoint_validation_recovery_failed_closed",
     }).state;
-    const reopened = reopenKnownValidationRetryDerivative(config, lifecycle);
+    const liveEffects = { commitPresent: true, pushPresent: false, mergePresent: false, commentPresent: false };
+    const reopened = reopenKnownValidationRetryDerivative(config, lifecycle, liveEffects);
     assert.equal(reopened.ok, true);
     assert.equal(reopened.state.controller.phase, "checkpoint_validation_commit");
     assert.equal(reopened.state.controller.nextExactAction, "run_validation_and_commit");
     assert.equal(reopened.state.report.status, "in_progress");
     assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
     assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
-    const adopted = reopenKnownValidationRetryDerivative(config, reopened.state);
+    const adopted = reopenKnownValidationRetryDerivative(config, reopened.state, liveEffects);
     assert.equal(adopted.ok, true);
     assert.equal(adopted.duplicate, true);
     assert.equal(adopted.state.checkpoint.digest, reopened.state.checkpoint.digest);
@@ -1963,7 +1964,8 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     const wrong = structuredClone(lifecycle);
     wrong.recovery.effectsAlreadyPresent.push = true;
     wrong.checkpoint.digest = null;
-    assert.equal(reopenKnownValidationRetryDerivative(config, wrong).ok, false);
+    assert.equal(reopenKnownValidationRetryDerivative(config, wrong, liveEffects).ok, false);
+    assert.equal(reopenKnownValidationRetryDerivative(config, lifecycle, { ...liveEffects, pushPresent: true }).ok, false);
   } finally {
     config.cleanup();
   }

@@ -406,7 +406,7 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     lifecycleState = headPersisted.state;
   }
   if (interruption.validationRetryDerivativeAuthorized === true) {
-    const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState);
+    const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState, inputs.liveEffects);
     if (!reopened.ok) return reopened;
     lifecycleState = reopened.state;
   }

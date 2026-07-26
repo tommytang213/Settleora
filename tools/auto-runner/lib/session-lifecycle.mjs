@@ -467,9 +467,15 @@ export function transitionSessionLifecyclePhase(config, state, { phase, nextExac
   return persistSessionLifecycleState(config, next);
 }
 
-export function reopenKnownValidationRetryDerivative(config, state) {
+export function reopenKnownValidationRetryDerivative(config, state, liveEffects = {}) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;
+  if (liveEffects.commitPresent !== true
+    || liveEffects.pushPresent !== false
+    || liveEffects.mergePresent !== false
+    || liveEffects.commentPresent !== false) {
+    return fail("session_lifecycle_validation_retry_live_effects_contradictory");
+  }
   const effects = state.recovery?.effectsAlreadyPresent;
   if (state.recovery?.status !== "pending"
     || !["push", "checkpoint_validation_commit"].includes(state.recovery?.phaseAfter)
