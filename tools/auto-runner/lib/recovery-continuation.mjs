@@ -8,7 +8,7 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
-import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
+import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, reopenKnownValidationRetryDerivative, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
 import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAuthorityMatches } from "./pre-effect-intent.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
@@ -201,7 +201,10 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }
   const validationRetryTerminal = isValidationFailureRetryAuthorized(loaded.state) ? loaded.state : null;
   let state = normalizeValidationFailureContinuation(loaded.state);
-  const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, recovery.interruption || {});
+  const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
+    ...(recovery.interruption || {}),
+    validationRetryDerivativeAuthorized: validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
+  });
   if (!lifecycleRecovery.ok) {
     return {
       ok: false,
@@ -401,6 +404,11 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     const headPersisted = persistSessionLifecycleState(config, lifecycleState);
     if (!headPersisted.ok) return headPersisted;
     lifecycleState = headPersisted.state;
+  }
+  if (interruption.validationRetryDerivativeAuthorized === true) {
+    const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState);
+    if (!reopened.ok) return reopened;
+    lifecycleState = reopened.state;
   }
   const trustedInterruption = loaded.migrated === true
     ? { processExited: true, terminalReportTrusted: false, checkpointValid: true, ...inputs.interruption, ...interruption }

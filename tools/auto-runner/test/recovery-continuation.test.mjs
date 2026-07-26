@@ -5,7 +5,7 @@ import test from "node:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, reopenKnownValidationRetryDerivative, sessionLifecyclePath, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import {
@@ -1910,6 +1910,56 @@ test("known missing-PR derivative is admitted only with exact validation lineage
 
     writeRecoveryState(config, { ...original, pr: { ...original.pr, number: 123, url: "https://example.invalid/123", headSha: "b".repeat(40) } });
     assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("known validation derivative reopens only its exact terminal lifecycle checkpoint", () => {
+  const config = tempConfig();
+  try {
+    let lifecycle = createSessionLifecycleState({
+      repository: "tommytang213/Settleora",
+      issueNumber: 959,
+      taskKey: "20260724T075849",
+      runId: "run-959",
+      supervisorRunId: "supervised-959",
+      claimIdentity: "tommytang213/Settleora#959",
+      chargeMarkerRef: "/tmp/charge",
+      branchName: "feature/auto-959-recovery",
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      sessionId: "run-959:recovery:operation-959",
+      phase: "push",
+      nextExactAction: "recover_earliest_safe_phase",
+    });
+    lifecycle.interruption = { class: "main_process_exit_without_terminal_report", reasonCode: "interruption_main_process_exit_without_terminal_report", detectedAt: new Date().toISOString() };
+    lifecycle.recovery = {
+      operationId: "operation-959",
+      status: "pending",
+      attempts: 1,
+      effectsAlreadyPresent: { mutation: false, commit: true, push: false, merge: false, comment: false },
+      phaseBefore: "implementation_or_bundle_slice",
+      phaseAfter: "push",
+    };
+    lifecycle.checkpoint.digest = null;
+    lifecycle = persistSessionLifecycleState(config, lifecycle).state;
+    lifecycle = transitionSessionLifecyclePhase(config, lifecycle, {
+      phase: "stopped",
+      nextExactAction: "checkpoint_validation_recovery_failed_closed",
+    }).state;
+    const reopened = reopenKnownValidationRetryDerivative(config, lifecycle);
+    assert.equal(reopened.ok, true);
+    assert.equal(reopened.state.controller.phase, "checkpoint_validation_commit");
+    assert.equal(reopened.state.controller.nextExactAction, "run_validation_and_commit");
+    assert.equal(reopened.state.report.status, "in_progress");
+    assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
+    assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
+
+    const wrong = structuredClone(lifecycle);
+    wrong.recovery.effectsAlreadyPresent.push = true;
+    wrong.checkpoint.digest = null;
+    assert.equal(reopenKnownValidationRetryDerivative(config, wrong).ok, false);
   } finally {
     config.cleanup();
   }

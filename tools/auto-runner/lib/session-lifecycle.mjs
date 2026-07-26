@@ -467,6 +467,48 @@ export function transitionSessionLifecyclePhase(config, state, { phase, nextExac
   return persistSessionLifecycleState(config, next);
 }
 
+export function reopenKnownValidationRetryDerivative(config, state) {
+  const validation = validateSessionLifecycleState(state);
+  if (!validation.ok) return validation;
+  const effects = state.recovery?.effectsAlreadyPresent;
+  if (state.controller?.phase !== "stopped"
+    || state.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
+    || state.report?.status !== "stopped"
+    || state.mutationAuthority?.status !== "terminal"
+    || state.mutationAuthority?.ownerSessionId !== null
+    || state.recovery?.status !== "pending"
+    || state.recovery?.phaseAfter !== "push"
+    || effects?.commit !== true
+    || effects?.push !== false
+    || effects?.merge !== false
+    || effects?.comment !== false
+    || !state.interruption?.class
+    || !state.recovery?.operationId) {
+    return fail("session_lifecycle_validation_retry_derivative_mismatch");
+  }
+  const next = structuredClone(state);
+  next.controller.phase = "checkpoint_validation_commit";
+  next.controller.nextExactAction = "run_validation_and_commit";
+  next.report.status = "in_progress";
+  next.recovery.phaseAfter = "checkpoint_validation_commit";
+  next.mutationAuthority = {
+    ownerSessionId: null,
+    generation: next.sessions.generation,
+    status: "recovery_pending",
+    handoff: {
+      requestId: digest(`${next.recovery.operationId}:${next.sessions.current}:validation-retry`),
+      retiredSessionId: next.sessions.current,
+      successorSessionId: null,
+      reason: "validation_retry_derivative_reopened",
+      checkpointDigest: next.checkpoint.digest,
+      startedAt: new Date().toISOString(),
+    },
+  };
+  if (!next.sessions.retired.includes(next.sessions.current)) next.sessions.retired.push(next.sessions.current);
+  refreshDigest(next);
+  return persistSessionLifecycleState(config, next);
+}
+
 export function transitionSessionLifecycleHead(config, state, { branchName, headSha, prNumber } = {}) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;
