@@ -43,6 +43,7 @@ const allowedSystemGitConfig = new Map([
   ["filter.lfs.required", ["true"]],
 ]);
 export const trustedDeploymentGitBinary = "/usr/bin/git";
+export const trustedDeploymentGhBinary = "/usr/bin/gh";
 
 export const preservedRecoveryTargetFields = Object.freeze([
   "repository", "issueNumber", "taskKey", "runnerRunId", "supervisorRunId", "claimIdentity",
@@ -400,10 +401,29 @@ function collectAuthoritativeCommentIntentEvidence(config, intent) {
     if (!Number.isSafeInteger(issueNumber) || intent.effectType !== "comment") {
       return { ok: false, classification: "live_read_unavailable" };
     }
-    const result = spawnSync("gh", [
+    const ghConfigRoot = path.join(userInfo().homedir, ".config", "gh");
+    assertTrustedNode(ghConfigRoot, "directory");
+    assertTrustedNode(path.join(ghConfigRoot, "hosts.yml"), "file");
+    if (realpathSync(trustedDeploymentGhBinary) !== trustedDeploymentGhBinary) {
+      return { ok: false, classification: "live_read_unavailable" };
+    }
+    const result = spawnSync(trustedDeploymentGhBinary, [
       "api", "--paginate", "--jq", ".[] | @json",
       `repos/${config.repositorySlug}/issues/${issueNumber}/comments?per_page=100`,
-    ], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
+    ], {
+      cwd: config.repoRoot,
+      encoding: "utf8",
+      timeout: 20_000,
+      maxBuffer: 8 * 1024 * 1024,
+      env: {
+        PATH: "/usr/bin:/bin",
+        HOME: userInfo().homedir,
+        GH_CONFIG_DIR: ghConfigRoot,
+        GH_HOST: "github.com",
+        LANG: "C",
+        LC_ALL: "C",
+      },
+    });
     if (result.error || result.status !== 0 || result.stderr) {
       return { ok: false, classification: "live_read_unavailable" };
     }

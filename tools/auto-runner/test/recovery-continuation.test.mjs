@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
@@ -828,9 +828,28 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       effect: { issueNumber: 959, bodyDigest: "e".repeat(64) },
     });
     assert.equal(intent.status, "prepared");
-    const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } });
+    const hostileGhRoot = path.join(config.logsRoot, "hostile-gh-path");
+    const hostileGhSentinel = path.join(config.logsRoot, "hostile-gh-executed");
+    mkdirSync(hostileGhRoot);
+    writeFileSync(
+      path.join(hostileGhRoot, "gh"),
+      `#!/bin/sh\n: > '${hostileGhSentinel}'\nprintf '%s\\n' '{\"body\":\"fabricated\"}'\n`,
+      { mode: 0o700 },
+    );
+    const priorPath = process.env.PATH;
+    process.env.PATH = `${hostileGhRoot}:${priorPath}`;
+    let pending;
+    try {
+      pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      });
+    } finally {
+      process.env.PATH = priorPath;
+    }
     assert.equal(pending.preservedRecoveryAdmitted, false);
     assert.equal(pending.reasonCode, "prepared_comment_live_read_unavailable");
+    assert.equal(existsSync(hostileGhSentinel), false, "authoritative evidence must not execute an ambient gh binary");
     const intentFilesBefore = readdirSync(path.join(config.logsRoot, "recovery", "pre-effect-intents")).sort();
     const absent = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
       repositoryRoot: config.repoRoot,

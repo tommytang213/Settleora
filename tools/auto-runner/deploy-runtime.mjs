@@ -101,10 +101,14 @@ verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha 
 if (!values.has("--dry-run")) deploymentLock = acquireRuntimeDeploymentLock(destination);
 if (!values.has("--dry-run")) {
   const lockedQuiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
-  if (lockedQuiescence.unresolvedExternalEffects || lockedQuiescence.active) {
-    process.stderr.write(`${JSON.stringify({ deploymentQuiescence: lockedQuiescence })}\n`);
+  const lockedProofChanged = JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence);
+  if (lockedQuiescence.unresolvedExternalEffects || lockedQuiescence.active || lockedProofChanged) {
+    process.stderr.write(`${JSON.stringify({
+      deploymentQuiescence: lockedQuiescence,
+      ...(lockedProofChanged ? { reasonCode: "runtime_deployment_quiescence_proof_changed", stage: "after_lock" } : {}),
+    })}\n`);
   }
-  if (JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence)) throw new Error("runtime deployment quiescence proof changed after lock acquisition");
+  if (lockedProofChanged) throw new Error("runtime deployment quiescence proof changed after lock acquisition");
 }
 const result = deployRuntimeBundle({
   sourceRoot,
@@ -132,8 +136,12 @@ const result = deployRuntimeBundle({
         const consumers = inspectRuntimeConsumers(destination);
         if (consumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
         const finalQuiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
-        if (finalQuiescence.unresolvedExternalEffects || finalQuiescence.active) {
-          process.stderr.write(`${JSON.stringify({ deploymentQuiescence: finalQuiescence })}\n`);
+        const finalProofChanged = JSON.stringify(finalQuiescence) !== JSON.stringify(quiescence);
+        if (finalQuiescence.unresolvedExternalEffects || finalQuiescence.active || finalProofChanged) {
+          process.stderr.write(`${JSON.stringify({
+            deploymentQuiescence: finalQuiescence,
+            ...(finalProofChanged ? { reasonCode: "runtime_deployment_quiescence_proof_changed", stage: "before_exchange" } : {}),
+          })}\n`);
         }
         return finalQuiescence;
       },
