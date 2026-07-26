@@ -65,6 +65,9 @@ let deploymentLock = null;
 try {
 const quiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
 const runtimeConsumers = inspectRuntimeConsumers(destination);
+if (quiescence.unresolvedExternalEffects || quiescence.active) {
+  process.stderr.write(`${JSON.stringify({ deploymentQuiescence: quiescence })}\n`);
+}
 if (values.has("--rollback")) {
   deploymentLock = acquireRuntimeDeploymentLock(destination);
   const lockedQuiescence = inspectDeploymentQuiescence(logsRoot);

@@ -589,9 +589,7 @@ export function inspectDeploymentQuiescence(logsRoot, {
       }
     }
   }
-  if (hasUnresolvedOperationalRecords(logsRoot, "pre-effect-intents", {
-    rejectFailedClosed: preservedRecoveryTarget !== null,
-  })) {
+  if (hasUnresolvedOperationalRecords(logsRoot, "pre-effect-intents")) {
     return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
   }
   if (preservedRecoveryTarget) {
@@ -644,7 +642,7 @@ function assertDeploymentQuiescence(value) {
   }
   if (value.preservedRecoveryAdmitted === true
       && (!/^[a-f0-9]{64}$/u.test(String(value.targetIdentityDigest || ""))
-        || value.reasonCode !== "exact_preserved_recovery_admitted"
+        || !["exact_preserved_recovery_admitted", "exact_preserved_recovery_legacy_repository_omission_admitted"].includes(value.reasonCode)
         || value.revalidationRequired !== true)) {
     throw new Error("runtime deployment preserved recovery proof is invalid");
   }

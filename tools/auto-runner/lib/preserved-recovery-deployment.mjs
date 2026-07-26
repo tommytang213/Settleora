@@ -6,7 +6,8 @@ import path from "node:path";
 import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
-import { findPreEffectIntents } from "./pre-effect-intent.mjs";
+import { findPreEffectIntents, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
+import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 
 const shaPattern = /^[a-f0-9]{40}$/u;
 const digestPattern = /^[a-f0-9]{64}$/u;
@@ -117,6 +118,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
   repositoryRoot = null,
   gitEnvironment = process.env,
   resumedGitConfigRecords = null,
+  intentEvidenceCollector = collectAuthoritativeCommentIntentEvidence,
 } = {}) {
   let target;
   try {
@@ -129,10 +131,23 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     const config = { logsRoot: path.resolve(logsRoot), repositorySlug: target.repository };
     const states = listRecoverableRecoveryStates(config);
     const matching = states.filter((state) => exactStateIdentity(state, target));
+    const repositoryContradictions = states.filter((state) =>
+      exactStateIdentity({ ...state, ordinaryContinuation: {
+        ...state.ordinaryContinuation,
+        identity: { ...state.ordinaryContinuation?.identity, repository: null },
+      } }, target)
+      && state.ordinaryContinuation?.identity?.repository
+      && state.ordinaryContinuation.identity.repository !== target.repository);
+    if (repositoryContradictions.length) {
+      return denied("preserved_recovery_legacy_repository_contradiction", target);
+    }
     if (matching.length !== 1) return denied(matching.length ? "preserved_recovery_ambiguous" : "preserved_recovery_not_found", target);
     if (states.some((state) => state.statePath !== matching[0].statePath)) return denied("other_unresolved_recovery_present", target);
     const state = matching[0];
     if (!eligibleValidationCheckpoint(state)) return denied("preserved_recovery_checkpoint_not_eligible", target);
+    if (!validateProjectNamespace(config.logsRoot, target, repositoryRoot, gitEnvironment)) {
+      return denied("preserved_recovery_namespace_identity_mismatch", target);
+    }
     const markerProof = validateMarkers(state, target);
     if (!markerProof.ok) return denied(markerProof.reasonCode, target);
     const chargeProof = validateCharge(config, state, target);
@@ -147,6 +162,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
       repositoryRoot,
       gitEnvironment,
       resumedGitConfigRecords,
+      intentEvidenceCollector,
     );
     if (!intentProof.ok) return denied(intentProof.reasonCode, target);
     if (operationalOwnerIsLive(config.logsRoot, target, processActive)) return denied("preserved_recovery_live_owner", target);
@@ -155,7 +171,9 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
       unresolvedExternalEffects: false,
       preservedRecoveryAdmitted: true,
       target,
-      reasonCode: "exact_preserved_recovery_admitted",
+      reasonCode: state.ordinaryContinuation?.identity?.repository
+        ? "exact_preserved_recovery_admitted"
+        : "exact_preserved_recovery_legacy_repository_omission_admitted",
       revalidationRequired: true,
     });
   } catch {
@@ -167,7 +185,7 @@ function exactStateIdentity(state, target) {
   const identity = state.ordinaryContinuation?.identity;
   const counters = state.ordinaryContinuation?.counters;
   const candidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate;
-  return identity?.repository === target.repository
+  return (identity?.repository == null || identity.repository === "" || identity.repository === target.repository)
     && state.issue?.number === target.issueNumber
     && state.taskKey === target.taskKey
     && state.run?.runId === target.runnerRunId
@@ -261,30 +279,57 @@ function validateLifecycle(config, state, target, chargeMarkerRef) {
   return { ok: true };
 }
 
-function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot, gitEnvironment, resumedGitConfigRecords) {
+function validateIntents(
+  config,
+  state,
+  target,
+  chargeMarkerRef,
+  repositoryRoot,
+  gitEnvironment,
+  resumedGitConfigRecords,
+  intentEvidenceCollector,
+) {
   const intentRoot = path.join(config.logsRoot, "recovery", "pre-effect-intents");
   const intents = existsSync(intentRoot) ? findPreEffectIntents(config) : [];
   const commitIntents = [];
   for (const intent of intents) {
-    if (!terminalIntentStatuses.has(intent.status)) return { ok: false, reasonCode: "pending_external_effect" };
-    if (externalEffectTypes.has(intent.effectType) && intent.status === "failed_closed") {
-      return { ok: false, reasonCode: "external_effect_failed_closed_not_admissible" };
-    }
     const correlated = intent.repository === target.repository && intent.sourceTaskKey === target.taskKey && intent.runId === target.runnerRunId;
-    if (!correlated) continue;
-    if (externalEffectTypes.has(intent.effectType)) {
-      return { ok: false, reasonCode: "preserved_recovery_external_effect_present" };
+    if (!correlated) {
+      if (!terminalIntentStatuses.has(intent.status)) return { ok: false, reasonCode: "unrelated_intent_not_terminal" };
+      if (unrelatedIntentCanMutateTarget(intent, target)) {
+        return { ok: false, reasonCode: "unrelated_intent_targets_preserved_recovery" };
+      }
+      if (intentOwnerIsLive(config.logsRoot, intent, defaultProcessActive)) {
+        return { ok: false, reasonCode: "unrelated_intent_live_owner" };
+      }
+      continue;
     }
+    if (!["finalized", "prepared"].includes(intent.status)) {
+      return { ok: false, reasonCode: "target_intent_status_uncertain" };
+    }
+    if (externalEffectTypes.has(intent.effectType)) {
+      const identityProof = validateTargetIntentIdentity(intent, target, chargeMarkerRef);
+      if (!identityProof.ok) return identityProof;
+      if (intent.status === "finalized") continue;
+      if (intent.effectType !== "comment") return { ok: false, reasonCode: "target_intent_status_uncertain" };
+      const authoritative = intentEvidenceCollector(
+        { ...config, repoRoot: repositoryRoot, repositorySlug: target.repository },
+        intent,
+      );
+      if (!authoritative?.ok) {
+        return { ok: false, reasonCode: `prepared_comment_${authoritative?.classification || "unclassified"}` };
+      }
+      continue;
+    }
+    const identityProof = validateTargetIntentIdentity(intent, target, chargeMarkerRef);
+    if (!identityProof.ok) return identityProof;
     const identity = intent.identity;
     const commitIntent = intent.effectType === "commit";
     const commitParent = commitIntent
       && shaPattern.test(identity?.candidateIdentity || "")
       && identity?.headSha === identity.candidateIdentity
       && canonical(intent.effect?.expectedParents) === canonical([identity.candidateIdentity]);
-    if (intent.logicalTaskIdentity !== target.claimIdentity || intent.claimIdentity !== target.claimIdentity
-        || intent.chargeIdentity !== chargeMarkerRef || identity?.repository !== target.repository
-        || (!commitIntent && identity?.issueNumber !== target.issueNumber) || identity?.branchName !== target.branch
-        || identity?.baseSha !== target.baseSha
+    if ((!commitIntent && identity?.issueNumber !== target.issueNumber)
         || (commitIntent ? !commitParent : identity?.candidateIdentity !== target.headSha)) {
       return { ok: false, reasonCode: "preserved_recovery_intent_identity_mismatch" };
     }
@@ -298,6 +343,106 @@ function validateIntents(config, state, target, chargeMarkerRef, repositoryRoot,
     gitEnvironment,
     resumedGitConfigRecords,
   );
+}
+
+function unrelatedIntentCanMutateTarget(intent, target) {
+  const values = [
+    intent.effect?.issueNumber, intent.effect?.prNumber,
+    intent.identity?.issueNumber, intent.identity?.prNumber,
+  ].filter(Number.isSafeInteger);
+  return values.includes(target.issueNumber)
+    || [intent.effect?.branchName, intent.effect?.remoteBranch, intent.identity?.branchName].includes(target.branch)
+    || [intent.effect?.headSha, intent.effect?.localSha, intent.effect?.localCommitSha, intent.identity?.headSha].includes(target.headSha);
+}
+
+function validateProjectNamespace(logsRoot, target, repositoryRoot, environment) {
+  try {
+    const markerPath = path.join(logsRoot, ".project-namespace.json");
+    assertTrustedNode(markerPath, "file");
+    const marker = parseBoundedJson(markerPath, 4096);
+    const root = path.resolve(repositoryRoot || "");
+    const commonDir = path.resolve(root, git(root, ["rev-parse", "--git-common-dir"], environment));
+    return marker?.version === 1
+      && marker.projectId === path.basename(logsRoot)
+      && marker.repositorySlug === target.repository.toLowerCase()
+      && digestPattern.test(marker.namespace || "")
+      && marker.repositoryCommonDirDigest === createHash("sha256").update(commonDir).digest("hex")
+      && Object.keys(marker).sort().join(",") === "namespace,projectId,repositoryCommonDirDigest,repositorySlug,version";
+  } catch {
+    return false;
+  }
+}
+
+function validateTargetIntentIdentity(intent, target, chargeMarkerRef) {
+  const identity = intent.identity;
+  return intent.logicalTaskIdentity === target.claimIdentity
+    && intent.claimIdentity === target.claimIdentity
+    && intent.chargeIdentity === chargeMarkerRef
+    && intent.repository === target.repository
+    && identity?.repository === target.repository
+    && identity?.sourceTaskKey === target.taskKey
+    && identity?.runId === target.runnerRunId
+    && identity?.claimIdentity === target.claimIdentity
+    && identity?.chargeIdentity === chargeMarkerRef
+    && identity?.branchName === target.branch
+    && identity?.baseSha === target.baseSha
+    && (intent.effectType === "commit"
+      || (identity?.issueNumber === target.issueNumber
+        && identity?.headSha === target.headSha
+        && identity?.candidateIdentity === target.headSha))
+    ? { ok: true }
+    : { ok: false, reasonCode: "preserved_recovery_intent_identity_mismatch" };
+}
+
+function collectAuthoritativeCommentIntentEvidence(config, intent) {
+  try {
+    const issueNumber = intent.effect?.issueNumber || intent.identity?.issueNumber;
+    if (!Number.isSafeInteger(issueNumber) || intent.effectType !== "comment") {
+      return { ok: false, classification: "live_read_unavailable" };
+    }
+    const result = spawnSync("gh", [
+      "api", "--paginate", "--jq", ".[] | @json",
+      `repos/${config.repositorySlug}/issues/${issueNumber}/comments?per_page=100`,
+    ], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
+    if (result.error || result.status !== 0 || result.stderr) {
+      return { ok: false, classification: "live_read_unavailable" };
+    }
+    const expectedDigest = intent.effect?.bodyDigest;
+    const matches = result.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line))
+      .filter((comment) => canonicalGithubEvidenceDigest(String(comment?.body || "")) === expectedDigest);
+    const live = matches.length > 1
+      ? { complete: true, ambiguous: true }
+      : matches.length === 0
+        ? { complete: true, present: false }
+        : { complete: true, present: true, identity: intent.identity, effect: intent.effect };
+    const reconciled = reconcilePreEffectIntent(intent, live);
+    return {
+      ok: ["effect_absent_safe_to_execute", "effect_present_exact_adoptable", "effect_confirmed"].includes(reconciled.classification),
+      classification: reconciled.classification,
+      intentId: String(intent.intentId).slice(0, 120),
+      effectType: intent.effectType,
+      fingerprint: intent.fingerprint,
+      source: "gh_cli",
+    };
+  } catch {
+    return { ok: false, classification: "live_read_unavailable" };
+  }
+}
+
+function intentOwnerIsLive(logsRoot, intent, processActive) {
+  for (const relative of [path.join("supervisor", "runs"), "state", "session-lifecycle"]) {
+    const root = path.join(logsRoot, relative);
+    if (!existsSync(root)) continue;
+    for (const file of trustedJsonFiles(root, 3).filter((candidate) => candidate.endsWith(".json"))) {
+      const record = parseBoundedJson(file, 256 * 1024);
+      const correlated = record.runId === intent.runId
+        || record.runnerRunId === intent.runId
+        || record.sessionId === intent.sessionId;
+      if (correlated && Number.isSafeInteger(record.pid) && processActive(record.pid)) return true;
+      if (correlated && ["submitted", "starting", "running", "stopping_after_current"].includes(record.state)) return true;
+    }
+  }
+  return false;
 }
 
 function validateCommitLineage(
@@ -417,7 +562,7 @@ function gitConfigValues(root, key, environment, scope = "local") {
     cwd: root,
     encoding: "buffer",
     env: sanitizedDeploymentGitEnvironment(environment),
-    maxBuffer: 64 * 1024,
+    maxBuffer: 256 * 1024,
   });
   if (result.status === 1 && result.stdout.length === 0 && result.stderr.length === 0) return [];
   if (result.status !== 0 || result.stderr.length !== 0) throw new Error("authoritative Git configuration read unavailable");
@@ -447,7 +592,7 @@ function gitConfigNames(root, environment, scope) {
     cwd: root,
     encoding: "buffer",
     env: sanitizedDeploymentGitEnvironment(environment),
-    maxBuffer: 64 * 1024,
+    maxBuffer: 256 * 1024,
   });
   if (result.status !== 0 || result.stderr.length !== 0) throw new Error("authoritative Git configuration read unavailable");
   const values = result.stdout.toString("utf8").split("\0");

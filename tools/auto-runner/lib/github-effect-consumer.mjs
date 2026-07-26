@@ -1,8 +1,8 @@
-import { createHash, scryptSync } from "node:crypto";
+import { createHash } from "node:crypto";
+import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
+export { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 import { executeCanonicalEffect, executeCanonicalEffectSync } from "./canonical-effect-executor.mjs";
 import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect } from "./git-workspace.mjs";
-
-const githubEvidenceDomainSalt = Buffer.from(["Settleora", "canonical", "GitHub", "evidence", "v1"].join("\0"));
 
 export function executeCanonicalGithubEffect(config, lifecycle, input, adapters) {
   return execute(false, config, lifecycle, input, adapters);
@@ -37,10 +37,6 @@ function execute(sync, config, lifecycle, input, adapters) {
     execute: (stored) => adapters.execute(stored, effect),
   };
   return sync ? executeCanonicalEffectSync(canonicalConfig, executionInput, wrapped) : executeCanonicalEffect(canonicalConfig, executionInput, wrapped);
-}
-
-export function canonicalGithubEvidenceDigest(value) {
-  return scryptSync(canonical(value), githubEvidenceDomainSalt, 32, { N: 1024, r: 8, p: 1 }).toString("hex");
 }
 
 function normalizeEffect(value) {
