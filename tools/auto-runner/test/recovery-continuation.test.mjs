@@ -1826,6 +1826,95 @@ test("non-source validation failure resumes validation without implementation re
   }
 });
 
+test("validation retry retains checkpoint precedence over lifecycle push evidence", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+        },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    let validationCalls = 0;
+    let pushCalls = 0;
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ boundary }) => {
+        validationCalls += 1;
+        return { ok: true, outcome: "validation_resumed", boundary };
+      },
+      push: async () => {
+        pushCalls += 1;
+        return { ok: false, reasonCode: "must_not_push" };
+      },
+    });
+    assert.equal(validationCalls, 1);
+    assert.equal(pushCalls, 0);
+    assert.equal(continued.recovery.executedPhase, "checkpoint_validation_commit");
+    assert.equal(continued.recovery.executedAction, "run_validation_and_commit");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("known missing-PR derivative is admitted only with exact validation lineage posture", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const original = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "recovery_existing_pr_context_missing",
+      },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+        },
+      },
+    };
+    writeRecoveryState(config, original);
+    assert.equal(discoverStartupRecovery(config).allowed, true);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ boundary }) => ({ ok: true, outcome: "validation_resumed", boundary }),
+    });
+    assert.equal(continued.recovery.executedPhase, "checkpoint_validation_commit");
+
+    writeRecoveryState(config, { ...original, pr: { ...original.pr, number: 123, url: "https://example.invalid/123", headSha: "b".repeat(40) } });
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("failed resumed validation is re-terminalized instead of retried on every startup", async () => {
   const config = tempConfig({ allowExistingPrRecovery: true });
   try {
