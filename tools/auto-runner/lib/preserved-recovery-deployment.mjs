@@ -6,7 +6,7 @@ import path from "node:path";
 import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
-import { findPreEffectIntents, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
+import { findPreEffectIntents, intentIssueAuthorityMatches, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
 import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 
 const shaPattern = /^[a-f0-9]{40}$/u;
@@ -330,7 +330,7 @@ function validateIntents(
       && shaPattern.test(identity?.candidateIdentity || "")
       && identity?.headSha === identity.candidateIdentity
       && canonical(intent.effect?.expectedParents) === canonical([identity.candidateIdentity]);
-    if ((!commitIntent && identity?.issueNumber !== target.issueNumber)
+    if (!intentIssueAuthorityMatches(intent, target.issueNumber)
         || (commitIntent ? !commitParent : identity?.candidateIdentity !== target.headSha)) {
       return { ok: false, reasonCode: "preserved_recovery_intent_identity_mismatch" };
     }

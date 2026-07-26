@@ -34,6 +34,7 @@ import {
   evaluateCompletionHygieneResume,
   evaluateControlAtRecoveryBoundary,
   firstIncompleteContinuationAction,
+  intentMatchesRecoveryAuthority,
   nextBundleSliceFromCheckpoint,
   planIdempotentGithubMutation,
   recoveryStatusSummary,
@@ -44,6 +45,51 @@ import {
   shouldSkipCompletedBundleSlice,
   consumeStartupInterruptionPlanner,
 } from "../lib/recovery-continuation.mjs";
+
+test("startup recovery intent identity is effect-type-aware and fail-closed", () => {
+  const expected = {
+    issueNumber: 959,
+    claimIdentity: "owner/repo#959",
+    chargeIdentity: "/trusted/logical-task-budget/charge.json",
+    branchName: "feature/auto-959-recovery",
+    baseSha: "a".repeat(40),
+    headSha: "b".repeat(40),
+  };
+  const canonical = {
+    repository: "owner/repo",
+    sourceTaskKey: "20260724T075849",
+    runId: "run-959",
+    logicalTaskIdentity: expected.claimIdentity,
+    claimIdentity: expected.claimIdentity,
+    chargeIdentity: expected.chargeIdentity,
+    effectType: "commit",
+    identity: {
+      repository: "owner/repo",
+      sourceTaskKey: "20260724T075849",
+      runId: "run-959",
+      logicalTaskIdentity: expected.claimIdentity,
+      claimIdentity: expected.claimIdentity,
+      chargeIdentity: expected.chargeIdentity,
+      branchName: expected.branchName,
+      baseSha: expected.baseSha,
+      headSha: expected.baseSha,
+    },
+  };
+  assert.equal(intentMatchesRecoveryAuthority(canonical, expected), true);
+  assert.equal(intentMatchesRecoveryAuthority({
+    ...canonical,
+    identity: { ...canonical.identity, issueNumber: 960 },
+  }, expected), false);
+  assert.equal(intentMatchesRecoveryAuthority({
+    ...canonical,
+    effectType: "comment",
+  }, expected), false);
+  assert.equal(intentMatchesRecoveryAuthority({
+    ...canonical,
+    effectType: "comment",
+    identity: { ...canonical.identity, issueNumber: 959 },
+  }, expected), true);
+});
 
 test("deployment Git environment disables lazy object fetching and ignores ambient execution authority", () => {
   assert.deepEqual(sanitizedDeploymentGitEnvironment({
@@ -222,6 +268,51 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
     }, identity);
     assert.equal(mismatched.ok, false);
     assert.equal(mismatched.reasonCode, "session_lifecycle_migration_ownership_mismatch");
+
+    let canonicalCommit = preparePreEffectIntent(config, {
+      repository: config.repositorySlug,
+      sourceTaskKey: identity.taskKey,
+      runId: identity.runId,
+      logicalTaskIdentity: "owner/repo#959",
+      claimIdentity: "owner/repo#959",
+      chargeIdentity: charged.statePath,
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      effectType: "commit",
+      branchName: identity.branchName,
+      baseSha: identity.baseSha,
+      headSha: identity.baseSha,
+      candidateIdentity: identity.baseSha,
+      effect: {
+        expectedParents: [identity.baseSha],
+        treeSha: identity.headSha,
+        stagedPaths: ["apps/mobile/lib/parser.dart"],
+        messageDigest: "c".repeat(64),
+      },
+    }, { intentId: "canonical-commit-without-nested-issue" });
+    canonicalCommit = transitionPreEffectIntent({ ...config, currentAuthority: {
+      runId: identity.runId,
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      status: "active",
+    } }, canonicalCommit, "executing");
+    canonicalCommit = transitionPreEffectIntent({ ...config, currentAuthority: {
+      runId: identity.runId,
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      status: "active",
+    } }, canonicalCommit, "live_confirmed");
+    transitionPreEffectIntent({ ...config, currentAuthority: {
+      runId: identity.runId,
+      sessionId: "prior-session",
+      authorityGeneration: 1,
+      status: "active",
+    } }, canonicalCommit, "finalized");
+    assert.equal(
+      consumeStartupInterruptionPlanner(config, withEvidence, {}, recoveryAdapters).ok,
+      true,
+      "a canonical finalized commit intent may omit the nested issue projection",
+    );
 
     const contradictory = preparePreEffectIntent(config, {
       repository: config.repositorySlug,
