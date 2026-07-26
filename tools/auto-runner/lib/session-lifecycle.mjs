@@ -595,7 +595,13 @@ export function planInterruptionRecovery(state, live = {}, interruption = {}) {
   if (classified.active || !classified.recoverable) return classified;
   if (state.recovery?.status === "pending" && state.interruption?.class === classified.interruptionClass) {
     const effects = mergeObservedRecoveryEffects(state.recovery.effectsAlreadyPresent, live);
-    const phase = earliestRecoveryPhase(state.controller.phase, effects);
+    const validationRetryReopened = state.controller?.phase === "checkpoint_validation_commit"
+      && state.controller?.nextExactAction === "run_validation_and_commit"
+      && state.recovery?.phaseAfter === "checkpoint_validation_commit"
+      && state.mutationAuthority?.handoff?.reason === "validation_retry_derivative_reopened";
+    const phase = validationRetryReopened
+      ? "checkpoint_validation_commit"
+      : earliestRecoveryPhase(state.controller.phase, effects);
     if (JSON.stringify(effects) === JSON.stringify(state.recovery.effectsAlreadyPresent)
       && phase === state.recovery.phaseAfter) {
       return { ok: true, recoverable: true, duplicate: true, classification: classified, effectsAlreadyPresent: effects, earliestSafePhase: phase, state };

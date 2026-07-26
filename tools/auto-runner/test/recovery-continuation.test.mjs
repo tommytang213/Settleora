@@ -5,7 +5,7 @@ import test from "node:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, reopenKnownValidationRetryDerivative, sessionLifecyclePath, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, planInterruptionRecovery, reopenKnownValidationRetryDerivative, sessionLifecyclePath, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import {
@@ -2052,6 +2052,15 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     assert.equal(reopened.state.report.status, "in_progress");
     assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
     assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
+    const reconciled = planInterruptionRecovery(
+      reopened.state,
+      liveEffects,
+      { processExited: true, terminalReportTrusted: false, checkpointValid: true },
+    );
+    assert.equal(reconciled.ok, true);
+    assert.equal(reconciled.earliestSafePhase, "checkpoint_validation_commit");
+    assert.equal(reconciled.state.controller.phase, "checkpoint_validation_commit");
+    assert.equal(reconciled.state.recovery.phaseAfter, "checkpoint_validation_commit");
     const adopted = reopenKnownValidationRetryDerivative(config, reopened.state, liveEffects);
     assert.equal(adopted.ok, true);
     assert.equal(adopted.duplicate, true);
