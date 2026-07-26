@@ -365,6 +365,8 @@ function isValidationRetryCheckpoint(state) {
   const originalStop = state?.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe";
   const knownDerivativeStop = state?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
     && state?.stopReason?.reason === "recovery_existing_pr_context_missing"
+    && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state?.branch?.currentHeadSha
+    && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state?.branch?.baseSha
     && state?.pr?.number === null
     && state?.pr?.url === null
     && state?.pr?.headSha === null
