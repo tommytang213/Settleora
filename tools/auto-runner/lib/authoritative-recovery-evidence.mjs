@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { processAppearsActive } from "./state-store.mjs";
 import { readHeartbeat } from "../supervisor/heartbeat.mjs";
 import { loadPreEffectIntent, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
-import { canonicalGithubEvidenceDigest } from "./github-effect-consumer.mjs";
+import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 export const authoritativeRecoveryEvidenceVersion = 1;
@@ -271,12 +271,11 @@ export function discoverExactRecoveryPr(config, identity, runner = spawnSync) {
 }
 
 function readAllGithubComments(config, endpoint, target = {}) {
-  const result = spawnSync("gh", ["api", "--paginate", "--slurp", endpoint], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = spawnSync("gh", ["api", "--paginate", "--jq", ".[] | @json", endpoint], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
   if (result.status !== 0) return { complete: false, comments: [] };
   try {
-    const pages = JSON.parse(result.stdout);
-    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) return { complete: false, comments: [] };
-    return { complete: true, comments: pages.flat().map((comment) => commentIdentity(comment, target)) };
+    const comments = result.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    return { complete: true, comments: comments.map((comment) => commentIdentity(comment, target)) };
   } catch { return { complete: false, comments: [] }; }
 }
 

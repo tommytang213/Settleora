@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
@@ -277,6 +277,13 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     git(config.repoRoot, ["config", "user.email", "fixture@example.invalid"]);
     git(config.repoRoot, ["config", "user.name", "Fixture"]);
     git(config.repoRoot, ["remote", "add", "origin", "https://github.com/owner/repo.git"]);
+    writeFileSync(path.join(config.logsRoot, ".project-namespace.json"), `${JSON.stringify({
+      version: 1,
+      namespace: "a".repeat(64),
+      projectId: path.basename(config.logsRoot),
+      repositorySlug: "owner/repo",
+      repositoryCommonDirDigest: createHash("sha256").update(path.join(config.repoRoot, ".git")).digest("hex"),
+    })}\n`, { mode: 0o600 });
     writeFileSync(path.join(config.repoRoot, "README.md"), "base\n");
     git(config.repoRoot, ["add", "README.md"]);
     git(config.repoRoot, ["commit", "-m", "base"]);
@@ -465,6 +472,36 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     assert.equal(inspectDeploymentQuiescence(config.logsRoot).unresolvedExternalEffects, true);
     const admitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } });
     assert.equal(admitted.preservedRecoveryAdmitted, true, JSON.stringify(admitted));
+    const legacyRecovery = {
+      ...recovery,
+      ordinaryContinuation: {
+        ...recovery.ordinaryContinuation,
+        identity: { ...recovery.ordinaryContinuation.identity },
+      },
+    };
+    delete legacyRecovery.ordinaryContinuation.identity.repository;
+    writeRecoveryState(config, legacyRecovery);
+    const legacyAdmitted = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+      repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+    });
+    assert.equal(legacyAdmitted.preservedRecoveryAdmitted, true, JSON.stringify(legacyAdmitted));
+    assert.equal(legacyAdmitted.reasonCode, "exact_preserved_recovery_legacy_repository_omission_admitted");
+    writeRecoveryState(config, {
+      ...legacyRecovery,
+      ordinaryContinuation: {
+        ...legacyRecovery.ordinaryContinuation,
+        identity: { ...legacyRecovery.ordinaryContinuation.identity, repository: "foreign/repo" },
+      },
+    });
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "preserved_recovery_legacy_repository_contradiction",
+    );
+    writeRecoveryState(config, recovery);
     git(config.repoRoot, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
@@ -516,8 +553,8 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       repositoryRoot: config.repoRoot,
       resumedGitConfigRecords: { global: [], system: [] },
     });
-    assert.equal(legacyFailedClosedBlocked.unresolvedExternalEffects, true);
-    assert.equal(legacyFailedClosedBlocked.reasonCode, "unresolved_operational_state");
+    assert.equal(legacyFailedClosedBlocked.unresolvedExternalEffects, false);
+    assert.equal(legacyFailedClosedBlocked.reasonCode, "exact_preserved_recovery_admitted");
     unlinkSync(legacyPendingIntent);
     git(config.repoRoot, ["replace", target.headSha, intermediateHead]);
     assert.equal(
@@ -766,7 +803,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     unrelatedIntent = transitionPreEffectIntent(config, unrelatedIntent, "failed_closed");
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
-      "external_effect_failed_closed_not_admissible",
+      "unrelated_intent_targets_preserved_recovery",
     );
     unlinkSync(path.join(
       config.logsRoot,
@@ -791,15 +828,42 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       effect: { issueNumber: 959, bodyDigest: "e".repeat(64) },
     });
     assert.equal(intent.status, "prepared");
-    const pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } });
+    const hostileGhRoot = path.join(config.logsRoot, "hostile-gh-path");
+    const hostileGhSentinel = path.join(config.logsRoot, "hostile-gh-executed");
+    mkdirSync(hostileGhRoot);
+    writeFileSync(
+      path.join(hostileGhRoot, "gh"),
+      `#!/bin/sh\n: > '${hostileGhSentinel}'\nprintf '%s\\n' '{\"body\":\"fabricated\"}'\n`,
+      { mode: 0o700 },
+    );
+    const priorPath = process.env.PATH;
+    process.env.PATH = `${hostileGhRoot}:${priorPath}`;
+    let pending;
+    try {
+      pending = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      });
+    } finally {
+      process.env.PATH = priorPath;
+    }
     assert.equal(pending.preservedRecoveryAdmitted, false);
-    assert.equal(pending.reasonCode, "pending_external_effect");
+    assert.equal(pending.reasonCode, "prepared_comment_live_read_unavailable");
+    assert.equal(existsSync(hostileGhSentinel), false, "authoritative evidence must not execute an ambient gh binary");
+    const intentFilesBefore = readdirSync(path.join(config.logsRoot, "recovery", "pre-effect-intents")).sort();
+    const absent = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+      repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+      intentEvidenceCollector: () => ({ ok: true, classification: "effect_absent_safe_to_execute" }),
+    });
+    assert.equal(absent.preservedRecoveryAdmitted, true, JSON.stringify(absent));
+    assert.deepEqual(readdirSync(path.join(config.logsRoot, "recovery", "pre-effect-intents")).sort(), intentFilesBefore);
     let finalizedExternal = transitionPreEffectIntent(config, intent, "executing");
     finalizedExternal = transitionPreEffectIntent(config, finalizedExternal, "live_confirmed");
     finalizedExternal = transitionPreEffectIntent(config, finalizedExternal, "finalized");
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
-      "preserved_recovery_external_effect_present",
+      "exact_preserved_recovery_admitted",
     );
     const deleteIntent = (value) => unlinkSync(path.join(
       config.logsRoot,
@@ -822,8 +886,8 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       external = transitionPreEffectIntent(config, external, "finalized");
       assert.equal(
         inspectPreservedRecoveryForDeployment(config.logsRoot, target, { repositoryRoot: config.repoRoot, resumedGitConfigRecords: { global: [], system: [] } }).reasonCode,
-        "preserved_recovery_external_effect_present",
-        `finalized ${effectType} must not become preserved-recovery authority`,
+        "exact_preserved_recovery_admitted",
+        `exact finalized ${effectType} is completed evidence but does not become new authority`,
       );
       deleteIntent(external);
     }

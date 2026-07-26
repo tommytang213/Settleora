@@ -102,7 +102,8 @@ identities and the trusted base-to-head Git diff. Partial,
 duplicate, unknown, contradictory, or extra options are rejected. The
 read-only verifier requires one canonical recovery after the existing
 provisional/full-key suppression rule, exact charge/lifecycle/candidate/commit
-proof, terminal reconciled intents, and no live owner. Its output is sanitized
+proof, terminal intents or an exact prepared comment with authoritative
+absence/presence reconciliation, and no live owner. Its output is sanitized
 structured evidence with a target-identity digest and reason code.
 
 Admission also proves the Git authority that the later resumed runner will
@@ -122,6 +123,23 @@ bounded installed GitHub credential-helper and inert standard Git-LFS shapes.
 System Git-LFS definitions are accepted only when neither committed, local, nor
 default user/system attribute files can select a filter. Any default attribute
 artifact or other global/system entry fails closed.
+
+One legacy compatibility case remains inside that same proof: an absent or
+blank nested continuation repository field may be treated as omitted only
+when the explicit target, claim, accepted-task charge, lifecycle, every
+target-correlated intent, logs namespace, canonical repository root, and exact
+fetch/push authority all identify the same repository. A non-empty
+contradiction blocks, and deployment never rewrites the operational record.
+
+Intent admission is target-partitioned. Unrelated `failed_closed` intents are
+ignored only after trusted parsing, terminal-state proof, duplicate rejection,
+and inactive-owner proof. Exact finalized target intents are completed
+crash-window evidence rather than new authority. An exact prepared comment is
+accepted only when paginated authoritative GitHub readback proves either
+absence safe for later execution or one exact fingerprint match safe for
+adoption. Inspection never transitions an intent. Before a generic nonzero
+refusal, the CLI writes one bounded `deploymentQuiescence` JSON diagnostic to
+stderr so an operator does not need to import a private verifier.
 
 For a non-dry deployment, this proof is read initially, read again after the
 deployment lock is acquired, and read a third time immediately before launcher

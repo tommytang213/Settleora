@@ -508,8 +508,9 @@ Runtime deployment is not recovery authority. Its default quiescence gate
 rejects every unresolved recovery and intent. A separately reviewed deployment
 may name one exact preserved recovery through the complete fixed CLI identity
 shape documented in `tools/auto-runner/README.md`; admission requires canonical
-recovery/charge/lifecycle/commit/counter/report/prompt proof, terminal
-reconciled external effects, no live owner, matching persisted and recomputed
+recovery/charge/lifecycle/commit/counter/report/prompt proof, terminal effects
+or one exact prepared comment reconciled to authoritative absence/presence, no
+live owner, matching persisted and recomputed
 bounded raw-diff identity, and an exact bounded Git authority shape for the
 later resumed runner. The stable-launched worker rechecks the actual child
 environment before its first recovery Git read and binds the spawned runner to
@@ -521,6 +522,17 @@ proof is re-read under the deployment lock and immediately before exchange.
 Runtime consumers remain an independent hard gate, rollback has no
 preserved-recovery exception, and the deployment neither resumes nor mutates
 the preserved task.
+
+Legacy omission of the nested continuation repository is not authority by
+itself. It is accepted only when all independent repository identities
+(target, claim, charge, lifecycle, target intents, logs namespace, canonical
+Git root, and fetch/push authority) agree. Intent quiescence is partitioned:
+trusted unrelated terminal records do not poison the exact target, finalized
+target records are completed evidence, and a prepared target comment requires
+authoritative paginated live-effect reconciliation. Missing, ambiguous,
+contradictory, duplicate, or live-owner evidence remains fail-closed.
+Inspection is read-only, and official deployment refusals include bounded
+machine-readable quiescence evidence.
 
 The session-lifecycle checkpoint is the coordinated authority for proactive
 Codex rotation and reportless process recovery. A planned rotation is a
