@@ -467,6 +467,74 @@ export function transitionSessionLifecyclePhase(config, state, { phase, nextExac
   return persistSessionLifecycleState(config, next);
 }
 
+export function reopenKnownValidationRetryDerivative(config, state, liveEffects = {}) {
+  const validation = validateSessionLifecycleState(state);
+  if (!validation.ok) return validation;
+  if (liveEffects.commitPresent !== true
+    || liveEffects.pushPresent !== false
+    || liveEffects.mergePresent !== false
+    || liveEffects.commentPresent !== false) {
+    return fail("session_lifecycle_validation_retry_live_effects_contradictory");
+  }
+  const effects = state.recovery?.effectsAlreadyPresent;
+  if (state.recovery?.status !== "pending"
+    || !["push", "checkpoint_validation_commit"].includes(state.recovery?.phaseAfter)
+    || effects?.commit !== true
+    || effects?.push !== false
+    || effects?.merge !== false
+    || effects?.comment !== false
+    || !state.interruption?.class
+    || !state.recovery?.operationId) {
+    return fail("session_lifecycle_validation_retry_derivative_mismatch");
+  }
+  const exactReopened = state.controller?.phase === "checkpoint_validation_commit"
+    && state.controller?.nextExactAction === "run_validation_and_commit"
+    && state.report?.status === "in_progress"
+    && state.recovery.phaseAfter === "checkpoint_validation_commit";
+  const exactPending = exactReopened
+    && state.mutationAuthority?.status === "recovery_pending"
+    && state.mutationAuthority?.ownerSessionId === null
+    && state.mutationAuthority?.handoff?.reason === "validation_retry_derivative_reopened"
+    && state.mutationAuthority?.handoff?.retiredSessionId === state.sessions.current;
+  const successorSessionId = `${state.logicalTask.runId}:recovery:${state.recovery.operationId}`;
+  const exactActive = exactReopened
+    && state.mutationAuthority?.status === "active"
+    && state.mutationAuthority?.ownerSessionId === successorSessionId
+    && state.sessions.current === successorSessionId;
+  if (exactPending || exactActive) {
+    return { ok: true, duplicate: true, state, statePath: sessionLifecyclePath(config, state) };
+  }
+  if (state.controller?.phase !== "stopped"
+    || state.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
+    || state.report?.status !== "stopped"
+    || state.mutationAuthority?.status !== "terminal"
+    || state.mutationAuthority?.ownerSessionId !== null
+    || state.recovery.phaseAfter !== "push") {
+    return fail("session_lifecycle_validation_retry_derivative_mismatch");
+  }
+  const next = structuredClone(state);
+  next.controller.phase = "checkpoint_validation_commit";
+  next.controller.nextExactAction = "run_validation_and_commit";
+  next.report.status = "in_progress";
+  next.recovery.phaseAfter = "checkpoint_validation_commit";
+  next.mutationAuthority = {
+    ownerSessionId: null,
+    generation: next.sessions.generation,
+    status: "recovery_pending",
+    handoff: {
+      requestId: digest(`${next.recovery.operationId}:${next.sessions.current}:validation-retry`),
+      retiredSessionId: next.sessions.current,
+      successorSessionId: null,
+      reason: "validation_retry_derivative_reopened",
+      checkpointDigest: next.checkpoint.digest,
+      startedAt: new Date().toISOString(),
+    },
+  };
+  if (!next.sessions.retired.includes(next.sessions.current)) next.sessions.retired.push(next.sessions.current);
+  refreshDigest(next);
+  return persistSessionLifecycleState(config, next);
+}
+
 export function transitionSessionLifecycleHead(config, state, { branchName, headSha, prNumber } = {}) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;
@@ -526,16 +594,27 @@ export function planInterruptionRecovery(state, live = {}, interruption = {}) {
   const classified = classifyReportlessInterruption(interruption);
   if (classified.active || !classified.recoverable) return classified;
   if (state.recovery?.status === "pending" && state.interruption?.class === classified.interruptionClass) {
-    return { ok: true, recoverable: true, duplicate: true, classification: classified, effectsAlreadyPresent: state.recovery.effectsAlreadyPresent, earliestSafePhase: state.recovery.phaseAfter, state };
+    const effects = mergeObservedRecoveryEffects(state.recovery.effectsAlreadyPresent, live);
+    const validationRetryReopened = state.controller?.phase === "checkpoint_validation_commit"
+      && state.controller?.nextExactAction === "run_validation_and_commit"
+      && state.recovery?.phaseAfter === "checkpoint_validation_commit"
+      && state.mutationAuthority?.handoff?.reason === "validation_retry_derivative_reopened";
+    const phase = validationRetryReopened
+      ? "checkpoint_validation_commit"
+      : earliestRecoveryPhase(state.controller.phase, effects);
+    if (JSON.stringify(effects) === JSON.stringify(state.recovery.effectsAlreadyPresent)
+      && phase === state.recovery.phaseAfter) {
+      return { ok: true, recoverable: true, duplicate: true, classification: classified, effectsAlreadyPresent: effects, earliestSafePhase: phase, state };
+    }
+    const next = structuredClone(state);
+    next.recovery.effectsAlreadyPresent = effects;
+    next.recovery.phaseAfter = phase;
+    next.controller.phase = phase;
+    refreshDigest(next);
+    return { ok: true, recoverable: true, duplicate: false, reconciled: true, classification: classified, effectsAlreadyPresent: effects, earliestSafePhase: phase, state: next };
   }
-  const effects = {
-    mutation: live.mutationPresent === true,
-    commit: live.commitPresent === true,
-    push: live.pushPresent === true,
-    merge: live.mergePresent === true,
-    comment: live.commentPresent === true,
-  };
-  const phase = effects.merge ? "issue_parent_ledger_hygiene" : effects.push ? "ci_wait" : effects.commit ? "push" : effects.mutation ? "checkpoint_validation_commit" : state.controller.phase;
+  const effects = mergeObservedRecoveryEffects({}, live);
+  const phase = earliestRecoveryPhase(state.controller.phase, effects);
   const next = structuredClone(state);
   next.interruption = { class: classified.interruptionClass, reasonCode: classified.reasonCode, detectedAt: new Date().toISOString() };
   next.recovery = { operationId: live.recoveryOperationId || randomUUID(), status: "pending", attempts: state.recovery.attempts + 1, effectsAlreadyPresent: effects, phaseBefore: state.controller.phase, phaseAfter: phase };
@@ -545,6 +624,31 @@ export function planInterruptionRecovery(state, live = {}, interruption = {}) {
   if (!next.sessions.retired.includes(next.sessions.current)) next.sessions.retired.push(next.sessions.current);
   refreshDigest(next);
   return { ok: true, recoverable: true, classification: classified, effectsAlreadyPresent: effects, earliestSafePhase: phase, state: next };
+}
+
+function mergeObservedRecoveryEffects(existing, live) {
+  return {
+    mutation: existing?.mutation === true || live.mutationPresent === true,
+    commit: existing?.commit === true || live.commitPresent === true,
+    push: existing?.push === true || live.pushPresent === true,
+    pr: existing?.pr === true || live.prPresent === true,
+    merge: existing?.merge === true || live.mergePresent === true,
+    comment: existing?.comment === true || live.commentPresent === true,
+  };
+}
+
+function earliestRecoveryPhase(fallbackPhase, effects) {
+  return effects.merge
+    ? "issue_parent_ledger_hygiene"
+    : effects.push && effects.pr
+      ? "ci_wait"
+      : effects.push
+        ? "pr_create_recover"
+        : effects.commit
+          ? "push"
+          : effects.mutation
+            ? "checkpoint_validation_commit"
+            : fallbackPhase;
 }
 
 export function sessionLifecyclePath(config, identity = {}) {

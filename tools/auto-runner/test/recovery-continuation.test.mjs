@@ -5,7 +5,7 @@ import test from "node:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, sessionLifecyclePath, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, planInterruptionRecovery, reopenKnownValidationRetryDerivative, sessionLifecyclePath, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import {
@@ -982,6 +982,102 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       );
       deleteIntent(external);
     }
+    const derivativeRecovery = {
+      ...recovery,
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "recovery_existing_pr_context_missing",
+      },
+    };
+    writeRecoveryState(config, derivativeRecovery);
+    let derivativeLifecycle = structuredClone(loadSessionLifecycleForRecovery(config, {
+      repository: target.repository,
+      issueNumber: target.issueNumber,
+      taskKey: target.taskKey,
+      runId: target.runnerRunId,
+      supervisorRunId: target.supervisorRunId,
+      branchName: target.branch,
+      baseSha: target.baseSha,
+      headSha: target.headSha,
+    }).state);
+    derivativeLifecycle.interruption = {
+      class: "main_process_exit_without_terminal_report",
+      reasonCode: "interruption_main_process_exit_without_terminal_report",
+      detectedAt: new Date().toISOString(),
+    };
+    derivativeLifecycle.recovery = {
+      operationId: "fixture-derivative-operation",
+      status: "pending",
+      attempts: 1,
+      effectsAlreadyPresent: { mutation: false, commit: true, push: false, merge: false, comment: false },
+      phaseBefore: "implementation_or_bundle_slice",
+      phaseAfter: "push",
+    };
+    const persistedDerivativeLifecycle = persistSessionLifecycleState(config, derivativeLifecycle);
+    assert.equal(persistedDerivativeLifecycle.ok, true, JSON.stringify(persistedDerivativeLifecycle));
+    derivativeLifecycle = persistedDerivativeLifecycle.state;
+    const stoppedDerivativeLifecycle = transitionSessionLifecyclePhase(config, derivativeLifecycle, {
+      phase: "stopped",
+      nextExactAction: "checkpoint_validation_recovery_failed_closed",
+    });
+    assert.equal(stoppedDerivativeLifecycle.ok, true, JSON.stringify(stoppedDerivativeLifecycle));
+    derivativeLifecycle = stoppedDerivativeLifecycle.state;
+    assert.deepEqual({
+      phase: derivativeLifecycle.controller.phase,
+      nextExactAction: derivativeLifecycle.controller.nextExactAction,
+      reportStatus: derivativeLifecycle.report.status,
+      authorityStatus: derivativeLifecycle.mutationAuthority.status,
+      authorityOwner: derivativeLifecycle.mutationAuthority.ownerSessionId,
+      recoveryStatus: derivativeLifecycle.recovery.status,
+      phaseAfter: derivativeLifecycle.recovery.phaseAfter,
+      effects: derivativeLifecycle.recovery.effectsAlreadyPresent,
+    }, {
+      phase: "stopped",
+      nextExactAction: "checkpoint_validation_recovery_failed_closed",
+      reportStatus: "stopped",
+      authorityStatus: "terminal",
+      authorityOwner: null,
+      recoveryStatus: "pending",
+      phaseAfter: "push",
+      effects: { mutation: false, commit: true, push: false, merge: false, comment: false },
+    });
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "exact_preserved_recovery_admitted",
+      "the exact known derivative must permit installation of its corrective runtime",
+    );
+    let derivativePushIntent = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "push", issueNumber: 959, branchName: target.branch, baseSha: target.baseSha,
+      headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: { remote: "origin", branchName: target.branch, headSha: target.headSha },
+    });
+    derivativePushIntent = transitionPreEffectIntent(config, derivativePushIntent, "executing");
+    derivativePushIntent = transitionPreEffectIntent(config, derivativePushIntent, "live_confirmed");
+    derivativePushIntent = transitionPreEffectIntent(config, derivativePushIntent, "finalized");
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "preserved_recovery_derivative_external_intent_present",
+    );
+    deleteIntent(derivativePushIntent);
+    const contradictoryDerivativeLifecycle = structuredClone(derivativeLifecycle);
+    contradictoryDerivativeLifecycle.recovery.effectsAlreadyPresent.push = true;
+    persistSessionLifecycleState(config, contradictoryDerivativeLifecycle);
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "preserved_recovery_derivative_lifecycle_mismatch",
+    );
   } finally {
     config.cleanup();
   }
@@ -1821,6 +1917,160 @@ test("non-source validation failure resumes validation without implementation re
     assert.equal(continued.ok, true);
     assert.equal(continued.result.boundary.nextSafeAction, "run_validation_and_commit");
     assert.equal(implementationCalls, 0);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("validation retry retains checkpoint precedence over lifecycle push evidence", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const stopped = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: { reasonCode: "checkpoint_validation_not_source_fix_safe" },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+        },
+      },
+    };
+    writeRecoveryState(config, stopped);
+    let validationCalls = 0;
+    let pushCalls = 0;
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ boundary }) => {
+        validationCalls += 1;
+        return { ok: true, outcome: "validation_resumed", boundary };
+      },
+      push: async () => {
+        pushCalls += 1;
+        return { ok: false, reasonCode: "must_not_push" };
+      },
+    });
+    assert.equal(validationCalls, 1);
+    assert.equal(pushCalls, 0);
+    assert.equal(continued.recovery.executedPhase, "checkpoint_validation_commit");
+    assert.equal(continued.recovery.executedAction, "run_validation_and_commit");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("known missing-PR derivative is admitted only with exact validation lineage posture", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const original = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "recovery_existing_pr_context_missing",
+      },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{ classification: "unsafe_or_ambiguous", sourceFixEligible: false, nextAction: "stop_fail_closed" }],
+        },
+      },
+    };
+    writeRecoveryState(config, original);
+    assert.equal(discoverStartupRecovery(config).allowed, true);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ boundary }) => ({ ok: true, outcome: "validation_resumed", boundary }),
+    });
+    assert.equal(continued.recovery.executedPhase, "checkpoint_validation_commit");
+
+    writeRecoveryState(config, { ...original, pr: { ...original.pr, number: 123, url: "https://example.invalid/123", headSha: "b".repeat(40) } });
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("known validation derivative reopens only its exact terminal lifecycle checkpoint", () => {
+  const config = tempConfig();
+  try {
+    let lifecycle = createSessionLifecycleState({
+      repository: "tommytang213/Settleora",
+      issueNumber: 959,
+      taskKey: "20260724T075849",
+      runId: "run-959",
+      supervisorRunId: "supervised-959",
+      claimIdentity: "tommytang213/Settleora#959",
+      chargeMarkerRef: "/tmp/charge",
+      branchName: "feature/auto-959-recovery",
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      sessionId: "run-959:recovery:operation-959",
+      phase: "push",
+      nextExactAction: "recover_earliest_safe_phase",
+    });
+    lifecycle.interruption = { class: "main_process_exit_without_terminal_report", reasonCode: "interruption_main_process_exit_without_terminal_report", detectedAt: new Date().toISOString() };
+    lifecycle.recovery = {
+      operationId: "operation-959",
+      status: "pending",
+      attempts: 1,
+      effectsAlreadyPresent: { mutation: false, commit: true, push: false, merge: false, comment: false },
+      phaseBefore: "implementation_or_bundle_slice",
+      phaseAfter: "push",
+    };
+    lifecycle.checkpoint.digest = null;
+    lifecycle = persistSessionLifecycleState(config, lifecycle).state;
+    lifecycle = transitionSessionLifecyclePhase(config, lifecycle, {
+      phase: "stopped",
+      nextExactAction: "checkpoint_validation_recovery_failed_closed",
+    }).state;
+    const liveEffects = { commitPresent: true, pushPresent: false, mergePresent: false, commentPresent: false };
+    const reopened = reopenKnownValidationRetryDerivative(config, lifecycle, liveEffects);
+    assert.equal(reopened.ok, true);
+    assert.equal(reopened.state.controller.phase, "checkpoint_validation_commit");
+    assert.equal(reopened.state.controller.nextExactAction, "run_validation_and_commit");
+    assert.equal(reopened.state.report.status, "in_progress");
+    assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
+    assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
+    const reconciled = planInterruptionRecovery(
+      reopened.state,
+      liveEffects,
+      { processExited: true, terminalReportTrusted: false, checkpointValid: true },
+    );
+    assert.equal(reconciled.ok, true);
+    assert.equal(reconciled.earliestSafePhase, "checkpoint_validation_commit");
+    assert.equal(reconciled.state.controller.phase, "checkpoint_validation_commit");
+    assert.equal(reconciled.state.recovery.phaseAfter, "checkpoint_validation_commit");
+    const adopted = reopenKnownValidationRetryDerivative(config, reopened.state, liveEffects);
+    assert.equal(adopted.ok, true);
+    assert.equal(adopted.duplicate, true);
+    assert.equal(adopted.state.checkpoint.digest, reopened.state.checkpoint.digest);
+
+    const wrong = structuredClone(lifecycle);
+    wrong.recovery.effectsAlreadyPresent.push = true;
+    wrong.checkpoint.digest = null;
+    assert.equal(reopenKnownValidationRetryDerivative(config, wrong, liveEffects).ok, false);
+    assert.equal(reopenKnownValidationRetryDerivative(config, lifecycle, { ...liveEffects, pushPresent: true }).ok, false);
   } finally {
     config.cleanup();
   }

@@ -8,7 +8,7 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
-import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
+import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, reopenKnownValidationRetryDerivative, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
 import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAuthorityMatches } from "./pre-effect-intent.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
@@ -201,7 +201,10 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }
   const validationRetryTerminal = isValidationFailureRetryAuthorized(loaded.state) ? loaded.state : null;
   let state = normalizeValidationFailureContinuation(loaded.state);
-  const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, recovery.interruption || {});
+  const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
+    ...(recovery.interruption || {}),
+    validationRetryDerivativeAuthorized: validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
+  });
   if (!lifecycleRecovery.ok) {
     return {
       ok: false,
@@ -227,7 +230,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   if (lifecycleRecovery.state) state = { ...state, sessionLifecycle: lifecycleRecovery.state };
-  if (lifecycleRecovery.earliestSafePhase && lifecycleRecovery.earliestSafePhase !== state.phase) {
+  if (!validationRetryTerminal && lifecycleRecovery.earliestSafePhase && lifecycleRecovery.earliestSafePhase !== state.phase) {
     state = advanceRecoveryPhase(state, {
       phase: lifecycleRecovery.earliestSafePhase,
       firstIncompleteAction: lifecycleRecovery.earliestSafePhase,
@@ -402,6 +405,11 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     if (!headPersisted.ok) return headPersisted;
     lifecycleState = headPersisted.state;
   }
+  if (interruption.validationRetryDerivativeAuthorized === true) {
+    const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState, inputs.liveEffects);
+    if (!reopened.ok) return reopened;
+    lifecycleState = reopened.state;
+  }
   const trustedInterruption = loaded.migrated === true
     ? { processExited: true, terminalReportTrusted: false, checkpointValid: true, ...inputs.interruption, ...interruption }
     : { ...inputs.interruption, ...interruption };
@@ -448,12 +456,23 @@ function normalizeValidationFailureContinuation(state) {
 
 function isValidationFailureRetryAuthorized(state) {
   const findings = state?.ordinaryContinuation?.sourceFailureBatch?.findings;
+  const originalStop = state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe";
+  const knownDerivativeStop = state.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
+    && state.stopReason?.reason === "recovery_existing_pr_context_missing"
+    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state.branch?.currentHeadSha
+    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state.branch?.baseSha
+    && state.pr?.number === null
+    && state.pr?.url === null
+    && state.pr?.headSha === null
+    && state.branch?.expectedRemoteHeadSha === null
+    && !hasAnyMutationMarker(state, "push")
+    && !hasAnyMutationMarker(state, "merge");
   return state?.phase === "stopped"
     && state?.evidence?.localValidation?.status === "failed"
     && Array.isArray(findings)
     && findings.length > 0
     && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
-    && state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+    && (originalStop || knownDerivativeStop)
     && state.firstIncompleteAction === "run_validation_and_commit"
     && state.nextSafeAction === "stop_fail_closed"
     && findings.every((finding) => finding?.sourceFixEligible === false

@@ -329,13 +329,43 @@ test("active owner prevents recovery takeover even with stale report", () => {
 
 test("dead owner recovery resumes earliest safe phase without replaying effects", () => {
   const state = fixture({ localSourceChangingRoundsPerEpoch: 7, githubTriggeredFixEpochsPerPr: 3 });
-  const result = planInterruptionRecovery(state, { commitPresent: true, pushPresent: true, recoveryOperationId: "recovery-1" }, { processExited: true, checkpointValid: true });
+  const result = planInterruptionRecovery(state, { commitPresent: true, pushPresent: true, prPresent: true, recoveryOperationId: "recovery-1" }, { processExited: true, checkpointValid: true });
   assert.equal(result.earliestSafePhase, "ci_wait");
   assert.equal(result.effectsAlreadyPresent.commit, true);
   assert.equal(result.effectsAlreadyPresent.push, true);
   assert.equal(result.state.controller.localSourceChangingRoundsPerEpoch, 7);
   assert.equal(result.state.logicalTask.chargeMarkerRef, "logical-task-budget/charge-1");
   assert.equal(assertMutationAuthority(result.state, "session-1").ok, false);
+});
+
+test("adopted push without a PR resumes PR creation without replaying push", () => {
+  const result = planInterruptionRecovery(
+    fixture(),
+    { commitPresent: true, pushPresent: true, prPresent: false, recoveryOperationId: "post-push-crash" },
+    { processExited: true, checkpointValid: true },
+  );
+  assert.equal(result.earliestSafePhase, "pr_create_recover");
+  assert.equal(result.effectsAlreadyPresent.push, true);
+  assert.equal(result.effectsAlreadyPresent.pr, false);
+});
+
+test("pending recovery adopts a later push before a second pre-PR restart", () => {
+  const first = planInterruptionRecovery(
+    fixture(),
+    { commitPresent: true, recoveryOperationId: "commit-crash" },
+    { processExited: true, checkpointValid: true },
+  );
+  assert.equal(first.earliestSafePhase, "push");
+  const second = planInterruptionRecovery(
+    first.state,
+    { commitPresent: true, pushPresent: true, prPresent: false },
+    { processExited: true, checkpointValid: true },
+  );
+  assert.equal(second.reconciled, true);
+  assert.equal(second.earliestSafePhase, "pr_create_recover");
+  assert.equal(second.effectsAlreadyPresent.push, true);
+  assert.equal(second.effectsAlreadyPresent.pr, false);
+  assert.equal(second.state.recovery.operationId, first.state.recovery.operationId);
 });
 
 test("prepared and executing reservations never masquerade as completed effects", () => {
@@ -353,7 +383,7 @@ test("post-merge report finalization resumes hygiene only", () => {
 
 test("pending checks resume polling without a source epoch", () => {
   const state = fixture({ phase: "ci_wait", githubTriggeredFixEpochsPerPr: 5 });
-  const result = planInterruptionRecovery(state, { pushPresent: true }, { hostRestarted: true, checkpointValid: true });
+  const result = planInterruptionRecovery(state, { pushPresent: true, prPresent: true }, { hostRestarted: true, checkpointValid: true });
   assert.equal(result.earliestSafePhase, "ci_wait");
   assert.equal(result.state.controller.githubTriggeredFixEpochsPerPr, 5);
 });

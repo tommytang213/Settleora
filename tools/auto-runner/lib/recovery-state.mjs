@@ -362,7 +362,18 @@ function isValidationFailureContinuation(state) {
 }
 
 function isValidationRetryCheckpoint(state) {
-  return state?.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
+  const originalStop = state?.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe";
+  const knownDerivativeStop = state?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
+    && state?.stopReason?.reason === "recovery_existing_pr_context_missing"
+    && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state?.branch?.currentHeadSha
+    && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state?.branch?.baseSha
+    && state?.pr?.number === null
+    && state?.pr?.url === null
+    && state?.pr?.headSha === null
+    && state?.branch?.expectedRemoteHeadSha === null
+    && !Object.keys(state?.mutationMarkers?.push || {}).length
+    && !Object.keys(state?.mutationMarkers?.merge || {}).length;
+  return (originalStop || knownDerivativeStop)
     && state?.firstIncompleteAction === "run_validation_and_commit"
     && state?.nextSafeAction === "stop_fail_closed"
     && Array.isArray(state?.ordinaryContinuation?.sourceFailureBatch?.findings)
