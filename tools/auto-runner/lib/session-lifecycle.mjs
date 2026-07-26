@@ -471,19 +471,39 @@ export function reopenKnownValidationRetryDerivative(config, state) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;
   const effects = state.recovery?.effectsAlreadyPresent;
-  if (state.controller?.phase !== "stopped"
-    || state.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
-    || state.report?.status !== "stopped"
-    || state.mutationAuthority?.status !== "terminal"
-    || state.mutationAuthority?.ownerSessionId !== null
-    || state.recovery?.status !== "pending"
-    || state.recovery?.phaseAfter !== "push"
+  if (state.recovery?.status !== "pending"
+    || !["push", "checkpoint_validation_commit"].includes(state.recovery?.phaseAfter)
     || effects?.commit !== true
     || effects?.push !== false
     || effects?.merge !== false
     || effects?.comment !== false
     || !state.interruption?.class
     || !state.recovery?.operationId) {
+    return fail("session_lifecycle_validation_retry_derivative_mismatch");
+  }
+  const exactReopened = state.controller?.phase === "checkpoint_validation_commit"
+    && state.controller?.nextExactAction === "run_validation_and_commit"
+    && state.report?.status === "in_progress"
+    && state.recovery.phaseAfter === "checkpoint_validation_commit";
+  const exactPending = exactReopened
+    && state.mutationAuthority?.status === "recovery_pending"
+    && state.mutationAuthority?.ownerSessionId === null
+    && state.mutationAuthority?.handoff?.reason === "validation_retry_derivative_reopened"
+    && state.mutationAuthority?.handoff?.retiredSessionId === state.sessions.current;
+  const successorSessionId = `${state.logicalTask.runId}:recovery:${state.recovery.operationId}`;
+  const exactActive = exactReopened
+    && state.mutationAuthority?.status === "active"
+    && state.mutationAuthority?.ownerSessionId === successorSessionId
+    && state.sessions.current === successorSessionId;
+  if (exactPending || exactActive) {
+    return { ok: true, duplicate: true, state, statePath: sessionLifecyclePath(config, state) };
+  }
+  if (state.controller?.phase !== "stopped"
+    || state.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
+    || state.report?.status !== "stopped"
+    || state.mutationAuthority?.status !== "terminal"
+    || state.mutationAuthority?.ownerSessionId !== null
+    || state.recovery.phaseAfter !== "push") {
     return fail("session_lifecycle_validation_retry_derivative_mismatch");
   }
   const next = structuredClone(state);

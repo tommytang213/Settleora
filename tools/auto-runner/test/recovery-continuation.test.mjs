@@ -1955,6 +1955,10 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     assert.equal(reopened.state.report.status, "in_progress");
     assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
     assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
+    const adopted = reopenKnownValidationRetryDerivative(config, reopened.state);
+    assert.equal(adopted.ok, true);
+    assert.equal(adopted.duplicate, true);
+    assert.equal(adopted.state.checkpoint.digest, reopened.state.checkpoint.digest);
 
     const wrong = structuredClone(lifecycle);
     wrong.recovery.effectsAlreadyPresent.push = true;
