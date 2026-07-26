@@ -2010,7 +2010,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         const checkpoint = { ok: true, candidateIdentity: state.ordinaryContinuation.identity, routeState: "post_merge_cleanup_ready" };
         return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
       }
-      if (["pr_create_recover", "ci_wait"].includes(boundary.phase) && state.ordinaryContinuation) {
+      if (["push", "pr_create_recover", "ci_wait"].includes(boundary.phase) && state.ordinaryContinuation) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
