@@ -15,6 +15,7 @@ const runnerFor = (value, overrides = {}) => (_command, args, options) => {
   assert.equal(args.includes("stateReason"), false);
   assert.equal(options.timeout, 20_000);
   assert.equal(options.maxBuffer, 1024 * 1024);
+  assert.equal(options.env.GH_NO_UPDATE_NOTIFIER, "1");
   assert.equal(options.env.GH_PROMPT_DISABLED, "1");
   assert.equal(options.env.GIT_TERMINAL_PROMPT, "0");
   assert.equal(options.windowsHide, true);

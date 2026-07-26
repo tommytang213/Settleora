@@ -19,7 +19,12 @@ export function readGithubIssueState(config, issueNumber, runner = spawnSync) {
       encoding: "utf8",
       timeout: githubIssueReadTimeoutMs,
       maxBuffer: githubIssueReadMaxBuffer,
-      env: { ...process.env, GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0" },
+      env: {
+        ...process.env,
+        GH_NO_UPDATE_NOTIFIER: "1",
+        GH_PROMPT_DISABLED: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      },
       windowsHide: true,
     },
   );
