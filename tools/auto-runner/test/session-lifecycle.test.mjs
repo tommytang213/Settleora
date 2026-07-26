@@ -349,6 +349,25 @@ test("adopted push without a PR resumes PR creation without replaying push", () 
   assert.equal(result.effectsAlreadyPresent.pr, false);
 });
 
+test("pending recovery adopts a later push before a second pre-PR restart", () => {
+  const first = planInterruptionRecovery(
+    fixture(),
+    { commitPresent: true, recoveryOperationId: "commit-crash" },
+    { processExited: true, checkpointValid: true },
+  );
+  assert.equal(first.earliestSafePhase, "push");
+  const second = planInterruptionRecovery(
+    first.state,
+    { commitPresent: true, pushPresent: true, prPresent: false },
+    { processExited: true, checkpointValid: true },
+  );
+  assert.equal(second.reconciled, true);
+  assert.equal(second.earliestSafePhase, "pr_create_recover");
+  assert.equal(second.effectsAlreadyPresent.push, true);
+  assert.equal(second.effectsAlreadyPresent.pr, false);
+  assert.equal(second.state.recovery.operationId, first.state.recovery.operationId);
+});
+
 test("prepared and executing reservations never masquerade as completed effects", () => {
   for (const status of ["prepared", "executing", "failed_closed"]) {
     const state = fixture({ reservations: { checkpoint_commit: { key: "c1", status } } });

@@ -594,27 +594,21 @@ export function planInterruptionRecovery(state, live = {}, interruption = {}) {
   const classified = classifyReportlessInterruption(interruption);
   if (classified.active || !classified.recoverable) return classified;
   if (state.recovery?.status === "pending" && state.interruption?.class === classified.interruptionClass) {
-    return { ok: true, recoverable: true, duplicate: true, classification: classified, effectsAlreadyPresent: state.recovery.effectsAlreadyPresent, earliestSafePhase: state.recovery.phaseAfter, state };
+    const effects = mergeObservedRecoveryEffects(state.recovery.effectsAlreadyPresent, live);
+    const phase = earliestRecoveryPhase(state.controller.phase, effects);
+    if (JSON.stringify(effects) === JSON.stringify(state.recovery.effectsAlreadyPresent)
+      && phase === state.recovery.phaseAfter) {
+      return { ok: true, recoverable: true, duplicate: true, classification: classified, effectsAlreadyPresent: effects, earliestSafePhase: phase, state };
+    }
+    const next = structuredClone(state);
+    next.recovery.effectsAlreadyPresent = effects;
+    next.recovery.phaseAfter = phase;
+    next.controller.phase = phase;
+    refreshDigest(next);
+    return { ok: true, recoverable: true, duplicate: false, reconciled: true, classification: classified, effectsAlreadyPresent: effects, earliestSafePhase: phase, state: next };
   }
-  const effects = {
-    mutation: live.mutationPresent === true,
-    commit: live.commitPresent === true,
-    push: live.pushPresent === true,
-    pr: live.prPresent === true,
-    merge: live.mergePresent === true,
-    comment: live.commentPresent === true,
-  };
-  const phase = effects.merge
-    ? "issue_parent_ledger_hygiene"
-    : effects.push && effects.pr
-      ? "ci_wait"
-      : effects.push
-        ? "pr_create_recover"
-        : effects.commit
-          ? "push"
-          : effects.mutation
-            ? "checkpoint_validation_commit"
-            : state.controller.phase;
+  const effects = mergeObservedRecoveryEffects({}, live);
+  const phase = earliestRecoveryPhase(state.controller.phase, effects);
   const next = structuredClone(state);
   next.interruption = { class: classified.interruptionClass, reasonCode: classified.reasonCode, detectedAt: new Date().toISOString() };
   next.recovery = { operationId: live.recoveryOperationId || randomUUID(), status: "pending", attempts: state.recovery.attempts + 1, effectsAlreadyPresent: effects, phaseBefore: state.controller.phase, phaseAfter: phase };
@@ -624,6 +618,31 @@ export function planInterruptionRecovery(state, live = {}, interruption = {}) {
   if (!next.sessions.retired.includes(next.sessions.current)) next.sessions.retired.push(next.sessions.current);
   refreshDigest(next);
   return { ok: true, recoverable: true, classification: classified, effectsAlreadyPresent: effects, earliestSafePhase: phase, state: next };
+}
+
+function mergeObservedRecoveryEffects(existing, live) {
+  return {
+    mutation: existing?.mutation === true || live.mutationPresent === true,
+    commit: existing?.commit === true || live.commitPresent === true,
+    push: existing?.push === true || live.pushPresent === true,
+    pr: existing?.pr === true || live.prPresent === true,
+    merge: existing?.merge === true || live.mergePresent === true,
+    comment: existing?.comment === true || live.commentPresent === true,
+  };
+}
+
+function earliestRecoveryPhase(fallbackPhase, effects) {
+  return effects.merge
+    ? "issue_parent_ledger_hygiene"
+    : effects.push && effects.pr
+      ? "ci_wait"
+      : effects.push
+        ? "pr_create_recover"
+        : effects.commit
+          ? "push"
+          : effects.mutation
+            ? "checkpoint_validation_commit"
+            : fallbackPhase;
 }
 
 export function sessionLifecyclePath(config, identity = {}) {
