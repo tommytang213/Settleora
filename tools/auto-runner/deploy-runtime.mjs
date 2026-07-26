@@ -101,6 +101,9 @@ verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha 
 if (!values.has("--dry-run")) deploymentLock = acquireRuntimeDeploymentLock(destination);
 if (!values.has("--dry-run")) {
   const lockedQuiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
+  if (lockedQuiescence.unresolvedExternalEffects || lockedQuiescence.active) {
+    process.stderr.write(`${JSON.stringify({ deploymentQuiescence: lockedQuiescence })}\n`);
+  }
   if (JSON.stringify(lockedQuiescence) !== JSON.stringify(quiescence)) throw new Error("runtime deployment quiescence proof changed after lock acquisition");
 }
 const result = deployRuntimeBundle({
@@ -124,11 +127,15 @@ const result = deployRuntimeBundle({
     verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha });
   },
   finalQuiescenceVerifier: values.has("--dry-run")
-    ? null
-    : () => {
+      ? null
+      : () => {
         const consumers = inspectRuntimeConsumers(destination);
         if (consumers.length) throw new Error("runtime deployment refused while the shared runtime has active consumers");
-        return inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
+        const finalQuiescence = inspectDeploymentQuiescence(logsRoot, { preservedRecoveryTarget, repositoryRoot: repoRoot });
+        if (finalQuiescence.unresolvedExternalEffects || finalQuiescence.active) {
+          process.stderr.write(`${JSON.stringify({ deploymentQuiescence: finalQuiescence })}\n`);
+        }
+        return finalQuiescence;
       },
 });
 process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
