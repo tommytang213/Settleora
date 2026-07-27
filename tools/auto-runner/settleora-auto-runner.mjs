@@ -2107,6 +2107,10 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       githubTriggeredFixEpochsPerPr: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0,
     },
   });
+  const persist = async (ordinaryContinuation) => {
+    state = synchronizeRecoveredSourceChange(state, ordinaryContinuation, "ordinary_source_failure_fix_committed");
+    return writeRecoveryState(config, { ...state, ordinaryContinuation });
+  };
   if (checkpoint.reconstructedCurrentMainSha
     && initial.expectedOriginMainSha !== checkpoint.reconstructedCurrentMainSha) {
     if (initial.expectedOriginMainSha != null
@@ -2128,6 +2132,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         { ...effect, targetDigest: ordinaryContinuationPhaseTarget(upgraded, phase) },
       ])),
     };
+    await persist(initial);
   }
   fetchOriginMain(config);
   const liveHeadAtRecovery = getRefSha("HEAD");
@@ -2188,10 +2193,6 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     review: initial.effects?.codex_review?.evidence?.review || null,
     largeCandidateReview: ordinaryStructuredReviewCheckpoint(initial.effects?.structured_review?.evidence),
     pr: null,
-  };
-  const persist = async (ordinaryContinuation) => {
-    state = synchronizeRecoveredSourceChange(state, ordinaryContinuation, "ordinary_source_failure_fix_committed");
-    return writeRecoveryState(config, { ...state, ordinaryContinuation });
   };
   const result = await continueOrdinaryCandidate(initial, {
     candidate_reconciliation: async (continuation) => {

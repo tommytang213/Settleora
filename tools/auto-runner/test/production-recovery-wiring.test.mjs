@@ -280,6 +280,7 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /reviewerResults: loaded\.state\.reviewerResults, reconstructedCurrentMainSha/);
   assert.match(source, /const upgraded = \{ \.\.\.initial, expectedOriginMainSha: checkpoint\.reconstructedCurrentMainSha \}/);
   assert.match(source, /targetDigest: ordinaryContinuationPhaseTarget\(upgraded, phase\)/);
+  assert.match(source, /const persist = async \(ordinaryContinuation\)[\s\S]*const upgraded = \{ \.\.\.initial, expectedOriginMainSha: checkpoint\.reconstructedCurrentMainSha \}[\s\S]*await persist\(initial\)[\s\S]*const result = await continueOrdinaryCandidate\(initial/);
   assert.match(source, /const expectedCurrentMain = initial\.expectedOriginMainSha/);
   assert.match(source, /expectedOriginMainSha: continuation\.expectedOriginMainSha/);
   assert.match(source, /baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
