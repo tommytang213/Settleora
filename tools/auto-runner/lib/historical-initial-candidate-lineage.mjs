@@ -3,6 +3,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
+import {
+  ordinaryContinuationPhaseTarget,
+  ordinaryContinuationPhases,
+} from "./ordinary-candidate-continuation.mjs";
 import { findPreEffectIntents, intentIssueAuthorityMatches } from "./pre-effect-intent.mjs";
 import {
   validatePreservedRecoveryCommitLineage,
@@ -19,6 +23,7 @@ const externalEffects = new Set([
   "review_trigger", "docs_pr_ready", "docs_pr_merge", "project_status_update",
   "branch_retention_verify",
 ]);
+const firstExternalPhase = ordinaryContinuationPhases.indexOf("push");
 
 export function verifyHistoricalInitialCandidateLineage(config, state, issue, options = {}) {
   const fail = (reasonCode) => ({ ok: false, reasonCode });
@@ -40,7 +45,8 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       || !sha.test(headSha || "") || baseSha === headSha) return fail("historical_candidate_authority_identity_mismatch");
     if (continuation?.logicalTaskKey !== `issue-${issueNumber}`
       || continuation?.executionKey !== runId || continuation?.issueNumber !== issueNumber
-      || continuation?.branchName !== branch || continuation?.phase !== "local_validation"
+      || continuation?.branchName !== branch
+      || !validPreExternalContinuation(continuation)
       || continuation?.counters?.acceptedLogicalTasks !== 1) return fail("historical_candidate_continuation_mismatch");
     if (!sameCandidate(identity, candidate, baseSha, headSha)) return fail("historical_candidate_durable_identity_mismatch");
     const expectedPaths = [...identity.changedFiles].sort();
@@ -54,6 +60,9 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       return fail("historical_candidate_report_prompt_mismatch");
     }
     if (!noLaterEffects(state)) return fail("historical_candidate_later_effect_present");
+    if (!validCompletedLocalEffects(continuation)) {
+      return fail("historical_candidate_local_effect_mismatch");
+    }
     const namespaceValidator = options.validateProjectNamespace
       || validatePreservedRecoveryProjectNamespace;
     if (!namespaceValidator(config.logsRoot, repository, repoRoot, process.env)) {
@@ -246,11 +255,36 @@ function noLaterEffects(state) {
     && state.branch?.expectedRemoteHeadSha === null
     && ["push", "pr_create", "pr_head_update", "merge", "comment"]
       .every((kind) => Object.keys(state.mutationMarkers?.[kind] || {}).length === 0)
-    && !continuationEffectPresent(state.ordinaryContinuation?.effects);
+    && !continuationExternalEffectPresent(state.ordinaryContinuation?.effects);
 }
-function continuationEffectPresent(effects) {
+function continuationExternalEffectPresent(effects) {
   return effects && typeof effects === "object"
-    && Object.keys(effects).some((key) => !["candidate_reconciliation"].includes(key));
+    && Object.keys(effects).some((key) => {
+      const index = ordinaryContinuationPhases.indexOf(key);
+      return index < 0 || index >= firstExternalPhase;
+    });
+}
+function validPreExternalContinuation(continuation) {
+  const index = ordinaryContinuationPhases.indexOf(continuation?.phase);
+  return index >= ordinaryContinuationPhases.indexOf("local_validation")
+    && index < firstExternalPhase;
+}
+function validCompletedLocalEffects(continuation) {
+  const effects = continuation?.effects;
+  if (!effects || typeof effects !== "object" || Array.isArray(effects)) return false;
+  const current = ordinaryContinuationPhases.indexOf(continuation.phase);
+  for (const [phase, effect] of Object.entries(effects)) {
+    const index = ordinaryContinuationPhases.indexOf(phase);
+    if (index < 0 || index >= current || index >= firstExternalPhase
+      || effect?.targetDigest !== ordinaryContinuationPhaseTarget(continuation, phase)
+      || typeof effect?.completedAt !== "string" || !Number.isFinite(Date.parse(effect.completedAt))) {
+      return false;
+    }
+  }
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation"); index < current; index += 1) {
+    if (!effects[ordinaryContinuationPhases[index]]) return false;
+  }
+  return true;
 }
 function exactMarkers(state, issueNumber, runId, chargeId, branch, baseSha) {
   const claim = state.mutationMarkers?.claim || {};

@@ -6,6 +6,10 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { verifyHistoricalInitialCandidateLineage } from "../lib/historical-initial-candidate-lineage.mjs";
+import {
+  ordinaryContinuationPhaseTarget,
+  ordinaryContinuationPhases,
+} from "../lib/ordinary-candidate-continuation.mjs";
 
 const issueNumber = 959;
 const taskKey = "20260724T075849";
@@ -158,6 +162,34 @@ test("historical initial candidate derives the active successor generation from 
     const result = verify(fixture);
     assert.equal(result.ok, true, `${generation}: ${result.reasonCode}`);
   }
+});
+
+test("historical initial candidate accepts exact durable pre-external restart checkpoints", () => {
+  const first = ordinaryContinuationPhases.indexOf("local_validation");
+  const end = ordinaryContinuationPhases.indexOf("push");
+  for (let current = first; current < end; current += 1) {
+    const fixture = makeFixture(2);
+    const continuation = fixture.state.ordinaryContinuation;
+    continuation.phase = ordinaryContinuationPhases[current];
+    for (let index = first; index < current; index += 1) {
+      const phase = ordinaryContinuationPhases[index];
+      continuation.effects[phase] = {
+        targetDigest: ordinaryContinuationPhaseTarget(continuation, phase),
+        completedAt: "2026-07-27T00:00:00.000Z",
+        evidence: { status: "passed" },
+      };
+    }
+    const result = verify(fixture);
+    assert.equal(result.ok, true, `${continuation.phase}: ${result.reasonCode}`);
+  }
+
+  const malformed = makeFixture(2);
+  malformed.state.ordinaryContinuation.phase = "external_review";
+  malformed.state.ordinaryContinuation.effects.local_validation = {
+    targetDigest: "0".repeat(64),
+    completedAt: "2026-07-27T00:00:00.000Z",
+  };
+  assert.equal(verify(malformed).reasonCode, "historical_candidate_local_effect_mismatch");
 });
 
 function verify(fixture) {

@@ -1693,4 +1693,7 @@ a restart, stale checkpoint, or later main movement cannot silently fall back
 to the historical candidate base. Recovery validation runs on the clean
 prospective merge tree of that exact main and candidate, records its tree and
 two-parent synthetic commit, and re-proves those bytes before merge evaluation;
-Gemini and Codex reviews remain bound to the exact candidate head.
+Gemini and Codex reviews remain bound to the exact candidate head. A restart
+after validation or either local review may resume only when every completed
+pre-external phase has its exact continuation target and timestamp; any unknown,
+out-of-order, push, PR, comment, or merge effect remains a hard failure.

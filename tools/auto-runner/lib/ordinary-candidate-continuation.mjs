@@ -133,6 +133,13 @@ export function ordinaryCandidateIdentityMatches(persisted, actual) {
     && (!persisted.changedFilesDigest || persisted.changedFilesDigest === actual.changedFilesDigest);
 }
 
+export function ordinaryContinuationPhaseTarget(value, phase) {
+  const normalized = normalizeState(value);
+  return normalized.phase === "invalid" || !ordinaryContinuationPhases.includes(phase)
+    ? null
+    : phaseTarget(normalized, phase);
+}
+
 function normalizeState(value = {}) {
   if (value.version !== 1 || !value.logicalTaskKey || !value.issueNumber || !value.branchName || !validIdentity(value.identity)) {
     return { ...value, phase: "invalid", effects: {}, counters: {} };
