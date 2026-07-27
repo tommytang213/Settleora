@@ -1,5 +1,44 @@
 # Issue Progress Ledger
 
+### Issues #989/#991/#959/#999 and PR #1003 — handoff successor identity repair merged (2026-07-27)
+
+- PR #1003 merged normally with expected-head protection from exact approved
+  source head `6324552bde849fa87b309e1ab13664208d69694a`, tree
+  `a002a79e2d1023bd78bec94104b879a6cf130ad5`, as merge commit
+  `28c5dda3a92705cc939f78717ac6e3576f58f10e`. Its parents are prior `main`
+  `5e5e549fab7b40d55d0e03cae31ee94c8dbdfaf5` and the exact source head; the
+  merge tree equals the approved source tree, and the source branch/worktree
+  remain retained unchanged and clean.
+- The repair binds pending recovery-successor identity to the original run,
+  durable recovery operation, and exact handoff request. Completed exact
+  handoffs may adopt only their recorded current, active, non-retired
+  successor. Pending request, operation, generation, and successor
+  contradictions fail closed; completed adoption remains bound to the
+  authoritative recorded successor/current-owner/generation and retirement
+  checks. The existing rotation, compare-and-swap, checkpoint, lock,
+  exact-head, completed-effect, and retired-session invariants remain intact.
+- Exact-head validation passed focused tests `135/135`, the complete
+  auto-runner suite `1217/1217`, `npm ci` with zero vulnerabilities, doctor,
+  syntax, docs, scaffold, scope, and diff checks. Gemini strong-independent
+  and local Codex mechanics/integration/recovery/security reviews passed with
+  zero findings; GitHub Codex found no major issues on the exact head.
+  CodeQL, Semgrep CE/OSS, Trivy, and both Scaffold Validation runs passed;
+  unresolved review threads and open code-scanning alerts were zero.
+- Evidence: the exact source-merge comment is
+  `https://github.com/tommytang213/Settleora/issues/989#issuecomment-5087891453`;
+  the complete merge/hygiene report is
+  `/workspace/logs/settleora-codex-report-20260727-1403-pr1003-exact-head-merge-hygiene.md`.
+- #989 remains open pending a separately authorized deployment/readback of the
+  newly merged runtime, active-profile digest reconciliation if required, and
+  then a separately authorized exact trusted adoption of the preserved #959
+  chain. #991 remains open pending the same successful adoption and close
+  criteria. #959 remains open pending completion of its preserved OCR chain.
+  #999 remains open as separate review-adjudication hardening.
+- The source merge and this ledger hygiene performed no deployment, rollback,
+  profile mutation, service/timer control, runner or supervisor submission, or
+  #959 lifecycle, recovery, budget, intent, issue, checkout, or product-source
+  mutation.
+
 ### Issues #991/#989/#959/#999 and PR #1001 — repository repair merged, operational gates retained (2026-07-27)
 
 - PR #1001 merged normally with expected-head protection from exact approved
