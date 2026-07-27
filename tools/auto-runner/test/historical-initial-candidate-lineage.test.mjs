@@ -150,6 +150,16 @@ test("historical initial candidate accepts canonical startup-approved remotes an
   const worktreeConfig = makeFixture(1);
   run(worktreeConfig.repoRoot, ["config", "extensions.worktreeConfig", "true"]);
   assert.equal(verify(worktreeConfig).ok, true);
+  const marker = path.join(worktreeConfig.repoRoot, "worktree-diff-executed");
+  const executable = path.join(worktreeConfig.repoRoot, "unsafe-worktree-diff.sh");
+  writeFileSync(executable, `#!/bin/sh\n: > '${marker}'\nexit 0\n`);
+  chmodSync(executable, 0o700);
+  run(worktreeConfig.repoRoot, ["config", "--worktree", "diff.external", executable]);
+  assert.equal(verify(worktreeConfig).reasonCode, "historical_candidate_git_environment_untrusted");
+  assert.equal(existsSync(marker), false, "worktree-scoped diff command executed before trust decision");
+  run(worktreeConfig.repoRoot, ["config", "--worktree", "--unset", "diff.external"]);
+  unlinkSync(executable);
+  assert.equal(verify(worktreeConfig).ok, true);
   run(worktreeConfig.repoRoot, ["config", "extensions.worktreeConfig", "false"]);
   assert.equal(verify(worktreeConfig).reasonCode, "historical_candidate_git_environment_untrusted");
 });

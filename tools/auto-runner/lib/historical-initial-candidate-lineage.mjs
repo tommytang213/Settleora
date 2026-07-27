@@ -267,13 +267,34 @@ function trustedRepository(git, repository, repoRoot) {
   const remote = git(["config", "--local", "--get", "remote.origin.url"]);
   const worktreeConfig = git(["config", "--local", "--get", "extensions.worktreeConfig"]);
   const configs = git(["config", "--local", "--list", "--show-origin", "--null"]);
+  const worktreeConfigEnabled = worktreeConfig.status === 0
+    && worktreeConfig.stdout.trim().toLowerCase() === "true";
+  const worktreeConfigPath = worktreeConfigEnabled
+    ? git(["rev-parse", "--git-path", "config.worktree"])
+    : null;
+  const resolvedWorktreeConfigPath = worktreeConfigPath?.status === 0
+    ? path.resolve(repoRoot, worktreeConfigPath.stdout.trim())
+    : null;
+  const worktreeConfigFileSafe = !resolvedWorktreeConfigPath
+    || !existsSync(resolvedWorktreeConfigPath)
+    || (lstatSync(resolvedWorktreeConfigPath).isFile()
+      && !lstatSync(resolvedWorktreeConfigPath).isSymbolicLink());
+  const worktreeConfigs = worktreeConfigEnabled && resolvedWorktreeConfigPath
+    && existsSync(resolvedWorktreeConfigPath) && worktreeConfigFileSafe
+    ? git(["config", "--worktree", "--list", "--show-origin", "--null"])
+    : null;
+  const unsafeConfig = (value) =>
+    /(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(value);
   return top.status === 0 && path.resolve(top.stdout.trim()) === repoRoot
     && remote.status === 0
     && canonicalApprovedGitHubRepository(remote.stdout.trim()) === repository.toLowerCase()
-    && (worktreeConfig.status === 1
-      || (worktreeConfig.status === 0 && worktreeConfig.stdout.trim().toLowerCase() === "true"))
+    && (worktreeConfig.status === 1 || worktreeConfigEnabled)
     && configs.status === 0
-    && !/(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(configs.stdout);
+    && !unsafeConfig(configs.stdout)
+    && (!worktreeConfigEnabled
+      || (worktreeConfigPath.status === 0 && worktreeConfigFileSafe
+        && (!existsSync(resolvedWorktreeConfigPath)
+          || (worktreeConfigs?.status === 0 && !unsafeConfig(worktreeConfigs.stdout)))));
 }
 function unsafeObjectMechanism(repoRoot, git) {
   const common = git(["rev-parse", "--git-common-dir"]).stdout.trim();
