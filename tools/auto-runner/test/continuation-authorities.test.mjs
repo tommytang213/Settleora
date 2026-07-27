@@ -41,6 +41,30 @@ test("ordinary continuation adopts exact effects and waits at real pending state
   assert.equal(second.state.counters.acceptedLogicalTasks, 1);
 });
 
+test("ordinary continuation persists and binds the proven current-main authority", async () => {
+  const historicalBase = sha("base");
+  const provenCurrentMain = sha("advanced-main");
+  const state = createOrdinaryContinuationState({
+    logicalTaskKey: "root",
+    issueNumber: 959,
+    branchName: "feature/historical",
+    identity: { ...identity(), baseSha: historicalBase },
+    expectedOriginMainSha: provenCurrentMain,
+  });
+  const first = await continueOrdinaryCandidate(state, {
+    candidate_reconciliation: async () => ({ ok: true, wait: true, completed: true }),
+  });
+  assert.equal(first.state.expectedOriginMainSha, provenCurrentMain);
+  const contradicted = await continueOrdinaryCandidate({
+    ...first.state,
+    phase: "candidate_reconciliation",
+    expectedOriginMainSha: historicalBase,
+  }, {
+    adoptEffect: async () => ({ ok: true }),
+  });
+  assert.equal(contradicted.reasonCode, "ordinary_continuation_effect_conflict:candidate_reconciliation");
+});
+
 test("ordinary continuation restart at structured review preserves reviewer prompt attestations", async () => {
   const candidate = identity();
   const attestedCandidateIdentity = {

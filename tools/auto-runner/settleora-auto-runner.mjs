@@ -2093,6 +2093,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     issueNumber: issue.number,
     branchName: state.branch.name,
     identity: { ...identity, changedFiles: listChangedFiles(identity.baseSha, identity.headSha) },
+    expectedOriginMainSha: checkpoint.reconstructedCurrentMainSha || identity.baseSha,
     phase: "candidate_reconciliation",
     counters: {
       acceptedLogicalTasks: 1,
@@ -2101,6 +2102,21 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       githubTriggeredFixEpochsPerPr: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0,
     },
   });
+  if (checkpoint.reconstructedCurrentMainSha
+    && initial.expectedOriginMainSha !== checkpoint.reconstructedCurrentMainSha) {
+    if (initial.expectedOriginMainSha != null
+      && initial.expectedOriginMainSha !== initial.identity.baseSha) {
+      return {
+        ok: false,
+        outcome: "blocked",
+        reasonCode: "ordinary_continuation_current_main_authority_mismatch",
+        ordinaryContinuation: initial,
+        largeCandidateReviewRecovery: checkpoint,
+        state,
+      };
+    }
+    initial = { ...initial, expectedOriginMainSha: checkpoint.reconstructedCurrentMainSha };
+  }
   fetchOriginMain(config);
   const liveHeadAtRecovery = getRefSha("HEAD");
   const preparedFixCanBeAdopted = Boolean(
@@ -2112,7 +2128,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     && spawnSync("git", ["show", "-s", "--format=%s", liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === `Auto-runner issue #${issue.number}: source-fix ${initial.sourceFailureFixIntent?.batchIdentity?.slice(0, 16)}`
   );
   const cleanupOnlyRecovery = initial.phase === "post_merge_cleanup";
-  const expectedCurrentMain = checkpoint.reconstructedCurrentMainSha || initial.identity.baseSha;
+  const expectedCurrentMain = initial.expectedOriginMainSha;
   if (!cleanupOnlyRecovery && (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== expectedCurrentMain || getStatusShort() !== "")) {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
@@ -2331,11 +2347,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             prNumber,
             branchName: state.branch.name,
             expectedHeadSha: candidate.headSha,
-            expectedOriginMainSha: candidate.baseSha,
+            expectedOriginMainSha: continuation.expectedOriginMainSha,
             expectedRepository: config.repositorySlug,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
-            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true },
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true },
           },
         },
       };

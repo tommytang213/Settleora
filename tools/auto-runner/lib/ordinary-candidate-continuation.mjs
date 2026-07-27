@@ -118,9 +118,9 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
   return { ok: true, outcome: "complete", state };
 }
 
-export function createOrdinaryContinuationState({ logicalTaskKey, executionKey = null, issueNumber, branchName, identity, phase = "candidate_reconciliation", effects = {}, counters = {} }) {
+export function createOrdinaryContinuationState({ logicalTaskKey, executionKey = null, issueNumber, branchName, identity, expectedOriginMainSha = identity?.baseSha, phase = "candidate_reconciliation", effects = {}, counters = {} }) {
   if (!logicalTaskKey || !issueNumber || !branchName || !validIdentity(identity)) throw new Error("ordinary continuation identity is incomplete");
-  return normalizeState({ version: 1, logicalTaskKey, executionKey, issueNumber, branchName, identity, phase, effects, counters, sourceFailureHistory: [] });
+  return normalizeState({ version: 1, logicalTaskKey, executionKey, issueNumber, branchName, identity, expectedOriginMainSha, phase, effects, counters, sourceFailureHistory: [] });
 }
 
 export function ordinaryCandidateIdentityMatches(persisted, actual) {
@@ -144,6 +144,7 @@ function normalizeState(value = {}) {
     issueNumber: Number(value.issueNumber),
     branchName: String(value.branchName),
     identity: { ...value.identity, changedFiles: [...value.identity.changedFiles].sort() },
+    expectedOriginMainSha: String(value.expectedOriginMainSha || value.identity.baseSha),
     phase: String(value.phase || ordinaryContinuationPhases[0]),
     effects: value.effects && typeof value.effects === "object" ? { ...value.effects } : {},
     counters: {
@@ -160,6 +161,7 @@ function normalizeState(value = {}) {
     preparedGithubSourceFailureBatch: value.preparedGithubSourceFailureBatch || null,
     sourceFailureCommitEffect: value.sourceFailureCommitEffect || null,
   };
+  if (!/^[a-f0-9]{40}$/.test(normalized.expectedOriginMainSha)) return { ...normalized, phase: "invalid" };
   const effect = normalized.sourceFailureCommitEffect;
   if (effect) {
     const prepared = normalized.preparedGithubSourceFailureBatch;
@@ -186,7 +188,7 @@ function invalidateForSourceChange(state, identity) {
 }
 
 function advance(state, index) { return { ...state, phase: ordinaryContinuationPhases[index + 1] || "complete" }; }
-function phaseTarget(state, phase) { return identityDigest({ phase, logicalTaskKey: state.logicalTaskKey, issueNumber: state.issueNumber, branchName: state.branchName, identity: state.identity }); }
+function phaseTarget(state, phase) { return identityDigest({ phase, logicalTaskKey: state.logicalTaskKey, issueNumber: state.issueNumber, branchName: state.branchName, identity: state.identity, expectedOriginMainSha: state.expectedOriginMainSha }); }
 function identityDigest(value) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function validIdentity(value) { return Boolean(value && /^[a-f0-9]{40}$/.test(value.baseSha || "") && /^[a-f0-9]{40}$/.test(value.headSha || "") && /^[a-f0-9]{40}$/.test(value.treeSha || "") && /^[a-f0-9]{64}$/.test(value.diffDigest || "") && Array.isArray(value.changedFiles)); }
 function pick(object, keys) { return Object.fromEntries(keys.filter((key) => object?.[key]).map((key) => [key, object[key]])); }

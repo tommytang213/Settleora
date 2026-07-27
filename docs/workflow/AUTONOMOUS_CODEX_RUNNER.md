@@ -1687,3 +1687,7 @@ claim/charge, report/prompt, checkpoint, finalized commit intent, and
 no-later-effect identities must all agree. Shallow or alternate object stores,
 replace refs, grafts, unsafe Git configuration, divergence, unavailable
 objects, multiple records, or any identity/effect contradiction fail closed.
+The proven current-main SHA is persisted in ordinary continuation authority,
+included in every phase target, and propagated as the expected PR/merge base;
+a restart, stale checkpoint, or later main movement cannot silently fall back
+to the historical candidate base.
