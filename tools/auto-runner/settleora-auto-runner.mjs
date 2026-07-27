@@ -2811,6 +2811,7 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
   if (baseSha !== reconstructedCurrentMainSha) {
     const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
       expectedLifecyclePhase: lifecyclePhase,
+      allowAuthenticatedExistingPrEffects: true,
       expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
       expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
         || state.sessionLifecycle?.state?.recovery?.operationId

@@ -274,6 +274,44 @@ test("historical initial candidate resumes an exactly intended local source-fix 
   assert.equal(Object.keys(fixture.state.mutationMarkers.push || {}).length, 0);
 });
 
+test("historical descendant admits only authenticated existing-PR effects after a GitHub source fix", () => {
+  const fixture = makeFixture(2);
+  advanceWithSourceFix(fixture);
+  const continuation = fixture.state.ordinaryContinuation;
+  continuation.counters.githubTriggeredFixEpochsPerPr = 1;
+  continuation.processedGithubFindingFingerprints = ["f".repeat(64)];
+  fixture.state.pr = {
+    number: 1007,
+    url: `https://github.com/${repository}/pull/1007`,
+    headSha: fixture.headSha,
+  };
+  fixture.state.branch.expectedRemoteHeadSha = fixture.headSha;
+  fixture.state.mutationMarkers.push = { push: { status: "completed" } };
+  fixture.state.mutationMarkers.pr_create = { pr: { status: "completed" } };
+  for (const effectType of ["push", "pr_create"]) {
+    fixture.intents.push({
+      repository, sourceTaskKey: taskKey, runId, effectType, status: "finalized",
+      logicalTaskIdentity: `${repository}#${issueNumber}`,
+      claimIdentity: `${repository}#${issueNumber}`,
+      chargeIdentity: fixture.options.loadBudget().statePath,
+      identity: { issueNumber, branchName: branch },
+      effect: {},
+    });
+  }
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  assert.equal(verify(fixture).ok, true);
+
+  const unreserved = structuredClone(fixture.state.ordinaryContinuation);
+  fixture.state.ordinaryContinuation.counters.githubTriggeredFixEpochsPerPr = 0;
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+  fixture.state.ordinaryContinuation = unreserved;
+  fixture.intents.push({
+    ...structuredClone(fixture.intents.at(-1)),
+    effectType: "comment",
+  });
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+});
+
 test("historical initial candidate fail-closes an unauthenticated local source-fix descendant", () => {
   const missingIntent = makeFixture(1);
   advanceWithSourceFix(missingIntent);

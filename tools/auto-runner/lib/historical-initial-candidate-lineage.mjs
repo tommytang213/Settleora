@@ -79,7 +79,6 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
         path.join(config.logsRoot, "tasks"), `${taskKey}-issue-${issueNumber}-`)) {
       return fail("historical_candidate_report_prompt_mismatch");
     }
-    if (!noLaterEffects(state)) return fail("historical_candidate_later_effect_present");
     if (!validCompletedLocalEffects(continuation)) {
       return fail("historical_candidate_local_effect_mismatch");
     }
@@ -198,6 +197,13 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const intentFinder = options.findIntents || findPreEffectIntents;
     const intents = intentFinder(config, (intent) => intent.repository === repository
       && intent.sourceTaskKey === taskKey && intent.runId === runId);
+    const authenticatedExistingPrEffects = options.allowAuthenticatedExistingPrEffects === true
+      && validAuthenticatedExistingPrEffects(
+        state, intents, { repository, issueNumber, taskKey, runId, branch, chargeIdentity: budget.statePath },
+      );
+    if (!noLaterEffects(state) && !authenticatedExistingPrEffects) {
+      return fail("historical_candidate_later_effect_present");
+    }
     const commitIntents = intents.filter((intent) => intent.effectType === "commit");
     const initialIntentMatches = commitIntents.filter((entry) =>
       entry.effect?.expectedParents?.[0] === baseSha && entry.effect?.treeSha === candidate.treeSha);
@@ -220,7 +226,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       active: identity, initial: candidate, branch, issueNumber, repository,
       chargeIdentity: budget.statePath, commitIntents,
     })) return fail("historical_candidate_advanced_lineage_mismatch");
-    if (intents.some((entry) => externalEffects.has(entry.effectType))) {
+    if (intents.some((entry) => externalEffects.has(entry.effectType)) && !authenticatedExistingPrEffects) {
       return fail("historical_candidate_external_intent_present");
     }
     const lineageValidator = options.validateCommitLineage
@@ -370,6 +376,38 @@ function noLaterEffects(state) {
     && ["push", "pr_create", "pr_head_update", "merge", "comment"]
       .every((kind) => Object.keys(state.mutationMarkers?.[kind] || {}).length === 0)
     && !continuationExternalEffectPresent(state.ordinaryContinuation?.effects);
+}
+function validAuthenticatedExistingPrEffects(state, intents, authority) {
+  const continuation = state.ordinaryContinuation;
+  const pr = state.pr;
+  const priorHeads = new Set((continuation?.sourceFailureHistory || [])
+    .map((entry) => entry?.candidate?.headSha).filter((value) => sha.test(value || "")));
+  const fingerprints = continuation?.processedGithubFindingFingerprints;
+  const externalIntents = intents.filter((entry) => externalEffects.has(entry.effectType));
+  const allowedTypes = new Set(["push", "pr_create", "pr_head_update"]);
+  const exactUrl = `https://github.com/${authority.repository}/pull/${pr?.number}`;
+  const markers = state.mutationMarkers || {};
+  const markerTypes = ["push", "pr_create", "pr_head_update"];
+  const markerEntries = markerTypes.flatMap((kind) => Object.values(markers[kind] || {}));
+  return Number.isSafeInteger(pr?.number) && pr.number > 0 && pr.url === exactUrl
+    && sha.test(pr.headSha || "") && priorHeads.has(pr.headSha)
+    && state.branch?.expectedRemoteHeadSha === pr.headSha
+    && Number.isSafeInteger(continuation?.counters?.githubTriggeredFixEpochsPerPr)
+    && continuation.counters.githubTriggeredFixEpochsPerPr >= 1
+    && continuation.counters.githubTriggeredFixEpochsPerPr <= 50
+    && Array.isArray(fingerprints) && fingerprints.length > 0 && fingerprints.length <= 100
+    && fingerprints.every((value) => digest.test(value || ""))
+    && markerEntries.length > 0
+    && markerEntries.every((entry) => ["completed", "reconciled"].includes(entry?.status))
+    && externalIntents.some((entry) => entry.effectType === "push")
+    && externalIntents.some((entry) => ["pr_create", "pr_head_update"].includes(entry.effectType))
+    && externalIntents.every((entry) => allowedTypes.has(entry.effectType)
+      && entry.status === "finalized"
+      && intentIssueAuthorityMatches(entry, authority.issueNumber)
+      && entry.logicalTaskIdentity === `${authority.repository}#${authority.issueNumber}`
+      && entry.claimIdentity === `${authority.repository}#${authority.issueNumber}`
+      && entry.chargeIdentity === authority.chargeIdentity
+      && entry.identity?.branchName === authority.branch);
 }
 function continuationExternalEffectPresent(effects) {
   return effects && typeof effects === "object"
