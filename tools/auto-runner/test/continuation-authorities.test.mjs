@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
+import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryContinuationPhaseTarget, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
 import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, validateSplitMaterializationInput } from "../lib/feature-bundle-split-materializer.mjs";
 
 const sha = (value) => createHash("sha1").update(value).digest("hex");
@@ -127,6 +127,10 @@ test("ordinary source change invalidates review and mutation effects", async () 
   assert.equal(result.state.counters.localSourceChangingRoundsPerEpoch, 1);
   assert.equal(result.state.counters.acceptedLogicalTasks, 1);
   assert.deepEqual(result.state.identity.changedFiles, ["a.mjs", "b.mjs"]);
+  assert.equal(
+    result.state.effects.candidate_reconciliation.targetDigest,
+    ordinaryContinuationPhaseTarget(result.state, "candidate_reconciliation"),
+  );
 });
 
 test("ordinary continuation crash recovery invalidates identity after every review-fix source", async () => {

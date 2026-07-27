@@ -194,17 +194,27 @@ function normalizeState(value = {}) {
 
 function invalidateForSourceChange(state, identity) {
   if (!validIdentity(identity)) return { ...state, phase: "invalid" };
-  return {
+  const next = {
     ...state,
     identity: { ...identity, changedFiles: [...identity.changedFiles].sort() },
     phase: "local_validation",
-    effects: pick(state.effects, ["candidate_reconciliation"]),
+    effects: {},
     counters: {
       ...state.counters,
       localSourceChangingRoundsPerEpoch: state.counters.localSourceChangingRoundsPerEpoch + 1,
       lifetimeLocalSourceChangingRounds: state.counters.lifetimeLocalSourceChangingRounds + 1,
     },
   };
+  const reconciliation = state.effects?.candidate_reconciliation;
+  return reconciliation ? {
+    ...next,
+    effects: {
+      candidate_reconciliation: {
+        ...reconciliation,
+        targetDigest: phaseTarget(next, "candidate_reconciliation"),
+      },
+    },
+  } : next;
 }
 
 function advance(state, index) { return { ...state, phase: ordinaryContinuationPhases[index + 1] || "complete" }; }
