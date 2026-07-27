@@ -9267,8 +9267,14 @@ state.
     through `push`, `pr_create_recover`, and `ci_wait`;
   - bind recovery successor identity to the exact handoff request and
     authenticate that request before deriving or adopting the successor;
-  - admit only the exact authenticated terminal, generation-4 pending, or
-    completed active preserved-recovery posture during deployment;
+  - admit only an exact authenticated terminal, deployable pending, or
+    completed active preserved-recovery posture during deployment. The live
+    #959 pending fixture is observed at generation 4; the verifier is not
+    globally pinned to that generation. Pending or active admission requires
+    the exact request-bound handoff and interruption identity, internally
+    consistent `mutationAuthority.generation === sessions.generation`,
+    one-generation completion lineage, exact phase/report/effect posture, and
+    every other preserved-recovery authority check;
   - preserve exact fail-closed lifecycle, deployment-admission, identity, and
     effect gates.
 - Latest exact-head evidence: focused tests `105/105`; full auto-runner tests
