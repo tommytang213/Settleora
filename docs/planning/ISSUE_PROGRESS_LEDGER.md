@@ -12,10 +12,11 @@
 - The repair binds pending recovery-successor identity to the original run,
   durable recovery operation, and exact handoff request. Completed exact
   handoffs may adopt only their recorded current, active, non-retired
-  successor. Contradictory request, operation, generation, retired-owner,
-  active-owner, or successor state continues to fail closed; the existing
-  rotation, compare-and-swap, checkpoint, lock, exact-head, completed-effect,
-  and retired-session invariants remain intact.
+  successor. Pending request, operation, generation, and successor
+  contradictions fail closed; completed adoption remains bound to the
+  authoritative recorded successor/current-owner/generation and retirement
+  checks. The existing rotation, compare-and-swap, checkpoint, lock,
+  exact-head, completed-effect, and retired-session invariants remain intact.
 - Exact-head validation passed focused tests `135/135`, the complete
   auto-runner suite `1217/1217`, `npm ci` with zero vulnerabilities, doctor,
   syntax, docs, scaffold, scope, and diff checks. Gemini strong-independent
