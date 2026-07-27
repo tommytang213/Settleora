@@ -208,9 +208,9 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const lineageValidator = options.validateCommitLineage
       || validatePreservedRecoveryCommitLineage;
     const lineage = lineageValidator(repoRoot, {
-      repository, branch, baseSha, headSha: initialHeadSha, treeSha: candidate.treeSha,
-      diffDigest: candidate.diffDigest,
-    }, [intent], [...candidate.changedFiles].sort(), process.env);
+      repository, branch, baseSha, headSha: identity.headSha, treeSha: identity.treeSha,
+      diffDigest: identity.diffDigest,
+    }, commitIntents, expectedPaths, process.env);
     if (!lineage?.ok) return fail(lineage?.reasonCode || "historical_candidate_git_authority_mismatch");
     return {
       ok: true,

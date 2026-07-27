@@ -235,12 +235,7 @@ test("historical initial candidate accepts exact durable pre-external restart ch
 test("historical initial candidate resumes an exactly intended local source-fix descendant", () => {
   const fixture = makeFixture(2);
   advanceWithSourceFix(fixture);
-  fixture.options.validateCommitLineage = (_root, identity) => {
-    assert.equal(identity.headSha, fixture.headSha);
-    assert.equal(identity.treeSha,
-      fixture.state.ordinaryContinuation.sourceFailureHistory[0].candidate.treeSha);
-    return { ok: true };
-  };
+  delete fixture.options.validateCommitLineage;
   const result = verify(fixture);
   assert.equal(result.ok, true, result.reasonCode);
   assert.equal(result.candidateIdentity.headSha, fixture.advancedHeadSha);
@@ -303,6 +298,7 @@ function advanceWithSourceFix(fixture) {
     chargeIdentity: fixture.options.loadBudget().statePath,
     identity: {
       issueNumber, branchName: branch, baseSha: fixture.baseSha, headSha: fixture.headSha,
+      candidateIdentity: fixture.headSha,
     },
     effect: {
       expectedParents: [fixture.headSha], treeSha, stagedPaths: [changedFiles[0]],
@@ -415,7 +411,7 @@ function makeFixture(advances, candidateSuffix = "") {
     repository, sourceTaskKey: taskKey, runId, effectType: "commit", status: "finalized",
     logicalTaskIdentity: `${repository}#${issueNumber}`, claimIdentity: `${repository}#${issueNumber}`,
     chargeIdentity: budgetPath,
-    identity: { issueNumber, branchName: branch, baseSha, headSha: baseSha },
+    identity: { issueNumber, branchName: branch, baseSha, headSha: baseSha, candidateIdentity: baseSha },
     effect: {
       expectedParents: [baseSha], treeSha, stagedPaths: changedFiles,
       messageDigest: hash(subject),
