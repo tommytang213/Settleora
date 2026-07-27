@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -439,7 +440,7 @@ test("recovery successor identity is bound to the exact handoff and never reuses
   ).state;
   const begun = beginSessionRotation(state, {
     reason: "validation_retry_derivative_reopened",
-    requestId: "request-generation-2",
+    requestId: createHash("sha256").update(`${state.recovery.operationId}:${oldSuccessor}:validation-retry`).digest("hex"),
   });
   assert.equal(begun.ok, true);
   assert.equal(begun.state.sessions.retired.includes(oldSuccessor), true);
@@ -460,6 +461,27 @@ test("recovery successor identity is bound to the exact handoff and never reuses
   assert.equal(completed.ok, true);
   assert.equal(completed.state.sessions.generation, 2);
   assert.equal(recoverySuccessorSessionId(completed.state).sessionId, derived.sessionId);
+  const foreignRequest = structuredClone(completed.state);
+  foreignRequest.mutationAuthority.handoff.requestId = "0".repeat(64);
+  const foreignIdentity = createHash("sha256").update(JSON.stringify([
+    foreignRequest.logicalTask.runId,
+    foreignRequest.recovery.operationId,
+    foreignRequest.mutationAuthority.handoff.requestId,
+  ])).digest("hex");
+  const foreignSuccessor = `recovery-handoff:${foreignIdentity}`;
+  foreignRequest.sessions.current = foreignSuccessor;
+  foreignRequest.mutationAuthority.ownerSessionId = foreignSuccessor;
+  foreignRequest.mutationAuthority.handoff.successorSessionId = foreignSuccessor;
+  foreignRequest.checkpoint.digest = null;
+  const foreignPersisted = persistSessionLifecycleState(
+    { logsRoot: mkdtempSync(path.join(tmpdir(), "session-foreign-request-")), repositorySlug: "owner/repo" },
+    foreignRequest,
+  );
+  assert.equal(foreignPersisted.ok, true);
+  assert.equal(
+    recoverySuccessorSessionId(foreignPersisted.state).reasonCode,
+    "session_lifecycle_recovery_handoff_request_mismatch",
+  );
   assert.equal(
     completeSessionRotation(completed.state, {
       requestId: begun.requestId,

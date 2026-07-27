@@ -439,6 +439,12 @@ export function recoverySuccessorSessionId(state) {
   if (!state.recovery?.operationId || !handoff?.requestId) {
     return fail("session_lifecycle_recovery_handoff_identity_incomplete");
   }
+  const expectedRequestId = handoff.reason === "validation_retry_derivative_reopened"
+    ? digest(`${state.recovery.operationId}:${handoff.retiredSessionId}:validation-retry`)
+    : digest(`${state.recovery.operationId}:${handoff.retiredSessionId}`);
+  if (handoff.requestId !== expectedRequestId) {
+    return fail("session_lifecycle_recovery_handoff_request_mismatch");
+  }
   const authorityIdentity = digest(JSON.stringify([
     state.logicalTask.runId,
     state.recovery.operationId,
