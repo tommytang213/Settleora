@@ -1065,9 +1065,117 @@ test("deployment admits only one exact effect-free preserved recovery and remain
         repositoryRoot: config.repoRoot,
         resumedGitConfigRecords: { global: [], system: [] },
       }).reasonCode,
-      "preserved_recovery_derivative_external_intent_present",
+      "preserved_recovery_derivative_external_intent_inconsistent",
+      "finalized push history contradicts the derivative's exact no-push lifecycle",
     );
     deleteIntent(derivativePushIntent);
+    const finalizeDerivativeIntent = (effectType, effect) => {
+      let intent = preparePreEffectIntent(config, {
+        repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+        logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+        chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+        effectType, issueNumber: target.issueNumber, branchName: target.branch, baseSha: target.baseSha,
+        headSha: target.headSha, candidateIdentity: target.headSha, effect,
+      });
+      intent = transitionPreEffectIntent(config, intent, "executing");
+      intent = transitionPreEffectIntent(config, intent, "live_confirmed");
+      return transitionPreEffectIntent(config, intent, "finalized");
+    };
+    const labelAddIntent = finalizeDerivativeIntent("hygiene_component", {
+      issueNumber: target.issueNumber, operation: "add", outcome: "validation_failed",
+      addLabels: ["auto-failed"], removeLabels: [],
+    });
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).preservedRecoveryAdmitted,
+      true,
+      "one exact finalized label-add intent is completed evidence",
+    );
+    const labelRemoveIntent = finalizeDerivativeIntent("hygiene_component", {
+      issueNumber: target.issueNumber, operation: "remove", outcome: "validation_failed",
+      addLabels: [], removeLabels: ["auto-running", "auto-claimed"],
+    });
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).preservedRecoveryAdmitted,
+      true,
+      "exact finalized add/remove hygiene history grants no new label effect and remains admissible",
+    );
+    const preparedComment = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "comment", issueNumber: target.issueNumber, branchName: target.branch,
+      baseSha: target.baseSha, headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: {
+        issueNumber: target.issueNumber, outcome: "validation_failed",
+        bodyDigest: createHash("sha256").update("sanitized validation failure").digest("hex"),
+      },
+    });
+    for (const classification of ["effect_absent_safe_to_execute", "effect_present_exact_adoptable"]) {
+      const admittedLiveShape = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+        intentEvidenceCollector: () => ({ ok: true, classification }),
+      });
+      assert.equal(
+        admittedLiveShape.preservedRecoveryAdmitted,
+        true,
+        `the exact live-shaped intent combination is admissible after ${classification}`,
+      );
+    }
+    const malformedComment = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "comment", issueNumber: target.issueNumber, branchName: target.branch,
+      baseSha: target.baseSha, headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: {
+        issueNumber: target.issueNumber, outcome: "unrelated",
+        bodyDigest: createHash("sha256").update("other sanitized comment").digest("hex"),
+      },
+    });
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+        intentEvidenceCollector: () => ({ ok: true, classification: "effect_absent_safe_to_execute" }),
+      }).reasonCode,
+      "preserved_recovery_derivative_comment_intent_inconsistent",
+      "a different prepared comment payload cannot inherit derivative admission",
+    );
+    deleteIntent(malformedComment);
+    for (const classification of [
+      "live_read_unavailable", "effect_ambiguous", "effect_contradictory",
+      "effect_absent_execution_uncertain", "unclassified",
+    ]) {
+      const blockedLiveShape = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+        intentEvidenceCollector: () => ({ ok: false, classification }),
+      });
+      assert.equal(
+        blockedLiveShape.reasonCode,
+        `prepared_comment_${classification}`,
+        `the live-shaped derivative must fail closed on ${classification}`,
+      );
+    }
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+        intentEvidenceCollector: () => ({ ok: true, classification: "foreign_evidence" }),
+      }).reasonCode,
+      "prepared_comment_foreign_evidence",
+      "a collector success flag cannot bypass an unrecognized authoritative classification",
+    );
+    deleteIntent(preparedComment);
+    deleteIntent(labelRemoveIntent);
+    deleteIntent(labelAddIntent);
     const contradictoryDerivativeLifecycle = structuredClone(derivativeLifecycle);
     contradictoryDerivativeLifecycle.recovery.effectsAlreadyPresent.push = true;
     persistSessionLifecycleState(config, contradictoryDerivativeLifecycle);
@@ -2044,7 +2152,7 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
       phase: "stopped",
       nextExactAction: "checkpoint_validation_recovery_failed_closed",
     }).state;
-    const liveEffects = { commitPresent: true, pushPresent: false, mergePresent: false, commentPresent: false };
+    const liveEffects = { commitPresent: true, pushPresent: false, mergePresent: false, commentPresent: true };
     const reopened = reopenKnownValidationRetryDerivative(config, lifecycle, liveEffects);
     assert.equal(reopened.ok, true);
     assert.equal(reopened.state.controller.phase, "checkpoint_validation_commit");
@@ -2052,6 +2160,7 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     assert.equal(reopened.state.report.status, "in_progress");
     assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
     assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
+    assert.equal(reopened.state.recovery.effectsAlreadyPresent.comment, true);
     const reconciled = planInterruptionRecovery(
       reopened.state,
       liveEffects,
@@ -2065,7 +2174,6 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     assert.equal(adopted.ok, true);
     assert.equal(adopted.duplicate, true);
     assert.equal(adopted.state.checkpoint.digest, reopened.state.checkpoint.digest);
-
     const wrong = structuredClone(lifecycle);
     wrong.recovery.effectsAlreadyPresent.push = true;
     wrong.checkpoint.digest = null;

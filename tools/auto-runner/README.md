@@ -141,6 +141,14 @@ adoption. Inspection never transitions an intent. Before a generic nonzero
 refusal, the CLI writes one bounded `deploymentQuiescence` JSON diagnostic to
 stderr so an operator does not need to import a private verifier.
 
+The exact missing-PR validation-retry derivative uses that same identity-first
+reconciliation. Its finalized validation-failure label add/remove intents are
+completed hygiene history, while its prepared validation-failure comment still
+requires the authoritative absence-or-one-exact-match proof above. Finalized
+push, PR, merge, closure, comment, or other history that contradicts the
+derivative's exact no-remote/no-PR lifecycle blocks; prepared non-comment
+effects also block. Completed hygiene never authorizes a new label mutation.
+
 For a non-dry deployment, this proof is read initially, read again after the
 deployment lock is acquired, and read a third time immediately before launcher
 or runtime exchange. Runtime consumers and source bytes are also rechecked.
