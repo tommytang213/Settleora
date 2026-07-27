@@ -9251,27 +9251,41 @@ state.
 ## Auto-runner preserved-recovery validation retry — Issues #989, #991, and #959
 
 - GitHub state at merge readback: #989, #991, and #959 remain `OPEN`.
-- Repository repair PR #998 merged normally at exact reviewed source head
-  `f47231b2cdec66a58ea2a6c1026ca3b6811d00f4` as merge/current-main SHA
-  `b6e50f422a0477368a5e8e9143bc3f8251e232c3`.
+- Repository repair PRs #998, #1001, #1003, and #1005 merged normally at their
+  exact reviewed source heads. PR #1001 merged source head
+  `a3a1e397d8a33b1d0915017caee21f3db25d3682` as merge
+  `63c2e79e12e75473d2816e6be9a10bed6bf251e2`. The latest repair PR
+  #1005 merged source head
+  `31fc0056d0ec953b839befbbbc22f9ba268532a5` as merge/current-main SHA
+  `3716b9c0ecf30742b76ccf3d9bfa9c6415ea50a9`.
 - The merge parents are prior main
-  `1b28802fbf7527a44a8cf1e214c1b5e0a57726a4` and the approved source head;
+  `b60e1b258b9531a56bd63ff3631f80fca0dfe2c3` and the approved source head;
   the merge and source tree are both
-  `656112fad24b97b6ffc4f3cbd8601f79d3e18da7`.
+  `fb42434ab7b6564c07d931e1274bd207cec7f73f`.
 - Completed repository scope:
   - preserve validation-retry precedence and reopen only the exact known
     failed-closed derivative;
   - retain the reopened validation phase until recovered validation completes;
   - adopt exact push effects and route restart-safe ordinary continuation
     through `push`, `pr_create_recover`, and `ci_wait`;
+  - bind recovery successor identity to the exact handoff request and
+    authenticate that request before deriving or adopting the successor;
+  - admit only an exact authenticated terminal, deployable pending, or
+    completed active preserved-recovery posture during deployment. The live
+    #959 pending fixture is observed at generation 4; the verifier is not
+    globally pinned to that generation. Pending or active admission requires
+    the exact request-bound handoff and interruption identity, internally
+    consistent `mutationAuthority.generation === sessions.generation`,
+    one-generation completion lineage, exact phase/report/effect posture, and
+    every other preserved-recovery authority check;
   - preserve exact fail-closed lifecycle, deployment-admission, identity, and
     effect gates.
-- Exact-head evidence: focused tests `161/161`; full auto-runner tests
-  `1215/1215`; npm install, doctor, syntax, docs, scaffold, and diff checks
+- Latest exact-head evidence: focused tests `105/105`; full auto-runner tests
+  `1217/1217`; npm install, doctor, syntax, docs, scaffold, and diff checks
   passed; Gemini strong-independent and local Codex reviews passed with zero
   findings; GitHub Codex found no major issues; CodeQL, Semgrep CE/OSS, Trivy
-  repository/external, and both scaffold checks passed; all nine review
-  threads are resolved; relevant open code-scanning alerts are zero.
+  repository/external, and both scaffold checks passed; all review threads are
+  resolved; relevant open code-scanning alerts are zero.
 - Remaining operational gates:
   - deploy the corrected external runtime only under a separate explicit
     owner operation;
@@ -9292,4 +9306,4 @@ state.
   environment/secret change, supervisor restart, or #959 mutation occurred in
   this repository merge task.
 - Last verified report reference:
-  `/workspace/logs/settleora-codex-report-20260727-0142-pr998-final-exact-head-merge-hygiene.md`
+  `/workspace/logs/settleora-codex-report-20260727-1533-issue991-recovery-chain-full-closure.md`
