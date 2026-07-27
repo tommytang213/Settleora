@@ -13,6 +13,7 @@ import {
   validatePreservedRecoveryCommitLineage,
   validatePreservedRecoveryProjectNamespace,
 } from "./preserved-recovery-deployment.mjs";
+import { canonicalApprovedGitHubRepository } from "./runtime-identity.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
 
 const sha = /^[a-f0-9]{40}$/u;
@@ -264,12 +265,15 @@ function trustedRepository(git, repository, repoRoot) {
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || realpathSync(repoRoot) !== repoRoot) return false;
   const top = git(["rev-parse", "--show-toplevel"]);
   const remote = git(["config", "--local", "--get", "remote.origin.url"]);
+  const worktreeConfig = git(["config", "--local", "--get", "extensions.worktreeConfig"]);
   const configs = git(["config", "--local", "--list", "--show-origin", "--null"]);
   return top.status === 0 && path.resolve(top.stdout.trim()) === repoRoot
     && remote.status === 0
-    && [`https://github.com/${repository}.git`, `git@github.com:${repository}.git`].includes(remote.stdout.trim())
+    && canonicalApprovedGitHubRepository(remote.stdout.trim()) === repository.toLowerCase()
+    && (worktreeConfig.status === 1
+      || (worktreeConfig.status === 0 && worktreeConfig.stdout.trim().toLowerCase() === "true"))
     && configs.status === 0
-    && !/(?:^|\0)(?:extensions\.|objects\.|include(?:if)?\.|filter\.|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(configs.stdout);
+    && !/(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(configs.stdout);
 }
 function unsafeObjectMechanism(repoRoot, git) {
   const common = git(["rev-parse", "--git-common-dir"]).stdout.trim();

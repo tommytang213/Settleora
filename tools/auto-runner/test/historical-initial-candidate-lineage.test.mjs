@@ -137,6 +137,23 @@ test("historical initial candidate rejects executable diff configuration before 
   }
 });
 
+test("historical initial candidate accepts canonical startup-approved remotes and safe worktree config", () => {
+  for (const remote of [
+    `https://github.com/${repository}`,
+    `ssh://git@github.com/${repository}.git`,
+    "https://github.com/TommyTang213/SETTLEORA.git",
+  ]) {
+    const fixture = makeFixture(1);
+    run(fixture.repoRoot, ["remote", "set-url", "origin", remote]);
+    assert.equal(verify(fixture).ok, true, remote);
+  }
+  const worktreeConfig = makeFixture(1);
+  run(worktreeConfig.repoRoot, ["config", "extensions.worktreeConfig", "true"]);
+  assert.equal(verify(worktreeConfig).ok, true);
+  run(worktreeConfig.repoRoot, ["config", "extensions.worktreeConfig", "false"]);
+  assert.equal(verify(worktreeConfig).reasonCode, "historical_candidate_git_environment_untrusted");
+});
+
 test("historical initial candidate fail-closes on Git topology and history hazards", () => {
   const diverged = makeFixture(0);
   const unrelated = spawnSync("/usr/bin/git", ["commit-tree", diverged.baseTree], {
