@@ -400,7 +400,7 @@ function finalizedDerivativeEffectIsConsistent(intent, target) {
   return intent.effect.operation === "add"
     ? canonical(addLabels) === canonical(["auto-failed"]) && canonical(removeLabels) === canonical([])
     : canonical(addLabels) === canonical([])
-      && canonical(removeLabels) === canonical(["auto-claimed", "auto-running"]);
+      && canonical([...removeLabels].sort()) === canonical(["auto-claimed", "auto-running"]);
 }
 
 function derivativeCommentEffectIsExact(intent, target) {

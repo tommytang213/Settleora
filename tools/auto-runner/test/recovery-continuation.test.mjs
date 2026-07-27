@@ -1095,7 +1095,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     );
     const labelRemoveIntent = finalizeDerivativeIntent("hygiene_component", {
       issueNumber: target.issueNumber, operation: "remove", outcome: "validation_failed",
-      addLabels: [], removeLabels: ["auto-claimed", "auto-running"],
+      addLabels: [], removeLabels: ["auto-running", "auto-claimed"],
     });
     assert.equal(
       inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
