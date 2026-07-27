@@ -412,6 +412,14 @@ correlation, phase, and next action. Rotation first retires the old session
 and leaves mutation authority ownerless; only a validated successor handoff
 can acquire the next authority generation.
 
+Recovery successors are derived from the durable recovery operation and the
+exact pending handoff request, not from the recovery operation alone. This
+keeps repeated startup idempotent for one completed handoff while ensuring a
+later handoff under the same recovery operation cannot propose an identity
+that an earlier generation already retired. Recorded completed successors are
+adopted exactly; retired identities remain permanently denied mutation
+authority.
+
 The default context policy checkpoints at 60 percent, requires rotation at 75
 percent, and treats 90 percent or failed compaction as emergency pressure.
 Reported provider telemetry is combined with bounded deterministic byte-based

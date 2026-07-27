@@ -432,6 +432,39 @@ export function completeSessionRotation(state, { requestId, newSessionId } = {})
   return { ok: true, duplicate: false, state: next };
 }
 
+export function recoverySuccessorSessionId(state) {
+  const validation = validateSessionLifecycleState(state);
+  if (!validation.ok) return validation;
+  const handoff = state.mutationAuthority?.handoff;
+  if (!state.recovery?.operationId || !handoff?.requestId) {
+    return fail("session_lifecycle_recovery_handoff_identity_incomplete");
+  }
+  if (state.mutationAuthority.status === "active") {
+    if (handoff.successorSessionId !== state.sessions.current
+      || state.mutationAuthority.ownerSessionId !== state.sessions.current
+      || state.sessions.retired.includes(state.sessions.current)) {
+      return fail("session_lifecycle_recovery_handoff_identity_mismatch");
+    }
+    return { ok: true, duplicate: true, sessionId: handoff.successorSessionId };
+  }
+  if (!["recovery_pending", "retired_pending_successor"].includes(state.mutationAuthority.status)
+    || handoff.successorSessionId !== null
+    || handoff.retiredSessionId !== state.sessions.current
+    || state.mutationAuthority.generation !== state.sessions.generation) {
+    return fail("session_lifecycle_recovery_handoff_identity_mismatch");
+  }
+  const authorityIdentity = digest(JSON.stringify([
+    state.logicalTask.runId,
+    state.recovery.operationId,
+    handoff.requestId,
+  ]));
+  return {
+    ok: true,
+    duplicate: false,
+    sessionId: `recovery-handoff:${authorityIdentity}`,
+  };
+}
+
 export function assertMutationAuthority(state, sessionId) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;
@@ -496,8 +529,10 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
     && state.mutationAuthority?.ownerSessionId === null
     && state.mutationAuthority?.handoff?.reason === "validation_retry_derivative_reopened"
     && state.mutationAuthority?.handoff?.retiredSessionId === state.sessions.current;
-  const successorSessionId = `${state.logicalTask.runId}:recovery:${state.recovery.operationId}`;
+  const successor = recoverySuccessorSessionId(state);
+  const successorSessionId = successor.ok ? successor.sessionId : null;
   const exactActive = exactReopened
+    && successor.ok
     && state.mutationAuthority?.status === "active"
     && state.mutationAuthority?.ownerSessionId === successorSessionId
     && state.sessions.current === successorSessionId;
