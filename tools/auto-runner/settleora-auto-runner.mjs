@@ -2082,6 +2082,7 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
     expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
       || state.sessionLifecycle?.state?.recovery?.operationId
       || null,
+    validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
   });
   if (proof.ok && filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
     return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
@@ -2822,6 +2823,7 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
       expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
         || state.sessionLifecycle?.state?.recovery?.operationId
         || null,
+      validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
     });
     if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode };
     if (filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {

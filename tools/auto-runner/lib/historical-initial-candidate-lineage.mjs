@@ -228,6 +228,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     if (!validAdvancedCandidateLineage(git, {
       active: identity, initial: candidate, branch, issueNumber, repository,
       chargeIdentity: budget.statePath, commitIntents,
+      validateChangedPaths: options.validateChangedPaths,
     })) return fail("historical_candidate_advanced_lineage_mismatch");
     if (intents.some((entry) => externalEffects.has(entry.effectType)) && !authenticatedExistingPrEffects) {
       return fail("historical_candidate_external_intent_present");
@@ -335,6 +336,7 @@ function sameActiveAndInitialCandidate(active, initial, baseSha) {
 }
 function validAdvancedCandidateLineage(git, {
   active, initial, branch, issueNumber, repository, chargeIdentity, commitIntents,
+  validateChangedPaths,
 }) {
   if (active.headSha === initial.headSha) return active.treeSha === initial.treeSha
     && active.diffDigest === initial.diffDigest
@@ -364,7 +366,9 @@ function validAdvancedCandidateLineage(git, {
       && JSON.stringify(intent.effect?.stagedPaths) === JSON.stringify(stagedPaths));
     if (parents.length !== 1 || parents[0] !== parent || matches.length !== 1
       || !safeChangedPaths(stagedPaths)
-      || stagedPaths.some((entry) => !initial.changedFiles.includes(entry))) return false;
+      || (typeof validateChangedPaths === "function"
+        ? !validateChangedPaths(stagedPaths)
+        : stagedPaths.some((entry) => !initial.changedFiles.includes(entry)))) return false;
     parent = commit;
   }
   return parent === active.headSha;
@@ -409,6 +413,7 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const pr = state.pr;
   const priorHeads = new Set((continuation?.sourceFailureHistory || [])
     .map((entry) => entry?.candidate?.headSha).filter((value) => sha.test(value || "")));
+  if (sha.test(continuation?.identity?.headSha || "")) priorHeads.add(continuation.identity.headSha);
   const fingerprints = continuation?.processedGithubFindingFingerprints;
   const externalIntents = intents.filter((entry) => externalEffects.has(entry.effectType));
   const allowedTypes = new Set(["push", "pr_create", "pr_head_update"]);

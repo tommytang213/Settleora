@@ -301,6 +301,18 @@ test("historical initial candidate resumes an exactly intended local source-fix 
   assert.equal(Object.keys(fixture.state.mutationMarkers.push || {}).length, 0);
 });
 
+test("historical descendant admits a newly added path only through task-scope authority", () => {
+  const fixture = makeFixture(2);
+  const addedPath = "apps/mobile/test/receipt_ocr_capture/source_fix_support.dart";
+  advanceWithSourceFix(fixture, addedPath);
+  fixture.options.validateChangedPaths = (paths) =>
+    paths.every((entry) => changedFiles.includes(entry)
+      || entry.startsWith("apps/mobile/test/receipt_ocr_capture/"));
+  assert.equal(verify(fixture).ok, true);
+  fixture.options.validateChangedPaths = () => false;
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_advanced_lineage_mismatch");
+});
+
 test("historical descendant admits only authenticated existing-PR effects", () => {
   const fixture = makeFixture(2);
   advanceWithSourceFix(fixture);
@@ -394,11 +406,16 @@ function verify(fixture) {
   );
 }
 
-function advanceWithSourceFix(fixture) {
+function advanceWithSourceFix(fixture, addedPath = null) {
   const initial = structuredClone(fixture.state.ordinaryContinuation.sourceFailureBatch.candidate);
   const subject = `Auto-runner issue #${issueNumber}: source-fix abcdef0123456789`;
   writeFileSync(path.join(fixture.repoRoot, changedFiles[0]), "candidate-0\nsource-fix\n");
-  run(fixture.repoRoot, ["add", changedFiles[0]]);
+  if (addedPath) {
+    mkdirSync(path.dirname(path.join(fixture.repoRoot, addedPath)), { recursive: true });
+    writeFileSync(path.join(fixture.repoRoot, addedPath), "support\n");
+  }
+  const stagedPaths = [changedFiles[0], ...(addedPath ? [addedPath] : [])].sort();
+  run(fixture.repoRoot, ["add", ...stagedPaths]);
   run(fixture.repoRoot, ["commit", "-m", subject]);
   const advancedHeadSha = run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
   const treeSha = run(fixture.repoRoot, ["rev-parse", "HEAD^{tree}"]).stdout.trim();
@@ -406,7 +423,8 @@ function advanceWithSourceFix(fixture) {
     ["diff", "--binary", `${fixture.baseSha}...${advancedHeadSha}`]).stdout.slice(0, 512_000));
   const identity = {
     baseSha: fixture.baseSha, headSha: advancedHeadSha, treeSha, diffDigest,
-    changedFiles, changedFilesDigest: hashJson(changedFiles),
+    changedFiles: [...changedFiles, ...(addedPath ? [addedPath] : [])].sort(),
+    changedFilesDigest: hashJson([...changedFiles, ...(addedPath ? [addedPath] : [])].sort()),
   };
   fixture.state.ordinaryContinuation.identity = structuredClone(identity);
   fixture.state.ordinaryContinuation.sourceFailureHistory = [{ candidate: initial }];
@@ -423,7 +441,7 @@ function advanceWithSourceFix(fixture) {
       candidateIdentity: fixture.headSha,
     },
     effect: {
-      expectedParents: [fixture.headSha], treeSha, stagedPaths: [changedFiles[0]],
+      expectedParents: [fixture.headSha], treeSha, stagedPaths,
       messageDigest: hash(subject),
     },
   });
