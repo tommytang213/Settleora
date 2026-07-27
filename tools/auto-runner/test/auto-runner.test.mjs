@@ -115,7 +115,11 @@ import {
 } from "../lib/review-fix-policy.mjs";
 import { bindValidationEvidence, inferMobileBuildPlatformRequirements, mobileBuildPlatformChecks, planValidation, validationCommandCwd } from "../lib/validation-planner.mjs";
 import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
-import { loadSummaryConfig, planOrdinaryRecoveryBranch } from "../settleora-auto-runner.mjs";
+import {
+  loadSummaryConfig,
+  planOrdinaryRecoveryBranch,
+  verifyProspectiveMergeValidation,
+} from "../settleora-auto-runner.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";
@@ -4343,6 +4347,68 @@ test("approved low-risk lane with exact allowed paths and exact-head checks allo
   assert.equal(decision.prHeadSha, "head123");
 });
 
+test("required prospective-merge validation is bound to the exact current main and candidate", () => {
+  const exact = autoMergeContext({
+    prospectiveMergeValidationRequired: true,
+    prospectiveMergeValidationVerified: true,
+    validation: {
+      ...autoMergeContext().validation,
+      prospectiveMerge: {
+        baseSha: "base123",
+        headSha: "head123",
+        treeSha: "a".repeat(40),
+        syntheticCommitSha: "b".repeat(40),
+      },
+    },
+  });
+  assert.equal(evaluateAutoMergeDecision(exact).eligible, true);
+  assert.equal(evaluateAutoMergeDecision({
+    ...exact,
+    prospectiveMergeValidationVerified: false,
+  }).reason, "prospective_merge_validation_unverified");
+  for (const prospectiveMerge of [
+    null,
+    { ...exact.validation.prospectiveMerge, baseSha: "stale-base" },
+    { ...exact.validation.prospectiveMerge, headSha: "stale-head" },
+    { ...exact.validation.prospectiveMerge, treeSha: null },
+    { ...exact.validation.prospectiveMerge, syntheticCommitSha: null },
+  ]) {
+    const decision = evaluateAutoMergeDecision({
+      ...exact,
+      validation: { ...exact.validation, prospectiveMerge },
+    });
+    assert.equal(decision.eligible, false);
+    assert.equal(decision.reason, "prospective_merge_validation_mismatch");
+  }
+});
+
+test("prospective-merge validation re-proves the exact clean merge tree and parents", () => {
+  const repo = createTempGitRepo();
+  try {
+    git(repo, ["switch", "-c", "feature/candidate"]);
+    writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "candidate\n");
+    git(repo, ["add", "--", "tools/auto-runner/README.md"]);
+    git(repo, ["commit", "-m", "candidate"]);
+    const headSha = git(repo, ["rev-parse", "HEAD"]).stdout.trim();
+    git(repo, ["switch", "main"]);
+    writeFileSync(path.join(repo, "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"), "advanced\n");
+    git(repo, ["add", "--", "docs/workflow/AUTONOMOUS_CODEX_RUNNER_CANARY.md"]);
+    git(repo, ["commit", "-m", "advanced main"]);
+    const baseSha = git(repo, ["rev-parse", "HEAD"]).stdout.trim();
+    const treeSha = git(repo, ["merge-tree", "--write-tree", baseSha, headSha]).stdout.trim();
+    const syntheticCommitSha = git(repo, [
+      "commit-tree", treeSha, "-p", baseSha, "-p", headSha, "-m", "prospective fixture",
+    ]).stdout.trim();
+    const evidence = { baseSha, headSha, treeSha, syntheticCommitSha };
+    assert.equal(verifyProspectiveMergeValidation({ repoRoot: repo }, evidence, baseSha, headSha), true);
+    assert.equal(verifyProspectiveMergeValidation(
+      { repoRoot: repo }, { ...evidence, treeSha: "c".repeat(40) }, baseSha, headSha,
+    ), false);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("approved-domain auto-merge accepts GitHub workflow-prefixed required check names", () => {
   const decision = evaluateAutoMergeDecision(autoMergeContext({
     requiredChecks: [
@@ -7665,6 +7731,8 @@ function autoMergeContext(overrides = {}) {
     branchName: overrides.branchName || "feature/auto-1-test",
     currentOriginMainSha: overrides.currentOriginMainSha || "base123",
     expectedOriginMainSha: overrides.expectedOriginMainSha || "base123",
+    prospectiveMergeValidationRequired: overrides.prospectiveMergeValidationRequired ?? false,
+    prospectiveMergeValidationVerified: overrides.prospectiveMergeValidationVerified ?? false,
     requiredChecks: overrides.requiredChecks || defaultRequiredChecks,
     reviewThreads: overrides.reviewThreads || [],
     codeScanningAlerts: overrides.codeScanningAlerts || [],

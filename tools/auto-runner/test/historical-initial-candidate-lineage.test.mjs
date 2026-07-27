@@ -88,6 +88,9 @@ test("historical initial candidate fail-closes on durable identity and effect co
     ["failed closed commit intent", (f) => { f.intents[0].status = "failed_closed"; }, "historical_candidate_commit_intent_mismatch"],
     ["wrong commit parent intent", (f) => { f.intents[0].effect.expectedParents = [f.headSha]; }, "historical_candidate_commit_intent_mismatch"],
     ["external intent", (f) => { f.intents.push({ ...structuredClone(f.intents[0]), effectType: "push" }); }, "historical_candidate_external_intent_present"],
+    ["canonical comment intent", (f) => {
+      f.intents.push({ ...structuredClone(f.intents[0]), effectType: "comment" });
+    }, "historical_candidate_external_intent_present"],
   ];
   for (const [name, mutate, reason] of cases) {
     const fixture = makeFixture(2);

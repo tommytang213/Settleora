@@ -2351,7 +2351,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             expectedRepository: config.repositorySlug,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
-            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true },
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
           },
         },
       };
@@ -2885,6 +2885,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       pr: prMetadata,
       changedFiles,
       expectedHeadSha,
+      expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
     });
     operationalCheckpoint("existing_pr_evidence_regeneration_complete", {
       validation: generatedRecoveryEvidence.validation || null,
@@ -2931,6 +2932,8 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       codexMechanicsAttemptCount: generatedRecoveryEvidence.review?.attemptCount || null,
       validationResults: generatedRecoveryEvidence.validation?.results || null,
       validationCompletedAt: generatedRecoveryEvidence.validation?.completedAt || null,
+      prospectiveMergeValidationRequired: exactHeadEvidence.prospectiveMergeValidationRequired === true,
+      prospectiveMerge: generatedRecoveryEvidence.validation?.prospectiveMerge || null,
       changedFilesDigest: generatedRecoveryEvidence.validation?.changedFilesDigest || null,
     };
   }
@@ -2980,6 +2983,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
             recovered: true,
             results: exactHeadEvidence.validationResults,
             completedAt: exactHeadEvidence.validationCompletedAt || exactHeadEvidence.completedAt || null,
+            prospectiveMerge: exactHeadEvidence.prospectiveMerge || null,
           },
           {
             headSha: expectedHeadSha,
@@ -3003,6 +3007,14 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     blockingMarkers: githubState.blockingMarkers || [],
     actualHeadSha: githubState.pr?.headRefOid || null,
     exactHeadEvidence,
+    prospectiveMergeValidationRequired: exactHeadEvidence.prospectiveMergeValidationRequired === true,
+    prospectiveMergeValidationVerified: exactHeadEvidence.prospectiveMergeValidationRequired !== true
+      || verifyProspectiveMergeValidation(
+        config,
+        exactHeadEvidence.prospectiveMerge,
+        recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+        expectedHeadSha,
+      ),
     issueLinkageEvidence,
     sessionLifecycle,
     recoveryState,
@@ -3112,7 +3124,9 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   };
 }
 
-async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision, pr, changedFiles, expectedHeadSha }) {
+async function generateExistingPrRecoveryEvidence(config, {
+  issue, laneDecision, pr, changedFiles, expectedHeadSha, expectedOriginMainSha,
+}) {
   if (config.dryRun) return { reason: "dry_run_no_recovery_evidence_generation" };
   const originalBranch = getCurrentBranch();
   const originalHead = getRefSha("HEAD");
@@ -3142,7 +3156,35 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
         review: null,
       };
     }
-    const checkout = spawnLike("git", ["switch", "--detach", expectedHeadSha], config.repoRoot);
+    const mergeTree = spawnLike("git", [
+      "merge-tree", "--write-tree", "--messages", expectedOriginMainSha, expectedHeadSha,
+    ], config.repoRoot);
+    const mergeTreeLines = mergeTree.stdout.split(/\r?\n/u).filter(Boolean);
+    const mergeTreeSha = mergeTreeLines[0] || null;
+    if (mergeTree.status !== 0 || mergeTree.error || mergeTree.stderr
+      || mergeTreeLines.length !== 1 || !/^[a-f0-9]{40}$/u.test(mergeTreeSha)) {
+      return {
+        reason: "recovery_evidence_generation_merge_tree_unavailable",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_merge_tree_unavailable" },
+        review: null,
+      };
+    }
+    const synthetic = spawnLike("git", [
+      "commit-tree", mergeTreeSha, "-p", expectedOriginMainSha, "-p", expectedHeadSha,
+      "-m", "Settleora prospective recovery validation",
+    ], config.repoRoot);
+    const syntheticCommitSha = synthetic.stdout.trim();
+    if (synthetic.status !== 0 || synthetic.error || synthetic.stderr
+      || !/^[a-f0-9]{40}$/u.test(syntheticCommitSha)) {
+      return {
+        reason: "recovery_evidence_generation_merge_commit_unavailable",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_merge_commit_unavailable" },
+        review: null,
+      };
+    }
+    const checkout = spawnLike("git", ["switch", "--detach", syntheticCommitSha], config.repoRoot);
     if (checkout.status !== 0 || checkout.error) {
       return {
         reason: "recovery_evidence_generation_checkout_failed",
@@ -3151,12 +3193,29 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
         review: null,
       };
     }
-    const validation = runValidationPlan(config, planValidation(changedFiles, laneDecision));
+    const validation = {
+      ...runValidationPlan(config, planValidation(changedFiles, laneDecision)),
+      prospectiveMerge: {
+        baseSha: expectedOriginMainSha,
+        headSha: expectedHeadSha,
+        treeSha: mergeTreeSha,
+        syntheticCommitSha,
+      },
+    };
     if (!validation.passed) {
       return {
         reason: "recovery_evidence_generation_validation_failed",
         validation,
         externalReview: { status: "blocked", reason: "recovery_evidence_generation_validation_failed" },
+        review: null,
+      };
+    }
+    const reviewCheckout = spawnLike("git", ["switch", "--detach", expectedHeadSha], config.repoRoot);
+    if (reviewCheckout.status !== 0 || reviewCheckout.error) {
+      return {
+        reason: "recovery_evidence_generation_review_checkout_failed",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_review_checkout_failed" },
         review: null,
       };
     }
@@ -3183,6 +3242,27 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
   } finally {
     restore();
   }
+}
+
+export function verifyProspectiveMergeValidation(config, evidence, expectedBaseSha, expectedHeadSha) {
+  if (!evidence || evidence.baseSha !== expectedBaseSha || evidence.headSha !== expectedHeadSha
+    || !/^[a-f0-9]{40}$/u.test(evidence.treeSha || "")
+    || !/^[a-f0-9]{40}$/u.test(evidence.syntheticCommitSha || "")) return false;
+  const mergeTree = spawnLike("git", [
+    "merge-tree", "--write-tree", "--messages", expectedBaseSha, expectedHeadSha,
+  ], config.repoRoot);
+  const lines = mergeTree.stdout.split(/\r?\n/u).filter(Boolean);
+  const syntheticTree = spawnLike("git", [
+    "rev-parse", `${evidence.syntheticCommitSha}^{tree}`,
+  ], config.repoRoot);
+  const syntheticParents = spawnLike("git", [
+    "show", "-s", "--format=%P", evidence.syntheticCommitSha,
+  ], config.repoRoot);
+  return mergeTree.status === 0 && !mergeTree.error && !mergeTree.stderr
+    && lines.length === 1 && lines[0] === evidence.treeSha
+    && syntheticTree.status === 0 && syntheticTree.stdout.trim() === evidence.treeSha
+    && syntheticParents.status === 0
+    && syntheticParents.stdout.trim() === `${expectedBaseSha} ${expectedHeadSha}`;
 }
 
 function readPrChangedFiles(config, prNumber) {

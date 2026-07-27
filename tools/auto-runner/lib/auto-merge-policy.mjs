@@ -984,6 +984,17 @@ function evaluateValidationEvidence(input, { expectedHeadSha, expectedBaseSha, c
   if (!sameStringSet(validation.changedFiles, changedFiles)) return { ok: false, reason: "validation_files_mismatch" };
   if (validation.changedFilesDigest !== digestChangedFiles(changedFiles)) return { ok: false, reason: "validation_file_digest_mismatch" };
   if (validation.profile !== laneDecision.validationProfile) return { ok: false, reason: "validation_profile_mismatch" };
+  if (input.prospectiveMergeValidationRequired === true) {
+    if (input.prospectiveMergeValidationVerified !== true) {
+      return { ok: false, reason: "prospective_merge_validation_unverified" };
+    }
+    const prospective = validation.prospectiveMerge || {};
+    if (prospective.baseSha !== expectedBaseSha || prospective.headSha !== expectedHeadSha
+      || !/^[a-f0-9]{40}$/.test(prospective.treeSha || "")
+      || !/^[a-f0-9]{40}$/.test(prospective.syntheticCommitSha || "")) {
+      return { ok: false, reason: "prospective_merge_validation_mismatch" };
+    }
+  }
   return { ok: true };
 }
 

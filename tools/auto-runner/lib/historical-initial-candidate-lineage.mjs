@@ -14,7 +14,7 @@ const sha = /^[a-f0-9]{40}$/u;
 const digest = /^[a-f0-9]{64}$/u;
 const externalEffects = new Set([
   "push", "pr_create", "pr_head_update", "pr_update", "pr_retarget", "pr_ready", "pr_draft",
-  "merge", "review_reply", "issue_closure", "issue_progress_comment", "umbrella_update",
+  "merge", "comment", "review_reply", "issue_closure", "issue_progress_comment", "umbrella_update",
   "ledger_docs_update", "docs_branch_create", "docs_pr_create_update", "review_request",
   "review_trigger", "docs_pr_ready", "docs_pr_merge", "project_status_update",
   "branch_retention_verify",

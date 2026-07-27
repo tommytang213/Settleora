@@ -1690,4 +1690,7 @@ objects, multiple records, or any identity/effect contradiction fail closed.
 The proven current-main SHA is persisted in ordinary continuation authority,
 included in every phase target, and propagated as the expected PR/merge base;
 a restart, stale checkpoint, or later main movement cannot silently fall back
-to the historical candidate base.
+to the historical candidate base. Recovery validation runs on the clean
+prospective merge tree of that exact main and candidate, records its tree and
+two-parent synthetic commit, and re-proves those bytes before merge evaluation;
+Gemini and Codex reviews remain bound to the exact candidate head.
