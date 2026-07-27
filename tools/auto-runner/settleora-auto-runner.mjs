@@ -3094,6 +3094,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     branchName: githubState.pr?.headRefName || recoveryConfig.branchName || null,
     runnerCreatedCommitSha: expectedHeadSha,
     expectedHeadSha,
+    baseSha: exactHeadEvidence.baseSha || recoveryState?.branch?.baseSha || null,
     expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
     currentOriginMainSha: baseOriginMainSha,
     pr: prMetadata,

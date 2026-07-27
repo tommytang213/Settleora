@@ -284,6 +284,7 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /const expectedCurrentMain = initial\.expectedOriginMainSha/);
   assert.match(source, /expectedOriginMainSha: continuation\.expectedOriginMainSha/);
   assert.match(source, /baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
+  assert.match(source, /baseSha: exactHeadEvidence\.baseSha \|\| recoveryState\?\.branch\?\.baseSha \|\| null,[\s\S]*expectedOriginMainSha: recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/);
   assert.equal((source.match(/baseSha: exactHeadEvidence\.currentMainSha \|\| recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/g) || []).length, 2);
   assert.match(source, /prospectiveMergeValidationRequired: true/);
   assert.match(source, /"merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha/);
