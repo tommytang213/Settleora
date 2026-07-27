@@ -473,7 +473,7 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
   if (liveEffects.commitPresent !== true
     || liveEffects.pushPresent !== false
     || liveEffects.mergePresent !== false
-    || liveEffects.commentPresent !== false) {
+    || ![true, false].includes(liveEffects.commentPresent)) {
     return fail("session_lifecycle_validation_retry_live_effects_contradictory");
   }
   const effects = state.recovery?.effectsAlreadyPresent;
@@ -482,7 +482,7 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
     || effects?.commit !== true
     || effects?.push !== false
     || effects?.merge !== false
-    || effects?.comment !== false
+    || ![true, false].includes(effects?.comment)
     || !state.interruption?.class
     || !state.recovery?.operationId) {
     return fail("session_lifecycle_validation_retry_derivative_mismatch");
@@ -502,6 +502,9 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
     && state.mutationAuthority?.ownerSessionId === successorSessionId
     && state.sessions.current === successorSessionId;
   if (exactPending || exactActive) {
+    if (effects.comment !== liveEffects.commentPresent) {
+      return fail("session_lifecycle_validation_retry_live_effects_contradictory");
+    }
     return { ok: true, duplicate: true, state, statePath: sessionLifecyclePath(config, state) };
   }
   if (state.controller?.phase !== "stopped"
@@ -509,7 +512,8 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
     || state.report?.status !== "stopped"
     || state.mutationAuthority?.status !== "terminal"
     || state.mutationAuthority?.ownerSessionId !== null
-    || state.recovery.phaseAfter !== "push") {
+    || state.recovery.phaseAfter !== "push"
+    || effects.comment !== false) {
     return fail("session_lifecycle_validation_retry_derivative_mismatch");
   }
   const next = structuredClone(state);
@@ -517,6 +521,7 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
   next.controller.nextExactAction = "run_validation_and_commit";
   next.report.status = "in_progress";
   next.recovery.phaseAfter = "checkpoint_validation_commit";
+  next.recovery.effectsAlreadyPresent.comment = liveEffects.commentPresent;
   next.mutationAuthority = {
     ownerSessionId: null,
     generation: next.sessions.generation,

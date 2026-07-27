@@ -350,6 +350,9 @@ function validateIntents(
         continue;
       }
       if (intent.effectType !== "comment") return { ok: false, reasonCode: "target_intent_status_uncertain" };
+      if (derivative && !derivativeCommentEffectIsExact(intent, target)) {
+        return { ok: false, reasonCode: "preserved_recovery_derivative_comment_intent_inconsistent" };
+      }
       const authoritative = intentEvidenceCollector(
         { ...config, repoRoot: repositoryRoot, repositorySlug: target.repository },
         intent,
@@ -394,12 +397,17 @@ function finalizedDerivativeEffectIsConsistent(intent, target) {
       || intent.effect?.outcome !== "validation_failed") return false;
   const addLabels = intent.effect.addLabels;
   const removeLabels = intent.effect.removeLabels;
-  return Array.isArray(addLabels) && Array.isArray(removeLabels)
-    && addLabels.every((label) => typeof label === "string" && label.length > 0)
-    && removeLabels.every((label) => typeof label === "string" && label.length > 0)
-    && (intent.effect.operation === "add"
-      ? addLabels.length > 0 && removeLabels.length === 0
-      : removeLabels.length > 0 && addLabels.length === 0);
+  return intent.effect.operation === "add"
+    ? canonical(addLabels) === canonical(["auto-failed"]) && canonical(removeLabels) === canonical([])
+    : canonical(addLabels) === canonical([])
+      && canonical(removeLabels) === canonical(["auto-claimed", "auto-running"]);
+}
+
+function derivativeCommentEffectIsExact(intent, target) {
+  return intent.effect?.issueNumber === target.issueNumber
+    && intent.effect?.outcome === "validation_failed"
+    && digestPattern.test(intent.effect?.bodyDigest || "")
+    && canonical(Object.keys(intent.effect || {}).sort()) === canonical(["bodyDigest", "issueNumber", "outcome"]);
 }
 
 function unrelatedIntentCanMutateTarget(intent, target) {

@@ -1128,6 +1128,27 @@ test("deployment admits only one exact effect-free preserved recovery and remain
         `the exact live-shaped intent combination is admissible after ${classification}`,
       );
     }
+    const malformedComment = preparePreEffectIntent(config, {
+      repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
+      logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
+      chargeIdentity: charge.statePath, sessionId: "fixture-session", authorityGeneration: 1,
+      effectType: "comment", issueNumber: target.issueNumber, branchName: target.branch,
+      baseSha: target.baseSha, headSha: target.headSha, candidateIdentity: target.headSha,
+      effect: {
+        issueNumber: target.issueNumber, outcome: "unrelated",
+        bodyDigest: createHash("sha256").update("other sanitized comment").digest("hex"),
+      },
+    });
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+        intentEvidenceCollector: () => ({ ok: true, classification: "effect_absent_safe_to_execute" }),
+      }).reasonCode,
+      "preserved_recovery_derivative_comment_intent_inconsistent",
+      "a different prepared comment payload cannot inherit derivative admission",
+    );
+    deleteIntent(malformedComment);
     for (const classification of [
       "live_read_unavailable", "effect_ambiguous", "effect_contradictory",
       "effect_absent_execution_uncertain", "unclassified",
@@ -2131,7 +2152,7 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
       phase: "stopped",
       nextExactAction: "checkpoint_validation_recovery_failed_closed",
     }).state;
-    const liveEffects = { commitPresent: true, pushPresent: false, mergePresent: false, commentPresent: false };
+    const liveEffects = { commitPresent: true, pushPresent: false, mergePresent: false, commentPresent: true };
     const reopened = reopenKnownValidationRetryDerivative(config, lifecycle, liveEffects);
     assert.equal(reopened.ok, true);
     assert.equal(reopened.state.controller.phase, "checkpoint_validation_commit");
@@ -2139,6 +2160,7 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     assert.equal(reopened.state.report.status, "in_progress");
     assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
     assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
+    assert.equal(reopened.state.recovery.effectsAlreadyPresent.comment, true);
     const reconciled = planInterruptionRecovery(
       reopened.state,
       liveEffects,
@@ -2152,7 +2174,6 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     assert.equal(adopted.ok, true);
     assert.equal(adopted.duplicate, true);
     assert.equal(adopted.state.checkpoint.digest, reopened.state.checkpoint.digest);
-
     const wrong = structuredClone(lifecycle);
     wrong.recovery.effectsAlreadyPresent.push = true;
     wrong.checkpoint.digest = null;
