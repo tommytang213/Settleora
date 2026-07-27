@@ -401,8 +401,16 @@ function exactMarkers(state, issueNumber, runId, chargeId, branch, baseSha) {
 function canonicalCorrelatedPath(candidate, root, prefix) {
   if (typeof candidate !== "string") return false;
   const resolved = path.resolve(candidate);
-  return path.dirname(resolved) === path.resolve(root)
-    && path.basename(resolved).startsWith(prefix) && path.basename(resolved).endsWith(".md");
+  if (path.dirname(resolved) !== path.resolve(root)
+    || !path.basename(resolved).startsWith(prefix) || !path.basename(resolved).endsWith(".md")) return false;
+  try {
+    const info = lstatSync(resolved);
+    return info.isFile() && !info.isSymbolicLink() && realpathSync(resolved) === resolved
+      && (typeof process.getuid !== "function" || info.uid === process.getuid())
+      && (info.mode & 0o022) === 0;
+  } catch {
+    return false;
+  }
 }
 function lines(value) { return String(value || "").split(/\r?\n/u).filter(Boolean); }
 function hash(value) { return createHash("sha256").update(String(value)).digest("hex"); }

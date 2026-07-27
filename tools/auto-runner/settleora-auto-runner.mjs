@@ -2984,6 +2984,25 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       changedFilesDigest: generatedRecoveryEvidence.validation?.changedFilesDigest || null,
     };
   }
+  fetchOriginMain(config);
+  const refreshedOriginMainSha = getRefSha("origin/main");
+  const validatedOriginMainSha = recoveryConfig.expectedOriginMainSha || baseOriginMainSha;
+  if (refreshedOriginMainSha !== validatedOriginMainSha) {
+    return {
+      reason: "existing_pr_recovery_current_main_drift",
+      pr: prMetadata,
+      changedFiles,
+      validation: generatedRecoveryEvidence?.validation || { passed: false, recovered: true },
+      review: generatedRecoveryEvidence?.review || null,
+      externalReview: generatedRecoveryEvidence?.externalReview
+        || { status: "blocked", reason: "existing_pr_recovery_current_main_drift" },
+      generatedRecoveryEvidence,
+      baseOriginMainSha,
+      expectedHeadSha,
+      githubState,
+      autoMerge: { result: "blocked", reason: "existing_pr_recovery_current_main_drift", recovery: true },
+    };
+  }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
   const context = {
     config,

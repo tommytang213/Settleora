@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -57,6 +57,12 @@ test("historical initial candidate fail-closes on durable identity and effect co
       f.state.ordinaryContinuation.sourceFailureBatch.candidate.changedFilesDigest = value;
     }, "historical_candidate_changed_paths_mismatch"],
     ["wrong report", (f) => { f.state.expectedReportPaths.repoReportPath = "/tmp/report.md"; }, "historical_candidate_report_prompt_mismatch"],
+    ["missing report", (f) => {
+      unlinkSync(f.state.expectedReportPaths.repoReportPath);
+    }, "historical_candidate_report_prompt_mismatch"],
+    ["writable prompt", (f) => {
+      chmodSync(f.state.expectedReportPaths.promptPath, 0o666);
+    }, "historical_candidate_report_prompt_mismatch"],
     ["push marker", (f) => { f.state.mutationMarkers.push = { x: { status: "completed" } }; }, "historical_candidate_later_effect_present"],
     ["pr identity", (f) => { f.state.pr = { number: 1, url: "https://example.invalid", headSha: f.headSha }; }, "historical_candidate_later_effect_present"],
     ["replacement candidate", (f) => { f.state.branch.currentHeadSha = f.baseSha; }, "historical_candidate_authority_identity_mismatch"],
@@ -348,6 +354,11 @@ function makeFixture(advances, candidateSuffix = "") {
   const reportPath = path.join(repoRoot, ".codex", "reports",
     `settleora-codex-report-${taskKey}-issue-${issueNumber}-fixture.md`);
   const promptPath = path.join(logsRoot, "tasks", `${taskKey}-issue-${issueNumber}-fixture.md`);
+  mkdirSync(path.dirname(reportPath), { recursive: true });
+  mkdirSync(path.dirname(promptPath), { recursive: true });
+  writeFileSync(reportPath, "fixture report\n", { mode: 0o600 });
+  writeFileSync(promptPath, "fixture prompt\n", { mode: 0o600 });
+  writeFileSync(path.join(commonDir, "info", "exclude"), ".codex/\n");
   const budgetPath = path.join(logsRoot, "logical-task-budget.json");
   const candidate = { baseSha, headSha, treeSha, diffDigest, changedFiles, changedFilesDigest };
   const state = {
