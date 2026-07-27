@@ -523,6 +523,17 @@ Runtime consumers remain an independent hard gate, rollback has no
 preserved-recovery exception, and the deployment neither resumes nor mutates
 the preserved task.
 
+The known validation-retry derivative has exactly three deployable lifecycle
+postures: its terminal pre-adoption checkpoint, its ownerless pending
+`validation_retry_derivative_reopened` handoff at
+`checkpoint_validation_commit`, and the completed active successor for that
+same request. Completion advances one generation. Restart adopts that same
+active successor, and deployment recomputes its request-bound identity from the
+original run, recovery operation, and handoff request after first recomputing
+that request from the operation and retired session. Retired, foreign,
+operation-derived legacy, mismatched-generation, wrong-phase, wrong-report,
+wrong-effect, or otherwise adjacent active states fail closed.
+
 Legacy omission of the nested continuation repository is not authority by
 itself. It is accepted only when all independent repository identities
 (target, claim, charge, lifecycle, target intents, logs namespace, canonical

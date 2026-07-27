@@ -106,6 +106,18 @@ proof, terminal intents or an exact prepared comment with authoritative
 absence/presence reconciliation, and no live owner. Its output is sanitized
 structured evidence with a target-identity digest and reason code.
 
+For the recognized validation-retry derivative, lifecycle admission is a
+closed set. It accepts the exact terminal pre-adoption posture, the exact
+ownerless `checkpoint_validation_commit` pending handoff created by
+`validation_retry_derivative_reopened`, or the exact completed active
+request-bound successor. Pending and active postures must retain the same
+operation, completed-effect evidence, counters, report/candidate identity, and
+one-generation handoff lineage. The active successor is recomputed from the
+original run, recovery operation, and handoff request; a merely recorded
+owner/successor is insufficient. The handoff request itself is recomputed from
+the recovery operation and retired session. Every other active or nonterminal posture
+remains deployment-ineligible.
+
 Admission also proves the Git authority that the later resumed runner will
 inherit, not only the sanitized deployment reads. Bare `git` must resolve to
 trusted `/usr/bin/git`, and the canonical origin must use HTTPS because SSH

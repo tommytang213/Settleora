@@ -4,7 +4,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSyn
 import { userInfo } from "node:os";
 import path from "node:path";
 import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
-import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
+import { loadSessionLifecycleForRecovery, recoverySuccessorSessionId } from "./session-lifecycle.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { findPreEffectIntents, intentIssueAuthorityMatches, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
 import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
@@ -293,22 +293,81 @@ function validateLifecycle(config, state, target, chargeMarkerRef, derivative) {
       || counters?.lifetimeLocalSourceChangingRounds !== target.lifetimeLocalSourceChangingRounds) {
     return { ok: false, reasonCode: "preserved_recovery_lifecycle_mismatch" };
   }
-  if (derivative && (
-    lifecycle.controller?.phase !== "stopped"
-    || lifecycle.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
-    || lifecycle.report?.status !== "stopped"
-    || lifecycle.mutationAuthority?.status !== "terminal"
-    || lifecycle.mutationAuthority?.ownerSessionId !== null
-    || lifecycle.recovery?.status !== "pending"
-    || lifecycle.recovery?.phaseAfter !== "push"
-    || lifecycle.recovery?.effectsAlreadyPresent?.commit !== true
-    || lifecycle.recovery?.effectsAlreadyPresent?.push !== false
-    || lifecycle.recovery?.effectsAlreadyPresent?.merge !== false
-    || lifecycle.recovery?.effectsAlreadyPresent?.comment !== false
-  )) {
+  if (derivative && !exactValidationRetryDerivativeLifecycle(lifecycle)) {
     return { ok: false, reasonCode: "preserved_recovery_derivative_lifecycle_mismatch" };
   }
   return { ok: true };
+}
+
+function exactValidationRetryDerivativeLifecycle(lifecycle) {
+  const effects = lifecycle.recovery?.effectsAlreadyPresent;
+  const commonRecovery = lifecycle.interruption?.class === "main_process_exit_without_terminal_report"
+    && lifecycle.interruption?.reasonCode === "interruption_main_process_exit_without_terminal_report"
+    && lifecycle.recovery?.status === "pending"
+    && Number.isSafeInteger(lifecycle.recovery?.attempts)
+    && lifecycle.recovery.attempts > 0
+    && typeof lifecycle.recovery?.operationId === "string"
+    && lifecycle.recovery.operationId.length > 0
+    && effects?.mutation === false
+    && effects?.commit === true
+    && effects?.push === false
+    && effects?.merge === false
+    && [true, false].includes(effects?.comment)
+    && (effects?.pr === undefined || effects.pr === false);
+  if (!commonRecovery) return false;
+
+  const terminalDerivative = lifecycle.controller?.phase === "stopped"
+    && lifecycle.controller?.nextExactAction === "checkpoint_validation_recovery_failed_closed"
+    && lifecycle.report?.status === "stopped"
+    && lifecycle.mutationAuthority?.status === "terminal"
+    && lifecycle.mutationAuthority?.ownerSessionId === null
+    && lifecycle.mutationAuthority?.handoff === null
+    && lifecycle.recovery?.phaseAfter === "push"
+    && effects.comment === false;
+  if (terminalDerivative) return true;
+
+  const handoff = lifecycle.mutationAuthority?.handoff;
+  const reopened = lifecycle.controller?.phase === "checkpoint_validation_commit"
+    && lifecycle.controller?.nextExactAction === "run_validation_and_commit"
+    && lifecycle.report?.status === "in_progress"
+    && lifecycle.recovery?.phaseAfter === "checkpoint_validation_commit"
+    && handoff?.reason === "validation_retry_derivative_reopened"
+    && typeof handoff?.requestId === "string"
+    && digestPattern.test(handoff.requestId)
+    && handoff.requestId === createHash("sha256")
+      .update(`${lifecycle.recovery.operationId}:${handoff.retiredSessionId}:validation-retry`)
+      .digest("hex")
+    && typeof handoff?.checkpointDigest === "string"
+    && digestPattern.test(handoff.checkpointDigest)
+    && typeof handoff?.startedAt === "string"
+    && Number.isFinite(Date.parse(handoff.startedAt))
+    && typeof handoff?.retiredSessionId === "string"
+    && lifecycle.sessions?.retired?.includes(handoff.retiredSessionId) === true
+    && lifecycle.mutationAuthority?.generation === lifecycle.sessions?.generation;
+  if (!reopened) return false;
+
+  if (lifecycle.mutationAuthority.status === "recovery_pending") {
+    const successor = recoverySuccessorSessionId(lifecycle);
+    return successor.ok === true
+      && successor.duplicate === false
+      && lifecycle.mutationAuthority.ownerSessionId === null
+      && handoff.retiredSessionId === lifecycle.sessions.current
+      && handoff.successorSessionId === null;
+  }
+
+  if (lifecycle.mutationAuthority.status === "active") {
+    const successor = recoverySuccessorSessionId(lifecycle);
+    return successor.ok === true
+      && successor.duplicate === true
+      && lifecycle.mutationAuthority.ownerSessionId === lifecycle.sessions.current
+      && handoff.successorSessionId === successor.sessionId
+      && handoff.successorSessionId === lifecycle.sessions.current
+      && !lifecycle.sessions.retired.includes(lifecycle.sessions.current)
+      && typeof handoff.completedAt === "string"
+      && Number.isFinite(Date.parse(handoff.completedAt));
+  }
+
+  return false;
 }
 
 function validateIntents(

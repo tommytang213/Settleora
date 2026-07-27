@@ -5,7 +5,7 @@ import test from "node:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, planInterruptionRecovery, reopenKnownValidationRetryDerivative, sessionLifecyclePath, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
+import { beginSessionRotation, completeSessionRotation, createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, planInterruptionRecovery, recoverySuccessorSessionId, reopenKnownValidationRetryDerivative, sessionLifecyclePath, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import {
@@ -1000,6 +1000,23 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       baseSha: target.baseSha,
       headSha: target.headSha,
     }).state);
+    for (let generation = derivativeLifecycle.sessions.generation + 1; generation <= 4; generation += 1) {
+      const begun = beginSessionRotation(derivativeLifecycle, {
+        reason: "fixture_predecessor_rotation",
+        requestId: `fixture-predecessor-${generation}`,
+      });
+      assert.equal(begun.ok, true, JSON.stringify(begun));
+      const begunPersisted = persistSessionLifecycleState(config, begun.state);
+      assert.equal(begunPersisted.ok, true, JSON.stringify(begunPersisted));
+      const completed = completeSessionRotation(begunPersisted.state, {
+        requestId: begun.requestId,
+        newSessionId: `fixture-session-${generation}`,
+      });
+      assert.equal(completed.ok, true, JSON.stringify(completed));
+      const completedPersisted = persistSessionLifecycleState(config, completed.state);
+      assert.equal(completedPersisted.ok, true, JSON.stringify(completedPersisted));
+      derivativeLifecycle = completedPersisted.state;
+    }
     derivativeLifecycle.interruption = {
       class: "main_process_exit_without_terminal_report",
       reasonCode: "interruption_main_process_exit_without_terminal_report",
@@ -1049,6 +1066,75 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "exact_preserved_recovery_admitted",
       "the exact known derivative must permit installation of its corrective runtime",
     );
+    const reopenedDerivative = reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
+      commitPresent: true,
+      pushPresent: false,
+      mergePresent: false,
+      commentPresent: false,
+    });
+    assert.equal(reopenedDerivative.ok, true, JSON.stringify(reopenedDerivative));
+    derivativeLifecycle = reopenedDerivative.state;
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "exact_preserved_recovery_admitted",
+      "the exact request-bound pending validation-retry handoff is deployable before successor completion",
+    );
+    const successor = recoverySuccessorSessionId(derivativeLifecycle);
+    assert.equal(successor.ok, true, JSON.stringify(successor));
+    const completedDerivative = completeSessionRotation(derivativeLifecycle, {
+      requestId: derivativeLifecycle.mutationAuthority.handoff.requestId,
+      newSessionId: successor.sessionId,
+    });
+    assert.equal(completedDerivative.ok, true, JSON.stringify(completedDerivative));
+    const persistedCompletedDerivative = persistSessionLifecycleState(config, completedDerivative.state);
+    assert.equal(persistedCompletedDerivative.ok, true, JSON.stringify(persistedCompletedDerivative));
+    derivativeLifecycle = persistedCompletedDerivative.state;
+    assert.equal(
+      inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+        repositoryRoot: config.repoRoot,
+        resumedGitConfigRecords: { global: [], system: [] },
+      }).reasonCode,
+      "exact_preserved_recovery_admitted",
+      "the exact completed active handoff remains deployable and restart-idempotent",
+    );
+    const completedLifecyclePath = sessionLifecyclePath(config, derivativeLifecycle);
+    const completedLifecycleBytes = readFileSync(completedLifecyclePath);
+    for (const mutate of [
+      (value) => { value.interruption = null; },
+      (value) => {
+        value.interruption.class = "provider_stream_disconnect";
+        value.interruption.reasonCode = "interruption_provider_stream_disconnect";
+      },
+      (value) => { value.mutationAuthority.ownerSessionId = "foreign-owner"; },
+      (value) => { value.mutationAuthority.handoff.requestId = "0".repeat(64); },
+      (value) => { value.mutationAuthority.handoff.reason = "foreign-reason"; },
+      (value) => { value.mutationAuthority.handoff.retiredSessionId = "foreign-retired"; },
+      (value) => { value.mutationAuthority.handoff.successorSessionId = "foreign-successor"; },
+      (value) => { value.mutationAuthority.generation -= 1; },
+      (value) => { value.controller.nextExactAction = "run_implementation"; },
+      (value) => { value.report.status = "stopped"; },
+      (value) => { value.recovery.phaseAfter = "push"; },
+      (value) => { value.recovery.effectsAlreadyPresent.push = true; },
+    ]) {
+      const unsafe = structuredClone(derivativeLifecycle);
+      mutate(unsafe);
+      const unsafePersisted = persistSessionLifecycleState(config, unsafe);
+      if (!unsafePersisted.ok) {
+        writeFileSync(completedLifecyclePath, `${JSON.stringify(unsafe)}\n`, { mode: 0o600 });
+      }
+      assert.equal(
+        inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+          repositoryRoot: config.repoRoot,
+          resumedGitConfigRecords: { global: [], system: [] },
+        }).preservedRecoveryAdmitted,
+        false,
+        "every adjacent active-handoff contradiction must fail closed",
+      );
+      writeFileSync(completedLifecyclePath, completedLifecycleBytes, { mode: 0o600 });
+    }
     let derivativePushIntent = preparePreEffectIntent(config, {
       repository: target.repository, sourceTaskKey: target.taskKey, runId: target.runnerRunId,
       logicalTaskIdentity: target.claimIdentity, claimIdentity: target.claimIdentity,
