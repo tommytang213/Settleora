@@ -2315,6 +2315,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             issueNumber: continuation.issueNumber,
             branchName: continuation.branchName,
             identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
+            expectedOriginMainSha: continuation.expectedOriginMainSha,
             phase: "candidate_reconciliation",
             counters: {
               ...continuation.counters,

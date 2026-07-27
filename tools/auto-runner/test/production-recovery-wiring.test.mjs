@@ -97,6 +97,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /sourceFailuresFromProspectiveValidation\(prospectiveValidation/);
   assert.match(source, /prospective_validation_source_checkout_not_restored/);
   assert.match(source, /getRefSha\("origin\/main"\) !== continuation\.expectedOriginMainSha/);
+  assert.match(source, /headChangeCheckpoint: async \(headSha\)[\s\S]*expectedOriginMainSha: continuation\.expectedOriginMainSha/);
 });
 
 test("stable-launched supervisor main persists startup failures before rethrow", () => {
