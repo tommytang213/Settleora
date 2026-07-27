@@ -90,7 +90,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const rawDiff = git(["diff", "--binary", `${baseSha}...${headSha}`]).stdout;
     if (JSON.stringify(livePaths) !== JSON.stringify(expectedPaths)
       || hashJson(livePaths) !== identity.changedFilesDigest
-      || hash(rawDiff) !== identity.diffDigest) return fail("historical_candidate_diff_mismatch");
+      || hash(rawDiff.slice(0, 512_000)) !== identity.diffDigest) return fail("historical_candidate_diff_mismatch");
     if (git(["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim() !== branch
       || git(["rev-parse", "HEAD"]).stdout.trim() !== headSha
       || git(["status", "--porcelain=v1", "--untracked-files=all"]).stdout !== "") {
@@ -104,13 +104,25 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     });
     if (!loadedLifecycle?.ok) return fail("historical_candidate_lifecycle_untrusted");
     const lifecycle = loadedLifecycle.state;
+    const expectedLifecycle = state.sessionLifecycle;
     if (lifecycle.logicalTask?.claimIdentity !== `${repository}#${issueNumber}`
       || lifecycle.logicalTask?.supervisorRunId !== supervisorRunId
       || lifecycle.branch?.name !== branch || lifecycle.branch?.baseSha !== baseSha
-      || lifecycle.branch?.headSha !== headSha || lifecycle.sessions?.generation !== 5
-      || lifecycle.mutationAuthority?.status !== "terminal"
-      || lifecycle.mutationAuthority?.ownerSessionId !== null
-      || lifecycle.controller?.phase !== "stopped"
+      || lifecycle.branch?.headSha !== headSha
+      || !Number.isSafeInteger(lifecycle.sessions?.generation)
+      || lifecycle.sessions.generation < 2
+      || lifecycle.sessions.generation !== expectedLifecycle?.sessions?.generation
+      || lifecycle.sessions.current !== expectedLifecycle?.sessions?.current
+      || lifecycle.mutationAuthority?.generation !== lifecycle.sessions.generation
+      || lifecycle.mutationAuthority?.status !== "active"
+      || lifecycle.mutationAuthority?.ownerSessionId !== lifecycle.sessions.current
+      || lifecycle.mutationAuthority.ownerSessionId !== expectedLifecycle?.mutationAuthority?.ownerSessionId
+      || lifecycle.controller?.phase !== "checkpoint_validation_commit"
+      || lifecycle.controller?.nextExactAction !== "run_validation_and_commit"
+      || lifecycle.report?.status !== "in_progress"
+      || lifecycle.recovery?.phaseAfter !== "checkpoint_validation_commit"
+      || lifecycle.mutationAuthority?.handoff?.reason !== "validation_retry_derivative_reopened"
+      || lifecycle.mutationAuthority.handoff.successorSessionId !== lifecycle.sessions.current
       || lifecycle.recovery?.operationId !== options.expectedRecoveryOperationId
       || lifecycle.recovery?.effectsAlreadyPresent?.commit !== true
       || ["push", "pr", "merge", "comment"].some((key) => lifecycle.recovery?.effectsAlreadyPresent?.[key] !== false)

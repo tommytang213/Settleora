@@ -75,8 +75,12 @@ test("historical initial candidate fail-closes on durable identity and effect co
     ["foreign remote", (f) => { run(f.repoRoot, ["remote", "set-url", "origin", "https://github.com/foreign/repo.git"]); }, "historical_candidate_git_environment_untrusted"],
     ["wrong charge", (f) => { f.options.expectedChargeId = "0".repeat(64); }, "historical_candidate_charge_mismatch"],
     ["wrong operation", (f) => { f.options.expectedRecoveryOperationId = "foreign"; }, "historical_candidate_lifecycle_mismatch"],
-    ["wrong lifecycle generation", (f) => { f.lifecycle.sessions.generation = 4; }, "historical_candidate_lifecycle_mismatch"],
-    ["active lifecycle", (f) => { f.lifecycle.mutationAuthority = { status: "active", ownerSessionId: "owner" }; }, "historical_candidate_lifecycle_mismatch"],
+    ["wrong lifecycle generation", (f) => { f.lifecycle.sessions.generation += 1; }, "historical_candidate_lifecycle_mismatch"],
+    ["terminal lifecycle", (f) => {
+      f.lifecycle.mutationAuthority = {
+        ...f.lifecycle.mutationAuthority, status: "terminal", ownerSessionId: null,
+      };
+    }, "historical_candidate_lifecycle_mismatch"],
     ["ambiguous lifecycle", (f) => { f.options.loadLifecycle = () => ({ ok: false }); }, "historical_candidate_lifecycle_untrusted"],
     ["missing commit intent", (f) => { f.intents.length = 0; }, "historical_candidate_commit_intent_ambiguous"],
     ["duplicate commit intent", (f) => { f.intents.push(structuredClone(f.intents[0])); }, "historical_candidate_commit_intent_ambiguous"],
@@ -136,13 +140,30 @@ test("historical initial candidate proof is restart-idempotent", () => {
   assert.equal(fixture.state.pr.number, null);
 });
 
+test("historical initial candidate uses the bounded production diff digest", () => {
+  const fixture = makeFixture(1, "x".repeat(600_000));
+  const result = verify(fixture);
+  assert.equal(result.ok, true, result.reasonCode);
+});
+
+test("historical initial candidate derives the active successor generation from recovery authority", () => {
+  for (const generation of [2, 9]) {
+    const fixture = makeFixture(1);
+    fixture.lifecycle.sessions.generation = generation;
+    fixture.lifecycle.mutationAuthority.generation = generation;
+    fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+    const result = verify(fixture);
+    assert.equal(result.ok, true, `${generation}: ${result.reasonCode}`);
+  }
+});
+
 function verify(fixture) {
   return verifyHistoricalInitialCandidateLineage(
     fixture.config, fixture.state, { number: issueNumber }, fixture.options,
   );
 }
 
-function makeFixture(advances) {
+function makeFixture(advances, candidateSuffix = "") {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-historical-candidate-"));
   const repoRoot = path.join(root, "repo");
   const logsRoot = path.join(root, "logs");
@@ -161,13 +182,15 @@ function makeFixture(advances) {
   const baseSha = run(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
   const baseTree = run(repoRoot, ["rev-parse", "HEAD^{tree}"]).stdout.trim();
   run(repoRoot, ["checkout", "-b", branch]);
-  changedFiles.forEach((file, index) => writeFileSync(path.join(repoRoot, file), `candidate-${index}\n`));
+  changedFiles.forEach((file, index) => writeFileSync(
+    path.join(repoRoot, file), `candidate-${index}\n${index === 0 ? candidateSuffix : ""}`,
+  ));
   run(repoRoot, ["add", ...changedFiles]);
   const subject = `Auto-runner issue #${issueNumber}: initial candidate before source classification`;
   run(repoRoot, ["commit", "-m", subject]);
   const headSha = run(repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
   const treeSha = run(repoRoot, ["rev-parse", "HEAD^{tree}"]).stdout.trim();
-  const diffDigest = hash(run(repoRoot, ["diff", "--binary", `${baseSha}...${headSha}`]).stdout);
+  const diffDigest = hash(run(repoRoot, ["diff", "--binary", `${baseSha}...${headSha}`]).stdout.slice(0, 512_000));
   const changedFilesDigest = hashJson(changedFiles);
   run(repoRoot, ["checkout", "main"]);
   for (let index = 0; index < advances; index += 1) {
@@ -203,16 +226,28 @@ function makeFixture(advances) {
   };
   const lifecycle = {
     logicalTask: { claimIdentity: `${repository}#${issueNumber}`, supervisorRunId, chargeMarkerRef: budgetPath },
-    branch: { name: branch, baseSha, headSha }, sessions: { generation: 5 },
-    mutationAuthority: { status: "terminal", ownerSessionId: null },
-    controller: { phase: "stopped" }, checkpoint: { status: "ready", digest: "a".repeat(64) },
+    branch: { name: branch, baseSha, headSha },
+    sessions: { generation: 6, current: "successor-session" },
+    mutationAuthority: {
+      generation: 6, status: "active", ownerSessionId: "successor-session",
+      handoff: {
+        reason: "validation_retry_derivative_reopened",
+        successorSessionId: "successor-session",
+      },
+    },
+    controller: {
+      phase: "checkpoint_validation_commit", nextExactAction: "run_validation_and_commit",
+    },
+    checkpoint: { status: "ready", digest: "a".repeat(64) },
     recovery: {
+      phaseAfter: "checkpoint_validation_commit",
       operationId, effectsAlreadyPresent: {
         commit: true, push: false, pr: false, merge: false, comment: false,
       },
     },
-    report: { path: reportPath, correlationKey: taskKey },
+    report: { path: reportPath, correlationKey: taskKey, status: "in_progress" },
   };
+  state.sessionLifecycle = structuredClone(lifecycle);
   const budget = {
     ok: true, statePath: budgetPath,
     state: {
