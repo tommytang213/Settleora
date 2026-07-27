@@ -2002,7 +2002,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
       }
       if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
-        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
+        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         }
@@ -2017,7 +2017,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
       }
       if (["push", "pr_create_recover", "ci_wait"].includes(boundary.phase) && state.ordinaryContinuation) {
-        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
+        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         }
@@ -2364,7 +2364,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             expectedRepository: config.repositorySlug,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
-            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: candidate.baseSha, currentMainSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
           },
         },
       };
@@ -2783,9 +2783,9 @@ function ordinaryStructuredFindings(review) {
   return ["gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
 }
 
-function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
-  const baseSha = state.branch?.baseSha || state.baseSha || null;
-  const headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
+function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision) {
+  let baseSha = state.branch?.baseSha || state.baseSha || null;
+  let headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
   if (!baseSha || !headSha) return { ok: false, reasonCode: "large_candidate_recovery_identity_missing" };
   fetchOriginMain(config);
   const reconstructedCurrentMainSha = getRefSha("origin/main");
@@ -2806,9 +2806,25 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
   if (candidateAlreadyInMain.status !== 1) {
     return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
   }
+  let provenIdentity = null;
+  if (baseSha !== reconstructedCurrentMainSha) {
+    const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
+      expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+      expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
+        || state.sessionLifecycle?.state?.recovery?.operationId
+        || null,
+    });
+    if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode };
+    if (filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
+      return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
+    }
+    provenIdentity = proof.candidateIdentity;
+    baseSha = provenIdentity.baseSha;
+    headSha = provenIdentity.headSha;
+  }
   const changedFiles = listChangedFiles(baseSha, headSha);
   const diff = getBoundedDiff(baseSha, headSha);
-  const candidateIdentity = {
+  const candidateIdentity = provenIdentity || {
     repository: config.repositorySlug || "tommytang213/Settleora",
     baseSha,
     headSha,
@@ -2959,6 +2975,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       issueNumber: issue.number,
       prNumber: recoveryConfig.prNumber,
       baseSha: config.outageRecoveryTarget?.baseSha || exactHeadEvidence.baseSha || null,
+      currentMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
       taskKey: config.outageRecoveryTarget?.taskKey || exactHeadEvidence.taskKey || null,
       runnerRunId: config.outageRecoveryTarget?.runnerRunId || exactHeadEvidence.runnerRunId || null,
       supervisorRunId: config.outageRecoveryTarget?.supervisorRunId || exactHeadEvidence.supervisorRunId || null,

@@ -707,11 +707,15 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
   const canonicalChangedFilesDigest = digestChangedFiles(canonicalChangedFiles);
+  const expectedCurrentMainSha = recoveryConfig.expectedOriginMainSha || target.baseSha;
   const requiredChecks = [
     evidence.repositorySlug === (config.repositorySlug || defaultConfig.repositorySlug),
     evidence.issueNumber === target.issueNumber,
     evidence.prNumber === target.prNumber,
     evidence.baseSha === target.baseSha,
+    evidence.currentMainSha == null
+      ? expectedCurrentMainSha === target.baseSha
+      : evidence.currentMainSha === expectedCurrentMainSha,
     evidence.taskKey === target.taskKey,
     evidence.runnerRunId === target.runnerRunId,
     evidence.supervisorRunId === target.supervisorRunId,

@@ -277,6 +277,33 @@ test("recovery-only exact-head evidence must be complete and bound before genera
     validateRecoveryOnlyExactHeadEvidence(config, { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence }, { expectedHeadSha: target.prHeadSha, changedFiles }),
     { ok: true },
   );
+  const advancedMainSha = "c".repeat(40);
+  assert.deepEqual(
+    validateRecoveryOnlyExactHeadEvidence(
+      config,
+      {
+        prNumber: 919,
+        expectedHeadSha: target.prHeadSha,
+        expectedOriginMainSha: advancedMainSha,
+        exactHeadEvidence: { ...exactHeadEvidence, currentMainSha: advancedMainSha },
+      },
+      { expectedHeadSha: target.prHeadSha, changedFiles },
+    ),
+    { ok: true },
+  );
+  for (const currentMainSha of [undefined, target.baseSha, "d".repeat(40)]) {
+    const result = validateRecoveryOnlyExactHeadEvidence(
+      config,
+      {
+        prNumber: 919,
+        expectedHeadSha: target.prHeadSha,
+        expectedOriginMainSha: advancedMainSha,
+        exactHeadEvidence: { ...exactHeadEvidence, currentMainSha },
+      },
+      { expectedHeadSha: target.prHeadSha, changedFiles },
+    );
+    assert.equal(result.ok, false, `advanced main evidence ${currentMainSha || "missing"}`);
+  }
   for (const [name, evidence] of [
     ["omitted", undefined],
     ["explicit null", null],
