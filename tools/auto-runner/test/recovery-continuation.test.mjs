@@ -243,7 +243,7 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
     };
     const resumed = consumeStartupInterruptionPlanner(config, withEvidence, {}, recoveryAdapters);
     assert.equal(resumed.ok, true, JSON.stringify(resumed));
-    assert.match(resumed.successorSessionId, /^run-959:recovery:[0-9a-f-]{36}$/);
+    assert.match(resumed.successorSessionId, /^recovery-handoff:[a-f0-9]{64}$/);
     assert.equal(resumed.mutationGeneration, 2);
     assert.equal(resumed.state.logicalTask.supervisorRunId, "supervised-959");
     const second = loadSessionLifecycleForRecovery(config, identity);

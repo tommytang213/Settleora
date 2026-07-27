@@ -8,7 +8,7 @@ import {
   recoveryHasMutationMarker,
   writeRecoveryState,
 } from "./recovery-state.mjs";
-import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, reopenKnownValidationRetryDerivative, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
+import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, recoverySuccessorSessionId, reopenKnownValidationRetryDerivative, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
 import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAuthorityMatches } from "./pre-effect-intent.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
@@ -419,7 +419,9 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
   if (planned.terminal) return { ...planned, state: lifecycleState, statePath: loaded.statePath };
   const pending = persistSessionLifecycleState(config, planned.state);
   if (!pending.ok) return pending;
-  const successorSessionId = `${planned.state.logicalTask.runId}:recovery:${planned.state.recovery.operationId}`;
+  const successor = recoverySuccessorSessionId(pending.state);
+  if (!successor.ok) return successor;
+  const successorSessionId = successor.sessionId;
   const completed = completeSessionRotation(pending.state, {
     requestId: pending.state.mutationAuthority.handoff?.requestId,
     newSessionId: successorSessionId,

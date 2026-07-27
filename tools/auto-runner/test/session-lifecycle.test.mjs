@@ -22,6 +22,7 @@ import {
   sessionLifecyclePath,
   planInterruptionRecovery,
   prepareFreshSessionInvocation,
+  recoverySuccessorSessionId,
   transitionSessionLifecyclePhase,
   validateSessionLifecycleState,
 } from "../lib/session-lifecycle.mjs";
@@ -418,6 +419,74 @@ test("repeated recovery planning is idempotent", () => {
   const second = planInterruptionRecovery(first.state, { commitPresent: true, recoveryOperationId: "recovery-2" }, { processExited: true, checkpointValid: true });
   assert.equal(second.duplicate, true);
   assert.equal(second.state.recovery.operationId, "recovery-1");
+});
+
+test("recovery successor identity is bound to the exact handoff and never reuses a retired operation identity", () => {
+  const oldSuccessor = "run-1:recovery:recovery-1";
+  let state = fixture({ sessionId: oldSuccessor });
+  state.recovery = {
+    operationId: "recovery-1",
+    status: "pending",
+    attempts: 1,
+    effectsAlreadyPresent: { mutation: false, commit: true, push: false, merge: false, comment: true },
+    phaseBefore: "implementation_or_bundle_slice",
+    phaseAfter: "push",
+  };
+  state.checkpoint.digest = null;
+  state = persistSessionLifecycleState(
+    { logsRoot: mkdtempSync(path.join(tmpdir(), "session-successor-")), repositorySlug: "owner/repo" },
+    state,
+  ).state;
+  const begun = beginSessionRotation(state, {
+    reason: "validation_retry_derivative_reopened",
+    requestId: "request-generation-2",
+  });
+  assert.equal(begun.ok, true);
+  assert.equal(begun.state.sessions.retired.includes(oldSuccessor), true);
+  assert.equal(
+    completeSessionRotation(begun.state, { requestId: begun.requestId, newSessionId: oldSuccessor }).reasonCode,
+    "session_lifecycle_handoff_identity_mismatch",
+  );
+  const derived = recoverySuccessorSessionId(begun.state);
+  assert.equal(derived.ok, true);
+  assert.match(derived.sessionId, /^recovery-handoff:[a-f0-9]{64}$/);
+  assert.notEqual(derived.sessionId, oldSuccessor);
+  const repeated = recoverySuccessorSessionId(begun.state);
+  assert.equal(repeated.sessionId, derived.sessionId);
+  const completed = completeSessionRotation(begun.state, {
+    requestId: begun.requestId,
+    newSessionId: derived.sessionId,
+  });
+  assert.equal(completed.ok, true);
+  assert.equal(completed.state.sessions.generation, 2);
+  assert.equal(recoverySuccessorSessionId(completed.state).sessionId, derived.sessionId);
+  assert.equal(
+    completeSessionRotation(completed.state, {
+      requestId: begun.requestId,
+      newSessionId: derived.sessionId,
+    }).duplicate,
+    true,
+  );
+});
+
+test("different recovery handoff requests produce different bounded successor identities", () => {
+  const firstState = planInterruptionRecovery(
+    fixture(),
+    { commitPresent: true, recoveryOperationId: "stable-operation" },
+    { processExited: true, checkpointValid: true },
+  ).state;
+  const secondState = planInterruptionRecovery(
+    fixture({ sessionId: "session-2" }),
+    { commitPresent: true, recoveryOperationId: "stable-operation" },
+    { processExited: true, checkpointValid: true },
+  ).state;
+  const first = recoverySuccessorSessionId(firstState);
+  const second = recoverySuccessorSessionId(secondState);
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.notEqual(first.sessionId, second.sessionId);
+  assert.ok(first.sessionId.length <= 160);
+  assert.ok(second.sessionId.length <= 160);
 });
 
 test("production-shaped fresh invocation rotates atomically with zero external mutations", () => {
