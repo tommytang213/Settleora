@@ -291,7 +291,7 @@ test("historical initial candidate resumes an exactly intended local source-fix 
   assert.equal(Object.keys(fixture.state.mutationMarkers.push || {}).length, 0);
 });
 
-test("historical descendant admits only authenticated existing-PR effects after a GitHub source fix", () => {
+test("historical descendant admits only authenticated existing-PR effects", () => {
   const fixture = makeFixture(2);
   advanceWithSourceFix(fixture);
   const continuation = fixture.state.ordinaryContinuation;
@@ -318,10 +318,17 @@ test("historical descendant admits only authenticated existing-PR effects after 
   fixture.options.allowAuthenticatedExistingPrEffects = true;
   assert.equal(verify(fixture).ok, true);
 
-  const unreserved = structuredClone(fixture.state.ordinaryContinuation);
   fixture.state.ordinaryContinuation.counters.githubTriggeredFixEpochsPerPr = 0;
+  fixture.state.ordinaryContinuation.processedGithubFindingFingerprints = [];
+  assert.equal(verify(fixture).ok, true);
+
+  fixture.state.ordinaryContinuation.counters.githubTriggeredFixEpochsPerPr = 0;
+  fixture.state.ordinaryContinuation.processedGithubFindingFingerprints = ["f".repeat(64)];
   assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
-  fixture.state.ordinaryContinuation = unreserved;
+  fixture.state.ordinaryContinuation.counters.githubTriggeredFixEpochsPerPr = 1;
+  fixture.state.ordinaryContinuation.processedGithubFindingFingerprints = [];
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+  fixture.state.ordinaryContinuation.processedGithubFindingFingerprints = ["f".repeat(64)];
   fixture.intents.push({
     ...structuredClone(fixture.intents.at(-1)),
     effectType: "comment",

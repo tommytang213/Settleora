@@ -397,10 +397,13 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && sha.test(pr.headSha || "") && priorHeads.has(pr.headSha)
     && state.branch?.expectedRemoteHeadSha === pr.headSha
     && Number.isSafeInteger(continuation?.counters?.githubTriggeredFixEpochsPerPr)
-    && continuation.counters.githubTriggeredFixEpochsPerPr >= 1
+    && continuation.counters.githubTriggeredFixEpochsPerPr >= 0
     && continuation.counters.githubTriggeredFixEpochsPerPr <= 50
-    && Array.isArray(fingerprints) && fingerprints.length > 0 && fingerprints.length <= 100
+    && Array.isArray(fingerprints) && fingerprints.length <= 100
     && fingerprints.every((value) => digest.test(value || ""))
+    && (continuation.counters.githubTriggeredFixEpochsPerPr === 0
+      ? fingerprints.length === 0
+      : fingerprints.length > 0)
     && markerEntries.length > 0
     && markerEntries.every((entry) => ["completed", "reconciled"].includes(entry?.status))
     && externalIntents.some((entry) => entry.effectType === "push")
