@@ -341,16 +341,24 @@ function validateIntents(
       return { ok: false, reasonCode: "target_intent_status_uncertain" };
     }
     if (externalEffectTypes.has(intent.effectType)) {
-      if (derivative) return { ok: false, reasonCode: "preserved_recovery_derivative_external_intent_present" };
       const identityProof = validateTargetIntentIdentity(intent, target, chargeMarkerRef);
       if (!identityProof.ok) return identityProof;
-      if (intent.status === "finalized") continue;
+      if (intent.status === "finalized") {
+        if (derivative && !finalizedDerivativeEffectIsConsistent(intent, target)) {
+          return { ok: false, reasonCode: "preserved_recovery_derivative_external_intent_inconsistent" };
+        }
+        continue;
+      }
       if (intent.effectType !== "comment") return { ok: false, reasonCode: "target_intent_status_uncertain" };
       const authoritative = intentEvidenceCollector(
         { ...config, repoRoot: repositoryRoot, repositorySlug: target.repository },
         intent,
       );
-      if (!authoritative?.ok) {
+      if (!authoritative?.ok || ![
+        "effect_absent_safe_to_execute",
+        "effect_present_exact_adoptable",
+        "effect_confirmed",
+      ].includes(authoritative.classification)) {
         return { ok: false, reasonCode: `prepared_comment_${authoritative?.classification || "unclassified"}` };
       }
       continue;
@@ -377,6 +385,21 @@ function validateIntents(
     gitEnvironment,
     resumedGitConfigRecords,
   );
+}
+
+function finalizedDerivativeEffectIsConsistent(intent, target) {
+  if (intent.effectType !== "hygiene_component"
+      || intent.effect?.issueNumber !== target.issueNumber
+      || !["add", "remove"].includes(intent.effect?.operation)
+      || intent.effect?.outcome !== "validation_failed") return false;
+  const addLabels = intent.effect.addLabels;
+  const removeLabels = intent.effect.removeLabels;
+  return Array.isArray(addLabels) && Array.isArray(removeLabels)
+    && addLabels.every((label) => typeof label === "string" && label.length > 0)
+    && removeLabels.every((label) => typeof label === "string" && label.length > 0)
+    && (intent.effect.operation === "add"
+      ? addLabels.length > 0 && removeLabels.length === 0
+      : removeLabels.length > 0 && addLabels.length === 0);
 }
 
 function unrelatedIntentCanMutateTarget(intent, target) {
