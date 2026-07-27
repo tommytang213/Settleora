@@ -127,7 +127,7 @@ test("post-merge cleanup uses the supported head filter and terminalizes its own
   assert.match(source, /issueLinkageEvidence,\s*sessionLifecycle,\s*recoveryState,/s);
   assert.match(source, /primaryHandoffIgnoredPids: authorizedSupervisorProcessIds\(state\)/);
   assert.match(source, /matchAuthorizedSupervisorProcess\(\{/);
-  assert.match(source, /expectedReportPaths: \{ durableReportPath: iteration\.report\.copyPath \}/);
+  assert.match(source, /expectedReportPaths: \{[\s\S]*durableReportPath: iteration\.report\.copyPath/);
 });
 
 test("only the controller-owning production runner path grants outage resubmission capability", () => {
@@ -285,6 +285,8 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /expectedOriginMainSha: continuation\.expectedOriginMainSha/);
   assert.match(source, /baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
   assert.match(source, /baseSha: exactHeadEvidence\.baseSha \|\| recoveryState\?\.branch\?\.baseSha \|\| null,[\s\S]*expectedOriginMainSha: recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/);
+  assert.match(source, /expectedReportPaths: \{[\s\S]*repoReportPath: promptInfo\.reportPath,[\s\S]*promptPath: promptInfo\.promptPath,[\s\S]*durableReportPath: iteration\.report\.copyPath/);
+  assert.match(source, /ordinaryContinuation\.sourceFailureBatch = iteration\.sourceFailureBatch \|\| null;[\s\S]*ordinaryContinuation\.sourceFailureHistory = \[\.\.\.\(iteration\.sourceFailureHistory \|\| \[\]\)\]/);
   assert.equal((source.match(/baseSha: exactHeadEvidence\.currentMainSha \|\| recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/g) || []).length, 2);
   assert.match(source, /prospectiveMergeValidationRequired: true/);
   assert.match(source, /"merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha/);

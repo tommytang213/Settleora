@@ -1047,7 +1047,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
   if (!config.dryRun && iteration.report.copyPath) {
-    recoveryRecorder?.annotate({ expectedReportPaths: { durableReportPath: iteration.report.copyPath } });
+    recoveryRecorder?.annotate({ expectedReportPaths: {
+      repoReportPath: promptInfo.reportPath,
+      promptPath: promptInfo.promptPath,
+      durableReportPath: iteration.report.copyPath,
+    } });
   }
 
   iteration.preReviewPrOwnership = inspectPreReviewPrOwnership(config, branchName);
@@ -1131,6 +1135,8 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       changedFiles,
     };
     const ordinaryContinuation = createOrdinaryContinuationState({ logicalTaskKey: config.taskKey || `issue-${issue.number}`, executionKey: runId, issueNumber: issue.number, branchName, identity, counters: ordinaryCountersFromReviewConvergence(iteration.reviewConvergenceState) });
+    ordinaryContinuation.sourceFailureBatch = iteration.sourceFailureBatch || null;
+    ordinaryContinuation.sourceFailureHistory = [...(iteration.sourceFailureHistory || [])];
     const registered = await continueOrdinaryCandidate(ordinaryContinuation, {
       candidate_reconciliation: async () => ({ ok: true, evidence: identity }),
       local_validation: async () => ({ ok: true, evidence: { changedFilesDigest: iteration.validation.changedFilesDigest } }),
