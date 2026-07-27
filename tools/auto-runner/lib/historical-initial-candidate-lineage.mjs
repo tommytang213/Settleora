@@ -4,6 +4,7 @@ import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import {
+  ordinaryContinuationLegacyPhaseTarget,
   ordinaryContinuationPhaseTarget,
   ordinaryContinuationPhases,
 } from "./ordinary-candidate-continuation.mjs";
@@ -273,10 +274,15 @@ function validCompletedLocalEffects(continuation) {
   const effects = continuation?.effects;
   if (!effects || typeof effects !== "object" || Array.isArray(effects)) return false;
   const current = ordinaryContinuationPhases.indexOf(continuation.phase);
+  const legacyTargetsAllowed = !Object.hasOwn(continuation, "expectedOriginMainSha");
   for (const [phase, effect] of Object.entries(effects)) {
     const index = ordinaryContinuationPhases.indexOf(phase);
+    const targetMatches = digest.test(effect?.targetDigest || "")
+      && (effect.targetDigest === ordinaryContinuationPhaseTarget(continuation, phase)
+      || (legacyTargetsAllowed
+        && effect.targetDigest === ordinaryContinuationLegacyPhaseTarget(continuation, phase)));
     if (index < 0 || index >= current || index >= firstExternalPhase
-      || effect?.targetDigest !== ordinaryContinuationPhaseTarget(continuation, phase)
+      || !targetMatches
       || typeof effect?.completedAt !== "string" || !Number.isFinite(Date.parse(effect.completedAt))) {
       return false;
     }

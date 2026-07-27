@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { verifyHistoricalInitialCandidateLineage } from "../lib/historical-initial-candidate-lineage.mjs";
 import {
+  ordinaryContinuationLegacyPhaseTarget,
   ordinaryContinuationPhaseTarget,
   ordinaryContinuationPhases,
 } from "../lib/ordinary-candidate-continuation.mjs";
@@ -190,6 +191,18 @@ test("historical initial candidate accepts exact durable pre-external restart ch
     completedAt: "2026-07-27T00:00:00.000Z",
   };
   assert.equal(verify(malformed).reasonCode, "historical_candidate_local_effect_mismatch");
+
+  const legacy = makeFixture(2);
+  legacy.state.ordinaryContinuation.phase = "external_review";
+  legacy.state.ordinaryContinuation.effects.local_validation = {
+    targetDigest: ordinaryContinuationLegacyPhaseTarget(
+      legacy.state.ordinaryContinuation, "local_validation",
+    ),
+    completedAt: "2026-07-27T00:00:00.000Z",
+  };
+  assert.equal(verify(legacy).ok, true);
+  legacy.state.ordinaryContinuation.expectedOriginMainSha = legacy.mainSha;
+  assert.equal(verify(legacy).reasonCode, "historical_candidate_local_effect_mismatch");
 });
 
 function verify(fixture) {
@@ -253,7 +266,7 @@ function makeFixture(advances, candidateSuffix = "") {
       branch_ownership_created: { [`${branch}:${baseSha}`]: { status: "completed" } },
     },
     ordinaryContinuation: {
-      logicalTaskKey: `issue-${issueNumber}`, executionKey: runId, issueNumber,
+      version: 1, logicalTaskKey: `issue-${issueNumber}`, executionKey: runId, issueNumber,
       branchName: branch, identity: structuredClone(candidate), phase: "local_validation",
       counters: { acceptedLogicalTasks: 1 }, effects: {},
       sourceFailureBatch: { candidate: structuredClone(candidate) },

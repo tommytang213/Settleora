@@ -140,6 +140,19 @@ export function ordinaryContinuationPhaseTarget(value, phase) {
     : phaseTarget(normalized, phase);
 }
 
+export function ordinaryContinuationLegacyPhaseTarget(value, phase) {
+  const normalized = normalizeState(value);
+  return normalized.phase === "invalid" || !ordinaryContinuationPhases.includes(phase)
+    ? null
+    : identityDigest({
+      phase,
+      logicalTaskKey: normalized.logicalTaskKey,
+      issueNumber: normalized.issueNumber,
+      branchName: normalized.branchName,
+      identity: normalized.identity,
+    });
+}
+
 function normalizeState(value = {}) {
   if (value.version !== 1 || !value.logicalTaskKey || !value.issueNumber || !value.branchName || !validIdentity(value.identity)) {
     return { ...value, phase: "invalid", effects: {}, counters: {} };

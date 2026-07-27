@@ -121,7 +121,12 @@ import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
-import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches } from "./lib/ordinary-candidate-continuation.mjs";
+import {
+  continueOrdinaryCandidate,
+  createOrdinaryContinuationState,
+  ordinaryCandidateIdentityMatches,
+  ordinaryContinuationPhaseTarget,
+} from "./lib/ordinary-candidate-continuation.mjs";
 import { continuePostMergeCleanup, createPostMergeCleanupGitAdapter, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup } from "./lib/post-merge-cleanup.mjs";
 import { canonicalGithubEvidenceDigest } from "./lib/github-effect-consumer.mjs";
 import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
@@ -2115,7 +2120,14 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         state,
       };
     }
-    initial = { ...initial, expectedOriginMainSha: checkpoint.reconstructedCurrentMainSha };
+    const upgraded = { ...initial, expectedOriginMainSha: checkpoint.reconstructedCurrentMainSha };
+    initial = {
+      ...upgraded,
+      effects: Object.fromEntries(Object.entries(upgraded.effects || {}).map(([phase, effect]) => [
+        phase,
+        { ...effect, targetDigest: ordinaryContinuationPhaseTarget(upgraded, phase) },
+      ])),
+    };
   }
   fetchOriginMain(config);
   const liveHeadAtRecovery = getRefSha("HEAD");

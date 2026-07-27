@@ -1697,3 +1697,7 @@ Gemini and Codex reviews remain bound to the exact candidate head. A restart
 after validation or either local review may resume only when every completed
 pre-external phase has its exact continuation target and timestamp; any unknown,
 out-of-order, push, PR, comment, or merge effect remains a hard failure.
+Version-1 checkpoints written before current-main authority was persisted may
+use the legacy phase-target format only while that field is absent; after the
+historical proof, the runner rewrites all validated local targets once to the
+new current-main-bound format.
