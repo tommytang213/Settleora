@@ -1103,6 +1103,11 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     const completedLifecyclePath = sessionLifecyclePath(config, derivativeLifecycle);
     const completedLifecycleBytes = readFileSync(completedLifecyclePath);
     for (const mutate of [
+      (value) => { value.interruption = null; },
+      (value) => {
+        value.interruption.class = "provider_stream_disconnect";
+        value.interruption.reasonCode = "interruption_provider_stream_disconnect";
+      },
       (value) => { value.mutationAuthority.ownerSessionId = "foreign-owner"; },
       (value) => { value.mutationAuthority.handoff.requestId = "0".repeat(64); },
       (value) => { value.mutationAuthority.handoff.reason = "foreign-reason"; },

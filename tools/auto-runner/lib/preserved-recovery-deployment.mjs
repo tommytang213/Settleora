@@ -301,7 +301,9 @@ function validateLifecycle(config, state, target, chargeMarkerRef, derivative) {
 
 function exactValidationRetryDerivativeLifecycle(lifecycle) {
   const effects = lifecycle.recovery?.effectsAlreadyPresent;
-  const commonRecovery = lifecycle.recovery?.status === "pending"
+  const commonRecovery = lifecycle.interruption?.class === "main_process_exit_without_terminal_report"
+    && lifecycle.interruption?.reasonCode === "interruption_main_process_exit_without_terminal_report"
+    && lifecycle.recovery?.status === "pending"
     && Number.isSafeInteger(lifecycle.recovery?.attempts)
     && lifecycle.recovery.attempts > 0
     && typeof lifecycle.recovery?.operationId === "string"
