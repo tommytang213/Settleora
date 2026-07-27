@@ -925,6 +925,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
       changedFiles,
       changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
     };
     const failures = sourceFailuresFromValidation(iteration.validation, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: config.taskKey || promptInfo.timestampKey, branchName, identity: initialIdentity, profile: laneDecision.validationProfile, inContract: true });
     const batch = freezeSourceFailureBatch(failures, initialIdentity);
