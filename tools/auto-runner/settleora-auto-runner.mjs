@@ -2796,6 +2796,16 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
   if (!/^[a-f0-9]{40}$/.test(reconstructedCurrentMainSha) || mainLineage.status !== 0) {
     return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
   }
+  const candidateAlreadyInMain = spawnSync(
+    "git", ["merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha],
+    { cwd: config.repoRoot, encoding: "utf8" },
+  );
+  if (candidateAlreadyInMain.status === 0) {
+    return { ok: false, reasonCode: "historical_candidate_already_in_main" };
+  }
+  if (candidateAlreadyInMain.status !== 1) {
+    return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
+  }
   const changedFiles = listChangedFiles(baseSha, headSha);
   const diff = getBoundedDiff(baseSha, headSha);
   const candidateIdentity = {
