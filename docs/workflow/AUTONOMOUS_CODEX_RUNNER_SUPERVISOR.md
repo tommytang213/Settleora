@@ -529,7 +529,8 @@ postures: its terminal pre-adoption checkpoint, its ownerless pending
 `checkpoint_validation_commit`, and the completed active successor for that
 same request. Completion advances one generation. Restart adopts that same
 active successor, and deployment recomputes its request-bound identity from the
-original run, recovery operation, and handoff request. Retired, foreign,
+original run, recovery operation, and handoff request after first recomputing
+that request from the operation and retired session. Retired, foreign,
 operation-derived legacy, mismatched-generation, wrong-phase, wrong-report,
 wrong-effect, or otherwise adjacent active states fail closed.
 

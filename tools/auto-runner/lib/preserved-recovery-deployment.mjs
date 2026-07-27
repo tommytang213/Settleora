@@ -310,7 +310,7 @@ function exactValidationRetryDerivativeLifecycle(lifecycle) {
     && effects?.commit === true
     && effects?.push === false
     && effects?.merge === false
-    && effects?.comment === false
+    && [true, false].includes(effects?.comment)
     && (effects?.pr === undefined || effects.pr === false);
   if (!commonRecovery) return false;
 
@@ -320,7 +320,8 @@ function exactValidationRetryDerivativeLifecycle(lifecycle) {
     && lifecycle.mutationAuthority?.status === "terminal"
     && lifecycle.mutationAuthority?.ownerSessionId === null
     && lifecycle.mutationAuthority?.handoff === null
-    && lifecycle.recovery?.phaseAfter === "push";
+    && lifecycle.recovery?.phaseAfter === "push"
+    && effects.comment === false;
   if (terminalDerivative) return true;
 
   const handoff = lifecycle.mutationAuthority?.handoff;
@@ -331,6 +332,9 @@ function exactValidationRetryDerivativeLifecycle(lifecycle) {
     && handoff?.reason === "validation_retry_derivative_reopened"
     && typeof handoff?.requestId === "string"
     && digestPattern.test(handoff.requestId)
+    && handoff.requestId === createHash("sha256")
+      .update(`${lifecycle.recovery.operationId}:${handoff.retiredSessionId}:validation-retry`)
+      .digest("hex")
     && typeof handoff?.checkpointDigest === "string"
     && digestPattern.test(handoff.checkpointDigest)
     && typeof handoff?.startedAt === "string"
