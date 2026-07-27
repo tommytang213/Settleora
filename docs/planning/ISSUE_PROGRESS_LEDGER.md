@@ -1,5 +1,38 @@
 # Issue Progress Ledger
 
+### Issues #991/#989/#959/#999 and PR #1001 — repository repair merged, operational gates retained (2026-07-27)
+
+- PR #1001 merged normally with expected-head protection from exact approved
+  source head `a3a1e397d8a33b1d0915017caee21f3db25d3682`, tree
+  `1fd5ed4ee90f61123733c364c0c6bb47aec361ba`, as merge commit
+  `63c2e79e12e75473d2816e6be9a10bed6bf251e2`. Its parents are prior `main`
+  `5fb766bc63e3c1bf0fe5812cee448a3de77e5299` and the exact source head; the
+  merge tree equals the approved source tree, and the source branch is
+  retained unchanged.
+- The merged repair admits derivative target intent history only after exact
+  identity validation and bounded authoritative reconciliation. Exact
+  finalized validation-failure label hygiene is completed evidence only and
+  grants no mutation authority. Prepared validation-failure comments must bind
+  the exact issue, outcome, and body digest and are safely adopted only after
+  authoritative presence; uncertain, ambiguous, foreign, contradictory, or
+  otherwise inconsistent external effects continue to fail closed.
+- Exact-head validation passed focused tests `173/173`, the complete
+  auto-runner suite `1215/1215`, `npm ci`, doctor, syntax, docs, scaffold, and
+  diff checks. Gemini strong-independent and local Codex reviews passed with
+  zero findings; GitHub Codex found no major issues. CodeQL for all configured
+  languages and aggregate, Semgrep CE/OSS, Trivy repository/status, and both
+  Scaffold Validation runs succeeded. All four earlier review threads were
+  resolved; unresolved-thread count was zero.
+- Repository scope is complete, but #991 remains open pending a separately
+  authorized corrected runtime deployment/readback and one separately
+  authorized trusted adoption of the preserved #959 chain. #989 remains open
+  for its live deployment/restart close criteria. #959 remains open until its
+  preserved OCR chain completes and merges. #999 remains open as separate
+  review-adjudication hardening work.
+- This repository merge and ledger hygiene performed no runtime deployment or
+  rollback, service control or restart, runner or supervisor start,
+  runtime-copy mutation, or #959 mutation/resume.
+
 ### Current checkpoint — #912 production activation (2026-07-24)
 
 - #912 live activation is accepted: external runtime/profiles, project user
