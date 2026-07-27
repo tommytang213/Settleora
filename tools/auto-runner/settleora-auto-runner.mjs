@@ -2787,6 +2787,15 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
   const baseSha = state.branch?.baseSha || state.baseSha || null;
   const headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
   if (!baseSha || !headSha) return { ok: false, reasonCode: "large_candidate_recovery_identity_missing" };
+  fetchOriginMain(config);
+  const reconstructedCurrentMainSha = getRefSha("origin/main");
+  const mainLineage = spawnSync(
+    "git", ["merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha],
+    { cwd: config.repoRoot, encoding: "utf8" },
+  );
+  if (!/^[a-f0-9]{40}$/.test(reconstructedCurrentMainSha) || mainLineage.status !== 0) {
+    return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
+  }
   const changedFiles = listChangedFiles(baseSha, headSha);
   const diff = getBoundedDiff(baseSha, headSha);
   const candidateIdentity = {
@@ -2799,9 +2808,9 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
   };
   const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });
   const loaded = loadLargeCandidateRoutingState(config, seed);
-  if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true };
+  if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true, reconstructedCurrentMainSha };
   if (!loaded.ok) return loaded;
-  return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults };
+  return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults, reconstructedCurrentMainSha };
 }
 
 function recoveredReviewerManualVerdict(evidence) {

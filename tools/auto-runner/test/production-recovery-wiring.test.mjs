@@ -272,6 +272,9 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /boundary\.phase === "checkpoint_validation_commit"[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /verifyHistoricalInitialCandidateLineage/);
   assert.match(source, /reconstructedCurrentMainSha: proof\.currentMainSha/);
+  assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*fetchOriginMain\(config\)[\s\S]*const reconstructedCurrentMainSha = getRefSha\("origin\/main"\)[\s\S]*"merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha/);
+  assert.match(source, /large_candidate_routing_state_missing"[\s\S]*reconstructedCurrentMainSha/);
+  assert.match(source, /reviewerResults: loaded\.state\.reviewerResults, reconstructedCurrentMainSha/);
   assert.match(source, /const upgraded = \{ \.\.\.initial, expectedOriginMainSha: checkpoint\.reconstructedCurrentMainSha \}/);
   assert.match(source, /targetDigest: ordinaryContinuationPhaseTarget\(upgraded, phase\)/);
   assert.match(source, /const expectedCurrentMain = initial\.expectedOriginMainSha/);
