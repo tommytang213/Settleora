@@ -439,10 +439,17 @@ export function recoverySuccessorSessionId(state) {
   if (!state.recovery?.operationId || !handoff?.requestId) {
     return fail("session_lifecycle_recovery_handoff_identity_incomplete");
   }
+  const authorityIdentity = digest(JSON.stringify([
+    state.logicalTask.runId,
+    state.recovery.operationId,
+    handoff.requestId,
+  ]));
+  const requestBoundSuccessor = `recovery-handoff:${authorityIdentity}`;
   if (state.mutationAuthority.status === "active") {
     if (handoff.successorSessionId !== state.sessions.current
       || state.mutationAuthority.ownerSessionId !== state.sessions.current
-      || state.sessions.retired.includes(state.sessions.current)) {
+      || state.sessions.retired.includes(state.sessions.current)
+      || handoff.successorSessionId !== requestBoundSuccessor) {
       return fail("session_lifecycle_recovery_handoff_identity_mismatch");
     }
     return { ok: true, duplicate: true, sessionId: handoff.successorSessionId };
@@ -453,15 +460,10 @@ export function recoverySuccessorSessionId(state) {
     || state.mutationAuthority.generation !== state.sessions.generation) {
     return fail("session_lifecycle_recovery_handoff_identity_mismatch");
   }
-  const authorityIdentity = digest(JSON.stringify([
-    state.logicalTask.runId,
-    state.recovery.operationId,
-    handoff.requestId,
-  ]));
   return {
     ok: true,
     duplicate: false,
-    sessionId: `recovery-handoff:${authorityIdentity}`,
+    sessionId: requestBoundSuccessor,
   };
 }
 
