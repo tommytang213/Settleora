@@ -327,6 +327,28 @@ test("historical descendant admits only authenticated existing-PR effects", () =
   }
   fixture.options.allowAuthenticatedExistingPrEffects = true;
   assert.equal(verify(fixture).ok, true);
+  for (const [lifecyclePhase, continuationPhase] of [
+    ["push", "push"],
+    ["pr_create_recover", "pr_create_or_update"],
+    ["ci_wait", "github_convergence"],
+  ]) {
+    const continuation = fixture.state.ordinaryContinuation;
+    continuation.phase = continuationPhase;
+    continuation.effects = {};
+    const current = ordinaryContinuationPhases.indexOf(continuationPhase);
+    for (let index = ordinaryContinuationPhases.indexOf("local_validation"); index < current; index += 1) {
+      const phase = ordinaryContinuationPhases[index];
+      continuation.effects[phase] = {
+        targetDigest: ordinaryContinuationPhaseTarget(continuation, phase),
+        completedAt: "2026-07-27T00:00:00.000Z",
+      };
+    }
+    fixture.lifecycle.controller = { phase: lifecyclePhase, nextExactAction: lifecyclePhase };
+    fixture.lifecycle.recovery.phaseAfter = lifecyclePhase;
+    fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+    fixture.options.expectedLifecyclePhase = lifecyclePhase;
+    assert.equal(verify(fixture).ok, true, `${lifecyclePhase}/${continuationPhase}`);
+  }
 
   fixture.state.ordinaryContinuation.counters.githubTriggeredFixEpochsPerPr = 0;
   fixture.state.ordinaryContinuation.processedGithubFindingFingerprints = [];

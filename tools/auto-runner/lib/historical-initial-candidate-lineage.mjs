@@ -64,7 +64,6 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     if (continuation?.logicalTaskKey !== `issue-${issueNumber}`
       || continuation?.executionKey !== runId || continuation?.issueNumber !== issueNumber
       || continuation?.branchName !== branch
-      || !validPreExternalContinuation(continuation)
       || continuation?.counters?.acceptedLogicalTasks !== 1) return fail("historical_candidate_continuation_mismatch");
     if (!sameActiveAndInitialCandidate(identity, candidate, baseSha)) {
       return fail("historical_candidate_durable_identity_mismatch");
@@ -79,9 +78,6 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       || !canonicalCorrelatedPath(state.expectedReportPaths?.promptPath,
         path.join(config.logsRoot, "tasks"), `${taskKey}-issue-${issueNumber}-`)) {
       return fail("historical_candidate_report_prompt_mismatch");
-    }
-    if (!validCompletedLocalEffects(continuation)) {
-      return fail("historical_candidate_local_effect_mismatch");
     }
     const namespaceValidator = options.validateProjectNamespace
       || validatePreservedRecoveryProjectNamespace;
@@ -204,6 +200,12 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       );
     if (!noLaterEffects(state) && !authenticatedExistingPrEffects) {
       return fail("historical_candidate_later_effect_present");
+    }
+    if (!validContinuationPhase(
+      continuation, expectedLifecyclePhase, authenticatedExistingPrEffects,
+    )) return fail("historical_candidate_continuation_mismatch");
+    if (!validCompletedEffects(continuation, authenticatedExistingPrEffects)) {
+      return fail("historical_candidate_local_effect_mismatch");
     }
     const commitIntents = intents.filter((intent) => intent.effectType === "commit");
     const initialIntentMatches = commitIntents.filter((entry) =>
@@ -444,12 +446,18 @@ function continuationExternalEffectPresent(effects) {
       return index < 0 || index >= firstExternalPhase;
     });
 }
-function validPreExternalContinuation(continuation) {
+function validContinuationPhase(continuation, lifecyclePhase, authenticatedExistingPrEffects) {
   const index = ordinaryContinuationPhases.indexOf(continuation?.phase);
-  return index >= ordinaryContinuationPhases.indexOf("local_validation")
-    && index < firstExternalPhase;
+  if (index >= ordinaryContinuationPhases.indexOf("local_validation")
+    && index < firstExternalPhase) return true;
+  if (!authenticatedExistingPrEffects) return false;
+  return new Map([
+    ["push", "push"],
+    ["pr_create_recover", "pr_create_or_update"],
+    ["ci_wait", "github_convergence"],
+  ]).get(lifecyclePhase) === continuation.phase;
 }
-function validCompletedLocalEffects(continuation) {
+function validCompletedEffects(continuation, authenticatedExistingPrEffects) {
   const effects = continuation?.effects;
   if (!effects || typeof effects !== "object" || Array.isArray(effects)) return false;
   const current = ordinaryContinuationPhases.indexOf(continuation.phase);
@@ -460,7 +468,8 @@ function validCompletedLocalEffects(continuation) {
       && (effect.targetDigest === ordinaryContinuationPhaseTarget(continuation, phase)
       || (legacyTargetsAllowed
         && effect.targetDigest === ordinaryContinuationLegacyPhaseTarget(continuation, phase)));
-    if (index < 0 || index >= current || index >= firstExternalPhase
+    if (index < 0 || index >= current
+      || (index >= firstExternalPhase && !authenticatedExistingPrEffects)
       || !targetMatches
       || typeof effect?.completedAt !== "string" || !Number.isFinite(Date.parse(effect.completedAt))) {
       return false;
