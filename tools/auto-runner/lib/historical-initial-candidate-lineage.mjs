@@ -245,7 +245,7 @@ function trustedRepository(git, repository, repoRoot) {
     && remote.status === 0
     && [`https://github.com/${repository}.git`, `git@github.com:${repository}.git`].includes(remote.stdout.trim())
     && configs.status === 0
-    && !/(?:^|\0)(?:extensions\.|objects\.|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|url\.)/iu.test(configs.stdout);
+    && !/(?:^|\0)(?:extensions\.|objects\.|include(?:if)?\.|filter\.|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(configs.stdout);
 }
 function unsafeObjectMechanism(repoRoot, git) {
   const common = git(["rev-parse", "--git-common-dir"]).stdout.trim();

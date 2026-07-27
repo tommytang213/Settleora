@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -103,6 +103,27 @@ test("historical initial candidate fail-closes on durable identity and effect co
     const result = verify(fixture);
     assert.equal(result.ok, false, name);
     assert.equal(result.reasonCode, reason, name);
+  }
+});
+
+test("historical initial candidate rejects executable diff configuration before reading diffs", () => {
+  for (const [name, key] of [
+    ["external diff", "diff.external"],
+    ["diff driver command", "diff.unsafe.command"],
+    ["diff driver textconv", "diff.unsafe.textconv"],
+    ["filter command", "filter.unsafe.clean"],
+    ["conditional include", "includeIf.gitdir:/tmp/.path"],
+  ]) {
+    const fixture = makeFixture(0);
+    const marker = path.join(fixture.repoRoot, `executed-${name.replaceAll(" ", "-")}`);
+    const executable = path.join(fixture.repoRoot, `unsafe-${name.replaceAll(" ", "-")}.sh`);
+    writeFileSync(executable, `#!/bin/sh\n: > '${marker}'\nexit 0\n`);
+    chmodSync(executable, 0o700);
+    run(fixture.repoRoot, ["config", "--local", key, executable]);
+    const result = verify(fixture);
+    assert.equal(result.ok, false, name);
+    assert.equal(result.reasonCode, "historical_candidate_git_environment_untrusted", name);
+    assert.equal(existsSync(marker), false, `${name} executed before the trust decision`);
   }
 });
 
