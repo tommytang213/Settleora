@@ -93,7 +93,8 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);
   assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
-  assert.match(source, /sourceFailuresFromProspectiveValidation\(recovered\.validation/);
+  assert.match(source, /const prospectiveValidation = recovered\?\.generatedRecoveryEvidence\?\.validation/);
+  assert.match(source, /sourceFailuresFromProspectiveValidation\(prospectiveValidation/);
   assert.match(source, /prospective_validation_source_checkout_not_restored/);
   assert.match(source, /getRefSha\("origin\/main"\) !== continuation\.expectedOriginMainSha/);
 });

@@ -2376,7 +2376,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         return { ok: true, evidence: compactOrdinaryMergeEvidence(recovered.autoMerge, prNumber) };
       }
       if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
-      if (recovered?.validation?.passed === false && recovered.validation.prospectiveMerge) {
+      const prospectiveValidation = recovered?.generatedRecoveryEvidence?.validation;
+      if (prospectiveValidation?.passed === false && prospectiveValidation.prospectiveMerge) {
         fetchOriginMain(config);
         if (getCurrentBranch() !== continuation.branchName
           || getRefSha("HEAD") !== candidate.headSha
@@ -2385,7 +2386,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           || getStatusShort() !== "") {
           return { ok: false, reasonCode: "prospective_validation_source_checkout_not_restored" };
         }
-        const sourceFailures = sourceFailuresFromProspectiveValidation(recovered.validation, {
+        const sourceFailures = sourceFailuresFromProspectiveValidation(prospectiveValidation, {
           repository: config.repositorySlug,
           issueNumber: issue.number,
           taskKey: continuation.logicalTaskKey,
