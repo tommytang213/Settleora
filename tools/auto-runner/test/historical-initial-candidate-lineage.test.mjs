@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { verifyHistoricalInitialCandidateLineage } from "../lib/historical-initial-candidate-lineage.mjs";
+import { validatePreservedRecoveryCommitLineage } from "../lib/preserved-recovery-deployment.mjs";
 import {
   ordinaryContinuationLegacyPhaseTarget,
   ordinaryContinuationPhaseTarget,
@@ -256,7 +257,13 @@ test("historical initial candidate accepts only bounded downstream lifecycle pos
 test("historical initial candidate resumes an exactly intended local source-fix descendant", () => {
   const fixture = makeFixture(2);
   advanceWithSourceFix(fixture);
-  delete fixture.options.validateCommitLineage;
+  fixture.options.validateCommitLineage = (repoRoot, identity, intents, paths) =>
+    validatePreservedRecoveryCommitLineage(repoRoot, identity, intents, paths, {
+      HOME: process.env.HOME,
+      PATH: "/usr/bin:/bin",
+      LANG: "C",
+      LC_ALL: "C",
+    }, { global: [], system: [] });
   const result = verify(fixture);
   assert.equal(result.ok, true, result.reasonCode);
   assert.equal(result.candidateIdentity.headSha, fixture.advancedHeadSha);
