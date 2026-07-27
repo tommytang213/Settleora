@@ -9251,8 +9251,11 @@ state.
 ## Auto-runner preserved-recovery validation retry — Issues #989, #991, and #959
 
 - GitHub state at merge readback: #989, #991, and #959 remain `OPEN`.
-- Repository repair PRs #998, #1003, and #1005 merged normally at their exact
-  reviewed source heads. The latest repair PR #1005 merged source head
+- Repository repair PRs #998, #1001, #1003, and #1005 merged normally at their
+  exact reviewed source heads. PR #1001 merged source head
+  `a3a1e397d8a33b1d0915017caee21f3db25d3682` as merge
+  `63c2e79e12e75473d2816e6be9a10bed6bf251e2`. The latest repair PR
+  #1005 merged source head
   `31fc0056d0ec953b839befbbbc22f9ba268532a5` as merge/current-main SHA
   `3716b9c0ecf30742b76ccf3d9bfa9c6415ea50a9`.
 - The merge parents are prior main
