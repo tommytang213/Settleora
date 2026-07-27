@@ -272,9 +272,9 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /boundary\.phase === "checkpoint_validation_commit"[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /verifyHistoricalInitialCandidateLineage/);
   assert.match(source, /reconstructedCurrentMainSha: proof\.currentMainSha/);
-  assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint\(config, state, issue, laneDecision\)[\s\S]*fetchOriginMain\(config\)[\s\S]*const reconstructedCurrentMainSha = getRefSha\("origin\/main"\)[\s\S]*"merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha/);
+  assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint\(config, state, issue, laneDecision, lifecyclePhase\)[\s\S]*fetchOriginMain\(config\)[\s\S]*const reconstructedCurrentMainSha = getRefSha\("origin\/main"\)[\s\S]*"merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha/);
   assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*"merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha[\s\S]*candidateAlreadyInMain\.status === 0[\s\S]*historical_candidate_already_in_main[\s\S]*candidateAlreadyInMain\.status !== 1[\s\S]*large_candidate_recovery_current_main_untrusted/);
-  assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*baseSha !== reconstructedCurrentMainSha[\s\S]*verifyHistoricalInitialCandidateLineage\(config, state, issue[\s\S]*filterForbiddenChangedFiles\(proof\.candidateIdentity\.changedFiles, laneDecision\)[\s\S]*provenIdentity = proof\.candidateIdentity/);
+  assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*baseSha !== reconstructedCurrentMainSha[\s\S]*verifyHistoricalInitialCandidateLineage\(config, state, issue, \{[\s\S]*expectedLifecyclePhase: lifecyclePhase[\s\S]*filterForbiddenChangedFiles\(proof\.candidateIdentity\.changedFiles, laneDecision\)[\s\S]*provenIdentity = proof\.candidateIdentity/);
   assert.match(source, /exactHeadEvidence: \{[\s\S]*baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
   assert.match(source, /large_candidate_routing_state_missing"[\s\S]*reconstructedCurrentMainSha/);
   assert.match(source, /reviewerResults: loaded\.state\.reviewerResults, reconstructedCurrentMainSha/);
@@ -283,6 +283,7 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /const expectedCurrentMain = initial\.expectedOriginMainSha/);
   assert.match(source, /expectedOriginMainSha: continuation\.expectedOriginMainSha/);
   assert.match(source, /baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
+  assert.equal((source.match(/baseSha: exactHeadEvidence\.currentMainSha \|\| recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/g) || []).length, 2);
   assert.match(source, /prospectiveMergeValidationRequired: true/);
   assert.match(source, /"merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha/);
   assert.match(source, /if \(pr\.headRefOid !== expectedHeadSha\)[\s\S]*recovery_evidence_generation_pr_head_mismatch[\s\S]*"fetch", "origin", pr\.headRefName[\s\S]*getRefSha\("FETCH_HEAD"\) !== expectedHeadSha[\s\S]*recovery_evidence_generation_fetched_head_mismatch[\s\S]*"merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha/);
@@ -325,7 +326,7 @@ test("large review recovery re-requires binding and reviewer prompts carry bound
   assert.match(runner, /repository: config\.repositorySlug \|\| "tommytang213\/Settleora"/);
   assert.match(runner, /refreshNormalLargeCandidateReviewAfterFix\(config, iteration, postFix\.changedFiles/);
   assert.match(bundle, /changedFiles\.filter\(\(changedPath\).*featureBundleAllowedPathMatches/);
-  assert.match(runner, /loadNormalLargeCandidateRecoveryCheckpoint\(config, state, issue, laneDecision\)/);
+  assert.match(runner, /loadNormalLargeCandidateRecoveryCheckpoint\(config, state, issue, laneDecision, boundary\.phase\)/);
   assert.match(runner, /continueOrdinaryCandidateRecovery\(config, logger/);
   assert.match(runner, /continueOrdinaryCandidate\(initial/);
   assert.match(bundle, /materializeFeatureBundleSplit/);

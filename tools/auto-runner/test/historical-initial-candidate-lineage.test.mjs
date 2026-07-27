@@ -235,6 +235,24 @@ test("historical initial candidate accepts exact durable pre-external restart ch
   assert.equal(verify(legacy).reasonCode, "historical_candidate_local_effect_mismatch");
 });
 
+test("historical initial candidate accepts only bounded downstream lifecycle postures", () => {
+  for (const phase of ["external_review", "codex_mechanics_security_review", "review_fix", "push", "pr_create_recover", "ci_wait"]) {
+    const fixture = makeFixture(2);
+    fixture.lifecycle.controller = { phase, nextExactAction: `resume_${phase}` };
+    fixture.lifecycle.recovery.phaseAfter = phase;
+    fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+    fixture.options.expectedLifecyclePhase = phase;
+    const result = verify(fixture);
+    assert.equal(result.ok, true, `${phase}: ${result.reasonCode}`);
+  }
+  const unsupported = makeFixture(2);
+  unsupported.lifecycle.controller = { phase: "merge", nextExactAction: "merge" };
+  unsupported.lifecycle.recovery.phaseAfter = "merge";
+  unsupported.state.sessionLifecycle = structuredClone(unsupported.lifecycle);
+  unsupported.options.expectedLifecyclePhase = "merge";
+  assert.equal(verify(unsupported).reasonCode, "historical_candidate_lifecycle_mismatch");
+});
+
 test("historical initial candidate resumes an exactly intended local source-fix descendant", () => {
   const fixture = makeFixture(2);
   advanceWithSourceFix(fixture);

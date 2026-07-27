@@ -2002,7 +2002,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
       }
       if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
-        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision);
+        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, boundary.phase);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         }
@@ -2017,7 +2017,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
       }
       if (["push", "pr_create_recover", "ci_wait"].includes(boundary.phase) && state.ordinaryContinuation) {
-        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision);
+        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, boundary.phase);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         }
@@ -2783,7 +2783,7 @@ function ordinaryStructuredFindings(review) {
   return ["gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
 }
 
-function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision) {
+function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, lifecyclePhase) {
   let baseSha = state.branch?.baseSha || state.baseSha || null;
   let headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
   if (!baseSha || !headSha) return { ok: false, reasonCode: "large_candidate_recovery_identity_missing" };
@@ -2809,6 +2809,7 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
   let provenIdentity = null;
   if (baseSha !== reconstructedCurrentMainSha) {
     const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
+      expectedLifecyclePhase: lifecyclePhase,
       expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
       expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
         || state.sessionLifecycle?.state?.recovery?.operationId
@@ -3045,7 +3046,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
           verdict: "pass",
           reason: "recovered_exact_head_gemini_evidence",
           reviewedHead: exactHeadEvidence.geminiHeadSha || exactHeadEvidence.headSha || null,
-          baseSha: exactHeadEvidence.baseSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+          baseSha: exactHeadEvidence.currentMainSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
           changedFiles: exactHeadEvidence.geminiChangedFiles || changedFiles,
           changedFilesDigest: exactHeadEvidence.geminiChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
           provider: exactHeadEvidence.geminiProvider || "gemini",
@@ -3061,7 +3062,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
         ? {
             verdict: { verdict: "approve" },
             reviewedHead: exactHeadEvidence.codexMechanicsHeadSha || exactHeadEvidence.headSha || null,
-            baseSha: exactHeadEvidence.baseSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+            baseSha: exactHeadEvidence.currentMainSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
             changedFiles: exactHeadEvidence.codexMechanicsChangedFiles,
             changedFilesDigest: exactHeadEvidence.codexMechanicsChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
             completedAt: exactHeadEvidence.codexMechanicsCompletedAt || exactHeadEvidence.completedAt || null,

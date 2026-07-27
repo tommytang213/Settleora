@@ -25,6 +25,15 @@ const externalEffects = new Set([
   "branch_retention_verify", "hygiene_component",
 ]);
 const firstExternalPhase = ordinaryContinuationPhases.indexOf("push");
+const recoverableLifecyclePhases = new Set([
+  "checkpoint_validation_commit",
+  "external_review",
+  "codex_mechanics_security_review",
+  "review_fix",
+  "push",
+  "pr_create_recover",
+  "ci_wait",
+]);
 
 export function verifyHistoricalInitialCandidateLineage(config, state, issue, options = {}) {
   const fail = (reasonCode) => ({ ok: false, reasonCode });
@@ -137,6 +146,11 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     if (!loadedLifecycle?.ok) return fail("historical_candidate_lifecycle_untrusted");
     const lifecycle = loadedLifecycle.state;
     const expectedLifecycle = state.sessionLifecycle;
+    const expectedLifecyclePhase = options.expectedLifecyclePhase || "checkpoint_validation_commit";
+    const initialLifecyclePosture = expectedLifecyclePhase === "checkpoint_validation_commit";
+    if (!recoverableLifecyclePhases.has(expectedLifecyclePhase)) {
+      return fail("historical_candidate_lifecycle_mismatch");
+    }
     if (lifecycle.logicalTask?.claimIdentity !== `${repository}#${issueNumber}`
       || lifecycle.logicalTask?.supervisorRunId !== supervisorRunId
       || lifecycle.branch?.name !== branch || lifecycle.branch?.baseSha !== baseSha
@@ -149,10 +163,14 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       || lifecycle.mutationAuthority?.status !== "active"
       || lifecycle.mutationAuthority?.ownerSessionId !== lifecycle.sessions.current
       || lifecycle.mutationAuthority.ownerSessionId !== expectedLifecycle?.mutationAuthority?.ownerSessionId
-      || lifecycle.controller?.phase !== "checkpoint_validation_commit"
-      || lifecycle.controller?.nextExactAction !== "run_validation_and_commit"
+      || lifecycle.controller?.phase !== expectedLifecyclePhase
+      || (initialLifecyclePosture
+        ? lifecycle.controller?.nextExactAction !== "run_validation_and_commit"
+        : lifecycle.controller?.nextExactAction !== expectedLifecycle?.controller?.nextExactAction
+          || typeof lifecycle.controller?.nextExactAction !== "string"
+          || lifecycle.controller.nextExactAction.length === 0)
       || lifecycle.report?.status !== "in_progress"
-      || lifecycle.recovery?.phaseAfter !== "checkpoint_validation_commit"
+      || lifecycle.recovery?.phaseAfter !== expectedLifecyclePhase
       || lifecycle.mutationAuthority?.handoff?.reason !== "validation_retry_derivative_reopened"
       || lifecycle.mutationAuthority.handoff.successorSessionId !== lifecycle.sessions.current
       || lifecycle.recovery?.operationId !== options.expectedRecoveryOperationId
