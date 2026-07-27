@@ -311,6 +311,13 @@ a pending check that later fails can enter this classifier. GitHub finding
 fingerprints remain prepared, not consumed, until a replacement commit is
 confirmed; crash recovery resumes the same reserved epoch and adopts the
 new-head effect before recertification.
+Existing-PR prospective synthetic-merge validation failures use the same
+canonical validation extractor after the checkout is restored to the exact
+clean authenticated source branch/head and current-main authority is
+reconfirmed. Exact merge-tree and synthetic-commit identity is required before
+classification. Source-fixable diagnostics reserve the normal GitHub fix epoch;
+transient, ambiguous, out-of-contract, or identity-drift evidence retains its
+ordinary bounded retry or fail-closed result.
 If a focused repair exposes another actionable validation defect, the new
 candidate is committed and re-enters the same bounded classifier instead of
 terminating after one round. Canonically named platform checks are translated

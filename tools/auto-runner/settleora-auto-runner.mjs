@@ -129,7 +129,7 @@ import {
 } from "./lib/ordinary-candidate-continuation.mjs";
 import { continuePostMergeCleanup, createPostMergeCleanupGitAdapter, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup } from "./lib/post-merge-cleanup.mjs";
 import { canonicalGithubEvidenceDigest } from "./lib/github-effect-consumer.mjs";
-import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
+import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromProspectiveValidation, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
 import { completeMergedIssueHygiene, completionHygieneReady } from "./lib/completion-hygiene.mjs";
 
 export async function main() {
@@ -2376,6 +2376,30 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         return { ok: true, evidence: compactOrdinaryMergeEvidence(recovered.autoMerge, prNumber) };
       }
       if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
+      if (recovered?.validation?.passed === false && recovered.validation.prospectiveMerge) {
+        fetchOriginMain(config);
+        if (getCurrentBranch() !== continuation.branchName
+          || getRefSha("HEAD") !== candidate.headSha
+          || getRefSha(`${candidate.headSha}^{tree}`) !== candidate.treeSha
+          || getRefSha("origin/main") !== continuation.expectedOriginMainSha
+          || getStatusShort() !== "") {
+          return { ok: false, reasonCode: "prospective_validation_source_checkout_not_restored" };
+        }
+        const sourceFailures = sourceFailuresFromProspectiveValidation(recovered.validation, {
+          repository: config.repositorySlug,
+          issueNumber: issue.number,
+          taskKey: continuation.logicalTaskKey,
+          branchName: continuation.branchName,
+          prNumber,
+          identity: candidate,
+          expectedOriginMainSha: continuation.expectedOriginMainSha,
+          profile: laneDecision.validationProfile,
+          inContract: true,
+        });
+        return sourceFailures.length > 0
+          ? { ok: true, sourceFailures }
+          : { ok: false, reasonCode: "prospective_validation_failure_extraction_empty" };
+      }
       const finalGithubState = recovered?.githubState || recovered?.autoMerge?.finalGithubState || null;
       const inspectedHead = finalGithubState?.inspectedHeadSha || finalGithubState?.pr?.headRefOid || null;
       if (!finalGithubState || !inspectedHead || inspectedHead !== candidate.headSha) return { ok: false, reasonCode: "ordinary_continuation_final_github_inspection_missing_or_stale" };

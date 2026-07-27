@@ -68,6 +68,15 @@ wait carries its final bounded exact-head checks, scanner alerts, threads, and
 merge state back to the classifier. Reserved GitHub batches remain resumable
 until a source commit is confirmed, and fingerprints are consumed only with
 the persisted old-head to new-head commit effect.
+When existing-PR evidence regeneration fails on the prospective synthetic
+merge, the runner first restores and verifies the exact clean source
+branch/head/tree and unchanged current-main authority. It then requires the
+recorded merge-tree and synthetic-commit identities and feeds the failed
+trusted command through the same validation-failure extractor. No parallel
+repair engine is created: source-fixable diagnostics reserve the ordinary
+GitHub convergence epoch, while transient, ambiguous, forbidden-scope, and
+identity-drift results retain their existing bounded retry or fail-closed
+posture.
 Post-fix validation failures recursively re-enter this authority. Exact-name
 external platform checks are bound from the inspected PR head, while every
 scanner alert path is checked against both task and lane scope; absent or
