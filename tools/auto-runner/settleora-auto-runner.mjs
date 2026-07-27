@@ -3194,12 +3194,28 @@ async function generateExistingPrRecoveryEvidence(config, {
   }
   try {
     assertRepositoryRemoteIdentity(config);
+    if (pr.headRefOid !== expectedHeadSha) {
+      return {
+        reason: "recovery_evidence_generation_pr_head_mismatch",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_pr_head_mismatch" },
+        review: null,
+      };
+    }
     const fetch = spawnLike("git", ["fetch", "origin", pr.headRefName], config.repoRoot);
     if (fetch.status !== 0 || fetch.error) {
       return {
         reason: "recovery_evidence_generation_fetch_failed",
         validation: { passed: false, results: [] },
         externalReview: { status: "blocked", reason: "recovery_evidence_generation_fetch_failed" },
+        review: null,
+      };
+    }
+    if (getRefSha("FETCH_HEAD") !== expectedHeadSha) {
+      return {
+        reason: "recovery_evidence_generation_fetched_head_mismatch",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_fetched_head_mismatch" },
         review: null,
       };
     }
