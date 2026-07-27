@@ -37,21 +37,31 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const supervisorRunId = state?.run?.supervisorRunId;
     const branch = state?.branch?.name;
     const baseSha = state?.branch?.baseSha;
-    const headSha = state?.branch?.currentHeadSha;
     const continuation = state?.ordinaryContinuation;
     const identity = continuation?.identity;
-    const candidate = continuation?.sourceFailureBatch?.candidate;
+    const headSha = identity?.headSha;
+    const candidates = [
+      ...(continuation?.sourceFailureHistory || []).map((entry) => entry?.candidate),
+      continuation?.sourceFailureBatch?.candidate,
+    ].filter(Boolean);
+    const candidate = candidates[0];
     if (!repository || !Number.isSafeInteger(issueNumber) || state?.issue?.number !== issueNumber
       || !taskKey || !runId || !supervisorRunId || !branch || !sha.test(baseSha || "")
-      || !sha.test(headSha || "") || baseSha === headSha) return fail("historical_candidate_authority_identity_mismatch");
+      || !sha.test(headSha || "") || baseSha === headSha || !candidate
+      || ![candidate?.headSha, headSha].includes(state?.branch?.currentHeadSha)) {
+      return fail("historical_candidate_authority_identity_mismatch");
+    }
     if (continuation?.logicalTaskKey !== `issue-${issueNumber}`
       || continuation?.executionKey !== runId || continuation?.issueNumber !== issueNumber
       || continuation?.branchName !== branch
       || !validPreExternalContinuation(continuation)
       || continuation?.counters?.acceptedLogicalTasks !== 1) return fail("historical_candidate_continuation_mismatch");
-    if (!sameCandidate(identity, candidate, baseSha, headSha)) return fail("historical_candidate_durable_identity_mismatch");
+    if (!sameActiveAndInitialCandidate(identity, candidate, baseSha)) {
+      return fail("historical_candidate_durable_identity_mismatch");
+    }
     const expectedPaths = [...identity.changedFiles].sort();
-    if (!safeChangedPaths(expectedPaths) || hashJson(expectedPaths) !== identity.changedFilesDigest) {
+    if (!safeChangedPaths(expectedPaths) || !safeChangedPaths(candidate.changedFiles)
+      || hashJson(expectedPaths) !== identity.changedFilesDigest) {
       return fail("historical_candidate_changed_paths_mismatch");
     }
     if (!canonicalCorrelatedPath(state.expectedReportPaths?.repoReportPath,
@@ -76,31 +86,43 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       return fail("historical_candidate_history_shallow");
     }
     if (unsafeObjectMechanism(repoRoot, git)) return fail("historical_candidate_git_object_environment_untrusted");
-    if (!objectIs(git, baseSha, "commit") || !objectIs(git, headSha, "commit")) {
+    const initialHeadSha = candidate.headSha;
+    if (!objectIs(git, baseSha, "commit") || !objectIs(git, initialHeadSha, "commit")
+      || !objectIs(git, headSha, "commit")) {
       return fail("historical_candidate_object_unavailable");
+    }
+    if (!validRecordedCandidateHistory(git, candidates, baseSha, headSha)) {
+      return fail("historical_candidate_history_identity_mismatch");
     }
     const currentMain = git(["rev-parse", "--verify", "refs/remotes/origin/main"]).stdout.trim();
     if (!sha.test(currentMain) || !ancestor(git, baseSha, currentMain)) {
       return fail("historical_candidate_main_not_descendant");
     }
-    if (ancestor(git, headSha, currentMain)) return fail("historical_candidate_already_in_main");
-    const parents = git(["show", "-s", "--format=%P", headSha]).stdout.trim().split(/\s+/u).filter(Boolean);
+    if (ancestor(git, initialHeadSha, currentMain)) return fail("historical_candidate_already_in_main");
+    const parents = git(["show", "-s", "--format=%P", initialHeadSha]).stdout.trim().split(/\s+/u).filter(Boolean);
     if (parents.length !== 1 || parents[0] !== baseSha
-      || git(["rev-list", "--count", `${baseSha}..${headSha}`]).stdout.trim() !== "1") {
+      || git(["rev-list", "--count", `${baseSha}..${initialHeadSha}`]).stdout.trim() !== "1") {
       return fail("historical_candidate_topology_mismatch");
     }
     const subject = `Auto-runner issue #${issueNumber}: initial candidate before source classification`;
-    if (git(["show", "-s", "--format=%s", headSha]).stdout.trim() !== subject) {
+    if (git(["show", "-s", "--format=%s", initialHeadSha]).stdout.trim() !== subject) {
       return fail("historical_candidate_subject_mismatch");
     }
-    if (git(["rev-parse", `${headSha}^{tree}`]).stdout.trim() !== identity.treeSha) {
+    if (git(["rev-parse", `${initialHeadSha}^{tree}`]).stdout.trim() !== candidate.treeSha) {
       return fail("historical_candidate_tree_mismatch");
     }
+    const initialPaths = lines(git(["diff", "--name-only", baseSha, initialHeadSha]).stdout).sort();
+    const initialDiff = git(["diff", "--binary", `${baseSha}...${initialHeadSha}`]).stdout;
     const livePaths = lines(git(["diff", "--name-only", baseSha, headSha]).stdout).sort();
     const rawDiff = git(["diff", "--binary", `${baseSha}...${headSha}`]).stdout;
-    if (JSON.stringify(livePaths) !== JSON.stringify(expectedPaths)
+    if (JSON.stringify(initialPaths) !== JSON.stringify([...candidate.changedFiles].sort())
+      || hashJson(initialPaths) !== candidate.changedFilesDigest
+      || hash(initialDiff.slice(0, 512_000)) !== candidate.diffDigest
+      || JSON.stringify(livePaths) !== JSON.stringify(expectedPaths)
       || hashJson(livePaths) !== identity.changedFilesDigest
-      || hash(rawDiff.slice(0, 512_000)) !== identity.diffDigest) return fail("historical_candidate_diff_mismatch");
+      || hash(rawDiff.slice(0, 512_000)) !== identity.diffDigest) {
+      return fail("historical_candidate_diff_mismatch");
+    }
     if (git(["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim() !== branch
       || git(["rev-parse", "HEAD"]).stdout.trim() !== headSha
       || git(["status", "--porcelain=v1", "--untracked-files=all"]).stdout !== "") {
@@ -159,28 +181,36 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const intents = intentFinder(config, (intent) => intent.repository === repository
       && intent.sourceTaskKey === taskKey && intent.runId === runId);
     const commitIntents = intents.filter((intent) => intent.effectType === "commit");
-    if (commitIntents.length !== 1) return fail("historical_candidate_commit_intent_ambiguous");
-    const intent = commitIntents[0];
+    const initialIntentMatches = commitIntents.filter((entry) =>
+      entry.effect?.expectedParents?.[0] === baseSha && entry.effect?.treeSha === candidate.treeSha);
+    const intent = commitIntents.length === 1 ? commitIntents[0] : initialIntentMatches[0];
+    if (!intent || (commitIntents.length > 1 && initialIntentMatches.length !== 1)) {
+      return fail("historical_candidate_commit_intent_ambiguous");
+    }
     if (intent.status !== "finalized" || !intentIssueAuthorityMatches(intent, issueNumber)
       || intent.logicalTaskIdentity !== `${repository}#${issueNumber}`
       || intent.claimIdentity !== `${repository}#${issueNumber}`
       || intent.chargeIdentity !== budget.statePath
       || intent.identity?.branchName !== branch || intent.identity?.baseSha !== baseSha
       || intent.identity?.headSha !== baseSha || intent.effect?.expectedParents?.length !== 1
-      || intent.effect.expectedParents[0] !== baseSha || intent.effect?.treeSha !== identity.treeSha
-      || JSON.stringify(intent.effect?.stagedPaths) !== JSON.stringify(expectedPaths)
+      || intent.effect.expectedParents[0] !== baseSha || intent.effect?.treeSha !== candidate.treeSha
+      || JSON.stringify(intent.effect?.stagedPaths) !== JSON.stringify([...candidate.changedFiles].sort())
       || intent.effect?.messageDigest !== hash(subject)) {
       return fail("historical_candidate_commit_intent_mismatch");
     }
+    if (!validAdvancedCandidateLineage(git, {
+      active: identity, initial: candidate, branch, issueNumber, repository,
+      chargeIdentity: budget.statePath, commitIntents,
+    })) return fail("historical_candidate_advanced_lineage_mismatch");
     if (intents.some((entry) => externalEffects.has(entry.effectType))) {
       return fail("historical_candidate_external_intent_present");
     }
     const lineageValidator = options.validateCommitLineage
       || validatePreservedRecoveryCommitLineage;
     const lineage = lineageValidator(repoRoot, {
-      repository, branch, baseSha, headSha, treeSha: identity.treeSha,
-      diffDigest: identity.diffDigest,
-    }, commitIntents, expectedPaths, process.env);
+      repository, branch, baseSha, headSha: initialHeadSha, treeSha: candidate.treeSha,
+      diffDigest: candidate.diffDigest,
+    }, [intent], [...candidate.changedFiles].sort(), process.env);
     if (!lineage?.ok) return fail(lineage?.reasonCode || "historical_candidate_git_authority_mismatch");
     return {
       ok: true,
@@ -239,12 +269,77 @@ function objectIs(git, value, type) {
 function ancestor(git, older, newer) {
   return git(["merge-base", "--is-ancestor", older, newer]).status === 0;
 }
-function sameCandidate(a, b, baseSha, headSha) {
-  const fields = ["treeSha", "diffDigest", "changedFilesDigest"];
-  return a && b && a.baseSha === baseSha && a.headSha === headSha
-    && b.baseSha === baseSha && b.headSha === headSha
-    && fields.every((key) => a[key] === b[key] && (key === "treeSha" ? sha : digest).test(a[key] || ""))
-    && JSON.stringify(a.changedFiles) === JSON.stringify(b.changedFiles);
+function sameActiveAndInitialCandidate(active, initial, baseSha) {
+  const structurallyValid = active && initial && active.baseSha === baseSha && initial.baseSha === baseSha
+    && sha.test(active.headSha || "") && sha.test(initial.headSha || "")
+    && ["treeSha", "diffDigest", "changedFilesDigest"].every((key) =>
+      (key === "treeSha" ? sha : digest).test(active[key] || "")
+      && (key === "treeSha" ? sha : digest).test(initial[key] || ""))
+    && Array.isArray(active.changedFiles) && Array.isArray(initial.changedFiles);
+  return Boolean(structurallyValid && (active.headSha !== initial.headSha
+    || (active.treeSha === initial.treeSha
+      && active.diffDigest === initial.diffDigest
+      && active.changedFilesDigest === initial.changedFilesDigest
+      && JSON.stringify(active.changedFiles) === JSON.stringify(initial.changedFiles))));
+}
+function validAdvancedCandidateLineage(git, {
+  active, initial, branch, issueNumber, repository, chargeIdentity, commitIntents,
+}) {
+  if (active.headSha === initial.headSha) return active.treeSha === initial.treeSha
+    && active.diffDigest === initial.diffDigest
+    && active.changedFilesDigest === initial.changedFilesDigest
+    && JSON.stringify(active.changedFiles) === JSON.stringify(initial.changedFiles);
+  if (!ancestor(git, initial.headSha, active.headSha)) return false;
+  const commits = lines(git(["rev-list", "--reverse", `${initial.headSha}..${active.headSha}`]).stdout);
+  if (commits.length < 1 || commits.length > 50) return false;
+  let parent = initial.headSha;
+  for (const commit of commits) {
+    const parents = git(["show", "-s", "--format=%P", commit]).stdout.trim().split(/\s+/u).filter(Boolean);
+    const treeSha = git(["rev-parse", `${commit}^{tree}`]).stdout.trim();
+    const subject = git(["show", "-s", "--format=%s", commit]).stdout.trim();
+    const stagedPaths = lines(git(["diff-tree", "--no-commit-id", "--name-only", "-r", parent, commit]).stdout).sort();
+    const matches = commitIntents.filter((intent) => intent.status === "finalized"
+      && intent.repository === repository && intentIssueAuthorityMatches(intent, issueNumber)
+      && intent.logicalTaskIdentity === `${repository}#${issueNumber}`
+      && intent.claimIdentity === `${repository}#${issueNumber}`
+      && intent.chargeIdentity === chargeIdentity
+      && intent.identity?.branchName === branch
+      && intent.identity?.baseSha === initial.baseSha
+      && intent.identity?.headSha === parent
+      && intent.effect?.expectedParents?.length === 1
+      && intent.effect.expectedParents[0] === parent
+      && intent.effect?.treeSha === treeSha
+      && intent.effect?.messageDigest === hash(subject)
+      && JSON.stringify(intent.effect?.stagedPaths) === JSON.stringify(stagedPaths));
+    if (parents.length !== 1 || parents[0] !== parent || matches.length !== 1
+      || !safeChangedPaths(stagedPaths)
+      || stagedPaths.some((entry) => !initial.changedFiles.includes(entry))) return false;
+    parent = commit;
+  }
+  return parent === active.headSha;
+}
+function validRecordedCandidateHistory(git, candidates, baseSha, activeHeadSha) {
+  const identities = new Map();
+  for (const candidate of candidates) {
+    if (candidate?.baseSha !== baseSha || !sha.test(candidate?.headSha || "")
+      || !sha.test(candidate?.treeSha || "") || !digest.test(candidate?.diffDigest || "")
+      || !digest.test(candidate?.changedFilesDigest || "") || !safeChangedPaths(candidate?.changedFiles)) {
+      return false;
+    }
+    const encoded = hashJson(candidate);
+    if (identities.has(candidate.headSha) && identities.get(candidate.headSha) !== encoded) return false;
+    identities.set(candidate.headSha, encoded);
+  }
+  for (const candidate of candidates) {
+    if (!objectIs(git, candidate.headSha, "commit") || !ancestor(git, candidate.headSha, activeHeadSha)
+      || git(["rev-parse", `${candidate.headSha}^{tree}`]).stdout.trim() !== candidate.treeSha) return false;
+    const paths = lines(git(["diff", "--name-only", baseSha, candidate.headSha]).stdout).sort();
+    const rawDiff = git(["diff", "--binary", `${baseSha}...${candidate.headSha}`]).stdout;
+    if (JSON.stringify(paths) !== JSON.stringify([...candidate.changedFiles].sort())
+      || hashJson(paths) !== candidate.changedFilesDigest
+      || hash(rawDiff.slice(0, 512_000)) !== candidate.diffDigest) return false;
+  }
+  return true;
 }
 function safeChangedPaths(values) {
   return Array.isArray(values) && values.length > 0 && values.length <= 64

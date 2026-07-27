@@ -205,10 +205,84 @@ test("historical initial candidate accepts exact durable pre-external restart ch
   assert.equal(verify(legacy).reasonCode, "historical_candidate_local_effect_mismatch");
 });
 
+test("historical initial candidate resumes an exactly intended local source-fix descendant", () => {
+  const fixture = makeFixture(2);
+  advanceWithSourceFix(fixture);
+  fixture.options.validateCommitLineage = (_root, identity) => {
+    assert.equal(identity.headSha, fixture.headSha);
+    assert.equal(identity.treeSha,
+      fixture.state.ordinaryContinuation.sourceFailureHistory[0].candidate.treeSha);
+    return { ok: true };
+  };
+  const result = verify(fixture);
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(result.candidateIdentity.headSha, fixture.advancedHeadSha);
+
+  const repeated = verify(fixture);
+  assert.deepEqual(repeated, result);
+  assert.equal(fixture.state.pr.number, null);
+  assert.equal(Object.keys(fixture.state.mutationMarkers.push || {}).length, 0);
+});
+
+test("historical initial candidate fail-closes an unauthenticated local source-fix descendant", () => {
+  const missingIntent = makeFixture(1);
+  advanceWithSourceFix(missingIntent);
+  missingIntent.intents.pop();
+  assert.equal(verify(missingIntent).reasonCode, "historical_candidate_advanced_lineage_mismatch");
+
+  const wrongTree = makeFixture(1);
+  advanceWithSourceFix(wrongTree);
+  wrongTree.intents[1].effect.treeSha = wrongTree.state.ordinaryContinuation.sourceFailureHistory[0]
+    .candidate.treeSha;
+  assert.equal(verify(wrongTree).reasonCode, "historical_candidate_advanced_lineage_mismatch");
+
+  const ambiguousOriginal = makeFixture(1);
+  ambiguousOriginal.state.ordinaryContinuation.sourceFailureHistory = [{
+    candidate: { ...structuredClone(ambiguousOriginal.state.ordinaryContinuation.sourceFailureBatch.candidate),
+      headSha: ambiguousOriginal.baseSha },
+  }];
+  assert.equal(verify(ambiguousOriginal).reasonCode, "historical_candidate_history_identity_mismatch");
+});
+
 function verify(fixture) {
   return verifyHistoricalInitialCandidateLineage(
     fixture.config, fixture.state, { number: issueNumber }, fixture.options,
   );
+}
+
+function advanceWithSourceFix(fixture) {
+  const initial = structuredClone(fixture.state.ordinaryContinuation.sourceFailureBatch.candidate);
+  const subject = `Auto-runner issue #${issueNumber}: source-fix abcdef0123456789`;
+  writeFileSync(path.join(fixture.repoRoot, changedFiles[0]), "candidate-0\nsource-fix\n");
+  run(fixture.repoRoot, ["add", changedFiles[0]]);
+  run(fixture.repoRoot, ["commit", "-m", subject]);
+  const advancedHeadSha = run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+  const treeSha = run(fixture.repoRoot, ["rev-parse", "HEAD^{tree}"]).stdout.trim();
+  const diffDigest = hash(run(fixture.repoRoot,
+    ["diff", "--binary", `${fixture.baseSha}...${advancedHeadSha}`]).stdout.slice(0, 512_000));
+  const identity = {
+    baseSha: fixture.baseSha, headSha: advancedHeadSha, treeSha, diffDigest,
+    changedFiles, changedFilesDigest: hashJson(changedFiles),
+  };
+  fixture.state.ordinaryContinuation.identity = structuredClone(identity);
+  fixture.state.ordinaryContinuation.sourceFailureHistory = [{ candidate: initial }];
+  fixture.state.ordinaryContinuation.sourceFailureBatch = null;
+  fixture.state.branch.currentHeadSha = fixture.headSha;
+  fixture.lifecycle.branch.headSha = advancedHeadSha;
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.intents.push({
+    repository, sourceTaskKey: taskKey, runId, effectType: "commit", status: "finalized",
+    logicalTaskIdentity: `${repository}#${issueNumber}`, claimIdentity: `${repository}#${issueNumber}`,
+    chargeIdentity: fixture.options.loadBudget().statePath,
+    identity: {
+      issueNumber, branchName: branch, baseSha: fixture.baseSha, headSha: fixture.headSha,
+    },
+    effect: {
+      expectedParents: [fixture.headSha], treeSha, stagedPaths: [changedFiles[0]],
+      messageDigest: hash(subject),
+    },
+  });
+  fixture.advancedHeadSha = advancedHeadSha;
 }
 
 function makeFixture(advances, candidateSuffix = "") {

@@ -328,6 +328,9 @@ the candidate's exact single-child topology and bytes, its clean literal
 branch checkout, the canonical repository/remote and trusted Git environment,
 and the matching recovery/lifecycle/charge/checkpoint/finalized-commit-intent
 authority with no later push, PR, merge, or replacement-candidate effect.
+An already committed pre-push source fix is resumable only as an exact
+one-parent descendant chain whose every step has one matching finalized commit
+intent and stays inside the original candidate path allowlist.
 Incomplete, shallow, alternate, replaced, grafted, divergent, ambiguous, or
 contradictory evidence has a stable fail-closed result.
 
