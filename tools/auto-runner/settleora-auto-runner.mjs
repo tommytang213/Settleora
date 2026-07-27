@@ -3169,7 +3169,7 @@ async function generateExistingPrRecoveryEvidence(config, {
       };
     }
     const mergeTree = spawnLike("git", [
-      "merge-tree", "--write-tree", "--messages", expectedOriginMainSha, expectedHeadSha,
+      "merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha,
     ], config.repoRoot);
     const mergeTreeLines = mergeTree.stdout.split(/\r?\n/u).filter(Boolean);
     const mergeTreeSha = mergeTreeLines[0] || null;
@@ -3261,7 +3261,7 @@ export function verifyProspectiveMergeValidation(config, evidence, expectedBaseS
     || !/^[a-f0-9]{40}$/u.test(evidence.treeSha || "")
     || !/^[a-f0-9]{40}$/u.test(evidence.syntheticCommitSha || "")) return false;
   const mergeTree = spawnLike("git", [
-    "merge-tree", "--write-tree", "--messages", expectedBaseSha, expectedHeadSha,
+    "merge-tree", "--write-tree", expectedBaseSha, expectedHeadSha,
   ], config.repoRoot);
   const lines = mergeTree.stdout.split(/\r?\n/u).filter(Boolean);
   const syntheticTree = spawnLike("git", [

@@ -273,7 +273,8 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /expectedOriginMainSha: continuation\.expectedOriginMainSha/);
   assert.match(source, /baseSha: continuation\.expectedOriginMainSha/);
   assert.match(source, /prospectiveMergeValidationRequired: true/);
-  assert.match(source, /"merge-tree", "--write-tree", "--messages", expectedOriginMainSha, expectedHeadSha/);
+  assert.match(source, /"merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha/);
+  assert.doesNotMatch(source, /"merge-tree", "--write-tree", "--messages"/);
   assert.match(source, /"commit-tree", mergeTreeSha, "-p", expectedOriginMainSha, "-p", expectedHeadSha/);
   assert.match(source, /verifyProspectiveMergeValidation/);
   assert.match(source, /"switch", "--detach", expectedHeadSha/);
