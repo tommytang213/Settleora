@@ -240,6 +240,8 @@ function makeFixture(advances) {
       loadLifecycle: () => ({ ok: true, state: lifecycle }),
       loadBudget: () => budget,
       findIntents: (_config, predicate) => intents.filter(predicate),
+      validateProjectNamespace: () => true,
+      validateCommitLineage: () => ({ ok: true }),
     },
   };
 }

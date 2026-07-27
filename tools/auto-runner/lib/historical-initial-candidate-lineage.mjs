@@ -4,6 +4,10 @@ import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { findPreEffectIntents, intentIssueAuthorityMatches } from "./pre-effect-intent.mjs";
+import {
+  validatePreservedRecoveryCommitLineage,
+  validatePreservedRecoveryProjectNamespace,
+} from "./preserved-recovery-deployment.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
 
 const sha = /^[a-f0-9]{40}$/u;
@@ -50,6 +54,11 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       return fail("historical_candidate_report_prompt_mismatch");
     }
     if (!noLaterEffects(state)) return fail("historical_candidate_later_effect_present");
+    const namespaceValidator = options.validateProjectNamespace
+      || validatePreservedRecoveryProjectNamespace;
+    if (!namespaceValidator(config.logsRoot, repository, repoRoot, process.env)) {
+      return fail("historical_candidate_namespace_mismatch");
+    }
 
     const git = options.git || ((args) => runGit(repoRoot, args));
     if (!trustedRepository(git, repository, repoRoot)) return fail("historical_candidate_git_environment_untrusted");
@@ -144,6 +153,13 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     if (intents.some((entry) => externalEffects.has(entry.effectType))) {
       return fail("historical_candidate_external_intent_present");
     }
+    const lineageValidator = options.validateCommitLineage
+      || validatePreservedRecoveryCommitLineage;
+    const lineage = lineageValidator(repoRoot, {
+      repository, branch, baseSha, headSha, treeSha: identity.treeSha,
+      diffDigest: identity.diffDigest,
+    }, commitIntents, expectedPaths, process.env);
+    if (!lineage?.ok) return fail(lineage?.reasonCode || "historical_candidate_git_authority_mismatch");
     return {
       ok: true,
       reasonCode: currentMain === baseSha
