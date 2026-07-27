@@ -321,6 +321,16 @@ both the task contract and lane manifest before a fix epoch is authorized.
 
 Ordinary post-implementation work uses one durable continuation authority from exact candidate reconciliation through validation, dual and structured review, convergence, push/PR recovery, GitHub gates, merge, and post-merge hygiene. Startup recovery re-enters that authority at the earliest incomplete exact-head phase; loading a large-review checkpoint is not a terminal success.
 
+Historical initial-candidate reconstruction does not equate a task's recorded
+base with today's `origin/main`. It accepts an advanced main only after one
+shared verifier proves complete ungrafted Git ancestry from the authentic base,
+the candidate's exact single-child topology and bytes, its clean literal
+branch checkout, the canonical repository/remote and trusted Git environment,
+and the matching recovery/lifecycle/charge/checkpoint/finalized-commit-intent
+authority with no later push, PR, merge, or replacement-candidate effect.
+Incomplete, shallow, alternate, replaced, grafted, divergent, ambiguous, or
+contradictory evidence has a stable fail-closed result.
+
 Proven feature-bundle splits are materialized by the bundle authority from frozen checkpoint commit ranges. Each concrete file belongs to exactly one slice, branch and PR reuse is exact-head/base bound, dependent slices retain their parent-branch PR base, and verified split PRs are handed to the existing PR-stack executor. Ambiguous ownership, branch/PR conflicts, missing execution authority, or semantic-delta mismatch block before further mutation.
 
 ## Canonical mutation consumer contract

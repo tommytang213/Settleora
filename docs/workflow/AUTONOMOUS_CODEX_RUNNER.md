@@ -1675,3 +1675,15 @@ existing corrupt, contradictory, mismatched, or ambiguous lifecycle artifact.
 A validation-failed candidate resumes source-failure convergence only when its
 recorded classification authorizes a source fix; otherwise the exact preserved
 candidate resumes validation. Neither path re-enters implementation.
+
+An initial validation-failure candidate remains recoverable after `main`
+advances only through the historical-lineage verifier. Current `main` is not
+required to equal the recorded base, but the base must be an available
+authentic commit and an ancestor of current `main` in complete, ungrafted,
+non-replaced history. The candidate must remain the single one-parent child of
+that base, outside current `main`, with the exact subject, tree, raw diff,
+changed paths/digests, branch/head and clean checkout. Recovery, lifecycle,
+claim/charge, report/prompt, checkpoint, finalized commit intent, and
+no-later-effect identities must all agree. Shallow or alternate object stores,
+replace refs, grafts, unsafe Git configuration, divergence, unavailable
+objects, multiple records, or any identity/effect contradiction fail closed.

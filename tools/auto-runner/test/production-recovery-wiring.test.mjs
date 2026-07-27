@@ -265,7 +265,10 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /counters: ordinaryCountersFromReviewConvergence\(iteration\.reviewConvergenceState\)/);
   assert.match(source, /recoveryRecorder\.annotate\(\{ ordinaryContinuation: continuation \}\)/);
   assert.match(source, /boundary\.phase === "checkpoint_validation_commit"[\s\S]*reconstructInitialValidationFailureCheckpoint/);
-  assert.match(source, /initial_validation_failure_commit_reconstruction_ambiguous/);
+  assert.match(source, /verifyHistoricalInitialCandidateLineage/);
+  assert.match(source, /reconstructedCurrentMainSha: proof\.currentMainSha/);
+  assert.match(source, /const expectedCurrentMain = checkpoint\.reconstructedCurrentMainSha \|\| initial\.identity\.baseSha/);
+  assert.doesNotMatch(source, /getRefSha\("origin\/main"\) !== initial\.identity\.baseSha/);
   assert.match(source, /commitMessage: `Auto-runner issue #\$\{issue\.number\}: source-fix \$\{batch\.batchIdentity\.slice\(0, 16\)\}`/);
   assert.match(source, /if \(replacementDecision\.retryable\) \{[\s\S]*iteration\.outcome = "validation_retryable";[\s\S]*replacementDecision\.nextAction/);
 });
