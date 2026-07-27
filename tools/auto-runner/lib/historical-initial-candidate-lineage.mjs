@@ -128,8 +128,12 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       || hash(rawDiff.slice(0, 512_000)) !== identity.diffDigest) {
       return fail("historical_candidate_diff_mismatch");
     }
+    const checkoutHeadSha = git(["rev-parse", "HEAD"]).stdout.trim();
+    const preparedCheckout = validPreparedSourceFixCheckout(
+      git, continuation, headSha, checkoutHeadSha, issueNumber,
+    );
     if (git(["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim() !== branch
-      || git(["rev-parse", "HEAD"]).stdout.trim() !== headSha
+      || (checkoutHeadSha !== headSha && !preparedCheckout)
       || git(["status", "--porcelain=v1", "--untracked-files=all"]).stdout !== "") {
       return fail("historical_candidate_checkout_mismatch");
     }
@@ -251,6 +255,17 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
   } catch {
     return fail("historical_candidate_authoritative_read_unavailable");
   }
+}
+function validPreparedSourceFixCheckout(git, continuation, candidateHead, checkoutHead, issueNumber) {
+  const fix = continuation?.sourceFailureFixIntent;
+  return fix?.status === "prepared"
+    && digest.test(fix.batchIdentity || "")
+    && fix.candidateHead === candidateHead
+    && sha.test(checkoutHead || "") && checkoutHead !== candidateHead
+    && ancestor(git, candidateHead, checkoutHead)
+    && git(["rev-list", "--count", `${candidateHead}..${checkoutHead}`]).stdout.trim() === "1"
+    && git(["show", "-s", "--format=%s", checkoutHead]).stdout.trim()
+      === `Auto-runner issue #${issueNumber}: source-fix ${fix.batchIdentity.slice(0, 16)}`;
 }
 
 function runGit(cwd, args) {

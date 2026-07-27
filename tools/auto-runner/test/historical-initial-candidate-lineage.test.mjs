@@ -206,6 +206,21 @@ test("historical initial candidate proof is restart-idempotent", () => {
   assert.equal(fixture.state.pr.number, null);
 });
 
+test("historical proof admits one exact prepared source-fix checkout for later adoption", () => {
+  const fixture = makeFixture(2);
+  const batchIdentity = "b".repeat(64);
+  fixture.state.ordinaryContinuation.sourceFailureFixIntent = {
+    status: "prepared", batchIdentity, candidateHead: fixture.headSha,
+  };
+  writeFileSync(path.join(fixture.repoRoot, changedFiles[0]), "candidate-0\nprepared\n");
+  run(fixture.repoRoot, ["add", changedFiles[0]]);
+  run(fixture.repoRoot, ["commit", "-m",
+    `Auto-runner issue #${issueNumber}: source-fix ${batchIdentity.slice(0, 16)}`]);
+  assert.equal(verify(fixture).ok, true);
+  run(fixture.repoRoot, ["commit", "--allow-empty", "-m", "unexpected second commit"]);
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_checkout_mismatch");
+});
+
 test("historical initial candidate uses the bounded production diff digest", () => {
   const fixture = makeFixture(1, "x".repeat(600_000));
   const result = verify(fixture);
