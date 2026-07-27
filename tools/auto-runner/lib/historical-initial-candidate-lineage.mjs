@@ -22,7 +22,7 @@ const externalEffects = new Set([
   "merge", "comment", "review_reply", "issue_closure", "issue_progress_comment", "umbrella_update",
   "ledger_docs_update", "docs_branch_create", "docs_pr_create_update", "review_request",
   "review_trigger", "docs_pr_ready", "docs_pr_merge", "project_status_update",
-  "branch_retention_verify",
+  "branch_retention_verify", "hygiene_component",
 ]);
 const firstExternalPhase = ordinaryContinuationPhases.indexOf("push");
 

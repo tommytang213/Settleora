@@ -102,6 +102,9 @@ test("historical initial candidate fail-closes on durable identity and effect co
     ["canonical comment intent", (f) => {
       f.intents.push({ ...structuredClone(f.intents[0]), effectType: "comment" });
     }, "historical_candidate_external_intent_present"],
+    ["hygiene component intent", (f) => {
+      f.intents.push({ ...structuredClone(f.intents[0]), effectType: "hygiene_component" });
+    }, "historical_candidate_external_intent_present"],
   ];
   for (const [name, mutate, reason] of cases) {
     const fixture = makeFixture(2);
