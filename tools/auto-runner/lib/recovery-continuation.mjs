@@ -475,12 +475,14 @@ function isRepeatedUnsafeValidationResult(result) {
     || result?.state?.ordinaryContinuation
     || result?.state;
   const findings = continuation?.sourceFailureBatch?.findings;
+  const terminalReason = [
+    "checkpoint_validation_not_source_fix_safe",
+    "initial_validation_failure_commit_reconstruction_ambiguous",
+    "source_failure_unsafe_or_ambiguous",
+  ].includes(result?.reasonCode)
+    || String(result?.reasonCode || "").startsWith("historical_candidate_");
   return result?.ok === false
-    && [
-      "checkpoint_validation_not_source_fix_safe",
-      "initial_validation_failure_commit_reconstruction_ambiguous",
-      "source_failure_unsafe_or_ambiguous",
-    ].includes(result?.reasonCode)
+    && terminalReason
     && continuation?.phase === "local_validation"
     && Array.isArray(findings)
     && findings.length > 0
