@@ -1696,6 +1696,14 @@ claim/charge, report/prompt, checkpoint, finalized commit intent, and
 no-later-effect identities must all agree. Shallow or alternate object stores,
 replace refs, grafts, unsafe Git configuration, divergence, unavailable
 objects, multiple records, or any identity/effect contradiction fail closed.
+Before historical recovery fetches `main`, the runner validates canonical
+repository and remote identity plus local and linked-worktree configuration
+through its fixed sanitized Git reader. The fetch then uses `/usr/bin/git`
+with system/global configuration, credential helpers, hooks, executable diff
+or filter behavior, SSH command overrides, alternate objects, replace refs,
+and local/ext transports disabled. Unsafe include, URL rewrite, proxy,
+transport, credential, hook, filter, diff/textconv, object, or worktree
+configuration therefore cannot execute before rejection.
 The proven current-main SHA is persisted in ordinary continuation authority,
 included in every phase target, and propagated as the expected PR/merge base;
 a restart, stale checkpoint, or later main movement cannot silently fall back
@@ -1716,3 +1724,11 @@ Version-1 checkpoints written before current-main authority was persisted may
 use the legacy phase-target format only while that field is absent; after the
 historical proof, the runner rewrites all validated local targets once to the
 new current-main-bound format.
+Once push or PR effects exist, historical recovery admits them only when the
+ordinary continuation, state PR record, remote-tracking branch, finalized
+canonical push and PR intent, and their single completed mutation markers bind
+the same repository, issue/task/run, claim/charge, branch, canonical PR URL and
+number, `main` base authority, and exact head. Stale or prior heads, a different
+PR/base/URL, missing or duplicate-like markers or intents, mixed authority, or
+remote-head disagreement fail closed at push, PR-create, CI-wait, and later
+GitHub-convergence restarts.

@@ -5,7 +5,10 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, unlinkSync, writeFileSyn
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { verifyHistoricalInitialCandidateLineage } from "../lib/historical-initial-candidate-lineage.mjs";
+import {
+  validateHistoricalRecoveryGitAuthority,
+  verifyHistoricalInitialCandidateLineage,
+} from "../lib/historical-initial-candidate-lineage.mjs";
 import { validatePreservedRecoveryCommitLineage } from "../lib/preserved-recovery-deployment.mjs";
 import {
   ordinaryContinuationLegacyPhaseTarget,
@@ -134,6 +137,25 @@ test("historical initial candidate rejects executable diff configuration before 
     assert.equal(result.ok, false, name);
     assert.equal(result.reasonCode, "historical_candidate_git_environment_untrusted", name);
     assert.equal(existsSync(marker), false, `${name} executed before the trust decision`);
+  }
+});
+
+test("historical pre-fetch authority rejects executable transport configuration without execution", () => {
+  for (const [name, key] of [
+    ["ssh command", "core.sshCommand"],
+    ["credential helper", "credential.helper"],
+    ["Git proxy", "core.gitProxy"],
+    ["URL rewrite", "url.ssh://attacker.invalid/.insteadOf"],
+    ["conditional include", "includeIf.gitdir:/tmp/.path"],
+  ]) {
+    const fixture = makeFixture(0);
+    const marker = path.join(fixture.repoRoot, `prefetch-${name.replaceAll(" ", "-")}`);
+    const executable = path.join(fixture.repoRoot, `prefetch-${name.replaceAll(" ", "-")}.sh`);
+    writeFileSync(executable, `#!/bin/sh\n: > '${marker}'\nexit 1\n`);
+    chmodSync(executable, 0o700);
+    run(fixture.repoRoot, ["config", "--local", key, executable]);
+    assert.equal(validateHistoricalRecoveryGitAuthority(fixture.config), false, name);
+    assert.equal(existsSync(marker), false, `${name} executed before the pre-fetch trust decision`);
   }
 });
 
@@ -331,27 +353,7 @@ test("historical descendant admits a newly added path only through task-scope au
 test("historical descendant admits only authenticated existing-PR effects", () => {
   const fixture = makeFixture(2);
   advanceWithSourceFix(fixture);
-  const continuation = fixture.state.ordinaryContinuation;
-  continuation.counters.githubTriggeredFixEpochsPerPr = 1;
-  continuation.processedGithubFindingFingerprints = ["f".repeat(64)];
-  fixture.state.pr = {
-    number: 1007,
-    url: `https://github.com/${repository}/pull/1007`,
-    headSha: fixture.headSha,
-  };
-  fixture.state.branch.expectedRemoteHeadSha = fixture.headSha;
-  fixture.state.mutationMarkers.push = { push: { status: "completed" } };
-  fixture.state.mutationMarkers.pr_create = { pr: { status: "completed" } };
-  for (const effectType of ["push", "pr_create"]) {
-    fixture.intents.push({
-      repository, sourceTaskKey: taskKey, runId, effectType, status: "finalized",
-      logicalTaskIdentity: `${repository}#${issueNumber}`,
-      claimIdentity: `${repository}#${issueNumber}`,
-      chargeIdentity: fixture.options.loadBudget().statePath,
-      identity: { issueNumber, branchName: branch },
-      effect: {},
-    });
-  }
+  authenticateExistingPrFixture(fixture);
   fixture.options.allowAuthenticatedExistingPrEffects = true;
   assert.equal(verify(fixture).ok, true);
   for (const [lifecyclePhase, continuationPhase] of [
@@ -393,6 +395,34 @@ test("historical descendant admits only authenticated existing-PR effects", () =
     effectType: "comment",
   });
   assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+});
+
+test("historical existing-PR authentication binds every durable authority to the exact PR and head", () => {
+  const mutations = [
+    ["wrong PR number", (f) => { f.state.pr.number = 1008; }],
+    ["wrong PR URL", (f) => { f.state.pr.url = `https://github.com/${repository}/pull/1008`; }],
+    ["wrong PR base", (f) => { f.state.pr.baseRefName = "release"; }],
+    ["wrong PR branch", (f) => { f.state.pr.headRefName = `${branch}-foreign`; }],
+    ["prior PR head", (f) => { f.state.pr.headSha = f.headSha; }],
+    ["wrong remote head", (f) => { run(f.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, f.headSha]); }],
+    ["missing push marker", (f) => { delete f.state.mutationMarkers.push; }],
+    ["wrong push marker head", (f) => { f.state.mutationMarkers.push.push.correlation = f.headSha; }],
+    ["wrong PR marker URL", (f) => { f.state.mutationMarkers.pr_create.pr.target = `https://github.com/${repository}/pull/1008`; }],
+    ["duplicate-like push intent", (f) => { f.intents.push(structuredClone(f.intents.find((entry) => entry.effectType === "push"))); }],
+    ["mixed push branch", (f) => { f.intents.find((entry) => entry.effectType === "push").effect.remoteBranch = `${branch}-foreign`; }],
+    ["prior push head", (f) => { f.intents.find((entry) => entry.effectType === "push").effect.localSha = f.headSha; }],
+    ["wrong PR intent base", (f) => { f.intents.find((entry) => entry.effectType === "pr_create").effect.targetBaseSha = f.baseSha; }],
+    ["wrong PR intent issue", (f) => { f.intents.find((entry) => entry.effectType === "pr_create").effect.issueNumber = issueNumber + 1; }],
+    ["wrong continuation main", (f) => { f.state.ordinaryContinuation.expectedOriginMainSha = f.baseSha; }],
+  ];
+  for (const [name, mutate] of mutations) {
+    const fixture = makeFixture(2);
+    advanceWithSourceFix(fixture);
+    authenticateExistingPrFixture(fixture);
+    fixture.options.allowAuthenticatedExistingPrEffects = true;
+    mutate(fixture);
+    assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present", name);
+  }
 });
 
 test("historical initial candidate fail-closes an unauthenticated local source-fix descendant", () => {
@@ -461,6 +491,62 @@ function advanceWithSourceFix(fixture, addedPath = null) {
     },
   });
   fixture.advancedHeadSha = advancedHeadSha;
+}
+
+function authenticateExistingPrFixture(fixture) {
+  const continuation = fixture.state.ordinaryContinuation;
+  const exactHead = continuation.identity.headSha;
+  const exactUrl = `https://github.com/${repository}/pull/1007`;
+  const chargeIdentity = fixture.options.loadBudget().statePath;
+  continuation.expectedOriginMainSha = fixture.mainSha;
+  continuation.counters.githubTriggeredFixEpochsPerPr = 1;
+  continuation.processedGithubFindingFingerprints = ["f".repeat(64)];
+  fixture.state.pr = {
+    number: 1007, url: exactUrl, headSha: exactHead,
+    headRefName: branch, baseRefName: "main", state: "OPEN",
+  };
+  fixture.state.branch.expectedRemoteHeadSha = exactHead;
+  fixture.state.mutationMarkers.push = {
+    push: { status: "completed", target: branch, correlation: exactHead },
+  };
+  fixture.state.mutationMarkers.pr_create = {
+    pr: { status: "completed", target: exactUrl, correlation: exactHead },
+  };
+  run(fixture.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, exactHead]);
+  fixture.intents.push({
+    repository, sourceTaskKey: taskKey, runId, effectType: "push", status: "finalized",
+    logicalTaskIdentity: `${repository}#${issueNumber}`,
+    claimIdentity: `${repository}#${issueNumber}`,
+    chargeIdentity,
+    identity: {
+      repository, sourceTaskKey: taskKey, runId,
+      logicalTaskIdentity: `${repository}#${issueNumber}`,
+      claimIdentity: `${repository}#${issueNumber}`, chargeIdentity,
+      issueNumber, branchName: branch, baseSha: fixture.baseSha, headSha: exactHead,
+      candidateIdentity: exactHead,
+    },
+    effect: {
+      repositoryOwnership: repository, remoteBranch: branch, localSha: exactHead,
+      expectedRemoteBeforeSha: null, allowedFastForwardTarget: exactHead,
+    },
+  });
+  fixture.intents.push({
+    repository, sourceTaskKey: taskKey, runId, effectType: "pr_create", status: "finalized",
+    logicalTaskIdentity: `${repository}#${issueNumber}`,
+    claimIdentity: `${repository}#${issueNumber}`,
+    chargeIdentity,
+    identity: {
+      repository, sourceTaskKey: taskKey, runId,
+      logicalTaskIdentity: `${repository}#${issueNumber}`,
+      claimIdentity: `${repository}#${issueNumber}`, chargeIdentity,
+      issueNumber, branchName: branch, baseBranch: "main",
+      baseSha: fixture.mainSha, headSha: exactHead, candidateIdentity: exactHead,
+    },
+    effect: {
+      issueNumber, sourceBranch: branch, sourceHeadSha: exactHead,
+      targetBaseBranch: "main", targetBaseSha: fixture.mainSha, draft: false,
+    },
+  });
 }
 
 function makeFixture(advances, candidateSuffix = "") {

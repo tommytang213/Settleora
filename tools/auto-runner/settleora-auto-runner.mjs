@@ -45,7 +45,10 @@ import {
   sourceStateIdentityForCommit,
   workingTreeDiffHash,
 } from "./lib/git-workspace.mjs";
-import { verifyHistoricalInitialCandidateLineage } from "./lib/historical-initial-candidate-lineage.mjs";
+import {
+  validateHistoricalRecoveryGitAuthority,
+  verifyHistoricalInitialCandidateLineage,
+} from "./lib/historical-initial-candidate-lineage.mjs";
 import { generateTaskPrompt } from "./lib/task-prompt.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./lib/codex-runner.mjs";
 import { collectReport } from "./lib/report-collector.mjs";
@@ -2077,7 +2080,10 @@ function ordinaryCountersFromReviewConvergence(reviewConvergenceState = {}) {
 }
 
 function reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision) {
-  fetchOriginMain(config);
+  if (!validateHistoricalRecoveryGitAuthority(config)) {
+    return { ok: false, reasonCode: "historical_candidate_git_environment_untrusted" };
+  }
+  fetchOriginMain(config, { trustedHistoricalRecovery: true });
   const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
     expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
     expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
@@ -2142,7 +2148,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     };
     await persist(initial);
   }
-  fetchOriginMain(config);
+  fetchOriginMain(config, { trustedHistoricalRecovery: true });
   const liveHeadAtRecovery = getRefSha("HEAD");
   const preparedFixCanBeAdopted = Boolean(
     initial.sourceFailureFixIntent?.status === "prepared"
@@ -2796,7 +2802,10 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
   let baseSha = state.branch?.baseSha || state.baseSha || null;
   let headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
   if (!baseSha || !headSha) return { ok: false, reasonCode: "large_candidate_recovery_identity_missing" };
-  fetchOriginMain(config);
+  if (!validateHistoricalRecoveryGitAuthority(config)) {
+    return { ok: false, reasonCode: "historical_candidate_git_environment_untrusted" };
+  }
+  fetchOriginMain(config, { trustedHistoricalRecovery: true });
   const reconstructedCurrentMainSha = getRefSha("origin/main");
   const mainLineage = spawnSync(
     "git", ["merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha],

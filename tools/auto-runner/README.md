@@ -318,6 +318,15 @@ reconfirmed. Exact merge-tree and synthetic-commit identity is required before
 classification. Source-fixable diagnostics reserve the normal GitHub fix epoch;
 transient, ambiguous, out-of-contract, or identity-drift evidence retains its
 ordinary bounded retry or fail-closed result.
+Historical recovery validates repository-local and linked-worktree Git
+authority before fetching current `main`; that fetch uses the fixed Git binary
+and a sanitized environment that disables system/global configuration,
+credential helpers, hooks, executable diff/filter configuration, SSH command
+overrides, replace refs, alternate objects, and local/ext transports. Existing
+PR adoption additionally requires one exact completed push marker and one PR
+marker plus their finalized canonical intents, the durable PR record,
+current-main authority, and the remote-tracking branch to agree on the
+repository/task/claim/charge, branch, PR URL/number/base, and exact head.
 If a focused repair exposes another actionable validation defect, the new
 candidate is committed and re-enters the same bounded classifier instead of
 terminating after one round. Canonically named platform checks are translated

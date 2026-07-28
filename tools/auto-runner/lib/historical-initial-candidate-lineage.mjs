@@ -200,7 +200,10 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       && intent.sourceTaskKey === taskKey && intent.runId === runId);
     const authenticatedExistingPrEffects = options.allowAuthenticatedExistingPrEffects === true
       && validAuthenticatedExistingPrEffects(
-        state, intents, { repository, issueNumber, taskKey, runId, branch, chargeIdentity: budget.statePath },
+        state, intents, {
+          git, repository, issueNumber, taskKey, runId, branch, baseSha,
+          currentMainSha: currentMain, headSha, chargeIdentity: budget.statePath,
+        },
       );
     if (!noLaterEffects(state) && !authenticatedExistingPrEffects) {
       return fail("historical_candidate_later_effect_present");
@@ -256,6 +259,19 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     return fail("historical_candidate_authoritative_read_unavailable");
   }
 }
+
+export function validateHistoricalRecoveryGitAuthority(config, options = {}) {
+  try {
+    const repository = config?.repositorySlug;
+    const repoRoot = path.resolve(config?.repoRoot || "");
+    const git = options.git || ((args) => runGit(repoRoot, args));
+    return Boolean(repository && repoRoot
+      && trustedRepository(git, repository, repoRoot)
+      && !unsafeObjectMechanism(repoRoot, git));
+  } catch {
+    return false;
+  }
+}
 function validPreparedSourceFixCheckout(git, continuation, candidateHead, checkoutHead, issueNumber) {
   const fix = continuation?.sourceFailureFixIntent;
   return fix?.status === "prepared"
@@ -302,7 +318,7 @@ function trustedRepository(git, repository, repoRoot) {
     ? git(["config", "--worktree", "--list", "--show-origin", "--null"])
     : null;
   const unsafeConfig = (value) =>
-    /(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(value);
+    /(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|credential\.|http\.[^\n\0]*proxy|remote\.[^\n\0]+\.(?:proxy|uploadpack|receivepack)|protocol\.[^\n\0]+\.allow|ssh\.variant|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(value);
   return top.status === 0 && path.resolve(top.stdout.trim()) === repoRoot
     && remote.status === 0
     && canonicalApprovedGitHubRepository(remote.stdout.trim()) === repository.toLowerCase()
@@ -434,11 +450,56 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const allowedTypes = new Set(["push", "pr_create", "pr_head_update"]);
   const exactUrl = `https://github.com/${authority.repository}/pull/${pr?.number}`;
   const markers = state.mutationMarkers || {};
-  const markerTypes = ["push", "pr_create", "pr_head_update"];
-  const markerEntries = markerTypes.flatMap((kind) => Object.values(markers[kind] || {}));
+  const pushMarkers = Object.values(markers.push || {});
+  const prMarkers = [
+    ...Object.values(markers.pr_create || {}),
+    ...Object.values(markers.pr_head_update || {}),
+  ];
+  const pushIntents = externalIntents.filter((entry) => entry.effectType === "push");
+  const prIntents = externalIntents.filter((entry) =>
+    ["pr_create", "pr_head_update"].includes(entry.effectType));
+  const commonIntentAuthority = (entry) => entry.status === "finalized"
+    && entry.repository === authority.repository
+    && entry.sourceTaskKey === authority.taskKey
+    && entry.runId === authority.runId
+    && intentIssueAuthorityMatches(entry, authority.issueNumber)
+    && entry.logicalTaskIdentity === `${authority.repository}#${authority.issueNumber}`
+    && entry.claimIdentity === `${authority.repository}#${authority.issueNumber}`
+    && entry.chargeIdentity === authority.chargeIdentity
+    && entry.identity?.repository === authority.repository
+    && entry.identity?.sourceTaskKey === authority.taskKey
+    && entry.identity?.runId === authority.runId
+    && entry.identity?.logicalTaskIdentity === `${authority.repository}#${authority.issueNumber}`
+    && entry.identity?.claimIdentity === `${authority.repository}#${authority.issueNumber}`
+    && entry.identity?.chargeIdentity === authority.chargeIdentity
+    && entry.identity?.branchName === authority.branch
+    && entry.identity?.headSha === authority.headSha;
+  const exactPush = (entry) => commonIntentAuthority(entry)
+    && entry.identity?.baseSha === authority.baseSha
+    && entry.effect?.repositoryOwnership === authority.repository
+    && entry.effect?.remoteBranch === authority.branch
+    && entry.effect?.localSha === authority.headSha
+    && entry.effect?.allowedFastForwardTarget === authority.headSha;
+  const exactPr = (entry) => commonIntentAuthority(entry)
+    && entry.identity?.issueNumber === authority.issueNumber
+    && entry.identity?.baseBranch === "main"
+    && entry.identity?.baseSha === authority.currentMainSha
+    && entry.effect?.issueNumber === authority.issueNumber
+    && entry.effect?.sourceBranch === authority.branch
+    && entry.effect?.sourceHeadSha === authority.headSha
+    && entry.effect?.targetBaseBranch === "main"
+    && entry.effect?.targetBaseSha === authority.currentMainSha
+    && entry.effect?.draft === false;
+  const remoteHead = authority.git([
+    "rev-parse", "--verify", `refs/remotes/origin/${authority.branch}`,
+  ]);
   return Number.isSafeInteger(pr?.number) && pr.number > 0 && pr.url === exactUrl
-    && sha.test(pr.headSha || "") && priorHeads.has(pr.headSha)
+    && pr.headSha === authority.headSha && priorHeads.has(pr.headSha)
+    && pr.headRefName === authority.branch && pr.baseRefName === "main"
+    && ["OPEN", "open"].includes(pr.state)
+    && continuation?.expectedOriginMainSha === authority.currentMainSha
     && state.branch?.expectedRemoteHeadSha === pr.headSha
+    && remoteHead.status === 0 && remoteHead.stdout.trim() === authority.headSha
     && Number.isSafeInteger(continuation?.counters?.githubTriggeredFixEpochsPerPr)
     && continuation.counters.githubTriggeredFixEpochsPerPr >= 0
     && continuation.counters.githubTriggeredFixEpochsPerPr <= 50
@@ -447,17 +508,17 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && (continuation.counters.githubTriggeredFixEpochsPerPr === 0
       ? fingerprints.length === 0
       : fingerprints.length > 0)
-    && markerEntries.length > 0
-    && markerEntries.every((entry) => ["completed", "reconciled"].includes(entry?.status))
-    && externalIntents.some((entry) => entry.effectType === "push")
-    && externalIntents.some((entry) => ["pr_create", "pr_head_update"].includes(entry.effectType))
-    && externalIntents.every((entry) => allowedTypes.has(entry.effectType)
-      && entry.status === "finalized"
-      && intentIssueAuthorityMatches(entry, authority.issueNumber)
-      && entry.logicalTaskIdentity === `${authority.repository}#${authority.issueNumber}`
-      && entry.claimIdentity === `${authority.repository}#${authority.issueNumber}`
-      && entry.chargeIdentity === authority.chargeIdentity
-      && entry.identity?.branchName === authority.branch);
+    && pushMarkers.length === 1 && prMarkers.length === 1
+    && pushMarkers[0]?.status === "completed"
+    && pushMarkers[0]?.target === authority.branch
+    && pushMarkers[0]?.correlation === authority.headSha
+    && prMarkers[0]?.status === "completed"
+    && prMarkers[0]?.target === exactUrl
+    && prMarkers[0]?.correlation === authority.headSha
+    && externalIntents.length === 2
+    && externalIntents.every((entry) => allowedTypes.has(entry.effectType))
+    && pushIntents.length === 1 && exactPush(pushIntents[0])
+    && prIntents.length === 1 && exactPr(prIntents[0]);
 }
 function continuationExternalEffectPresent(effects) {
   return effects && typeof effects === "object"
