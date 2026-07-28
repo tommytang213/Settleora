@@ -9547,3 +9547,99 @@ state.
   this repository merge task.
 - Last verified report reference:
   `/workspace/logs/settleora-codex-report-20260727-1533-issue991-recovery-chain-full-closure.md`
+
+## Preserved-recovery claim authority — Issues #1012 and #959
+
+- GitHub state at the PR #1017 merge handoff: #1012 and #959 remain `OPEN`.
+  #999 remains `OPEN`, separate, and untouched.
+- PR #1017 merged normally from exact source head
+  `03abb58e93c86481d835e373a6fd936aa72c3232` and exact source tree
+  `b35cfbe6afaaf61dadc5ebfeb14172068da39a3d` as merge
+  `f21b3ebad5f873880f4105db4b1d781b0109d1c1`.
+- Ordered merge parents are prior `main`
+  `9a8cf8025ba913c7af9400a532015632ec175993` and exact source head
+  `03abb58e93c86481d835e373a6fd936aa72c3232`. The merge tree is
+  `b35cfbe6afaaf61dadc5ebfeb14172068da39a3d`, exactly equal to the
+  authorized source tree.
+- The exact nine-path claim-authority repair changed:
+  - `docs/workflow/AUTONOMOUS_CODEX_RUNNER.md`;
+  - `tools/auto-runner/README.md`;
+  - `tools/auto-runner/lib/claim-authority.mjs`;
+  - `tools/auto-runner/lib/historical-initial-candidate-lineage.mjs`;
+  - `tools/auto-runner/lib/issue-selection.mjs`;
+  - `tools/auto-runner/lib/recovery-continuation.mjs`;
+  - `tools/auto-runner/settleora-auto-runner.mjs`;
+  - `tools/auto-runner/test/claim-authority.test.mjs`;
+  - `tools/auto-runner/test/production-recovery-wiring.test.mjs`.
+- Claim authority now has two explicit modes:
+  - `fresh_active_claim` still requires an open exact issue, every configured
+    active claim label, no stop label, the exact active owner, and the
+    post-claim live reread;
+  - `preserved_recovery_claim` may tolerate absent transient claim labels only
+    when exact policy, completed durable claim, accepted charge, task/run/
+    supervisor identity, lifecycle and recovery lineage, branch/base/head,
+    original terminal candidate, terminal outcome, counters, intent, and
+    inactive owner/lease evidence all agree.
+- Durable claim, charge, lifecycle, recovery, original/current candidate, and
+  owner evidence are carried through one authoritative startup snapshot.
+  Recovery reuses the accepted task charge, including a narrowly reconciled
+  claim-to-charge-marker crash window, and does not create a duplicate charge.
+  The original terminal candidate remains immutable when a recovery candidate
+  advances.
+- Terminal label behavior remains non-mutating for preserved recovery.
+  Ordinary polling and fresh claiming retain their existing label rules. A
+  contradictory live transient claim without the exact active owner, stale
+  claim evidence, incomplete terminal proof, or inconsistent durable lineage
+  fails closed instead of manufacturing authority.
+- Exact-head validation and review evidence:
+  - `npm ci` passed with 0 vulnerabilities; doctor, changed-production syntax
+    and ESM import smoke, focused claim/recovery/startup tests, docs, scaffold,
+    diff, exact-scope, and clean-worktree checks passed;
+  - the complete auto-runner suite passed `1263/1263`, with 0 failed and
+    0 skipped;
+  - fresh Gemini `strong_independent` and local Codex mechanics/integration/
+    recovery/Git/security reviews passed;
+  - all 12 required CodeQL, Semgrep CE/OSS, Trivy, and both Scaffold Validation
+    checks passed on exact head;
+  - final GitHub Codex review inspected `03abb58e93` and found no major issues;
+    all three prior P1 threads are resolved/outdated, with 0 unresolved
+    actionable threads;
+  - open code-scanning alerts for PR #1017: 0; open repository
+    secret-scanning alerts: 0.
+- Preserved #959 identity remains immutable and non-mutated:
+  - issue/task `959` / `20260724T075849`;
+  - claim `tommytang213/Settleora#959`;
+  - charge
+    `5c9ae164d122cabccefa40f98db88134633bd594c0b2834897f51679c7d7ad78`;
+  - branch
+    `feature/auto-959-harden-mobile-ocr-parsing-for-hk-chinese-2026-07-24t0758`;
+  - base/head/tree
+    `ecf69d41e0dd96b9a05851af82db66e26d94ca2e` /
+    `92b60cec46114c11a47184687509d30da6f5df10` /
+    `805fc34919cdd95ca9222b633a26cfd07d4a17b4`;
+  - changed-files/raw-diff digests
+    `5754d10f7a0cc4148e48806fd18e1eddabc943ba62b57915ecadf53cc036789d` /
+    `6b3b42bfa5e40d652330bfe8c9a2388236ee84b34b9e1a24045dd95913fcdda8`;
+  - lifecycle/recovery/budget/prompt/original-summary SHA-256 values
+    `353d22d0719de637433b5cc433db9ff612ec66b1a23408805d21f72e34780479`,
+    `2ce51e452bb3f4e2c87fd0cd98756067bce1641af5d88069f78a78fccf866171`,
+    `51bad4a0f6bfcf3df3fd718f50f4c3021145a1fa4379a72c617b0c95a15bd133`,
+    `b1e327477bb8fc6a3b7e3f1c13672ee5e7f515e74900b165d463b7fd7ddf332f`,
+    and
+    `4c44dcfda255237adc56accd1f08845b0b5e4a7df2afddc36e65718faec84e80`.
+- PR #1017 and this ledger hygiene caused no #959 label, claim, charge, task,
+  branch, worktree, validation, implementation, push, PR, merge, runtime, or
+  product effect. Keep #959 open until its separately authorized preserved
+  continuation completes and its product close rule is satisfied.
+- Keep #1012 open. The remaining operational gate is a separately authorized
+  final-main runtime deployment/profile/health reconciliation followed by one
+  separately authorized trusted continuation of the preserved #959 chain.
+  PR #1017 and this hygiene task do not deploy or alter the prior runtime.
+- #999 remains a separate review-finding-adjudication hardening task. It was
+  not implemented, commented on, relabeled, or otherwise mutated here.
+- Scaffold Validation optimization was not performed.
+- Report references:
+  - source report:
+    `/workspace/logs/settleora-codex-report-20260728-2318-issue1012-preserved-recovery-claim-authority.md`;
+  - merge and post-merge hygiene report:
+    `/workspace/logs/settleora-codex-report-20260729-0121-pr1017-exact-head-merge-post-merge-hygiene.md`.
