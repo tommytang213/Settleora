@@ -153,6 +153,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
     source,
     /const preservedTerminalRecovery = state\.claimAuthority\?\.mode === claimAuthorityModes\.preservedRecovery[\s\S]*state\.ordinaryContinuation\?\.sourceFailureBatch[\s\S]*if \(!preservedTerminalRecovery\) \{[\s\S]*mode: claimAuthorityModes\.freshActive[\s\S]*writeRecoveryState\(config, state\);[\s\S]*verifyHistoricalInitialCandidateLineage/,
   );
+  assert.match(
+    source,
+    /default: async \(\{ state, boundary, preparation \}\) => \{[\s\S]*const issue = preparation\?\.issue;[\s\S]*const laneDecision = preparation\?\.laneDecision;[\s\S]*recovery_admitted_issue_snapshot_missing/,
+  );
   assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*authenticatedTaskRefGitEvidence/);
   assert.match(
     source,

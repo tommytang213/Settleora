@@ -2088,12 +2088,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           state,
         };
       }
-      const live = readIssueLive(config, state.issue.number);
-      if (!live.ok) {
-        return { ok: false, outcome: "blocked_recovery_state", reasonCode: live.reason || "recovery_issue_read_failed", state };
+      const issue = preparation?.issue;
+      const laneDecision = preparation?.laneDecision;
+      if (!issue || !laneDecision) {
+        return { ok: false, outcome: "blocked_recovery_state", reasonCode: "recovery_admitted_issue_snapshot_missing", state };
       }
-      const issue = live.issue || state.issue;
-      const laneDecision = classifyIssueLane(issue);
       if (state.featureBundle) {
         const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
         const bundle = await runFeatureBundleIteration(config, logger, {
