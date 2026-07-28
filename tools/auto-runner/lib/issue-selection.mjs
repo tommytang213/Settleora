@@ -1,4 +1,5 @@
 import { classifyIssueLane } from "./lane-policy.mjs";
+import { claimAuthorityModes, validateClaimAuthority } from "./claim-authority.mjs";
 
 export const terminalAttemptOutcomes = Object.freeze([
   "auto_merged",
@@ -171,32 +172,9 @@ export function validateCandidateForClaim(config, candidate, tracker, readLiveIs
 }
 
 export function validateClaimReread(config, selectedIssue, rereadIssue) {
-  const selectedNumber = normalizeIssueNumber(selectedIssue?.number);
-  const liveIssue = normalizeIssue(rereadIssue);
-  const event = {
-    action: "claim_reread",
-    issue: issueSummary(liveIssue),
-    selectedIssueNumber: selectedNumber,
-    ok: false,
-    reason: null,
-  };
-  if (!selectedNumber || liveIssue.number !== selectedNumber) {
-    return { ok: false, reason: "claim_reread_issue_number_mismatch", event: { ...event, reason: "claim_reread_issue_number_mismatch" } };
-  }
-  if (liveIssue.state !== "OPEN") {
-    return { ok: false, reason: "claim_reread_issue_not_open", event: { ...event, reason: "claim_reread_issue_not_open" } };
-  }
-  const labels = new Set(liveIssue.labels || []);
-  const missingClaim = (config.claimLabels || []).find((label) => !labels.has(label));
-  if (missingClaim) {
-    return { ok: false, reason: `claim_reread_missing_claim_label:${missingClaim}`, event: { ...event, reason: `claim_reread_missing_claim_label:${missingClaim}` } };
-  }
-  const claimLabels = config.claimLabels || [];
-  const forbiddenStop = (config.stopLabels || []).find((label) => !claimLabels.includes(label) && labels.has(label));
-  if (forbiddenStop) {
-    return { ok: false, reason: `claim_reread_stop_label:${forbiddenStop}`, event: { ...event, reason: `claim_reread_stop_label:${forbiddenStop}` } };
-  }
-  return { ok: true, reason: "claim_reread_passed", event: { ...event, ok: true, reason: "claim_reread_passed" } };
+  return validateClaimAuthority(config, selectedIssue, rereadIssue, {
+    mode: claimAuthorityModes.freshActive,
+  });
 }
 
 function skip(reason, candidate, liveRefresh = null, extra = {}) {

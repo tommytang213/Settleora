@@ -29,6 +29,7 @@ import {
   trackerSnapshot,
   validateClaimReread,
 } from "./lib/issue-selection.mjs";
+import { claimAuthorityModes, validateClaimAuthority } from "./lib/claim-authority.mjs";
 import {
   commitExplicitPaths,
   createTaskBranch,
@@ -1991,14 +1992,6 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return { ok: false, reasonCode: live.reason || "recovery_issue_read_failed", state };
       }
       const issue = live.issue || state.issue;
-      const recoveryClaim = validateClaimReread(config, state.issue, issue);
-      if (!recoveryClaim.ok) {
-        return { ok: false, reasonCode: recoveryClaim.reason || "startup_recovery_claim_reread_failed", state };
-      }
-      if (getCurrentBranch({ cwd: config.repoRoot }) === state.branch.name
-        && getRefSha("HEAD", { cwd: config.repoRoot }) === state.branch.currentHeadSha) {
-        return { ok: true, state, issue, laneDecision: classifyIssueLane(issue) };
-      }
       const controlPlaneAdmission = collectControlPlaneRecoveryAdmission(config, {
         repository: config.repositorySlug,
         issueNumber: state.issue.number,
@@ -2026,6 +2019,34 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
       if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
+      const priorOutcome = readPreservedPriorOutcome(config, state);
+      if (!priorOutcome.ok) return { ok: false, reasonCode: priorOutcome.reasonCode, state };
+      const recoveryClaim = validateClaimAuthority(config, state.issue, issue, {
+        mode: claimAuthorityModes.preservedRecovery,
+        taskKey: state.taskKey,
+        runId: state.run?.runId,
+        supervisorRunId: state.run?.supervisorRunId,
+        chargeId: lineageOptions.expectedChargeId,
+        branchName: state.branch.name,
+        baseSha: state.branch.baseSha,
+        headSha: state.branch.currentHeadSha,
+        priorOutcome: priorOutcome.outcome,
+        policy: {
+          eligible: laneDecision.allowedToImplement === true,
+          reasonCode: laneDecision.allowedToImplement === true
+            ? "preserved_claim_live_policy_eligible"
+            : `preserved_claim_live_policy_ineligible:${laneDecision.reason || "unspecified"}`,
+        },
+        lineage: proof,
+        controlPlaneAdmission,
+        owner: { alive: controlPlaneAdmission.process?.alive, runId: controlPlaneAdmission.process?.ownerRunId },
+        lease: { valid: controlPlaneAdmission.lease?.valid, runId: controlPlaneAdmission.lease?.runId },
+      });
+      if (!recoveryClaim.ok) {
+        return { ok: false, reasonCode: recoveryClaim.reasonCode || "startup_recovery_claim_authority_failed", state };
+      }
+      state = { ...state, claimAuthority: recoveryClaim };
+      writeRecoveryState(config, state);
       return {
         ok: true,
         state,
@@ -2132,6 +2153,29 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+function readPreservedPriorOutcome(config, state) {
+  try {
+    const runId = state?.run?.runId;
+    const issueNumber = state?.issue?.number;
+    const taskKey = state?.taskKey;
+    if (!runId || !Number.isSafeInteger(issueNumber) || !taskKey) {
+      return { ok: false, reasonCode: "preserved_claim_prior_outcome_identity_missing" };
+    }
+    const summaryPath = path.join(config.logsRoot, "summaries", `${runId}.json`);
+    const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
+    const matching = (summary.iterations || []).filter((iteration) =>
+      iteration?.issue?.number === issueNumber
+      && iteration?.taskPrompt?.timestampKey === taskKey
+      && iteration?.sessionLifecycle?.logicalTask?.taskKey === taskKey);
+    if (matching.length !== 1 || typeof matching[0].outcome !== "string") {
+      return { ok: false, reasonCode: "preserved_claim_prior_outcome_ambiguous" };
+    }
+    return { ok: true, outcome: matching[0].outcome };
+  } catch {
+    return { ok: false, reasonCode: "preserved_claim_prior_outcome_unavailable" };
+  }
 }
 
 function authenticatedTaskRefGitEvidence(config, candidate) {

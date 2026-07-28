@@ -148,8 +148,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*authenticatedTaskRefGitEvidence/);
   assert.match(
     source,
-    /const recoveryClaim = validateClaimReread\(config, state\.issue, issue\);[\s\S]*if \(!recoveryClaim\.ok\)[\s\S]*startup_recovery_claim_reread_failed[\s\S]*getCurrentBranch[\s\S]*return \{ ok: true, state, issue, laneDecision: classifyIssueLane\(issue\) \}/,
+    /const controlPlaneAdmission = collectControlPlaneRecoveryAdmission[\s\S]*verifyHistoricalInitialCandidateLineage[\s\S]*readPreservedPriorOutcome[\s\S]*validateClaimAuthority\(config, state\.issue, issue, \{[\s\S]*mode: claimAuthorityModes\.preservedRecovery[\s\S]*writeRecoveryState\(config, state\);[\s\S]*return \{\s*ok: true,/,
   );
+  assert.equal((source.match(/validateClaimReread\(config, issue, claimRead\.issue\)/g) || []).length, 1);
+  assert.doesNotMatch(source, /validateClaimReread\(config, state\.issue, issue\)/);
   assert.match(
     collector,
     /const readControlPlaneGit = adapters\.readControlPlaneGit\s*\|\| \(\(\) => defaultGitRead\(config, identity, controlPlaneRepoRoot\)\)/,
