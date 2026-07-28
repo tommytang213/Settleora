@@ -90,10 +90,11 @@ repository. It then reuses an isolated linked worktree only with its exact
 prior durable ownership marker, or materializes one for that same branch and
 records ownership only after canonical pre-effect intent execution and exact
 readback. A crash-window restart may adopt only that deterministic
-intent-bound worktree. Startup performs that bounded materialization before
-lifecycle takeover evidence is consumed. The collector retains separate
+intent-bound worktree. Startup first authenticates exact task-ref/object Git
+evidence without materializing or granting mutation authority. The collector retains separate
 control-plane and task-workspace Git readbacks, and applies candidate
-branch/head identity only to the authenticated task workspace. It repeats all
+branch/head identity only to that authenticated task authority. After lifecycle
+takeover, the validation handler materializes/adopts the exact workspace and repeats all
 Git environment, common-dir, branch/head, and cleanliness checks there before
 resuming validation, and restores the
 admitted control-plane repository context after successful cleanup. Unowned

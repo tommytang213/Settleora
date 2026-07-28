@@ -2011,10 +2011,29 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       }
       const issue = live.issue || state.issue;
       const laneDecision = classifyIssueLane(issue);
-      const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
-      return checkpoint.ok
-        ? { ok: true, state, checkpoint, issue, laneDecision }
-        : { ok: false, reasonCode: checkpoint.reasonCode, state };
+      const lineageOptions = {
+        expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+        expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
+          || state.sessionLifecycle?.state?.recovery?.operationId
+          || null,
+        expectedTerminalLifecyclePhase: state.sessionLifecycle?.recovery?.phaseAfter || null,
+        allowTerminalValidationRetryPreparation: true,
+        validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
+      };
+      const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
+      if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
+      return {
+        ok: true,
+        state,
+        issue,
+        laneDecision,
+        evidenceAdapters: {
+          readGit: () => authenticatedTaskRefGitEvidence(config, {
+            ...proof.candidateIdentity,
+            branchName: state.branch.name,
+          }),
+        },
+      };
     },
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
     default: async ({ state, boundary, preparation }) => {
@@ -2109,6 +2128,36 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+function authenticatedTaskRefGitEvidence(config, candidate) {
+  const shown = spawnSync("git", ["show", "-s", "--format=%P%n%T%n%B", candidate.headSha], {
+    cwd: config.repoRoot, encoding: "utf8", timeout: 15_000,
+  });
+  if (shown.error || shown.status !== 0) return { complete: false, source: "authenticated_task_ref" };
+  const [parents = "", treeSha = "", ...messageLines] = shown.stdout.replace(/\r\n/g, "\n").split("\n");
+  return {
+    complete: treeSha === candidate.treeSha,
+    source: "authenticated_task_ref",
+    repoRoot: config.repoRoot,
+    branchName: candidate.branchName,
+    baseSha: candidate.baseSha,
+    headSha: candidate.headSha,
+    remoteHeadSha: null,
+    worktreeClean: true,
+    indexClean: true,
+    untrackedClean: true,
+    stagedTreeSha: candidate.treeSha,
+    stagedPaths: [],
+    unstagedPaths: [],
+    untrackedPaths: [],
+    commit: {
+      sha: candidate.headSha,
+      parentShas: parents.split(/\s+/).filter((value) => /^[a-f0-9]{40}$/.test(value)),
+      treeSha,
+      messageFingerprint: createHash("sha256").update(messageLines.join("\n").trimEnd()).digest("hex"),
+    },
+  };
 }
 
 function ordinaryCountersFromReviewConvergence(reviewConvergenceState = {}) {

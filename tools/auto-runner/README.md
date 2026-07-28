@@ -349,11 +349,13 @@ reuses an exact linked task worktree only when its durable ownership marker
 already matches, or materializes one for the already authenticated literal
 branch through the canonical durable pre-effect intent executor and records
 ownership only after exact effect readback. A restart between creation and the
-ownership marker adopts only that deterministic intent-bound worktree. This
-pre-takeover preparation runs before the startup lifecycle collector: process,
+ownership marker adopts only that deterministic intent-bound worktree. Before
+the startup lifecycle collector, read-only preparation authenticates the exact
+task ref and objects without creating a worktree or granting mutation authority: process,
 lease, issue, charge, and checkpoint authority remain control-plane reads,
 while the collector records distinct control-plane Git and task-workspace Git
-evidence and compares candidate identity only with the latter. It then repeats
+evidence and compares candidate identity only with the latter. After lifecycle
+takeover, the validation handler materializes the exact workspace and repeats
 repository/common-dir/config/ref/head/cleanliness authentication from that
 isolated workspace before validation resumes. It never rewrites the
 preserved branch or creates a replacement branch. Post-merge cleanup restores

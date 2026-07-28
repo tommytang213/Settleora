@@ -143,8 +143,8 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
-  assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*reconstructInitialValidationFailureCheckpoint/);
-  assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*reconstructInitialValidationFailureCheckpoint/);
+  assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
+  assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*authenticatedTaskRefGitEvidence/);
   assert.match(source, /const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);
