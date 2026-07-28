@@ -50,10 +50,12 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const continuation = state?.ordinaryContinuation;
     const identity = continuation?.identity;
     const headSha = identity?.headSha;
-    const candidates = [
+    const recordedCandidates = [
       ...(continuation?.sourceFailureHistory || []).map((entry) => entry?.candidate),
       continuation?.sourceFailureBatch?.candidate,
     ].filter(Boolean);
+    const cleanIdentityFallback = recordedCandidates.length === 0;
+    const candidates = cleanIdentityFallback && identity ? [identity] : recordedCandidates;
     const candidate = candidates[0];
     if (!repository || !Number.isSafeInteger(issueNumber) || state?.issue?.number !== issueNumber
       || !taskKey || !runId || !supervisorRunId || !branch || !sha.test(baseSha || "")
@@ -109,8 +111,12 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       || git(["rev-list", "--count", `${baseSha}..${initialHeadSha}`]).stdout.trim() !== "1") {
       return fail("historical_candidate_topology_mismatch");
     }
-    const subject = `Auto-runner issue #${issueNumber}: initial candidate before source classification`;
-    if (git(["show", "-s", "--format=%s", initialHeadSha]).stdout.trim() !== subject) {
+    const subject = git(["show", "-s", "--format=%s", initialHeadSha]).stdout.trim();
+    const expectedInitialFailureSubject =
+      `Auto-runner issue #${issueNumber}: initial candidate before source classification`;
+    if (cleanIdentityFallback
+      ? !subject.startsWith(`Auto-runner issue #${issueNumber}: `) || subject.length > 300
+      : subject !== expectedInitialFailureSubject) {
       return fail("historical_candidate_subject_mismatch");
     }
     if (git(["rev-parse", `${initialHeadSha}^{tree}`]).stdout.trim() !== candidate.treeSha) {

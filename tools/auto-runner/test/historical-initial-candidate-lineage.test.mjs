@@ -43,6 +43,17 @@ test("historical initial candidate accepts equal, one-merge, and many-merge main
   }
 });
 
+test("historical recovery falls back to an exact active identity without source failures", () => {
+  const fixture = makeFixture(2);
+  fixture.state.ordinaryContinuation.sourceFailureBatch = null;
+  fixture.state.ordinaryContinuation.sourceFailureHistory = [];
+  const result = verify(fixture);
+  assert.equal(result.ok, true, result.reasonCode);
+
+  fixture.intents[0].effect.messageDigest = "0".repeat(64);
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_commit_intent_mismatch");
+});
+
 test("historical initial candidate fail-closes on durable identity and effect contradictions", () => {
   const cases = [
     ["wrong issue", (f) => { f.state.issue.number = 958; }, "historical_candidate_authority_identity_mismatch"],
