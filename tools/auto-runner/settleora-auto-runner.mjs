@@ -2065,10 +2065,21 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       }
       const issue = live.issue || state.issue;
       const laneDecision = classifyIssueLane(issue);
+      const recoveryChargeId = Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null;
+      const sourceFailureCandidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate || null;
+      let preservedPriorOutcome = null;
+      if (state.claimAuthority?.mode !== claimAuthorityModes.preservedRecovery
+        && state.phase === "checkpoint_validation_commit"
+        && state.evidence?.localValidation?.status === "failed"
+        && sourceFailureCandidate) {
+        const tentativePriorOutcome = readPreservedPriorOutcome(config, state, {
+          chargeId: recoveryChargeId,
+          candidate: sourceFailureCandidate,
+        });
+        if (tentativePriorOutcome.ok) preservedPriorOutcome = tentativePriorOutcome;
+      }
       const preservedTerminalRecovery = state.claimAuthority?.mode === claimAuthorityModes.preservedRecovery
-        || (state.phase === "checkpoint_validation_commit"
-          && state.evidence?.localValidation?.status === "failed"
-          && state.ordinaryContinuation?.sourceFailureBatch);
+        || preservedPriorOutcome?.ok === true;
       if (!preservedTerminalRecovery) {
         const activeClaim = validateClaimAuthority(config, state.issue, issue, {
           mode: claimAuthorityModes.freshActive,
@@ -2081,7 +2092,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return { ok: true, state, issue, laneDecision };
       }
       const lineageOptions = {
-        expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+        expectedChargeId: recoveryChargeId,
         expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
           || state.sessionLifecycle?.state?.recovery?.operationId
           || null,
@@ -2092,7 +2103,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
       if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
       const originalCandidateIdentity = state.claimAuthority?.authority?.candidateIdentity || proof.candidateIdentity;
-      const priorOutcome = readPreservedPriorOutcome(config, state, {
+      const priorOutcome = preservedPriorOutcome || readPreservedPriorOutcome(config, state, {
         chargeId: lineageOptions.expectedChargeId,
         candidate: originalCandidateIdentity,
       });

@@ -158,7 +158,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
-    /const preservedTerminalRecovery = state\.claimAuthority\?\.mode === claimAuthorityModes\.preservedRecovery[\s\S]*state\.ordinaryContinuation\?\.sourceFailureBatch[\s\S]*if \(!preservedTerminalRecovery\) \{[\s\S]*mode: claimAuthorityModes\.freshActive[\s\S]*writeRecoveryState\(config, state\);[\s\S]*verifyHistoricalInitialCandidateLineage/,
+    /const tentativePriorOutcome = readPreservedPriorOutcome[\s\S]*if \(tentativePriorOutcome\.ok\) preservedPriorOutcome = tentativePriorOutcome;[\s\S]*const preservedTerminalRecovery = state\.claimAuthority\?\.mode === claimAuthorityModes\.preservedRecovery[\s\S]*preservedPriorOutcome\?\.ok === true;[\s\S]*if \(!preservedTerminalRecovery\) \{[\s\S]*mode: claimAuthorityModes\.freshActive[\s\S]*writeRecoveryState\(config, state\);[\s\S]*verifyHistoricalInitialCandidateLineage/,
   );
   assert.match(
     source,
