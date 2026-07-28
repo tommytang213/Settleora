@@ -118,6 +118,7 @@ import {
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
   listRecoverableRecoveryStates,
+  loadRecoveryState,
   persistCompleteHeadEvidence,
   recordIdempotentMutation,
   recordRecoveryAttempt,
@@ -1851,10 +1852,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
   const issue = { number: recovery.state?.issueNumber };
   if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) return { ok: false, reasonCode: "startup_recovery_issue_identity_missing" };
+  const authoritativeRecovery = loadRecoveryState(config, recovery.state);
+  if (!authoritativeRecovery.ok) return authoritativeRecovery;
   const budgetScopeId = config.logicalTaskBudgetScopeId || recovery.state?.supervisorRunId || recovery.state?.runId || config.supervisorRunId || runId;
   const loaded = loadLogicalTaskBudget(config, budgetScopeId);
   if (!loaded.ok) return loaded;
-  const chargeIds = Object.keys(recovery.state?.mutationMarkers?.logical_task_charge || {});
+  const chargeIds = Object.keys(authoritativeRecovery.state.mutationMarkers?.logical_task_charge || {});
   if (chargeIds.length !== 1) return { ok: false, reasonCode: "startup_recovery_charge_marker_ambiguous" };
   const marker = loaded.state.charges?.[chargeIds[0]];
   if (!marker
