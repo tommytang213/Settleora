@@ -1,5 +1,60 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959 and PR #1015 — dual-authority startup-recovery routing repair merged (2026-07-28)
+
+- PR #1015 merged normally with expected-head protection from exact authorized
+  source head `ddae81f9bbcc432521d7376135ffe0f7aa1ec54a`, tree
+  `2eb7a2e2938085cde4783d123a02e437d722e94e`, as merge commit
+  `cecd457ed89b5e347b97a2931ae504b87cf6a60d`. Its ordered parents are prior
+  `main` `c588109b69c5cf8a6da743f1806d0278ec6384c6` and the exact source head;
+  its merge tree is `2eb7a2e2938085cde4783d123a02e437d722e94e`, exactly equal to the
+  pre-merge source tree.
+- The exact 10-path repair preserves canonical current `main` as the
+  control-plane checkout while routing authoritative startup recovery through
+  independently reread control-plane Git and authenticated task Git/workspace
+  evidence. Historical recovery authenticates the literal preserved branch,
+  objects, lineage, tree, paths, digests, diff, intent, remotes, history, and
+  Git configuration before handoff or materialization. Both that historical
+  path and the same-workspace fast path reread and admit the live issue claim
+  before lifecycle collection or validation; closed issues, missing claim
+  labels, and stop labels remain fail closed. No implementation or initial
+  candidate is replayed, and control-plane authority remains separate from
+  task-workspace authority.
+- Exact-head evidence passed `npm ci`, doctor, changed-module syntax and ESM
+  imports, the complete auto-runner suite `1256/1256`, docs and scaffold
+  validation, diff and exact-path scope guards, and clean-worktree checks.
+  Final Gemini `strong_independent` and local Codex mechanics/integration/
+  recovery/Git/security reviews passed with zero material findings; exact-head
+  GitHub Codex produced no new finding. All 12 required CodeQL, Semgrep
+  CE/OSS, Trivy repository/aggregate, and both Scaffold Validation checks
+  passed. All four inline review threads were resolved, leaving zero
+  unresolved actionable threads. The source task token's direct
+  code-scanning-alert REST request returned HTTP 404; at the merge gate the
+  current token could read the inventory and it returned zero open alerts.
+- Immutable #959 identity remains issue `959`, task `20260724T075849`, branch
+  `feature/auto-959-harden-mobile-ocr-parsing-for-hk-chinese-2026-07-24t0758`,
+  base `ecf69d41e0dd96b9a05851af82db66e26d94ca2e`, head
+  `92b60cec46114c11a47184687509d30da6f5df10`, tree
+  `805fc34919cdd95ca9222b633a26cfd07d4a17b4`, and charge
+  `5c9ae164d122cabccefa40f98db88134633bd594c0b2834897f51679c7d7ad78`.
+  This repair, merge, issue handoff, and ledger hygiene created no #959 claim,
+  charge, task, branch, worktree, validation, implementation, commit, push,
+  PR, merge, label, issue-state, runtime, or product effect and did not consume
+  or resume the preserved chain.
+- #1012 and #959 remain open. A later separately authorized deployment,
+  runtime-profile/health reconciliation, and trusted continuation of the
+  preserved #959 chain remain the operational gate. #999 remains separate,
+  open, unimplemented, and untouched; the agreed Scaffold Validation
+  docs-only optimization is separate CI-platform work and was not performed.
+- Durable evidence: #1012 merge comment
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5105604457`,
+  #959 non-mutating handoff
+  `https://github.com/tommytang213/Settleora/issues/959#issuecomment-5105604720`,
+  source report
+  `/workspace/logs/settleora-codex-report-20260728-2104-issue1012-authoritative-recovery-task-workspace-routing.md`,
+  and merge/hygiene report
+  `/workspace/logs/settleora-codex-report-20260728-2235-pr1015-exact-head-merge-post-merge-hygiene.md`.
+
 ### Issues #1012/#959 and PR #1013 — preserved-candidate Git authority repair merged (2026-07-28)
 
 - PR #1013 merged normally with expected-head protection from exact authorized
