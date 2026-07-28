@@ -287,7 +287,8 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /baseSha: exactHeadEvidence\.baseSha \|\| recoveryState\?\.branch\?\.baseSha \|\| null,[\s\S]*expectedOriginMainSha: recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/);
   assert.match(source, /expectedReportPaths: \{[\s\S]*repoReportPath: promptInfo\.reportPath,[\s\S]*promptPath: promptInfo\.promptPath,[\s\S]*durableReportPath: iteration\.report\.copyPath/);
   assert.match(source, /ordinaryContinuation\.sourceFailureBatch = iteration\.sourceFailureBatch \|\| null;[\s\S]*ordinaryContinuation\.sourceFailureHistory = \[\.\.\.\(iteration\.sourceFailureHistory \|\| \[\]\)\]/);
-  assert.match(source, /const identity = \{[\s\S]*changedFiles,[\s\S]*changedFilesDigest: createHash\("sha256"\)\.update\(JSON\.stringify\(\[\.\.\.changedFiles\]\.sort\(\)\)\)\.digest\("hex"\)/);
+  assert.match(source, /if \(recoveryRecorder\) \{[\s\S]*const identity = \{[\s\S]*changedFiles,[\s\S]*changedFilesDigest: digestChangedFiles\(changedFiles\),[\s\S]*const ordinaryContinuation = createOrdinaryContinuationState/);
+  assert.match(source, /if \(preparedFixCanBeAdopted\)[\s\S]*const replacement = \{[\s\S]*identity: replacementIdentity,[\s\S]*candidate_reconciliation: \{[\s\S]*targetDigest: ordinaryContinuationPhaseTarget\(replacement, "candidate_reconciliation"\)/);
   assert.equal((source.match(/baseSha: exactHeadEvidence\.currentMainSha \|\| recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/g) || []).length, 2);
   assert.match(source, /prospectiveMergeValidationRequired: true/);
   assert.match(source, /runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);

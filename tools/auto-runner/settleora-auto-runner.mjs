@@ -928,8 +928,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       treeSha: getRefSha("HEAD^{tree}"),
       diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
       changedFiles,
-      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
-      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+      changedFilesDigest: digestChangedFiles(changedFiles),
     };
     const failures = sourceFailuresFromValidation(iteration.validation, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: config.taskKey || promptInfo.timestampKey, branchName, identity: initialIdentity, profile: laneDecision.validationProfile, inContract: true });
     const batch = freezeSourceFailureBatch(failures, initialIdentity);
@@ -1138,6 +1137,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       treeSha: getRefSha("HEAD^{tree}"),
       diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
       changedFiles,
+      changedFilesDigest: digestChangedFiles(changedFiles),
     };
     const ordinaryContinuation = createOrdinaryContinuationState({ logicalTaskKey: config.taskKey || `issue-${issue.number}`, executionKey: runId, issueNumber: issue.number, branchName, identity, counters: ordinaryCountersFromReviewConvergence(iteration.reviewConvergenceState) });
     ordinaryContinuation.sourceFailureBatch = iteration.sourceFailureBatch || null;
@@ -2178,11 +2178,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
   }
   if (preparedFixCanBeAdopted) {
     const replacementIdentity = ordinaryIdentityForHead(initial.identity.baseSha, liveHeadAtRecovery);
-    initial = {
+    const replacement = {
       ...initial,
       identity: replacementIdentity,
       phase: "local_validation",
-      effects: initial.effects?.candidate_reconciliation ? { candidate_reconciliation: initial.effects.candidate_reconciliation } : {},
+      effects: {},
       counters: {
         ...initial.counters,
         localSourceChangingRoundsPerEpoch: initial.counters.localSourceChangingRoundsPerEpoch + 1,
@@ -2195,6 +2195,17 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       sourceFailureFixIntent: null,
       sourceFailureBatch: null,
     };
+    initial = initial.effects?.candidate_reconciliation
+      ? {
+          ...replacement,
+          effects: {
+            candidate_reconciliation: {
+              ...initial.effects.candidate_reconciliation,
+              targetDigest: ordinaryContinuationPhaseTarget(replacement, "candidate_reconciliation"),
+            },
+          },
+        }
+      : replacement;
     state = synchronizeRecoveredSourceChange(state, initial, "ordinary_source_failure_fix_adopted");
     await writeRecoveryState(config, { ...state, ordinaryContinuation: initial });
   }
