@@ -33,6 +33,7 @@ import {
   commitExplicitPaths,
   createTaskBranch,
   adoptHistoricalTaskWorkspace,
+  canonicalEffectContext,
   ensureLaunchWorkspace,
   ensureTaskMutationWorkspace,
   fetchOriginMain,
@@ -44,6 +45,7 @@ import {
   listChangedFiles,
   listWorkingTreeChangedFiles,
   runTrustedProspectiveMergeTree,
+  restoreControlPlaneRepositoryContext,
   sourceStateIdentityForCommit,
   workingTreeDiffHash,
 } from "./lib/git-workspace.mjs";
@@ -2104,6 +2106,7 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
         headSha: proof.candidateIdentity.headSha,
         taskKey: state.taskKey,
         ownershipMarkers: state.mutationMarkers?.worktree_ownership_created || {},
+        effectContext: canonicalEffectContext(config, state.sessionLifecycle),
       });
       const workspaceIdentity = canonicalGithubEvidenceDigest({
         repository: config.repositorySlug,
@@ -2545,6 +2548,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         state = { ...state, sessionLifecycle: terminal.state };
       }
       state = advanceRecoveryPhase(state, { phase: "completed", firstIncompleteAction: state.firstIncompleteAction, nextSafeAction: "none" });
+      try {
+        restoreControlPlaneRepositoryContext(config);
+      } catch {
+        return { ok: false, outcome: "cleanup_required", reasonCode: "cleanup_control_plane_restore_failed" };
+      }
       return { ok: true, evidence: { phase: cleanup.state.phase, targetDigest: cleanup.state.targetDigest } };
     },
     adoptEffect: async (phase, continuation, adopted) => adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, state.sessionLifecycle),

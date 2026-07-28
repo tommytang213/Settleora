@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   adoptHistoricalTaskWorkspace,
   bindTrustedRepositoryContext,
+  restoreControlPlaneRepositoryContext,
   runGit,
   sourceStateIdentityForCommit,
 } from "../lib/git-workspace.mjs";
@@ -84,10 +85,38 @@ test("historical task workspace is materialized without moving canonical main", 
       logsRoot,
       repositorySlug: "tommytang213/Settleora",
     };
+    const effectContext = {
+      repository: config.repositorySlug,
+      sourceTaskKey: "fixture-task",
+      runId: "fixture-run",
+      logicalTaskIdentity: "tommytang213/Settleora#1",
+      claimIdentity: "tommytang213/Settleora#1",
+      chargeIdentity: "fixture-charge",
+      sessionId: "fixture-session",
+      authorityGeneration: 1,
+      branchName: "feature/preserved",
+      currentAuthority: {
+        runId: "fixture-run",
+        sessionId: "fixture-session",
+        authorityGeneration: 1,
+        status: "active",
+      },
+      expectedIdentity: {
+        repository: config.repositorySlug,
+        sourceTaskKey: "fixture-task",
+        runId: "fixture-run",
+        logicalTaskIdentity: "tommytang213/Settleora#1",
+        claimIdentity: "tommytang213/Settleora#1",
+        chargeIdentity: "fixture-charge",
+        sessionId: "fixture-session",
+        authorityGeneration: 1,
+      },
+    };
     const adopted = adoptHistoricalTaskWorkspace(config, {
       branchName: "feature/preserved",
       headSha: candidateSha,
       taskKey: "fixture-task",
+      effectContext,
     });
     assert.notEqual(adopted.taskRoot, repoRoot);
     assert.equal(runGit(["rev-parse", "HEAD"], { cwd: repoRoot }).stdout.trim(), mainSha);
@@ -96,11 +125,14 @@ test("historical task workspace is materialized without moving canonical main", 
     assert.equal(runGit(["branch", "--show-current"], { cwd: adopted.taskRoot }).stdout.trim(),
       "feature/preserved");
     assert.equal(adopted.created, true);
-    assert.throws(() => adoptHistoricalTaskWorkspace(config, {
+    const crashWindowRecovery = adoptHistoricalTaskWorkspace(config, {
       branchName: "feature/preserved",
       headSha: candidateSha,
       taskKey: "fixture-task",
-    }), /unowned linked worktree/);
+      effectContext,
+    });
+    assert.equal(crashWindowRecovery.taskRoot, adopted.taskRoot);
+    assert.equal(crashWindowRecovery.created, true);
     const ownershipIdentity = canonicalGithubEvidenceDigest({
       repository: config.repositorySlug,
       branchName: "feature/preserved",
@@ -110,6 +142,7 @@ test("historical task workspace is materialized without moving canonical main", 
       branchName: "feature/preserved",
       headSha: candidateSha,
       taskKey: "fixture-task",
+      effectContext,
       ownershipMarkers: {
         [`feature/preserved:${ownershipIdentity}`]: {
           target: ownershipIdentity,
@@ -119,6 +152,9 @@ test("historical task workspace is materialized without moving canonical main", 
     });
     assert.equal(repeated.taskRoot, adopted.taskRoot);
     assert.equal(repeated.created, false);
+    assert.equal(restoreControlPlaneRepositoryContext(config), repoRoot);
+    assert.equal(config.repoRoot, repoRoot);
+    assert.equal(process.cwd(), repoRoot);
   } finally {
     process.chdir("/tmp");
     rmSync(root, { recursive: true, force: true });

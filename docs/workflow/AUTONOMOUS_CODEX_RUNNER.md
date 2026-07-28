@@ -88,10 +88,13 @@ first authenticates the literal task branch ref and exact candidate
 parent/tree/diff/path/finalized-intent authority through the trusted common
 repository. It then reuses an isolated linked worktree only with its exact
 prior durable ownership marker, or materializes one for that same branch and
-records ownership only for the newly created worktree. It repeats all Git
-environment, common-dir, branch/head, and cleanliness checks there before
-resuming validation. Unowned or conflicting worktrees, ref drift, unsafe
-worktree-scoped config, or any later external effect remain fail-closed.
+records ownership only after canonical pre-effect intent execution and exact
+readback. A crash-window restart may adopt only that deterministic
+intent-bound worktree. It repeats all Git environment, common-dir, branch/head,
+and cleanliness checks there before resuming validation, and restores the
+admitted control-plane repository context after successful cleanup. Unowned
+or conflicting worktrees, ref drift, unsafe worktree-scoped config, or any
+later external effect remain fail-closed.
 
 ## Post-implementation continuation authorities
 

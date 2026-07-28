@@ -347,10 +347,13 @@ authority with no later push, PR, merge, or replacement-candidate effect.
 The clean current-`main` control-plane checkout may remain in place. Recovery
 reuses an exact linked task worktree only when its durable ownership marker
 already matches, or materializes one for the already authenticated literal
-branch and records ownership only for that newly created worktree. It then
+branch through the canonical durable pre-effect intent executor and records
+ownership only after exact effect readback. A restart between creation and the
+ownership marker adopts only that deterministic intent-bound worktree. It then
 repeats repository/common-dir/config/ref/head/cleanliness authentication from
 that isolated workspace before validation resumes. It never rewrites the
-preserved branch or creates a replacement branch.
+preserved branch or creates a replacement branch. Post-merge cleanup restores
+the admitted control-plane repository context before another task iteration.
 An already committed pre-push source fix is resumable only as an exact
 one-parent descendant chain whose every step has one matching finalized commit
 intent and stays inside the original candidate path allowlist.
