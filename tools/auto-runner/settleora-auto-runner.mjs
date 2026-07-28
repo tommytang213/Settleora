@@ -1979,8 +1979,29 @@ function createProductionRecoveryRecorder(config, input) {
 
 async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null) {
   return executeStartupContinuation(config, startupRecovery, {
+    prepareAuthoritativeRecovery: async ({ state }) => {
+      if (state.phase !== "checkpoint_validation_commit") return { ok: true, state };
+      if (getCurrentBranch({ cwd: config.repoRoot }) === state.branch.name
+        && getRefSha("HEAD", { cwd: config.repoRoot }) === state.branch.currentHeadSha) {
+        return { ok: true, state };
+      }
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      if (!startupEvidenceCheck.ok) {
+        return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
+      }
+      const live = readIssueLive(config, state.issue.number);
+      if (!live.ok) {
+        return { ok: false, reasonCode: live.reason || "recovery_issue_read_failed", state };
+      }
+      const issue = live.issue || state.issue;
+      const laneDecision = classifyIssueLane(issue);
+      const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
+      return checkpoint.ok
+        ? { ok: true, state, checkpoint, issue, laneDecision }
+        : { ok: false, reasonCode: checkpoint.reasonCode, state };
+    },
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
-    default: async ({ state, boundary }) => {
+    default: async ({ state, boundary, preparation }) => {
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
         return {
@@ -2022,7 +2043,8 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         }
       }
       if (boundary.phase === "checkpoint_validation_commit") {
-        const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
+        const checkpoint = preparation?.checkpoint
+          || reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
         if (checkpoint.ok) return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: checkpoint.reasonCode, state };
       }

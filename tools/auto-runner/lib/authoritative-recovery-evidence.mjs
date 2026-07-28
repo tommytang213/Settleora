@@ -21,19 +21,28 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
   if (!required.ok) return failed(required.reasonCode, now, diagnostics, contradictions, ambiguities);
   const readProcess = adapters.readProcess || (() => defaultProcessRead(config, identity));
   const readLease = adapters.readLease || (() => defaultLeaseRead(config, identity, now));
-  const readGit = adapters.readGit || (() => defaultGitRead(config, identity));
+  const taskRepoRoot = path.resolve(config.repoRoot);
+  const controlPlaneRepoRoot = path.resolve(config.controlPlaneRepoRoot || config.repoRoot);
+  const readGit = adapters.readGit || (() => defaultGitRead(config, identity, taskRepoRoot));
+  const readControlPlaneGit = adapters.readControlPlaneGit
+    || (controlPlaneRepoRoot === taskRepoRoot
+      ? readGit
+      : () => defaultGitRead(config, identity, controlPlaneRepoRoot));
   const readGithub = adapters.readGithub || (() => defaultGithubRead(config, identity));
   let processRead;
   let leaseRead;
   let gitRead;
+  let controlPlaneGitRead;
   let githubRead;
   try { processRead = sanitizeProcess(readProcess()); } catch { diagnostics.push("process_read_failed"); }
   try { leaseRead = sanitizeLease(readLease()); } catch { diagnostics.push("lease_read_failed"); }
   try { gitRead = sanitizeGit(readGit()); } catch { diagnostics.push("git_read_failed"); }
+  try { controlPlaneGitRead = sanitizeGit(readControlPlaneGit()); } catch { diagnostics.push("control_plane_git_read_failed"); }
   try { githubRead = sanitizeGithub(readGithub(), expected); } catch { diagnostics.push("github_read_failed"); }
   if (!processRead?.complete) diagnostics.push("process_identity_or_liveness_incomplete");
   if (!leaseRead?.complete) diagnostics.push("lease_identity_or_liveness_incomplete");
   if (!gitRead?.complete) diagnostics.push("git_readback_incomplete");
+  if (!controlPlaneGitRead?.complete) diagnostics.push("control_plane_git_readback_incomplete");
   if (!githubRead?.complete) diagnostics.push("github_readback_incomplete");
   if (processRead?.alive === true && leaseRead?.valid === false) contradictions.push("live_process_stale_lease");
   if (processRead?.alive === false && leaseRead?.valid === true) contradictions.push("dead_process_valid_lease");
@@ -58,7 +67,12 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
     process: processRead || null,
     lease: leaseRead || null,
     checkpoint: { digest: digest64(identity.checkpointDigest), valid: identity.checkpointValid === true },
+    // `git` remains the compatibility projection for the task mutation
+    // workspace. The named fields prevent callers from treating a clean
+    // current-main control-plane checkout as the historical candidate.
     git: gitRead || null,
+    controlPlaneGit: controlPlaneGitRead || null,
+    taskGit: gitRead || null,
     github: githubRead || null,
     effects,
     intents,
@@ -214,13 +228,13 @@ function defaultLeaseRead(config, identity, now) {
   return { complete: Boolean(expiry), runId: read.heartbeat.runId, runnerRunId: read.heartbeat.runnerRunId, heartbeatAt: iso(read.heartbeat.updatedAt), expiresAt: expiry, valid: Boolean(expiry) && Date.parse(expiry) >= now.getTime() && !read.heartbeat.terminal, source: "supervisor_heartbeat" };
 }
 
-function defaultGitRead(config, identity) {
-  const run = (args) => spawnSync("git", args, { cwd: config.repoRoot, encoding: "utf8", timeout: 15_000 });
+function defaultGitRead(config, identity, repoRoot = config.repoRoot) {
+  const run = (args) => spawnSync("git", args, { cwd: repoRoot, encoding: "utf8", timeout: 15_000 });
   const status = run(["status", "--porcelain=v2"]);
   const branch = run(["symbolic-ref", "--quiet", "--short", "HEAD"]);
   const head = run(["rev-parse", "HEAD"]);
   const commit = run(["show", "-s", "--format=%P%n%T%n%B", "HEAD"]);
-  assertRepositoryRemoteIdentity(config);
+  assertRepositoryRemoteIdentity({ ...config, repoRoot });
   const remote = run(["ls-remote", "--exit-code", "origin", `refs/heads/${identity.branchName}`]);
   const staged = run(["diff", "--cached", "--name-only"]);
   const unstaged = run(["diff", "--name-only"]);
@@ -230,7 +244,7 @@ function defaultGitRead(config, identity) {
   const lines = status.stdout.split("\n").filter(Boolean);
   const remoteHead = remote.status === 0 ? remote.stdout.trim().split(/\s+/)[0] : null;
   const [parents = "", treeSha = "", ...messageLines] = commit.stdout.replace(/\r\n/g, "\n").split("\n");
-  return { complete: true, source: "git_cli", branchName: branch.stdout.trim(), baseSha: sha40(identity.baseSha), headSha: head.stdout.trim(), remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), untrackedPaths: paths(untracked.stdout), stagedTreeSha: sha40(stagedTree.stdout.trim()), stagedPaths: paths(staged.stdout), unstagedPaths: paths(unstaged.stdout), commit: { sha: head.stdout.trim(), parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
+  return { complete: true, source: "git_cli", repoRoot: path.resolve(repoRoot), branchName: branch.stdout.trim(), baseSha: sha40(identity.baseSha), headSha: head.stdout.trim(), remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), untrackedPaths: paths(untracked.stdout), stagedTreeSha: sha40(stagedTree.stdout.trim()), stagedPaths: paths(staged.stdout), unstagedPaths: paths(unstaged.stdout), commit: { sha: head.stdout.trim(), parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
 }
 
 function defaultGithubRead(config, identity) {
@@ -330,7 +344,7 @@ function sanitizeIdentity(v) { return { repository: bounded(v.repository, 240), 
 function sanitizeAuthority(v = {}) { return { ownerSessionId: bounded(v.ownerSessionId, 200), generation: Number.isSafeInteger(v.generation) ? v.generation : null, status: bounded(v.status, 40) }; }
 function sanitizeProcess(v = {}) { return { complete: v.complete === true, pid: Number.isSafeInteger(v.pid) ? v.pid : null, ownerRunId: bounded(v.ownerRunId, 160), alive: typeof v.alive === "boolean" ? v.alive : null, source: bounded(v.source, 80) }; }
 function sanitizeLease(v = {}) { return { complete: v.complete === true, runId: bounded(v.runId, 120), runnerRunId: bounded(v.runnerRunId, 160), heartbeatAt: iso(v.heartbeatAt), expiresAt: iso(v.expiresAt), valid: typeof v.valid === "boolean" ? v.valid : null, source: bounded(v.source, 80) }; }
-function sanitizeGit(v = {}) { return { complete: v.complete === true, source: bounded(v.source, 80), branchName: bounded(v.branchName, 240), baseSha: sha40(v.baseSha), headSha: sha40(v.headSha), remoteHeadSha: sha40(v.remoteHeadSha), worktreeClean: v.worktreeClean === true, indexClean: v.indexClean === true, untrackedClean: v.untrackedClean === true, stagedTreeSha: sha40(v.stagedTreeSha), stagedPaths: Array.isArray(v.stagedPaths) ? v.stagedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], unstagedPaths: Array.isArray(v.unstagedPaths) ? v.unstagedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], untrackedPaths: Array.isArray(v.untrackedPaths) ? v.untrackedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], commit: v.commit && { sha: sha40(v.commit.sha), treeSha: sha40(v.commit.treeSha), parentSha: sha40(v.commit.parentSha), parentShas: Array.isArray(v.commit.parentShas) ? v.commit.parentShas.filter(sha40).slice(0, 8) : [], messageFingerprint: digest64(v.commit.messageFingerprint) } }; }
+function sanitizeGit(v = {}) { return { complete: v.complete === true, source: bounded(v.source, 80), repoRoot: bounded(v.repoRoot, 1000), branchName: bounded(v.branchName, 240), baseSha: sha40(v.baseSha), headSha: sha40(v.headSha), remoteHeadSha: sha40(v.remoteHeadSha), worktreeClean: v.worktreeClean === true, indexClean: v.indexClean === true, untrackedClean: v.untrackedClean === true, stagedTreeSha: sha40(v.stagedTreeSha), stagedPaths: Array.isArray(v.stagedPaths) ? v.stagedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], unstagedPaths: Array.isArray(v.unstagedPaths) ? v.unstagedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], untrackedPaths: Array.isArray(v.untrackedPaths) ? v.untrackedPaths.filter((value) => typeof value === "string").slice(0, 200) : [], commit: v.commit && { sha: sha40(v.commit.sha), treeSha: sha40(v.commit.treeSha), parentSha: sha40(v.commit.parentSha), parentShas: Array.isArray(v.commit.parentShas) ? v.commit.parentShas.filter(sha40).slice(0, 8) : [], messageFingerprint: digest64(v.commit.messageFingerprint) } }; }
 function sanitizeGithub(v = {}, expected = {}) { const fingerprints = new Set([expected.commentFingerprint, ...(expected.commentFingerprints || [])].filter(digest64)); const canonicalFingerprints = new Set([expected.commentCanonicalFingerprint, ...(expected.commentCanonicalFingerprints || [])].filter(digest64)); const comments = Array.isArray(v.comments) ? v.comments.map((c) => ({ id: bounded(c.id, 120), fingerprint: digest64(c.fingerprint), canonicalFingerprint: digest64(c.canonicalFingerprint), channel: bounded(c.channel, 30), targetNumber: Number.isSafeInteger(c.targetNumber) ? c.targetNumber : null })).filter((c) => (expected.commentId && c.id === expected.commentId) || fingerprints.has(c.fingerprint) || canonicalFingerprints.has(c.canonicalFingerprint)).slice(0, 50) : []; return { complete: v.complete === true, source: bounded(v.source, 80), pr: v.pr ? { number: v.pr.number, state: bounded(v.pr.state, 20), baseRefName: bounded(v.pr.baseRefName, 120), headRefName: bounded(v.pr.headRefName, 240), headSha: sha40(v.pr.headSha), draft: v.pr.draft === true, mergeable: bounded(v.pr.mergeable, 40), mergeStateStatus: bounded(v.pr.mergeStateStatus, 40), mergeSha: sha40(v.pr.mergeSha), mergeParentShas: Array.isArray(v.pr.mergeParentShas) ? v.pr.mergeParentShas.filter(sha40).slice(0, 2) : [] } : null, comments, issue: v.issue ? { number: v.issue.number, state: bounded(v.issue.state, 20), stateReason: bounded(v.issue.stateReason, 20) } : null, checks: v.checks && { state: bounded(v.checks.state, 30), pending: Number.isSafeInteger(v.checks.pending) ? v.checks.pending : 0, failed: Number.isSafeInteger(v.checks.failed) ? v.checks.failed : 0 }, hygiene: Array.isArray(v.hygiene) ? v.hygiene.filter(digest64).slice(0, 50) : [] }; }
 function commentIdentity(comment = {}, target = {}) { return { id: bounded(comment.id, 120), fingerprint: fingerprint(comment.body || ""), canonicalFingerprint: canonicalGithubEvidenceDigest(String(comment.body || "")), channel: bounded(target.channel, 30), targetNumber: Number.isSafeInteger(target.targetNumber) ? target.targetNumber : null }; }
 function commentMatchesIntent(comment, intent) {
