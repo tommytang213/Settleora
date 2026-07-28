@@ -1849,15 +1849,52 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   return iteration;
 }
 
-function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
-  const issue = { number: recovery.state?.issueNumber };
+export function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
+  const issue = { number: recovery.state?.issue?.number ?? recovery.state?.issueNumber };
   if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) return { ok: false, reasonCode: "startup_recovery_issue_identity_missing" };
   const authoritativeRecovery = loadRecoveryState(config, recovery.state);
   if (!authoritativeRecovery.ok) return authoritativeRecovery;
-  const budgetScopeId = config.logicalTaskBudgetScopeId || recovery.state?.supervisorRunId || recovery.state?.runId || config.supervisorRunId || runId;
+  const budgetScopeId = config.logicalTaskBudgetScopeId
+    || recovery.state?.run?.supervisorRunId
+    || recovery.state?.supervisorRunId
+    || recovery.state?.run?.runId
+    || recovery.state?.runId
+    || config.supervisorRunId
+    || runId;
   const loaded = loadLogicalTaskBudget(config, budgetScopeId);
   if (!loaded.ok) return loaded;
-  const chargeIds = Object.keys(authoritativeRecovery.state.mutationMarkers?.logical_task_charge || {});
+  let recoveryState = authoritativeRecovery.state;
+  let chargeIds = Object.keys(recoveryState.mutationMarkers?.logical_task_charge || {});
+  if (chargeIds.length === 0) {
+    const matchingCharges = Object.entries(loaded.state.charges || {}).filter(([, candidate]) =>
+      candidate.identity?.repository === config.repositorySlug
+        && candidate.identity?.issueNumber === issue.number
+        && candidate.identity?.taskLineageId === `issue-${issue.number}`
+        && candidate.identity?.claimIdentity === `${config.repositorySlug}#${issue.number}`);
+    if (matchingCharges.length !== 1) {
+      return { ok: false, reasonCode: "startup_recovery_charge_marker_reconciliation_ambiguous" };
+    }
+    const [chargeId] = matchingCharges[0];
+    const reconciledAt = new Date().toISOString();
+    recoveryState = {
+      ...recoveryState,
+      mutationMarkers: {
+        ...(recoveryState.mutationMarkers || {}),
+        logical_task_charge: {
+          [chargeId]: {
+            status: "completed",
+            target: `issue-${issue.number}`,
+            correlation: chargeId,
+            updatedAt: reconciledAt,
+          },
+        },
+      },
+      updatedAt: reconciledAt,
+    };
+    const written = writeRecoveryState(config, recoveryState);
+    recoveryState = written.state;
+    chargeIds = [chargeId];
+  }
   if (chargeIds.length !== 1) return { ok: false, reasonCode: "startup_recovery_charge_marker_ambiguous" };
   const marker = loaded.state.charges?.[chargeIds[0]];
   if (!marker
@@ -1880,7 +1917,7 @@ function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
     reasonCode: "startup_recovery_existing_charge_reused",
   };
   Object.defineProperty(result, "authoritativeRecovery", {
-    value: authoritativeRecovery,
+    value: { ...authoritativeRecovery, state: recoveryState },
     enumerable: false,
   });
   return result;

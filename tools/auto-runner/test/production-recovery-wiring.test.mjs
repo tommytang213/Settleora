@@ -11,7 +11,9 @@ import {
   loadRecoveryState,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
+import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { discoverStartupRecovery, executeStartupContinuation } from "../lib/recovery-continuation.mjs";
+import { chargeStartupRecoveryLogicalTask } from "../settleora-auto-runner.mjs";
 
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-production-recovery-"));
@@ -192,6 +194,76 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /prospective_validation_source_checkout_not_restored/);
   assert.match(source, /getRefSha\("origin\/main"\) !== continuation\.expectedOriginMainSha/);
   assert.match(source, /headChangeCheckpoint: async \(headSha\)[\s\S]*expectedOriginMainSha: continuation\.expectedOriginMainSha/);
+});
+
+test("startup recovery reconciles the unique accepted charge after a claim-to-marker crash", () => {
+  const config = tempConfig({
+    repositorySlug: "tommytang213/Settleora",
+    maxIterations: 3,
+  });
+  try {
+    const state = recoveryState();
+    const written = writeRecoveryState(config, state);
+    const budgetScopeId = state.run.supervisorRunId;
+    const charged = chargeAcceptedLogicalTask(config, {
+      budgetScopeId,
+      maxTasks: config.maxIterations,
+      issue: state.issue,
+      taskLineageId: `issue-${state.issue.number}`,
+      claimIdentity: `${config.repositorySlug}#${state.issue.number}`,
+      acceptedAt: "2026-07-13T12:23:01.000Z",
+    });
+    assert.equal(charged.ok, true);
+    assert.equal(charged.charged, true);
+
+    const result = chargeStartupRecoveryLogicalTask(config, state.run.runId, {
+      state,
+      statePath: written.statePath,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.duplicate, true);
+    assert.equal(result.charged, false);
+    assert.equal(result.chargeId, charged.chargeId);
+    assert.deepEqual(
+      Object.keys(result.authoritativeRecovery.state.mutationMarkers.logical_task_charge),
+      [charged.chargeId],
+    );
+    const persisted = loadRecoveryState(config, state);
+    assert.equal(
+      persisted.state.mutationMarkers.logical_task_charge[charged.chargeId].correlation,
+      charged.chargeId,
+    );
+
+    const repeated = chargeStartupRecoveryLogicalTask(config, state.run.runId, {
+      state: persisted.state,
+      statePath: persisted.statePath,
+    });
+    assert.equal(repeated.ok, true);
+    assert.equal(repeated.chargeId, charged.chargeId);
+    assert.equal(repeated.acceptedLogicalTaskCount, 1);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup recovery does not synthesize a missing accepted charge", () => {
+  const config = tempConfig({
+    repositorySlug: "tommytang213/Settleora",
+    maxIterations: 3,
+  });
+  try {
+    const state = recoveryState();
+    const written = writeRecoveryState(config, state);
+    const result = chargeStartupRecoveryLogicalTask(config, state.run.runId, {
+      state,
+      statePath: written.statePath,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, "startup_recovery_charge_marker_reconciliation_ambiguous");
+    assert.deepEqual(loadRecoveryState(config, state).state.mutationMarkers.logical_task_charge, undefined);
+  } finally {
+    config.cleanup();
+  }
 });
 
 test("stable-launched supervisor main persists startup failures before rethrow", () => {
