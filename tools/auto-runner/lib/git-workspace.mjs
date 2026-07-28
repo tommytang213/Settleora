@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
+import {
+  existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
@@ -67,8 +69,16 @@ export function adoptHistoricalTaskWorkspace(config, {
       .update(JSON.stringify([config.repositorySlug, taskKey, branchName, headSha]))
       .digest("hex").slice(0, 20);
     taskRoot = path.join(parent, `recovery-${identity}`);
-    if (existsSync(taskRoot)) throw new Error("Historical task worktree target already exists");
-    mkdirSync(taskRoot, { mode: 0o700 });
+    if (existsSync(taskRoot)) {
+      const target = lstatSync(taskRoot);
+      if (!target.isDirectory() || target.isSymbolicLink() || realpathSync(taskRoot) !== taskRoot
+        || (target.mode & 0o077) !== 0 || readdirSync(taskRoot).length !== 0
+        || (typeof process.getuid === "function" && target.uid !== process.getuid())) {
+        throw new Error("Historical task worktree target already exists ambiguously");
+      }
+    } else {
+      mkdirSync(taskRoot, { mode: 0o700 });
+    }
     const created = runFixedTrustedGit(controlRoot, [
       "-c", "core.hooksPath=/dev/null",
       "worktree", "add", "--", taskRoot, branchName,
