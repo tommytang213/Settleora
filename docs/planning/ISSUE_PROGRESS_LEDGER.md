@@ -1,5 +1,60 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959 and PR #1013 — preserved-candidate Git authority repair merged (2026-07-28)
+
+- PR #1013 merged normally with expected-head protection from exact authorized
+  source head `43b69f065154fe576656e41d1653d24099ca4300`, tree
+  `4e8df825da776979161c85c0cbb15f6648f66b27`, as merge commit
+  `5f5a47b1e61132d8e695bbfdf73ea68c38489f55`. Its parents are prior `main`
+  `f2cfe528060bb799d987b2423dbc955160d4ec27` and the exact source head; its
+  merge tree is `4e8df825da776979161c85c0cbb15f6648f66b27`, exactly equal to the
+  authorized source tree.
+- The 11-path repair preserves canonical current `main` as the control plane
+  and admits the exact preserved historical candidate only in an isolated
+  linked worktree after literal branch, ancestry, tree, diff, path, digest,
+  intent, lifecycle, claim, charge, counter, Git configuration, remote, and
+  no-later-effect authority checks. Worktree creation is pre-effect-intent
+  protected and crash-safe; existing worktrees require prior exact intent and
+  live readback; ownership is recorded only after confirmation. Runtime
+  admission remains bound to the frozen control-plane repository identity, and
+  successful cleanup restores repository context, `config.repoRoot`, and cwd.
+  Missing, rewritten, merged, additional, duplicate-like, dirty, ref-drifted,
+  unsafe-configured, hostile-object/ref/hook/filter, untrusted-remote,
+  pending-effect, or later-effect evidence remains fail closed.
+- Exact-head local evidence passed `npm ci`, doctor, changed-module syntax and
+  ESM imports, the complete auto-runner suite `1250/1250`, docs and scaffold
+  validation, diff and exact-path scope guards, and clean-worktree checks.
+  Final Gemini `strong_independent` passed at high confidence with zero
+  findings; final local mechanics/integration/recovery/Git/security review
+  passed with zero findings; exact-head GitHub Codex found no major issues.
+  All required CodeQL, Semgrep CE/OSS, Trivy repository/aggregate, and both
+  Scaffold Validation checks passed. Relevant open code-scanning alerts were
+  zero; all four review threads were resolved, leaving zero unresolved
+  actionable threads.
+- Immutable #959 identity remained issue `959`, task `20260724T075849`, branch
+  `feature/auto-959-harden-mobile-ocr-parsing-for-hk-chinese-2026-07-24t0758`,
+  base `ecf69d41e0dd96b9a05851af82db66e26d94ca2e`, head
+  `92b60cec46114c11a47184687509d30da6f5df10`, tree
+  `805fc34919cdd95ca9222b633a26cfd07d4a17b4`, and charge
+  `5c9ae164d122cabccefa40f98db88134633bd594c0b2834897f51679c7d7ad78`.
+  The repair, merge, issue handoff, and ledger hygiene created no #959 claim,
+  charge, task, branch, validation, implementation, PR, merge, label,
+  runtime/profile/service, or product effect and did not consume or resume the
+  preserved chain.
+- #1012 and #959 remain open. A later separately authorized runtime
+  deployment/profile/health reconciliation and one trusted continuation of the
+  preserved #959 chain remain the operational gate. #989 and #991 remain
+  closed after their prior close criteria; #999 remains separate, open,
+  unimplemented, and untouched.
+- Durable evidence: #1012 merge comment
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5104122601`,
+  #959 non-mutating handoff
+  `https://github.com/tommytang213/Settleora/issues/959#issuecomment-5104122849`,
+  source report
+  `/workspace/logs/settleora-codex-report-20260728-1846-issue1012-preserved-candidate-git-authority-repair.md`,
+  and merge/hygiene report
+  `/workspace/logs/settleora-codex-report-20260728-2021-pr1013-exact-head-merge-post-merge-hygiene.md`.
+
 ### Issues #989/#991/#959/#999 — installed runtime adopted; preserved #959 reached a new fail-closed Git contradiction (2026-07-28)
 
 - Task `20260728-1817` adopted the already exchanged runtime without another
