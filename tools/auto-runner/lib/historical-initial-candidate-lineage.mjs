@@ -204,11 +204,13 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const budgetLoader = options.loadBudget || loadLogicalTaskBudget;
     const budget = budgetLoader(config, supervisorRunId);
     const charges = Object.entries(budget?.state?.charges || {});
-    const chargeId = charges[0]?.[0];
-    if (!budget?.ok || budget.state.acceptedLogicalTaskCount !== 1 || charges.length !== 1
-      || chargeId !== options.expectedChargeId || charges[0][1]?.identity?.repository !== repository
-      || charges[0][1]?.identity?.issueNumber !== issueNumber
-      || charges[0][1]?.identity?.claimIdentity !== `${repository}#${issueNumber}`
+    const matchingCharges = charges.filter(([id, marker]) =>
+      id === options.expectedChargeId
+      && marker?.identity?.repository === repository
+      && marker?.identity?.issueNumber === issueNumber
+      && marker?.identity?.claimIdentity === `${repository}#${issueNumber}`);
+    const chargeId = matchingCharges[0]?.[0];
+    if (!budget?.ok || matchingCharges.length !== 1
       || lifecycle.logicalTask?.chargeMarkerRef !== budget.statePath) {
       return fail("historical_candidate_charge_mismatch");
     }

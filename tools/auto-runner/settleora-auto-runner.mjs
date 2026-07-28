@@ -29,6 +29,7 @@ import {
   trackerSnapshot,
   validateClaimReread,
 } from "./lib/issue-selection.mjs";
+import { claimAuthorityModes, validateClaimAuthority } from "./lib/claim-authority.mjs";
 import {
   commitExplicitPaths,
   createTaskBranch,
@@ -117,6 +118,7 @@ import {
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
   listRecoverableRecoveryStates,
+  loadRecoveryState,
   persistCompleteHeadEvidence,
   recordIdempotentMutation,
   recordRecoveryAttempt,
@@ -459,7 +461,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.phase = "startup_recovery";
     checkpoint(iteration);
     const continuation = startupRecovery.allowed
-      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint)
+      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint, recoveryBudget.authoritativeRecovery)
       : await executeStartupContinuation(config, startupRecovery);
     iteration.recovery = continuation.recovery || startupRecovery;
     iteration.issueSource = "startup_recovery";
@@ -1847,32 +1849,88 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
   return iteration;
 }
 
-function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
-  const issue = { number: recovery.state?.issueNumber };
+export function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
+  const authoritativeRecovery = loadRecoveryState(config, recovery.state);
+  if (!authoritativeRecovery.ok) return authoritativeRecovery;
+  const authoritativeState = authoritativeRecovery.state;
+  const issue = { number: authoritativeState.issue?.number ?? authoritativeState.issueNumber };
   if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) return { ok: false, reasonCode: "startup_recovery_issue_identity_missing" };
-  const budgetScopeId = config.logicalTaskBudgetScopeId || recovery.state?.supervisorRunId || recovery.state?.runId || config.supervisorRunId || runId;
+  const budgetScopeId = config.logicalTaskBudgetScopeId
+    || authoritativeState.run?.supervisorRunId
+    || authoritativeState.supervisorRunId
+    || authoritativeState.run?.runId
+    || authoritativeState.runId
+    || config.supervisorRunId
+    || runId;
   const loaded = loadLogicalTaskBudget(config, budgetScopeId);
   if (!loaded.ok) return loaded;
-  const alreadyCharged = Object.values(loaded.state.charges || {}).some((marker) =>
-    marker.identity?.repository === config.repositorySlug &&
-    marker.identity?.issueNumber === issue.number &&
-    marker.identity?.taskLineageId === `issue-${issue.number}` &&
-    marker.identity?.claimIdentity === `${config.repositorySlug}#${issue.number}`,
-  );
-  if (!alreadyCharged) {
-    const live = readIssueLive(config, issue.number);
-    if (!live.ok) return { ok: false, reasonCode: live.reason || "startup_recovery_claim_reread_failed" };
-    const reread = validateClaimReread(config, issue, live.issue);
-    if (!reread.ok) return { ok: false, reasonCode: reread.reason || "startup_recovery_claim_reread_failed" };
+  let recoveryState = authoritativeState;
+  let chargeIds = Object.keys(recoveryState.mutationMarkers?.logical_task_charge || {});
+  if (chargeIds.length === 0) {
+    const claimIds = Object.keys(recoveryState.mutationMarkers?.claim || {});
+    const claimMarker = recoveryState.mutationMarkers?.claim?.[claimIds[0]];
+    const authoritativeRunId = recoveryState.run?.runId || recoveryState.runId;
+    if (claimIds.length !== 1
+      || claimIds[0] !== `issue-${issue.number}`
+      || claimMarker?.status !== "completed"
+      || claimMarker?.correlation !== authoritativeRunId) {
+      return { ok: false, reasonCode: "startup_recovery_charge_marker_claim_authority_mismatch" };
+    }
+    const matchingCharges = Object.entries(loaded.state.charges || {}).filter(([, candidate]) =>
+      candidate.identity?.repository === config.repositorySlug
+        && candidate.identity?.issueNumber === issue.number
+        && candidate.identity?.taskLineageId === `issue-${issue.number}`
+        && candidate.identity?.claimIdentity === `${config.repositorySlug}#${issue.number}`);
+    if (matchingCharges.length !== 1) {
+      return { ok: false, reasonCode: "startup_recovery_charge_marker_reconciliation_ambiguous" };
+    }
+    const [chargeId] = matchingCharges[0];
+    const reconciledAt = new Date().toISOString();
+    recoveryState = {
+      ...recoveryState,
+      mutationMarkers: {
+        ...(recoveryState.mutationMarkers || {}),
+        logical_task_charge: {
+          [chargeId]: {
+            status: "completed",
+            target: `issue-${issue.number}`,
+            correlation: chargeId,
+            updatedAt: reconciledAt,
+          },
+        },
+      },
+      updatedAt: reconciledAt,
+    };
+    const written = writeRecoveryState(config, recoveryState);
+    recoveryState = written.state;
+    chargeIds = [chargeId];
   }
-  return chargeAcceptedLogicalTask(config, {
-    budgetScopeId,
-    maxTasks: config.maxIterations,
-    issue,
-    taskLineageId: `issue-${issue.number}`,
-    claimIdentity: `${config.repositorySlug}#${issue.number}`,
-    acceptedAt: new Date().toISOString(),
+  if (chargeIds.length !== 1) return { ok: false, reasonCode: "startup_recovery_charge_marker_ambiguous" };
+  const marker = loaded.state.charges?.[chargeIds[0]];
+  if (!marker
+    || marker.chargeId !== chargeIds[0]
+    || marker.identity?.repository !== config.repositorySlug
+    || marker.identity?.issueNumber !== issue.number
+    || marker.identity?.taskLineageId !== `issue-${issue.number}`
+    || marker.identity?.claimIdentity !== `${config.repositorySlug}#${issue.number}`) {
+    return { ok: false, reasonCode: "startup_recovery_existing_charge_mismatch" };
+  }
+  const result = {
+    ok: true,
+    duplicate: true,
+    charged: false,
+    chargeId: marker.chargeId,
+    marker,
+    acceptedLogicalTaskCount: loaded.state.acceptedLogicalTaskCount,
+    statePath: loaded.statePath,
+    state: loaded.state,
+    reasonCode: "startup_recovery_existing_charge_reused",
+  };
+  Object.defineProperty(result, "authoritativeRecovery", {
+    value: { ...authoritativeRecovery, state: recoveryState },
+    enumerable: false,
   });
+  return result;
 }
 
 function createProductionRecoveryRecorder(config, input) {
@@ -1978,26 +2036,13 @@ function createProductionRecoveryRecorder(config, input) {
   };
 }
 
-async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null) {
+async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null, authoritativeLoadedRecovery = null) {
   return executeStartupContinuation(config, startupRecovery, {
+    authoritativeLoadedRecovery,
     prepareAuthoritativeRecovery: async ({ state }) => {
-      if (state.phase !== "checkpoint_validation_commit") return { ok: true, state };
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
         return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
-      }
-      const live = readIssueLive(config, state.issue.number);
-      if (!live.ok) {
-        return { ok: false, reasonCode: live.reason || "recovery_issue_read_failed", state };
-      }
-      const issue = live.issue || state.issue;
-      const recoveryClaim = validateClaimReread(config, state.issue, issue);
-      if (!recoveryClaim.ok) {
-        return { ok: false, reasonCode: recoveryClaim.reason || "startup_recovery_claim_reread_failed", state };
-      }
-      if (getCurrentBranch({ cwd: config.repoRoot }) === state.branch.name
-        && getRefSha("HEAD", { cwd: config.repoRoot }) === state.branch.currentHeadSha) {
-        return { ok: true, state, issue, laneDecision: classifyIssueLane(issue) };
       }
       const controlPlaneAdmission = collectControlPlaneRecoveryAdmission(config, {
         repository: config.repositorySlug,
@@ -2014,9 +2059,40 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       if (!controlPlaneAdmission.ok) {
         return { ok: false, reasonCode: controlPlaneAdmission.reasonCode, state };
       }
+      const live = readIssueLive(config, state.issue.number);
+      if (!live.ok) {
+        return { ok: false, reasonCode: live.reason || "recovery_issue_read_failed", state };
+      }
+      const issue = live.issue || state.issue;
       const laneDecision = classifyIssueLane(issue);
+      const recoveryChargeId = Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null;
+      const sourceFailureCandidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate || null;
+      let preservedPriorOutcome = null;
+      if (state.claimAuthority?.mode !== claimAuthorityModes.preservedRecovery
+        && state.phase === "checkpoint_validation_commit"
+        && state.evidence?.localValidation?.status === "failed"
+        && sourceFailureCandidate) {
+        const tentativePriorOutcome = readPreservedPriorOutcome(config, state, {
+          chargeId: recoveryChargeId,
+          candidate: sourceFailureCandidate,
+        });
+        if (tentativePriorOutcome.ok) preservedPriorOutcome = tentativePriorOutcome;
+      }
+      const preservedTerminalRecovery = state.claimAuthority?.mode === claimAuthorityModes.preservedRecovery
+        || preservedPriorOutcome?.ok === true;
+      if (!preservedTerminalRecovery) {
+        const activeClaim = validateClaimAuthority(config, state.issue, issue, {
+          mode: claimAuthorityModes.freshActive,
+        });
+        if (!activeClaim.ok) {
+          return { ok: false, reasonCode: activeClaim.reasonCode || "startup_recovery_active_claim_authority_failed", state };
+        }
+        state = { ...state, claimAuthority: activeClaim };
+        writeRecoveryState(config, state);
+        return { ok: true, state, issue, laneDecision };
+      }
       const lineageOptions = {
-        expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+        expectedChargeId: recoveryChargeId,
         expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
           || state.sessionLifecycle?.state?.recovery?.operationId
           || null,
@@ -2026,6 +2102,39 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
       if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
+      const originalCandidateIdentity = state.claimAuthority?.authority?.candidateIdentity || proof.candidateIdentity;
+      const priorOutcome = preservedPriorOutcome || readPreservedPriorOutcome(config, state, {
+        chargeId: lineageOptions.expectedChargeId,
+        candidate: originalCandidateIdentity,
+      });
+      if (!priorOutcome.ok) return { ok: false, reasonCode: priorOutcome.reasonCode, state };
+      const recoveryClaim = validateClaimAuthority(config, state.issue, issue, {
+        mode: claimAuthorityModes.preservedRecovery,
+        taskKey: state.taskKey,
+        runId: state.run?.runId,
+        supervisorRunId: state.run?.supervisorRunId,
+        chargeId: lineageOptions.expectedChargeId,
+        branchName: state.branch.name,
+        baseSha: state.branch.baseSha,
+        headSha: state.branch.currentHeadSha,
+        priorOutcome: priorOutcome.outcome,
+        originalCandidateIdentity,
+        policy: {
+          eligible: laneDecision.allowedToImplement === true,
+          reasonCode: laneDecision.allowedToImplement === true
+            ? "preserved_claim_live_policy_eligible"
+            : `preserved_claim_live_policy_ineligible:${laneDecision.reason || "unspecified"}`,
+        },
+        lineage: proof,
+        controlPlaneAdmission,
+        owner: { alive: controlPlaneAdmission.process?.alive, runId: controlPlaneAdmission.process?.ownerRunId },
+        lease: { valid: controlPlaneAdmission.lease?.valid, runId: controlPlaneAdmission.lease?.runId },
+      });
+      if (!recoveryClaim.ok) {
+        return { ok: false, reasonCode: recoveryClaim.reasonCode || "startup_recovery_claim_authority_failed", state };
+      }
+      state = { ...state, claimAuthority: recoveryClaim };
+      writeRecoveryState(config, state);
       return {
         ok: true,
         state,
@@ -2050,12 +2159,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           state,
         };
       }
-      const live = readIssueLive(config, state.issue.number);
-      if (!live.ok) {
-        return { ok: false, outcome: "blocked_recovery_state", reasonCode: live.reason || "recovery_issue_read_failed", state };
+      const issue = preparation?.issue;
+      const laneDecision = preparation?.laneDecision;
+      if (!issue || !laneDecision) {
+        return { ok: false, outcome: "blocked_recovery_state", reasonCode: "recovery_admitted_issue_snapshot_missing", state };
       }
-      const issue = live.issue || state.issue;
-      const laneDecision = classifyIssueLane(issue);
       if (state.featureBundle) {
         const autoMergeRunner = config.dryRun ? null : createLiveFixedArgvRunner(config);
         const bundle = await runFeatureBundleIteration(config, logger, {
@@ -2132,6 +2240,69 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+function readPreservedPriorOutcome(config, state, expected) {
+  try {
+    const runId = state?.run?.runId;
+    const supervisorRunId = state?.run?.supervisorRunId;
+    const issueNumber = state?.issue?.number;
+    const taskKey = state?.taskKey;
+    const branchName = state?.branch?.name;
+    const baseSha = state?.branch?.baseSha;
+    const headSha = expected?.candidate?.headSha;
+    const chargeId = expected?.chargeId;
+    if (!runId || !supervisorRunId || !Number.isSafeInteger(issueNumber) || !taskKey
+      || !branchName || !baseSha || !headSha || !chargeId) {
+      return { ok: false, reasonCode: "preserved_claim_prior_outcome_identity_missing" };
+    }
+    const summaryPath = path.join(config.logsRoot, "summaries", `${runId}.json`);
+    const summary = JSON.parse(readFileSync(summaryPath, "utf8"));
+    const matching = (summary.iterations || []).filter((iteration) =>
+      iteration?.issue?.number === issueNumber
+      && iteration?.taskPrompt?.timestampKey === taskKey
+      && iteration?.taskPrompt?.promptPath === state.expectedReportPaths?.promptPath
+      && iteration?.taskPrompt?.reportPath === state.expectedReportPaths?.repoReportPath
+      && iteration?.branchName === branchName
+      && iteration?.baseOriginMainSha === baseSha
+      && iteration?.runnerCreatedCommitSha === headSha
+      && iteration?.logicalTaskBudget?.chargeId === chargeId
+      && iteration?.logicalTaskBudget?.state?.repository === config.repositorySlug
+      && iteration?.logicalTaskBudget?.state?.budgetScopeId === supervisorRunId
+      && iteration?.logicalTaskBudget?.state?.charges?.[chargeId]?.identity?.issueNumber === issueNumber
+      && iteration?.logicalTaskBudget?.state?.charges?.[chargeId]?.identity?.claimIdentity === `${config.repositorySlug}#${issueNumber}`
+      && iteration?.sessionLifecycle?.repository === config.repositorySlug
+      && iteration?.sessionLifecycle?.logicalTask?.issueNumber === issueNumber
+      && iteration?.sessionLifecycle?.logicalTask?.taskKey === taskKey
+      && iteration?.sessionLifecycle?.logicalTask?.runId === runId
+      && iteration?.sessionLifecycle?.logicalTask?.claimIdentity === `${config.repositorySlug}#${issueNumber}`
+      && iteration?.sessionLifecycle?.branch?.name === branchName
+      && iteration?.sessionLifecycle?.branch?.baseSha === baseSha
+      && iteration?.sessionLifecycle?.branch?.headSha === headSha
+      && iteration?.sessionLifecycle?.report?.path === state.expectedReportPaths?.repoReportPath
+      && iteration?.sessionLifecycle?.report?.correlationKey === taskKey
+      && Number.isSafeInteger(iteration?.sessionLifecycle?.sessions?.generation)
+      && iteration.sessionLifecycle.sessions.generation <= state.sessionLifecycle?.sessions?.generation
+      && [
+        state.sessionLifecycle?.sessions?.current,
+        ...(state.sessionLifecycle?.sessions?.retired || []),
+      ].includes(iteration?.sessionLifecycle?.sessions?.current)
+      && iteration?.sourceFailureBatch?.candidate?.baseSha === expected.candidate.baseSha
+      && iteration?.sourceFailureBatch?.candidate?.headSha === expected.candidate.headSha
+      && iteration?.sourceFailureBatch?.candidate?.treeSha === expected.candidate.treeSha
+      && iteration?.sourceFailureBatch?.candidate?.diffDigest === expected.candidate.diffDigest
+      && iteration?.sourceFailureBatch?.candidate?.changedFilesDigest === expected.candidate.changedFilesDigest
+      && JSON.stringify(iteration?.sourceFailureBatch?.candidate?.changedFiles) === JSON.stringify(expected.candidate.changedFiles));
+    if (summary.runId !== runId || summary.supervisorRunId !== supervisorRunId) {
+      return { ok: false, reasonCode: "preserved_claim_prior_outcome_summary_mismatch" };
+    }
+    if (matching.length !== 1 || typeof matching[0].outcome !== "string") {
+      return { ok: false, reasonCode: "preserved_claim_prior_outcome_ambiguous" };
+    }
+    return { ok: true, outcome: matching[0].outcome };
+  } catch {
+    return { ok: false, reasonCode: "preserved_claim_prior_outcome_unavailable" };
+  }
 }
 
 function authenticatedTaskRefGitEvidence(config, candidate) {

@@ -192,7 +192,10 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
-  const loaded = loadRecoveryState(config, recovery.state);
+  const supplied = handlers.authoritativeLoadedRecovery;
+  const loaded = supplied?.ok === true && supplied.state && supplied.statePath
+    ? supplied
+    : loadRecoveryState(config, recovery.state);
   if (!loaded.ok) {
     return {
       ok: false,
@@ -295,9 +298,8 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }
   const result = await handler({ state, boundary, loaded, preparation });
   if (validationRetryTerminal && isRepeatedUnsafeValidationResult(result)) {
-    const current = loadRecoveryState(config, recovery.state);
     let terminal = {
-      ...(current.ok ? current.state : state),
+      ...(result?.state || state),
       phase: "stopped",
       firstIncompleteAction: validationRetryTerminal.firstIncompleteAction,
       nextSafeAction: "stop_fail_closed",
@@ -317,7 +319,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
           ok: false,
           outcome: "blocked_recovery_state",
           reasonCode: lifecycleTerminal.reasonCode,
-          recovery: { ...recovery, state: summarizeRecoverableState(current.ok ? current.state : state) },
+          recovery: { ...recovery, state: summarizeRecoverableState(result?.state || state) },
           result,
         };
       }

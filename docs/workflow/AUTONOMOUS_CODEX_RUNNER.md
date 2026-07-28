@@ -105,6 +105,19 @@ later external effect remain fail-closed.
 
 The ordinary issue path and startup recovery share an idempotent continuation spanning exact candidate reconciliation, validation, independent and local/structured review, convergence, push, PR recovery, GitHub convergence, exact-head merge, and post-merge hygiene. Durable exact-target effects are adopted rather than replayed, a source change invalidates review and downstream effects, and the accepted logical-task charge remains the root task charge across execution/session continuations.
 
+Claim authority has two explicit modes. A fresh active claim reread remains
+fail-closed unless every configured transient claim label is present after the
+claim mutation. Preserved recovery does not manufacture those labels after
+terminal hygiene removed them: it admits their absence only when the live
+issue is still open and eligible, terminal labels exactly match the recorded
+prior outcome, no transient label conflicts with the exact live owner/lease,
+and the single durable claim marker, accepted charge, lifecycle/recovery,
+branch and candidate, intent, report/prompt, counters, no-owner, and
+no-later-effect evidence all agree. Both same-workspace and historical
+recovery persist this structured admission before lifecycle takeover and
+workspace materialization; failure returns a precise blocker without polling
+or replacement-task fallback.
+
 For a deterministic feature-bundle split, the bundle orchestrator—not the PR-stack executor—materializes exact branches from the frozen base and proven checkpoint ranges. It verifies the actual per-slice file digest and semantic own delta, normally pushes and creates or reuses the exact dependent PR relationship, persists each step, then hands the created PR stack to the existing stack executor. Incomplete proof or conflicting live state fails closed before mutation.
 
 ## Accepted-task and convergence budget authority

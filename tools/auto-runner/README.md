@@ -1252,6 +1252,17 @@ it to remain open, retain the expected current-run claim labels, and not gain a
 stop/manual/danger label before branch creation, task generation, or Codex
 launch.
 
+Startup continuation uses the same claim-authority model in a distinct
+`preserved_recovery_claim` mode. It does not recreate active claim labels.
+Before lifecycle takeover or task-workspace materialization it requires the
+issue to remain open and currently eligible, reconciles any transient claim
+label with an exact live owner, binds terminal labels to the recorded prior
+outcome, and verifies the single completed claim marker, accepted-task charge,
+lifecycle, recovery, candidate, intent, report/prompt, counter, no-owner, and
+no-later-effect lineage. The sanitized decision is persisted in recovery
+state. A contradiction stops with its precise reason and does not fall back to
+polling or create replacement work.
+
 Issue contracts:
 
 `auto-ready` and `auto-bundle` only make an issue eligible for selection. They

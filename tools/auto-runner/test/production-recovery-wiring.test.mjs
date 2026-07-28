@@ -9,9 +9,12 @@ import {
   createInitialRecoveryState,
   headBoundEvidenceKinds,
   loadRecoveryState,
+  recordIdempotentMutation,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
+import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { discoverStartupRecovery, executeStartupContinuation } from "../lib/recovery-continuation.mjs";
+import { chargeStartupRecoveryLogicalTask } from "../settleora-auto-runner.mjs";
 
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-production-recovery-"));
@@ -145,11 +148,39 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
+  assert.match(
+    source,
+    /const controlPlaneAdmission = collectControlPlaneRecoveryAdmission[\s\S]*if \(!controlPlaneAdmission\.ok\)[\s\S]*const live = readIssueLive\(config, state\.issue\.number\)/,
+  );
+  assert.doesNotMatch(
+    source,
+    /prepareAuthoritativeRecovery:\s*async \(\{ state \}\) => \{\s*if \(state\.phase !== "checkpoint_validation_commit"\) return/,
+  );
+  assert.match(
+    source,
+    /const tentativePriorOutcome = readPreservedPriorOutcome[\s\S]*if \(tentativePriorOutcome\.ok\) preservedPriorOutcome = tentativePriorOutcome;[\s\S]*const preservedTerminalRecovery = state\.claimAuthority\?\.mode === claimAuthorityModes\.preservedRecovery[\s\S]*preservedPriorOutcome\?\.ok === true;[\s\S]*if \(!preservedTerminalRecovery\) \{[\s\S]*mode: claimAuthorityModes\.freshActive[\s\S]*writeRecoveryState\(config, state\);[\s\S]*verifyHistoricalInitialCandidateLineage/,
+  );
+  assert.match(
+    source,
+    /default: async \(\{ state, boundary, preparation \}\) => \{[\s\S]*const issue = preparation\?\.issue;[\s\S]*const laneDecision = preparation\?\.laneDecision;[\s\S]*recovery_admitted_issue_snapshot_missing/,
+  );
+  assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
+  assert.doesNotMatch(
+    source.slice(source.indexOf("function chargeStartupRecoveryLogicalTask"), source.indexOf("function createProductionRecoveryRecorder")),
+    /readIssueLive|validateClaimReread|chargeAcceptedLogicalTask/,
+  );
   assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*authenticatedTaskRefGitEvidence/);
   assert.match(
     source,
-    /const recoveryClaim = validateClaimReread\(config, state\.issue, issue\);[\s\S]*if \(!recoveryClaim\.ok\)[\s\S]*startup_recovery_claim_reread_failed[\s\S]*getCurrentBranch[\s\S]*return \{ ok: true, state, issue, laneDecision: classifyIssueLane\(issue\) \}/,
+    /const controlPlaneAdmission = collectControlPlaneRecoveryAdmission[\s\S]*verifyHistoricalInitialCandidateLineage[\s\S]*readPreservedPriorOutcome[\s\S]*validateClaimAuthority\(config, state\.issue, issue, \{[\s\S]*mode: claimAuthorityModes\.preservedRecovery[\s\S]*writeRecoveryState\(config, state\);[\s\S]*return \{\s*ok: true,/,
   );
+  assert.equal((source.match(/validateClaimReread\(config, issue, claimRead\.issue\)/g) || []).length, 1);
+  assert.doesNotMatch(source, /validateClaimReread\(config, state\.issue, issue\)/);
+  assert.match(source, /function readPreservedPriorOutcome\(config, state, expected\)[\s\S]*summary\.runId !== runId[\s\S]*summary\.supervisorRunId !== supervisorRunId/);
+  assert.match(source, /iteration\?\.logicalTaskBudget\?\.state\?\.charges\?\.\[chargeId\]\?\.identity\?\.claimIdentity/);
+  assert.match(source, /iteration\?\.sourceFailureBatch\?\.candidate\?\.treeSha === expected\.candidate\.treeSha/);
+  assert.match(source, /const originalCandidateIdentity = state\.claimAuthority\?\.authority\?\.candidateIdentity \|\| proof\.candidateIdentity/);
+  assert.match(source, /state\.sessionLifecycle\?\.sessions\?\.retired/);
   assert.match(
     collector,
     /const readControlPlaneGit = adapters\.readControlPlaneGit\s*\|\| \(\(\) => defaultGitRead\(config, identity, controlPlaneRepoRoot\)\)/,
@@ -164,6 +195,86 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /prospective_validation_source_checkout_not_restored/);
   assert.match(source, /getRefSha\("origin\/main"\) !== continuation\.expectedOriginMainSha/);
   assert.match(source, /headChangeCheckpoint: async \(headSha\)[\s\S]*expectedOriginMainSha: continuation\.expectedOriginMainSha/);
+});
+
+test("startup recovery reconciles the unique accepted charge after a claim-to-marker crash", () => {
+  const config = tempConfig({
+    repositorySlug: "tommytang213/Settleora",
+    maxIterations: 3,
+  });
+  try {
+    const initial = recoveryState();
+    const state = recordIdempotentMutation(initial, {
+      kind: "claim",
+      key: `issue-${initial.issue.number}`,
+      marker: { target: initial.issue.url, correlation: initial.run.runId },
+    });
+    const written = writeRecoveryState(config, state);
+    const budgetScopeId = state.run.supervisorRunId;
+    const charged = chargeAcceptedLogicalTask(config, {
+      budgetScopeId,
+      maxTasks: config.maxIterations,
+      issue: state.issue,
+      taskLineageId: `issue-${state.issue.number}`,
+      claimIdentity: `${config.repositorySlug}#${state.issue.number}`,
+      acceptedAt: "2026-07-13T12:23:01.000Z",
+    });
+    assert.equal(charged.ok, true);
+    assert.equal(charged.charged, true);
+
+    const result = chargeStartupRecoveryLogicalTask(config, state.run.runId, {
+      state,
+      statePath: written.statePath,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.duplicate, true);
+    assert.equal(result.charged, false);
+    assert.equal(result.chargeId, charged.chargeId);
+    assert.deepEqual(
+      Object.keys(result.authoritativeRecovery.state.mutationMarkers.logical_task_charge),
+      [charged.chargeId],
+    );
+    const persisted = loadRecoveryState(config, state);
+    assert.equal(
+      persisted.state.mutationMarkers.logical_task_charge[charged.chargeId].correlation,
+      charged.chargeId,
+    );
+
+    const repeated = chargeStartupRecoveryLogicalTask(config, state.run.runId, {
+      state: persisted.state,
+      statePath: persisted.statePath,
+    });
+    assert.equal(repeated.ok, true);
+    assert.equal(repeated.chargeId, charged.chargeId);
+    assert.equal(repeated.acceptedLogicalTaskCount, 1);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup recovery does not synthesize a missing accepted charge", () => {
+  const config = tempConfig({
+    repositorySlug: "tommytang213/Settleora",
+    maxIterations: 3,
+  });
+  try {
+    const initial = recoveryState();
+    const state = recordIdempotentMutation(initial, {
+      kind: "claim",
+      key: `issue-${initial.issue.number}`,
+      marker: { target: initial.issue.url, correlation: initial.run.runId },
+    });
+    const written = writeRecoveryState(config, state);
+    const result = chargeStartupRecoveryLogicalTask(config, state.run.runId, {
+      state,
+      statePath: written.statePath,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reasonCode, "startup_recovery_charge_marker_reconciliation_ambiguous");
+    assert.deepEqual(loadRecoveryState(config, state).state.mutationMarkers.logical_task_charge, undefined);
+  } finally {
+    config.cleanup();
+  }
 });
 
 test("stable-launched supervisor main persists startup failures before rethrow", () => {
@@ -460,7 +571,7 @@ test("delegated bundle and existing-PR recovery phases use the owning iteration 
   for (const phase of ["live_reconciliation", "evidence_regeneration", "merge_evaluation"]) {
     assert.match(runner, new RegExp(`operationalCheckpoint\\(\"existing_pr_${phase}`), `missing recovery checkpoint for ${phase}`);
   }
-  assert.match(runner, /resumeStartupRecovery\(config, logger, runId, index, startupRecovery, operationalCheckpoint\)/);
+  assert.match(runner, /resumeStartupRecovery\(config, logger, runId, index, startupRecovery, operationalCheckpoint, recoveryBudget\.authoritativeRecovery\)/);
   assert.match(runner, /runFeatureBundleIteration\(config, logger,[\s\S]*?recoveryState: state,[\s\S]*?operationalCheckpoint,/);
   assert.match(runner, /recoverExistingPrIfConfigured\(config, logger, issue, laneDecision, state,[\s\S]*?operationalCheckpoint,/);
   assert.match(runner, /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?operationalCheckpoint/);
