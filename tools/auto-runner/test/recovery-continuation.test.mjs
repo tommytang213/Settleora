@@ -2436,7 +2436,7 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
   }
 });
 
-test("failed resumed validation is re-terminalized instead of retried on every startup", async () => {
+test("normal unsafe resumed validation is re-terminalized instead of retried on every startup", async () => {
   const config = tempConfig({ allowExistingPrRecovery: true });
   try {
     const stopped = {
@@ -2465,7 +2465,7 @@ test("failed resumed validation is re-terminalized instead of retried on every s
       checkpoint_validation_commit: async ({ state }) => ({
         ok: false,
         outcome: "blocked_recovery_state",
-        reasonCode: "checkpoint_validation_not_source_fix_safe",
+        reasonCode: "source_failure_unsafe_or_ambiguous",
         state: {
           ...state,
           ordinaryContinuation: {

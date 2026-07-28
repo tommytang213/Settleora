@@ -479,6 +479,7 @@ function isRepeatedUnsafeValidationResult(result) {
     && [
       "checkpoint_validation_not_source_fix_safe",
       "initial_validation_failure_commit_reconstruction_ambiguous",
+      "source_failure_unsafe_or_ambiguous",
     ].includes(result?.reasonCode)
     && continuation?.phase === "local_validation"
     && Array.isArray(findings)
