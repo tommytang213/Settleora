@@ -228,17 +228,64 @@ test("historical initial candidate proof is restart-idempotent", () => {
   assert.equal(fixture.state.pr.number, null);
 });
 
-test("historical proof admits one exact prepared source-fix checkout for later adoption", () => {
+test("historical proof admits only an exact finalized-intent prepared source-fix checkout", () => {
   const fixture = makeFixture(2);
   const batchIdentity = "b".repeat(64);
   fixture.state.ordinaryContinuation.sourceFailureFixIntent = {
     status: "prepared", batchIdentity, candidateHead: fixture.headSha,
   };
+  fixture.state.ordinaryContinuation.sourceFailureBatch.batchIdentity = batchIdentity;
   writeFileSync(path.join(fixture.repoRoot, changedFiles[0]), "candidate-0\nprepared\n");
   run(fixture.repoRoot, ["add", changedFiles[0]]);
+  const subject = `Auto-runner issue #${issueNumber}: source-fix ${batchIdentity.slice(0, 16)}`;
   run(fixture.repoRoot, ["commit", "-m",
-    `Auto-runner issue #${issueNumber}: source-fix ${batchIdentity.slice(0, 16)}`]);
+    subject]);
+  const preparedTree = run(fixture.repoRoot, ["rev-parse", "HEAD^{tree}"]).stdout.trim();
+  fixture.intents.push({
+    repository, sourceTaskKey: taskKey, runId, effectType: "commit", status: "finalized",
+    logicalTaskIdentity: `${repository}#${issueNumber}`, claimIdentity: `${repository}#${issueNumber}`,
+    chargeIdentity: fixture.options.loadBudget().statePath,
+    identity: {
+      issueNumber, branchName: branch, baseSha: fixture.baseSha, headSha: fixture.headSha,
+      candidateIdentity: fixture.headSha,
+    },
+    effect: {
+      expectedParents: [fixture.headSha], treeSha: preparedTree,
+      stagedPaths: [changedFiles[0]], messageDigest: hash(subject),
+    },
+  });
   assert.equal(verify(fixture).ok, true);
+
+  for (const [name, mutate, restore] of [
+    ["prepared intent",
+      (value) => { value.intents[1].status = "prepared"; },
+      (value) => { value.intents[1].status = "finalized"; }],
+    ["wrong batch", (value) => {
+      value.state.ordinaryContinuation.sourceFailureBatch.batchIdentity = "c".repeat(64);
+    }, (value) => {
+      value.state.ordinaryContinuation.sourceFailureBatch.batchIdentity = batchIdentity;
+    }],
+    ["wrong parent",
+      (value) => { value.intents[1].effect.expectedParents = [value.baseSha]; },
+      (value) => { value.intents[1].effect.expectedParents = [value.headSha]; }],
+    ["wrong tree",
+      (value) => { value.intents[1].effect.treeSha = value.baseTree; },
+      (value) => { value.intents[1].effect.treeSha = preparedTree; }],
+    ["wrong paths",
+      (value) => { value.intents[1].effect.stagedPaths = changedFiles; },
+      (value) => { value.intents[1].effect.stagedPaths = [changedFiles[0]]; }],
+    ["wrong message",
+      (value) => { value.intents[1].effect.messageDigest = "0".repeat(64); },
+      (value) => { value.intents[1].effect.messageDigest = hash(subject); }],
+    ["duplicate intent",
+      (value) => { value.intents.push(structuredClone(value.intents[1])); },
+      (value) => { value.intents.pop(); }],
+  ]) {
+    mutate(fixture);
+    assert.equal(verify(fixture).reasonCode, "historical_candidate_checkout_mismatch", name);
+    restore(fixture);
+  }
+
   run(fixture.repoRoot, ["commit", "--allow-empty", "-m", "unexpected second commit"]);
   assert.equal(verify(fixture).reasonCode, "historical_candidate_checkout_mismatch");
 });

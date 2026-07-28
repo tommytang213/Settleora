@@ -129,11 +129,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       return fail("historical_candidate_diff_mismatch");
     }
     const checkoutHeadSha = git(["rev-parse", "HEAD"]).stdout.trim();
-    const preparedCheckout = validPreparedSourceFixCheckout(
-      git, continuation, headSha, checkoutHeadSha, issueNumber,
-    );
     if (git(["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim() !== branch
-      || (checkoutHeadSha !== headSha && !preparedCheckout)
       || git(["status", "--porcelain=v1", "--untracked-files=all"]).stdout !== "") {
       return fail("historical_candidate_checkout_mismatch");
     }
@@ -237,6 +233,12 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       chargeIdentity: budget.statePath, commitIntents,
       validateChangedPaths: options.validateChangedPaths,
     })) return fail("historical_candidate_advanced_lineage_mismatch");
+    if (checkoutHeadSha !== headSha && !validPreparedSourceFixCheckout(
+      git, continuation, headSha, checkoutHeadSha, {
+        issueNumber, repository, taskKey, runId, branch,
+        chargeIdentity: budget.statePath, commitIntents,
+      },
+    )) return fail("historical_candidate_checkout_mismatch");
     if (intents.some((entry) => externalEffects.has(entry.effectType)) && !authenticatedExistingPrEffects) {
       return fail("historical_candidate_external_intent_present");
     }
@@ -272,16 +274,40 @@ export function validateHistoricalRecoveryGitAuthority(config, options = {}) {
     return false;
   }
 }
-function validPreparedSourceFixCheckout(git, continuation, candidateHead, checkoutHead, issueNumber) {
+function validPreparedSourceFixCheckout(git, continuation, candidateHead, checkoutHead, authority) {
   const fix = continuation?.sourceFailureFixIntent;
+  const batch = continuation?.sourceFailureBatch;
+  const subject = `Auto-runner issue #${authority.issueNumber}: source-fix ${fix?.batchIdentity?.slice(0, 16)}`;
+  const treeSha = git(["rev-parse", `${checkoutHead}^{tree}`]).stdout.trim();
+  const stagedPaths = lines(git(["diff", "--name-only", candidateHead, checkoutHead]).stdout).sort();
+  const matchingIntents = authority.commitIntents.filter((intent) =>
+    intent.effect?.expectedParents?.length === 1
+      && intent.effect.expectedParents[0] === candidateHead
+      && intent.effect?.treeSha === treeSha);
+  const intent = matchingIntents[0];
   return fix?.status === "prepared"
     && digest.test(fix.batchIdentity || "")
     && fix.candidateHead === candidateHead
+    && batch?.batchIdentity === fix.batchIdentity
+    && batch?.candidate?.headSha === candidateHead
     && sha.test(checkoutHead || "") && checkoutHead !== candidateHead
     && ancestor(git, candidateHead, checkoutHead)
     && git(["rev-list", "--count", `${candidateHead}..${checkoutHead}`]).stdout.trim() === "1"
-    && git(["show", "-s", "--format=%s", checkoutHead]).stdout.trim()
-      === `Auto-runner issue #${issueNumber}: source-fix ${fix.batchIdentity.slice(0, 16)}`;
+    && git(["show", "-s", "--format=%P", checkoutHead]).stdout.trim() === candidateHead
+    && git(["show", "-s", "--format=%s", checkoutHead]).stdout.trim() === subject
+    && matchingIntents.length === 1
+    && intent.status === "finalized"
+    && intentIssueAuthorityMatches(intent, authority.issueNumber)
+    && intent.repository === authority.repository
+    && intent.sourceTaskKey === authority.taskKey
+    && intent.runId === authority.runId
+    && intent.logicalTaskIdentity === `${authority.repository}#${authority.issueNumber}`
+    && intent.claimIdentity === `${authority.repository}#${authority.issueNumber}`
+    && intent.chargeIdentity === authority.chargeIdentity
+    && intent.identity?.branchName === authority.branch
+    && intent.identity?.headSha === candidateHead
+    && JSON.stringify(intent.effect?.stagedPaths) === JSON.stringify(stagedPaths)
+    && intent.effect?.messageDigest === hash(subject);
 }
 
 function runGit(cwd, args) {
