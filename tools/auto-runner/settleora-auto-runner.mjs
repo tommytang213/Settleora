@@ -2007,6 +2007,21 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return { ok: false, reasonCode: controlPlaneAdmission.reasonCode, state };
       }
       const laneDecision = classifyIssueLane(issue);
+      const preservedTerminalRecovery = state.claimAuthority?.mode === claimAuthorityModes.preservedRecovery
+        || (state.phase === "checkpoint_validation_commit"
+          && state.evidence?.localValidation?.status === "failed"
+          && state.ordinaryContinuation?.sourceFailureBatch);
+      if (!preservedTerminalRecovery) {
+        const activeClaim = validateClaimAuthority(config, state.issue, issue, {
+          mode: claimAuthorityModes.freshActive,
+        });
+        if (!activeClaim.ok) {
+          return { ok: false, reasonCode: activeClaim.reasonCode || "startup_recovery_active_claim_authority_failed", state };
+        }
+        state = { ...state, claimAuthority: activeClaim };
+        writeRecoveryState(config, state);
+        return { ok: true, state, issue, laneDecision };
+      }
       const lineageOptions = {
         expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
         expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
