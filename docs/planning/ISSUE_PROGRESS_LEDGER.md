@@ -1,5 +1,57 @@
 # Issue Progress Ledger
 
+### Issues #989/#991/#959/#999 — installed runtime adopted; preserved #959 reached a new fail-closed Git contradiction (2026-07-28)
+
+- Task `20260728-1817` adopted the already exchanged runtime without another
+  deployment or rollback. Read-only verification proved source
+  `82852be849332114aaeb9cc4e79b68d63e430903`, 97 manifest entries, file-list
+  digest `138c46a4a4025c76b1423402e3ad424b81545292d37128b84f75ff727bcbdc6a`,
+  bundle digest `a74a534b1d4e756646456d219e10459aad098630803a4c07934e0835e74b8184`,
+  and stable-launcher digest
+  `0f7de5e3d2ce6b359e68ad844b98a8f3872b745fc5a7f8af73a44c9467897bce`.
+  The retained rollback remained source `511a2bd1ca18c406afaa12a3ccbda410674d0f5b`
+  and bundle `c8344077c5882d32992482eb649f5a9919ca1bc2fa056afc677375b06f125435`.
+- The external profile changed exactly once and only in
+  `runtimeBundleDigest`, from `c8344077...` to `a74a534b...`. Its SHA-256
+  changed from `ca92211e0fcfade2008f0b5ffeb65468b0d3ba1013117738807811dda3bf4380`
+  to `1291646e3dd90edf3915b5bbb167248378f60c14063b4c0b2552bf6c89d3d31c`;
+  mode `0600`, owner, size, and every unrelated byte were preserved.
+- The unchanged enabled loopback health unit restarted through the stable
+  launcher and installed runtime as PID `2502315`, process-birth identity
+  `312077827`, with its matching owner-controlled `0600` consumer marker.
+  `127.0.0.1:8787` was reachable; HTTP 503
+  `reasonCode=terminal_blocked` correctly represented preserved logical-task
+  state rather than a service-start failure.
+- Exactly one trusted continuation was submitted with `max-tasks=1` and
+  `max-runtime=14d`: supervisor
+  `supervised-20260728T102310Z-3c1e9e843357`, mapped runner
+  `run-2026-07-28T102319Z-3c1e9e843357`. It adopted Issue #959, task
+  `20260724T075849`, and charge `5c9ae164...` with `duplicate=true` and
+  `charged=false`; it created no second claim, charge, branch, implementation,
+  PR, push, merge, or product effect.
+- The continuation stopped fail-closed on new concrete evidence:
+  `authoritative_recovery_evidence_fail_closed`. Canonical local Git was clean
+  `main` at `82852be...`, while the preserved candidate is `92b60cec...`; the
+  historical commit intent remained `effect_absent_execution_uncertain`,
+  producing `local_git_identity_mismatch` and
+  `initial_validation_failure_commit_reconstruction_ambiguous`. Preserved
+  lifecycle, recovery, and budget artifacts remained byte-identical.
+- #989 and #991 were closed after their deployment/profile/health and exact
+  preserved-resume close criteria were met. #959 remains open for the new
+  recovery blocker; parent issues #740, #359, and #357 remain open under their
+  existing close rules. #999 remains separate, open, unimplemented, and was
+  not mutated.
+- Durable evidence: #989 comment
+  `https://github.com/tommytang213/Settleora/issues/989#issuecomment-5102926438`,
+  #991 comment
+  `https://github.com/tommytang213/Settleora/issues/991#issuecomment-5102926941`,
+  #959 comment
+  `https://github.com/tommytang213/Settleora/issues/959#issuecomment-5102927423`,
+  runner summary
+  `/workspace/logs/auto-runner/Settleora/summaries/run-2026-07-28T102319Z-3c1e9e843357.md`,
+  and final task report
+  `/workspace/logs/settleora-codex-report-20260728-1817-adopt-installed-runtime-profile-health-preserved-959-continuation.md`.
+
 ### Issues #989/#991/#959/#999 and PR #1009 — preserved-recovery discovery repair merged (2026-07-28)
 
 - PR #1009 merged normally with expected-head protection from exact authorized
