@@ -363,6 +363,40 @@ test("recovery-only exact-head evidence must be complete and bound before genera
     ),
     { ok: true },
   );
+  const rebuildEvidence = {
+    repositorySlug: exactHeadEvidence.repositorySlug,
+    issueNumber: exactHeadEvidence.issueNumber,
+    prNumber: exactHeadEvidence.prNumber,
+    baseSha: exactHeadEvidence.baseSha,
+    currentMainSha: exactHeadEvidence.currentMainSha,
+    taskKey: exactHeadEvidence.taskKey,
+    runnerRunId: exactHeadEvidence.runnerRunId,
+    supervisorRunId: exactHeadEvidence.supervisorRunId,
+    headSha: exactHeadEvidence.headSha,
+    changedFiles: exactHeadEvidence.changedFiles,
+    changedFilesDigest: exactHeadEvidence.changedFilesDigest,
+    recoveryStateRebuildable: true,
+  };
+  assert.deepEqual(validateRecoveryOnlyExactHeadEvidence(
+    config,
+    { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence: rebuildEvidence },
+    { expectedHeadSha: target.prHeadSha, changedFiles, allowRebuild: true },
+  ), { ok: true, rebuildRequired: true });
+  for (const [name, mutate] of [
+    ["rebuild not authorized", (value) => { value.recoveryStateRebuildable = false; }],
+    ["wrong rebuild PR", (value) => { value.prNumber = 920; }],
+    ["wrong rebuild head", (value) => { value.headSha = "f".repeat(40); }],
+    ["wrong rebuild digest", (value) => { value.changedFilesDigest = "f".repeat(64); }],
+  ]) {
+    const adjacent = structuredClone(rebuildEvidence);
+    mutate(adjacent);
+    const result = validateRecoveryOnlyExactHeadEvidence(
+      config,
+      { prNumber: 919, expectedHeadSha: target.prHeadSha, exactHeadEvidence: adjacent },
+      { expectedHeadSha: target.prHeadSha, changedFiles, allowRebuild: true },
+    );
+    assert.equal(result.ok, false, name);
+  }
   assert.deepEqual(validateRecoveryOnlyExactHeadEvidence({ outageRecoveryOnly: false }, { exactHeadEvidence: null }), { ok: true });
 });
 

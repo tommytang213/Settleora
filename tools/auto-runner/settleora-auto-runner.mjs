@@ -2358,7 +2358,21 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       operationalCheckpoint?.("ordinary_recovery_pr_create_recover");
       context.pr = await openOrUpdatePr(config, issue, state.branch.name, `Recovered exact-head continuation for ${continuation.identity.headSha}.`, { effectContext: state.sessionLifecycle });
       operationalCheckpoint?.("ordinary_recovery_pr_create_recover_complete", { pr: context.pr });
-      return context.pr?.url ? { ok: true, evidence: { url: context.pr.url, number: context.pr.number } } : { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
+      if (!context.pr?.url || !Number.isSafeInteger(context.pr.number)) {
+        return { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
+      }
+      state = {
+        ...state,
+        pr: {
+          number: context.pr.number,
+          url: context.pr.url,
+          headSha: continuation.identity.headSha,
+          headRefName: continuation.branchName,
+          baseRefName: "main",
+        },
+      };
+      await writeRecoveryState(config, state);
+      return { ok: true, evidence: { url: context.pr.url, number: context.pr.number } };
     },
     github_convergence: async (continuation) => {
       operationalCheckpoint?.("ordinary_recovery_github_convergence");
@@ -2379,7 +2393,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             expectedRepository: config.repositorySlug,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
-            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: candidate.baseSha, currentMainSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: state.taskKey || initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, supervisorRunId: state.run?.supervisorRunId || null, headSha: candidate.headSha, baseSha: candidate.baseSha, currentMainSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, changedFilesDigest: digestChangedFiles(candidate.changedFiles), recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
           },
         },
       };
@@ -2955,7 +2969,12 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     body: recoveryConfig.prBody ?? githubState.pr?.body,
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
-  const exactEvidenceCheck = validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, { expectedHeadSha, changedFiles });
+  const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence);
+  const exactEvidenceCheck = validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, {
+    expectedHeadSha,
+    changedFiles,
+    allowRebuild: regenerationRequired,
+  });
   if (!exactEvidenceCheck.ok) {
     return {
       reason: exactEvidenceCheck.reason,
@@ -2971,7 +2990,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   let generatedRecoveryEvidence = null;
-  if (shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)) {
+  if (regenerationRequired) {
     operationalCheckpoint("existing_pr_evidence_regeneration");
     generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {
       issue,
