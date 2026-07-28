@@ -1,5 +1,42 @@
 # Issue Progress Ledger
 
+### Issues #989/#991/#959/#999 and PR #1007 — historical candidate recovery repair merged (2026-07-28)
+
+- PR #1007 merged normally with expected-head protection from exact authorized
+  source head `c701d5c93f240db79c287e1c00bdbd0fba48de40`, tree
+  `ad39a180b2001a13df0d5f758aef295a86dea1fa`, as merge commit/current `main`
+  `c9127520430aa8398a58a40ab956c9633bdd283e`. Its parents are prior `main`
+  `511a2bd1ca18c406afaa12a3ccbda410674d0f5b` and the exact source head; its
+  merge tree equals the authorized source tree, and the retained source branch
+  and worktree remain unchanged and clean.
+- The repository recovery repair now fail-closes historical initial-candidate
+  reconstruction on trusted Git configuration, authentic candidate and
+  descendant lineage, current-main and prospective-merge identity, exact PR
+  and external-effect history, and restart-safe continuation authority. It
+  does not itself deploy the corrected runtime or adopt the preserved #959
+  chain.
+- Exact-head evidence passed focused tests `431/431`, the complete auto-runner
+  suite `1243/1243`, docs, scaffold, syntax, scope, diff, and clean-worktree
+  checks. Gemini strong-independent and local Codex mechanics/integration/
+  recovery/security reviews passed with no findings; GitHub Codex found no
+  major issues on the exact head. All required CodeQL, Semgrep, Trivy, and
+  scaffold checks passed; relevant open code-scanning alerts and unresolved
+  review threads were zero.
+- Durable evidence: the exact source-merge comment is
+  `https://github.com/tommytang213/Settleora/issues/989#issuecomment-5100211347`;
+  the complete merge/hygiene report is
+  `/workspace/logs/settleora-codex-report-20260728-1301-pr1007-exact-head-merge-post-merge-hygiene.md`.
+- #989 and #991 remain open pending separately authorized corrected runtime
+  deployment, active-profile and health reconciliation, and one exact trusted
+  continuation of the preserved #959 chain. #959 remains open and preserved:
+  no claim, charge, task key, branch, candidate, validation, PR, or product
+  effect was replayed or duplicated. #999 remains open as a separate
+  unimplemented review-adjudication follow-up.
+- The source merge and this ledger hygiene performed no deployment, rollback,
+  runtime/profile mutation, service/timer control, runner or supervisor
+  submission, #959 lifecycle/recovery/product mutation, secret/network change,
+  or destructive branch/worktree operation.
+
 ### Issues #989/#991/#959/#999 and PR #1003 — handoff successor identity repair merged (2026-07-27)
 
 - PR #1003 merged normally with expected-head protection from exact approved
