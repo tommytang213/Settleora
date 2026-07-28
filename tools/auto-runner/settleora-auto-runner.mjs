@@ -1982,7 +1982,6 @@ function createProductionRecoveryRecorder(config, input) {
 async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null) {
   return executeStartupContinuation(config, startupRecovery, {
     prepareAuthoritativeRecovery: async ({ state }) => {
-      if (state.phase !== "checkpoint_validation_commit") return { ok: true, state };
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
         return { ok: false, reasonCode: startupEvidenceCheck.reason, state };

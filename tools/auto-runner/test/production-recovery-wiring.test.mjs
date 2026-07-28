@@ -145,6 +145,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
+  assert.doesNotMatch(
+    source,
+    /prepareAuthoritativeRecovery:\s*async \(\{ state \}\) => \{\s*if \(state\.phase !== "checkpoint_validation_commit"\) return/,
+  );
   assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*authenticatedTaskRefGitEvidence/);
   assert.match(
     source,
