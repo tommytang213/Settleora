@@ -497,6 +497,15 @@ function validateProjectNamespace(logsRoot, target, repositoryRoot, environment)
   }
 }
 
+export function validatePreservedRecoveryProjectNamespace(
+  logsRoot,
+  repository,
+  repositoryRoot,
+  environment = process.env,
+) {
+  return validateProjectNamespace(logsRoot, { repository }, repositoryRoot, environment);
+}
+
 function validateTargetIntentIdentity(intent, target, chargeMarkerRef) {
   const identity = intent.identity;
   return intent.logicalTaskIdentity === target.claimIdentity
@@ -673,6 +682,24 @@ function validateCommitLineage(
     return { ok: false, reasonCode: "preserved_recovery_commit_lineage_mismatch" };
   }
   return { ok: true };
+}
+
+export function validatePreservedRecoveryCommitLineage(
+  repositoryRoot,
+  target,
+  intents,
+  expectedChangedFiles,
+  gitEnvironment = process.env,
+  resumedGitConfigRecords = null,
+) {
+  return validateCommitLineage(
+    repositoryRoot,
+    target,
+    intents,
+    expectedChangedFiles,
+    gitEnvironment,
+    resumedGitConfigRecords,
+  );
 }
 
 function authoritativeDiffDigest(root, target, environment) {

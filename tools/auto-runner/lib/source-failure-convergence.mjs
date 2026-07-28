@@ -160,6 +160,31 @@ export function sourceFailuresFromValidation(validation = {}, context = {}) {
   }];
 }
 
+export function sourceFailuresFromProspectiveValidation(validation = {}, context = {}) {
+  const prospective = validation?.prospectiveMerge;
+  const expectedBaseSha = context.expectedOriginMainSha;
+  const expectedHeadSha = context.identity?.headSha;
+  if (!prospective
+    || !validSha(expectedBaseSha)
+    || !validSha(expectedHeadSha)
+    || prospective.baseSha !== expectedBaseSha
+    || prospective.headSha !== expectedHeadSha
+    || !validSha(prospective.treeSha)
+    || !validSha(prospective.syntheticCommitSha)) {
+    return [{
+      ...context,
+      sourceKind: "local_validation",
+      structuredEvidence: false,
+      reasonCode: "prospective_validation_identity_ambiguous",
+      diagnostic: "prospective validation failed without exact current-main, source-head, merge-tree, and synthetic-commit identity",
+    }];
+  }
+  return sourceFailuresFromValidation(validation, {
+    ...context,
+    profile: validation.profile || context.profile,
+  });
+}
+
 export function sourceFailuresFromGithubEvidence(evidence = {}, context = {}) {
   const failures = [];
   for (const check of evidence.requiredChecks || []) {

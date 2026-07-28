@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
+import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches, ordinaryContinuationPhaseTarget, ordinaryContinuationPhases } from "../lib/ordinary-candidate-continuation.mjs";
 import { createProductionSplitMaterializationAdapter, materializeFeatureBundleSplit, validateSplitMaterializationInput } from "../lib/feature-bundle-split-materializer.mjs";
 
 const sha = (value) => createHash("sha1").update(value).digest("hex");
@@ -39,6 +39,30 @@ test("ordinary continuation adopts exact effects and waits at real pending state
   const second = await continueOrdinaryCandidate(state, handlers);
   assert.equal(second.outcome, "complete");
   assert.equal(second.state.counters.acceptedLogicalTasks, 1);
+});
+
+test("ordinary continuation persists and binds the proven current-main authority", async () => {
+  const historicalBase = sha("base");
+  const provenCurrentMain = sha("advanced-main");
+  const state = createOrdinaryContinuationState({
+    logicalTaskKey: "root",
+    issueNumber: 959,
+    branchName: "feature/historical",
+    identity: { ...identity(), baseSha: historicalBase },
+    expectedOriginMainSha: provenCurrentMain,
+  });
+  const first = await continueOrdinaryCandidate(state, {
+    candidate_reconciliation: async () => ({ ok: true, wait: true, completed: true }),
+  });
+  assert.equal(first.state.expectedOriginMainSha, provenCurrentMain);
+  const contradicted = await continueOrdinaryCandidate({
+    ...first.state,
+    phase: "candidate_reconciliation",
+    expectedOriginMainSha: historicalBase,
+  }, {
+    adoptEffect: async () => ({ ok: true }),
+  });
+  assert.equal(contradicted.reasonCode, "ordinary_continuation_effect_conflict:candidate_reconciliation");
 });
 
 test("ordinary continuation restart at structured review preserves reviewer prompt attestations", async () => {
@@ -103,6 +127,10 @@ test("ordinary source change invalidates review and mutation effects", async () 
   assert.equal(result.state.counters.localSourceChangingRoundsPerEpoch, 1);
   assert.equal(result.state.counters.acceptedLogicalTasks, 1);
   assert.deepEqual(result.state.identity.changedFiles, ["a.mjs", "b.mjs"]);
+  assert.equal(
+    result.state.effects.candidate_reconciliation.targetDigest,
+    ordinaryContinuationPhaseTarget(result.state, "candidate_reconciliation"),
+  );
 });
 
 test("ordinary continuation crash recovery invalidates identity after every review-fix source", async () => {
@@ -127,6 +155,58 @@ test("ordinary continuation crash recovery invalidates identity after every revi
     assert.equal(restarted.state.identity.headSha, replacement.headSha);
     assert.equal(restarted.state.counters.acceptedLogicalTasks, 1);
   }
+});
+
+test("prospective GitHub validation failure enters canonical convergence and reuses the existing PR", async () => {
+  const calls = [];
+  let failed = true;
+  const original = identity("prospective-before");
+  const replacement = identity("prospective-after", ["a.mjs", "fix.mjs"]);
+  const state = createOrdinaryContinuationState({
+    logicalTaskKey: "989",
+    issueNumber: 989,
+    branchName: "fix/existing-pr",
+    identity: original,
+    phase: "github_convergence",
+    counters: { githubTriggeredFixEpochsPerPr: 0 },
+  });
+  const handlers = Object.fromEntries(ordinaryContinuationPhases.map((phase) => [phase, async () => {
+    calls.push(phase);
+    return { ok: true };
+  }]));
+  handlers.github_convergence = async (current) => {
+    calls.push(`github:${current.identity.headSha}`);
+    if (failed) {
+      failed = false;
+      return {
+        ok: true,
+        sourceFailures: [{
+          sourceKind: "local_validation",
+          structuredEvidence: true,
+          failureType: "source",
+          diagnostic: "test failed in prospective synthetic merge",
+          identity: current.identity,
+        }],
+      };
+    }
+    return { ok: true };
+  };
+  handlers.source_failure_fix = async (_current, { originatingPhase }) => {
+    calls.push(`fix:${originatingPhase}`);
+    return { ok: true, sourceChanged: true, identity: replacement, evidence: { commit: replacement.headSha } };
+  };
+  const result = await continueOrdinaryCandidate(state, handlers);
+  assert.equal(result.outcome, "complete");
+  assert.equal(result.state.identity.headSha, replacement.headSha);
+  assert.equal(result.state.counters.githubTriggeredFixEpochsPerPr, 1);
+  assert.equal(result.state.counters.localSourceChangingRoundsPerEpoch, 1);
+  assert.deepEqual(calls.slice(0, 4), [
+    `github:${original.headSha}`,
+    "fix:github_convergence",
+    "local_validation",
+    "external_review",
+  ]);
+  assert.equal(calls.filter((entry) => entry === "pr_create_or_update").length, 1);
 });
 
 test("ordinary continuation rejects corrupt identity, missing handlers, and conflicting adopted effects", async () => {

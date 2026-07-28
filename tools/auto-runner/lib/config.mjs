@@ -689,7 +689,9 @@ export function validateRecoveryOnlyExistingPrTarget(config = {}, recoveryConfig
   return { ok: true };
 }
 
-export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfig = {}, { expectedHeadSha = null, changedFiles = null } = {}) {
+export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfig = {}, {
+  expectedHeadSha = null, changedFiles = null, allowRebuild = false,
+} = {}) {
   if (!config.outageRecoveryOnly) return { ok: true };
   const target = config.outageRecoveryTarget || null;
   const evidence = recoveryConfig?.exactHeadEvidence;
@@ -707,11 +709,15 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
   const canonicalChangedFilesDigest = digestChangedFiles(canonicalChangedFiles);
-  const requiredChecks = [
+  const expectedCurrentMainSha = recoveryConfig.expectedOriginMainSha || target.baseSha;
+  const identityChecks = [
     evidence.repositorySlug === (config.repositorySlug || defaultConfig.repositorySlug),
     evidence.issueNumber === target.issueNumber,
     evidence.prNumber === target.prNumber,
     evidence.baseSha === target.baseSha,
+    evidence.currentMainSha == null
+      ? expectedCurrentMainSha === target.baseSha
+      : evidence.currentMainSha === expectedCurrentMainSha,
     evidence.taskKey === target.taskKey,
     evidence.runnerRunId === target.runnerRunId,
     evidence.supervisorRunId === target.supervisorRunId,
@@ -719,6 +725,17 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
     validSupervisorRunId(evidence.supervisorRunId),
     Array.isArray(evidence.changedFiles),
     evidence.changedFilesDigest === canonicalChangedFilesDigest,
+  ];
+  if (identityChecks.some((ok) => !ok)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
+  }
+  if (!sameCanonicalChangedFiles(evidence.changedFiles, canonicalChangedFiles)) {
+    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
+  }
+  if (allowRebuild === true && evidence.recoveryStateRebuildable === true) {
+    return { ok: true, rebuildRequired: true };
+  }
+  const requiredChecks = [
     evidence.validationPassed === true,
     Array.isArray(evidence.validationResults),
     isNonEmptyString(evidence.validationCompletedAt || evidence.completedAt),
@@ -737,9 +754,6 @@ export function validateRecoveryOnlyExactHeadEvidence(config = {}, recoveryConfi
   ];
   if (requiredChecks.some((ok) => !ok)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_incomplete" };
-  }
-  if (!sameCanonicalChangedFiles(evidence.changedFiles, canonicalChangedFiles)) {
-    return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };
   }
   if (!sameCanonicalChangedFiles(evidence.geminiChangedFiles, canonicalChangedFiles)) {
     return { ok: false, reason: "outage_recovery_exact_head_evidence_invalid" };

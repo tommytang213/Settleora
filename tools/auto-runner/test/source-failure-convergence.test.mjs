@@ -7,6 +7,7 @@ import {
   normalizeSourceFailure,
   sourceFailureStatusProjection,
   sourceFailuresFromGithubEvidence,
+  sourceFailuresFromProspectiveValidation,
   sourceFailuresFromValidation,
 } from "../lib/source-failure-convergence.mjs";
 import { continueOrdinaryCandidate, createOrdinaryContinuationState } from "../lib/ordinary-candidate-continuation.mjs";
@@ -41,6 +42,47 @@ test("classifies pending transient auth actionable and ambiguous CI without gues
   assert.equal(classifySourceFailure({ sourceKind: "github_check", status: "failure", structuredEvidence: false }).classification, "unsafe_or_ambiguous");
   const [inferred] = sourceFailuresFromValidation({ passed: false, profile: "workflow-tooling", results: [{ command: "npm test", status: 1, stderr: "dependency download timeout; build failed with exit code 1" }] }, { identity: identity(), inContract: true });
   assert.equal(freezeSourceFailureBatch([inferred], identity()).findings[0].classification, "retryable_infrastructure");
+});
+
+test("prospective validation failures require exact merge identity before source convergence", () => {
+  const candidate = identity();
+  const currentMain = sha("d");
+  const validation = {
+    passed: false,
+    profile: "workflow-tooling",
+    results: [{ command: "node --test", status: 1, stderr: "test failed: prospective assertion" }],
+    prospectiveMerge: {
+      baseSha: currentMain,
+      headSha: candidate.headSha,
+      treeSha: sha("e"),
+      syntheticCommitSha: sha("f"),
+    },
+  };
+  const context = { identity: candidate, expectedOriginMainSha: currentMain, inContract: true };
+  const exact = freezeSourceFailureBatch(sourceFailuresFromProspectiveValidation(validation, context), candidate);
+  assert.equal(exact.findings[0].classification, "source_fix_safe");
+  const transient = freezeSourceFailureBatch(sourceFailuresFromProspectiveValidation({
+    ...validation,
+    results: [{ command: "node --test", status: 1, stderr: "runner unavailable after network timeout" }],
+  }, context), candidate);
+  assert.equal(transient.findings[0].classification, "retryable_infrastructure");
+  const nonSource = freezeSourceFailureBatch(sourceFailuresFromProspectiveValidation({
+    ...validation,
+    results: [{ command: "node --test", status: 1, stderr: "process stopped unexpectedly" }],
+  }, context), candidate);
+  assert.equal(nonSource.findings[0].classification, "unsafe_or_ambiguous");
+  const forbidden = freezeSourceFailureBatch(sourceFailuresFromProspectiveValidation(validation, { ...context, inContract: false }), candidate);
+  assert.equal(forbidden.findings[0].classification, "out_of_contract");
+  for (const prospectiveMerge of [
+    { ...validation.prospectiveMerge, baseSha: sha("e") },
+    { ...validation.prospectiveMerge, headSha: sha("f") },
+    { ...validation.prospectiveMerge, treeSha: null },
+    { ...validation.prospectiveMerge, syntheticCommitSha: null },
+  ]) {
+    const ambiguous = freezeSourceFailureBatch(sourceFailuresFromProspectiveValidation({ ...validation, prospectiveMerge }, context), candidate);
+    assert.equal(ambiguous.findings[0].classification, "unsafe_or_ambiguous");
+    assert.equal(ambiguous.findings[0].reasonCode, "prospective_validation_identity_ambiguous");
+  }
 });
 
 test("GitHub failed-check log hints keep transient infrastructure ahead of broad source text", () => {

@@ -232,3 +232,13 @@ function isApprovedGitHubRemote(remote) {
     || /^git@github\.com:[^/]+\/[^/]+(?:\.git)?$/u.test(remote)
     || /^ssh:\/\/git@github\.com\/[^/]+\/[^/]+(?:\.git)?$/u.test(remote);
 }
+
+export function canonicalApprovedGitHubRepository(remote) {
+  try {
+    return isApprovedGitHubRemote(String(remote || ""))
+      ? repositorySlugFromRemote(remote).toLowerCase()
+      : null;
+  } catch {
+    return null;
+  }
+}

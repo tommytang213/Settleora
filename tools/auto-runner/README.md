@@ -311,6 +311,22 @@ a pending check that later fails can enter this classifier. GitHub finding
 fingerprints remain prepared, not consumed, until a replacement commit is
 confirmed; crash recovery resumes the same reserved epoch and adopts the
 new-head effect before recertification.
+Existing-PR prospective synthetic-merge validation failures use the same
+canonical validation extractor after the checkout is restored to the exact
+clean authenticated source branch/head and current-main authority is
+reconfirmed. Exact merge-tree and synthetic-commit identity is required before
+classification. Source-fixable diagnostics reserve the normal GitHub fix epoch;
+transient, ambiguous, out-of-contract, or identity-drift evidence retains its
+ordinary bounded retry or fail-closed result.
+Historical recovery validates repository-local and linked-worktree Git
+authority before fetching current `main`; that fetch uses the fixed Git binary
+and a sanitized environment that disables system/global configuration,
+credential helpers, hooks, executable diff/filter configuration, SSH command
+overrides, replace refs, alternate objects, and local/ext transports. Existing
+PR adoption additionally requires one exact completed push marker and one PR
+marker plus their finalized canonical intents, the durable PR record,
+current-main authority, and the remote-tracking branch to agree on the
+repository/task/claim/charge, branch, PR URL/number/base, and exact head.
 If a focused repair exposes another actionable validation defect, the new
 candidate is committed and re-enters the same bounded classifier instead of
 terminating after one round. Canonically named platform checks are translated
@@ -320,6 +336,19 @@ both the task contract and lane manifest before a fix epoch is authorized.
 ## Post-implementation continuation authorities
 
 Ordinary post-implementation work uses one durable continuation authority from exact candidate reconciliation through validation, dual and structured review, convergence, push/PR recovery, GitHub gates, merge, and post-merge hygiene. Startup recovery re-enters that authority at the earliest incomplete exact-head phase; loading a large-review checkpoint is not a terminal success.
+
+Historical initial-candidate reconstruction does not equate a task's recorded
+base with today's `origin/main`. It accepts an advanced main only after one
+shared verifier proves complete ungrafted Git ancestry from the authentic base,
+the candidate's exact single-child topology and bytes, its clean literal
+branch checkout, the canonical repository/remote and trusted Git environment,
+and the matching recovery/lifecycle/charge/checkpoint/finalized-commit-intent
+authority with no later push, PR, merge, or replacement-candidate effect.
+An already committed pre-push source fix is resumable only as an exact
+one-parent descendant chain whose every step has one matching finalized commit
+intent and stays inside the original candidate path allowlist.
+Incomplete, shallow, alternate, replaced, grafted, divergent, ambiguous, or
+contradictory evidence has a stable fail-closed result.
 
 Proven feature-bundle splits are materialized by the bundle authority from frozen checkpoint commit ranges. Each concrete file belongs to exactly one slice, branch and PR reuse is exact-head/base bound, dependent slices retain their parent-branch PR base, and verified split PRs are handed to the existing PR-stack executor. Ambiguous ownership, branch/PR conflicts, missing execution authority, or semantic-delta mismatch block before further mutation.
 

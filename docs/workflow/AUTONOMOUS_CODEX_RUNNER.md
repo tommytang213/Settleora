@@ -68,6 +68,15 @@ wait carries its final bounded exact-head checks, scanner alerts, threads, and
 merge state back to the classifier. Reserved GitHub batches remain resumable
 until a source commit is confirmed, and fingerprints are consumed only with
 the persisted old-head to new-head commit effect.
+When existing-PR evidence regeneration fails on the prospective synthetic
+merge, the runner first restores and verifies the exact clean source
+branch/head/tree and unchanged current-main authority. It then requires the
+recorded merge-tree and synthetic-commit identities and feeds the failed
+trusted command through the same validation-failure extractor. No parallel
+repair engine is created: source-fixable diagnostics reserve the ordinary
+GitHub convergence epoch, while transient, ambiguous, forbidden-scope, and
+identity-drift results retain their existing bounded retry or fail-closed
+posture.
 Post-fix validation failures recursively re-enter this authority. Exact-name
 external platform checks are bound from the inspected PR head, while every
 scanner alert path is checked against both task and lane scope; absent or
@@ -1675,3 +1684,51 @@ existing corrupt, contradictory, mismatched, or ambiguous lifecycle artifact.
 A validation-failed candidate resumes source-failure convergence only when its
 recorded classification authorizes a source fix; otherwise the exact preserved
 candidate resumes validation. Neither path re-enters implementation.
+
+An initial validation-failure candidate remains recoverable after `main`
+advances only through the historical-lineage verifier. Current `main` is not
+required to equal the recorded base, but the base must be an available
+authentic commit and an ancestor of current `main` in complete, ungrafted,
+non-replaced history. The candidate must remain the single one-parent child of
+that base, outside current `main`, with the exact subject, tree, raw diff,
+changed paths/digests, branch/head and clean checkout. Recovery, lifecycle,
+claim/charge, report/prompt, checkpoint, finalized commit intent, and
+no-later-effect identities must all agree. Shallow or alternate object stores,
+replace refs, grafts, unsafe Git configuration, divergence, unavailable
+objects, multiple records, or any identity/effect contradiction fail closed.
+Before historical recovery fetches `main`, the runner validates canonical
+repository and remote identity plus local and linked-worktree configuration
+through its fixed sanitized Git reader. The fetch then uses `/usr/bin/git`
+with system/global configuration, credential helpers, hooks, executable diff
+or filter behavior, SSH command overrides, alternate objects, replace refs,
+and local/ext transports disabled. Unsafe include, URL rewrite, proxy,
+transport, credential, hook, filter, diff/textconv, object, or worktree
+configuration therefore cannot execute before rejection.
+The proven current-main SHA is persisted in ordinary continuation authority,
+included in every phase target, and propagated as the expected PR/merge base;
+a restart, stale checkpoint, or later main movement cannot silently fall back
+to the historical candidate base. Recovery validation runs on the clean
+prospective merge tree of that exact main and candidate, records its tree and
+two-parent synthetic commit, and re-proves those bytes before merge evaluation;
+Gemini and Codex reviews remain bound to the exact candidate head. A restart
+after validation or either local review may resume only when every completed
+pre-external phase has its exact continuation target and timestamp; any unknown,
+out-of-order, push, PR, comment, or merge effect remains a hard failure.
+If a pre-push validation or review fix has already committed, restart recovery
+separately re-proves the original single-child candidate and the active
+descendant. Every intervening commit must be a one-parent contiguous step with
+one exact finalized commit intent binding its parent, tree, subject digest, and
+in-lane staged paths; a rewritten, merged, extra, or unauthenticated step fails
+closed.
+Version-1 checkpoints written before current-main authority was persisted may
+use the legacy phase-target format only while that field is absent; after the
+historical proof, the runner rewrites all validated local targets once to the
+new current-main-bound format.
+Once push or PR effects exist, historical recovery admits them only when the
+ordinary continuation, state PR record, remote-tracking branch, finalized
+canonical push and PR intent, and their single completed mutation markers bind
+the same repository, issue/task/run, claim/charge, branch, canonical PR URL and
+number, `main` base authority, and exact head. Stale or prior heads, a different
+PR/base/URL, missing or duplicate-like markers or intents, mixed authority, or
+remote-head disagreement fail closed at push, PR-create, CI-wait, and later
+GitHub-convergence restarts.

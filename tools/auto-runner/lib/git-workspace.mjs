@@ -143,14 +143,79 @@ export function ensureTaskMutationWorkspace(config, { branchName, expectedOrigin
 
 export const ensureTaskStartWorkspace = ensureLaunchWorkspace;
 
-export function fetchOriginMain(config) {
+export function fetchOriginMain(config, options = {}) {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run" };
   }
   assertRepositoryRemoteIdentity(config);
-  const result = runGit(["fetch", "origin", "main"], { cwd: config.repoRoot });
+  const result = options.trustedHistoricalRecovery === true
+    ? runTrustedHistoricalFetch(config.repoRoot)
+    : runGit(["fetch", "origin", "main"], { cwd: config.repoRoot });
   assertGitSuccess(result, "Unable to fetch origin/main");
   return { skipped: false, status: result.status };
+}
+
+export function runTrustedProspectiveMergeTree(config, baseSha, headSha) {
+  if (!/^[a-f0-9]{40}$/u.test(baseSha || "") || !/^[a-f0-9]{40}$/u.test(headSha || "")) {
+    return { command: "/usr/bin/git merge-tree", status: 128, stdout: "", stderr: "invalid merge identity", error: null };
+  }
+  const args = [
+    "-c", "credential.helper=",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.attributesFile=/dev/null",
+    "-c", "diff.external=",
+    "-c", "protocol.ext.allow=never",
+    "-c", "protocol.file.allow=never",
+    "merge-tree", "--write-tree", baseSha, headSha,
+  ];
+  return runFixedTrustedGit(config.repoRoot, args);
+}
+
+function runTrustedHistoricalFetch(cwd) {
+  const args = [
+    "-c", "credential.helper=",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "core.sshCommand=",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.attributesFile=/dev/null",
+    "-c", "diff.external=",
+    "-c", "protocol.ext.allow=never",
+    "-c", "protocol.file.allow=never",
+    "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main",
+  ];
+  return runFixedTrustedGit(cwd, args, {
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_SSH_COMMAND: "/usr/bin/ssh -F /dev/null -o BatchMode=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no",
+  });
+}
+
+function runFixedTrustedGit(cwd, args, extraEnv = {}) {
+  const result = spawnSync("/usr/bin/git", args, {
+    cwd,
+    env: {
+      PATH: "/usr/bin:/bin",
+      LANG: "C",
+      LC_ALL: "C",
+      HOME: process.env.HOME || "/dev/null",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "core.useReplaceRefs",
+      GIT_CONFIG_VALUE_0: "false",
+      ...extraEnv,
+    },
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return {
+    command: `/usr/bin/git ${args.join(" ")}`,
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error ? result.error.message : null,
+  };
 }
 
 export function createTaskBranch(config, branchName, baseRef = "origin/main") {

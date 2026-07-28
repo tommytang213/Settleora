@@ -193,7 +193,15 @@ async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
     const reread = readBranchPrs(config, branchName);
     adoptedPr = reread.prs?.find((pr) => pr.state === "OPEN" && pr.headRefOid === headSha) || null;
   }
-  return { skipped: false, action: result.action === "adopted" ? "existing" : "create", status: 0, url: adoptedPr?.url || null, number: adoptedPr?.number || null, canonicalEffect: result };
+  return {
+    skipped: false,
+    action: result.action === "adopted" ? "existing" : "create",
+    status: 0,
+    url: adoptedPr?.url || null,
+    number: adoptedPr?.number || null,
+    state: adoptedPr?.state || null,
+    canonicalEffect: result,
+  };
 }
 
 function readBranchPrs(config, branchName) {

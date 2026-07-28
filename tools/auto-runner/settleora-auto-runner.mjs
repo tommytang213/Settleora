@@ -42,9 +42,14 @@ import {
   getStatusShort,
   listChangedFiles,
   listWorkingTreeChangedFiles,
+  runTrustedProspectiveMergeTree,
   sourceStateIdentityForCommit,
   workingTreeDiffHash,
 } from "./lib/git-workspace.mjs";
+import {
+  validateHistoricalRecoveryGitAuthority,
+  verifyHistoricalInitialCandidateLineage,
+} from "./lib/historical-initial-candidate-lineage.mjs";
 import { generateTaskPrompt } from "./lib/task-prompt.mjs";
 import { runCodexPrompt, runReviewPrompt } from "./lib/codex-runner.mjs";
 import { collectReport } from "./lib/report-collector.mjs";
@@ -120,10 +125,15 @@ import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
-import { continueOrdinaryCandidate, createOrdinaryContinuationState, ordinaryCandidateIdentityMatches } from "./lib/ordinary-candidate-continuation.mjs";
+import {
+  continueOrdinaryCandidate,
+  createOrdinaryContinuationState,
+  ordinaryCandidateIdentityMatches,
+  ordinaryContinuationPhaseTarget,
+} from "./lib/ordinary-candidate-continuation.mjs";
 import { continuePostMergeCleanup, createPostMergeCleanupGitAdapter, loadPostMergeCleanupState, persistPostMergeCleanupState, planPostMergeCleanup } from "./lib/post-merge-cleanup.mjs";
 import { canonicalGithubEvidenceDigest } from "./lib/github-effect-consumer.mjs";
-import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
+import { evaluateSourceFailureBatch, freezeSourceFailureBatch, sourceFailuresFromGithubEvidence, sourceFailuresFromProspectiveValidation, sourceFailuresFromValidation } from "./lib/source-failure-convergence.mjs";
 import { completeMergedIssueHygiene, completionHygieneReady } from "./lib/completion-hygiene.mjs";
 
 export async function main() {
@@ -918,7 +928,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       treeSha: getRefSha("HEAD^{tree}"),
       diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
       changedFiles,
-      changedFilesDigest: createHash("sha256").update(JSON.stringify([...changedFiles].sort())).digest("hex"),
+      changedFilesDigest: digestChangedFiles(changedFiles),
     };
     const failures = sourceFailuresFromValidation(iteration.validation, { repository: config.repositorySlug, issueNumber: issue.number, taskKey: config.taskKey || promptInfo.timestampKey, branchName, identity: initialIdentity, profile: laneDecision.validationProfile, inContract: true });
     const batch = freezeSourceFailureBatch(failures, initialIdentity);
@@ -1041,7 +1051,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     return iteration;
   }
   if (!config.dryRun && iteration.report.copyPath) {
-    recoveryRecorder?.annotate({ expectedReportPaths: { durableReportPath: iteration.report.copyPath } });
+    recoveryRecorder?.annotate({ expectedReportPaths: {
+      repoReportPath: promptInfo.reportPath,
+      promptPath: promptInfo.promptPath,
+      durableReportPath: iteration.report.copyPath,
+    } });
   }
 
   iteration.preReviewPrOwnership = inspectPreReviewPrOwnership(config, branchName);
@@ -1123,8 +1137,11 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       treeSha: getRefSha("HEAD^{tree}"),
       diffDigest: createHash("sha256").update(getBoundedDiff(iteration.baseOriginMainSha, iteration.runnerCreatedCommitSha).text).digest("hex"),
       changedFiles,
+      changedFilesDigest: digestChangedFiles(changedFiles),
     };
     const ordinaryContinuation = createOrdinaryContinuationState({ logicalTaskKey: config.taskKey || `issue-${issue.number}`, executionKey: runId, issueNumber: issue.number, branchName, identity, counters: ordinaryCountersFromReviewConvergence(iteration.reviewConvergenceState) });
+    ordinaryContinuation.sourceFailureBatch = iteration.sourceFailureBatch || null;
+    ordinaryContinuation.sourceFailureHistory = [...(iteration.sourceFailureHistory || [])];
     const registered = await continueOrdinaryCandidate(ordinaryContinuation, {
       candidate_reconciliation: async () => ({ ok: true, evidence: identity }),
       local_validation: async () => ({ ok: true, evidence: { changedFilesDigest: iteration.validation.changedFilesDigest } }),
@@ -1996,13 +2013,13 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
       }
       if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
-        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
+        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, boundary.phase);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         }
       }
       if (boundary.phase === "checkpoint_validation_commit") {
-        const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue);
+        const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
         if (checkpoint.ok) return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: checkpoint.reasonCode, state };
       }
@@ -2011,7 +2028,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
       }
       if (["push", "pr_create_recover", "ci_wait"].includes(boundary.phase) && state.ordinaryContinuation) {
-        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state);
+        const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, boundary.phase);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         }
@@ -2063,18 +2080,29 @@ function ordinaryCountersFromReviewConvergence(reviewConvergenceState = {}) {
   };
 }
 
-function reconstructInitialValidationFailureCheckpoint(config, state, issue) {
-  fetchOriginMain(config);
-  const baseSha = state.branch?.baseSha;
-  const priorHead = state.branch?.currentHeadSha || baseSha;
-  const headSha = getRefSha("HEAD");
-  const exactSubject = spawnSync("git", ["show", "-s", "--format=%s", headSha], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim();
-  const commitDistance = spawnSync("git", ["rev-list", "--count", `${priorHead}..${headSha}`], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim();
-  const exactAdvance = priorHead === headSha || (commitDistance === "1" && spawnSync("git", ["merge-base", "--is-ancestor", priorHead, headSha], { cwd: config.repoRoot }).status === 0);
-  if (!baseSha || getRefSha("origin/main") !== baseSha || getCurrentBranch() !== state.branch?.name || getStatusShort() !== "" || !exactAdvance || exactSubject !== `Auto-runner issue #${issue.number}: initial candidate before source classification`) {
-    return { ok: false, reasonCode: "initial_validation_failure_commit_reconstruction_ambiguous" };
+function reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision) {
+  if (!validateHistoricalRecoveryGitAuthority(config)) {
+    return { ok: false, reasonCode: "historical_candidate_git_environment_untrusted" };
   }
-  return { ok: true, candidateIdentity: ordinaryIdentityForHead(baseSha, headSha), routeState: "initial_validation_failure_reconstructed" };
+  fetchOriginMain(config, { trustedHistoricalRecovery: true });
+  const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
+    expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+    expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
+      || state.sessionLifecycle?.state?.recovery?.operationId
+      || null,
+    validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
+  });
+  if (proof.ok && filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
+    return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
+  }
+  return proof.ok
+    ? {
+      ok: true,
+      candidateIdentity: proof.candidateIdentity,
+      reconstructedCurrentMainSha: proof.currentMainSha,
+      routeState: "initial_validation_failure_reconstructed",
+    }
+    : { ok: false, reasonCode: proof.reasonCode || "initial_validation_failure_commit_reconstruction_ambiguous" };
 }
 
 async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null, currentRunId = null }) {
@@ -2085,6 +2113,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     issueNumber: issue.number,
     branchName: state.branch.name,
     identity: { ...identity, changedFiles: listChangedFiles(identity.baseSha, identity.headSha) },
+    expectedOriginMainSha: checkpoint.reconstructedCurrentMainSha || identity.baseSha,
     phase: "candidate_reconciliation",
     counters: {
       acceptedLogicalTasks: 1,
@@ -2093,7 +2122,34 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       githubTriggeredFixEpochsPerPr: state.reviewConvergenceState?.counters?.githubTriggeredFixEpochsPerPr || 0,
     },
   });
-  fetchOriginMain(config);
+  const persist = async (ordinaryContinuation) => {
+    state = synchronizeRecoveredSourceChange(state, ordinaryContinuation, "ordinary_source_failure_fix_committed");
+    return writeRecoveryState(config, { ...state, ordinaryContinuation });
+  };
+  if (checkpoint.reconstructedCurrentMainSha
+    && initial.expectedOriginMainSha !== checkpoint.reconstructedCurrentMainSha) {
+    if (initial.expectedOriginMainSha != null
+      && initial.expectedOriginMainSha !== initial.identity.baseSha) {
+      return {
+        ok: false,
+        outcome: "blocked",
+        reasonCode: "ordinary_continuation_current_main_authority_mismatch",
+        ordinaryContinuation: initial,
+        largeCandidateReviewRecovery: checkpoint,
+        state,
+      };
+    }
+    const upgraded = { ...initial, expectedOriginMainSha: checkpoint.reconstructedCurrentMainSha };
+    initial = {
+      ...upgraded,
+      effects: Object.fromEntries(Object.entries(upgraded.effects || {}).map(([phase, effect]) => [
+        phase,
+        { ...effect, targetDigest: ordinaryContinuationPhaseTarget(upgraded, phase) },
+      ])),
+    };
+    await persist(initial);
+  }
+  fetchOriginMain(config, { trustedHistoricalRecovery: true });
   const liveHeadAtRecovery = getRefSha("HEAD");
   const preparedFixCanBeAdopted = Boolean(
     initial.sourceFailureFixIntent?.status === "prepared"
@@ -2104,7 +2160,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     && spawnSync("git", ["show", "-s", "--format=%s", liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === `Auto-runner issue #${issue.number}: source-fix ${initial.sourceFailureFixIntent?.batchIdentity?.slice(0, 16)}`
   );
   const cleanupOnlyRecovery = initial.phase === "post_merge_cleanup";
-  if (!cleanupOnlyRecovery && (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== initial.identity.baseSha || getStatusShort() !== "")) {
+  const expectedCurrentMain = initial.expectedOriginMainSha;
+  if (!cleanupOnlyRecovery && (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== expectedCurrentMain || getStatusShort() !== "")) {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
   const actualChangedFiles = listChangedFiles(initial.identity.baseSha, initial.identity.headSha);
@@ -2121,11 +2178,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
   }
   if (preparedFixCanBeAdopted) {
     const replacementIdentity = ordinaryIdentityForHead(initial.identity.baseSha, liveHeadAtRecovery);
-    initial = {
+    const replacement = {
       ...initial,
       identity: replacementIdentity,
       phase: "local_validation",
-      effects: initial.effects?.candidate_reconciliation ? { candidate_reconciliation: initial.effects.candidate_reconciliation } : {},
+      effects: {},
       counters: {
         ...initial.counters,
         localSourceChangingRoundsPerEpoch: initial.counters.localSourceChangingRoundsPerEpoch + 1,
@@ -2138,6 +2195,17 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       sourceFailureFixIntent: null,
       sourceFailureBatch: null,
     };
+    initial = initial.effects?.candidate_reconciliation
+      ? {
+          ...replacement,
+          effects: {
+            candidate_reconciliation: {
+              ...initial.effects.candidate_reconciliation,
+              targetDigest: ordinaryContinuationPhaseTarget(replacement, "candidate_reconciliation"),
+            },
+          },
+        }
+      : replacement;
     state = synchronizeRecoveredSourceChange(state, initial, "ordinary_source_failure_fix_adopted");
     await writeRecoveryState(config, { ...state, ordinaryContinuation: initial });
   }
@@ -2152,15 +2220,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     largeCandidateReview: ordinaryStructuredReviewCheckpoint(initial.effects?.structured_review?.evidence),
     pr: null,
   };
-  const persist = async (ordinaryContinuation) => {
-    state = synchronizeRecoveredSourceChange(state, ordinaryContinuation, "ordinary_source_failure_fix_committed");
-    return writeRecoveryState(config, { ...state, ordinaryContinuation });
-  };
   const result = await continueOrdinaryCandidate(initial, {
     candidate_reconciliation: async (continuation) => {
       const candidate = continuation.identity;
       fetchOriginMain(config);
-      if (getCurrentBranch() !== state.branch.name || getRefSha("HEAD") !== candidate.headSha || getRefSha("origin/main") !== candidate.baseSha || getStatusShort() !== "") return { ok: false, reasonCode: "ordinary_continuation_candidate_mismatch" };
+      if (getCurrentBranch() !== state.branch.name || getRefSha("HEAD") !== candidate.headSha || getRefSha("origin/main") !== expectedCurrentMain || getStatusShort() !== "") return { ok: false, reasonCode: "ordinary_continuation_candidate_mismatch" };
       return { ok: true, evidence: candidate };
     },
     local_validation: async (continuation) => {
@@ -2278,6 +2342,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             issueNumber: continuation.issueNumber,
             branchName: continuation.branchName,
             identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
+            expectedOriginMainSha: continuation.expectedOriginMainSha,
             phase: "candidate_reconciliation",
             counters: {
               ...continuation.counters,
@@ -2299,13 +2364,34 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const candidate = continuation.identity;
       const pushed = await pushBranch(config, state.branch.name, { effectContext: state.sessionLifecycle });
       operationalCheckpoint?.("ordinary_recovery_push_complete", { push: pushed });
-      return pushed.status === 0 ? { ok: true, evidence: { headSha: candidate.headSha } } : { ok: false, reasonCode: "ordinary_continuation_push_failed" };
+      if (pushed.status !== 0) return { ok: false, reasonCode: "ordinary_continuation_push_failed" };
+      state = {
+        ...state,
+        branch: { ...state.branch, expectedRemoteHeadSha: candidate.headSha },
+      };
+      await writeRecoveryState(config, state);
+      return { ok: true, evidence: { headSha: candidate.headSha } };
     },
     pr_create_or_update: async (continuation) => {
       operationalCheckpoint?.("ordinary_recovery_pr_create_recover");
       context.pr = await openOrUpdatePr(config, issue, state.branch.name, `Recovered exact-head continuation for ${continuation.identity.headSha}.`, { effectContext: state.sessionLifecycle });
       operationalCheckpoint?.("ordinary_recovery_pr_create_recover_complete", { pr: context.pr });
-      return context.pr?.url ? { ok: true, evidence: { url: context.pr.url, number: context.pr.number } } : { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
+      if (!context.pr?.url || !Number.isSafeInteger(context.pr.number)) {
+        return { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
+      }
+      state = {
+        ...state,
+        pr: {
+          number: context.pr.number,
+          url: context.pr.url,
+          headSha: continuation.identity.headSha,
+          headRefName: continuation.branchName,
+          baseRefName: "main",
+          state: context.pr.state,
+        },
+      };
+      await writeRecoveryState(config, state);
+      return { ok: true, evidence: { url: context.pr.url, number: context.pr.number } };
     },
     github_convergence: async (continuation) => {
       operationalCheckpoint?.("ordinary_recovery_github_convergence");
@@ -2313,8 +2399,19 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const prEvidence = context.pr || initial.effects?.pr_create_or_update?.evidence || {};
       const prNumber = prEvidence.number || Number(String(prEvidence.url || "").split("/").at(-1));
       if (!Number.isInteger(prNumber)) return { ok: false, reasonCode: "ordinary_continuation_pr_identity_missing" };
+      const outageTargetHeadIsAuthenticatedAncestor = config.outageRecoveryOnly === true
+        && continuation.sourceFailureHistory?.some((entry) =>
+          entry?.candidate?.headSha === config.outageRecoveryTarget?.prHeadSha);
+      const outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor
+        ? {
+            ...config.outageRecoveryTarget,
+            currentHeadSha: candidate.headSha,
+            prHeadSha: candidate.headSha,
+          }
+        : config.outageRecoveryTarget;
       const recoveryConfig = {
         ...config,
+        outageRecoveryTarget,
         allowExistingPrRecovery: true,
         existingPrRecovery: {
           ...(config.existingPrRecovery || {}),
@@ -2322,11 +2419,11 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             prNumber,
             branchName: state.branch.name,
             expectedHeadSha: candidate.headSha,
-            expectedOriginMainSha: candidate.baseSha,
+            expectedOriginMainSha: continuation.expectedOriginMainSha,
             expectedRepository: config.repositorySlug,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
-            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, headSha: candidate.headSha, baseSha: candidate.baseSha, changedFiles: candidate.changedFiles, recoveryStateRebuildable: true },
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: state.taskKey || initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, supervisorRunId: state.run?.supervisorRunId || null, headSha: candidate.headSha, baseSha: candidate.baseSha, currentMainSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, changedFilesDigest: digestChangedFiles(candidate.changedFiles), recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
           },
         },
       };
@@ -2339,6 +2436,31 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         return { ok: true, evidence: compactOrdinaryMergeEvidence(recovered.autoMerge, prNumber) };
       }
       if (recovered?.autoMerge?.strictRecoveryDecision?.nextAction === "resume_ci_wait" || /pending|wait/i.test(recovered?.autoMerge?.reason || recovered?.reason || "")) return { ok: true, wait: true, reasonCode: "github_convergence_pending", evidence: { prNumber } };
+      const prospectiveValidation = recovered?.generatedRecoveryEvidence?.validation;
+      if (prospectiveValidation?.passed === false && prospectiveValidation.prospectiveMerge) {
+        fetchOriginMain(config);
+        if (getCurrentBranch() !== continuation.branchName
+          || getRefSha("HEAD") !== candidate.headSha
+          || getRefSha(`${candidate.headSha}^{tree}`) !== candidate.treeSha
+          || getRefSha("origin/main") !== continuation.expectedOriginMainSha
+          || getStatusShort() !== "") {
+          return { ok: false, reasonCode: "prospective_validation_source_checkout_not_restored" };
+        }
+        const sourceFailures = sourceFailuresFromProspectiveValidation(prospectiveValidation, {
+          repository: config.repositorySlug,
+          issueNumber: issue.number,
+          taskKey: continuation.logicalTaskKey,
+          branchName: continuation.branchName,
+          prNumber,
+          identity: candidate,
+          expectedOriginMainSha: continuation.expectedOriginMainSha,
+          profile: laneDecision.validationProfile,
+          inContract: true,
+        });
+        return sourceFailures.length > 0
+          ? { ok: true, sourceFailures }
+          : { ok: false, reasonCode: "prospective_validation_failure_extraction_empty" };
+      }
       const finalGithubState = recovered?.githubState || recovered?.autoMerge?.finalGithubState || null;
       const inspectedHead = finalGithubState?.inspectedHeadSha || finalGithubState?.pr?.headRefOid || null;
       if (!finalGithubState || !inspectedHead || inspectedHead !== candidate.headSha) return { ok: false, reasonCode: "ordinary_continuation_final_github_inspection_missing_or_stale" };
@@ -2720,13 +2842,54 @@ function ordinaryStructuredFindings(review) {
   return ["gemini", "codex-local"].flatMap((provider) => structuredLargeCandidateFindings(review, provider).map((finding) => ({ ...(typeof finding === "string" ? { summary: finding } : finding), provider })));
 }
 
-function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
-  const baseSha = state.branch?.baseSha || state.baseSha || null;
-  const headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
+function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, lifecyclePhase) {
+  let baseSha = state.branch?.baseSha || state.baseSha || null;
+  let headSha = state.branch?.currentHeadSha || state.currentHeadSha || null;
   if (!baseSha || !headSha) return { ok: false, reasonCode: "large_candidate_recovery_identity_missing" };
+  if (!validateHistoricalRecoveryGitAuthority(config)) {
+    return { ok: false, reasonCode: "historical_candidate_git_environment_untrusted" };
+  }
+  fetchOriginMain(config, { trustedHistoricalRecovery: true });
+  const reconstructedCurrentMainSha = getRefSha("origin/main");
+  const mainLineage = spawnSync(
+    "git", ["merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha],
+    { cwd: config.repoRoot, encoding: "utf8" },
+  );
+  if (!/^[a-f0-9]{40}$/.test(reconstructedCurrentMainSha) || mainLineage.status !== 0) {
+    return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
+  }
+  const candidateAlreadyInMain = spawnSync(
+    "git", ["merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha],
+    { cwd: config.repoRoot, encoding: "utf8" },
+  );
+  if (candidateAlreadyInMain.status === 0) {
+    return { ok: false, reasonCode: "historical_candidate_already_in_main" };
+  }
+  if (candidateAlreadyInMain.status !== 1) {
+    return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
+  }
+  let provenIdentity = null;
+  if (baseSha !== reconstructedCurrentMainSha) {
+    const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
+      expectedLifecyclePhase: lifecyclePhase,
+      allowAuthenticatedExistingPrEffects: true,
+      expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+      expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
+        || state.sessionLifecycle?.state?.recovery?.operationId
+        || null,
+      validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
+    });
+    if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode };
+    if (filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
+      return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
+    }
+    provenIdentity = proof.candidateIdentity;
+    baseSha = provenIdentity.baseSha;
+    headSha = provenIdentity.headSha;
+  }
   const changedFiles = listChangedFiles(baseSha, headSha);
   const diff = getBoundedDiff(baseSha, headSha);
-  const candidateIdentity = {
+  const candidateIdentity = provenIdentity || {
     repository: config.repositorySlug || "tommytang213/Settleora",
     baseSha,
     headSha,
@@ -2736,9 +2899,9 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state) {
   };
   const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });
   const loaded = loadLargeCandidateRoutingState(config, seed);
-  if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true };
+  if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true, reconstructedCurrentMainSha };
   if (!loaded.ok) return loaded;
-  return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults };
+  return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults, reconstructedCurrentMainSha };
 }
 
 function recoveredReviewerManualVerdict(evidence) {
@@ -2836,7 +2999,12 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     body: recoveryConfig.prBody ?? githubState.pr?.body,
     title: recoveryConfig.prTitle ?? githubState.pr?.title,
   };
-  const exactEvidenceCheck = validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, { expectedHeadSha, changedFiles });
+  const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence);
+  const exactEvidenceCheck = validateRecoveryOnlyExactHeadEvidence(config, recoveryConfig, {
+    expectedHeadSha,
+    changedFiles,
+    allowRebuild: regenerationRequired,
+  });
   if (!exactEvidenceCheck.ok) {
     return {
       reason: exactEvidenceCheck.reason,
@@ -2852,7 +3020,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     };
   }
   let generatedRecoveryEvidence = null;
-  if (shouldGenerateExistingPrRecoveryEvidence(laneDecision, exactHeadEvidence)) {
+  if (regenerationRequired) {
     operationalCheckpoint("existing_pr_evidence_regeneration");
     generatedRecoveryEvidence = await generateExistingPrRecoveryEvidence(config, {
       issue,
@@ -2860,6 +3028,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       pr: prMetadata,
       changedFiles,
       expectedHeadSha,
+      expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
     });
     operationalCheckpoint("existing_pr_evidence_regeneration_complete", {
       validation: generatedRecoveryEvidence.validation || null,
@@ -2876,6 +3045,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       issueNumber: issue.number,
       prNumber: recoveryConfig.prNumber,
       baseSha: config.outageRecoveryTarget?.baseSha || exactHeadEvidence.baseSha || null,
+      currentMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
       taskKey: config.outageRecoveryTarget?.taskKey || exactHeadEvidence.taskKey || null,
       runnerRunId: config.outageRecoveryTarget?.runnerRunId || exactHeadEvidence.runnerRunId || null,
       supervisorRunId: config.outageRecoveryTarget?.supervisorRunId || exactHeadEvidence.supervisorRunId || null,
@@ -2906,7 +3076,28 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
       codexMechanicsAttemptCount: generatedRecoveryEvidence.review?.attemptCount || null,
       validationResults: generatedRecoveryEvidence.validation?.results || null,
       validationCompletedAt: generatedRecoveryEvidence.validation?.completedAt || null,
+      prospectiveMergeValidationRequired: exactHeadEvidence.prospectiveMergeValidationRequired === true,
+      prospectiveMerge: generatedRecoveryEvidence.validation?.prospectiveMerge || null,
       changedFilesDigest: generatedRecoveryEvidence.validation?.changedFilesDigest || null,
+    };
+  }
+  fetchOriginMain(config);
+  const refreshedOriginMainSha = getRefSha("origin/main");
+  const validatedOriginMainSha = recoveryConfig.expectedOriginMainSha || baseOriginMainSha;
+  if (refreshedOriginMainSha !== validatedOriginMainSha) {
+    return {
+      reason: "existing_pr_recovery_current_main_drift",
+      pr: prMetadata,
+      changedFiles,
+      validation: generatedRecoveryEvidence?.validation || { passed: false, recovered: true },
+      review: generatedRecoveryEvidence?.review || null,
+      externalReview: generatedRecoveryEvidence?.externalReview
+        || { status: "blocked", reason: "existing_pr_recovery_current_main_drift" },
+      generatedRecoveryEvidence,
+      baseOriginMainSha,
+      expectedHeadSha,
+      githubState,
+      autoMerge: { result: "blocked", reason: "existing_pr_recovery_current_main_drift", recovery: true },
     };
   }
   const issueLinkageEvidence = buildIssueLinkageEvidence(prMetadata, issue.number);
@@ -2924,7 +3115,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
           verdict: "pass",
           reason: "recovered_exact_head_gemini_evidence",
           reviewedHead: exactHeadEvidence.geminiHeadSha || exactHeadEvidence.headSha || null,
-          baseSha: exactHeadEvidence.baseSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+          baseSha: exactHeadEvidence.currentMainSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
           changedFiles: exactHeadEvidence.geminiChangedFiles || changedFiles,
           changedFilesDigest: exactHeadEvidence.geminiChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
           provider: exactHeadEvidence.geminiProvider || "gemini",
@@ -2940,7 +3131,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
         ? {
             verdict: { verdict: "approve" },
             reviewedHead: exactHeadEvidence.codexMechanicsHeadSha || exactHeadEvidence.headSha || null,
-            baseSha: exactHeadEvidence.baseSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+            baseSha: exactHeadEvidence.currentMainSha || recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
             changedFiles: exactHeadEvidence.codexMechanicsChangedFiles,
             changedFilesDigest: exactHeadEvidence.codexMechanicsChangedFilesDigest || exactHeadEvidence.changedFilesDigest || null,
             completedAt: exactHeadEvidence.codexMechanicsCompletedAt || exactHeadEvidence.completedAt || null,
@@ -2955,6 +3146,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
             recovered: true,
             results: exactHeadEvidence.validationResults,
             completedAt: exactHeadEvidence.validationCompletedAt || exactHeadEvidence.completedAt || null,
+            prospectiveMerge: exactHeadEvidence.prospectiveMerge || null,
           },
           {
             headSha: expectedHeadSha,
@@ -2969,6 +3161,7 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     branchName: githubState.pr?.headRefName || recoveryConfig.branchName || null,
     runnerCreatedCommitSha: expectedHeadSha,
     expectedHeadSha,
+    baseSha: exactHeadEvidence.baseSha || recoveryState?.branch?.baseSha || null,
     expectedOriginMainSha: recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
     currentOriginMainSha: baseOriginMainSha,
     pr: prMetadata,
@@ -2978,6 +3171,14 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
     blockingMarkers: githubState.blockingMarkers || [],
     actualHeadSha: githubState.pr?.headRefOid || null,
     exactHeadEvidence,
+    prospectiveMergeValidationRequired: exactHeadEvidence.prospectiveMergeValidationRequired === true,
+    prospectiveMergeValidationVerified: exactHeadEvidence.prospectiveMergeValidationRequired !== true
+      || verifyProspectiveMergeValidation(
+        config,
+        exactHeadEvidence.prospectiveMerge,
+        recoveryConfig.expectedOriginMainSha || baseOriginMainSha,
+        expectedHeadSha,
+      ),
     issueLinkageEvidence,
     sessionLifecycle,
     recoveryState,
@@ -3087,7 +3288,9 @@ async function recoverExistingPrIfConfigured(config, logger, issue, laneDecision
   };
 }
 
-async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision, pr, changedFiles, expectedHeadSha }) {
+async function generateExistingPrRecoveryEvidence(config, {
+  issue, laneDecision, pr, changedFiles, expectedHeadSha, expectedOriginMainSha,
+}) {
   if (config.dryRun) return { reason: "dry_run_no_recovery_evidence_generation" };
   const originalBranch = getCurrentBranch();
   const originalHead = getRefSha("HEAD");
@@ -3108,6 +3311,14 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
   }
   try {
     assertRepositoryRemoteIdentity(config);
+    if (pr.headRefOid !== expectedHeadSha) {
+      return {
+        reason: "recovery_evidence_generation_pr_head_mismatch",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_pr_head_mismatch" },
+        review: null,
+      };
+    }
     const fetch = spawnLike("git", ["fetch", "origin", pr.headRefName], config.repoRoot);
     if (fetch.status !== 0 || fetch.error) {
       return {
@@ -3117,7 +3328,51 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
         review: null,
       };
     }
-    const checkout = spawnLike("git", ["switch", "--detach", expectedHeadSha], config.repoRoot);
+    if (getRefSha("FETCH_HEAD") !== expectedHeadSha) {
+      return {
+        reason: "recovery_evidence_generation_fetched_head_mismatch",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_fetched_head_mismatch" },
+        review: null,
+      };
+    }
+    if (!validateHistoricalRecoveryGitAuthority(config)) {
+      return {
+        reason: "recovery_evidence_generation_git_authority_untrusted",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_git_authority_untrusted" },
+        review: null,
+      };
+    }
+    const mergeTree = runTrustedProspectiveMergeTree(
+      config, expectedOriginMainSha, expectedHeadSha,
+    );
+    const mergeTreeLines = mergeTree.stdout.split(/\r?\n/u).filter(Boolean);
+    const mergeTreeSha = mergeTreeLines[0] || null;
+    if (mergeTree.status !== 0 || mergeTree.error || mergeTree.stderr
+      || mergeTreeLines.length !== 1 || !/^[a-f0-9]{40}$/u.test(mergeTreeSha)) {
+      return {
+        reason: "recovery_evidence_generation_merge_tree_unavailable",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_merge_tree_unavailable" },
+        review: null,
+      };
+    }
+    const synthetic = spawnLike("git", [
+      "commit-tree", mergeTreeSha, "-p", expectedOriginMainSha, "-p", expectedHeadSha,
+      "-m", "Settleora prospective recovery validation",
+    ], config.repoRoot);
+    const syntheticCommitSha = synthetic.stdout.trim();
+    if (synthetic.status !== 0 || synthetic.error || synthetic.stderr
+      || !/^[a-f0-9]{40}$/u.test(syntheticCommitSha)) {
+      return {
+        reason: "recovery_evidence_generation_merge_commit_unavailable",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_merge_commit_unavailable" },
+        review: null,
+      };
+    }
+    const checkout = spawnLike("git", ["switch", "--detach", syntheticCommitSha], config.repoRoot);
     if (checkout.status !== 0 || checkout.error) {
       return {
         reason: "recovery_evidence_generation_checkout_failed",
@@ -3126,12 +3381,29 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
         review: null,
       };
     }
-    const validation = runValidationPlan(config, planValidation(changedFiles, laneDecision));
+    const validation = {
+      ...runValidationPlan(config, planValidation(changedFiles, laneDecision)),
+      prospectiveMerge: {
+        baseSha: expectedOriginMainSha,
+        headSha: expectedHeadSha,
+        treeSha: mergeTreeSha,
+        syntheticCommitSha,
+      },
+    };
     if (!validation.passed) {
       return {
         reason: "recovery_evidence_generation_validation_failed",
         validation,
         externalReview: { status: "blocked", reason: "recovery_evidence_generation_validation_failed" },
+        review: null,
+      };
+    }
+    const reviewCheckout = spawnLike("git", ["switch", "--detach", expectedHeadSha], config.repoRoot);
+    if (reviewCheckout.status !== 0 || reviewCheckout.error) {
+      return {
+        reason: "recovery_evidence_generation_review_checkout_failed",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_review_checkout_failed" },
         review: null,
       };
     }
@@ -3158,6 +3430,28 @@ async function generateExistingPrRecoveryEvidence(config, { issue, laneDecision,
   } finally {
     restore();
   }
+}
+
+export function verifyProspectiveMergeValidation(config, evidence, expectedBaseSha, expectedHeadSha) {
+  if (!evidence || evidence.baseSha !== expectedBaseSha || evidence.headSha !== expectedHeadSha
+    || !/^[a-f0-9]{40}$/u.test(evidence.treeSha || "")
+    || !/^[a-f0-9]{40}$/u.test(evidence.syntheticCommitSha || "")
+    || !validateHistoricalRecoveryGitAuthority(config)) return false;
+  const mergeTree = runTrustedProspectiveMergeTree(
+    config, expectedBaseSha, expectedHeadSha,
+  );
+  const lines = mergeTree.stdout.split(/\r?\n/u).filter(Boolean);
+  const syntheticTree = spawnLike("git", [
+    "rev-parse", `${evidence.syntheticCommitSha}^{tree}`,
+  ], config.repoRoot);
+  const syntheticParents = spawnLike("git", [
+    "show", "-s", "--format=%P", evidence.syntheticCommitSha,
+  ], config.repoRoot);
+  return mergeTree.status === 0 && !mergeTree.error && !mergeTree.stderr
+    && lines.length === 1 && lines[0] === evidence.treeSha
+    && syntheticTree.status === 0 && syntheticTree.stdout.trim() === evidence.treeSha
+    && syntheticParents.status === 0
+    && syntheticParents.stdout.trim() === `${expectedBaseSha} ${expectedHeadSha}`;
 }
 
 function readPrChangedFiles(config, prNumber) {
