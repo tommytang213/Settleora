@@ -152,6 +152,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.equal((source.match(/validateClaimReread\(config, issue, claimRead\.issue\)/g) || []).length, 1);
   assert.doesNotMatch(source, /validateClaimReread\(config, state\.issue, issue\)/);
+  assert.match(source, /function readPreservedPriorOutcome\(config, state, expected\)[\s\S]*summary\.runId !== runId[\s\S]*summary\.supervisorRunId !== supervisorRunId/);
+  assert.match(source, /iteration\?\.logicalTaskBudget\?\.state\?\.charges\?\.\[chargeId\]\?\.identity\?\.claimIdentity/);
+  assert.match(source, /iteration\?\.sourceFailureBatch\?\.candidate\?\.treeSha === expected\.candidate\.treeSha/);
+  assert.match(source, /state\.sessionLifecycle\?\.sessions\?\.retired/);
   assert.match(
     collector,
     /const readControlPlaneGit = adapters\.readControlPlaneGit\s*\|\| \(\(\) => defaultGitRead\(config, identity, controlPlaneRepoRoot\)\)/,

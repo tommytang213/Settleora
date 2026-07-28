@@ -2019,7 +2019,10 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
       if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
-      const priorOutcome = readPreservedPriorOutcome(config, state);
+      const priorOutcome = readPreservedPriorOutcome(config, state, {
+        chargeId: lineageOptions.expectedChargeId,
+        candidate: proof.candidateIdentity,
+      });
       if (!priorOutcome.ok) return { ok: false, reasonCode: priorOutcome.reasonCode, state };
       const recoveryClaim = validateClaimAuthority(config, state.issue, issue, {
         mode: claimAuthorityModes.preservedRecovery,
@@ -2155,12 +2158,18 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   });
 }
 
-function readPreservedPriorOutcome(config, state) {
+function readPreservedPriorOutcome(config, state, expected) {
   try {
     const runId = state?.run?.runId;
+    const supervisorRunId = state?.run?.supervisorRunId;
     const issueNumber = state?.issue?.number;
     const taskKey = state?.taskKey;
-    if (!runId || !Number.isSafeInteger(issueNumber) || !taskKey) {
+    const branchName = state?.branch?.name;
+    const baseSha = state?.branch?.baseSha;
+    const headSha = expected?.candidate?.headSha;
+    const chargeId = expected?.chargeId;
+    if (!runId || !supervisorRunId || !Number.isSafeInteger(issueNumber) || !taskKey
+      || !branchName || !baseSha || !headSha || !chargeId) {
       return { ok: false, reasonCode: "preserved_claim_prior_outcome_identity_missing" };
     }
     const summaryPath = path.join(config.logsRoot, "summaries", `${runId}.json`);
@@ -2168,7 +2177,43 @@ function readPreservedPriorOutcome(config, state) {
     const matching = (summary.iterations || []).filter((iteration) =>
       iteration?.issue?.number === issueNumber
       && iteration?.taskPrompt?.timestampKey === taskKey
-      && iteration?.sessionLifecycle?.logicalTask?.taskKey === taskKey);
+      && iteration?.taskPrompt?.promptPath === state.expectedReportPaths?.promptPath
+      && iteration?.taskPrompt?.reportPath === state.expectedReportPaths?.repoReportPath
+      && iteration?.branchName === branchName
+      && iteration?.baseOriginMainSha === baseSha
+      && iteration?.runnerCreatedCommitSha === headSha
+      && iteration?.logicalTaskBudget?.chargeId === chargeId
+      && iteration?.logicalTaskBudget?.acceptedLogicalTaskCount === 1
+      && iteration?.logicalTaskBudget?.state?.repository === config.repositorySlug
+      && iteration?.logicalTaskBudget?.state?.budgetScopeId === supervisorRunId
+      && iteration?.logicalTaskBudget?.state?.charges?.[chargeId]?.identity?.issueNumber === issueNumber
+      && iteration?.logicalTaskBudget?.state?.charges?.[chargeId]?.identity?.claimIdentity === `${config.repositorySlug}#${issueNumber}`
+      && iteration?.sessionLifecycle?.repository === config.repositorySlug
+      && iteration?.sessionLifecycle?.logicalTask?.issueNumber === issueNumber
+      && iteration?.sessionLifecycle?.logicalTask?.taskKey === taskKey
+      && iteration?.sessionLifecycle?.logicalTask?.runId === runId
+      && iteration?.sessionLifecycle?.logicalTask?.claimIdentity === `${config.repositorySlug}#${issueNumber}`
+      && iteration?.sessionLifecycle?.branch?.name === branchName
+      && iteration?.sessionLifecycle?.branch?.baseSha === baseSha
+      && iteration?.sessionLifecycle?.branch?.headSha === headSha
+      && iteration?.sessionLifecycle?.report?.path === state.expectedReportPaths?.repoReportPath
+      && iteration?.sessionLifecycle?.report?.correlationKey === taskKey
+      && Number.isSafeInteger(iteration?.sessionLifecycle?.sessions?.generation)
+      && iteration.sessionLifecycle.sessions.generation <= state.sessionLifecycle?.sessions?.generation
+      && [
+        state.sessionLifecycle?.sessions?.current,
+        ...(state.sessionLifecycle?.sessions?.retired || []),
+      ].includes(iteration?.sessionLifecycle?.sessions?.current)
+      && iteration?.sourceFailureBatch?.candidate?.baseSha === expected.candidate.baseSha
+      && iteration?.sourceFailureBatch?.candidate?.headSha === expected.candidate.headSha
+      && iteration?.sourceFailureBatch?.candidate?.treeSha === expected.candidate.treeSha
+      && iteration?.sourceFailureBatch?.candidate?.diffDigest === expected.candidate.diffDigest
+      && iteration?.sourceFailureBatch?.candidate?.changedFilesDigest === expected.candidate.changedFilesDigest
+      && JSON.stringify(iteration?.sourceFailureBatch?.candidate?.changedFiles) === JSON.stringify(expected.candidate.changedFiles));
+    if (summary.runId !== runId || summary.supervisorRunId !== supervisorRunId
+      || summary.acceptedLogicalTaskCount !== 1) {
+      return { ok: false, reasonCode: "preserved_claim_prior_outcome_summary_mismatch" };
+    }
     if (matching.length !== 1 || typeof matching[0].outcome !== "string") {
       return { ok: false, reasonCode: "preserved_claim_prior_outcome_ambiguous" };
     }
