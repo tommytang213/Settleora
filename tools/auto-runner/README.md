@@ -340,10 +340,16 @@ Ordinary post-implementation work uses one durable continuation authority from e
 Historical initial-candidate reconstruction does not equate a task's recorded
 base with today's `origin/main`. It accepts an advanced main only after one
 shared verifier proves complete ungrafted Git ancestry from the authentic base,
-the candidate's exact single-child topology and bytes, its clean literal
-branch checkout, the canonical repository/remote and trusted Git environment,
+the candidate's exact single-child topology and bytes, its literal branch ref,
+the canonical repository/remote and trusted Git environment,
 and the matching recovery/lifecycle/charge/checkpoint/finalized-commit-intent
 authority with no later push, PR, merge, or replacement-candidate effect.
+The clean current-`main` control-plane checkout may remain in place. Recovery
+reuses an exact linked task worktree or materializes one for the already
+authenticated literal branch, records its existing worktree-ownership marker,
+then repeats repository/common-dir/config/ref/head/cleanliness authentication
+from that isolated workspace before validation resumes. It never rewrites the
+preserved branch or creates a replacement branch.
 An already committed pre-push source fix is resumable only as an exact
 one-parent descendant chain whose every step has one matching finalized commit
 intent and stays inside the original candidate path allowlist.

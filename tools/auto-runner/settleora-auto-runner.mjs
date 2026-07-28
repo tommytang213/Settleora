@@ -32,6 +32,7 @@ import {
 import {
   commitExplicitPaths,
   createTaskBranch,
+  adoptHistoricalTaskWorkspace,
   ensureLaunchWorkspace,
   ensureTaskMutationWorkspace,
   fetchOriginMain,
@@ -2085,15 +2086,52 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
     return { ok: false, reasonCode: "historical_candidate_git_environment_untrusted" };
   }
   fetchOriginMain(config, { trustedHistoricalRecovery: true });
-  const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
+  const lineageOptions = {
     expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
     expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
       || state.sessionLifecycle?.state?.recovery?.operationId
       || null,
     validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
-  });
+  };
+  let proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
   if (proof.ok && filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
     return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
+  }
+  if (proof.ok && proof.requiresTaskWorkspaceAdoption) {
+    try {
+      const workspace = adoptHistoricalTaskWorkspace(config, {
+        branchName: state.branch.name,
+        headSha: proof.candidateIdentity.headSha,
+        taskKey: state.taskKey,
+      });
+      const workspaceIdentity = canonicalGithubEvidenceDigest({
+        repository: config.repositorySlug,
+        branchName: state.branch.name,
+        realPath: workspace.taskRoot,
+      });
+      const markedState = recordIdempotentMutation(state, {
+        kind: "worktree_ownership_created",
+        key: `${state.branch.name}:${workspaceIdentity}`,
+        marker: {
+          target: workspaceIdentity,
+          correlation: state.branch.name,
+        },
+      });
+      writeRecoveryState(config, markedState);
+      Object.assign(state, markedState);
+      if (!validateHistoricalRecoveryGitAuthority(config)) {
+        return { ok: false, reasonCode: "historical_candidate_task_workspace_untrusted" };
+      }
+      proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
+      if (!proof.ok || proof.requiresTaskWorkspaceAdoption) {
+        return {
+          ok: false,
+          reasonCode: proof.reasonCode || "historical_candidate_task_workspace_untrusted",
+        };
+      }
+    } catch {
+      return { ok: false, reasonCode: "historical_candidate_task_workspace_untrusted" };
+    }
   }
   return proof.ok
     ? {

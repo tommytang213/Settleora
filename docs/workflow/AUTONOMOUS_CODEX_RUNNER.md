@@ -82,6 +82,16 @@ external platform checks are bound from the inspected PR head, while every
 scanner alert path is checked against both task and lane scope; absent or
 out-of-contract paths block rather than becoming source-fix work.
 
+For preserved historical candidates, canonical current `main` is the
+control-plane checkout and is not required to equal the candidate. The runner
+first authenticates the literal task branch ref and exact candidate
+parent/tree/diff/path/finalized-intent authority through the trusted common
+repository. It then reuses or materializes one isolated linked worktree for
+that same branch, records the durable worktree-ownership marker, and repeats
+all Git environment, common-dir, branch/head, and cleanliness checks there
+before resuming validation. Conflicting worktrees, ref drift, unsafe
+worktree-scoped config, or any later external effect remain fail-closed.
+
 ## Post-implementation continuation authorities
 
 The ordinary issue path and startup recovery share an idempotent continuation spanning exact candidate reconciliation, validation, independent and local/structured review, convergence, push, PR recovery, GitHub convergence, exact-head merge, and post-merge hygiene. Durable exact-target effects are adopted rather than replayed, a source change invalidates review and downstream effects, and the accepted logical-task charge remains the root task charge across execution/session continuations.

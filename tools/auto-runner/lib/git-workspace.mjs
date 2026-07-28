@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
@@ -21,6 +21,107 @@ export function bindTrustedRepositoryContext(repoRoot) {
   }
   trustedRepositoryContext = canonical;
   return canonical;
+}
+
+export function adoptHistoricalTaskWorkspace(config, {
+  branchName, headSha, taskKey,
+} = {}) {
+  const controlRoot = path.resolve(config?.controlPlaneRepoRoot || config?.repoRoot || "");
+  if (!/^[a-f0-9]{40}$/u.test(headSha || "")
+    || typeof branchName !== "string" || !branchName.length
+    || !path.isAbsolute(controlRoot)
+    || ![controlRoot, path.resolve(config?.repoRoot || "")].includes(trustedRepositoryContext)) {
+    throw new Error("historical task workspace authority is incomplete");
+  }
+  const literalRef = `refs/heads/${branchName}`;
+  const ref = runGit(["rev-parse", "--verify", literalRef], { cwd: controlRoot });
+  assertGitSuccess(ref, "Unable to authenticate historical task branch");
+  if (ref.stdout.trim() !== headSha) {
+    throw new Error("Historical task branch ref drifted from the authenticated candidate");
+  }
+  const controlCommonDir = canonicalGitCommonDir(controlRoot);
+  const listed = runGit(["worktree", "list", "--porcelain"], { cwd: controlRoot });
+  assertGitSuccess(listed, "Unable to inventory linked worktrees");
+  const matches = parseWorktrees(listed.stdout).filter((entry) => entry.branch === literalRef);
+  if (matches.length > 1) throw new Error("Historical task branch has conflicting linked worktrees");
+  let taskRoot = matches[0]?.worktree || null;
+  if (!taskRoot) {
+    const logsRoot = path.resolve(config?.logsRoot || "");
+    if (!path.isAbsolute(logsRoot) || !existsSync(logsRoot)) {
+      throw new Error("Historical task worktree logs authority is unavailable");
+    }
+    const parent = path.join(logsRoot, "task-worktrees");
+    if (existsSync(parent)) {
+      const info = lstatSync(parent);
+      if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(parent) !== parent) {
+        throw new Error("Historical task worktree parent is untrusted");
+      }
+      if ((info.mode & 0o022) !== 0
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+        throw new Error("Historical task worktree parent ownership is untrusted");
+      }
+    } else {
+      mkdirSync(parent, { recursive: false, mode: 0o700 });
+    }
+    const identity = createHash("sha256")
+      .update(JSON.stringify([config.repositorySlug, taskKey, branchName, headSha]))
+      .digest("hex").slice(0, 20);
+    taskRoot = path.join(parent, `recovery-${identity}`);
+    if (existsSync(taskRoot)) throw new Error("Historical task worktree target already exists");
+    mkdirSync(taskRoot, { mode: 0o700 });
+    const created = runFixedTrustedGit(controlRoot, [
+      "-c", "core.hooksPath=/dev/null",
+      "worktree", "add", "--", taskRoot, branchName,
+    ]);
+    assertGitSuccess(created, "Unable to materialize historical task worktree");
+  }
+  const taskInfo = lstatSync(taskRoot);
+  if (!taskInfo.isDirectory() || taskInfo.isSymbolicLink()
+    || (taskInfo.mode & 0o022) !== 0
+    || (typeof process.getuid === "function" && taskInfo.uid !== process.getuid())) {
+    throw new Error(`Historical task worktree artifact is untrusted: directory=${taskInfo.isDirectory()}; symlink=${taskInfo.isSymbolicLink()}; writable=${(taskInfo.mode & 0o022) !== 0}; owner=${typeof process.getuid !== "function" || taskInfo.uid === process.getuid()}`);
+  }
+  const canonicalTaskRoot = realpathSync(taskRoot);
+  if (canonicalTaskRoot !== path.resolve(taskRoot)) {
+    throw new Error("Historical task worktree path is non-canonical");
+  }
+  const taskCommonDir = canonicalGitCommonDir(canonicalTaskRoot);
+  const taskBranch = getCurrentBranch({ cwd: canonicalTaskRoot });
+  const taskHead = getRefSha("HEAD", { cwd: canonicalTaskRoot });
+  const taskStatus = getStatusShort({ cwd: canonicalTaskRoot });
+  if (canonicalTaskRoot === controlRoot || taskCommonDir !== controlCommonDir
+    || taskBranch !== branchName || taskHead !== headSha || taskStatus !== "") {
+    throw new Error(`Historical task worktree failed exact authority checks: sameRoot=${canonicalTaskRoot === controlRoot}; commonDir=${taskCommonDir === controlCommonDir}; branch=${taskBranch === branchName}; head=${taskHead === headSha}; clean=${taskStatus === ""}`);
+  }
+  trustedRepositoryContext = canonicalTaskRoot;
+  config.controlPlaneRepoRoot = controlRoot;
+  config.repoRoot = canonicalTaskRoot;
+  process.chdir(canonicalTaskRoot);
+  return { controlRoot, taskRoot: canonicalTaskRoot, branchName, headSha };
+}
+
+function canonicalGitCommonDir(cwd) {
+  const result = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd });
+  assertGitSuccess(result, "Unable to resolve Git common directory");
+  return realpathSync(result.stdout.trim());
+}
+
+function parseWorktrees(value) {
+  const result = [];
+  let current = null;
+  for (const line of String(value || "").split(/\r?\n/u)) {
+    if (line.startsWith("worktree ")) {
+      if (current) result.push(current);
+      current = { worktree: path.resolve(line.slice(9)), branch: null };
+    } else if (current && line.startsWith("branch ")) {
+      current.branch = line.slice(7);
+    } else if (current && line === "") {
+      result.push(current);
+      current = null;
+    }
+  }
+  if (current) result.push(current);
+  return result;
 }
 
 export function runGit(args, options = {}) {
