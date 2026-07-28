@@ -24,6 +24,7 @@ import {
   bindRecoveryEvidence,
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
+  isEligibleValidationRetryCheckpoint,
   recordIdempotentMutation,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
@@ -986,9 +987,22 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       ...recovery,
       stopReason: {
         reasonCode: "checkpoint_validation_recovery_failed_closed",
-        reason: "recovery_existing_pr_context_missing",
+        reason: "initial_validation_failure_commit_reconstruction_ambiguous",
       },
     };
+    assert.equal(
+      isEligibleValidationRetryCheckpoint(derivativeRecovery),
+      true,
+      "the exact durable #959 reconstruction stop remains a bounded validation retry checkpoint",
+    );
+    assert.equal(
+      isEligibleValidationRetryCheckpoint({
+        ...derivativeRecovery,
+        stopReason: { ...derivativeRecovery.stopReason, reason: "unknown_reconstruction_failure" },
+      }),
+      false,
+      "an unrecognized failed-closed reconstruction reason remains undiscoverable",
+    );
     writeRecoveryState(config, derivativeRecovery);
     let derivativeLifecycle = structuredClone(loadSessionLifecycleForRecovery(config, {
       repository: target.repository,
@@ -1028,7 +1042,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       attempts: 1,
       effectsAlreadyPresent: { mutation: false, commit: true, push: false, merge: false, comment: false },
       phaseBefore: "implementation_or_bundle_slice",
-      phaseAfter: "push",
+      phaseAfter: "checkpoint_validation_commit",
     };
     const persistedDerivativeLifecycle = persistSessionLifecycleState(config, derivativeLifecycle);
     assert.equal(persistedDerivativeLifecycle.ok, true, JSON.stringify(persistedDerivativeLifecycle));
@@ -1055,7 +1069,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       authorityStatus: "terminal",
       authorityOwner: null,
       recoveryStatus: "pending",
-      phaseAfter: "push",
+      phaseAfter: "checkpoint_validation_commit",
       effects: { mutation: false, commit: true, push: false, merge: false, comment: false },
     });
     assert.equal(
@@ -1065,6 +1079,48 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       }).reasonCode,
       "exact_preserved_recovery_admitted",
       "the exact known derivative must permit installation of its corrective runtime",
+    );
+    const reconstructionLifecyclePath = sessionLifecyclePath(config, derivativeLifecycle);
+    const reconstructionTerminalBytes = readFileSync(reconstructionLifecyclePath);
+    const reconstructedReopened = reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
+      commitPresent: true,
+      pushPresent: false,
+      mergePresent: false,
+      commentPresent: false,
+    }, { terminalPhaseAfter: "checkpoint_validation_commit" });
+    assert.equal(reconstructedReopened.ok, true, JSON.stringify(reconstructedReopened));
+    assert.equal(reconstructedReopened.state.controller.phase, "checkpoint_validation_commit");
+    assert.equal(
+      reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
+        commitPresent: true,
+        pushPresent: false,
+        mergePresent: false,
+        commentPresent: false,
+      }, { terminalPhaseAfter: "push" }).ok,
+      false,
+      "the reconstruction lifecycle cannot be reopened under the legacy push posture",
+    );
+    writeFileSync(reconstructionLifecyclePath, reconstructionTerminalBytes, { mode: 0o600 });
+    writeRecoveryState(config, {
+      ...derivativeRecovery,
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "recovery_existing_pr_context_missing",
+      },
+    });
+    derivativeLifecycle.recovery.phaseAfter = "push";
+    const legacyDerivativeLifecycle = persistSessionLifecycleState(config, derivativeLifecycle);
+    assert.equal(legacyDerivativeLifecycle.ok, true, JSON.stringify(legacyDerivativeLifecycle));
+    derivativeLifecycle = legacyDerivativeLifecycle.state;
+    assert.equal(
+      reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
+        commitPresent: true,
+        pushPresent: false,
+        mergePresent: false,
+        commentPresent: false,
+      }, { terminalPhaseAfter: "checkpoint_validation_commit" }).ok,
+      false,
+      "the legacy lifecycle cannot be reopened under the reconstruction checkpoint posture",
     );
     const reopenedDerivative = reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
       commitPresent: true,
@@ -2205,6 +2261,214 @@ test("known missing-PR derivative is admitted only with exact validation lineage
   }
 });
 
+test("repeated ambiguous reconstruction terminalizes once and is not rediscovered", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const original = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+      },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, original);
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.allowed, true);
+    const continued = await executeStartupContinuation(config, discovery, {
+      checkpoint_validation_commit: async () => ({
+        ok: false,
+        reasonCode: "initial_validation_failure_commit_reconstruction_ambiguous",
+        ordinaryContinuation: {
+          phase: "local_validation",
+          sourceFailureBatch: {
+            findings: [{
+              classification: "unsafe_or_ambiguous",
+              sourceFixEligible: false,
+              nextAction: "stop_fail_closed",
+            }],
+          },
+        },
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.result.state.stopReason.reasonCode, "checkpoint_validation_recovery_retry_exhausted");
+    assert.equal(continued.result.state.stopReason.reason, "initial_validation_failure_commit_reconstruction_ambiguous");
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("transient failure before reconstruction preserves the validation recovery retry", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const original = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+      },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        phase: "local_validation",
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, original);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ state }) => ({
+        ok: false,
+        reasonCode: "github_issue_read_failed",
+        state,
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.reasonCode, "github_issue_read_failed");
+    assert.equal(continued.result.state.stopReason, null);
+    assert.equal(discoverStartupRecovery(config).allowed, true);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("permanent reconstruction failure terminalizes once and is not rediscovered", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const original = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+      },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        phase: "local_validation",
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, original);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ state }) => ({
+        ok: false,
+        reasonCode: "historical_candidate_changed_paths_out_of_contract",
+        state,
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.result.state.stopReason.reasonCode, "checkpoint_validation_recovery_retry_exhausted");
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("nested preserved commit-lineage failure terminalizes once and is not rediscovered", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const original = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+      },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        phase: "local_validation",
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, original);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ state }) => ({
+        ok: false,
+        reasonCode: "preserved_recovery_commit_lineage_mismatch",
+        state,
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.result.state.stopReason.reasonCode, "checkpoint_validation_recovery_retry_exhausted");
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("known validation derivative reopens only its exact terminal lifecycle checkpoint", () => {
   const config = tempConfig();
   try {
@@ -2270,7 +2534,7 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
   }
 });
 
-test("failed resumed validation is re-terminalized instead of retried on every startup", async () => {
+test("normal unsafe resumed validation is re-terminalized instead of retried on every startup", async () => {
   const config = tempConfig({ allowExistingPrRecovery: true });
   try {
     const stopped = {
@@ -2299,7 +2563,7 @@ test("failed resumed validation is re-terminalized instead of retried on every s
       checkpoint_validation_commit: async ({ state }) => ({
         ok: false,
         outcome: "blocked_recovery_state",
-        reasonCode: "checkpoint_validation_not_source_fix_safe",
+        reasonCode: "source_failure_unsafe_or_ambiguous",
         state: {
           ...state,
           ordinaryContinuation: {

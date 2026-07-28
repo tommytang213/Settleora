@@ -2,10 +2,12 @@ import path from "node:path";
 import {
   advanceRecoveryPhase,
   classifyRecoveryOutcome,
+  isEligibleValidationRetryCheckpoint,
   loadRecoveryState,
   listRecoverableRecoveryStates,
   recoveryRequiresExactHeadEvidenceRegeneration,
   recoveryHasMutationMarker,
+  validationRetryDerivativeTerminalPhase,
   writeRecoveryState,
 } from "./recovery-state.mjs";
 import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, recoverySuccessorSessionId, reopenKnownValidationRetryDerivative, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
@@ -204,6 +206,9 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
     ...(recovery.interruption || {}),
     validationRetryDerivativeAuthorized: validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
+    validationRetryDerivativeTerminalPhase: validationRetryTerminal
+      ? validationRetryDerivativeTerminalPhase(validationRetryTerminal)
+      : null,
   });
   if (!lifecycleRecovery.ok) {
     return {
@@ -284,7 +289,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       firstIncompleteAction: validationRetryTerminal.firstIncompleteAction,
       nextSafeAction: "stop_fail_closed",
       stopReason: {
-        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reasonCode: "checkpoint_validation_recovery_retry_exhausted",
         reason: result?.reasonCode || validationRetryTerminal.stopReason?.reason || "Recovered validation remained unsafe or unclassified.",
       },
     };
@@ -406,7 +411,9 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     lifecycleState = headPersisted.state;
   }
   if (interruption.validationRetryDerivativeAuthorized === true) {
-    const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState, inputs.liveEffects);
+    const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState, inputs.liveEffects, {
+      terminalPhaseAfter: interruption.validationRetryDerivativeTerminalPhase,
+    });
     if (!reopened.ok) return reopened;
     lifecycleState = reopened.state;
   }
@@ -457,29 +464,10 @@ function normalizeValidationFailureContinuation(state) {
 }
 
 function isValidationFailureRetryAuthorized(state) {
-  const findings = state?.ordinaryContinuation?.sourceFailureBatch?.findings;
-  const originalStop = state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe";
-  const knownDerivativeStop = state.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
-    && state.stopReason?.reason === "recovery_existing_pr_context_missing"
-    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state.branch?.currentHeadSha
-    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state.branch?.baseSha
-    && state.pr?.number === null
-    && state.pr?.url === null
-    && state.pr?.headSha === null
-    && state.branch?.expectedRemoteHeadSha === null
-    && !hasAnyMutationMarker(state, "push")
-    && !hasAnyMutationMarker(state, "merge");
   return state?.phase === "stopped"
     && state?.evidence?.localValidation?.status === "failed"
-    && Array.isArray(findings)
-    && findings.length > 0
     && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
-    && (originalStop || knownDerivativeStop)
-    && state.firstIncompleteAction === "run_validation_and_commit"
-    && state.nextSafeAction === "stop_fail_closed"
-    && findings.every((finding) => finding?.sourceFixEligible === false
-      && finding?.nextAction === "stop_fail_closed"
-      && finding?.classification === "unsafe_or_ambiguous");
+    && isEligibleValidationRetryCheckpoint(state);
 }
 
 function isRepeatedUnsafeValidationResult(result) {
@@ -487,7 +475,15 @@ function isRepeatedUnsafeValidationResult(result) {
     || result?.state?.ordinaryContinuation
     || result?.state;
   const findings = continuation?.sourceFailureBatch?.findings;
+  const terminalReason = [
+    "checkpoint_validation_not_source_fix_safe",
+    "initial_validation_failure_commit_reconstruction_ambiguous",
+    "source_failure_unsafe_or_ambiguous",
+  ].includes(result?.reasonCode)
+    || ["historical_candidate_", "preserved_recovery_"]
+      .some((prefix) => String(result?.reasonCode || "").startsWith(prefix));
   return result?.ok === false
+    && terminalReason
     && continuation?.phase === "local_validation"
     && Array.isArray(findings)
     && findings.length > 0
