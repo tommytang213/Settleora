@@ -266,7 +266,8 @@ test("historical proof admits only an exact finalized-intent prepared source-fix
       stagedPaths: [changedFiles[0]], messageDigest: hash(subject),
     },
   });
-  assert.equal(verify(fixture).ok, true);
+  const pushOnlyResult = verify(fixture);
+  assert.equal(pushOnlyResult.ok, true, pushOnlyResult.reasonCode);
 
   for (const [name, mutate, restore] of [
     ["prepared intent",
@@ -482,6 +483,44 @@ test("historical existing-PR authentication binds every durable authority to the
     mutate(fixture);
     assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present", name);
   }
+});
+
+test("historical recovery authenticates the exact push-only PR-create checkpoint", () => {
+  const fixture = makeFixture(2);
+  advanceWithSourceFix(fixture);
+  authenticateExistingPrFixture(fixture);
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  fixture.intents.splice(
+    fixture.intents.findIndex((entry) => entry.effectType === "pr_create"),
+    1,
+  );
+  fixture.state.pr = { number: null, url: null, headSha: null };
+  delete fixture.state.mutationMarkers.pr_create;
+  const continuation = fixture.state.ordinaryContinuation;
+  continuation.phase = "pr_create_or_update";
+  continuation.effects = {};
+  const current = ordinaryContinuationPhases.indexOf(continuation.phase);
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation"); index < current; index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    continuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(continuation, phase),
+      completedAt: "2026-07-27T00:00:00.000Z",
+    };
+  }
+  fixture.lifecycle.controller = {
+    phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+  };
+  fixture.lifecycle.recovery.phaseAfter = "pr_create_recover";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "pr_create_recover";
+  const pushOnlyResult = verify(fixture);
+  assert.equal(pushOnlyResult.ok, true, pushOnlyResult.reasonCode);
+
+  fixture.state.branch.expectedRemoteHeadSha = null;
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+  fixture.state.branch.expectedRemoteHeadSha = continuation.identity.headSha;
+  fixture.intents.push(structuredClone(fixture.intents.find((entry) => entry.effectType === "push")));
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
 });
 
 test("historical existing-PR authentication accepts only a contiguous bounded head-update chain", () => {

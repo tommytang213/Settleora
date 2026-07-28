@@ -2353,7 +2353,13 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const candidate = continuation.identity;
       const pushed = await pushBranch(config, state.branch.name, { effectContext: state.sessionLifecycle });
       operationalCheckpoint?.("ordinary_recovery_push_complete", { push: pushed });
-      return pushed.status === 0 ? { ok: true, evidence: { headSha: candidate.headSha } } : { ok: false, reasonCode: "ordinary_continuation_push_failed" };
+      if (pushed.status !== 0) return { ok: false, reasonCode: "ordinary_continuation_push_failed" };
+      state = {
+        ...state,
+        branch: { ...state.branch, expectedRemoteHeadSha: candidate.headSha },
+      };
+      await writeRecoveryState(config, state);
+      return { ok: true, evidence: { headSha: candidate.headSha } };
     },
     pr_create_or_update: async (continuation) => {
       operationalCheckpoint?.("ordinary_recovery_pr_create_recover");

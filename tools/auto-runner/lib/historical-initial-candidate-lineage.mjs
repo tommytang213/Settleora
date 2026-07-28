@@ -548,12 +548,8 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const remoteHead = authority.git([
     "rev-parse", "--verify", `refs/remotes/origin/${authority.branch}`,
   ]);
-  return Number.isSafeInteger(pr?.number) && pr.number > 0 && pr.url === exactUrl
-    && pr.headSha === authority.headSha && priorHeads.has(pr.headSha)
-    && pr.headRefName === authority.branch && pr.baseRefName === "main"
-    && ["OPEN", "open"].includes(pr.state)
-    && continuation?.expectedOriginMainSha === authority.currentMainSha
-    && state.branch?.expectedRemoteHeadSha === pr.headSha
+  const pushChainValid = continuation?.expectedOriginMainSha === authority.currentMainSha
+    && state.branch?.expectedRemoteHeadSha === authority.headSha
     && remoteHead.status === 0 && remoteHead.stdout.trim() === authority.headSha
     && Number.isSafeInteger(continuation?.counters?.githubTriggeredFixEpochsPerPr)
     && continuation.counters.githubTriggeredFixEpochsPerPr >= 0
@@ -566,14 +562,26 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && orderedPushHeads.length >= 1 && orderedPushHeads.length <= 51
     && orderedPushHeads.at(-1) === authority.headSha
     && pushMarkers.length === orderedPushHeads.length
-    && prMarkers.length === orderedPushHeads.length
     && markerHeads(pushMarkers, authority.branch)
-    && markerHeads(prMarkers, exactUrl)
     && new Set(pushMarkers.map((entry) => entry.correlation)).size === orderedPushHeads.length
+    && pushIntents.length === orderedPushHeads.length
+    && pushIntents.every(exactPush);
+  const pushOnly = continuation?.phase === "pr_create_or_update"
+    && pr?.number == null && pr?.url == null && pr?.headSha == null
+    && prMarkers.length === 0 && prIntents.length === 0
+    && externalIntents.length === orderedPushHeads.length
+    && externalIntents.every((entry) => entry.effectType === "push");
+  if (pushChainValid && pushOnly) return true;
+  return pushChainValid
+    && Number.isSafeInteger(pr?.number) && pr.number > 0 && pr.url === exactUrl
+    && pr.headSha === authority.headSha && priorHeads.has(pr.headSha)
+    && pr.headRefName === authority.branch && pr.baseRefName === "main"
+    && ["OPEN", "open"].includes(pr.state)
+    && prMarkers.length === orderedPushHeads.length
+    && markerHeads(prMarkers, exactUrl)
     && new Set(prMarkers.map((entry) => entry.correlation)).size === orderedPushHeads.length
     && externalIntents.length === orderedPushHeads.length * 2
     && externalIntents.every((entry) => allowedTypes.has(entry.effectType))
-    && pushIntents.length === orderedPushHeads.length
     && prIntents.length === orderedPushHeads.length
     && prCreateIntents.length === 1 && prUpdateIntents.length === orderedPushHeads.length - 1
     && exactPr(prCreateIntents[0])
