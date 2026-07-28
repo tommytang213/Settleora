@@ -461,7 +461,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     iteration.phase = "startup_recovery";
     checkpoint(iteration);
     const continuation = startupRecovery.allowed
-      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint)
+      ? await resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint, recoveryBudget.authoritativeRecovery)
       : await executeStartupContinuation(config, startupRecovery);
     iteration.recovery = continuation.recovery || startupRecovery;
     iteration.issueSource = "startup_recovery";
@@ -1868,7 +1868,7 @@ function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
     || marker.identity?.claimIdentity !== `${config.repositorySlug}#${issue.number}`) {
     return { ok: false, reasonCode: "startup_recovery_existing_charge_mismatch" };
   }
-  return {
+  const result = {
     ok: true,
     duplicate: true,
     charged: false,
@@ -1879,6 +1879,11 @@ function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
     state: loaded.state,
     reasonCode: "startup_recovery_existing_charge_reused",
   };
+  Object.defineProperty(result, "authoritativeRecovery", {
+    value: authoritativeRecovery,
+    enumerable: false,
+  });
+  return result;
 }
 
 function createProductionRecoveryRecorder(config, input) {
@@ -1984,8 +1989,9 @@ function createProductionRecoveryRecorder(config, input) {
   };
 }
 
-async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null) {
+async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null, authoritativeLoadedRecovery = null) {
   return executeStartupContinuation(config, startupRecovery, {
+    authoritativeLoadedRecovery,
     prepareAuthoritativeRecovery: async ({ state }) => {
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
@@ -2201,7 +2207,6 @@ function readPreservedPriorOutcome(config, state, expected) {
       && iteration?.baseOriginMainSha === baseSha
       && iteration?.runnerCreatedCommitSha === headSha
       && iteration?.logicalTaskBudget?.chargeId === chargeId
-      && iteration?.logicalTaskBudget?.acceptedLogicalTaskCount === 1
       && iteration?.logicalTaskBudget?.state?.repository === config.repositorySlug
       && iteration?.logicalTaskBudget?.state?.budgetScopeId === supervisorRunId
       && iteration?.logicalTaskBudget?.state?.charges?.[chargeId]?.identity?.issueNumber === issueNumber
@@ -2228,8 +2233,7 @@ function readPreservedPriorOutcome(config, state, expected) {
       && iteration?.sourceFailureBatch?.candidate?.diffDigest === expected.candidate.diffDigest
       && iteration?.sourceFailureBatch?.candidate?.changedFilesDigest === expected.candidate.changedFilesDigest
       && JSON.stringify(iteration?.sourceFailureBatch?.candidate?.changedFiles) === JSON.stringify(expected.candidate.changedFiles));
-    if (summary.runId !== runId || summary.supervisorRunId !== supervisorRunId
-      || summary.acceptedLogicalTaskCount !== 1) {
+    if (summary.runId !== runId || summary.supervisorRunId !== supervisorRunId) {
       return { ok: false, reasonCode: "preserved_claim_prior_outcome_summary_mismatch" };
     }
     if (matching.length !== 1 || typeof matching[0].outcome !== "string") {

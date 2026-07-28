@@ -487,7 +487,7 @@ test("delegated bundle and existing-PR recovery phases use the owning iteration 
   for (const phase of ["live_reconciliation", "evidence_regeneration", "merge_evaluation"]) {
     assert.match(runner, new RegExp(`operationalCheckpoint\\(\"existing_pr_${phase}`), `missing recovery checkpoint for ${phase}`);
   }
-  assert.match(runner, /resumeStartupRecovery\(config, logger, runId, index, startupRecovery, operationalCheckpoint\)/);
+  assert.match(runner, /resumeStartupRecovery\(config, logger, runId, index, startupRecovery, operationalCheckpoint, recoveryBudget\.authoritativeRecovery\)/);
   assert.match(runner, /runFeatureBundleIteration\(config, logger,[\s\S]*?recoveryState: state,[\s\S]*?operationalCheckpoint,/);
   assert.match(runner, /recoverExistingPrIfConfigured\(config, logger, issue, laneDecision, state,[\s\S]*?operationalCheckpoint,/);
   assert.match(runner, /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?operationalCheckpoint/);

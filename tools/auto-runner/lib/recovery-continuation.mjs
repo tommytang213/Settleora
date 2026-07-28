@@ -192,7 +192,10 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
-  const loaded = loadRecoveryState(config, recovery.state);
+  const supplied = handlers.authoritativeLoadedRecovery;
+  const loaded = supplied?.ok === true && supplied.state && supplied.statePath
+    ? supplied
+    : loadRecoveryState(config, recovery.state);
   if (!loaded.ok) {
     return {
       ok: false,
