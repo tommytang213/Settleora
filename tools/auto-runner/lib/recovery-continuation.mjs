@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   advanceRecoveryPhase,
   classifyRecoveryOutcome,
+  isEligibleValidationRetryCheckpoint,
   loadRecoveryState,
   listRecoverableRecoveryStates,
   recoveryRequiresExactHeadEvidenceRegeneration,
@@ -457,29 +458,10 @@ function normalizeValidationFailureContinuation(state) {
 }
 
 function isValidationFailureRetryAuthorized(state) {
-  const findings = state?.ordinaryContinuation?.sourceFailureBatch?.findings;
-  const originalStop = state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe";
-  const knownDerivativeStop = state.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
-    && state.stopReason?.reason === "recovery_existing_pr_context_missing"
-    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state.branch?.currentHeadSha
-    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state.branch?.baseSha
-    && state.pr?.number === null
-    && state.pr?.url === null
-    && state.pr?.headSha === null
-    && state.branch?.expectedRemoteHeadSha === null
-    && !hasAnyMutationMarker(state, "push")
-    && !hasAnyMutationMarker(state, "merge");
   return state?.phase === "stopped"
     && state?.evidence?.localValidation?.status === "failed"
-    && Array.isArray(findings)
-    && findings.length > 0
     && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
-    && (originalStop || knownDerivativeStop)
-    && state.firstIncompleteAction === "run_validation_and_commit"
-    && state.nextSafeAction === "stop_fail_closed"
-    && findings.every((finding) => finding?.sourceFixEligible === false
-      && finding?.nextAction === "stop_fail_closed"
-      && finding?.classification === "unsafe_or_ambiguous");
+    && isEligibleValidationRetryCheckpoint(state);
 }
 
 function isRepeatedUnsafeValidationResult(result) {

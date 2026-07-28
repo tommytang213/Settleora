@@ -358,21 +358,12 @@ export function listRecoverableRecoveryStates(config) {
 function isValidationFailureContinuation(state) {
   return state?.evidence?.localValidation?.status === "failed"
     && state.branch?.currentHeadSha === state.ordinaryContinuation?.identity?.headSha
-    && isValidationRetryCheckpoint(state);
+    && isEligibleValidationRetryCheckpoint(state);
 }
 
-function isValidationRetryCheckpoint(state) {
+export function isEligibleValidationRetryCheckpoint(state) {
   const originalStop = state?.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe";
-  const knownDerivativeStop = state?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
-    && state?.stopReason?.reason === "recovery_existing_pr_context_missing"
-    && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state?.branch?.currentHeadSha
-    && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state?.branch?.baseSha
-    && state?.pr?.number === null
-    && state?.pr?.url === null
-    && state?.pr?.headSha === null
-    && state?.branch?.expectedRemoteHeadSha === null
-    && !Object.keys(state?.mutationMarkers?.push || {}).length
-    && !Object.keys(state?.mutationMarkers?.merge || {}).length;
+  const knownDerivativeStop = isKnownValidationRetryDerivative(state);
   return (originalStop || knownDerivativeStop)
     && state?.firstIncompleteAction === "run_validation_and_commit"
     && state?.nextSafeAction === "stop_fail_closed"
@@ -382,6 +373,21 @@ function isValidationRetryCheckpoint(state) {
       finding?.sourceFixEligible === false
       && finding?.nextAction === "stop_fail_closed"
       && finding?.classification === "unsafe_or_ambiguous");
+}
+
+export function isKnownValidationRetryDerivative(state) {
+  const recognizedReason = state?.stopReason?.reason === "recovery_existing_pr_context_missing"
+    || state?.stopReason?.reason === "initial_validation_failure_commit_reconstruction_ambiguous";
+  return state?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
+    && recognizedReason
+    && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state?.branch?.currentHeadSha
+    && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state?.branch?.baseSha
+    && state?.pr?.number === null
+    && state?.pr?.url === null
+    && state?.pr?.headSha === null
+    && state?.branch?.expectedRemoteHeadSha === null
+    && !Object.keys(state?.mutationMarkers?.push || {}).length
+    && !Object.keys(state?.mutationMarkers?.merge || {}).length;
 }
 
 function isProvisionalTaskKey(value) {

@@ -3,7 +3,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
-import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
+import {
+  isEligibleValidationRetryCheckpoint,
+  isKnownValidationRetryDerivative,
+  listRecoverableRecoveryStates,
+} from "./recovery-state.mjs";
 import { loadSessionLifecycleForRecovery, recoverySuccessorSessionId } from "./session-lifecycle.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { findPreEffectIntents, intentIssueAuthorityMatches, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
@@ -145,8 +149,11 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     if (matching.length !== 1) return denied(matching.length ? "preserved_recovery_ambiguous" : "preserved_recovery_not_found", target);
     if (states.some((state) => state.statePath !== matching[0].statePath)) return denied("other_unresolved_recovery_present", target);
     const state = matching[0];
-    if (!eligibleValidationCheckpoint(state)) return denied("preserved_recovery_checkpoint_not_eligible", target);
-    const derivative = knownValidationRetryDerivative(state);
+    if (state.phase !== "stopped" || !isEligibleValidationRetryCheckpoint(state)) {
+      return denied("preserved_recovery_checkpoint_not_eligible", target);
+    }
+    const derivative = isKnownValidationRetryDerivative(state);
+    const derivativeReason = derivative ? state.stopReason.reason : null;
     if (!validateProjectNamespace(config.logsRoot, target, repositoryRoot, gitEnvironment)) {
       return denied("preserved_recovery_namespace_identity_mismatch", target);
     }
@@ -154,7 +161,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     if (!markerProof.ok) return denied(markerProof.reasonCode, target);
     const chargeProof = validateCharge(config, state, target);
     if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
-    const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath, derivative);
+    const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath, derivativeReason);
     if (!lifecycleProof.ok) return denied(lifecycleProof.reasonCode, target);
     const intentProof = validateIntents(
       config,
@@ -216,33 +223,6 @@ function exactStateIdentity(state, target) {
     && counters?.lifetimeLocalSourceChangingRounds === target.lifetimeLocalSourceChangingRounds;
 }
 
-function eligibleValidationCheckpoint(state) {
-  const findings = state.ordinaryContinuation?.sourceFailureBatch?.findings;
-  return state.phase === "stopped"
-    && state.firstIncompleteAction === "run_validation_and_commit"
-    && state.nextSafeAction === "stop_fail_closed"
-    && (state.stopReason?.reasonCode === "checkpoint_validation_not_source_fix_safe"
-      || knownValidationRetryDerivative(state))
-    && state.evidence?.localValidation?.status === "failed"
-    && Array.isArray(findings) && findings.length > 0
-    && findings.every((finding) => finding?.sourceFixEligible === false
-      && finding?.nextAction === "stop_fail_closed"
-      && finding?.classification === "unsafe_or_ambiguous");
-}
-
-function knownValidationRetryDerivative(state) {
-  return state.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
-    && state.stopReason?.reason === "recovery_existing_pr_context_missing"
-    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.baseSha === state.branch?.baseSha
-    && state.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state.branch?.currentHeadSha
-    && state.pr?.number === null
-    && state.pr?.url === null
-    && state.pr?.headSha === null
-    && state.branch?.expectedRemoteHeadSha === null
-    && !Object.keys(state.mutationMarkers?.push || {}).length
-    && !Object.keys(state.mutationMarkers?.merge || {}).length;
-}
-
 function validateMarkers(state, target) {
   const claim = state.mutationMarkers?.claim || {};
   const charges = state.mutationMarkers?.logical_task_charge || {};
@@ -272,7 +252,7 @@ function validateCharge(config, state, target) {
   return { ok: true, statePath: loaded.statePath };
 }
 
-function validateLifecycle(config, state, target, chargeMarkerRef, derivative) {
+function validateLifecycle(config, state, target, chargeMarkerRef, derivativeReason) {
   const loaded = loadSessionLifecycleForRecovery(config, {
     repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
     runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
@@ -293,13 +273,13 @@ function validateLifecycle(config, state, target, chargeMarkerRef, derivative) {
       || counters?.lifetimeLocalSourceChangingRounds !== target.lifetimeLocalSourceChangingRounds) {
     return { ok: false, reasonCode: "preserved_recovery_lifecycle_mismatch" };
   }
-  if (derivative && !exactValidationRetryDerivativeLifecycle(lifecycle)) {
+  if (derivativeReason && !exactValidationRetryDerivativeLifecycle(lifecycle, derivativeReason)) {
     return { ok: false, reasonCode: "preserved_recovery_derivative_lifecycle_mismatch" };
   }
   return { ok: true };
 }
 
-function exactValidationRetryDerivativeLifecycle(lifecycle) {
+function exactValidationRetryDerivativeLifecycle(lifecycle, derivativeReason) {
   const effects = lifecycle.recovery?.effectsAlreadyPresent;
   const commonRecovery = lifecycle.interruption?.class === "main_process_exit_without_terminal_report"
     && lifecycle.interruption?.reasonCode === "interruption_main_process_exit_without_terminal_report"
@@ -322,7 +302,11 @@ function exactValidationRetryDerivativeLifecycle(lifecycle) {
     && lifecycle.mutationAuthority?.status === "terminal"
     && lifecycle.mutationAuthority?.ownerSessionId === null
     && lifecycle.mutationAuthority?.handoff === null
-    && lifecycle.recovery?.phaseAfter === "push"
+    && lifecycle.recovery?.phaseAfter === (
+      derivativeReason === "initial_validation_failure_commit_reconstruction_ambiguous"
+        ? "checkpoint_validation_commit"
+        : "push"
+    )
     && effects.comment === false;
   if (terminalDerivative) return true;
 

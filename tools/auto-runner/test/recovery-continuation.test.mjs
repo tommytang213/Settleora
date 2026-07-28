@@ -24,6 +24,7 @@ import {
   bindRecoveryEvidence,
   createInitialRecoveryState,
   invalidateEvidenceForHeadChange,
+  isEligibleValidationRetryCheckpoint,
   recordIdempotentMutation,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
@@ -986,9 +987,22 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       ...recovery,
       stopReason: {
         reasonCode: "checkpoint_validation_recovery_failed_closed",
-        reason: "recovery_existing_pr_context_missing",
+        reason: "initial_validation_failure_commit_reconstruction_ambiguous",
       },
     };
+    assert.equal(
+      isEligibleValidationRetryCheckpoint(derivativeRecovery),
+      true,
+      "the exact durable #959 reconstruction stop remains a bounded validation retry checkpoint",
+    );
+    assert.equal(
+      isEligibleValidationRetryCheckpoint({
+        ...derivativeRecovery,
+        stopReason: { ...derivativeRecovery.stopReason, reason: "unknown_reconstruction_failure" },
+      }),
+      false,
+      "an unrecognized failed-closed reconstruction reason remains undiscoverable",
+    );
     writeRecoveryState(config, derivativeRecovery);
     let derivativeLifecycle = structuredClone(loadSessionLifecycleForRecovery(config, {
       repository: target.repository,
@@ -1028,7 +1042,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       attempts: 1,
       effectsAlreadyPresent: { mutation: false, commit: true, push: false, merge: false, comment: false },
       phaseBefore: "implementation_or_bundle_slice",
-      phaseAfter: "push",
+      phaseAfter: "checkpoint_validation_commit",
     };
     const persistedDerivativeLifecycle = persistSessionLifecycleState(config, derivativeLifecycle);
     assert.equal(persistedDerivativeLifecycle.ok, true, JSON.stringify(persistedDerivativeLifecycle));
@@ -1055,7 +1069,7 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       authorityStatus: "terminal",
       authorityOwner: null,
       recoveryStatus: "pending",
-      phaseAfter: "push",
+      phaseAfter: "checkpoint_validation_commit",
       effects: { mutation: false, commit: true, push: false, merge: false, comment: false },
     });
     assert.equal(
@@ -1066,6 +1080,17 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "exact_preserved_recovery_admitted",
       "the exact known derivative must permit installation of its corrective runtime",
     );
+    writeRecoveryState(config, {
+      ...derivativeRecovery,
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "recovery_existing_pr_context_missing",
+      },
+    });
+    derivativeLifecycle.recovery.phaseAfter = "push";
+    const legacyDerivativeLifecycle = persistSessionLifecycleState(config, derivativeLifecycle);
+    assert.equal(legacyDerivativeLifecycle.ok, true, JSON.stringify(legacyDerivativeLifecycle));
+    derivativeLifecycle = legacyDerivativeLifecycle.state;
     const reopenedDerivative = reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
       commitPresent: true,
       pushPresent: false,
