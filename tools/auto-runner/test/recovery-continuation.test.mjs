@@ -2261,6 +2261,66 @@ test("known missing-PR derivative is admitted only with exact validation lineage
   }
 });
 
+test("repeated ambiguous reconstruction terminalizes once and is not rediscovered", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const original = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+      },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, original);
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.allowed, true);
+    const continued = await executeStartupContinuation(config, discovery, {
+      checkpoint_validation_commit: async () => ({
+        ok: false,
+        reasonCode: "initial_validation_failure_commit_reconstruction_ambiguous",
+        ordinaryContinuation: {
+          phase: "local_validation",
+          sourceFailureBatch: {
+            findings: [{
+              classification: "unsafe_or_ambiguous",
+              sourceFixEligible: false,
+              nextAction: "stop_fail_closed",
+            }],
+          },
+        },
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.result.state.stopReason.reasonCode, "checkpoint_validation_recovery_retry_exhausted");
+    assert.equal(continued.result.state.stopReason.reason, "initial_validation_failure_commit_reconstruction_ambiguous");
+    assert.equal(discoverStartupRecovery(config).found, false);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("known validation derivative reopens only its exact terminal lifecycle checkpoint", () => {
   const config = tempConfig();
   try {

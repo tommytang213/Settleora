@@ -289,7 +289,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       firstIncompleteAction: validationRetryTerminal.firstIncompleteAction,
       nextSafeAction: "stop_fail_closed",
       stopReason: {
-        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reasonCode: "checkpoint_validation_recovery_retry_exhausted",
         reason: result?.reasonCode || validationRetryTerminal.stopReason?.reason || "Recovered validation remained unsafe or unclassified.",
       },
     };
