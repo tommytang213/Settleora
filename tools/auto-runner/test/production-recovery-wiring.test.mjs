@@ -413,8 +413,9 @@ test("startup push, PR-create, and CI-wait recovery use ordinary continuation be
     resume.slice(ordinaryPrCreate, existingPrRecovery),
     /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?boundary,[\s\S]*?operationalCheckpoint/,
   );
-  assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*state = \{[\s\S]*pr: \{[\s\S]*number: context\.pr\.number,[\s\S]*headSha: continuation\.identity\.headSha,[\s\S]*await writeRecoveryState\(config, state\)/);
+  assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*state = \{[\s\S]*pr: \{[\s\S]*number: context\.pr\.number,[\s\S]*headSha: continuation\.identity\.headSha,[\s\S]*state: context\.pr\.state,[\s\S]*await writeRecoveryState\(config, state\)/);
   assert.match(runner, /push: async \(continuation\)[\s\S]*expectedRemoteHeadSha: candidate\.headSha[\s\S]*await writeRecoveryState\(config, state\)[\s\S]*headSha: candidate\.headSha/);
+  assert.match(runner, /outageTargetHeadIsAuthenticatedAncestor[\s\S]*sourceFailureHistory\?\.[\s\S]*config\.outageRecoveryTarget\?\.prHeadSha[\s\S]*outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor[\s\S]*prHeadSha: candidate\.headSha[\s\S]*const recoveryConfig = \{[\s\S]*outageRecoveryTarget/);
   assert.match(runner, /const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence\(laneDecision, exactHeadEvidence\)[\s\S]*allowRebuild: regenerationRequired[\s\S]*if \(regenerationRequired\)/);
   assert.match(runner, /exactHeadEvidence: \{[\s\S]*changedFilesDigest: digestChangedFiles\(candidate\.changedFiles\)[\s\S]*recoveryStateRebuildable: true/);
 });

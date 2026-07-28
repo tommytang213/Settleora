@@ -532,7 +532,7 @@ test("historical existing-PR authentication accepts only a contiguous bounded he
   assert.equal(verify(fixture).ok, true);
 
   const pushUpdate = fixture.intents.filter((entry) => entry.effectType === "push").at(-1);
-  const prUpdate = fixture.intents.find((entry) => entry.effectType === "pr_head_update");
+  const prUpdate = fixture.intents.filter((entry) => entry.effectType === "pr_create").at(-1);
   const exactPrior = pushUpdate.effect.expectedRemoteBeforeSha;
   const exactFinal = pushUpdate.effect.localSha;
   for (const [name, mutate, restore] of [
@@ -549,9 +549,9 @@ test("historical existing-PR authentication accepts only a contiguous bounded he
       () => { prUpdate.identity.branchName = `${branch}-foreign`; },
       () => { prUpdate.identity.branchName = branch; }],
     ["missing update marker",
-      () => { delete fixture.state.mutationMarkers.pr_head_update.update; },
+      () => { delete fixture.state.mutationMarkers.pr_create.update; },
       () => {
-        fixture.state.mutationMarkers.pr_head_update.update = {
+        fixture.state.mutationMarkers.pr_create.update = {
           status: "completed", target: fixture.state.pr.url, correlation: exactFinal,
         };
       }],
@@ -744,7 +744,7 @@ function advanceAuthenticatedExistingPrHead(fixture) {
   });
   fixture.intents.push({
     ...common,
-    effectType: "pr_head_update",
+    effectType: "pr_create",
     identity: {
       ...common, issueNumber, branchName: branch, baseBranch: "main",
       baseSha: fixture.mainSha, headSha, candidateIdentity: headSha,
@@ -758,8 +758,8 @@ function advanceAuthenticatedExistingPrHead(fixture) {
   fixture.state.mutationMarkers.push.update = {
     status: "completed", target: branch, correlation: headSha,
   };
-  fixture.state.mutationMarkers.pr_head_update = {
-    update: { status: "completed", target: fixture.state.pr.url, correlation: headSha },
+  fixture.state.mutationMarkers.pr_create.update = {
+    status: "completed", target: fixture.state.pr.url, correlation: headSha,
   };
   fixture.advancedHeadSha = headSha;
 }

@@ -540,7 +540,6 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     previousHead = nextHead;
   }
   const prCreateIntents = prIntents.filter((entry) => entry.effectType === "pr_create");
-  const prUpdateIntents = prIntents.filter((entry) => entry.effectType === "pr_head_update");
   const prHeads = new Set(prIntents.filter(exactPr).map(intentHead));
   const markerHeads = (values, target) => values.every((entry) =>
     entry?.status === "completed" && entry?.target === target
@@ -583,9 +582,8 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && externalIntents.length === orderedPushHeads.length * 2
     && externalIntents.every((entry) => allowedTypes.has(entry.effectType))
     && prIntents.length === orderedPushHeads.length
-    && prCreateIntents.length === 1 && prUpdateIntents.length === orderedPushHeads.length - 1
-    && exactPr(prCreateIntents[0])
-    && intentHead(prCreateIntents[0]) === orderedPushHeads[0]
+    && prCreateIntents.length === orderedPushHeads.length
+    && prCreateIntents.every(exactPr)
     && prHeads.size === orderedPushHeads.length
     && orderedPushHeads.every((head) => prHeads.has(head));
 }

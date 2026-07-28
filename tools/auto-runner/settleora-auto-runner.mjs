@@ -2376,6 +2376,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           headSha: continuation.identity.headSha,
           headRefName: continuation.branchName,
           baseRefName: "main",
+          state: context.pr.state,
         },
       };
       await writeRecoveryState(config, state);
@@ -2387,8 +2388,19 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const prEvidence = context.pr || initial.effects?.pr_create_or_update?.evidence || {};
       const prNumber = prEvidence.number || Number(String(prEvidence.url || "").split("/").at(-1));
       if (!Number.isInteger(prNumber)) return { ok: false, reasonCode: "ordinary_continuation_pr_identity_missing" };
+      const outageTargetHeadIsAuthenticatedAncestor = config.outageRecoveryOnly === true
+        && continuation.sourceFailureHistory?.some((entry) =>
+          entry?.candidate?.headSha === config.outageRecoveryTarget?.prHeadSha);
+      const outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor
+        ? {
+            ...config.outageRecoveryTarget,
+            currentHeadSha: candidate.headSha,
+            prHeadSha: candidate.headSha,
+          }
+        : config.outageRecoveryTarget;
       const recoveryConfig = {
         ...config,
+        outageRecoveryTarget,
         allowExistingPrRecovery: true,
         existingPrRecovery: {
           ...(config.existingPrRecovery || {}),
