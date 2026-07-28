@@ -484,6 +484,45 @@ test("historical existing-PR authentication binds every durable authority to the
   }
 });
 
+test("historical existing-PR authentication accepts only a contiguous bounded head-update chain", () => {
+  const fixture = makeFixture(2);
+  advanceWithSourceFix(fixture);
+  authenticateExistingPrFixture(fixture);
+  advanceAuthenticatedExistingPrHead(fixture);
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  assert.equal(verify(fixture).ok, true);
+
+  const pushUpdate = fixture.intents.filter((entry) => entry.effectType === "push").at(-1);
+  const prUpdate = fixture.intents.find((entry) => entry.effectType === "pr_head_update");
+  const exactPrior = pushUpdate.effect.expectedRemoteBeforeSha;
+  const exactFinal = pushUpdate.effect.localSha;
+  for (const [name, mutate, restore] of [
+    ["chain gap",
+      () => { pushUpdate.effect.expectedRemoteBeforeSha = fixture.baseSha; },
+      () => { pushUpdate.effect.expectedRemoteBeforeSha = exactPrior; }],
+    ["stale endpoint",
+      () => { fixture.state.pr.headSha = exactPrior; },
+      () => { fixture.state.pr.headSha = exactFinal; }],
+    ["duplicate update",
+      () => { fixture.intents.push(structuredClone(prUpdate)); },
+      () => { fixture.intents.pop(); }],
+    ["mixed update branch",
+      () => { prUpdate.identity.branchName = `${branch}-foreign`; },
+      () => { prUpdate.identity.branchName = branch; }],
+    ["missing update marker",
+      () => { delete fixture.state.mutationMarkers.pr_head_update.update; },
+      () => {
+        fixture.state.mutationMarkers.pr_head_update.update = {
+          status: "completed", target: fixture.state.pr.url, correlation: exactFinal,
+        };
+      }],
+  ]) {
+    mutate();
+    assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present", name);
+    restore();
+  }
+});
+
 test("historical initial candidate fail-closes an unauthenticated local source-fix descendant", () => {
   const missingIntent = makeFixture(1);
   advanceWithSourceFix(missingIntent);
@@ -606,6 +645,84 @@ function authenticateExistingPrFixture(fixture) {
       targetBaseBranch: "main", targetBaseSha: fixture.mainSha, draft: false,
     },
   });
+}
+
+function advanceAuthenticatedExistingPrHead(fixture) {
+  const continuation = fixture.state.ordinaryContinuation;
+  const previous = structuredClone(continuation.identity);
+  const previousHead = previous.headSha;
+  const subject = `Auto-runner issue #${issueNumber}: source-fix fedcba9876543210`;
+  writeFileSync(path.join(fixture.repoRoot, changedFiles[0]), "candidate-0\nsource-fix\nsecond-fix\n");
+  run(fixture.repoRoot, ["add", changedFiles[0]]);
+  run(fixture.repoRoot, ["commit", "-m", subject]);
+  const headSha = run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+  const treeSha = run(fixture.repoRoot, ["rev-parse", "HEAD^{tree}"]).stdout.trim();
+  const changed = [...changedFiles];
+  continuation.sourceFailureHistory.push({ candidate: previous });
+  continuation.identity = {
+    baseSha: fixture.baseSha,
+    headSha,
+    treeSha,
+    diffDigest: hash(run(fixture.repoRoot,
+      ["diff", "--binary", `${fixture.baseSha}...${headSha}`]).stdout.slice(0, 512_000)),
+    changedFiles: changed,
+    changedFilesDigest: hashJson(changed),
+  };
+  fixture.lifecycle.branch.headSha = headSha;
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.state.pr.headSha = headSha;
+  fixture.state.branch.expectedRemoteHeadSha = headSha;
+  run(fixture.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, headSha]);
+  const chargeIdentity = fixture.options.loadBudget().statePath;
+  const common = {
+    repository, sourceTaskKey: taskKey, runId, status: "finalized",
+    logicalTaskIdentity: `${repository}#${issueNumber}`,
+    claimIdentity: `${repository}#${issueNumber}`, chargeIdentity,
+  };
+  fixture.intents.push({
+    ...common,
+    effectType: "commit",
+    identity: {
+      issueNumber, branchName: branch, baseSha: fixture.baseSha,
+      headSha: previousHead, candidateIdentity: previousHead,
+    },
+    effect: {
+      expectedParents: [previousHead], treeSha, stagedPaths: [changedFiles[0]],
+      messageDigest: hash(subject),
+    },
+  });
+  fixture.intents.push({
+    ...common,
+    effectType: "push",
+    identity: {
+      ...common, issueNumber, branchName: branch, baseSha: fixture.baseSha,
+      headSha, candidateIdentity: headSha,
+    },
+    effect: {
+      repositoryOwnership: repository, remoteBranch: branch, localSha: headSha,
+      expectedRemoteBeforeSha: previousHead, allowedFastForwardTarget: headSha,
+    },
+  });
+  fixture.intents.push({
+    ...common,
+    effectType: "pr_head_update",
+    identity: {
+      ...common, issueNumber, branchName: branch, baseBranch: "main",
+      baseSha: fixture.mainSha, headSha, candidateIdentity: headSha,
+    },
+    effect: {
+      issueNumber, sourceBranch: branch, sourceHeadSha: headSha,
+      targetBaseBranch: "main", targetBaseSha: fixture.mainSha,
+      prNumber: 1007, prUrl: fixture.state.pr.url,
+    },
+  });
+  fixture.state.mutationMarkers.push.update = {
+    status: "completed", target: branch, correlation: headSha,
+  };
+  fixture.state.mutationMarkers.pr_head_update = {
+    update: { status: "completed", target: fixture.state.pr.url, correlation: headSha },
+  };
+  fixture.advancedHeadSha = headSha;
 }
 
 function makeFixture(advances, candidateSuffix = "") {

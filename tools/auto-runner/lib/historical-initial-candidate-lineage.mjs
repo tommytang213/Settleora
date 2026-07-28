@@ -484,6 +484,8 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const pushIntents = externalIntents.filter((entry) => entry.effectType === "push");
   const prIntents = externalIntents.filter((entry) =>
     ["pr_create", "pr_head_update"].includes(entry.effectType));
+  const intentHead = (entry) => entry.effect?.localSha || entry.effect?.localCommitSha
+    || entry.effect?.sourceHeadSha || entry.identity?.headSha;
   const commonIntentAuthority = (entry) => entry.status === "finalized"
     && entry.repository === authority.repository
     && entry.sourceTaskKey === authority.taskKey
@@ -499,23 +501,50 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && entry.identity?.claimIdentity === `${authority.repository}#${authority.issueNumber}`
     && entry.identity?.chargeIdentity === authority.chargeIdentity
     && entry.identity?.branchName === authority.branch
-    && entry.identity?.headSha === authority.headSha;
+    && sha.test(intentHead(entry) || "")
+    && entry.identity?.headSha === intentHead(entry)
+    && priorHeads.has(intentHead(entry));
   const exactPush = (entry) => commonIntentAuthority(entry)
     && entry.identity?.baseSha === authority.baseSha
     && entry.effect?.repositoryOwnership === authority.repository
     && entry.effect?.remoteBranch === authority.branch
-    && entry.effect?.localSha === authority.headSha
-    && entry.effect?.allowedFastForwardTarget === authority.headSha;
+    && entry.effect?.localSha === intentHead(entry)
+    && entry.effect?.allowedFastForwardTarget === intentHead(entry)
+    && (entry.effect?.expectedRemoteBeforeSha == null
+      || priorHeads.has(entry.effect.expectedRemoteBeforeSha));
   const exactPr = (entry) => commonIntentAuthority(entry)
     && entry.identity?.issueNumber === authority.issueNumber
     && entry.identity?.baseBranch === "main"
     && entry.identity?.baseSha === authority.currentMainSha
     && entry.effect?.issueNumber === authority.issueNumber
     && entry.effect?.sourceBranch === authority.branch
-    && entry.effect?.sourceHeadSha === authority.headSha
+    && intentHead(entry) === entry.identity.headSha
+    && (entry.effectType === "pr_create"
+      ? entry.effect?.sourceHeadSha === intentHead(entry)
+      : [entry.effect?.localSha, entry.effect?.localCommitSha, entry.effect?.sourceHeadSha]
+        .some((value) => value === intentHead(entry)))
     && entry.effect?.targetBaseBranch === "main"
     && entry.effect?.targetBaseSha === authority.currentMainSha
-    && entry.effect?.draft === false;
+    && (entry.effect?.draft == null || entry.effect.draft === false)
+    && (entry.effect?.prNumber == null || entry.effect.prNumber === pr?.number)
+    && (entry.effect?.prUrl == null || entry.effect.prUrl === exactUrl);
+  const orderedPushHeads = [];
+  let previousHead = null;
+  while (orderedPushHeads.length <= 51) {
+    const next = pushIntents.filter((entry) =>
+      entry.effect?.expectedRemoteBeforeSha === previousHead);
+    if (next.length !== 1 || !exactPush(next[0])) break;
+    const nextHead = intentHead(next[0]);
+    if (orderedPushHeads.includes(nextHead)) break;
+    orderedPushHeads.push(nextHead);
+    previousHead = nextHead;
+  }
+  const prCreateIntents = prIntents.filter((entry) => entry.effectType === "pr_create");
+  const prUpdateIntents = prIntents.filter((entry) => entry.effectType === "pr_head_update");
+  const prHeads = new Set(prIntents.filter(exactPr).map(intentHead));
+  const markerHeads = (values, target) => values.every((entry) =>
+    entry?.status === "completed" && entry?.target === target
+      && orderedPushHeads.includes(entry?.correlation));
   const remoteHead = authority.git([
     "rev-parse", "--verify", `refs/remotes/origin/${authority.branch}`,
   ]);
@@ -534,17 +563,23 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && (continuation.counters.githubTriggeredFixEpochsPerPr === 0
       ? fingerprints.length === 0
       : fingerprints.length > 0)
-    && pushMarkers.length === 1 && prMarkers.length === 1
-    && pushMarkers[0]?.status === "completed"
-    && pushMarkers[0]?.target === authority.branch
-    && pushMarkers[0]?.correlation === authority.headSha
-    && prMarkers[0]?.status === "completed"
-    && prMarkers[0]?.target === exactUrl
-    && prMarkers[0]?.correlation === authority.headSha
-    && externalIntents.length === 2
+    && orderedPushHeads.length >= 1 && orderedPushHeads.length <= 51
+    && orderedPushHeads.at(-1) === authority.headSha
+    && pushMarkers.length === orderedPushHeads.length
+    && prMarkers.length === orderedPushHeads.length
+    && markerHeads(pushMarkers, authority.branch)
+    && markerHeads(prMarkers, exactUrl)
+    && new Set(pushMarkers.map((entry) => entry.correlation)).size === orderedPushHeads.length
+    && new Set(prMarkers.map((entry) => entry.correlation)).size === orderedPushHeads.length
+    && externalIntents.length === orderedPushHeads.length * 2
     && externalIntents.every((entry) => allowedTypes.has(entry.effectType))
-    && pushIntents.length === 1 && exactPush(pushIntents[0])
-    && prIntents.length === 1 && exactPr(prIntents[0]);
+    && pushIntents.length === orderedPushHeads.length
+    && prIntents.length === orderedPushHeads.length
+    && prCreateIntents.length === 1 && prUpdateIntents.length === orderedPushHeads.length - 1
+    && exactPr(prCreateIntents[0])
+    && intentHead(prCreateIntents[0]) === orderedPushHeads[0]
+    && prHeads.size === orderedPushHeads.length
+    && orderedPushHeads.every((head) => prHeads.has(head));
 }
 function continuationExternalEffectPresent(effects) {
   return effects && typeof effects === "object"
