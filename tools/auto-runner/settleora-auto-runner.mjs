@@ -2010,6 +2010,10 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return { ok: false, reasonCode: live.reason || "recovery_issue_read_failed", state };
       }
       const issue = live.issue || state.issue;
+      const recoveryClaim = validateClaimReread(config, state.issue, issue);
+      if (!recoveryClaim.ok) {
+        return { ok: false, reasonCode: recoveryClaim.reason || "startup_recovery_claim_reread_failed", state };
+      }
       const laneDecision = classifyIssueLane(issue);
       const lineageOptions = {
         expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
