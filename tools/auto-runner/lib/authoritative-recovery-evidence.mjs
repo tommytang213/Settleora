@@ -60,9 +60,7 @@ export function collectAuthoritativeRecoveryEvidence(config, identity, expected 
   const controlPlaneRepoRoot = path.resolve(config.controlPlaneRepoRoot || config.repoRoot);
   const readGit = adapters.readGit || (() => defaultGitRead(config, identity, taskRepoRoot));
   const readControlPlaneGit = adapters.readControlPlaneGit
-    || (controlPlaneRepoRoot === taskRepoRoot
-      ? readGit
-      : () => defaultGitRead(config, identity, controlPlaneRepoRoot));
+    || (() => defaultGitRead(config, identity, controlPlaneRepoRoot));
   const readGithub = adapters.readGithub || (() => defaultGithubRead(config, identity));
   let processRead;
   let leaseRead;

@@ -141,10 +141,16 @@ test("startup continuation blocks corrupt or unsafe state without polling fallba
 
 test("production runner is wired past discovery-only recovery and legacy PR classifier", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const collector = readFileSync(new URL("../lib/authoritative-recovery-evidence.mjs", import.meta.url), "utf8");
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
   assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*authenticatedTaskRefGitEvidence/);
+  assert.match(
+    collector,
+    /const readControlPlaneGit = adapters\.readControlPlaneGit\s*\|\| \(\(\) => defaultGitRead\(config, identity, controlPlaneRepoRoot\)\)/,
+  );
+  assert.doesNotMatch(collector, /controlPlaneRepoRoot === taskRepoRoot\s*\?\s*readGit/);
   assert.match(source, /const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);
