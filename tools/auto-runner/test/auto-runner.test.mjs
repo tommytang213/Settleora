@@ -4385,6 +4385,7 @@ test("required prospective-merge validation is bound to the exact current main a
 test("prospective-merge validation re-proves the exact clean merge tree and parents", () => {
   const repo = createTempGitRepo();
   try {
+    git(repo, ["remote", "add", "origin", "https://github.com/tommytang213/Settleora.git"]);
     git(repo, ["switch", "-c", "feature/candidate"]);
     writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "candidate\n");
     git(repo, ["add", "--", "tools/auto-runner/README.md"]);
@@ -4400,9 +4401,10 @@ test("prospective-merge validation re-proves the exact clean merge tree and pare
       "commit-tree", treeSha, "-p", baseSha, "-p", headSha, "-m", "prospective fixture",
     ]).stdout.trim();
     const evidence = { baseSha, headSha, treeSha, syntheticCommitSha };
-    assert.equal(verifyProspectiveMergeValidation({ repoRoot: repo }, evidence, baseSha, headSha), true);
+    const config = { repoRoot: repo, repositorySlug: "tommytang213/Settleora" };
+    assert.equal(verifyProspectiveMergeValidation(config, evidence, baseSha, headSha), true);
     assert.equal(verifyProspectiveMergeValidation(
-      { repoRoot: repo }, { ...evidence, treeSha: "c".repeat(40) }, baseSha, headSha,
+      config, { ...evidence, treeSha: "c".repeat(40) }, baseSha, headSha,
     ), false);
   } finally {
     rmSync(repo, { recursive: true, force: true });
