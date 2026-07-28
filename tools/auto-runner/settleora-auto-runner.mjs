@@ -1850,22 +1850,32 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 }
 
 export function chargeStartupRecoveryLogicalTask(config, runId, recovery) {
-  const issue = { number: recovery.state?.issue?.number ?? recovery.state?.issueNumber };
-  if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) return { ok: false, reasonCode: "startup_recovery_issue_identity_missing" };
   const authoritativeRecovery = loadRecoveryState(config, recovery.state);
   if (!authoritativeRecovery.ok) return authoritativeRecovery;
+  const authoritativeState = authoritativeRecovery.state;
+  const issue = { number: authoritativeState.issue?.number ?? authoritativeState.issueNumber };
+  if (!Number.isSafeInteger(issue?.number) || issue.number <= 0) return { ok: false, reasonCode: "startup_recovery_issue_identity_missing" };
   const budgetScopeId = config.logicalTaskBudgetScopeId
-    || recovery.state?.run?.supervisorRunId
-    || recovery.state?.supervisorRunId
-    || recovery.state?.run?.runId
-    || recovery.state?.runId
+    || authoritativeState.run?.supervisorRunId
+    || authoritativeState.supervisorRunId
+    || authoritativeState.run?.runId
+    || authoritativeState.runId
     || config.supervisorRunId
     || runId;
   const loaded = loadLogicalTaskBudget(config, budgetScopeId);
   if (!loaded.ok) return loaded;
-  let recoveryState = authoritativeRecovery.state;
+  let recoveryState = authoritativeState;
   let chargeIds = Object.keys(recoveryState.mutationMarkers?.logical_task_charge || {});
   if (chargeIds.length === 0) {
+    const claimIds = Object.keys(recoveryState.mutationMarkers?.claim || {});
+    const claimMarker = recoveryState.mutationMarkers?.claim?.[claimIds[0]];
+    const authoritativeRunId = recoveryState.run?.runId || recoveryState.runId;
+    if (claimIds.length !== 1
+      || claimIds[0] !== `issue-${issue.number}`
+      || claimMarker?.status !== "completed"
+      || claimMarker?.correlation !== authoritativeRunId) {
+      return { ok: false, reasonCode: "startup_recovery_charge_marker_claim_authority_mismatch" };
+    }
     const matchingCharges = Object.entries(loaded.state.charges || {}).filter(([, candidate]) =>
       candidate.identity?.repository === config.repositorySlug
         && candidate.identity?.issueNumber === issue.number

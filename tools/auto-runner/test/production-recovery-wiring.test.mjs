@@ -9,6 +9,7 @@ import {
   createInitialRecoveryState,
   headBoundEvidenceKinds,
   loadRecoveryState,
+  recordIdempotentMutation,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
@@ -202,7 +203,12 @@ test("startup recovery reconciles the unique accepted charge after a claim-to-ma
     maxIterations: 3,
   });
   try {
-    const state = recoveryState();
+    const initial = recoveryState();
+    const state = recordIdempotentMutation(initial, {
+      kind: "claim",
+      key: `issue-${initial.issue.number}`,
+      marker: { target: initial.issue.url, correlation: initial.run.runId },
+    });
     const written = writeRecoveryState(config, state);
     const budgetScopeId = state.run.supervisorRunId;
     const charged = chargeAcceptedLogicalTask(config, {
@@ -252,7 +258,12 @@ test("startup recovery does not synthesize a missing accepted charge", () => {
     maxIterations: 3,
   });
   try {
-    const state = recoveryState();
+    const initial = recoveryState();
+    const state = recordIdempotentMutation(initial, {
+      kind: "claim",
+      key: `issue-${initial.issue.number}`,
+      marker: { target: initial.issue.url, correlation: initial.run.runId },
+    });
     const written = writeRecoveryState(config, state);
     const result = chargeStartupRecoveryLogicalTask(config, state.run.runId, {
       state,
