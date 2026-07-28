@@ -2321,6 +2321,56 @@ test("repeated ambiguous reconstruction terminalizes once and is not rediscovere
   }
 });
 
+test("transient failure before reconstruction preserves the validation recovery retry", async () => {
+  const config = tempConfig({ allowExistingPrRecovery: true });
+  try {
+    const original = {
+      ...createInitialRecoveryState({
+        taskKey: "20260724T075849",
+        issue: { number: 959, title: "Recovery", url: "https://example.invalid/959" },
+        runId: "run-959",
+        branchName: "feature/auto-959-recovery",
+        baseSha: "a".repeat(40),
+        currentHeadSha: "b".repeat(40),
+      }),
+      phase: "stopped",
+      firstIncompleteAction: "run_validation_and_commit",
+      nextSafeAction: "stop_fail_closed",
+      stopReason: {
+        reasonCode: "checkpoint_validation_recovery_failed_closed",
+        reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+      },
+      evidence: { localValidation: { status: "failed" } },
+      ordinaryContinuation: {
+        phase: "local_validation",
+        identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+        sourceFailureBatch: {
+          candidate: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+          findings: [{
+            classification: "unsafe_or_ambiguous",
+            sourceFixEligible: false,
+            nextAction: "stop_fail_closed",
+          }],
+        },
+      },
+    };
+    writeRecoveryState(config, original);
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      checkpoint_validation_commit: async ({ state }) => ({
+        ok: false,
+        reasonCode: "github_issue_read_failed",
+        state,
+      }),
+    });
+    assert.equal(continued.ok, false);
+    assert.equal(continued.reasonCode, "github_issue_read_failed");
+    assert.equal(continued.result.state.stopReason, null);
+    assert.equal(discoverStartupRecovery(config).allowed, true);
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("known validation derivative reopens only its exact terminal lifecycle checkpoint", () => {
   const config = tempConfig();
   try {

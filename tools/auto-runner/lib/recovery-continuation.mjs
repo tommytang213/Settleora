@@ -476,6 +476,10 @@ function isRepeatedUnsafeValidationResult(result) {
     || result?.state;
   const findings = continuation?.sourceFailureBatch?.findings;
   return result?.ok === false
+    && [
+      "checkpoint_validation_not_source_fix_safe",
+      "initial_validation_failure_commit_reconstruction_ambiguous",
+    ].includes(result?.reasonCode)
     && continuation?.phase === "local_validation"
     && Array.isArray(findings)
     && findings.length > 0
