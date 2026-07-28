@@ -57,6 +57,7 @@ export function adoptHistoricalTaskWorkspace(config, {
   const matches = parseWorktrees(listed.stdout).filter((entry) => entry.branch === literalRef);
   if (matches.length > 1) throw new Error("Historical task branch has conflicting linked worktrees");
   let taskRoot = matches[0]?.worktree || null;
+  const linkedWorktreeAlreadyPresent = Boolean(taskRoot);
   let created = false;
   if (taskRoot && path.resolve(taskRoot) !== intendedTaskRoot) {
     const canonicalExistingRoot = realpathSync(taskRoot);
@@ -90,7 +91,15 @@ export function adoptHistoricalTaskWorkspace(config, {
     const intent = canonicalIntent(effectContext, "worktree_create", {
       branchName, headSha, taskRoot: intendedTaskRoot, commonDir: controlCommonDir,
     }, { branchName, headSha });
-    const execution = executeCanonicalEffectSync(canonicalConfig, canonicalExecutionInput(canonicalConfig, intent), {
+    const pending = findPendingEffect(canonicalConfig, effectContext, "worktree_create",
+      (candidate) => candidate.effect?.taskRoot === intendedTaskRoot
+        && candidate.effect?.headSha === headSha
+        && candidate.effect?.commonDir === controlCommonDir);
+    if (linkedWorktreeAlreadyPresent && !pending) {
+      throw new Error("Historical task worktree has no prior durable creation intent");
+    }
+    const execution = executeCanonicalEffectSync(canonicalConfig,
+      pending ? { intentId: pending.intentId } : canonicalExecutionInput(canonicalConfig, intent), {
       readLive: (prepared) => readHistoricalWorktreeEffect(
         controlRoot, intendedTaskRoot, branchName, headSha, prepared.identity, prepared.effect,
       ),
