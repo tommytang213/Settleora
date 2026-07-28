@@ -7,6 +7,7 @@ import {
   isEligibleValidationRetryCheckpoint,
   isKnownValidationRetryDerivative,
   listRecoverableRecoveryStates,
+  validationRetryDerivativeTerminalPhase,
 } from "./recovery-state.mjs";
 import { loadSessionLifecycleForRecovery, recoverySuccessorSessionId } from "./session-lifecycle.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
@@ -153,7 +154,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
       return denied("preserved_recovery_checkpoint_not_eligible", target);
     }
     const derivative = isKnownValidationRetryDerivative(state);
-    const derivativeReason = derivative ? state.stopReason.reason : null;
+    const derivativeTerminalPhase = derivative ? validationRetryDerivativeTerminalPhase(state) : null;
     if (!validateProjectNamespace(config.logsRoot, target, repositoryRoot, gitEnvironment)) {
       return denied("preserved_recovery_namespace_identity_mismatch", target);
     }
@@ -161,7 +162,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     if (!markerProof.ok) return denied(markerProof.reasonCode, target);
     const chargeProof = validateCharge(config, state, target);
     if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
-    const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath, derivativeReason);
+    const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath, derivativeTerminalPhase);
     if (!lifecycleProof.ok) return denied(lifecycleProof.reasonCode, target);
     const intentProof = validateIntents(
       config,
@@ -252,7 +253,7 @@ function validateCharge(config, state, target) {
   return { ok: true, statePath: loaded.statePath };
 }
 
-function validateLifecycle(config, state, target, chargeMarkerRef, derivativeReason) {
+function validateLifecycle(config, state, target, chargeMarkerRef, derivativeTerminalPhase) {
   const loaded = loadSessionLifecycleForRecovery(config, {
     repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
     runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
@@ -273,13 +274,13 @@ function validateLifecycle(config, state, target, chargeMarkerRef, derivativeRea
       || counters?.lifetimeLocalSourceChangingRounds !== target.lifetimeLocalSourceChangingRounds) {
     return { ok: false, reasonCode: "preserved_recovery_lifecycle_mismatch" };
   }
-  if (derivativeReason && !exactValidationRetryDerivativeLifecycle(lifecycle, derivativeReason)) {
+  if (derivativeTerminalPhase && !exactValidationRetryDerivativeLifecycle(lifecycle, derivativeTerminalPhase)) {
     return { ok: false, reasonCode: "preserved_recovery_derivative_lifecycle_mismatch" };
   }
   return { ok: true };
 }
 
-function exactValidationRetryDerivativeLifecycle(lifecycle, derivativeReason) {
+function exactValidationRetryDerivativeLifecycle(lifecycle, derivativeTerminalPhase) {
   const effects = lifecycle.recovery?.effectsAlreadyPresent;
   const commonRecovery = lifecycle.interruption?.class === "main_process_exit_without_terminal_report"
     && lifecycle.interruption?.reasonCode === "interruption_main_process_exit_without_terminal_report"
@@ -302,11 +303,7 @@ function exactValidationRetryDerivativeLifecycle(lifecycle, derivativeReason) {
     && lifecycle.mutationAuthority?.status === "terminal"
     && lifecycle.mutationAuthority?.ownerSessionId === null
     && lifecycle.mutationAuthority?.handoff === null
-    && lifecycle.recovery?.phaseAfter === (
-      derivativeReason === "initial_validation_failure_commit_reconstruction_ambiguous"
-        ? "checkpoint_validation_commit"
-        : "push"
-    )
+    && lifecycle.recovery?.phaseAfter === derivativeTerminalPhase
     && effects.comment === false;
   if (terminalDerivative) return true;
 

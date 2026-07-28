@@ -1080,6 +1080,27 @@ test("deployment admits only one exact effect-free preserved recovery and remain
       "exact_preserved_recovery_admitted",
       "the exact known derivative must permit installation of its corrective runtime",
     );
+    const reconstructionLifecyclePath = sessionLifecyclePath(config, derivativeLifecycle);
+    const reconstructionTerminalBytes = readFileSync(reconstructionLifecyclePath);
+    const reconstructedReopened = reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
+      commitPresent: true,
+      pushPresent: false,
+      mergePresent: false,
+      commentPresent: false,
+    }, { terminalPhaseAfter: "checkpoint_validation_commit" });
+    assert.equal(reconstructedReopened.ok, true, JSON.stringify(reconstructedReopened));
+    assert.equal(reconstructedReopened.state.controller.phase, "checkpoint_validation_commit");
+    assert.equal(
+      reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
+        commitPresent: true,
+        pushPresent: false,
+        mergePresent: false,
+        commentPresent: false,
+      }, { terminalPhaseAfter: "push" }).ok,
+      false,
+      "the reconstruction lifecycle cannot be reopened under the legacy push posture",
+    );
+    writeFileSync(reconstructionLifecyclePath, reconstructionTerminalBytes, { mode: 0o600 });
     writeRecoveryState(config, {
       ...derivativeRecovery,
       stopReason: {
@@ -1091,6 +1112,16 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     const legacyDerivativeLifecycle = persistSessionLifecycleState(config, derivativeLifecycle);
     assert.equal(legacyDerivativeLifecycle.ok, true, JSON.stringify(legacyDerivativeLifecycle));
     derivativeLifecycle = legacyDerivativeLifecycle.state;
+    assert.equal(
+      reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
+        commitPresent: true,
+        pushPresent: false,
+        mergePresent: false,
+        commentPresent: false,
+      }, { terminalPhaseAfter: "checkpoint_validation_commit" }).ok,
+      false,
+      "the legacy lifecycle cannot be reopened under the reconstruction checkpoint posture",
+    );
     const reopenedDerivative = reopenKnownValidationRetryDerivative(config, derivativeLifecycle, {
       commitPresent: true,
       pushPresent: false,

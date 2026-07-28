@@ -7,6 +7,7 @@ import {
   listRecoverableRecoveryStates,
   recoveryRequiresExactHeadEvidenceRegeneration,
   recoveryHasMutationMarker,
+  validationRetryDerivativeTerminalPhase,
   writeRecoveryState,
 } from "./recovery-state.mjs";
 import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleForRecovery, migrateRecoveryStateToSessionLifecycle, planInterruptionRecovery, persistSessionLifecycleState, recoverySuccessorSessionId, reopenKnownValidationRetryDerivative, transitionSessionLifecyclePhase } from "./session-lifecycle.mjs";
@@ -205,6 +206,9 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
     ...(recovery.interruption || {}),
     validationRetryDerivativeAuthorized: validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
+    validationRetryDerivativeTerminalPhase: validationRetryTerminal
+      ? validationRetryDerivativeTerminalPhase(validationRetryTerminal)
+      : null,
   });
   if (!lifecycleRecovery.ok) {
     return {
@@ -407,7 +411,9 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     lifecycleState = headPersisted.state;
   }
   if (interruption.validationRetryDerivativeAuthorized === true) {
-    const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState, inputs.liveEffects);
+    const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState, inputs.liveEffects, {
+      terminalPhaseAfter: interruption.validationRetryDerivativeTerminalPhase,
+    });
     if (!reopened.ok) return reopened;
     lifecycleState = reopened.state;
   }

@@ -508,9 +508,14 @@ export function transitionSessionLifecyclePhase(config, state, { phase, nextExac
   return persistSessionLifecycleState(config, next);
 }
 
-export function reopenKnownValidationRetryDerivative(config, state, liveEffects = {}) {
+export function reopenKnownValidationRetryDerivative(config, state, liveEffects = {}, {
+  terminalPhaseAfter = "push",
+} = {}) {
   const validation = validateSessionLifecycleState(state);
   if (!validation.ok) return validation;
+  if (!["push", "checkpoint_validation_commit"].includes(terminalPhaseAfter)) {
+    return fail("session_lifecycle_validation_retry_derivative_mismatch");
+  }
   if (liveEffects.commitPresent !== true
     || liveEffects.pushPresent !== false
     || liveEffects.mergePresent !== false
@@ -555,7 +560,7 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
     || state.report?.status !== "stopped"
     || state.mutationAuthority?.status !== "terminal"
     || state.mutationAuthority?.ownerSessionId !== null
-    || state.recovery.phaseAfter !== "push"
+    || state.recovery.phaseAfter !== terminalPhaseAfter
     || effects.comment !== false) {
     return fail("session_lifecycle_validation_retry_derivative_mismatch");
   }

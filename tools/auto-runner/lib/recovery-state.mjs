@@ -376,8 +376,7 @@ export function isEligibleValidationRetryCheckpoint(state) {
 }
 
 export function isKnownValidationRetryDerivative(state) {
-  const recognizedReason = state?.stopReason?.reason === "recovery_existing_pr_context_missing"
-    || state?.stopReason?.reason === "initial_validation_failure_commit_reconstruction_ambiguous";
+  const recognizedReason = validationRetryDerivativeTerminalPhase(state) !== null;
   return state?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed"
     && recognizedReason
     && state?.ordinaryContinuation?.sourceFailureBatch?.candidate?.headSha === state?.branch?.currentHeadSha
@@ -388,6 +387,14 @@ export function isKnownValidationRetryDerivative(state) {
     && state?.branch?.expectedRemoteHeadSha === null
     && !Object.keys(state?.mutationMarkers?.push || {}).length
     && !Object.keys(state?.mutationMarkers?.merge || {}).length;
+}
+
+export function validationRetryDerivativeTerminalPhase(state) {
+  if (state?.stopReason?.reason === "recovery_existing_pr_context_missing") return "push";
+  if (state?.stopReason?.reason === "initial_validation_failure_commit_reconstruction_ambiguous") {
+    return "checkpoint_validation_commit";
+  }
+  return null;
 }
 
 function isProvisionalTaskKey(value) {
