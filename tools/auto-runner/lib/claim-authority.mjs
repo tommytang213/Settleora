@@ -101,8 +101,9 @@ function decision(ok, reason, mode, selectedIssue, rereadIssue) {
     reasonCode: reason,
     mode,
     event: {
-      action: "claim_authority_reread",
+      action: mode === claimAuthorityModes.freshActive ? "claim_reread" : "claim_authority_reread",
       mode,
+      ...(mode === claimAuthorityModes.freshActive ? { issue: issueSummary(rereadIssue) } : {}),
       selectedIssueNumber: normalizeIssueNumber(selectedIssue?.number),
       liveIssueNumber: normalizeIssueNumber(rereadIssue?.number),
       liveState: String(rereadIssue?.state || "").toUpperCase() || null,
@@ -110,6 +111,16 @@ function decision(ok, reason, mode, selectedIssue, rereadIssue) {
       ok,
       reason,
     },
+  };
+}
+
+function issueSummary(issue = {}) {
+  return {
+    number: normalizeIssueNumber(issue.number),
+    title: typeof issue.title === "string" ? issue.title : null,
+    url: typeof issue.url === "string" ? issue.url : null,
+    state: String(issue.state || "").toUpperCase() || null,
+    labels: labelNames(issue),
   };
 }
 
