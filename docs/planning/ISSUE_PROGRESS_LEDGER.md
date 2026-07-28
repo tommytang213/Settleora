@@ -22,6 +22,10 @@
   major issues on the exact head. All required CodeQL, Semgrep, Trivy, and
   scaffold checks passed; relevant open code-scanning alerts and unresolved
   review threads were zero.
+- Durable evidence: the exact source-merge comment is
+  `https://github.com/tommytang213/Settleora/issues/989#issuecomment-5100211347`;
+  the complete merge/hygiene report is
+  `/workspace/logs/settleora-codex-report-20260728-1301-pr1007-exact-head-merge-post-merge-hygiene.md`.
 - #989 and #991 remain open pending separately authorized corrected runtime
   deployment, active-profile and health reconciliation, and one exact trusted
   continuation of the preserved #959 chain. #959 remains open and preserved:
