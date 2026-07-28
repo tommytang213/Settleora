@@ -203,13 +203,26 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }
   const validationRetryTerminal = isValidationFailureRetryAuthorized(loaded.state) ? loaded.state : null;
   let state = normalizeValidationFailureContinuation(loaded.state);
+  const prepareAuthoritativeRecovery = selectOwnCallableHandler(handlers, "prepareAuthoritativeRecovery");
+  const preparation = prepareAuthoritativeRecovery
+    ? await prepareAuthoritativeRecovery({ state, loaded, recovery })
+    : { ok: true };
+  if (preparation?.ok === false) {
+    return {
+      ok: false,
+      outcome: "blocked_recovery_state",
+      reasonCode: preparation.reasonCode || "authoritative_recovery_task_workspace_unavailable",
+      recovery: { ...recovery, state: summarizeRecoverableState(preparation.state || state) },
+    };
+  }
+  if (preparation?.state) state = preparation.state;
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
     ...(recovery.interruption || {}),
     validationRetryDerivativeAuthorized: validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
     validationRetryDerivativeTerminalPhase: validationRetryTerminal
       ? validationRetryDerivativeTerminalPhase(validationRetryTerminal)
       : null,
-  });
+  }, preparation?.evidenceAdapters || {});
   if (!lifecycleRecovery.ok) {
     return {
       ok: false,
@@ -280,7 +293,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery: { ...recovery, state: summarizeRecoverableState(state), boundary },
     };
   }
-  const result = await handler({ state, boundary, loaded });
+  const result = await handler({ state, boundary, loaded, preparation });
   if (validationRetryTerminal && isRepeatedUnsafeValidationResult(result)) {
     const current = loadRecoveryState(config, recovery.state);
     let terminal = {

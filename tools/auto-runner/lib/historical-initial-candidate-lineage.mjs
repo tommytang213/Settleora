@@ -164,6 +164,26 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     if (!recoverableLifecyclePhases.has(expectedLifecyclePhase)) {
       return fail("historical_candidate_lifecycle_mismatch");
     }
+    const activeLifecyclePosture = lifecycle.mutationAuthority?.status === "active"
+      && lifecycle.mutationAuthority?.ownerSessionId === lifecycle.sessions.current
+      && lifecycle.mutationAuthority.ownerSessionId === expectedLifecycle?.mutationAuthority?.ownerSessionId
+      && lifecycle.controller?.phase === expectedLifecyclePhase
+      && (initialLifecyclePosture
+        ? lifecycle.controller?.nextExactAction === "run_validation_and_commit"
+        : lifecycle.controller?.nextExactAction === expectedLifecycle?.controller?.nextExactAction
+          && typeof lifecycle.controller?.nextExactAction === "string"
+          && lifecycle.controller.nextExactAction.length > 0)
+      && lifecycle.report?.status === "in_progress"
+      && lifecycle.recovery?.phaseAfter === expectedLifecyclePhase
+      && lifecycle.mutationAuthority?.handoff?.reason === "validation_retry_derivative_reopened"
+      && lifecycle.mutationAuthority.handoff.successorSessionId === lifecycle.sessions.current;
+    const terminalPreparationPosture = options.allowTerminalValidationRetryPreparation === true
+      && lifecycle.controller?.phase === "stopped"
+      && lifecycle.controller?.nextExactAction === "checkpoint_validation_recovery_failed_closed"
+      && lifecycle.report?.status === "stopped"
+      && lifecycle.mutationAuthority?.status === "terminal"
+      && lifecycle.mutationAuthority?.ownerSessionId === null
+      && lifecycle.recovery?.phaseAfter === options.expectedTerminalLifecyclePhase;
     if (lifecycle.logicalTask?.claimIdentity !== `${repository}#${issueNumber}`
       || lifecycle.logicalTask?.supervisorRunId !== supervisorRunId
       || lifecycle.branch?.name !== branch || lifecycle.branch?.baseSha !== baseSha
@@ -173,19 +193,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       || lifecycle.sessions.generation !== expectedLifecycle?.sessions?.generation
       || lifecycle.sessions.current !== expectedLifecycle?.sessions?.current
       || lifecycle.mutationAuthority?.generation !== lifecycle.sessions.generation
-      || lifecycle.mutationAuthority?.status !== "active"
-      || lifecycle.mutationAuthority?.ownerSessionId !== lifecycle.sessions.current
-      || lifecycle.mutationAuthority.ownerSessionId !== expectedLifecycle?.mutationAuthority?.ownerSessionId
-      || lifecycle.controller?.phase !== expectedLifecyclePhase
-      || (initialLifecyclePosture
-        ? lifecycle.controller?.nextExactAction !== "run_validation_and_commit"
-        : lifecycle.controller?.nextExactAction !== expectedLifecycle?.controller?.nextExactAction
-          || typeof lifecycle.controller?.nextExactAction !== "string"
-          || lifecycle.controller.nextExactAction.length === 0)
-      || lifecycle.report?.status !== "in_progress"
-      || lifecycle.recovery?.phaseAfter !== expectedLifecyclePhase
-      || lifecycle.mutationAuthority?.handoff?.reason !== "validation_retry_derivative_reopened"
-      || lifecycle.mutationAuthority.handoff.successorSessionId !== lifecycle.sessions.current
+      || (!activeLifecyclePosture && !terminalPreparationPosture)
       || lifecycle.recovery?.operationId !== options.expectedRecoveryOperationId
       || lifecycle.recovery?.effectsAlreadyPresent?.commit !== true
       || ["push", "pr", "merge", "comment"].some((key) => lifecycle.recovery?.effectsAlreadyPresent?.[key] !== false)

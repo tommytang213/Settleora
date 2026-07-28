@@ -109,6 +109,7 @@ import {
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
 import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor } from "./lib/recovery-continuation.mjs";
+import { collectControlPlaneRecoveryAdmission } from "./lib/authoritative-recovery-evidence.mjs";
 import { autoMergeEffectsConfirmed } from "./lib/terminal-effects.mjs";
 import {
   advanceRecoveryPhase,
@@ -1979,8 +1980,67 @@ function createProductionRecoveryRecorder(config, input) {
 
 async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null) {
   return executeStartupContinuation(config, startupRecovery, {
+    prepareAuthoritativeRecovery: async ({ state }) => {
+      if (state.phase !== "checkpoint_validation_commit") return { ok: true, state };
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      if (!startupEvidenceCheck.ok) {
+        return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
+      }
+      const live = readIssueLive(config, state.issue.number);
+      if (!live.ok) {
+        return { ok: false, reasonCode: live.reason || "recovery_issue_read_failed", state };
+      }
+      const issue = live.issue || state.issue;
+      const recoveryClaim = validateClaimReread(config, state.issue, issue);
+      if (!recoveryClaim.ok) {
+        return { ok: false, reasonCode: recoveryClaim.reason || "startup_recovery_claim_reread_failed", state };
+      }
+      if (getCurrentBranch({ cwd: config.repoRoot }) === state.branch.name
+        && getRefSha("HEAD", { cwd: config.repoRoot }) === state.branch.currentHeadSha) {
+        return { ok: true, state, issue, laneDecision: classifyIssueLane(issue) };
+      }
+      const controlPlaneAdmission = collectControlPlaneRecoveryAdmission(config, {
+        repository: config.repositorySlug,
+        issueNumber: state.issue.number,
+        taskKey: state.taskKey,
+        runId: state.run?.runId,
+        supervisorRunId: state.run?.supervisorRunId,
+        branchName: state.branch.name,
+        baseBranch: state.branch?.baseBranch || "main",
+        baseSha: state.branch.baseSha,
+        headSha: state.branch.currentHeadSha,
+        prNumber: state.pr?.number || null,
+      });
+      if (!controlPlaneAdmission.ok) {
+        return { ok: false, reasonCode: controlPlaneAdmission.reasonCode, state };
+      }
+      const laneDecision = classifyIssueLane(issue);
+      const lineageOptions = {
+        expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+        expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
+          || state.sessionLifecycle?.state?.recovery?.operationId
+          || null,
+        expectedTerminalLifecyclePhase: state.sessionLifecycle?.recovery?.phaseAfter || null,
+        allowTerminalValidationRetryPreparation: true,
+        validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
+      };
+      const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
+      if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
+      return {
+        ok: true,
+        state,
+        issue,
+        laneDecision,
+        evidenceAdapters: {
+          readGit: () => authenticatedTaskRefGitEvidence(config, {
+            ...proof.candidateIdentity,
+            branchName: state.branch.name,
+          }),
+        },
+      };
+    },
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
-    default: async ({ state, boundary }) => {
+    default: async ({ state, boundary, preparation }) => {
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
         return {
@@ -2022,7 +2082,8 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         }
       }
       if (boundary.phase === "checkpoint_validation_commit") {
-        const checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
+        const checkpoint = preparation?.checkpoint
+          || reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
         if (checkpoint.ok) return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
         return { ok: false, outcome: "blocked_recovery_state", reasonCode: checkpoint.reasonCode, state };
       }
@@ -2071,6 +2132,36 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+function authenticatedTaskRefGitEvidence(config, candidate) {
+  const shown = spawnSync("git", ["show", "-s", "--format=%P%n%T%n%B", candidate.headSha], {
+    cwd: config.repoRoot, encoding: "utf8", timeout: 15_000,
+  });
+  if (shown.error || shown.status !== 0) return { complete: false, source: "authenticated_task_ref" };
+  const [parents = "", treeSha = "", ...messageLines] = shown.stdout.replace(/\r\n/g, "\n").split("\n");
+  return {
+    complete: treeSha === candidate.treeSha,
+    source: "authenticated_task_ref",
+    repoRoot: config.repoRoot,
+    branchName: candidate.branchName,
+    baseSha: candidate.baseSha,
+    headSha: candidate.headSha,
+    remoteHeadSha: null,
+    worktreeClean: true,
+    indexClean: true,
+    untrackedClean: true,
+    stagedTreeSha: candidate.treeSha,
+    stagedPaths: [],
+    unstagedPaths: [],
+    untrackedPaths: [],
+    commit: {
+      sha: candidate.headSha,
+      parentShas: parents.split(/\s+/).filter((value) => /^[a-f0-9]{40}$/.test(value)),
+      treeSha,
+      messageFingerprint: createHash("sha256").update(messageLines.join("\n").trimEnd()).digest("hex"),
+    },
+  };
 }
 
 function ordinaryCountersFromReviewConvergence(reviewConvergenceState = {}) {

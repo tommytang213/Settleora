@@ -63,6 +63,59 @@ test("startup continuation executes first incomplete phase before polling", asyn
   }
 });
 
+test("startup preparation establishes task authority before phase execution", async () => {
+  const config = tempConfig({ sessionLifecycle: { enabled: false, allowRecoveryTakeover: false } });
+  try {
+    const state = advanceRecoveryPhase(recoveryState(), {
+      phase: "checkpoint_validation_commit",
+      firstIncompleteAction: "run_validation_and_commit",
+    });
+    writeRecoveryState(config, state);
+    const calls = [];
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      prepareAuthoritativeRecovery: async ({ state: preparedState }) => {
+        calls.push("prepare_task_workspace");
+        return { ok: true, state: preparedState, checkpoint: { ok: true, exactTaskGit: true } };
+      },
+      checkpoint_validation_commit: async ({ preparation }) => {
+        calls.push("run_validation");
+        assert.equal(preparation.checkpoint.exactTaskGit, true);
+        return { ok: true, outcome: "validation_resumed_without_replay", reasonCode: "fixture_ok" };
+      },
+    });
+    assert.deepEqual(calls, ["prepare_task_workspace", "run_validation"]);
+    assert.equal(continued.outcome, "validation_resumed_without_replay");
+  } finally {
+    config.cleanup();
+  }
+});
+
+test("startup preparation failure blocks before validation", async () => {
+  const config = tempConfig({ sessionLifecycle: { enabled: false, allowRecoveryTakeover: false } });
+  try {
+    const state = advanceRecoveryPhase(recoveryState(), {
+      phase: "checkpoint_validation_commit",
+      firstIncompleteAction: "run_validation_and_commit",
+    });
+    writeRecoveryState(config, state);
+    let executed = false;
+    const continued = await executeStartupContinuation(config, discoverStartupRecovery(config), {
+      prepareAuthoritativeRecovery: async () => ({
+        ok: false,
+        reasonCode: "historical_candidate_task_workspace_untrusted",
+      }),
+      checkpoint_validation_commit: async () => {
+        executed = true;
+        return { ok: true };
+      },
+    });
+    assert.equal(executed, false);
+    assert.equal(continued.reasonCode, "historical_candidate_task_workspace_untrusted");
+  } finally {
+    config.cleanup();
+  }
+});
+
 test("startup continuation blocks corrupt or unsafe state without polling fallback", async () => {
   const config = tempConfig();
   try {
@@ -88,8 +141,21 @@ test("startup continuation blocks corrupt or unsafe state without polling fallba
 
 test("production runner is wired past discovery-only recovery and legacy PR classifier", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const collector = readFileSync(new URL("../lib/authoritative-recovery-evidence.mjs", import.meta.url), "utf8");
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
+  assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
+  assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*authenticatedTaskRefGitEvidence/);
+  assert.match(
+    source,
+    /const recoveryClaim = validateClaimReread\(config, state\.issue, issue\);[\s\S]*if \(!recoveryClaim\.ok\)[\s\S]*startup_recovery_claim_reread_failed[\s\S]*getCurrentBranch[\s\S]*return \{ ok: true, state, issue, laneDecision: classifyIssueLane\(issue\) \}/,
+  );
+  assert.match(
+    collector,
+    /const readControlPlaneGit = adapters\.readControlPlaneGit\s*\|\| \(\(\) => defaultGitRead\(config, identity, controlPlaneRepoRoot\)\)/,
+  );
+  assert.doesNotMatch(collector, /controlPlaneRepoRoot === taskRepoRoot\s*\?\s*readGit/);
+  assert.match(source, /const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);
   assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);

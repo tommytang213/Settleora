@@ -404,6 +404,27 @@ test("historical initial candidate accepts only bounded downstream lifecycle pos
   assert.equal(verify(unsupported).reasonCode, "historical_candidate_lifecycle_mismatch");
 });
 
+test("read-only task-ref preparation accepts only the exact terminal validation retry posture", () => {
+  const fixture = makeFixture(2);
+  fixture.lifecycle.controller = {
+    phase: "stopped",
+    nextExactAction: "checkpoint_validation_recovery_failed_closed",
+  };
+  fixture.lifecycle.report.status = "stopped";
+  fixture.lifecycle.mutationAuthority = {
+    generation: fixture.lifecycle.sessions.generation,
+    status: "terminal",
+    ownerSessionId: null,
+  };
+  fixture.lifecycle.recovery.phaseAfter = "checkpoint_validation_commit";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.allowTerminalValidationRetryPreparation = true;
+  fixture.options.expectedTerminalLifecyclePhase = "checkpoint_validation_commit";
+  assert.equal(verify(fixture).ok, true);
+  fixture.lifecycle.controller.nextExactAction = "foreign";
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_lifecycle_mismatch");
+});
+
 test("historical initial candidate resumes an exactly intended local source-fix descendant", () => {
   const fixture = makeFixture(2);
   advanceWithSourceFix(fixture);

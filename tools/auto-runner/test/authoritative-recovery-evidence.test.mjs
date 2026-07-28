@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectAuthoritativeRecoveryEvidence, discoverExactRecoveryPr, mergeIntentCommentReadback, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
+import { collectAuthoritativeRecoveryEvidence, collectControlPlaneRecoveryAdmission, discoverExactRecoveryPr, mergeIntentCommentReadback, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
 import { preparePreEffectIntent } from "../lib/pre-effect-intent.mjs";
 
 const sha = "a".repeat(40);
@@ -20,6 +20,7 @@ function adapters({ alive = false, leaseValid = false, git = {}, github = {} } =
     readProcess: () => ({ complete: true, pid: 123, ownerRunId: "run-1", alive, source: "fixture_pid_probe" }),
     readLease: () => ({ complete: true, runId: identity.supervisorRunId, runnerRunId: identity.runId, heartbeatAt: "2026-07-20T13:59:00Z", expiresAt: leaseValid ? "2026-07-20T14:05:00Z" : "2026-07-20T13:55:00Z", valid: leaseValid, source: "fixture_heartbeat" }),
     readGit: () => ({ complete: true, source: "fixture_git", branchName: identity.branchName, baseSha: base, headSha: sha, remoteHeadSha: sha, worktreeClean: true, indexClean: true, untrackedClean: true, ...git }),
+    readControlPlaneGit: () => ({ complete: true, source: "fixture_control_plane_git", branchName: "main", baseSha: base, headSha: base, remoteHeadSha: null, worktreeClean: true, indexClean: true, untrackedClean: true }),
     readGithub: () => ({ complete: true, source: "fixture_github", pr: { number: 42, state: "OPEN", baseRefName: "main", headRefName: identity.branchName, headSha: sha, draft: false, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", mergeSha: null }, comments: [], issue: { number: 928, state: "OPEN" }, checks: { state: "passed", pending: 0, failed: 0 }, hygiene: [], ...github }),
   };
 }
@@ -29,6 +30,48 @@ test("live process and valid lease block takeover", () => { const e = collect({ 
 test("live process and stale lease fail closed", () => { const e = collect({ alive: true, leaseValid: false }); assert.equal(e.ok, false); assert.equal(e.contradiction, true); });
 test("dead process and valid lease fail closed and block", () => { const e = collect({ alive: false, leaseValid: true }); assert.equal(e.ok, false); assert.equal(e.ownerBlocked, true); });
 test("dead process and stale lease permit one takeover", () => { const e = collect(); assert.equal(e.ok, true); assert.equal(e.takeoverAllowed, true); assert.equal(plannerInputsFromAuthoritativeEvidence(e).interruption.processExited, true); });
+test("control-plane pre-materialization admission requires inactive ownership and a clean checkout", () => {
+  const clean = adapters();
+  clean.readControlPlaneGit = () => ({
+    complete: true, source: "fixture_control_plane_git", repoRoot: "/control",
+    branchName: "main", headSha: "9".repeat(40),
+    worktreeClean: true, indexClean: true, untrackedClean: true,
+  });
+  assert.equal(collectControlPlaneRecoveryAdmission(config, identity, clean).ok, true);
+  const active = { ...clean, readProcess: () => ({ complete: true, pid: 123, ownerRunId: identity.runId, alive: true }) };
+  assert.equal(collectControlPlaneRecoveryAdmission(config, identity, active).reasonCode, "control_plane_recovery_owner_active");
+  const dirty = { ...clean, readControlPlaneGit: () => ({ complete: true, branchName: "main", headSha: "9".repeat(40), worktreeClean: false, indexClean: true, untrackedClean: true }) };
+  assert.equal(collectControlPlaneRecoveryAdmission(config, identity, dirty).reasonCode, "control_plane_recovery_worktree_untrusted");
+});
+test("control-plane current main is not compared with exact task Git identity", () => {
+  const a = adapters();
+  a.readControlPlaneGit = () => ({
+    complete: true, source: "fixture_control_plane_git", repoRoot: "/control",
+    branchName: "main", baseSha: base, headSha: "9".repeat(40), remoteHeadSha: null,
+    worktreeClean: true, indexClean: true, untrackedClean: true,
+  });
+  a.readGit = () => ({
+    complete: true, source: "fixture_task_git", repoRoot: "/task",
+    branchName: identity.branchName, baseSha: base, headSha: sha, remoteHeadSha: null,
+    worktreeClean: true, indexClean: true, untrackedClean: true,
+  });
+  const evidence = collectAuthoritativeRecoveryEvidence(
+    { ...config, controlPlaneRepoRoot: "/control", repoRoot: "/task" }, identity, {}, a,
+  );
+  assert.equal(evidence.ok, true);
+  assert.equal(evidence.controlPlaneGit.branchName, "main");
+  assert.equal(evidence.taskGit.branchName, identity.branchName);
+  assert.equal(evidence.git, evidence.taskGit);
+  assert.equal(evidence.contradictions.includes("local_git_identity_mismatch"), false);
+});
+test("missing task Git remains specifically fail closed when control-plane Git is complete", () => {
+  const a = adapters();
+  a.readControlPlaneGit = () => ({ complete: true, branchName: "main", headSha: "9".repeat(40), worktreeClean: true, indexClean: true, untrackedClean: true });
+  a.readGit = () => ({ complete: false });
+  const evidence = collectAuthoritativeRecoveryEvidence(config, identity, {}, a);
+  assert.equal(evidence.ok, false);
+  assert.ok(evidence.diagnostics.includes("git_readback_incomplete"));
+});
 test("exact reconciled push intent is a live push effect for planning", () => {
   const e = collect();
   e.effects.push.present = false;

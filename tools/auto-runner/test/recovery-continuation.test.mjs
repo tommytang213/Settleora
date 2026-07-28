@@ -240,6 +240,7 @@ test("one trusted recovery reconstructs a genuinely missing lifecycle exactly on
       readProcess: () => ({ complete: true, pid: 959, ownerRunId: identity.runId, alive: false, source: "fixture_pid_probe" }),
       readLease: () => ({ complete: true, runId: "supervised-959", runnerRunId: identity.runId, heartbeatAt: "2026-07-24T07:59:00Z", expiresAt: "2026-07-24T08:00:00Z", valid: false, source: "fixture_heartbeat" }),
       readGit: () => ({ complete: true, source: "fixture_git", headSha: identity.headSha, remoteHeadSha: null, branchName: identity.branchName, baseSha: identity.baseSha, worktreeClean: true, indexClean: true, untrackedClean: true, stagedPaths: [], unstagedPaths: [], untrackedPaths: [] }),
+      readControlPlaneGit: () => ({ complete: true, source: "fixture_control_plane_git", headSha: identity.baseSha, remoteHeadSha: null, branchName: identity.baseBranch, baseSha: identity.baseSha, worktreeClean: true, indexClean: true, untrackedClean: true, stagedPaths: [], unstagedPaths: [], untrackedPaths: [] }),
       readGithub: () => ({ complete: true, source: "fixture_github", issue: { number: identity.issueNumber, state: "OPEN" }, pr: null, comments: [], checks: { state: "unknown" }, hygiene: [] }),
     };
     const resumed = consumeStartupInterruptionPlanner(config, withEvidence, {}, recoveryAdapters);
