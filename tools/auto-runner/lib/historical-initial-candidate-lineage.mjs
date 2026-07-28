@@ -344,7 +344,7 @@ function trustedRepository(git, repository, repoRoot) {
     ? git(["config", "--worktree", "--list", "--show-origin", "--null"])
     : null;
   const unsafeConfig = (value) =>
-    /(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|credential\.|http\.[^\n\0]*proxy|remote\.[^\n\0]+\.(?:proxy|uploadpack|receivepack)|protocol\.[^\n\0]+\.allow|ssh\.variant|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(value);
+    /(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|credential\.|http\.[^\n\0]*proxy|remote\.[^\n\0]+\.(?:proxy|uploadpack|receivepack)|protocol\.[^\n\0]+\.allow|ssh\.variant|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|merge\.[^\n\0]+\.driver(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(value);
   return top.status === 0 && path.resolve(top.stdout.trim()) === repoRoot
     && remote.status === 0
     && canonicalApprovedGitHubRepository(remote.stdout.trim()) === repository.toLowerCase()

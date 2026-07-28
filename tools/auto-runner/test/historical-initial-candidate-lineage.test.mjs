@@ -147,6 +147,7 @@ test("historical pre-fetch authority rejects executable transport configuration 
     ["Git proxy", "core.gitProxy"],
     ["URL rewrite", "url.ssh://attacker.invalid/.insteadOf"],
     ["conditional include", "includeIf.gitdir:/tmp/.path"],
+    ["merge driver", "merge.hostile.driver"],
   ]) {
     const fixture = makeFixture(0);
     const marker = path.join(fixture.repoRoot, `prefetch-${name.replaceAll(" ", "-")}`);
@@ -181,6 +182,17 @@ test("historical initial candidate accepts canonical startup-approved remotes an
   assert.equal(existsSync(marker), false, "worktree-scoped diff command executed before trust decision");
   run(worktreeConfig.repoRoot, ["config", "--worktree", "--unset", "diff.external"]);
   unlinkSync(executable);
+  assert.equal(verify(worktreeConfig).ok, true);
+  const mergeMarker = path.join(worktreeConfig.repoRoot, "worktree-merge-driver-executed");
+  const mergeExecutable = path.join(worktreeConfig.repoRoot, "unsafe-worktree-merge-driver.sh");
+  writeFileSync(mergeExecutable, `#!/bin/sh\n: > '${mergeMarker}'\nexit 1\n`);
+  chmodSync(mergeExecutable, 0o700);
+  run(worktreeConfig.repoRoot, ["config", "--worktree", "merge.Hostile.driver", mergeExecutable]);
+  assert.equal(validateHistoricalRecoveryGitAuthority(worktreeConfig.config), false);
+  assert.equal(existsSync(mergeMarker), false,
+    "worktree-scoped merge driver executed before prospective merge trust decision");
+  run(worktreeConfig.repoRoot, ["config", "--worktree", "--unset", "merge.Hostile.driver"]);
+  unlinkSync(mergeExecutable);
   assert.equal(verify(worktreeConfig).ok, true);
   run(worktreeConfig.repoRoot, ["config", "extensions.worktreeConfig", "false"]);
   assert.equal(verify(worktreeConfig).reasonCode, "historical_candidate_git_environment_untrusted");

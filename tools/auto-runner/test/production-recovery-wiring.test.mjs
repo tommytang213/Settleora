@@ -291,11 +291,13 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.equal((source.match(/baseSha: exactHeadEvidence\.currentMainSha \|\| recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/g) || []).length, 2);
   assert.match(source, /prospectiveMergeValidationRequired: true/);
   assert.match(source, /"merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha/);
+  assert.match(source, /validateHistoricalRecoveryGitAuthority\(config\)[\s\S]*"merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha/);
   assert.match(source, /if \(pr\.headRefOid !== expectedHeadSha\)[\s\S]*recovery_evidence_generation_pr_head_mismatch[\s\S]*"fetch", "origin", pr\.headRefName[\s\S]*getRefSha\("FETCH_HEAD"\) !== expectedHeadSha[\s\S]*recovery_evidence_generation_fetched_head_mismatch[\s\S]*"merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha/);
   assert.match(source, /generatedRecoveryEvidence[\s\S]*fetchOriginMain\(config\)[\s\S]*const refreshedOriginMainSha = getRefSha\("origin\/main"\)[\s\S]*refreshedOriginMainSha !== validatedOriginMainSha[\s\S]*existing_pr_recovery_current_main_drift[\s\S]*const issueLinkageEvidence/);
   assert.doesNotMatch(source, /"merge-tree", "--write-tree", "--messages"/);
   assert.match(source, /"commit-tree", mergeTreeSha, "-p", expectedOriginMainSha, "-p", expectedHeadSha/);
   assert.match(source, /verifyProspectiveMergeValidation/);
+  assert.match(source, /function verifyProspectiveMergeValidation[\s\S]*validateHistoricalRecoveryGitAuthority\(config\)[\s\S]*"merge-tree", "--write-tree", expectedBaseSha, expectedHeadSha/);
   assert.match(source, /"switch", "--detach", expectedHeadSha/);
   assert.doesNotMatch(source, /getRefSha\("origin\/main"\) !== initial\.identity\.baseSha/);
   assert.match(source, /commitMessage: `Auto-runner issue #\$\{issue\.number\}: source-fix \$\{batch\.batchIdentity\.slice\(0, 16\)\}`/);

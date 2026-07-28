@@ -3287,6 +3287,14 @@ async function generateExistingPrRecoveryEvidence(config, {
         review: null,
       };
     }
+    if (!validateHistoricalRecoveryGitAuthority(config)) {
+      return {
+        reason: "recovery_evidence_generation_git_authority_untrusted",
+        validation: { passed: false, results: [] },
+        externalReview: { status: "blocked", reason: "recovery_evidence_generation_git_authority_untrusted" },
+        review: null,
+      };
+    }
     const mergeTree = spawnLike("git", [
       "merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha,
     ], config.repoRoot);
@@ -3378,7 +3386,8 @@ async function generateExistingPrRecoveryEvidence(config, {
 export function verifyProspectiveMergeValidation(config, evidence, expectedBaseSha, expectedHeadSha) {
   if (!evidence || evidence.baseSha !== expectedBaseSha || evidence.headSha !== expectedHeadSha
     || !/^[a-f0-9]{40}$/u.test(evidence.treeSha || "")
-    || !/^[a-f0-9]{40}$/u.test(evidence.syntheticCommitSha || "")) return false;
+    || !/^[a-f0-9]{40}$/u.test(evidence.syntheticCommitSha || "")
+    || !validateHistoricalRecoveryGitAuthority(config)) return false;
   const mergeTree = spawnLike("git", [
     "merge-tree", "--write-tree", expectedBaseSha, expectedHeadSha,
   ], config.repoRoot);
