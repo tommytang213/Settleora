@@ -1982,13 +1982,22 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   return executeStartupContinuation(config, startupRecovery, {
     prepareAuthoritativeRecovery: async ({ state }) => {
       if (state.phase !== "checkpoint_validation_commit") return { ok: true, state };
-      if (getCurrentBranch({ cwd: config.repoRoot }) === state.branch.name
-        && getRefSha("HEAD", { cwd: config.repoRoot }) === state.branch.currentHeadSha) {
-        return { ok: true, state };
-      }
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
         return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
+      }
+      const live = readIssueLive(config, state.issue.number);
+      if (!live.ok) {
+        return { ok: false, reasonCode: live.reason || "recovery_issue_read_failed", state };
+      }
+      const issue = live.issue || state.issue;
+      const recoveryClaim = validateClaimReread(config, state.issue, issue);
+      if (!recoveryClaim.ok) {
+        return { ok: false, reasonCode: recoveryClaim.reason || "startup_recovery_claim_reread_failed", state };
+      }
+      if (getCurrentBranch({ cwd: config.repoRoot }) === state.branch.name
+        && getRefSha("HEAD", { cwd: config.repoRoot }) === state.branch.currentHeadSha) {
+        return { ok: true, state, issue, laneDecision: classifyIssueLane(issue) };
       }
       const controlPlaneAdmission = collectControlPlaneRecoveryAdmission(config, {
         repository: config.repositorySlug,
@@ -2004,15 +2013,6 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       });
       if (!controlPlaneAdmission.ok) {
         return { ok: false, reasonCode: controlPlaneAdmission.reasonCode, state };
-      }
-      const live = readIssueLive(config, state.issue.number);
-      if (!live.ok) {
-        return { ok: false, reasonCode: live.reason || "recovery_issue_read_failed", state };
-      }
-      const issue = live.issue || state.issue;
-      const recoveryClaim = validateClaimReread(config, state.issue, issue);
-      if (!recoveryClaim.ok) {
-        return { ok: false, reasonCode: recoveryClaim.reason || "startup_recovery_claim_reread_failed", state };
       }
       const laneDecision = classifyIssueLane(issue);
       const lineageOptions = {
