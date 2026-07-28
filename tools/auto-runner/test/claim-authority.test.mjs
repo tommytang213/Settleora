@@ -53,6 +53,7 @@ test("exact preserved #959-shaped terminal recovery is admitted without mutation
   const second = validateClaimAuthority(config, issue, live, preserved);
   assert.equal(first.ok, true);
   assert.equal(first.reasonCode, "preserved_claim_authority_passed");
+  assert.deepEqual(first.authority.candidateIdentity.changedFiles, []);
   assert.deepEqual(second, first);
   assert.deepEqual(live, before);
   assert.equal(Object.hasOwn(first, "addLabels"), false);

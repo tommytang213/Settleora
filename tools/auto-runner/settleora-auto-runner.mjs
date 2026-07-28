@@ -2044,9 +2044,10 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
       if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
+      const originalCandidateIdentity = state.claimAuthority?.authority?.candidateIdentity || proof.candidateIdentity;
       const priorOutcome = readPreservedPriorOutcome(config, state, {
         chargeId: lineageOptions.expectedChargeId,
-        candidate: proof.candidateIdentity,
+        candidate: originalCandidateIdentity,
       });
       if (!priorOutcome.ok) return { ok: false, reasonCode: priorOutcome.reasonCode, state };
       const recoveryClaim = validateClaimAuthority(config, state.issue, issue, {
@@ -2059,6 +2060,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         baseSha: state.branch.baseSha,
         headSha: state.branch.currentHeadSha,
         priorOutcome: priorOutcome.outcome,
+        originalCandidateIdentity,
         policy: {
           eligible: laneDecision.allowedToImplement === true,
           reasonCode: laneDecision.allowedToImplement === true

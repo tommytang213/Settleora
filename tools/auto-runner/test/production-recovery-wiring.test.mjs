@@ -176,6 +176,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /function readPreservedPriorOutcome\(config, state, expected\)[\s\S]*summary\.runId !== runId[\s\S]*summary\.supervisorRunId !== supervisorRunId/);
   assert.match(source, /iteration\?\.logicalTaskBudget\?\.state\?\.charges\?\.\[chargeId\]\?\.identity\?\.claimIdentity/);
   assert.match(source, /iteration\?\.sourceFailureBatch\?\.candidate\?\.treeSha === expected\.candidate\.treeSha/);
+  assert.match(source, /const originalCandidateIdentity = state\.claimAuthority\?\.authority\?\.candidateIdentity \|\| proof\.candidateIdentity/);
   assert.match(source, /state\.sessionLifecycle\?\.sessions\?\.retired/);
   assert.match(
     collector,

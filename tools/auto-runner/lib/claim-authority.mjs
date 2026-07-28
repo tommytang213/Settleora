@@ -76,9 +76,24 @@ function validatePreservedRecoveryClaim(config, selectedIssue, rereadIssue, auth
       baseSha: authority.baseSha || null,
       headSha: authority.headSha || null,
       currentMainSha: authority.lineage.currentMainSha || null,
+      candidateIdentity: sanitizeCandidateIdentity(
+        authority.originalCandidateIdentity || authority.lineage.candidateIdentity,
+      ),
       lineageReasonCode: authority.lineage.reasonCode || null,
       controlPlaneReasonCode: authority.controlPlaneAdmission.reasonCode || null,
     },
+  };
+}
+
+function sanitizeCandidateIdentity(candidate = {}) {
+  return {
+    branchName: candidate.branchName || null,
+    baseSha: candidate.baseSha || null,
+    headSha: candidate.headSha || null,
+    treeSha: candidate.treeSha || null,
+    diffDigest: candidate.diffDigest || null,
+    changedFilesDigest: candidate.changedFilesDigest || null,
+    changedFiles: Array.isArray(candidate.changedFiles) ? [...candidate.changedFiles] : [],
   };
 }
 
