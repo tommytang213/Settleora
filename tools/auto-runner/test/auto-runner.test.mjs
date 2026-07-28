@@ -43,6 +43,7 @@ import {
   ensureTaskMutationWorkspace,
   getBoundedDiff,
   listWorkingTreeChangedFiles,
+  runTrustedProspectiveMergeTree,
 } from "../lib/git-workspace.mjs";
 import {
   buildEligibleLabelSearches,
@@ -4407,6 +4408,39 @@ test("prospective-merge validation re-proves the exact clean merge tree and pare
       config, { ...evidence, treeSha: "c".repeat(40) }, baseSha, headSha,
     ), false);
   } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("prospective merge-tree ignores executable global Git merge drivers", () => {
+  const repo = createTempGitRepo();
+  const globalConfig = path.join(repo, "hostile-global.gitconfig");
+  const driver = path.join(repo, "hostile-merge-driver.sh");
+  const marker = path.join(repo, "global-merge-driver-executed");
+  const previousGlobal = process.env.GIT_CONFIG_GLOBAL;
+  try {
+    writeFileSync(driver, `#!/bin/sh\n: > '${marker}'\ncp "$3" "$2"\n`);
+    chmodSync(driver, 0o700);
+    writeFileSync(globalConfig, `[merge "hostile"]\n\tdriver = ${driver} %O %A %B\n`);
+    writeFileSync(path.join(repo, ".gitattributes"), "tools/auto-runner/README.md merge=hostile\n");
+    git(repo, ["add", "--", ".gitattributes"]);
+    git(repo, ["commit", "-m", "select hostile driver"]);
+    git(repo, ["switch", "-c", "feature/hostile-driver"]);
+    writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "feature\n");
+    git(repo, ["add", "--", "tools/auto-runner/README.md"]);
+    git(repo, ["commit", "-m", "feature side"]);
+    const headSha = git(repo, ["rev-parse", "HEAD"]).stdout.trim();
+    git(repo, ["switch", "main"]);
+    writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "main\n");
+    git(repo, ["add", "--", "tools/auto-runner/README.md"]);
+    git(repo, ["commit", "-m", "main side"]);
+    const baseSha = git(repo, ["rev-parse", "HEAD"]).stdout.trim();
+    process.env.GIT_CONFIG_GLOBAL = globalConfig;
+    runTrustedProspectiveMergeTree({ repoRoot: repo }, baseSha, headSha);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    if (previousGlobal == null) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
     rmSync(repo, { recursive: true, force: true });
   }
 });

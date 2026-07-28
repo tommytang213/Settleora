@@ -42,6 +42,7 @@ import {
   getStatusShort,
   listChangedFiles,
   listWorkingTreeChangedFiles,
+  runTrustedProspectiveMergeTree,
   sourceStateIdentityForCommit,
   workingTreeDiffHash,
 } from "./lib/git-workspace.mjs";
@@ -3314,9 +3315,9 @@ async function generateExistingPrRecoveryEvidence(config, {
         review: null,
       };
     }
-    const mergeTree = spawnLike("git", [
-      "merge-tree", "--write-tree", expectedOriginMainSha, expectedHeadSha,
-    ], config.repoRoot);
+    const mergeTree = runTrustedProspectiveMergeTree(
+      config, expectedOriginMainSha, expectedHeadSha,
+    );
     const mergeTreeLines = mergeTree.stdout.split(/\r?\n/u).filter(Boolean);
     const mergeTreeSha = mergeTreeLines[0] || null;
     if (mergeTree.status !== 0 || mergeTree.error || mergeTree.stderr
@@ -3407,9 +3408,9 @@ export function verifyProspectiveMergeValidation(config, evidence, expectedBaseS
     || !/^[a-f0-9]{40}$/u.test(evidence.treeSha || "")
     || !/^[a-f0-9]{40}$/u.test(evidence.syntheticCommitSha || "")
     || !validateHistoricalRecoveryGitAuthority(config)) return false;
-  const mergeTree = spawnLike("git", [
-    "merge-tree", "--write-tree", expectedBaseSha, expectedHeadSha,
-  ], config.repoRoot);
+  const mergeTree = runTrustedProspectiveMergeTree(
+    config, expectedBaseSha, expectedHeadSha,
+  );
   const lines = mergeTree.stdout.split(/\r?\n/u).filter(Boolean);
   const syntheticTree = spawnLike("git", [
     "rev-parse", `${evidence.syntheticCommitSha}^{tree}`,
