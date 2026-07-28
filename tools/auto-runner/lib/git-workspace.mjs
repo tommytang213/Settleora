@@ -6,6 +6,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { providerBoundReviewDiffChars } from "./review-secret-boundary.mjs";
+import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
 import { findPreEffectIntents, loadPreEffectIntent, preparePreEffectIntent } from "./pre-effect-intent.mjs";
 import { assertMutationAuthority, loadSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
@@ -26,7 +27,7 @@ export function bindTrustedRepositoryContext(repoRoot) {
 }
 
 export function adoptHistoricalTaskWorkspace(config, {
-  branchName, headSha, taskKey,
+  branchName, headSha, taskKey, ownershipMarkers = {},
 } = {}) {
   const controlRoot = path.resolve(config?.controlPlaneRepoRoot || config?.repoRoot || "");
   if (!/^[a-f0-9]{40}$/u.test(headSha || "")
@@ -47,6 +48,19 @@ export function adoptHistoricalTaskWorkspace(config, {
   const matches = parseWorktrees(listed.stdout).filter((entry) => entry.branch === literalRef);
   if (matches.length > 1) throw new Error("Historical task branch has conflicting linked worktrees");
   let taskRoot = matches[0]?.worktree || null;
+  let created = false;
+  if (taskRoot) {
+    const canonicalExistingRoot = realpathSync(taskRoot);
+    const ownershipIdentity = canonicalGithubEvidenceDigest({
+      repository: config.repositorySlug,
+      branchName,
+      realPath: canonicalExistingRoot,
+    });
+    const marker = ownershipMarkers?.[`${branchName}:${ownershipIdentity}`];
+    if (marker?.target !== ownershipIdentity || marker?.correlation !== branchName) {
+      throw new Error("Historical task branch is checked out in an unowned linked worktree");
+    }
+  }
   if (!taskRoot) {
     const logsRoot = path.resolve(config?.logsRoot || "");
     if (!path.isAbsolute(logsRoot) || !existsSync(logsRoot)) {
@@ -79,11 +93,12 @@ export function adoptHistoricalTaskWorkspace(config, {
     } else {
       mkdirSync(taskRoot, { mode: 0o700 });
     }
-    const created = runFixedTrustedGit(controlRoot, [
+    const creationResult = runFixedTrustedGit(controlRoot, [
       "-c", "core.hooksPath=/dev/null",
       "worktree", "add", "--", taskRoot, branchName,
     ]);
-    assertGitSuccess(created, "Unable to materialize historical task worktree");
+    assertGitSuccess(creationResult, "Unable to materialize historical task worktree");
+    created = true;
   }
   const taskInfo = lstatSync(taskRoot);
   if (!taskInfo.isDirectory() || taskInfo.isSymbolicLink()
@@ -107,7 +122,9 @@ export function adoptHistoricalTaskWorkspace(config, {
   config.controlPlaneRepoRoot = controlRoot;
   config.repoRoot = canonicalTaskRoot;
   process.chdir(canonicalTaskRoot);
-  return { controlRoot, taskRoot: canonicalTaskRoot, branchName, headSha };
+  return {
+    controlRoot, taskRoot: canonicalTaskRoot, branchName, headSha, created,
+  };
 }
 
 function canonicalGitCommonDir(cwd) {

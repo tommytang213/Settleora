@@ -2103,22 +2103,25 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
         branchName: state.branch.name,
         headSha: proof.candidateIdentity.headSha,
         taskKey: state.taskKey,
+        ownershipMarkers: state.mutationMarkers?.worktree_ownership_created || {},
       });
       const workspaceIdentity = canonicalGithubEvidenceDigest({
         repository: config.repositorySlug,
         branchName: state.branch.name,
         realPath: workspace.taskRoot,
       });
-      const markedState = recordIdempotentMutation(state, {
-        kind: "worktree_ownership_created",
-        key: `${state.branch.name}:${workspaceIdentity}`,
-        marker: {
-          target: workspaceIdentity,
-          correlation: state.branch.name,
-        },
-      });
-      writeRecoveryState(config, markedState);
-      Object.assign(state, markedState);
+      if (workspace.created) {
+        const markedState = recordIdempotentMutation(state, {
+          kind: "worktree_ownership_created",
+          key: `${state.branch.name}:${workspaceIdentity}`,
+          marker: {
+            target: workspaceIdentity,
+            correlation: state.branch.name,
+          },
+        });
+        writeRecoveryState(config, markedState);
+        Object.assign(state, markedState);
+      }
       if (!validateHistoricalRecoveryGitAuthority(config)) {
         return { ok: false, reasonCode: "historical_candidate_task_workspace_untrusted" };
       }

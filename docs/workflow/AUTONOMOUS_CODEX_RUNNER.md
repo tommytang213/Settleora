@@ -86,10 +86,11 @@ For preserved historical candidates, canonical current `main` is the
 control-plane checkout and is not required to equal the candidate. The runner
 first authenticates the literal task branch ref and exact candidate
 parent/tree/diff/path/finalized-intent authority through the trusted common
-repository. It then reuses or materializes one isolated linked worktree for
-that same branch, records the durable worktree-ownership marker, and repeats
-all Git environment, common-dir, branch/head, and cleanliness checks there
-before resuming validation. Conflicting worktrees, ref drift, unsafe
+repository. It then reuses an isolated linked worktree only with its exact
+prior durable ownership marker, or materializes one for that same branch and
+records ownership only for the newly created worktree. It repeats all Git
+environment, common-dir, branch/head, and cleanliness checks there before
+resuming validation. Unowned or conflicting worktrees, ref drift, unsafe
 worktree-scoped config, or any later external effect remain fail-closed.
 
 ## Post-implementation continuation authorities

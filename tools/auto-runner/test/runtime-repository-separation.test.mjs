@@ -6,13 +6,41 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
-import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
+import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, hasVerifiedExternalRuntimeEvidence, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
 import { ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
 import { assertNodeCompatibility, reclaimStaleOwnMarker } from "../runtime-launcher.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
 const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.resolve("."), encoding: "utf8" }).trim();
+
+test("verified external runtime admission remains bound to the control-plane repository after task-worktree adoption", () => {
+  const identity = Object.freeze({
+    version: 1,
+    projectId: "settleora",
+    repositorySlug: "tommytang213/settleora",
+    runtimeRoot: "/trusted/runtime",
+    repoRoot: "/trusted/control",
+    logsRoot: "/trusted/logs",
+    namespace: "a".repeat(64),
+  });
+  const manifest = Object.freeze({
+    bundleDigest: "b".repeat(64),
+    sourceSha: "c".repeat(40),
+  });
+  assert.equal(hasVerifiedExternalRuntimeEvidence({
+    runtimeMode: "external",
+    runtimeIdentity: identity,
+    runtimeManifest: manifest,
+    runtimeBundleDigest: manifest.bundleDigest,
+    projectId: "settleora",
+    repositorySlug: "tommytang213/Settleora",
+    runtimeRoot: identity.runtimeRoot,
+    repoRoot: "/trusted/task-worktree",
+    controlPlaneRepoRoot: identity.repoRoot,
+    logsRoot: identity.logsRoot,
+  }), true);
+});
 
 function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);

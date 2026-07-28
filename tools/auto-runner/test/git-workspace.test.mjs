@@ -9,6 +9,7 @@ import {
   runGit,
   sourceStateIdentityForCommit,
 } from "../lib/git-workspace.mjs";
+import { canonicalGithubEvidenceDigest } from "../lib/github-evidence-digest.mjs";
 
 function tempRepo() {
   const cwd = mkdtempSync(path.join(tmpdir(), "settleora-git-identity-"));
@@ -94,12 +95,30 @@ test("historical task workspace is materialized without moving canonical main", 
     assert.equal(runGit(["rev-parse", "HEAD"], { cwd: adopted.taskRoot }).stdout.trim(), candidateSha);
     assert.equal(runGit(["branch", "--show-current"], { cwd: adopted.taskRoot }).stdout.trim(),
       "feature/preserved");
+    assert.equal(adopted.created, true);
+    assert.throws(() => adoptHistoricalTaskWorkspace(config, {
+      branchName: "feature/preserved",
+      headSha: candidateSha,
+      taskKey: "fixture-task",
+    }), /unowned linked worktree/);
+    const ownershipIdentity = canonicalGithubEvidenceDigest({
+      repository: config.repositorySlug,
+      branchName: "feature/preserved",
+      realPath: adopted.taskRoot,
+    });
     const repeated = adoptHistoricalTaskWorkspace(config, {
       branchName: "feature/preserved",
       headSha: candidateSha,
       taskKey: "fixture-task",
+      ownershipMarkers: {
+        [`feature/preserved:${ownershipIdentity}`]: {
+          target: ownershipIdentity,
+          correlation: "feature/preserved",
+        },
+      },
     });
     assert.equal(repeated.taskRoot, adopted.taskRoot);
+    assert.equal(repeated.created, false);
   } finally {
     process.chdir("/tmp");
     rmSync(root, { recursive: true, force: true });
