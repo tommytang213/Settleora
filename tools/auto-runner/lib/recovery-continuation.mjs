@@ -480,7 +480,8 @@ function isRepeatedUnsafeValidationResult(result) {
     "initial_validation_failure_commit_reconstruction_ambiguous",
     "source_failure_unsafe_or_ambiguous",
   ].includes(result?.reasonCode)
-    || String(result?.reasonCode || "").startsWith("historical_candidate_");
+    || ["historical_candidate_", "preserved_recovery_"]
+      .some((prefix) => String(result?.reasonCode || "").startsWith(prefix));
   return result?.ok === false
     && terminalReason
     && continuation?.phase === "local_validation"
