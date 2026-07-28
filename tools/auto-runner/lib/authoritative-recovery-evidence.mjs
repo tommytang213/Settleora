@@ -12,6 +12,41 @@ import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 export const authoritativeRecoveryEvidenceVersion = 1;
 
+export function collectControlPlaneRecoveryAdmission(config, identity, adapters = {}) {
+  const now = adapters.now instanceof Date ? adapters.now : new Date();
+  const readProcess = adapters.readProcess || (() => defaultProcessRead(config, identity));
+  const readLease = adapters.readLease || (() => defaultLeaseRead(config, identity, now));
+  const controlPlaneRepoRoot = path.resolve(config.controlPlaneRepoRoot || config.repoRoot);
+  const readControlPlaneGit = adapters.readControlPlaneGit
+    || (() => defaultGitRead(config, identity, controlPlaneRepoRoot));
+  const readGithub = adapters.readGithub || (() => defaultGithubRead(config, identity));
+  try {
+    const processRead = sanitizeProcess(readProcess());
+    const leaseRead = sanitizeLease(readLease());
+    const controlPlaneGit = sanitizeGit(readControlPlaneGit());
+    const github = sanitizeGithub(readGithub());
+    if (![processRead, leaseRead, controlPlaneGit, github].every((entry) => entry.complete)) {
+      return { ok: false, reasonCode: "control_plane_recovery_admission_incomplete" };
+    }
+    if (processRead.alive === true || leaseRead.valid === true) {
+      return { ok: false, reasonCode: "control_plane_recovery_owner_active", process: processRead, lease: leaseRead };
+    }
+    if (!controlPlaneGit.worktreeClean || !controlPlaneGit.indexClean || !controlPlaneGit.untrackedClean) {
+      return { ok: false, reasonCode: "control_plane_recovery_worktree_untrusted", controlPlaneGit };
+    }
+    return {
+      ok: true,
+      reasonCode: "control_plane_recovery_admitted",
+      process: processRead,
+      lease: leaseRead,
+      controlPlaneGit,
+      github,
+    };
+  } catch {
+    return { ok: false, reasonCode: "control_plane_recovery_admission_read_failed" };
+  }
+}
+
 export function collectAuthoritativeRecoveryEvidence(config, identity, expected = {}, adapters = {}) {
   const now = adapters.now instanceof Date ? adapters.now : new Date();
   const diagnostics = [];

@@ -144,6 +144,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*reconstructInitialValidationFailureCheckpoint/);
+  assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);

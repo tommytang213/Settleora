@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectAuthoritativeRecoveryEvidence, discoverExactRecoveryPr, mergeIntentCommentReadback, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
+import { collectAuthoritativeRecoveryEvidence, collectControlPlaneRecoveryAdmission, discoverExactRecoveryPr, mergeIntentCommentReadback, plannerInputsFromAuthoritativeEvidence } from "../lib/authoritative-recovery-evidence.mjs";
 import { preparePreEffectIntent } from "../lib/pre-effect-intent.mjs";
 
 const sha = "a".repeat(40);
@@ -29,6 +29,19 @@ test("live process and valid lease block takeover", () => { const e = collect({ 
 test("live process and stale lease fail closed", () => { const e = collect({ alive: true, leaseValid: false }); assert.equal(e.ok, false); assert.equal(e.contradiction, true); });
 test("dead process and valid lease fail closed and block", () => { const e = collect({ alive: false, leaseValid: true }); assert.equal(e.ok, false); assert.equal(e.ownerBlocked, true); });
 test("dead process and stale lease permit one takeover", () => { const e = collect(); assert.equal(e.ok, true); assert.equal(e.takeoverAllowed, true); assert.equal(plannerInputsFromAuthoritativeEvidence(e).interruption.processExited, true); });
+test("control-plane pre-materialization admission requires inactive ownership and a clean checkout", () => {
+  const clean = adapters();
+  clean.readControlPlaneGit = () => ({
+    complete: true, source: "fixture_control_plane_git", repoRoot: "/control",
+    branchName: "main", headSha: "9".repeat(40),
+    worktreeClean: true, indexClean: true, untrackedClean: true,
+  });
+  assert.equal(collectControlPlaneRecoveryAdmission(config, identity, clean).ok, true);
+  const active = { ...clean, readProcess: () => ({ complete: true, pid: 123, ownerRunId: identity.runId, alive: true }) };
+  assert.equal(collectControlPlaneRecoveryAdmission(config, identity, active).reasonCode, "control_plane_recovery_owner_active");
+  const dirty = { ...clean, readControlPlaneGit: () => ({ complete: true, branchName: "main", headSha: "9".repeat(40), worktreeClean: false, indexClean: true, untrackedClean: true }) };
+  assert.equal(collectControlPlaneRecoveryAdmission(config, identity, dirty).reasonCode, "control_plane_recovery_worktree_untrusted");
+});
 test("control-plane current main is not compared with exact task Git identity", () => {
   const a = adapters();
   a.readControlPlaneGit = () => ({

@@ -109,6 +109,7 @@ import {
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
 import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor } from "./lib/recovery-continuation.mjs";
+import { collectControlPlaneRecoveryAdmission } from "./lib/authoritative-recovery-evidence.mjs";
 import { autoMergeEffectsConfirmed } from "./lib/terminal-effects.mjs";
 import {
   advanceRecoveryPhase,
@@ -1988,6 +1989,21 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
         return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
+      }
+      const controlPlaneAdmission = collectControlPlaneRecoveryAdmission(config, {
+        repository: config.repositorySlug,
+        issueNumber: state.issue.number,
+        taskKey: state.taskKey,
+        runId: state.run?.runId,
+        supervisorRunId: state.run?.supervisorRunId,
+        branchName: state.branch.name,
+        baseBranch: state.branch?.baseBranch || "main",
+        baseSha: state.branch.baseSha,
+        headSha: state.branch.currentHeadSha,
+        prNumber: state.pr?.number || null,
+      });
+      if (!controlPlaneAdmission.ok) {
+        return { ok: false, reasonCode: controlPlaneAdmission.reasonCode, state };
       }
       const live = readIssueLive(config, state.issue.number);
       if (!live.ok) {
