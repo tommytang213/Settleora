@@ -145,6 +145,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
+  assert.match(
+    source,
+    /const controlPlaneAdmission = collectControlPlaneRecoveryAdmission[\s\S]*if \(!controlPlaneAdmission\.ok\)[\s\S]*const live = readIssueLive\(config, state\.issue\.number\)/,
+  );
   assert.doesNotMatch(
     source,
     /prepareAuthoritativeRecovery:\s*async \(\{ state \}\) => \{\s*if \(state\.phase !== "checkpoint_validation_commit"\) return/,
@@ -156,6 +160,11 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(
     source,
     /default: async \(\{ state, boundary, preparation \}\) => \{[\s\S]*const issue = preparation\?\.issue;[\s\S]*const laneDecision = preparation\?\.laneDecision;[\s\S]*recovery_admitted_issue_snapshot_missing/,
+  );
+  assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
+  assert.doesNotMatch(
+    source.slice(source.indexOf("function chargeStartupRecoveryLogicalTask"), source.indexOf("function createProductionRecoveryRecorder")),
+    /readIssueLive|validateClaimReread|chargeAcceptedLogicalTask/,
   );
   assert.match(source, /collectControlPlaneRecoveryAdmission[\s\S]*authenticatedTaskRefGitEvidence/);
   assert.match(
