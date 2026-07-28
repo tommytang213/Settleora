@@ -111,7 +111,7 @@ export function hasVerifiedExternalRuntimeEvidence(config = {}) {
     identity.projectId === config.projectId &&
     identity.repositorySlug === String(config.repositorySlug || "").toLowerCase() &&
     identity.runtimeRoot === config.runtimeRoot &&
-    identity.repoRoot === config.repoRoot &&
+    identity.repoRoot === (config.controlPlaneRepoRoot || config.repoRoot) &&
     identity.logsRoot === config.logsRoot &&
     typeof identity.namespace === "string" &&
     /^[a-f0-9]{64}$/.test(identity.namespace) &&

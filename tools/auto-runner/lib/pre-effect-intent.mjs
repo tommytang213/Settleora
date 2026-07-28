@@ -5,7 +5,7 @@ import { acquireCheckpointLock } from "./session-lifecycle.mjs";
 
 export const preEffectIntentSchemaVersion = 1;
 export const preEffectIntentStatuses = Object.freeze(["prepared", "executing", "live_confirmed", "adopted_after_recovery", "finalized", "failed_closed"]);
-export const preEffectTypes = Object.freeze(["commit", "push", "pr_create", "pr_head_update", "pr_update", "pr_retarget", "pr_ready", "pr_draft", "merge", "comment", "review_reply", "issue_closure", "issue_progress_comment", "umbrella_update", "ledger_docs_update", "docs_branch_create", "docs_pr_create_update", "review_request", "review_trigger", "docs_pr_ready", "docs_pr_merge", "hygiene_component", "project_status_update", "branch_retention_verify"]);
+export const preEffectTypes = Object.freeze(["commit", "worktree_create", "push", "pr_create", "pr_head_update", "pr_update", "pr_retarget", "pr_ready", "pr_draft", "merge", "comment", "review_reply", "issue_closure", "issue_progress_comment", "umbrella_update", "ledger_docs_update", "docs_branch_create", "docs_pr_create_update", "review_request", "review_trigger", "docs_pr_ready", "docs_pr_merge", "hygiene_component", "project_status_update", "branch_retention_verify"]);
 const maxIntentBytes = 256 * 1024;
 const statusOrder = new Map(preEffectIntentStatuses.map((status, index) => [status, index]));
 

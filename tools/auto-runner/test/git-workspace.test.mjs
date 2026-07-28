@@ -3,7 +3,14 @@ import test from "node:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { runGit, sourceStateIdentityForCommit } from "../lib/git-workspace.mjs";
+import {
+  adoptHistoricalTaskWorkspace,
+  bindTrustedRepositoryContext,
+  restoreControlPlaneRepositoryContext,
+  runGit,
+  sourceStateIdentityForCommit,
+} from "../lib/git-workspace.mjs";
+import { canonicalGithubEvidenceDigest } from "../lib/github-evidence-digest.mjs";
 
 function tempRepo() {
   const cwd = mkdtempSync(path.join(tmpdir(), "settleora-git-identity-"));
@@ -43,6 +50,114 @@ test("sourceStateIdentityForCommit returns exact head, tree, and stable patch ID
     assert.equal(second.patchId, first.patchId);
   } finally {
     repo.cleanup();
+  }
+});
+
+test("historical task workspace is materialized without moving canonical main", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-workspace-adoption-"));
+  const repoRoot = path.join(root, "Settleora");
+  const logsRoot = path.join(root, "logs");
+  mkdirSync(repoRoot);
+  mkdirSync(logsRoot, { mode: 0o700 });
+  const git = (...args) => {
+    const result = runGit(args, { cwd: repoRoot });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return result.stdout.trim();
+  };
+  try {
+    git("init", "-b", "main");
+    git("config", "user.email", "codex@example.invalid");
+    git("config", "user.name", "Codex Test");
+    git("remote", "add", "origin", "https://github.com/tommytang213/Settleora.git");
+    writeFileSync(path.join(repoRoot, "base.txt"), "base\n");
+    git("add", "base.txt");
+    git("commit", "-m", "base");
+    const mainSha = git("rev-parse", "HEAD");
+    git("switch", "-c", "feature/preserved");
+    writeFileSync(path.join(repoRoot, "candidate.txt"), "candidate\n");
+    git("add", "candidate.txt");
+    git("commit", "-m", "candidate");
+    const candidateSha = git("rev-parse", "HEAD");
+    git("switch", "main");
+    bindTrustedRepositoryContext(repoRoot);
+    const config = {
+      repoRoot,
+      logsRoot,
+      repositorySlug: "tommytang213/Settleora",
+    };
+    const effectContext = {
+      repository: config.repositorySlug,
+      sourceTaskKey: "fixture-task",
+      runId: "fixture-run",
+      logicalTaskIdentity: "tommytang213/Settleora#1",
+      claimIdentity: "tommytang213/Settleora#1",
+      chargeIdentity: "fixture-charge",
+      sessionId: "fixture-session",
+      authorityGeneration: 1,
+      branchName: "feature/preserved",
+      currentAuthority: {
+        runId: "fixture-run",
+        sessionId: "fixture-session",
+        authorityGeneration: 1,
+        status: "active",
+      },
+      expectedIdentity: {
+        repository: config.repositorySlug,
+        sourceTaskKey: "fixture-task",
+        runId: "fixture-run",
+        logicalTaskIdentity: "tommytang213/Settleora#1",
+        claimIdentity: "tommytang213/Settleora#1",
+        chargeIdentity: "fixture-charge",
+        sessionId: "fixture-session",
+        authorityGeneration: 1,
+      },
+    };
+    const adopted = adoptHistoricalTaskWorkspace(config, {
+      branchName: "feature/preserved",
+      headSha: candidateSha,
+      taskKey: "fixture-task",
+      effectContext,
+    });
+    assert.notEqual(adopted.taskRoot, repoRoot);
+    assert.equal(runGit(["rev-parse", "HEAD"], { cwd: repoRoot }).stdout.trim(), mainSha);
+    assert.equal(runGit(["branch", "--show-current"], { cwd: repoRoot }).stdout.trim(), "main");
+    assert.equal(runGit(["rev-parse", "HEAD"], { cwd: adopted.taskRoot }).stdout.trim(), candidateSha);
+    assert.equal(runGit(["branch", "--show-current"], { cwd: adopted.taskRoot }).stdout.trim(),
+      "feature/preserved");
+    assert.equal(adopted.created, true);
+    const crashWindowRecovery = adoptHistoricalTaskWorkspace(config, {
+      branchName: "feature/preserved",
+      headSha: candidateSha,
+      taskKey: "fixture-task",
+      effectContext,
+    });
+    assert.equal(crashWindowRecovery.taskRoot, adopted.taskRoot);
+    assert.equal(crashWindowRecovery.created, true);
+    const ownershipIdentity = canonicalGithubEvidenceDigest({
+      repository: config.repositorySlug,
+      branchName: "feature/preserved",
+      realPath: adopted.taskRoot,
+    });
+    const repeated = adoptHistoricalTaskWorkspace(config, {
+      branchName: "feature/preserved",
+      headSha: candidateSha,
+      taskKey: "fixture-task",
+      effectContext,
+      ownershipMarkers: {
+        [`feature/preserved:${ownershipIdentity}`]: {
+          target: ownershipIdentity,
+          correlation: "feature/preserved",
+        },
+      },
+    });
+    assert.equal(repeated.taskRoot, adopted.taskRoot);
+    assert.equal(repeated.created, false);
+    assert.equal(restoreControlPlaneRepositoryContext(config), repoRoot);
+    assert.equal(config.repoRoot, repoRoot);
+    assert.equal(process.cwd(), repoRoot);
+  } finally {
+    process.chdir("/tmp");
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

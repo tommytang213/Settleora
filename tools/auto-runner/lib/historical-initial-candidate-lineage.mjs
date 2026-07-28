@@ -41,6 +41,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
   try {
     const repository = config?.repositorySlug;
     const repoRoot = path.resolve(config?.repoRoot || "");
+    const evidenceRepoRoot = path.resolve(config?.controlPlaneRepoRoot || repoRoot);
     const issueNumber = issue?.number;
     const taskKey = state?.taskKey;
     const runId = state?.run?.runId;
@@ -76,7 +77,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       return fail("historical_candidate_changed_paths_mismatch");
     }
     if (!canonicalCorrelatedPath(state.expectedReportPaths?.repoReportPath,
-      path.join(repoRoot, ".codex", "reports"), `settleora-codex-report-${taskKey}-issue-${issueNumber}-`)
+      path.join(evidenceRepoRoot, ".codex", "reports"), `settleora-codex-report-${taskKey}-issue-${issueNumber}-`)
       || !canonicalCorrelatedPath(state.expectedReportPaths?.promptPath,
         path.join(config.logsRoot, "tasks"), `${taskKey}-issue-${issueNumber}-`)) {
       return fail("historical_candidate_report_prompt_mismatch");
@@ -135,8 +136,18 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       return fail("historical_candidate_diff_mismatch");
     }
     const checkoutHeadSha = git(["rev-parse", "HEAD"]).stdout.trim();
-    if (git(["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim() !== branch
-      || git(["status", "--porcelain=v1", "--untracked-files=all"]).stdout !== "") {
+    const checkoutBranch = git(["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim();
+    const checkoutClean = git(["status", "--porcelain=v1", "--untracked-files=all"]).stdout === "";
+    const candidateCheckout = checkoutBranch === branch;
+    const controlPlaneCheckout = checkoutBranch === "main"
+      && checkoutClean
+      && checkoutHeadSha === currentMain;
+    const literalBranchHead = git(["rev-parse", "--verify", `refs/heads/${branch}`]).stdout.trim();
+    if (literalBranchHead !== headSha
+      && !(checkoutBranch === branch && literalBranchHead === checkoutHeadSha)) {
+      return fail("historical_candidate_branch_ref_mismatch");
+    }
+    if (!checkoutClean || (!candidateCheckout && !controlPlaneCheckout)) {
       return fail("historical_candidate_checkout_mismatch");
     }
 
@@ -239,7 +250,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       chargeIdentity: budget.statePath, commitIntents,
       validateChangedPaths: options.validateChangedPaths,
     })) return fail("historical_candidate_advanced_lineage_mismatch");
-    if (checkoutHeadSha !== headSha && !validPreparedSourceFixCheckout(
+    if (!controlPlaneCheckout && checkoutHeadSha !== headSha && !validPreparedSourceFixCheckout(
       git, continuation, headSha, checkoutHeadSha, {
         issueNumber, repository, taskKey, runId, branch,
         chargeIdentity: budget.statePath, commitIntents,
@@ -262,6 +273,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
         : "historical_candidate_descendant_main_proven",
       candidateIdentity: { ...identity, changedFiles: expectedPaths },
       currentMainSha: currentMain,
+      requiresTaskWorkspaceAdoption: controlPlaneCheckout,
     };
   } catch {
     return fail("historical_candidate_authoritative_read_unavailable");

@@ -43,6 +43,19 @@ test("historical initial candidate accepts equal, one-merge, and many-merge main
   }
 });
 
+test("historical candidate authenticates from a clean current-main control checkout", () => {
+  const fixture = makeFixture(2);
+  run(fixture.repoRoot, ["checkout", "main"]);
+  const result = verify(fixture);
+  assert.equal(result.ok, true, result.reasonCode);
+  assert.equal(result.requiresTaskWorkspaceAdoption, true);
+  assert.equal(run(fixture.repoRoot, ["branch", "--show-current"]).stdout.trim(), "main");
+  assert.equal(run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim(), fixture.mainSha);
+
+  run(fixture.repoRoot, ["update-ref", `refs/heads/${branch}`, fixture.baseSha]);
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_branch_ref_mismatch");
+});
+
 test("historical recovery falls back to an exact active identity without source failures", () => {
   const fixture = makeFixture(2);
   fixture.state.ordinaryContinuation.sourceFailureBatch = null;
@@ -82,7 +95,9 @@ test("historical initial candidate fail-closes on durable identity and effect co
     ["pr identity", (f) => { f.state.pr = { number: 1, url: "https://example.invalid", headSha: f.headSha }; }, "historical_candidate_later_effect_present"],
     ["replacement candidate", (f) => { f.state.branch.currentHeadSha = f.baseSha; }, "historical_candidate_authority_identity_mismatch"],
     ["dirty checkout", (f) => { writeFileSync(path.join(f.repoRoot, "dirty"), "x"); }, "historical_candidate_checkout_mismatch"],
-    ["wrong checked out branch", (f) => { run(f.repoRoot, ["checkout", "main"]); }, "historical_candidate_checkout_mismatch"],
+    ["wrong checked out branch", (f) => {
+      run(f.repoRoot, ["checkout", "-b", "foreign-checkout", f.mainSha]);
+    }, "historical_candidate_checkout_mismatch"],
     ["shallow history", (f) => { f.options.git = overrideGit(f, {
       "rev-parse --is-shallow-repository": { status: 0, stdout: "true\n", stderr: "" },
     }); }, "historical_candidate_history_shallow"],
