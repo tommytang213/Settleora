@@ -1,5 +1,46 @@
 # Issue Progress Ledger
 
+### Issues #989/#991/#959/#999 and PR #1009 — preserved-recovery discovery repair merged (2026-07-28)
+
+- PR #1009 merged normally with expected-head protection from exact authorized
+  source head `cf1df8fffd462f241bccfb698296b83ad0de1bba`, tree
+  `3970141e21476d3e66fe28fa41a752552adf5a41`, as merge commit
+  `ea7756ade29c0a6cb000c9501203b8db7a5ba5f8`. Its parents are prior `main`
+  `f8223a980e4ec3b20bd3f6b114a46865f94baad7` and the exact source head; its
+  merge tree equals the authorized source tree. The repair is limited to
+  `preserved-recovery-deployment.mjs`, `recovery-continuation.mjs`,
+  `recovery-state.mjs`, `session-lifecycle.mjs`, and the focused
+  `recovery-continuation.test.mjs`.
+- The repair discovers the reconstructed preserved checkpoint, binds the
+  reason-specific derivative reopen phase, preserves retryability for transient
+  pre-reconstruction failures, and terminalizes repeated unsafe/ambiguous and
+  permanent historical or nested lineage failures without weakening the
+  existing identity, authority, or external-effect gates.
+- Exact-head evidence passed focused tests `152/152`, the complete auto-runner
+  suite `1247/1247`, docs, scaffold, syntax, import, scope, diff, and clean
+  checks. Gemini strong-independent, local Codex mechanics/integration/
+  recovery/deployment/security, and final GitHub Codex reviews passed. All 12
+  required CodeQL, Semgrep, Trivy, and scaffold checks passed; all four review
+  threads were resolved and relevant open code-scanning alerts were zero.
+- The exact corrective deployment dry-run exited `0`, admitted immutable #959
+  without mutation, and produced prospective bundle digest
+  `7b49f7d975ed8e9c6e1d767246d28b67942a330abbfdf915210db4135018fc7c`.
+  The #959 lifecycle, recovery, logical-task budget, prompt, and summary hashes
+  remained unchanged, as did required modes `0755`, `0755`, and `0600` for the
+  canonical repository, `.git`, and deployment lock respectively.
+- Durable evidence: the source issue comment is
+  `https://github.com/tommytang213/Settleora/issues/991#issuecomment-5101846778`;
+  the final report is
+  `/workspace/logs/settleora-codex-report-20260728-1612-pr1009-exact-head-merge-post-merge-hygiene.md`.
+- #989, #991, and #959 remain open pending freshly authorized runtime
+  deployment/profile/health reconciliation and one trusted continuation of the
+  preserved #959 chain. #999 remains separate, open, unimplemented, and
+  untouched by this task.
+- The source merge and ledger hygiene performed no deployment, rollback,
+  runtime/profile mutation, service/health control, runner or supervisor
+  submission, #959 lifecycle/recovery/product mutation, secret/network change,
+  or destructive branch/worktree operation.
+
 ### Issues #989/#991/#959/#999 and PR #1007 — historical candidate recovery repair merged (2026-07-28)
 
 - PR #1007 merged normally with expected-head protection from exact authorized
