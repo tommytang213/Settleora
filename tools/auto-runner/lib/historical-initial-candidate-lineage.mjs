@@ -351,10 +351,15 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || expectedOutcome !== terminalIntentOutcome || !digest.test(expectedCommentBodyDigest || "")) {
     return fail("historical_candidate_terminal_intent_identity_mismatch");
   }
-  if (state?.phase !== "stopped"
-    || state?.firstIncompleteAction !== "run_validation_and_commit"
-    || state?.nextSafeAction !== "stop_fail_closed"
-    || state?.stopReason?.reasonCode !== "checkpoint_validation_recovery_failed_closed"
+  const exactTerminalState = state?.phase === "stopped"
+    && state?.firstIncompleteAction === "run_validation_and_commit"
+    && state?.nextSafeAction === "stop_fail_closed"
+    && state?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed";
+  const exactValidationRetryHandoff = state?.phase === "checkpoint_validation_commit"
+    && state?.firstIncompleteAction === "run_validation_and_commit"
+    && state?.nextSafeAction === "run_validation_and_commit"
+    && state?.stopReason === null;
+  if ((!exactTerminalState && !exactValidationRetryHandoff)
     || state?.evidence?.localValidation?.status !== "failed"
     || state?.pr?.number !== null || state?.pr?.headSha !== null
     || state?.branch?.expectedRemoteHeadSha !== null

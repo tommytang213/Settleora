@@ -316,6 +316,20 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     main: run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim(),
   }), before);
 
+  const normalized = makeFixture(3);
+  authenticatePrePrTerminalFixture(normalized);
+  normalized.state.phase = "checkpoint_validation_commit";
+  normalized.state.nextSafeAction = "run_validation_and_commit";
+  normalized.state.stopReason = null;
+  run(normalized.repoRoot, ["checkout", "main"]);
+  const normalizedBefore = JSON.stringify(normalized);
+  const normalizedFirst = verify(normalized);
+  const normalizedSecond = verify(normalized);
+  assert.equal(normalizedFirst.ok, true, normalizedFirst.reasonCode);
+  assert.deepEqual(normalizedSecond, normalizedFirst);
+  assert.equal(normalizedFirst.requiresTaskWorkspaceAdoption, true);
+  assert.equal(JSON.stringify(normalized), normalizedBefore);
+
   const cases = [
     ["missing hygiene", (f) => f.intents.splice(1, 1), "historical_candidate_terminal_intent_set_mismatch"],
     ["duplicate hygiene", (f) => f.intents.push({ ...structuredClone(f.intents[1]), intentId: "duplicate" }), "historical_candidate_terminal_intent_set_mismatch"],
@@ -328,6 +342,12 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     ["wrong comment outcome", (f) => { f.intents[3].effect.outcome = "approved_pr_opened"; }, "historical_candidate_terminal_comment_mismatch"],
     ["foreign session", (f) => { f.intents[3].sessionId = "foreign"; }, "historical_candidate_terminal_intent_identity_mismatch"],
     ["generation drift", (f) => { f.intents[3].authorityGeneration = 99; }, "historical_candidate_terminal_intent_identity_mismatch"],
+    ["noncanonical retry handoff", (f) => {
+      f.state.phase = "checkpoint_validation_commit";
+      f.state.nextSafeAction = "run_validation_and_commit";
+      f.state.stopReason = null;
+      f.state.firstIncompleteAction = "implement_source_changes";
+    }, "historical_candidate_terminal_outcome_mismatch"],
     ["push marker", (f) => {
       f.state.mutationMarkers.push = { x: { status: "completed" } };
     }, "historical_candidate_later_effect_present"],
