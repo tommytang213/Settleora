@@ -260,7 +260,15 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
-    /async function synchronizeRecoveredSourceChange[\s\S]*session_lifecycle_state_missing[\s\S]*transitionSessionLifecycleHead\(config, state\.sessionLifecycle,[\s\S]*currentHeadSha: newHead[\s\S]*sessionLifecycle: lifecycle\.state/,
+    /async function synchronizeRecoveredSourceChange[\s\S]*pendingRecoveredSourceHeadTransition: transition[\s\S]*transitionSessionLifecycleHead\(config, state\.sessionLifecycle,[\s\S]*currentHeadSha: newHead[\s\S]*pendingRecoveredSourceHeadTransition: null/,
+  );
+  assert.match(
+    source,
+    /prepareAuthoritativeRecovery: async \(\{ state \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,
+  );
+  assert.match(
+    source,
+    /function reconcilePendingRecoveredSourceHeadTransition[\s\S]*pending\.digest !== expected\.digest[\s\S]*loadSessionLifecycleForRecovery[\s\S]*\[pending\.predecessorHead, pending\.newHead\][\s\S]*transitionSessionLifecycleHead[\s\S]*ordinaryContinuation: pending\.ordinaryContinuation[\s\S]*writeRecoveryState\(config, finalized\)/,
   );
   assert.match(
     source,

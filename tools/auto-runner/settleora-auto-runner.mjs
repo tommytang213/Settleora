@@ -136,6 +136,7 @@ import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
 import {
   createSessionLifecycleState,
+  loadSessionLifecycleForRecovery,
   persistSessionLifecycleState,
   synchronizeSessionLifecycleCounters,
   transitionSessionLifecycleHead,
@@ -2051,6 +2052,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   return executeStartupContinuation(config, startupRecovery, {
     authoritativeLoadedRecovery,
     prepareAuthoritativeRecovery: async ({ state }) => {
+      const reconciledHead = reconcilePendingRecoveredSourceHeadTransition(config, state);
+      if (!reconciledHead.ok) {
+        return { ok: false, reasonCode: reconciledHead.reasonCode, state };
+      }
+      state = reconciledHead.state;
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
         return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
@@ -2998,38 +3004,115 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
 async function synchronizeRecoveredSourceChange(
   config, state, ordinaryContinuation, reasonCode,
 ) {
-  const convergence = state.reviewConvergenceState;
   const newHead = ordinaryContinuation?.identity?.headSha;
   if (!newHead) return state;
-  let synchronized = state;
-  if (state.branch?.currentHeadSha !== newHead
-    || state.sessionLifecycle?.branch?.headSha !== newHead) {
-    if (!state.sessionLifecycle) {
-      throw new Error(
-        "Recovered source head synchronization failed: session_lifecycle_state_missing",
-      );
-    }
-    const lifecycle = transitionSessionLifecycleHead(config, state.sessionLifecycle, {
-      branchName: state.branch?.name,
-      headSha: newHead,
+  if (state.branch?.currentHeadSha === newHead
+    && state.sessionLifecycle?.branch?.headSha === newHead) return state;
+  if (!state.sessionLifecycle) {
+    throw new Error(
+      "Recovered source head synchronization failed: session_lifecycle_state_missing",
+    );
+  }
+  const convergence = state.reviewConvergenceState;
+  const accounted = !convergence?.pr?.exactHead || convergence.pr.exactHead === newHead
+    ? convergence
+    : accountConvergenceEvent(convergence, { kind: "source_changed", newHead, reasonCode }).state;
+  const transition = recoveredSourceHeadTransition({
+    branchName: state.branch?.name,
+    predecessorHead: state.branch?.currentHeadSha,
+    newHead,
+    reasonCode,
+    ordinaryContinuation,
+  });
+  writeRecoveryState(config, {
+    ...state,
+    reviewConvergenceState: accounted,
+    pendingRecoveredSourceHeadTransition: transition,
+  });
+  const lifecycle = transitionSessionLifecycleHead(config, state.sessionLifecycle, {
+    branchName: state.branch?.name,
+    headSha: newHead,
+    prNumber: state.pr?.number,
+  });
+  if (!lifecycle.ok) {
+    throw new Error(
+      `Recovered source head synchronization failed: ${lifecycle.reasonCode}`,
+    );
+  }
+  return {
+    ...state,
+    branch: { ...state.branch, currentHeadSha: newHead },
+    sessionLifecycle: lifecycle.state,
+    reviewConvergenceState: accounted,
+    pendingRecoveredSourceHeadTransition: null,
+  };
+}
+
+function reconcilePendingRecoveredSourceHeadTransition(config, state) {
+  const pending = state.pendingRecoveredSourceHeadTransition;
+  if (!pending) return { ok: true, state };
+  const expected = recoveredSourceHeadTransition({
+    branchName: pending.branchName,
+    predecessorHead: pending.predecessorHead,
+    newHead: pending.newHead,
+    reasonCode: pending.reasonCode,
+    ordinaryContinuation: pending.ordinaryContinuation,
+  });
+  if (pending.version !== 1
+    || pending.digest !== expected.digest
+    || pending.branchName !== state.branch?.name
+    || pending.predecessorHead !== state.branch?.currentHeadSha
+    || pending.newHead !== pending.ordinaryContinuation?.identity?.headSha) {
+    return { ok: false, reasonCode: "recovered_source_head_transition_invalid" };
+  }
+  const loaded = loadSessionLifecycleForRecovery(config, {
+    repository: config.repositorySlug,
+    issueNumber: state.issue?.number,
+    taskKey: state.taskKey,
+    runId: state.run?.runId,
+    supervisorRunId: state.run?.supervisorRunId,
+    branchName: state.branch?.name,
+    baseSha: state.branch?.baseSha,
+    headSha: pending.predecessorHead,
+  });
+  if (!loaded.ok
+    || ![pending.predecessorHead, pending.newHead].includes(loaded.state?.branch?.headSha)) {
+    return { ok: false, reasonCode: loaded.reasonCode || "recovered_source_head_transition_lifecycle_mismatch" };
+  }
+  let lifecycle = loaded;
+  if (loaded.state.branch.headSha === pending.predecessorHead) {
+    lifecycle = transitionSessionLifecycleHead(config, loaded.state, {
+      branchName: pending.branchName,
+      headSha: pending.newHead,
       prNumber: state.pr?.number,
     });
-    if (!lifecycle.ok) {
-      throw new Error(
-        `Recovered source head synchronization failed: ${lifecycle.reasonCode}`,
-      );
-    }
-    synchronized = {
-      ...state,
-      branch: { ...state.branch, currentHeadSha: newHead },
-      sessionLifecycle: lifecycle.state,
-    };
+    if (!lifecycle.ok) return { ok: false, reasonCode: lifecycle.reasonCode };
   }
-  if (!convergence?.pr?.exactHead || convergence.pr.exactHead === newHead) {
-    return synchronized;
-  }
-  const accounted = accountConvergenceEvent(convergence, { kind: "source_changed", newHead, reasonCode });
-  return { ...synchronized, reviewConvergenceState: accounted.state };
+  const finalized = {
+    ...state,
+    branch: { ...state.branch, currentHeadSha: pending.newHead },
+    sessionLifecycle: lifecycle.state,
+    ordinaryContinuation: pending.ordinaryContinuation,
+    pendingRecoveredSourceHeadTransition: null,
+  };
+  return { ok: true, state: writeRecoveryState(config, finalized).state };
+}
+
+function recoveredSourceHeadTransition({
+  branchName, predecessorHead, newHead, reasonCode, ordinaryContinuation,
+}) {
+  const value = {
+    version: 1,
+    branchName,
+    predecessorHead,
+    newHead,
+    reasonCode,
+    ordinaryContinuation,
+  };
+  return {
+    ...value,
+    digest: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+  };
 }
 
 function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {
