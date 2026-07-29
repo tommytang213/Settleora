@@ -357,8 +357,11 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     "historical_candidate_terminal_later_effect_present",
   );
 
-  const laterValidated = makeFixture(0);
+  const laterValidated = makeFixture(1);
   authenticatePrePrTerminalFixture(laterValidated);
+  const originalTerminalCandidate =
+    laterValidated.state.ordinaryContinuation.sourceFailureHistory?.[0]?.candidate
+    || laterValidated.state.ordinaryContinuation.sourceFailureBatch.candidate;
   laterValidated.state.claimAuthority = {
     ok: true,
     mode: "preserved_recovery_claim",
@@ -370,7 +373,7 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
       branchName: branch,
       baseSha: laterValidated.baseSha,
       candidateIdentity: {
-        headSha: laterValidated.headSha,
+        headSha: originalTerminalCandidate.headSha,
       },
     },
   };

@@ -250,6 +250,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       branch,
       baseSha,
       headSha,
+      originalHeadSha: initialHeadSha,
       chargeId,
       chargeIdentity: budget.statePath,
       expectedOutcome: options.expectedTerminalOutcome,
@@ -345,12 +346,13 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   const fail = (reasonCode) => ({ ok: false, reasonCode });
   const {
     state, issue, intents, lifecycle, repository, issueNumber, taskKey, runId,
-    supervisorRunId, branch, baseSha, headSha, chargeId, chargeIdentity, expectedOutcome,
+    supervisorRunId, branch, baseSha, headSha, originalHeadSha, chargeId, chargeIdentity, expectedOutcome,
     expectedCommentBodyDigest, expectedWorktreeOwnership,
     remoteTaskBranchRead,
     readTerminalComment,
   } = input;
   const claimIdentity = `${repository}#${issueNumber}`;
+  const terminalHeadSha = originalHeadSha || headSha;
   if (remoteTaskBranchRead?.complete !== true) {
     return fail("historical_candidate_terminal_remote_branch_read_unavailable");
   }
@@ -381,7 +383,7 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     && preservedClaim?.authority?.priorOutcome === terminalIntentOutcome
     && preservedClaim?.authority?.branchName === branch
     && preservedClaim?.authority?.baseSha === baseSha
-    && preservedClaim?.authority?.candidateIdentity?.headSha === headSha
+    && preservedClaim?.authority?.candidateIdentity?.headSha === terminalHeadSha
     && ["checkpoint_validation_commit", "aggregate_validation", "external_review",
       "codex_mechanics_security_review", "review_fix"].includes(state?.phase)
     && ["passed", "failed"].includes(state?.evidence?.localValidation?.status)
@@ -441,8 +443,8 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
       || intent.identity?.sessionId !== intent.sessionId
       || intent.identity?.authorityGeneration !== intent.authorityGeneration
       || intent.identity?.issueNumber !== issueNumber || intent.identity?.branchName !== branch
-      || intent.identity?.baseSha !== baseSha || intent.identity?.headSha !== headSha
-      || intent.identity?.candidateIdentity !== headSha) {
+      || intent.identity?.baseSha !== baseSha || intent.identity?.headSha !== terminalHeadSha
+      || intent.identity?.candidateIdentity !== terminalHeadSha) {
       return fail("historical_candidate_terminal_intent_identity_mismatch");
     }
   }
