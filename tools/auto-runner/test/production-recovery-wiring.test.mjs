@@ -260,6 +260,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
+    /async function synchronizeRecoveredSourceChange[\s\S]*session_lifecycle_state_missing[\s\S]*transitionSessionLifecycleHead\(config, state\.sessionLifecycle,[\s\S]*currentHeadSha: newHead[\s\S]*sessionLifecycle: lifecycle\.state/,
+  );
+  assert.match(
+    source,
     /function reconstructInitialValidationFailureCheckpoint[\s\S]*const terminalCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*candidate: terminalCandidate,[\s\S]*authenticateRecordedTaskWorkspace\(\s*config, state, candidate,/,
   );
   assert.match(source, /allowLiveBranchHead:[\s\S]*sourceFailureFixIntent\?\.status === "prepared"/);
@@ -551,7 +555,7 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /recommended_next_action: "run_safe_fix_cycle"/);
   assert.match(source, /reviewConvergenceState: iteration\.reviewConvergenceState/);
   assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
-  assert.match(source, /synchronizeRecoveredSourceChange\(state, ordinaryContinuation, "ordinary_source_failure_fix_committed"\)/);
+  assert.match(source, /await synchronizeRecoveredSourceChange\(\s*config, state, ordinaryContinuation, "ordinary_source_failure_fix_committed"/);
   assert.match(source, /accountConvergenceEvent\(convergence, \{ kind: "source_changed", newHead, reasonCode \}\)/);
   assert.match(source, /if \(decision\.retryable\) \{[\s\S]*iteration\.outcome = "validation_retryable";[\s\S]*decision\.nextAction/);
   assert.match(source, /counters: ordinaryCountersFromReviewConvergence\(iteration\.reviewConvergenceState\)/);

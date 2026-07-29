@@ -134,7 +134,13 @@ import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
+import {
+  createSessionLifecycleState,
+  persistSessionLifecycleState,
+  synchronizeSessionLifecycleCounters,
+  transitionSessionLifecycleHead,
+  transitionSessionLifecyclePhase,
+} from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
 import {
   continueOrdinaryCandidate,
@@ -2587,7 +2593,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     },
   });
   const persist = async (ordinaryContinuation) => {
-    state = synchronizeRecoveredSourceChange(state, ordinaryContinuation, "ordinary_source_failure_fix_committed");
+    state = await synchronizeRecoveredSourceChange(
+      config, state, ordinaryContinuation, "ordinary_source_failure_fix_committed",
+    );
     return writeRecoveryState(config, { ...state, ordinaryContinuation });
   };
   if (checkpoint.reconstructedCurrentMainSha
@@ -2670,7 +2678,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           },
         }
       : replacement;
-    state = synchronizeRecoveredSourceChange(state, initial, "ordinary_source_failure_fix_adopted");
+    state = await synchronizeRecoveredSourceChange(
+      config, state, initial, "ordinary_source_failure_fix_adopted",
+    );
     await writeRecoveryState(config, { ...state, ordinaryContinuation: initial });
   }
   const context = {
@@ -2979,17 +2989,47 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     onCheckpoint: persist,
   });
   logger.info(`Issue #${issue.number}: ordinary continuation advanced to ${result.state?.phase || result.outcome}.`);
-  state = synchronizeRecoveredSourceChange(state, result.state, "ordinary_source_failure_fix_committed");
+  state = await synchronizeRecoveredSourceChange(
+    config, state, result.state, "ordinary_source_failure_fix_committed",
+  );
   return { ...result, ordinaryContinuation: result.state, largeCandidateReviewRecovery: checkpoint, state };
 }
 
-function synchronizeRecoveredSourceChange(state, ordinaryContinuation, reasonCode) {
+async function synchronizeRecoveredSourceChange(
+  config, state, ordinaryContinuation, reasonCode,
+) {
   const convergence = state.reviewConvergenceState;
   const newHead = ordinaryContinuation?.identity?.headSha;
-  if (!convergence?.pr?.exactHead || !newHead || convergence.pr.exactHead === newHead) return state;
+  if (!newHead) return state;
+  let synchronized = state;
+  if (state.branch?.currentHeadSha !== newHead
+    || state.sessionLifecycle?.branch?.headSha !== newHead) {
+    if (!state.sessionLifecycle) {
+      throw new Error(
+        "Recovered source head synchronization failed: session_lifecycle_state_missing",
+      );
+    }
+    const lifecycle = transitionSessionLifecycleHead(config, state.sessionLifecycle, {
+      branchName: state.branch?.name,
+      headSha: newHead,
+      prNumber: state.pr?.number,
+    });
+    if (!lifecycle.ok) {
+      throw new Error(
+        `Recovered source head synchronization failed: ${lifecycle.reasonCode}`,
+      );
+    }
+    synchronized = {
+      ...state,
+      branch: { ...state.branch, currentHeadSha: newHead },
+      sessionLifecycle: lifecycle.state,
+    };
+  }
+  if (!convergence?.pr?.exactHead || convergence.pr.exactHead === newHead) {
+    return synchronized;
+  }
   const accounted = accountConvergenceEvent(convergence, { kind: "source_changed", newHead, reasonCode });
-  if (!accounted.consumedSourceCycle) return { ...state, reviewConvergenceState: accounted.state };
-  return { ...state, reviewConvergenceState: accounted.state };
+  return { ...synchronized, reviewConvergenceState: accounted.state };
 }
 
 function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {
