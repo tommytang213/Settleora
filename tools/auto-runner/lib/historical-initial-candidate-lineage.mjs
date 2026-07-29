@@ -229,6 +229,8 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
           currentMainSha: currentMain, headSha, chargeIdentity: budget.statePath,
         },
       );
+    const remoteTaskBranchRead = (options.readRemoteTaskBranch
+      || readRemoteTaskBranch)(git, branch);
     const prePrTerminalAuthority = validatePrePrTerminalIntentAuthority({
       state,
       issue,
@@ -245,7 +247,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       chargeIdentity: budget.statePath,
       expectedOutcome: options.expectedTerminalOutcome,
       expectedCommentBodyDigest: options.expectedTerminalCommentBodyDigest,
-      remoteTaskBranchAbsent: remoteBranchAbsent(git, branch),
+      remoteTaskBranchRead,
     });
     const authenticatedPrePrTerminalEffects = !authenticatedExistingPrEffects
       && prePrTerminalAuthority.ok;
@@ -312,9 +314,19 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
   }
 }
 
-function remoteBranchAbsent(git, branch) {
-  const result = git(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
-  return result.status === 1 && result.stdout === "" && result.stderr === "";
+export function readRemoteTaskBranch(git, branch) {
+  const result = git(["ls-remote", "--heads", "origin", `refs/heads/${branch}`]);
+  if (result.status !== 0 || result.stderr !== "") {
+    return { complete: false, absent: false };
+  }
+  if (result.stdout === "") return { complete: true, absent: true };
+  const lines = result.stdout.trimEnd().split("\n");
+  const expectedRef = `refs/heads/${branch}`;
+  if (lines.length !== 1) return { complete: false, absent: false };
+  const [headSha, ref, ...extra] = lines[0].split("\t");
+  return sha.test(headSha || "") && ref === expectedRef && extra.length === 0
+    ? { complete: true, absent: false, headSha }
+    : { complete: false, absent: false };
 }
 
 export function validatePrePrTerminalIntentAuthority(input = {}) {
@@ -323,10 +335,13 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     state, issue, intents, lifecycle, repository, issueNumber, taskKey, runId,
     supervisorRunId, branch, baseSha, headSha, chargeIdentity, expectedOutcome,
     expectedCommentBodyDigest,
-    remoteTaskBranchAbsent,
+    remoteTaskBranchRead,
   } = input;
   const claimIdentity = `${repository}#${issueNumber}`;
-  if (remoteTaskBranchAbsent !== true) {
+  if (remoteTaskBranchRead?.complete !== true) {
+    return fail("historical_candidate_terminal_remote_branch_read_unavailable");
+  }
+  if (remoteTaskBranchRead.absent !== true) {
     return fail("historical_candidate_terminal_remote_branch_present");
   }
   if (!repository || !Number.isSafeInteger(issueNumber) || state?.issue?.number !== issueNumber

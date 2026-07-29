@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  readRemoteTaskBranch,
   validateHistoricalRecoveryGitAuthority,
   verifyHistoricalInitialCandidateLineage,
 } from "../lib/historical-initial-candidate-lineage.mjs";
@@ -224,6 +225,31 @@ test("historical initial candidate accepts canonical startup-approved remotes an
   assert.equal(verify(worktreeConfig).reasonCode, "historical_candidate_git_environment_untrusted");
 });
 
+test("authoritative remote read detects an unfetched task branch in a real bare remote", () => {
+  const fixture = makeFixture(1);
+  const bare = path.join(path.dirname(fixture.repoRoot), "remote.git");
+  run(path.dirname(fixture.repoRoot), ["init", "--bare", bare]);
+  run(fixture.repoRoot, ["remote", "set-url", "origin", bare]);
+  run(fixture.repoRoot, ["push", "origin", `${fixture.headSha}:refs/heads/${branch}`]);
+  run(fixture.repoRoot, ["update-ref", "-d", `refs/remotes/origin/${branch}`]);
+  const git = (args) => spawnSync("/usr/bin/git", args, {
+    cwd: fixture.repoRoot,
+    encoding: "utf8",
+    env: {
+      PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0",
+      GIT_NO_LAZY_FETCH: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null",
+    },
+  });
+  assert.equal(run(fixture.repoRoot,
+    ["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`], true).status, 1);
+  assert.deepEqual(readRemoteTaskBranch(git, branch), {
+    complete: true, absent: false, headSha: fixture.headSha,
+  });
+  run(fixture.repoRoot, ["push", "origin", "--delete", branch]);
+  assert.deepEqual(readRemoteTaskBranch(git, branch), { complete: true, absent: true });
+});
+
 test("historical initial candidate fail-closes on Git topology and history hazards", () => {
   const diverged = makeFixture(0);
   const unrelated = spawnSync("/usr/bin/git", ["commit-tree", diverged.baseTree], {
@@ -308,9 +334,14 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     ["extra push intent", (f) => {
       f.intents.push({ ...structuredClone(f.intents[3]), effectType: "push", intentId: "push" });
     }, "historical_candidate_terminal_intent_set_mismatch"],
-    ["remote task branch", (f) => {
-      run(f.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, f.headSha]);
+    ["remote task branch without tracking ref", (f) => {
+      f.options.readRemoteTaskBranch = () => ({
+        complete: true, absent: false, headSha: f.headSha,
+      });
     }, "historical_candidate_terminal_remote_branch_present"],
+    ["remote branch read failure", (f) => {
+      f.options.readRemoteTaskBranch = () => ({ complete: false, absent: false });
+    }, "historical_candidate_terminal_remote_branch_read_unavailable"],
   ];
   for (const [name, mutate, reason] of cases) {
     const candidate = makeFixture(2);
@@ -1064,13 +1095,14 @@ function makeFixture(advances, candidateSuffix = "") {
       findIntents: (_config, predicate) => intents.filter(predicate),
       validateProjectNamespace: () => true,
       validateCommitLineage: () => ({ ok: true }),
+      readRemoteTaskBranch: () => ({ complete: true, absent: true }),
     },
   };
 }
 
-function run(cwd, args) {
+function run(cwd, args, allowFailure = false) {
   const result = spawnSync("/usr/bin/git", args, { cwd, encoding: "utf8" });
-  assert.equal(result.status, 0, `${args.join(" ")}\n${result.stderr}`);
+  if (!allowFailure) assert.equal(result.status, 0, `${args.join(" ")}\n${result.stderr}`);
   return result;
 }
 function overrideGit(fixture, overrides) {
