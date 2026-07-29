@@ -342,6 +342,23 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     ["wrong comment outcome", (f) => { f.intents[3].effect.outcome = "approved_pr_opened"; }, "historical_candidate_terminal_comment_mismatch"],
     ["foreign session", (f) => { f.intents[3].sessionId = "foreign"; }, "historical_candidate_terminal_intent_identity_mismatch"],
     ["generation drift", (f) => { f.intents[3].authorityGeneration = 99; }, "historical_candidate_terminal_intent_identity_mismatch"],
+    ["older current-comment generation", (f) => {
+      f.intents[3].authorityGeneration -= 1;
+      f.intents[3].identity.authorityGeneration -= 1;
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["foreign recovery provenance", (f) => {
+      f.intents[3].recoveryProvenance.sessionId = "foreign";
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["non-adjacent recovery generation", (f) => {
+      f.intents[3].recoveryProvenance.authorityGeneration -= 1;
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["hygiene generation differs from commit authority", (f) => {
+      f.intents[1].authorityGeneration += 1;
+      f.intents[1].identity.authorityGeneration += 1;
+    }, "historical_candidate_terminal_hygiene_mismatch"],
+    ["malformed intent fingerprint", (f) => {
+      f.intents[1].fingerprint = "not-a-digest";
+    }, "historical_candidate_terminal_intent_duplicate"],
     ["noncanonical retry handoff", (f) => {
       f.state.phase = "checkpoint_validation_commit";
       f.state.nextSafeAction = "run_validation_and_commit";
@@ -351,6 +368,12 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     ["push marker", (f) => {
       f.state.mutationMarkers.push = { x: { status: "completed" } };
     }, "historical_candidate_later_effect_present"],
+    ["empty unknown marker", (f) => {
+      f.state.mutationMarkers.unknown = {};
+    }, "historical_candidate_terminal_later_effect_present"],
+    ["malformed unknown marker", (f) => {
+      f.state.mutationMarkers.unknown = null;
+    }, "historical_candidate_terminal_later_effect_present"],
     ["extra push intent", (f) => {
       f.intents.push({ ...structuredClone(f.intents[3]), effectType: "push", intentId: "push" });
     }, "historical_candidate_terminal_intent_set_mismatch"],
@@ -745,6 +768,10 @@ function verify(fixture) {
 function authenticatePrePrTerminalFixture(fixture) {
   const chargeIdentity = fixture.options.loadBudget().statePath;
   const commentDigest = "d".repeat(64);
+  fixture.intents[0].sessionId ||= "terminal-hygiene-session";
+  fixture.intents[0].authorityGeneration ??= 3;
+  const terminalSessionId = fixture.intents[0].sessionId;
+  const terminalGeneration = fixture.intents[0].authorityGeneration;
   fixture.issue = {
     number: issueNumber,
     labels: ["area:ocr", "area:mobile-ui", "type:bug", "scope:day1", "auto-ready", "auto-failed"],
@@ -763,7 +790,7 @@ function authenticatePrePrTerminalFixture(fixture) {
     issueNumber, taskKey, runId, supervisorRunId,
   };
   fixture.lifecycle.branch.prNumber = null;
-  fixture.lifecycle.sessions.retired = ["terminal-hygiene-session", "original-recovery-session"];
+  fixture.lifecycle.sessions.retired = [terminalSessionId, "original-recovery-session"];
   fixture.lifecycle.mutationAuthority = {
     generation: fixture.lifecycle.sessions.generation,
     status: "terminal",
@@ -793,24 +820,24 @@ function authenticatePrePrTerminalFixture(fixture) {
     sessionId, authorityGeneration,
   });
   fixture.intents.push({
-    ...common("terminal-hygiene-session", 3),
-    effectType: "hygiene_component", intentId: "terminal-add", fingerprint: "1".repeat(64),
-    status: "finalized", identity: identity("terminal-hygiene-session", 3),
+    ...common(terminalSessionId, terminalGeneration),
+    effectType: "hygiene_component", intentId: "5".repeat(64), fingerprint: "1".repeat(64),
+    status: "finalized", identity: identity(terminalSessionId, terminalGeneration),
     effect: {
       addLabels: ["auto-failed"], issueNumber, operation: "add",
       outcome: "validation_failed", removeLabels: [],
     },
   }, {
-    ...common("terminal-hygiene-session", 3),
-    effectType: "hygiene_component", intentId: "terminal-remove", fingerprint: "2".repeat(64),
-    status: "finalized", identity: identity("terminal-hygiene-session", 3),
+    ...common(terminalSessionId, terminalGeneration),
+    effectType: "hygiene_component", intentId: "6".repeat(64), fingerprint: "2".repeat(64),
+    status: "finalized", identity: identity(terminalSessionId, terminalGeneration),
     effect: {
       addLabels: [], issueNumber, operation: "remove",
       outcome: "validation_failed", removeLabels: ["auto-running", "auto-claimed"],
     },
   }, {
     ...common("successor-session", 6),
-    effectType: "comment", intentId: "terminal-comment", fingerprint: "3".repeat(64),
+    effectType: "comment", intentId: "7".repeat(64), fingerprint: "3".repeat(64),
     status: "prepared", identity: identity("successor-session", 6),
     effect: { bodyDigest: commentDigest, issueNumber, outcome: "validation_failed" },
     recoveryProvenance: {

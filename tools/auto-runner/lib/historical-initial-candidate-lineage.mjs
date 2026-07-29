@@ -315,7 +315,10 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
 }
 
 export function readRemoteTaskBranch(git, branch) {
-  const result = git(["ls-remote", "--heads", "origin", `refs/heads/${branch}`]);
+  const result = git([
+    "-c", "protocol.ext.allow=never",
+    "ls-remote", "--heads", "origin", `refs/heads/${branch}`,
+  ]);
   if (result.status !== 0 || result.stderr !== "") {
     return { complete: false, absent: false };
   }
@@ -386,12 +389,15 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   const external = intents.filter((intent) => externalEffects.has(intent.effectType));
   const hygiene = external.filter((intent) => intent.effectType === "hygiene_component");
   const comments = external.filter((intent) => intent.effectType === "comment");
+  const commitIntents = intents.filter((intent) => intent.effectType === "commit");
   if (external.length !== 3 || hygiene.length !== 2 || comments.length !== 1) {
     return fail("historical_candidate_terminal_intent_set_mismatch");
   }
   const fingerprints = external.map((intent) => intent.fingerprint);
   const intentIds = external.map((intent) => intent.intentId);
-  if (new Set(fingerprints).size !== fingerprints.length
+  if (fingerprints.some((value) => !digest.test(value || ""))
+    || intentIds.some((value) => !digest.test(value || ""))
+    || new Set(fingerprints).size !== fingerprints.length
     || new Set(intentIds).size !== intentIds.length) {
     return fail("historical_candidate_terminal_intent_duplicate");
   }
@@ -401,7 +407,6 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
       || intent.logicalTaskIdentity !== claimIdentity || intent.claimIdentity !== claimIdentity
       || intent.chargeIdentity !== chargeIdentity || !sessions.has(intent.sessionId)
       || !Number.isSafeInteger(intent.authorityGeneration)
-      || intent.authorityGeneration > lifecycle.sessions.generation
       || intent.identity?.repository !== repository || intent.identity?.sourceTaskKey !== taskKey
       || intent.identity?.runId !== runId || intent.identity?.logicalTaskIdentity !== claimIdentity
       || intent.identity?.claimIdentity !== claimIdentity
@@ -416,7 +421,16 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   }
   const add = hygiene.filter((intent) => intent.effect?.operation === "add");
   const remove = hygiene.filter((intent) => intent.effect?.operation === "remove");
+  const terminalCommit = commitIntents.length === 1
+    && commitIntents[0].status === "finalized"
+    && commitIntents[0].effect?.expectedParents?.[0] === baseSha
+    ? commitIntents[0]
+    : null;
   if (add.length !== 1 || remove.length !== 1
+    || !terminalCommit
+    || hygiene.some((intent) =>
+      intent.sessionId !== terminalCommit.sessionId
+        || intent.authorityGeneration !== terminalCommit.authorityGeneration)
     || add[0].status !== "finalized" || remove[0].status !== "finalized"
     || add[0].effect?.issueNumber !== issueNumber || remove[0].effect?.issueNumber !== issueNumber
     || add[0].effect?.outcome !== terminalIntentOutcome
@@ -438,20 +452,24 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   }
   const comment = comments[0];
   if (comment.status !== "prepared"
+    || comment.sessionId !== lifecycle.sessions.current
+    || comment.authorityGeneration !== lifecycle.sessions.generation
     || comment.effect?.issueNumber !== issueNumber
     || comment.effect?.outcome !== terminalIntentOutcome
     || comment.effect?.bodyDigest !== expectedCommentBodyDigest
     || JSON.stringify(Object.keys(comment.effect || {}).sort())
       !== JSON.stringify(["bodyDigest", "issueNumber", "outcome"])
     || comment.recoveryProvenance?.sessionId == null
+    || !lifecycle.sessions.retired?.includes(comment.recoveryProvenance.sessionId)
     || !Number.isSafeInteger(comment.recoveryProvenance?.authorityGeneration)
-    || comment.recoveryProvenance.authorityGeneration >= comment.authorityGeneration
+    || comment.recoveryProvenance.authorityGeneration !== comment.authorityGeneration - 1
     || !digest.test(comment.recoveryProvenance?.fingerprint || "")) {
     return fail("historical_candidate_terminal_comment_mismatch");
   }
-  if (Object.entries(state?.mutationMarkers || {}).some(([kind, markers]) =>
-    !["claim", "logical_task_charge", "branch_ownership_created"].includes(kind)
-      && Object.keys(markers || {}).length > 0)) {
+  if (!plainObject(state?.mutationMarkers)
+    || Object.entries(state.mutationMarkers).some(([kind, markers]) =>
+      !["claim", "logical_task_charge", "branch_ownership_created"].includes(kind)
+        || !plainObject(markers))) {
     return fail("historical_candidate_terminal_later_effect_present");
   }
   return { ok: true, reasonCode: "historical_candidate_pre_pr_terminal_intents_authenticated" };
@@ -507,11 +525,12 @@ function validPreparedSourceFixCheckout(git, continuation, candidateHead, checko
 
 function runGit(cwd, args) {
   return spawnSync("/usr/bin/git", args, {
-    cwd, encoding: "utf8",
+    cwd, encoding: "utf8", timeout: 15_000,
     env: {
       PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0",
       GIT_NO_LAZY_FETCH: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null",
+      GIT_TERMINAL_PROMPT: "0",
     },
   });
 }
@@ -849,5 +868,8 @@ function canonicalCorrelatedPath(candidate, root, prefix) {
   }
 }
 function lines(value) { return String(value || "").split(/\r?\n/u).filter(Boolean); }
+function plainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 function hash(value) { return createHash("sha256").update(String(value)).digest("hex"); }
 function hashJson(value) { return hash(JSON.stringify(value)); }

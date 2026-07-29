@@ -110,6 +110,9 @@ and PR are absent; the live issue has `auto-failed` and lacks
 one finalized `auto-failed` add, one finalized transient-label removal, and one
 prepared validation-failure issue comment. The comment digest is recomputed
 from the bounded canonical failure body in the authenticated original summary.
+Both hygiene intents must use the exact finalized candidate-commit
+session/generation. The comment must use the exact current terminal generation,
+with the immediately preceding retired recovery session as its provenance.
 Admission only reads and classifies this evidence. It never consumes an
 intent, changes a label, posts a comment, creates a branch, or writes recovery
 state. Any extra, duplicate, non-exact, unresolved, later, or unreadable

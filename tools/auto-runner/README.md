@@ -352,6 +352,9 @@ reconstructed from the authenticated original run summary. Every identity,
 lifecycle generation/session, charge, branch/base/candidate, terminal outcome,
 and live label must agree, with no remote task branch, PR, push marker, or
 other external effect. Admission performs no GitHub or durable-state mutation.
+The two hygiene intents share the exact finalized candidate-commit
+session/generation; the prepared comment is owned by the exact current terminal
+generation and cites the immediately preceding retired recovery generation.
 Missing, duplicated, differently fingerprinted, executing, finalized-comment,
 failed-closed, payload-mismatched, label-contradictory, foreign-owner,
 generation-drifted, later, or unreadable evidence fails closed. Authenticated
