@@ -2106,6 +2106,13 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         expectedTerminalCommentBodyDigest: preservedPriorOutcome?.commentBodyDigest || null,
         validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
       };
+      try {
+        lineageOptions.expectedWorktreeOwnership = authenticateRecordedTaskWorkspace(
+          config, state, sourceFailureCandidate,
+        );
+      } catch {
+        return { ok: false, reasonCode: "historical_candidate_recorded_task_workspace_untrusted", state };
+      }
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
       if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
       const originalCandidateIdentity = state.claimAuthority?.authority?.candidateIdentity || proof.candidateIdentity;
@@ -2427,6 +2434,13 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
     expectedTerminalCommentBodyDigest: priorOutcome.ok ? priorOutcome.commentBodyDigest : null,
     validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
   };
+  try {
+    lineageOptions.expectedWorktreeOwnership = authenticateRecordedTaskWorkspace(
+      config, state, candidate,
+    );
+  } catch {
+    return { ok: false, reasonCode: "historical_candidate_recorded_task_workspace_untrusted" };
+  }
   let proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
   if (proof.ok && filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
     return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
@@ -2484,6 +2498,33 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
       routeState: "initial_validation_failure_reconstructed",
     }
     : { ok: false, reasonCode: proof.reasonCode || "initial_validation_failure_commit_reconstruction_ambiguous" };
+}
+
+function authenticateRecordedTaskWorkspace(config, state, candidate) {
+  const ownershipMarkers = state?.mutationMarkers?.worktree_ownership_created || {};
+  const markerEntries = Object.entries(ownershipMarkers);
+  if (markerEntries.length === 0) return null;
+  if (markerEntries.length !== 1 || !candidate?.headSha) {
+    throw new Error("Recorded historical task workspace authority is ambiguous");
+  }
+  const workspace = adoptHistoricalTaskWorkspace(config, {
+    branchName: state.branch.name,
+    headSha: candidate.headSha,
+    taskKey: state.taskKey,
+    ownershipMarkers,
+    effectContext: null,
+    requireExisting: true,
+  });
+  const workspaceIdentity = canonicalGithubEvidenceDigest({
+    repository: config.repositorySlug,
+    branchName: state.branch.name,
+    realPath: workspace.taskRoot,
+  });
+  return {
+    key: `${state.branch.name}:${workspaceIdentity}`,
+    target: workspaceIdentity,
+    correlation: state.branch.name,
+  };
 }
 
 async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null, currentRunId = null }) {

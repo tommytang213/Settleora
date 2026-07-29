@@ -28,6 +28,7 @@ export function bindTrustedRepositoryContext(repoRoot) {
 
 export function adoptHistoricalTaskWorkspace(config, {
   branchName, headSha, taskKey, ownershipMarkers = {}, effectContext = null,
+  requireExisting = false,
 } = {}) {
   const controlRoot = path.resolve(config?.controlPlaneRepoRoot || config?.repoRoot || "");
   if (!/^[a-f0-9]{40}$/u.test(headSha || "")
@@ -59,6 +60,9 @@ export function adoptHistoricalTaskWorkspace(config, {
   let taskRoot = matches[0]?.worktree || null;
   const linkedWorktreeAlreadyPresent = Boolean(taskRoot);
   let created = false;
+  if (!taskRoot && requireExisting) {
+    throw new Error("Recorded historical task worktree is not linked");
+  }
   if (taskRoot && path.resolve(taskRoot) !== intendedTaskRoot) {
     const canonicalExistingRoot = realpathSync(taskRoot);
     const ownershipIdentity = canonicalGithubEvidenceDigest({

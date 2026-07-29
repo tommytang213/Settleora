@@ -143,6 +143,7 @@ test("historical task workspace is materialized without moving canonical main", 
       headSha: candidateSha,
       taskKey: "fixture-task",
       effectContext,
+      requireExisting: true,
       ownershipMarkers: {
         [`feature/preserved:${ownershipIdentity}`]: {
           target: ownershipIdentity,
