@@ -184,6 +184,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
     source,
     /const historicalCandidate = sourceFailureCandidate[\s\S]*state\.ordinaryContinuation\?\.identity[\s\S]*authenticateRecordedTaskWorkspace\(\s*config, state, historicalCandidate,/,
   );
+  assert.match(
+    source,
+    /const priorOutcomeCandidate = sourceFailureCandidate[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*if \(state\.evidence\?\.localValidation\?\.status === "failed"[\s\S]*candidate: priorOutcomeCandidate,[\s\S]*verifyHistoricalInitialCandidateLineage/,
+  );
   assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
   assert.doesNotMatch(
     source.slice(source.indexOf("function chargeStartupRecoveryLogicalTask"), source.indexOf("function createProductionRecoveryRecorder")),

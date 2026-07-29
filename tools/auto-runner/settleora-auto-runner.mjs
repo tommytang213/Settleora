@@ -2075,13 +2075,15 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const historicalCandidate = sourceFailureCandidate
         || state.ordinaryContinuation?.identity
         || null;
+      const priorOutcomeCandidate = sourceFailureCandidate
+        || state.ordinaryContinuation?.sourceFailureHistory?.[0]?.candidate
+        || historicalCandidate;
       let preservedPriorOutcome = null;
-      if (state.phase === "checkpoint_validation_commit"
-        && state.evidence?.localValidation?.status === "failed"
-        && sourceFailureCandidate) {
+      if (state.evidence?.localValidation?.status === "failed"
+        && priorOutcomeCandidate) {
         const tentativePriorOutcome = readPreservedPriorOutcome(config, state, {
           chargeId: recoveryChargeId,
-          candidate: sourceFailureCandidate,
+          candidate: priorOutcomeCandidate,
         });
         if (tentativePriorOutcome.ok) preservedPriorOutcome = tentativePriorOutcome;
       }
