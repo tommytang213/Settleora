@@ -246,6 +246,14 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
     source,
     /const priorOutcomeCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*sourceFailureCandidate[\s\S]*shouldReadPreservedPriorOutcome\(state, priorOutcomeCandidate\)[\s\S]*candidate: priorOutcomeCandidate,[\s\S]*verifyHistoricalInitialCandidateLineage/,
   );
+  assert.match(
+    source,
+    /expectedTerminalLifecyclePhase:[\s\S]*expectedLifecyclePhase: state\.phase,[\s\S]*allowTerminalValidationRetryPreparation: true/,
+  );
+  assert.match(
+    source,
+    /function reconstructInitialValidationFailureCheckpoint[\s\S]*const terminalCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*candidate: terminalCandidate,[\s\S]*authenticateRecordedTaskWorkspace\(\s*config, state, candidate,/,
+  );
   assert.match(source, /allowLiveBranchHead:[\s\S]*sourceFailureFixIntent\?\.status === "prepared"/);
   assert.match(
     source,

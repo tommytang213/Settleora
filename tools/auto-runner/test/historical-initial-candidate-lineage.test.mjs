@@ -467,8 +467,8 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     ["remote branch read failure", (f) => {
       f.options.readRemoteTaskBranch = () => ({ complete: false, absent: false });
     }, "historical_candidate_terminal_remote_branch_read_unavailable"],
-    ["exact terminal comment already live", (f) => {
-      f.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 1 });
+    ["duplicate terminal comments already live", (f) => {
+      f.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 2 });
     }, "historical_candidate_terminal_comment_present"],
     ["terminal comment read failure", (f) => {
       f.options.readIssueCommentDigest = () => ({ complete: false, matchingCount: 0 });
@@ -482,6 +482,13 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     assert.equal(result.ok, false, name);
     assert.equal(result.reasonCode, reason, name);
   }
+});
+
+test("historical terminal authority adopts one exact already-posted prepared comment", () => {
+  const fixture = makeFixture(2);
+  authenticatePrePrTerminalFixture(fixture);
+  fixture.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 1 });
+  assert.equal(verify(fixture).ok, true);
 });
 
 test("historical proof admits only an exact finalized-intent prepared source-fix checkout", () => {

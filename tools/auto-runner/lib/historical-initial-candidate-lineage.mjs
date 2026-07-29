@@ -533,7 +533,9 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   if (terminalCommentRead?.complete !== true) {
     return fail("historical_candidate_terminal_comment_read_unavailable");
   }
-  if (terminalCommentRead.matchingCount !== 0) {
+  if (!Number.isSafeInteger(terminalCommentRead.matchingCount)
+    || terminalCommentRead.matchingCount < 0
+    || terminalCommentRead.matchingCount > 1) {
     return fail("historical_candidate_terminal_comment_present");
   }
   const exactWorktreeOwnership = expectedWorktreeOwnership

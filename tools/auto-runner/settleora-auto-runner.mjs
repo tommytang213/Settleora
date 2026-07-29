@@ -2106,6 +2106,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           || state.sessionLifecycle?.state?.recovery?.operationId
           || null,
         expectedTerminalLifecyclePhase: state.sessionLifecycle?.recovery?.phaseAfter || null,
+        expectedLifecyclePhase: state.phase,
         allowTerminalValidationRetryPreparation: true,
         expectedTerminalOutcome: preservedPriorOutcome?.outcome || null,
         expectedTerminalCommentBodyDigest: preservedPriorOutcome?.commentBodyDigest || null,
@@ -2451,9 +2452,12 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
   fetchOriginMain(config, { trustedHistoricalRecovery: true });
   const candidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate
     || state.ordinaryContinuation?.identity;
+  const terminalCandidate = state.claimAuthority?.authority?.candidateIdentity
+    || state.ordinaryContinuation?.sourceFailureHistory?.[0]?.candidate
+    || candidate;
   const priorOutcome = readPreservedPriorOutcome(config, state, {
     chargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
-    candidate,
+    candidate: terminalCandidate,
   });
   const lineageOptions = {
     expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
@@ -2463,6 +2467,7 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
     expectedTerminalLifecyclePhase: state.sessionLifecycle?.recovery?.phaseAfter
       || state.sessionLifecycle?.state?.recovery?.phaseAfter
       || null,
+    expectedLifecyclePhase: state.phase,
     allowTerminalValidationRetryPreparation: true,
     expectedTerminalOutcome: priorOutcome.ok ? priorOutcome.outcome : null,
     expectedTerminalCommentBodyDigest: priorOutcome.ok ? priorOutcome.commentBodyDigest : null,
