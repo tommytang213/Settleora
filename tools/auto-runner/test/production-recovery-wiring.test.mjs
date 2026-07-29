@@ -150,6 +150,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
   assert.match(
     source,
+    /function reconstructInitialValidationFailureCheckpoint[\s\S]*allowTerminalValidationRetryPreparation: true,[\s\S]*verifyHistoricalInitialCandidateLineage/,
+  );
+  assert.match(
+    source,
     /const controlPlaneAdmission = collectControlPlaneRecoveryAdmission[\s\S]*if \(!controlPlaneAdmission\.ok\)[\s\S]*const live = readIssueLive\(config, state\.issue\.number\)/,
   );
   assert.doesNotMatch(

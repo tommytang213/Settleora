@@ -2374,6 +2374,10 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
     expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
       || state.sessionLifecycle?.state?.recovery?.operationId
       || null,
+    expectedTerminalLifecyclePhase: state.sessionLifecycle?.recovery?.phaseAfter
+      || state.sessionLifecycle?.state?.recovery?.phaseAfter
+      || null,
+    allowTerminalValidationRetryPreparation: true,
     expectedTerminalOutcome: priorOutcome.ok ? priorOutcome.outcome : null,
     expectedTerminalCommentBodyDigest: priorOutcome.ok ? priorOutcome.commentBodyDigest : null,
     validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
