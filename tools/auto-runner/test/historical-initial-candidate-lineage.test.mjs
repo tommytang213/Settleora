@@ -357,6 +357,31 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     "historical_candidate_terminal_later_effect_present",
   );
 
+  const laterValidated = makeFixture(0);
+  authenticatePrePrTerminalFixture(laterValidated);
+  laterValidated.state.claimAuthority = {
+    ok: true,
+    mode: "preserved_recovery_claim",
+    authority: {
+      taskKey,
+      runId,
+      chargeId: laterValidated.options.loadBudget().statePath,
+      priorOutcome: "validation_failed",
+      branchName: branch,
+      baseSha: laterValidated.baseSha,
+      candidateIdentity: {
+        headSha: laterValidated.headSha,
+      },
+    },
+  };
+  laterValidated.state.phase = "external_review";
+  laterValidated.state.firstIncompleteAction = "run_external_review";
+  laterValidated.state.nextSafeAction = "run_external_review";
+  laterValidated.state.stopReason = null;
+  laterValidated.state.evidence.localValidation.status = "passed";
+  const laterValidatedResult = verify(laterValidated);
+  assert.equal(laterValidatedResult.ok, true, laterValidatedResult.reasonCode);
+
   const cases = [
     ["missing hygiene", (f) => f.intents.splice(1, 1), "historical_candidate_terminal_intent_set_mismatch"],
     ["duplicate hygiene", (f) => f.intents.push({ ...structuredClone(f.intents[1]), intentId: "duplicate" }), "historical_candidate_terminal_intent_set_mismatch"],

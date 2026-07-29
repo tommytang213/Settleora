@@ -371,8 +371,28 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     && state?.firstIncompleteAction === "run_validation_and_commit"
     && state?.nextSafeAction === "run_validation_and_commit"
     && state?.stopReason === null;
-  if ((!exactTerminalState && !exactValidationRetryHandoff)
-    || state?.evidence?.localValidation?.status !== "failed"
+  const preservedClaim = state?.claimAuthority;
+  const exactPreservedContinuation = preservedClaim?.mode === "preserved_recovery_claim"
+    && preservedClaim?.ok === true
+    && preservedClaim?.authority?.taskKey === taskKey
+    && preservedClaim?.authority?.runId === runId
+    && preservedClaim?.authority?.chargeId === chargeIdentity
+    && preservedClaim?.authority?.priorOutcome === terminalIntentOutcome
+    && preservedClaim?.authority?.branchName === branch
+    && preservedClaim?.authority?.baseSha === baseSha
+    && preservedClaim?.authority?.candidateIdentity?.headSha === headSha
+    && ["checkpoint_validation_commit", "aggregate_validation", "external_review",
+      "codex_mechanics_security_review", "review_fix"].includes(state?.phase)
+    && ["passed", "failed"].includes(state?.evidence?.localValidation?.status)
+    && state?.stopReason === null;
+  const exactOriginalTerminalPosture = (exactTerminalState || exactValidationRetryHandoff)
+    && state?.evidence?.localValidation?.status === "failed"
+    && lifecycle?.controller?.phase === "stopped"
+    && lifecycle?.controller?.nextExactAction === "checkpoint_validation_recovery_failed_closed"
+    && lifecycle?.report?.status === "stopped"
+    && lifecycle?.mutationAuthority?.status === "terminal"
+    && lifecycle?.mutationAuthority?.ownerSessionId === null;
+  if ((!exactOriginalTerminalPosture && !exactPreservedContinuation)
     || state?.pr?.number !== null || state?.pr?.headSha !== null
     || state?.branch?.expectedRemoteHeadSha !== null
     || lifecycle?.logicalTask?.issueNumber !== issueNumber
@@ -383,11 +403,6 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || lifecycle?.logicalTask?.chargeMarkerRef !== chargeIdentity
     || lifecycle?.branch?.name !== branch || lifecycle?.branch?.baseSha !== baseSha
     || lifecycle?.branch?.headSha !== headSha || lifecycle?.branch?.prNumber !== null
-    || lifecycle?.controller?.phase !== "stopped"
-    || lifecycle?.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
-    || lifecycle?.report?.status !== "stopped"
-    || lifecycle?.mutationAuthority?.status !== "terminal"
-    || lifecycle?.mutationAuthority?.ownerSessionId !== null
     || lifecycle?.mutationAuthority?.generation !== lifecycle?.sessions?.generation
     || lifecycle?.recovery?.effectsAlreadyPresent?.commit !== true
     || ["push", "pr", "merge", "comment"].some(
