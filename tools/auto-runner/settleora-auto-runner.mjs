@@ -2075,8 +2075,9 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const historicalCandidate = sourceFailureCandidate
         || state.ordinaryContinuation?.identity
         || null;
-      const priorOutcomeCandidate = sourceFailureCandidate
+      const priorOutcomeCandidate = state.claimAuthority?.authority?.candidateIdentity
         || state.ordinaryContinuation?.sourceFailureHistory?.[0]?.candidate
+        || sourceFailureCandidate
         || historicalCandidate;
       let preservedPriorOutcome = null;
       if (shouldReadPreservedPriorOutcome(state, priorOutcomeCandidate)) {
@@ -2524,6 +2525,8 @@ function authenticateRecordedTaskWorkspace(config, state, candidate) {
     ownershipMarkers,
     effectContext: null,
     requireExisting: true,
+    allowLiveBranchHead:
+      state.ordinaryContinuation?.sourceFailureFixIntent?.status === "prepared",
   });
   const workspaceIdentity = canonicalGithubEvidenceDigest({
     repository: config.repositorySlug,

@@ -208,8 +208,9 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
-    /const priorOutcomeCandidate = sourceFailureCandidate[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*shouldReadPreservedPriorOutcome\(state, priorOutcomeCandidate\)[\s\S]*candidate: priorOutcomeCandidate,[\s\S]*verifyHistoricalInitialCandidateLineage/,
+    /const priorOutcomeCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*sourceFailureCandidate[\s\S]*shouldReadPreservedPriorOutcome\(state, priorOutcomeCandidate\)[\s\S]*candidate: priorOutcomeCandidate,[\s\S]*verifyHistoricalInitialCandidateLineage/,
   );
+  assert.match(source, /allowLiveBranchHead:[\s\S]*sourceFailureFixIntent\?\.status === "prepared"/);
   assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
   assert.doesNotMatch(
     source.slice(source.indexOf("function chargeStartupRecoveryLogicalTask"), source.indexOf("function createProductionRecoveryRecorder")),
