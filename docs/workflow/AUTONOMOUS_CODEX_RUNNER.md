@@ -114,13 +114,14 @@ body digest without retaining raw failure text that summary sanitization may
 change.
 Both hygiene intents must use the exact finalized candidate-commit
 session/generation. The comment must use the exact current terminal generation,
-with the immediately preceding retired recovery session as its provenance.
-An authoritative bounded read must also prove that no live issue comment has
-the canonical body digest before the prepared intent is admitted. The intent's
-recorded validated-successor handoff diagnostic, exact recovery-session
-identity, adjacent generation, and request-bound successor must all agree with
-the lifecycle recovery operation; the fresh live read, not the older handoff
-diagnostic, proves comment absence at admission time.
+with the immediately preceding retired session as its provenance; the original
+recovery session must remain in retired history across later exact handoffs.
+An authoritative bounded read must also prove that at most one live issue
+comment has the canonical body digest before the prepared intent is admitted.
+The intent's recorded validated-successor handoff diagnostic, immediate
+predecessor identity, adjacent generation, and request-bound successor must all
+agree with the lifecycle recovery operation; the fresh live read, not the older
+handoff diagnostic, proves exact absence-or-one adoption at admission time.
 Admission only reads and classifies this evidence. It never consumes an
 intent, changes a label, posts a comment, creates a branch, or writes recovery
 state. Any extra, duplicate, non-exact, unresolved, later, or unreadable

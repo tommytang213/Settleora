@@ -355,11 +355,13 @@ and live label must agree, with no remote task branch, PR, push marker, or
 other external effect. Admission performs no GitHub or durable-state mutation.
 The two hygiene intents share the exact finalized candidate-commit
 session/generation; the prepared comment is owned by the exact current terminal
-generation and cites the immediately preceding retired recovery generation.
-The predecessor must be the recovery session derived from the exact operation,
-must be the last retired session, and must carry the validated-successor
-handoff diagnostic into the request-bound successor. A bounded, paginated live
-issue read must prove that zero comments match the canonical body digest.
+generation and cites the immediately preceding retired generation. That
+immediate predecessor must be the last retired session, while the recovery
+session derived from the exact operation must remain present in retired
+history across later handoffs. The predecessor must carry the
+validated-successor handoff diagnostic into the request-bound successor. A
+bounded, paginated live issue read must prove that zero or one comments match
+the canonical body digest.
 Missing, duplicated, differently fingerprinted, executing, finalized-comment,
 failed-closed, payload-mismatched, label-contradictory, foreign-owner,
 generation-drifted, later, or unreadable evidence fails closed. Authenticated
