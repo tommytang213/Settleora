@@ -251,6 +251,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       baseSha,
       headSha,
       originalHeadSha: initialHeadSha,
+      originalTreeSha: candidate.treeSha,
       chargeId,
       chargeIdentity: budget.statePath,
       expectedOutcome: options.expectedTerminalOutcome,
@@ -346,7 +347,8 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   const fail = (reasonCode) => ({ ok: false, reasonCode });
   const {
     state, issue, intents, lifecycle, repository, issueNumber, taskKey, runId,
-    supervisorRunId, branch, baseSha, headSha, originalHeadSha, chargeId, chargeIdentity, expectedOutcome,
+    supervisorRunId, branch, baseSha, headSha, originalHeadSha, originalTreeSha,
+    chargeId, chargeIdentity, expectedOutcome,
     expectedCommentBodyDigest, expectedWorktreeOwnership,
     remoteTaskBranchRead,
     readTerminalComment,
@@ -450,10 +452,12 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   }
   const add = hygiene.filter((intent) => intent.effect?.operation === "add");
   const remove = hygiene.filter((intent) => intent.effect?.operation === "remove");
-  const terminalCommit = commitIntents.length === 1
-    && commitIntents[0].status === "finalized"
-    && commitIntents[0].effect?.expectedParents?.[0] === baseSha
-    ? commitIntents[0]
+  const matchingTerminalCommits = commitIntents.filter((intent) =>
+    intent.status === "finalized"
+    && JSON.stringify(intent.effect?.expectedParents) === JSON.stringify([baseSha])
+    && intent.effect?.treeSha === originalTreeSha);
+  const terminalCommit = matchingTerminalCommits.length === 1
+    ? matchingTerminalCommits[0]
     : null;
   if (add.length !== 1 || remove.length !== 1
     || !terminalCommit

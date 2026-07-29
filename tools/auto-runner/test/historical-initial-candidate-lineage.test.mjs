@@ -382,6 +382,19 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
   laterValidated.state.nextSafeAction = "run_external_review";
   laterValidated.state.stopReason = null;
   laterValidated.state.evidence.localValidation.status = "passed";
+  laterValidated.intents.push({
+    ...structuredClone(laterValidated.intents[0]),
+    identity: {
+      ...structuredClone(laterValidated.intents[0].identity),
+      headSha: originalTerminalCandidate.headSha,
+      candidateIdentity: originalTerminalCandidate.headSha,
+    },
+    effect: {
+      ...structuredClone(laterValidated.intents[0].effect),
+      expectedParents: [originalTerminalCandidate.headSha],
+      treeSha: laterValidated.state.ordinaryContinuation.identity.treeSha,
+    },
+  });
   const laterValidatedResult = verify(laterValidated);
   assert.equal(laterValidatedResult.ok, true, laterValidatedResult.reasonCode);
 
