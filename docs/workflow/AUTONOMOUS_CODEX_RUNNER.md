@@ -108,8 +108,10 @@ charge, candidate identity, and original summary agree; the remote task branch
 and PR are absent; the live issue has `auto-failed` and lacks
 `auto-running`/`auto-claimed`; and the complete external-intent set is exactly
 one finalized `auto-failed` add, one finalized transient-label removal, and one
-prepared validation-failure issue comment. The comment digest is recomputed
-from the bounded canonical failure body in the authenticated original summary.
+prepared validation-failure issue comment. The comment digest is read from the
+unique authenticated prepared intent, which preserves the original bounded
+body digest without retaining raw failure text that summary sanitization may
+change.
 Both hygiene intents must use the exact finalized candidate-commit
 session/generation. The comment must use the exact current terminal generation,
 with the immediately preceding retired recovery session as its provenance.

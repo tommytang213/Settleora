@@ -347,8 +347,9 @@ authority with no later push, PR, merge, or replacement-candidate effect.
 The only pre-PR exception is exact terminal validation-failure bookkeeping
 from the authenticated original outcome: two finalized hygiene components
 (add only `auto-failed`; remove only `auto-running` and `auto-claimed`) and one
-prepared issue-comment intent whose canonical bounded body digest is
-reconstructed from the authenticated original run summary. Every identity,
+prepared issue-comment intent whose canonical bounded body digest is read from
+that unique authenticated intent rather than reconstructed from sanitized
+summary text. Every identity,
 lifecycle generation/session, charge, branch/base/candidate, terminal outcome,
 and live label must agree, with no remote task branch, PR, push marker, or
 other external effect. Admission performs no GitHub or durable-state mutation.

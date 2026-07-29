@@ -21,7 +21,6 @@ import { acquireRunnerLock, processAppearsActive, releaseRunnerLock, writeIterat
 import { assertRepositoryRemoteIdentity, matchAuthorizedSupervisorProcess, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
 import {
-  boundIssueOutcomeBody,
   pollEligibleIssues,
   claimIssue,
   commentIssueOutcome,
