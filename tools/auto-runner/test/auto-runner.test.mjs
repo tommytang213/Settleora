@@ -37,6 +37,7 @@ import {
 } from "../lib/canary-policy.mjs";
 import { parseReviewVerdict, runReviewPrompt } from "../lib/codex-runner.mjs";
 import { sanitizePersistedEvidence } from "../lib/evidence-sanitizer.mjs";
+import { canonicalGithubEvidenceDigest } from "../lib/github-effect-consumer.mjs";
 import {
   createTaskBranch,
   ensureLaunchWorkspace,
@@ -52,6 +53,7 @@ import {
   commentIssueOutcome,
   dedupeIssuesByNumber,
   pollEligibleIssues,
+  readIssueCommentDigest,
   validateEligibleLabels,
 } from "../lib/github-issues.mjs";
 import {
@@ -3068,6 +3070,26 @@ test("terminal outcome body bounding is one shared canonical comment contract", 
   const bounded = boundIssueOutcomeBody("x".repeat(4100));
   assert.equal(bounded.length, 3913);
   assert.equal(bounded, `${"x".repeat(3900)}\n\n[truncated]`);
+});
+
+test("terminal comment digest read classifies exact fixture comments without exposing bodies", () => {
+  const body = boundIssueOutcomeBody("validation failed");
+  const bodyDigest = canonicalGithubEvidenceDigest(body);
+  const config = {
+    repoRoot: "/tmp",
+    repositorySlug: "example/repository",
+    fixtureLiveIssues: {
+      11: { number: 11, labels: [], comments: [{ body }, { body: "different" }] },
+    },
+  };
+  assert.deepEqual(readIssueCommentDigest(config, 11, bodyDigest), {
+    complete: true,
+    matchingCount: 1,
+  });
+  assert.deepEqual(readIssueCommentDigest(config, 11, "invalid"), {
+    complete: false,
+    matchingCount: 0,
+  });
 });
 
 test("failure and gated terminal outcomes remove active claim labels", () => {

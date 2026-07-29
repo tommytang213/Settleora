@@ -355,6 +355,14 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     ["non-adjacent recovery generation", (f) => {
       f.intents[3].recoveryProvenance.authorityGeneration -= 1;
     }, "historical_candidate_terminal_comment_mismatch"],
+    ["different adjacent retired recovery session", (f) => {
+      const foreign = `${runId}:recovery:foreign-operation`;
+      f.lifecycle.sessions.retired.push(foreign);
+      f.intents[3].recoveryProvenance.sessionId = foreign;
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["missing authoritative-absence handoff diagnostic", (f) => {
+      f.intents[3].diagnostics = [];
+    }, "historical_candidate_terminal_comment_mismatch"],
     ["hygiene generation differs from commit authority", (f) => {
       f.intents[1].authorityGeneration += 1;
       f.intents[1].identity.authorityGeneration += 1;
@@ -391,6 +399,12 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     ["remote branch read failure", (f) => {
       f.options.readRemoteTaskBranch = () => ({ complete: false, absent: false });
     }, "historical_candidate_terminal_remote_branch_read_unavailable"],
+    ["exact terminal comment already live", (f) => {
+      f.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 1 });
+    }, "historical_candidate_terminal_comment_present"],
+    ["terminal comment read failure", (f) => {
+      f.options.readIssueCommentDigest = () => ({ complete: false, matchingCount: 0 });
+    }, "historical_candidate_terminal_comment_read_unavailable"],
   ];
   for (const [name, mutate, reason] of cases) {
     const candidate = makeFixture(2);
@@ -796,7 +810,7 @@ function authenticatePrePrTerminalFixture(fixture) {
     issueNumber, taskKey, runId, supervisorRunId,
   };
   fixture.lifecycle.branch.prNumber = null;
-  const recoverySessionId = "original-recovery-session";
+  const recoverySessionId = `${runId}:recovery:${operationId}`;
   const requestId = hash(`${operationId}:${recoverySessionId}:validation-retry`);
   const successorSessionId = `recovery-handoff:${hash(JSON.stringify([runId, operationId, requestId]))}`;
   fixture.lifecycle.sessions.current = successorSessionId;
@@ -858,6 +872,7 @@ function authenticatePrePrTerminalFixture(fixture) {
         effect: { bodyDigest: commentDigest, issueNumber, outcome: "validation_failed" },
       })),
     },
+    diagnostics: ["authoritative_absence_successor_reissue"],
   });
 }
 
@@ -1119,7 +1134,7 @@ function makeFixture(advances, candidateSuffix = "") {
     },
     checkpoint: { status: "ready", digest: "a".repeat(64) },
     recovery: {
-      phaseAfter: "checkpoint_validation_commit",
+      status: "pending", phaseAfter: "checkpoint_validation_commit",
       operationId, effectsAlreadyPresent: {
         commit: true, push: false, pr: false, merge: false, comment: false,
       },
@@ -1157,6 +1172,7 @@ function makeFixture(advances, candidateSuffix = "") {
       validateProjectNamespace: () => true,
       validateCommitLineage: () => ({ ok: true }),
       readRemoteTaskBranch: () => ({ complete: true, absent: true }),
+      readIssueCommentDigest: () => ({ complete: true, matchingCount: 0 }),
     },
   };
 }

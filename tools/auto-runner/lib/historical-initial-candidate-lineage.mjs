@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { readIssueCommentDigest } from "./github-issues.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import {
   ordinaryContinuationLegacyPhaseTarget,
@@ -231,6 +232,11 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       );
     const remoteTaskBranchRead = (options.readRemoteTaskBranch
       || readRemoteTaskBranch)(git, branch);
+    const readTerminalComment = options.allowTerminalValidationRetryPreparation === true
+      ? () => (options.readIssueCommentDigest || readIssueCommentDigest)(
+        config, issueNumber, options.expectedTerminalCommentBodyDigest,
+      )
+      : null;
     const prePrTerminalAuthority = validatePrePrTerminalIntentAuthority({
       state,
       issue,
@@ -248,6 +254,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       expectedOutcome: options.expectedTerminalOutcome,
       expectedCommentBodyDigest: options.expectedTerminalCommentBodyDigest,
       remoteTaskBranchRead,
+      readTerminalComment,
     });
     const authenticatedPrePrTerminalEffects = !authenticatedExistingPrEffects
       && prePrTerminalAuthority.ok;
@@ -339,6 +346,7 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     supervisorRunId, branch, baseSha, headSha, chargeIdentity, expectedOutcome,
     expectedCommentBodyDigest,
     remoteTaskBranchRead,
+    readTerminalComment,
   } = input;
   const claimIdentity = `${repository}#${issueNumber}`;
   if (remoteTaskBranchRead?.complete !== true) {
@@ -472,6 +480,8 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     operationId: lifecycle?.recovery?.operationId,
     predecessorSessionId: comment?.recoveryProvenance?.sessionId,
   });
+  const retiredSessions = lifecycle.sessions?.retired || [];
+  const exactRecoveryPredecessor = `${runId}:recovery:${lifecycle?.recovery?.operationId}`;
   if (comment.status !== "prepared"
     || comment.sessionId !== lifecycle.sessions.current
     || comment.sessionId !== expectedRecoverySuccessor
@@ -482,12 +492,26 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || JSON.stringify(Object.keys(comment.effect || {}).sort())
       !== JSON.stringify(["bodyDigest", "issueNumber", "outcome"])
     || comment.recoveryProvenance?.sessionId == null
-    || !lifecycle.sessions.retired?.includes(comment.recoveryProvenance.sessionId)
+    || comment.recoveryProvenance.sessionId !== exactRecoveryPredecessor
+    || retiredSessions.at(-1) !== exactRecoveryPredecessor
     || !Number.isSafeInteger(comment.recoveryProvenance?.authorityGeneration)
     || comment.recoveryProvenance.authorityGeneration !== comment.authorityGeneration - 1
     || !digest.test(comment.recoveryProvenance?.fingerprint || "")
-    || comment.recoveryProvenance.fingerprint !== provenanceFingerprint) {
+    || comment.recoveryProvenance.fingerprint !== provenanceFingerprint
+    || JSON.stringify(comment.diagnostics)
+      !== JSON.stringify(["authoritative_absence_successor_reissue"])
+    || lifecycle?.recovery?.status !== "pending"
+    || lifecycle?.recovery?.effectsAlreadyPresent?.comment !== false) {
     return fail("historical_candidate_terminal_comment_mismatch");
+  }
+  const terminalCommentRead = typeof readTerminalComment === "function"
+    ? readTerminalComment()
+    : null;
+  if (terminalCommentRead?.complete !== true) {
+    return fail("historical_candidate_terminal_comment_read_unavailable");
+  }
+  if (terminalCommentRead.matchingCount !== 0) {
+    return fail("historical_candidate_terminal_comment_present");
   }
   if (!plainObject(state?.mutationMarkers)
     || Object.entries(state.mutationMarkers).some(([kind, markers]) =>
