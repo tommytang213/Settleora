@@ -189,7 +189,7 @@ export function readIssueLive(config, issueNumber) {
 
 export function commentIssueOutcome(config, issue, outcome, body, { effectContext = null } = {}) {
   const mutations = outcomeToMutations(outcome);
-  const boundedBody = body.length > 4000 ? `${body.slice(0, 3900)}\n\n[truncated]` : body;
+  const boundedBody = boundIssueOutcomeBody(body);
   if (config.dryRun) {
     return {
       skipped: true,
@@ -245,6 +245,11 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
   }
   const result = runGh(config, ["issue", "comment", String(issue.number), "--body", boundedBody], { mutation: true });
   return { skipped: false, status: result.status, stderr: result.stderr };
+}
+
+export function boundIssueOutcomeBody(body) {
+  const text = String(body || "");
+  return text.length > 4000 ? `${text.slice(0, 3900)}\n\n[truncated]` : text;
 }
 
 function issueSortKey(config, issue) {

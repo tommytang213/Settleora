@@ -128,13 +128,13 @@ test("historical initial candidate fail-closes on durable identity and effect co
     ["prepared commit intent", (f) => { f.intents[0].status = "prepared"; }, "historical_candidate_commit_intent_mismatch"],
     ["failed closed commit intent", (f) => { f.intents[0].status = "failed_closed"; }, "historical_candidate_commit_intent_mismatch"],
     ["wrong commit parent intent", (f) => { f.intents[0].effect.expectedParents = [f.headSha]; }, "historical_candidate_commit_intent_mismatch"],
-    ["external intent", (f) => { f.intents.push({ ...structuredClone(f.intents[0]), effectType: "push" }); }, "historical_candidate_external_intent_present"],
+    ["external intent", (f) => { f.intents.push({ ...structuredClone(f.intents[0]), effectType: "push" }); }, "historical_candidate_terminal_intent_identity_mismatch"],
     ["canonical comment intent", (f) => {
       f.intents.push({ ...structuredClone(f.intents[0]), effectType: "comment" });
-    }, "historical_candidate_external_intent_present"],
+    }, "historical_candidate_terminal_intent_identity_mismatch"],
     ["hygiene component intent", (f) => {
       f.intents.push({ ...structuredClone(f.intents[0]), effectType: "hygiene_component" });
-    }, "historical_candidate_external_intent_present"],
+    }, "historical_candidate_terminal_intent_identity_mismatch"],
   ];
   for (const [name, mutate, reason] of cases) {
     const fixture = makeFixture(2);
@@ -264,6 +264,62 @@ test("historical initial candidate proof is restart-idempotent", () => {
   assert.deepEqual(second, first);
   assert.equal(Object.keys(fixture.state.mutationMarkers.push || {}).length, 0);
   assert.equal(fixture.state.pr.number, null);
+});
+
+test("historical initial candidate admits only the exact pre-PR terminal intent lineage", () => {
+  const fixture = makeFixture(3);
+  authenticatePrePrTerminalFixture(fixture);
+  run(fixture.repoRoot, ["checkout", "main"]);
+  const before = JSON.stringify({
+    state: fixture.state,
+    lifecycle: fixture.lifecycle,
+    intents: fixture.intents,
+    labels: fixture.issue.labels,
+    main: run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim(),
+  });
+  const first = verify(fixture);
+  const second = verify(fixture);
+  assert.equal(first.ok, true, first.reasonCode);
+  assert.deepEqual(second, first);
+  assert.equal(first.requiresTaskWorkspaceAdoption, true);
+  assert.equal(JSON.stringify({
+    state: fixture.state,
+    lifecycle: fixture.lifecycle,
+    intents: fixture.intents,
+    labels: fixture.issue.labels,
+    main: run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim(),
+  }), before);
+
+  const cases = [
+    ["missing hygiene", (f) => f.intents.splice(1, 1), "historical_candidate_terminal_intent_set_mismatch"],
+    ["duplicate hygiene", (f) => f.intents.push({ ...structuredClone(f.intents[1]), intentId: "duplicate" }), "historical_candidate_terminal_intent_set_mismatch"],
+    ["wrong hygiene status", (f) => { f.intents[1].status = "prepared"; }, "historical_candidate_terminal_hygiene_mismatch"],
+    ["wrong hygiene payload", (f) => { f.intents[1].effect.addLabels = ["auto-ready"]; }, "historical_candidate_terminal_hygiene_mismatch"],
+    ["contradictory live labels", (f) => f.issue.labels.push("auto-running"), "historical_candidate_terminal_live_labels_mismatch"],
+    ["missing comment", (f) => f.intents.pop(), "historical_candidate_terminal_intent_set_mismatch"],
+    ["wrong comment status", (f) => { f.intents[3].status = "finalized"; }, "historical_candidate_terminal_comment_mismatch"],
+    ["wrong comment digest", (f) => { f.intents[3].effect.bodyDigest = "0".repeat(64); }, "historical_candidate_terminal_comment_mismatch"],
+    ["wrong comment outcome", (f) => { f.intents[3].effect.outcome = "approved_pr_opened"; }, "historical_candidate_terminal_comment_mismatch"],
+    ["foreign session", (f) => { f.intents[3].sessionId = "foreign"; }, "historical_candidate_terminal_intent_identity_mismatch"],
+    ["generation drift", (f) => { f.intents[3].authorityGeneration = 99; }, "historical_candidate_terminal_intent_identity_mismatch"],
+    ["push marker", (f) => {
+      f.state.mutationMarkers.push = { x: { status: "completed" } };
+    }, "historical_candidate_later_effect_present"],
+    ["extra push intent", (f) => {
+      f.intents.push({ ...structuredClone(f.intents[3]), effectType: "push", intentId: "push" });
+    }, "historical_candidate_terminal_intent_set_mismatch"],
+    ["remote task branch", (f) => {
+      run(f.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, f.headSha]);
+    }, "historical_candidate_terminal_remote_branch_present"],
+  ];
+  for (const [name, mutate, reason] of cases) {
+    const candidate = makeFixture(2);
+    authenticatePrePrTerminalFixture(candidate);
+    mutate(candidate);
+    const result = verify(candidate);
+    assert.equal(result.ok, false, name);
+    assert.equal(result.reasonCode, reason, name);
+  }
 });
 
 test("historical proof admits only an exact finalized-intent prepared source-fix checkout", () => {
@@ -631,8 +687,86 @@ test("historical initial candidate fail-closes an unauthenticated local source-f
 
 function verify(fixture) {
   return verifyHistoricalInitialCandidateLineage(
-    fixture.config, fixture.state, { number: issueNumber }, fixture.options,
+    fixture.config, fixture.state, fixture.issue || { number: issueNumber }, fixture.options,
   );
+}
+
+function authenticatePrePrTerminalFixture(fixture) {
+  const chargeIdentity = fixture.options.loadBudget().statePath;
+  const commentDigest = "d".repeat(64);
+  fixture.issue = {
+    number: issueNumber,
+    labels: ["area:ocr", "area:mobile-ui", "type:bug", "scope:day1", "auto-ready", "auto-failed"],
+  };
+  fixture.state.phase = "stopped";
+  fixture.state.firstIncompleteAction = "run_validation_and_commit";
+  fixture.state.nextSafeAction = "stop_fail_closed";
+  fixture.state.stopReason = {
+    reasonCode: "checkpoint_validation_recovery_failed_closed",
+    reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+  };
+  fixture.state.evidence = { localValidation: { status: "failed" } };
+  fixture.lifecycle.repository = repository;
+  fixture.lifecycle.logicalTask = {
+    ...fixture.lifecycle.logicalTask,
+    issueNumber, taskKey, runId, supervisorRunId,
+  };
+  fixture.lifecycle.branch.prNumber = null;
+  fixture.lifecycle.sessions.retired = ["terminal-hygiene-session", "original-recovery-session"];
+  fixture.lifecycle.mutationAuthority = {
+    generation: fixture.lifecycle.sessions.generation,
+    status: "terminal",
+    ownerSessionId: null,
+  };
+  fixture.lifecycle.controller = {
+    phase: "stopped",
+    nextExactAction: "checkpoint_validation_recovery_failed_closed",
+  };
+  fixture.lifecycle.report.status = "stopped";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.allowTerminalValidationRetryPreparation = true;
+  fixture.options.expectedTerminalLifecyclePhase = "checkpoint_validation_commit";
+  fixture.options.expectedTerminalOutcome = "validation_failed";
+  fixture.options.expectedTerminalCommentBodyDigest = commentDigest;
+  const identity = (sessionId, authorityGeneration) => ({
+    repository, sourceTaskKey: taskKey, runId,
+    logicalTaskIdentity: `${repository}#${issueNumber}`,
+    claimIdentity: `${repository}#${issueNumber}`, chargeIdentity,
+    sessionId, authorityGeneration, issueNumber, branchName: branch,
+    baseSha: fixture.baseSha, headSha: fixture.headSha, candidateIdentity: fixture.headSha,
+  });
+  const common = (sessionId, authorityGeneration) => ({
+    repository, sourceTaskKey: taskKey, runId,
+    logicalTaskIdentity: `${repository}#${issueNumber}`,
+    claimIdentity: `${repository}#${issueNumber}`, chargeIdentity,
+    sessionId, authorityGeneration,
+  });
+  fixture.intents.push({
+    ...common("terminal-hygiene-session", 3),
+    effectType: "hygiene_component", intentId: "terminal-add", fingerprint: "1".repeat(64),
+    status: "finalized", identity: identity("terminal-hygiene-session", 3),
+    effect: {
+      addLabels: ["auto-failed"], issueNumber, operation: "add",
+      outcome: "validation_failed", removeLabels: [],
+    },
+  }, {
+    ...common("terminal-hygiene-session", 3),
+    effectType: "hygiene_component", intentId: "terminal-remove", fingerprint: "2".repeat(64),
+    status: "finalized", identity: identity("terminal-hygiene-session", 3),
+    effect: {
+      addLabels: [], issueNumber, operation: "remove",
+      outcome: "validation_failed", removeLabels: ["auto-running", "auto-claimed"],
+    },
+  }, {
+    ...common("successor-session", 6),
+    effectType: "comment", intentId: "terminal-comment", fingerprint: "3".repeat(64),
+    status: "prepared", identity: identity("successor-session", 6),
+    effect: { bodyDigest: commentDigest, issueNumber, outcome: "validation_failed" },
+    recoveryProvenance: {
+      sessionId: "original-recovery-session", authorityGeneration: 5,
+      fingerprint: "4".repeat(64),
+    },
+  });
 }
 
 function advanceWithSourceFix(fixture, addedPath = null) {

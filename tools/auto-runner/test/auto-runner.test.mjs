@@ -47,6 +47,7 @@ import {
 } from "../lib/git-workspace.mjs";
 import {
   buildEligibleLabelSearches,
+  boundIssueOutcomeBody,
   claimIssue,
   commentIssueOutcome,
   dedupeIssuesByNumber,
@@ -3060,6 +3061,13 @@ test("dry-run issue claim and terminal outcomes preview bounded mutations", () =
   const noChanges = commentIssueOutcome(baseConfig, issue, "no_changes", "none");
   assert.deepEqual(noChanges.preview.addLabels, []);
   assert.deepEqual(noChanges.preview.removeLabels, ["auto-running", "auto-claimed"]);
+});
+
+test("terminal outcome body bounding is one shared canonical comment contract", () => {
+  assert.equal(boundIssueOutcomeBody("short"), "short");
+  const bounded = boundIssueOutcomeBody("x".repeat(4100));
+  assert.equal(bounded.length, 3913);
+  assert.equal(bounded, `${"x".repeat(3900)}\n\n[truncated]`);
 });
 
 test("failure and gated terminal outcomes remove active claim labels", () => {

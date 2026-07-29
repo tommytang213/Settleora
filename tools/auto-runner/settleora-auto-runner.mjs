@@ -20,7 +20,13 @@ import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
 import { acquireRunnerLock, processAppearsActive, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
 import { assertRepositoryRemoteIdentity, matchAuthorizedSupervisorProcess, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
-import { pollEligibleIssues, claimIssue, commentIssueOutcome, readIssueLive } from "./lib/github-issues.mjs";
+import {
+  boundIssueOutcomeBody,
+  pollEligibleIssues,
+  claimIssue,
+  commentIssueOutcome,
+  readIssueLive,
+} from "./lib/github-issues.mjs";
 import {
   createRunIssueTracker,
   markIssueAttempted,
@@ -2068,8 +2074,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const recoveryChargeId = Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null;
       const sourceFailureCandidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate || null;
       let preservedPriorOutcome = null;
-      if (state.claimAuthority?.mode !== claimAuthorityModes.preservedRecovery
-        && state.phase === "checkpoint_validation_commit"
+      if (state.phase === "checkpoint_validation_commit"
         && state.evidence?.localValidation?.status === "failed"
         && sourceFailureCandidate) {
         const tentativePriorOutcome = readPreservedPriorOutcome(config, state, {
@@ -2098,6 +2103,8 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           || null,
         expectedTerminalLifecyclePhase: state.sessionLifecycle?.recovery?.phaseAfter || null,
         allowTerminalValidationRetryPreparation: true,
+        expectedTerminalOutcome: preservedPriorOutcome?.outcome || null,
+        expectedTerminalCommentBodyDigest: preservedPriorOutcome?.commentBodyDigest || null,
         validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
       };
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
@@ -2299,7 +2306,13 @@ function readPreservedPriorOutcome(config, state, expected) {
     if (matching.length !== 1 || typeof matching[0].outcome !== "string") {
       return { ok: false, reasonCode: "preserved_claim_prior_outcome_ambiguous" };
     }
-    return { ok: true, outcome: matching[0].outcome };
+    const outcome = matching[0].outcome;
+    const commentBodyDigest = outcome === "validation_failed"
+      ? canonicalGithubEvidenceDigest(boundIssueOutcomeBody(
+        validationFailureBody(state.issue, matching[0].validation),
+      ))
+      : null;
+    return { ok: true, outcome, commentBodyDigest };
   } catch {
     return { ok: false, reasonCode: "preserved_claim_prior_outcome_unavailable" };
   }
@@ -2350,11 +2363,19 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
     return { ok: false, reasonCode: "historical_candidate_git_environment_untrusted" };
   }
   fetchOriginMain(config, { trustedHistoricalRecovery: true });
+  const candidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate
+    || state.ordinaryContinuation?.identity;
+  const priorOutcome = readPreservedPriorOutcome(config, state, {
+    chargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+    candidate,
+  });
   const lineageOptions = {
     expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
     expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
       || state.sessionLifecycle?.state?.recovery?.operationId
       || null,
+    expectedTerminalOutcome: priorOutcome.ok ? priorOutcome.outcome : null,
+    expectedTerminalCommentBodyDigest: priorOutcome.ok ? priorOutcome.commentBodyDigest : null,
     validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
   };
   let proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);

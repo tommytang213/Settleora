@@ -35,6 +35,7 @@ const recoverableLifecyclePhases = new Set([
   "pr_create_recover",
   "ci_wait",
 ]);
+const terminalIntentOutcome = "validation_failed";
 
 export function verifyHistoricalInitialCandidateLineage(config, state, issue, options = {}) {
   const fail = (reasonCode) => ({ ok: false, reasonCode });
@@ -228,7 +229,27 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
           currentMainSha: currentMain, headSha, chargeIdentity: budget.statePath,
         },
       );
-    if (!noLaterEffects(state) && !authenticatedExistingPrEffects) {
+    const prePrTerminalAuthority = validatePrePrTerminalIntentAuthority({
+      state,
+      issue,
+      intents,
+      lifecycle,
+      repository,
+      issueNumber,
+      taskKey,
+      runId,
+      supervisorRunId,
+      branch,
+      baseSha,
+      headSha,
+      chargeIdentity: budget.statePath,
+      expectedOutcome: options.expectedTerminalOutcome,
+      expectedCommentBodyDigest: options.expectedTerminalCommentBodyDigest,
+      remoteTaskBranchAbsent: remoteBranchAbsent(git, branch),
+    });
+    const authenticatedPrePrTerminalEffects = !authenticatedExistingPrEffects
+      && prePrTerminalAuthority.ok;
+    if (!noLaterEffects(state) && !authenticatedExistingPrEffects && !authenticatedPrePrTerminalEffects) {
       return fail("historical_candidate_later_effect_present");
     }
     if (!validContinuationPhase(
@@ -266,8 +287,9 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
         chargeIdentity: budget.statePath, commitIntents,
       },
     )) return fail("historical_candidate_checkout_mismatch");
-    if (intents.some((entry) => externalEffects.has(entry.effectType)) && !authenticatedExistingPrEffects) {
-      return fail("historical_candidate_external_intent_present");
+    if (intents.some((entry) => externalEffects.has(entry.effectType))
+      && !authenticatedExistingPrEffects && !authenticatedPrePrTerminalEffects) {
+      return fail(prePrTerminalAuthority.reasonCode || "historical_candidate_external_intent_present");
     }
     const lineageValidator = options.validateCommitLineage
       || validatePreservedRecoveryCommitLineage;
@@ -288,6 +310,131 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
   } catch {
     return fail("historical_candidate_authoritative_read_unavailable");
   }
+}
+
+function remoteBranchAbsent(git, branch) {
+  const result = git(["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`]);
+  return result.status === 1 && result.stdout === "" && result.stderr === "";
+}
+
+export function validatePrePrTerminalIntentAuthority(input = {}) {
+  const fail = (reasonCode) => ({ ok: false, reasonCode });
+  const {
+    state, issue, intents, lifecycle, repository, issueNumber, taskKey, runId,
+    supervisorRunId, branch, baseSha, headSha, chargeIdentity, expectedOutcome,
+    expectedCommentBodyDigest,
+    remoteTaskBranchAbsent,
+  } = input;
+  const claimIdentity = `${repository}#${issueNumber}`;
+  if (remoteTaskBranchAbsent !== true) {
+    return fail("historical_candidate_terminal_remote_branch_present");
+  }
+  if (!repository || !Number.isSafeInteger(issueNumber) || state?.issue?.number !== issueNumber
+    || state?.taskKey !== taskKey || state?.run?.runId !== runId
+    || state?.run?.supervisorRunId !== supervisorRunId || state?.branch?.name !== branch
+    || state?.branch?.baseSha !== baseSha || state?.branch?.currentHeadSha !== headSha
+    || expectedOutcome !== terminalIntentOutcome || !digest.test(expectedCommentBodyDigest || "")) {
+    return fail("historical_candidate_terminal_intent_identity_mismatch");
+  }
+  if (state?.phase !== "stopped"
+    || state?.firstIncompleteAction !== "run_validation_and_commit"
+    || state?.nextSafeAction !== "stop_fail_closed"
+    || state?.stopReason?.reasonCode !== "checkpoint_validation_recovery_failed_closed"
+    || state?.evidence?.localValidation?.status !== "failed"
+    || state?.pr?.number !== null || state?.pr?.headSha !== null
+    || state?.branch?.expectedRemoteHeadSha !== null
+    || lifecycle?.logicalTask?.issueNumber !== issueNumber
+    || lifecycle?.logicalTask?.taskKey !== taskKey
+    || lifecycle?.logicalTask?.runId !== runId
+    || lifecycle?.logicalTask?.supervisorRunId !== supervisorRunId
+    || lifecycle?.logicalTask?.claimIdentity !== claimIdentity
+    || lifecycle?.logicalTask?.chargeMarkerRef !== chargeIdentity
+    || lifecycle?.branch?.name !== branch || lifecycle?.branch?.baseSha !== baseSha
+    || lifecycle?.branch?.headSha !== headSha || lifecycle?.branch?.prNumber !== null
+    || lifecycle?.controller?.phase !== "stopped"
+    || lifecycle?.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
+    || lifecycle?.report?.status !== "stopped"
+    || lifecycle?.mutationAuthority?.status !== "terminal"
+    || lifecycle?.mutationAuthority?.ownerSessionId !== null
+    || lifecycle?.mutationAuthority?.generation !== lifecycle?.sessions?.generation
+    || lifecycle?.recovery?.effectsAlreadyPresent?.commit !== true
+    || ["push", "pr", "merge", "comment"].some(
+      (effect) => lifecycle?.recovery?.effectsAlreadyPresent?.[effect] !== false,
+    )) {
+    return fail("historical_candidate_terminal_outcome_mismatch");
+  }
+  const external = intents.filter((intent) => externalEffects.has(intent.effectType));
+  const hygiene = external.filter((intent) => intent.effectType === "hygiene_component");
+  const comments = external.filter((intent) => intent.effectType === "comment");
+  if (external.length !== 3 || hygiene.length !== 2 || comments.length !== 1) {
+    return fail("historical_candidate_terminal_intent_set_mismatch");
+  }
+  const fingerprints = external.map((intent) => intent.fingerprint);
+  const intentIds = external.map((intent) => intent.intentId);
+  if (new Set(fingerprints).size !== fingerprints.length
+    || new Set(intentIds).size !== intentIds.length) {
+    return fail("historical_candidate_terminal_intent_duplicate");
+  }
+  const sessions = new Set([lifecycle.sessions?.current, ...(lifecycle.sessions?.retired || [])]);
+  for (const intent of external) {
+    if (intent.repository !== repository || intent.sourceTaskKey !== taskKey || intent.runId !== runId
+      || intent.logicalTaskIdentity !== claimIdentity || intent.claimIdentity !== claimIdentity
+      || intent.chargeIdentity !== chargeIdentity || !sessions.has(intent.sessionId)
+      || !Number.isSafeInteger(intent.authorityGeneration)
+      || intent.authorityGeneration > lifecycle.sessions.generation
+      || intent.identity?.repository !== repository || intent.identity?.sourceTaskKey !== taskKey
+      || intent.identity?.runId !== runId || intent.identity?.logicalTaskIdentity !== claimIdentity
+      || intent.identity?.claimIdentity !== claimIdentity
+      || intent.identity?.chargeIdentity !== chargeIdentity
+      || intent.identity?.sessionId !== intent.sessionId
+      || intent.identity?.authorityGeneration !== intent.authorityGeneration
+      || intent.identity?.issueNumber !== issueNumber || intent.identity?.branchName !== branch
+      || intent.identity?.baseSha !== baseSha || intent.identity?.headSha !== headSha
+      || intent.identity?.candidateIdentity !== headSha) {
+      return fail("historical_candidate_terminal_intent_identity_mismatch");
+    }
+  }
+  const add = hygiene.filter((intent) => intent.effect?.operation === "add");
+  const remove = hygiene.filter((intent) => intent.effect?.operation === "remove");
+  if (add.length !== 1 || remove.length !== 1
+    || add[0].status !== "finalized" || remove[0].status !== "finalized"
+    || add[0].effect?.issueNumber !== issueNumber || remove[0].effect?.issueNumber !== issueNumber
+    || add[0].effect?.outcome !== terminalIntentOutcome
+    || remove[0].effect?.outcome !== terminalIntentOutcome
+    || JSON.stringify(add[0].effect?.addLabels) !== JSON.stringify(["auto-failed"])
+    || JSON.stringify(add[0].effect?.removeLabels) !== JSON.stringify([])
+    || JSON.stringify(remove[0].effect?.addLabels) !== JSON.stringify([])
+    || JSON.stringify([...(remove[0].effect?.removeLabels || [])].sort())
+      !== JSON.stringify(["auto-claimed", "auto-running"])
+    || JSON.stringify(Object.keys(add[0].effect || {}).sort())
+      !== JSON.stringify(["addLabels", "issueNumber", "operation", "outcome", "removeLabels"])
+    || JSON.stringify(Object.keys(remove[0].effect || {}).sort())
+      !== JSON.stringify(["addLabels", "issueNumber", "operation", "outcome", "removeLabels"])) {
+    return fail("historical_candidate_terminal_hygiene_mismatch");
+  }
+  const labels = new Set(issue?.labels || []);
+  if (!labels.has("auto-failed") || labels.has("auto-running") || labels.has("auto-claimed")) {
+    return fail("historical_candidate_terminal_live_labels_mismatch");
+  }
+  const comment = comments[0];
+  if (comment.status !== "prepared"
+    || comment.effect?.issueNumber !== issueNumber
+    || comment.effect?.outcome !== terminalIntentOutcome
+    || comment.effect?.bodyDigest !== expectedCommentBodyDigest
+    || JSON.stringify(Object.keys(comment.effect || {}).sort())
+      !== JSON.stringify(["bodyDigest", "issueNumber", "outcome"])
+    || comment.recoveryProvenance?.sessionId == null
+    || !Number.isSafeInteger(comment.recoveryProvenance?.authorityGeneration)
+    || comment.recoveryProvenance.authorityGeneration >= comment.authorityGeneration
+    || !digest.test(comment.recoveryProvenance?.fingerprint || "")) {
+    return fail("historical_candidate_terminal_comment_mismatch");
+  }
+  if (Object.entries(state?.mutationMarkers || {}).some(([kind, markers]) =>
+    !["claim", "logical_task_charge", "branch_ownership_created"].includes(kind)
+      && Object.keys(markers || {}).length > 0)) {
+    return fail("historical_candidate_terminal_later_effect_present");
+  }
+  return { ok: true, reasonCode: "historical_candidate_pre_pr_terminal_intents_authenticated" };
 }
 
 export function validateHistoricalRecoveryGitAuthority(config, options = {}) {

@@ -344,6 +344,18 @@ the candidate's exact single-child topology and bytes, its literal branch ref,
 the canonical repository/remote and trusted Git environment,
 and the matching recovery/lifecycle/charge/checkpoint/finalized-commit-intent
 authority with no later push, PR, merge, or replacement-candidate effect.
+The only pre-PR exception is exact terminal validation-failure bookkeeping
+from the authenticated original outcome: two finalized hygiene components
+(add only `auto-failed`; remove only `auto-running` and `auto-claimed`) and one
+prepared issue-comment intent whose canonical bounded body digest is
+reconstructed from the authenticated original run summary. Every identity,
+lifecycle generation/session, charge, branch/base/candidate, terminal outcome,
+and live label must agree, with no remote task branch, PR, push marker, or
+other external effect. Admission performs no GitHub or durable-state mutation.
+Missing, duplicated, differently fingerprinted, executing, finalized-comment,
+failed-closed, payload-mismatched, label-contradictory, foreign-owner,
+generation-drifted, later, or unreadable evidence fails closed. Authenticated
+existing-PR recovery remains a separate authority and is not broadened.
 The clean current-`main` control-plane checkout may remain in place. Recovery
 reuses an exact linked task worktree only when its durable ownership marker
 already matches, or materializes one for the already authenticated literal

@@ -101,6 +101,21 @@ admitted control-plane repository context after successful cleanup. Unowned
 or conflicting worktrees, ref drift, unsafe worktree-scoped config, or any
 later external effect remain fail-closed.
 
+Historical admission has one narrow pre-PR terminal-intent authority. It may
+classify original validation-failure bookkeeping as already-recorded lineage
+only when the authenticated stopped lifecycle, recovery state, accepted
+charge, candidate identity, and original summary agree; the remote task branch
+and PR are absent; the live issue has `auto-failed` and lacks
+`auto-running`/`auto-claimed`; and the complete external-intent set is exactly
+one finalized `auto-failed` add, one finalized transient-label removal, and one
+prepared validation-failure issue comment. The comment digest is recomputed
+from the bounded canonical failure body in the authenticated original summary.
+Admission only reads and classifies this evidence. It never consumes an
+intent, changes a label, posts a comment, creates a branch, or writes recovery
+state. Any extra, duplicate, non-exact, unresolved, later, or unreadable
+effect remains fail-closed. Existing-PR effects continue to require the
+separate existing-PR authority.
+
 ## Post-implementation continuation authorities
 
 The ordinary issue path and startup recovery share an idempotent continuation spanning exact candidate reconciliation, validation, independent and local/structured review, convergence, push, PR recovery, GitHub convergence, exact-head merge, and post-merge hygiene. Durable exact-target effects are adopted rather than replayed, a source change invalidates review and downstream effects, and the accepted logical-task charge remains the root task charge across execution/session continuations.
