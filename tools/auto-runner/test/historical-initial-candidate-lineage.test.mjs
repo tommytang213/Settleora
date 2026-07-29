@@ -398,6 +398,52 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
   const laterValidatedResult = verify(laterValidated);
   assert.equal(laterValidatedResult.ok, true, laterValidatedResult.reasonCode);
 
+  laterValidated.state.phase = "aggregate_validation";
+  laterValidated.state.firstIncompleteAction = "run_aggregate_validation";
+  laterValidated.state.nextSafeAction = "run_aggregate_validation";
+  const aggregateValidationResult = verify(laterValidated);
+  assert.equal(aggregateValidationResult.ok, true, aggregateValidationResult.reasonCode);
+
+  const handedOffAgain = laterValidated;
+  const preparedComment = handedOffAgain.intents[3];
+  const priorSessionId = preparedComment.sessionId;
+  const priorGeneration = preparedComment.authorityGeneration;
+  const requestId = hash(`${operationId}:${priorSessionId}:validation-retry`);
+  const nextSessionId =
+    `recovery-handoff:${hash(JSON.stringify([runId, operationId, requestId]))}`;
+  handedOffAgain.lifecycle.sessions.retired.push(priorSessionId);
+  handedOffAgain.lifecycle.sessions.current = nextSessionId;
+  handedOffAgain.lifecycle.sessions.generation = priorGeneration + 1;
+  handedOffAgain.lifecycle.mutationAuthority.generation = priorGeneration + 1;
+  handedOffAgain.state.sessionLifecycle = structuredClone(handedOffAgain.lifecycle);
+  preparedComment.sessionId = nextSessionId;
+  preparedComment.authorityGeneration = priorGeneration + 1;
+  preparedComment.identity.sessionId = nextSessionId;
+  preparedComment.identity.authorityGeneration = priorGeneration + 1;
+  preparedComment.recoveryProvenance = {
+    sessionId: priorSessionId,
+    authorityGeneration: priorGeneration,
+    fingerprint: hash(canonical({
+      effectType: preparedComment.effectType,
+      identity: {
+        ...preparedComment.identity,
+        sessionId: priorSessionId,
+        authorityGeneration: priorGeneration,
+      },
+      effect: preparedComment.effect,
+    })),
+  };
+  const handedOffAgainResult = verify(handedOffAgain);
+  assert.equal(handedOffAgainResult.ok, true, handedOffAgainResult.reasonCode);
+  handedOffAgain.lifecycle.sessions.retired =
+    handedOffAgain.lifecycle.sessions.retired.filter((sessionId) =>
+      sessionId !== `${runId}:recovery:${operationId}`);
+  handedOffAgain.state.sessionLifecycle = structuredClone(handedOffAgain.lifecycle);
+  assert.equal(
+    verify(handedOffAgain).reasonCode,
+    "historical_candidate_terminal_comment_mismatch",
+  );
+
   const cases = [
     ["missing hygiene", (f) => f.intents.splice(1, 1), "historical_candidate_terminal_intent_set_mismatch"],
     ["duplicate hygiene", (f) => f.intents.push({ ...structuredClone(f.intents[1]), intentId: "duplicate" }), "historical_candidate_terminal_intent_set_mismatch"],

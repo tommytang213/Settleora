@@ -29,6 +29,7 @@ const externalEffects = new Set([
 const firstExternalPhase = ordinaryContinuationPhases.indexOf("push");
 const recoverableLifecyclePhases = new Set([
   "checkpoint_validation_commit",
+  "aggregate_validation",
   "external_review",
   "codex_mechanics_security_review",
   "review_fix",
@@ -515,8 +516,8 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || JSON.stringify(Object.keys(comment.effect || {}).sort())
       !== JSON.stringify(["bodyDigest", "issueNumber", "outcome"])
     || comment.recoveryProvenance?.sessionId == null
-    || comment.recoveryProvenance.sessionId !== exactRecoveryPredecessor
-    || retiredSessions.at(-1) !== exactRecoveryPredecessor
+    || !retiredSessions.includes(exactRecoveryPredecessor)
+    || retiredSessions.at(-1) !== comment.recoveryProvenance.sessionId
     || !Number.isSafeInteger(comment.recoveryProvenance?.authorityGeneration)
     || comment.recoveryProvenance.authorityGeneration !== comment.authorityGeneration - 1
     || !digest.test(comment.recoveryProvenance?.fingerprint || "")
