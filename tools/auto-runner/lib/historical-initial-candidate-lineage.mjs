@@ -200,7 +200,10 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       || (!activeLifecyclePosture && !terminalPreparationPosture)
       || lifecycle.recovery?.operationId !== options.expectedRecoveryOperationId
       || lifecycle.recovery?.effectsAlreadyPresent?.commit !== true
-      || ["push", "pr", "merge", "comment"].some((key) => lifecycle.recovery?.effectsAlreadyPresent?.[key] !== false)
+      || ["push", "pr", "merge"].some(
+        (key) => lifecycle.recovery?.effectsAlreadyPresent?.[key] !== false,
+      )
+      || ![true, false].includes(lifecycle.recovery?.effectsAlreadyPresent?.comment)
       || lifecycle.checkpoint?.status !== "ready" || !digest.test(lifecycle.checkpoint?.digest || "")
       || lifecycle.report?.path !== state.expectedReportPaths.repoReportPath
       || lifecycle.report?.correlationKey !== taskKey) return fail("historical_candidate_lifecycle_mismatch");
@@ -399,6 +402,18 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     && lifecycle?.report?.status === "stopped"
     && lifecycle?.mutationAuthority?.status === "terminal"
     && lifecycle?.mutationAuthority?.ownerSessionId === null;
+  const terminalCommentRead = typeof readTerminalComment === "function"
+    ? readTerminalComment()
+    : null;
+  if (terminalCommentRead?.complete !== true) {
+    return fail("historical_candidate_terminal_comment_read_unavailable");
+  }
+  if (!Number.isSafeInteger(terminalCommentRead.matchingCount)
+    || terminalCommentRead.matchingCount < 0
+    || terminalCommentRead.matchingCount > 1) {
+    return fail("historical_candidate_terminal_comment_present");
+  }
+  const recordedCommentEffect = lifecycle?.recovery?.effectsAlreadyPresent?.comment;
   if ((!exactOriginalTerminalPosture && !exactPreservedContinuation)
     || state?.pr?.number !== null || state?.pr?.headSha !== null
     || state?.branch?.expectedRemoteHeadSha !== null
@@ -412,9 +427,11 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || lifecycle?.branch?.headSha !== headSha || lifecycle?.branch?.prNumber !== null
     || lifecycle?.mutationAuthority?.generation !== lifecycle?.sessions?.generation
     || lifecycle?.recovery?.effectsAlreadyPresent?.commit !== true
-    || ["push", "pr", "merge", "comment"].some(
+    || ["push", "pr", "merge"].some(
       (effect) => lifecycle?.recovery?.effectsAlreadyPresent?.[effect] !== false,
-    )) {
+    )
+    || ![true, false].includes(recordedCommentEffect)
+    || (recordedCommentEffect === true && terminalCommentRead.matchingCount !== 1)) {
     return fail("historical_candidate_terminal_outcome_mismatch");
   }
   const external = intents.filter((intent) => externalEffects.has(intent.effectType));
@@ -527,20 +544,8 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || comment.recoveryProvenance.fingerprint !== provenanceFingerprint
     || JSON.stringify(comment.diagnostics)
       !== JSON.stringify(["validated_successor_authority_handoff"])
-    || lifecycle?.recovery?.status !== "pending"
-    || lifecycle?.recovery?.effectsAlreadyPresent?.comment !== false) {
+    || lifecycle?.recovery?.status !== "pending") {
     return fail("historical_candidate_terminal_comment_mismatch");
-  }
-  const terminalCommentRead = typeof readTerminalComment === "function"
-    ? readTerminalComment()
-    : null;
-  if (terminalCommentRead?.complete !== true) {
-    return fail("historical_candidate_terminal_comment_read_unavailable");
-  }
-  if (!Number.isSafeInteger(terminalCommentRead.matchingCount)
-    || terminalCommentRead.matchingCount < 0
-    || terminalCommentRead.matchingCount > 1) {
-    return fail("historical_candidate_terminal_comment_present");
   }
   const exactWorktreeOwnership = expectedWorktreeOwnership
     && plainObject(state?.mutationMarkers?.worktree_ownership_created)

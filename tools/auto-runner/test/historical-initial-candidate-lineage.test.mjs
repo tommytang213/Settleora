@@ -534,7 +534,17 @@ test("historical terminal authority adopts one exact already-posted prepared com
   const fixture = makeFixture(2);
   authenticatePrePrTerminalFixture(fixture);
   fixture.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 1 });
-  assert.equal(verify(fixture).ok, true);
+  const persistedComment = verify(fixture);
+  assert.equal(persistedComment.ok, true, persistedComment.reasonCode);
+  fixture.lifecycle.recovery.effectsAlreadyPresent.comment = true;
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  const recordedComment = verify(fixture);
+  assert.equal(recordedComment.ok, true, recordedComment.reasonCode);
+  fixture.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 0 });
+  assert.equal(
+    verify(fixture).reasonCode,
+    "historical_candidate_terminal_outcome_mismatch",
+  );
 });
 
 test("historical proof admits only an exact finalized-intent prepared source-fix checkout", () => {
