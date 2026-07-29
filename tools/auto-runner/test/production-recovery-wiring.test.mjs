@@ -168,6 +168,14 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
     source,
     /default: async \(\{ state, boundary, preparation \}\) => \{[\s\S]*const issue = preparation\?\.issue;[\s\S]*const laneDecision = preparation\?\.laneDecision;[\s\S]*recovery_admitted_issue_snapshot_missing/,
   );
+  assert.match(
+    source,
+    /prepareAuthoritativeRecovery:[\s\S]*checkpoint = reconstructInitialValidationFailureCheckpoint\(config, state, issue, laneDecision\);[\s\S]*return \{[\s\S]*checkpoint,[\s\S]*default: async \(\{ state, boundary, preparation \}\)[\s\S]*const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/,
+  );
+  assert.match(
+    source,
+    /lineageOptions\.expectedWorktreeOwnership = \{[\s\S]*key: `\$\{state\.branch\.name\}:\$\{workspaceIdentity\}`,[\s\S]*proof = verifyHistoricalInitialCandidateLineage/,
+  );
   assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
   assert.doesNotMatch(
     source.slice(source.indexOf("function chargeStartupRecoveryLogicalTask"), source.indexOf("function createProductionRecoveryRecorder")),

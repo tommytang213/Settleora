@@ -330,6 +330,33 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
   assert.equal(normalizedFirst.requiresTaskWorkspaceAdoption, true);
   assert.equal(JSON.stringify(normalized), normalizedBefore);
 
+  const adopted = makeFixture(3);
+  authenticatePrePrTerminalFixture(adopted);
+  const workspaceIdentity = "9".repeat(64);
+  const ownershipKey = `${branch}:${workspaceIdentity}`;
+  adopted.state.mutationMarkers.worktree_ownership_created = {
+    [ownershipKey]: {
+      status: "completed",
+      target: workspaceIdentity,
+      correlation: branch,
+      completedAt: "2026-07-29T00:00:00.000Z",
+    },
+  };
+  adopted.options.expectedWorktreeOwnership = {
+    key: ownershipKey,
+    target: workspaceIdentity,
+    correlation: branch,
+  };
+  const adoptedResult = verify(adopted);
+  assert.equal(adoptedResult.ok, true, adoptedResult.reasonCode);
+  adopted.state.mutationMarkers.worktree_ownership_created[ownershipKey].target = "8".repeat(64);
+  const contradictedOwnership = verify(adopted);
+  assert.equal(contradictedOwnership.ok, false);
+  assert.equal(
+    contradictedOwnership.reasonCode,
+    "historical_candidate_terminal_later_effect_present",
+  );
+
   const cases = [
     ["missing hygiene", (f) => f.intents.splice(1, 1), "historical_candidate_terminal_intent_set_mismatch"],
     ["duplicate hygiene", (f) => f.intents.push({ ...structuredClone(f.intents[1]), intentId: "duplicate" }), "historical_candidate_terminal_intent_set_mismatch"],

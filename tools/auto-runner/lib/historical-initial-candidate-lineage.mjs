@@ -253,6 +253,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       chargeIdentity: budget.statePath,
       expectedOutcome: options.expectedTerminalOutcome,
       expectedCommentBodyDigest: options.expectedTerminalCommentBodyDigest,
+      expectedWorktreeOwnership: options.expectedWorktreeOwnership || null,
       remoteTaskBranchRead,
       readTerminalComment,
     });
@@ -344,7 +345,7 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   const {
     state, issue, intents, lifecycle, repository, issueNumber, taskKey, runId,
     supervisorRunId, branch, baseSha, headSha, chargeIdentity, expectedOutcome,
-    expectedCommentBodyDigest,
+    expectedCommentBodyDigest, expectedWorktreeOwnership,
     remoteTaskBranchRead,
     readTerminalComment,
   } = input;
@@ -513,9 +514,22 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   if (terminalCommentRead.matchingCount !== 0) {
     return fail("historical_candidate_terminal_comment_present");
   }
+  const exactWorktreeOwnership = expectedWorktreeOwnership
+    && plainObject(state?.mutationMarkers?.worktree_ownership_created)
+    && Object.keys(state.mutationMarkers.worktree_ownership_created).length === 1
+    && state.mutationMarkers.worktree_ownership_created[expectedWorktreeOwnership.key]?.status === "completed"
+    && state.mutationMarkers.worktree_ownership_created[expectedWorktreeOwnership.key]?.target
+      === expectedWorktreeOwnership.target
+    && state.mutationMarkers.worktree_ownership_created[expectedWorktreeOwnership.key]?.correlation
+      === expectedWorktreeOwnership.correlation
+    && typeof state.mutationMarkers.worktree_ownership_created[expectedWorktreeOwnership.key]?.completedAt === "string"
+    && Number.isFinite(Date.parse(
+      state.mutationMarkers.worktree_ownership_created[expectedWorktreeOwnership.key].completedAt,
+    ));
   if (!plainObject(state?.mutationMarkers)
     || Object.entries(state.mutationMarkers).some(([kind, markers]) =>
-      !["claim", "logical_task_charge", "branch_ownership_created"].includes(kind)
+      (!["claim", "logical_task_charge", "branch_ownership_created"].includes(kind)
+        && !(kind === "worktree_ownership_created" && exactWorktreeOwnership))
         || !plainObject(markers))) {
     return fail("historical_candidate_terminal_later_effect_present");
   }

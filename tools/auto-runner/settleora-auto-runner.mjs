@@ -2141,11 +2141,19 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       }
       state = { ...state, claimAuthority: recoveryClaim };
       writeRecoveryState(config, state);
+      let checkpoint = null;
+      if (state.phase === "checkpoint_validation_commit" && sourceFailureCandidate) {
+        checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
+        if (!checkpoint.ok) {
+          return { ok: false, reasonCode: checkpoint.reasonCode, state };
+        }
+      }
       return {
         ok: true,
         state,
         issue,
         laneDecision,
+        checkpoint,
         evidenceAdapters: {
           readGit: () => authenticatedTaskRefGitEvidence(config, {
             ...proof.candidateIdentity,
@@ -2437,6 +2445,11 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
         branchName: state.branch.name,
         realPath: workspace.taskRoot,
       });
+      lineageOptions.expectedWorktreeOwnership = {
+        key: `${state.branch.name}:${workspaceIdentity}`,
+        target: workspaceIdentity,
+        correlation: state.branch.name,
+      };
       if (workspace.created) {
         const markedState = recordIdempotentMutation(state, {
           kind: "worktree_ownership_created",
