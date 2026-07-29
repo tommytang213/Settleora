@@ -2220,7 +2220,8 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
       }
-      if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
+      if (["aggregate_validation", "external_review",
+        "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, boundary.phase);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
@@ -3338,14 +3339,53 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
   }
   let provenIdentity = null;
   if (baseSha !== reconstructedCurrentMainSha) {
+    const recoveryChargeId =
+      Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null;
+    const terminalCandidate = state.claimAuthority?.authority?.candidateIdentity
+      || state.ordinaryContinuation?.sourceFailureHistory?.[0]?.candidate
+      || state.ordinaryContinuation?.sourceFailureBatch?.candidate
+      || state.ordinaryContinuation?.identity
+      || null;
+    const terminalLineageOptions = {};
+    if (state.claimAuthority?.mode === claimAuthorityModes.preservedRecovery) {
+      const priorOutcome = readPreservedPriorOutcome(config, state, {
+        chargeId: recoveryChargeId,
+        candidate: terminalCandidate,
+      });
+      if (!priorOutcome.ok) return { ok: false, reasonCode: priorOutcome.reasonCode };
+      terminalLineageOptions.allowTerminalValidationRetryPreparation = true;
+      terminalLineageOptions.expectedTerminalLifecyclePhase =
+        state.sessionLifecycle?.recovery?.phaseAfter
+        || state.sessionLifecycle?.state?.recovery?.phaseAfter
+        || null;
+      terminalLineageOptions.expectedTerminalOutcome = priorOutcome.outcome;
+      terminalLineageOptions.expectedTerminalCommentBodyDigest =
+        priorOutcome.commentBodyDigest;
+      try {
+        terminalLineageOptions.expectedWorktreeOwnership =
+          authenticateRecordedTaskWorkspace(
+            config,
+            state,
+            state.ordinaryContinuation?.sourceFailureBatch?.candidate
+              || state.ordinaryContinuation?.identity
+              || terminalCandidate,
+          );
+      } catch {
+        return {
+          ok: false,
+          reasonCode: "historical_candidate_recorded_task_workspace_untrusted",
+        };
+      }
+    }
     const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
       expectedLifecyclePhase: lifecyclePhase,
       allowAuthenticatedExistingPrEffects: true,
-      expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+      expectedChargeId: recoveryChargeId,
       expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
         || state.sessionLifecycle?.state?.recovery?.operationId
         || null,
       validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
+      ...terminalLineageOptions,
     });
     if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode };
     if (filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {

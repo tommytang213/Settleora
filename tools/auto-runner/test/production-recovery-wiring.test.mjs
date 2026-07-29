@@ -252,6 +252,14 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
+    /\["aggregate_validation", "external_review",[\s\S]*loadNormalLargeCandidateRecoveryCheckpoint/,
+  );
+  assert.match(
+    source,
+    /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*const terminalCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*readPreservedPriorOutcome[\s\S]*allowTerminalValidationRetryPreparation = true[\s\S]*expectedTerminalCommentBodyDigest[\s\S]*authenticateRecordedTaskWorkspace[\s\S]*\.\.\.terminalLineageOptions/,
+  );
+  assert.match(
+    source,
     /function reconstructInitialValidationFailureCheckpoint[\s\S]*const terminalCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*candidate: terminalCandidate,[\s\S]*authenticateRecordedTaskWorkspace\(\s*config, state, candidate,/,
   );
   assert.match(source, /allowLiveBranchHead:[\s\S]*sourceFailureFixIntent\?\.status === "prepared"/);
@@ -288,7 +296,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);
-  assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
+  assert.match(
+    source,
+    /\["aggregate_validation", "external_review",[\s\S]*"codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/,
+  );
   assert.match(source, /const prospectiveValidation = recovered\?\.generatedRecoveryEvidence\?\.validation/);
   assert.match(source, /sourceFailuresFromProspectiveValidation\(prospectiveValidation/);
   assert.match(source, /prospective_validation_source_checkout_not_restored/);
