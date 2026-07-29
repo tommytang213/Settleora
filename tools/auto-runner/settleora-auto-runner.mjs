@@ -2079,8 +2079,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         || state.ordinaryContinuation?.sourceFailureHistory?.[0]?.candidate
         || historicalCandidate;
       let preservedPriorOutcome = null;
-      if (state.evidence?.localValidation?.status === "failed"
-        && priorOutcomeCandidate) {
+      if (shouldReadPreservedPriorOutcome(state, priorOutcomeCandidate)) {
         const tentativePriorOutcome = readPreservedPriorOutcome(config, state, {
           chargeId: recoveryChargeId,
           candidate: priorOutcomeCandidate,
@@ -2352,6 +2351,12 @@ function readPreservedPriorOutcome(config, state, expected) {
   } catch {
     return { ok: false, reasonCode: "preserved_claim_prior_outcome_unavailable" };
   }
+}
+
+export function shouldReadPreservedPriorOutcome(state, priorOutcomeCandidate) {
+  if (!priorOutcomeCandidate) return false;
+  return state?.claimAuthority?.mode === claimAuthorityModes.preservedRecovery
+    || state?.evidence?.localValidation?.status === "failed";
 }
 
 export function selectPreservedTerminalCommentDigest(intents, expected) {

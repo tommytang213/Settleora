@@ -14,7 +14,10 @@ import {
 } from "../lib/recovery-state.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { discoverStartupRecovery, executeStartupContinuation } from "../lib/recovery-continuation.mjs";
-import { chargeStartupRecoveryLogicalTask } from "../settleora-auto-runner.mjs";
+import {
+  chargeStartupRecoveryLogicalTask,
+  shouldReadPreservedPriorOutcome,
+} from "../settleora-auto-runner.mjs";
 
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-production-recovery-"));
@@ -64,6 +67,25 @@ test("startup continuation executes first incomplete phase before polling", asyn
   } finally {
     config.cleanup();
   }
+});
+
+test("preserved terminal outcome remains readable after later validation passes", () => {
+  const candidate = { headSha: "c".repeat(40) };
+  assert.equal(shouldReadPreservedPriorOutcome({
+    claimAuthority: { mode: "preserved_recovery_claim" },
+    evidence: { localValidation: { status: "passed" } },
+  }, candidate), true);
+  assert.equal(shouldReadPreservedPriorOutcome({
+    evidence: { localValidation: { status: "failed" } },
+  }, candidate), true);
+  assert.equal(shouldReadPreservedPriorOutcome({
+    claimAuthority: { mode: "fresh_active" },
+    evidence: { localValidation: { status: "passed" } },
+  }, candidate), false);
+  assert.equal(shouldReadPreservedPriorOutcome({
+    claimAuthority: { mode: "preserved_recovery_claim" },
+    evidence: { localValidation: { status: "passed" } },
+  }, null), false);
 });
 
 test("startup preparation establishes task authority before phase execution", async () => {
@@ -186,7 +208,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
-    /const priorOutcomeCandidate = sourceFailureCandidate[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*if \(state\.evidence\?\.localValidation\?\.status === "failed"[\s\S]*candidate: priorOutcomeCandidate,[\s\S]*verifyHistoricalInitialCandidateLineage/,
+    /const priorOutcomeCandidate = sourceFailureCandidate[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*shouldReadPreservedPriorOutcome\(state, priorOutcomeCandidate\)[\s\S]*candidate: priorOutcomeCandidate,[\s\S]*verifyHistoricalInitialCandidateLineage/,
   );
   assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
   assert.doesNotMatch(
