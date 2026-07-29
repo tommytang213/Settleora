@@ -667,6 +667,32 @@ test("historical initial candidate accepts only bounded downstream lifecycle pos
     const result = verify(fixture);
     assert.equal(result.ok, true, `${phase}: ${result.reasonCode}`);
   }
+  const genericHandoff = makeFixture(2);
+  const genericPredecessor = genericHandoff.lifecycle.sessions.retired.at(-1);
+  const genericRequestId = hash(`${operationId}:${genericPredecessor}`);
+  const genericSuccessor =
+    `recovery-handoff:${hash(JSON.stringify([runId, operationId, genericRequestId]))}`;
+  genericHandoff.lifecycle.sessions.current = genericSuccessor;
+  genericHandoff.lifecycle.mutationAuthority.ownerSessionId = genericSuccessor;
+  genericHandoff.lifecycle.mutationAuthority.handoff = {
+    ...genericHandoff.lifecycle.mutationAuthority.handoff,
+    requestId: genericRequestId,
+    reason: "provider_stream_disconnect",
+    successorSessionId: genericSuccessor,
+  };
+  genericHandoff.lifecycle.controller = {
+    phase: "external_review",
+    nextExactAction: "resume_external_review",
+  };
+  genericHandoff.lifecycle.recovery.phaseAfter = "external_review";
+  genericHandoff.state.sessionLifecycle = structuredClone(genericHandoff.lifecycle);
+  genericHandoff.options.expectedLifecyclePhase = "external_review";
+  assert.equal(verify(genericHandoff).ok, true);
+  genericHandoff.lifecycle.mutationAuthority.handoff.requestId = "f".repeat(64);
+  assert.equal(
+    verify(genericHandoff).reasonCode,
+    "historical_candidate_lifecycle_mismatch",
+  );
   const unsupported = makeFixture(2);
   unsupported.lifecycle.controller = { phase: "merge", nextExactAction: "merge" };
   unsupported.lifecycle.recovery.phaseAfter = "merge";
@@ -1239,15 +1265,23 @@ function makeFixture(advances, candidateSuffix = "") {
       sourceFailureBatch: { candidate: structuredClone(candidate) },
     },
   };
+  const recoveryPredecessor = `${runId}:recovery:${operationId}`;
+  const recoveryRequestId = hash(
+    `${operationId}:${recoveryPredecessor}:validation-retry`,
+  );
+  const recoverySuccessor =
+    `recovery-handoff:${hash(JSON.stringify([runId, operationId, recoveryRequestId]))}`;
   const lifecycle = {
     logicalTask: { claimIdentity: `${repository}#${issueNumber}`, supervisorRunId, chargeMarkerRef: budgetPath },
     branch: { name: branch, baseSha, headSha },
-    sessions: { generation: 6, current: "successor-session" },
+    sessions: { generation: 6, current: recoverySuccessor, retired: [recoveryPredecessor] },
     mutationAuthority: {
-      generation: 6, status: "active", ownerSessionId: "successor-session",
+      generation: 6, status: "active", ownerSessionId: recoverySuccessor,
       handoff: {
+        requestId: recoveryRequestId,
+        retiredSessionId: recoveryPredecessor,
         reason: "validation_retry_derivative_reopened",
-        successorSessionId: "successor-session",
+        successorSessionId: recoverySuccessor,
       },
     },
     controller: {

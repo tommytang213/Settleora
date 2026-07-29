@@ -167,6 +167,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     if (!recoverableLifecyclePhases.has(expectedLifecyclePhase)) {
       return fail("historical_candidate_lifecycle_mismatch");
     }
+    const lifecycleSuccessor = authenticatedRecoverySuccessor(lifecycle, runId);
     const activeLifecyclePosture = lifecycle.mutationAuthority?.status === "active"
       && lifecycle.mutationAuthority?.ownerSessionId === lifecycle.sessions.current
       && lifecycle.mutationAuthority.ownerSessionId === expectedLifecycle?.mutationAuthority?.ownerSessionId
@@ -178,7 +179,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
           && lifecycle.controller.nextExactAction.length > 0)
       && lifecycle.report?.status === "in_progress"
       && lifecycle.recovery?.phaseAfter === expectedLifecyclePhase
-      && lifecycle.mutationAuthority?.handoff?.reason === "validation_retry_derivative_reopened"
+      && lifecycleSuccessor === lifecycle.sessions.current
       && lifecycle.mutationAuthority.handoff.successorSessionId === lifecycle.sessions.current;
     const terminalPreparationPosture = options.allowTerminalValidationRetryPreparation === true
       && lifecycle.controller?.phase === "stopped"
@@ -485,6 +486,7 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     return fail("historical_candidate_terminal_live_labels_mismatch");
   }
   const comment = comments[0];
+  const lifecycleSuccessor = authenticatedRecoverySuccessor(lifecycle, runId);
   const provenanceIdentity = comment?.identity && comment?.recoveryProvenance
     ? {
       ...comment.identity,
@@ -499,11 +501,12 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
       effect: comment.effect,
     }))
     : null;
-  const expectedRecoverySuccessor = recoverySuccessorIdentity({
-    runId,
-    operationId: lifecycle?.recovery?.operationId,
-    predecessorSessionId: comment?.recoveryProvenance?.sessionId,
-  });
+  const expectedRecoverySuccessor = lifecycleSuccessor
+    || recoverySuccessorIdentity({
+      runId,
+      operationId: lifecycle?.recovery?.operationId,
+      predecessorSessionId: comment?.recoveryProvenance?.sessionId,
+    });
   const retiredSessions = lifecycle.sessions?.retired || [];
   const exactRecoveryPredecessor = `${runId}:recovery:${lifecycle?.recovery?.operationId}`;
   if (comment.status !== "prepared"
@@ -958,6 +961,19 @@ function recoverySuccessorIdentity({ runId, operationId, predecessorSessionId })
   if (!runId || !operationId || !predecessorSessionId) return null;
   const requestId = hash(`${operationId}:${predecessorSessionId}:validation-retry`);
   return `recovery-handoff:${hash(JSON.stringify([runId, operationId, requestId]))}`;
+}
+function authenticatedRecoverySuccessor(lifecycle, runId) {
+  const handoff = lifecycle?.mutationAuthority?.handoff;
+  const operationId = lifecycle?.recovery?.operationId;
+  const predecessorSessionId = handoff?.retiredSessionId;
+  if (!runId || !operationId || !predecessorSessionId
+    || typeof handoff?.reason !== "string" || !handoff.reason.length
+    || lifecycle.sessions?.retired?.at(-1) !== predecessorSessionId) return null;
+  const expectedRequestId = handoff.reason === "validation_retry_derivative_reopened"
+    ? hash(`${operationId}:${predecessorSessionId}:validation-retry`)
+    : hash(`${operationId}:${predecessorSessionId}`);
+  if (handoff.requestId !== expectedRequestId) return null;
+  return `recovery-handoff:${hash(JSON.stringify([runId, operationId, handoff.requestId]))}`;
 }
 function plainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
