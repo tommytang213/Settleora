@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -16,6 +17,7 @@ import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { discoverStartupRecovery, executeStartupContinuation } from "../lib/recovery-continuation.mjs";
 import {
   chargeStartupRecoveryLogicalTask,
+  rejectHistoricalWorkspacePreparation,
   shouldReadPreservedPriorOutcome,
 } from "../settleora-auto-runner.mjs";
 
@@ -86,6 +88,40 @@ test("preserved terminal outcome remains readable after later validation passes"
     claimAuthority: { mode: "preserved_recovery_claim" },
     evidence: { localValidation: { status: "passed" } },
   }, null), false);
+});
+
+test("rejected prepared descendant restores the clean control-plane repository context", () => {
+  const originalCwd = process.cwd();
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-rejected-descendant-"));
+  const controlRoot = path.join(root, "control");
+  const rejectedWorkspace = path.join(root, "rejected-workspace");
+  const run = (cwd, args) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  try {
+    run(root, ["init", controlRoot]);
+    run(root, ["init", rejectedWorkspace]);
+    process.chdir(rejectedWorkspace);
+    const config = {
+      controlPlaneRepoRoot: controlRoot,
+      repoRoot: rejectedWorkspace,
+    };
+    const state = { taskKey: "prepared-descendant" };
+    const rejected = rejectHistoricalWorkspacePreparation(
+      config, state, "historical_candidate_prepared_descendant_mismatch",
+    );
+    assert.deepEqual(rejected, {
+      ok: false,
+      reasonCode: "historical_candidate_prepared_descendant_mismatch",
+      state,
+    });
+    assert.equal(config.repoRoot, controlRoot);
+    assert.equal(process.cwd(), controlRoot);
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("startup preparation establishes task authority before phase execution", async () => {
@@ -211,6 +247,14 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
     /const priorOutcomeCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*sourceFailureCandidate[\s\S]*shouldReadPreservedPriorOutcome\(state, priorOutcomeCandidate\)[\s\S]*candidate: priorOutcomeCandidate,[\s\S]*verifyHistoricalInitialCandidateLineage/,
   );
   assert.match(source, /allowLiveBranchHead:[\s\S]*sourceFailureFixIntent\?\.status === "prepared"/);
+  assert.match(
+    source,
+    /const proof = verifyHistoricalInitialCandidateLineage[\s\S]*if \(!proof\.ok\) \{[\s\S]*rejectHistoricalWorkspacePreparation\(config, state, proof\.reasonCode\)/,
+  );
+  assert.match(
+    source,
+    /function rejectHistoricalWorkspacePreparation\(config, state, reasonCode\) \{[\s\S]*restoreControlPlaneRepositoryContext\(config\)[\s\S]*historical_candidate_control_plane_restore_failed[\s\S]*return \{ ok: false, reasonCode, state \};/,
+  );
   assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
   assert.doesNotMatch(
     source.slice(source.indexOf("function chargeStartupRecoveryLogicalTask"), source.indexOf("function createProductionRecoveryRecorder")),

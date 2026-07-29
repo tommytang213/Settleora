@@ -2116,16 +2116,22 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           config, state, historicalCandidate,
         );
       } catch {
-        return { ok: false, reasonCode: "historical_candidate_recorded_task_workspace_untrusted", state };
+        return rejectHistoricalWorkspacePreparation(
+          config, state, "historical_candidate_recorded_task_workspace_untrusted",
+        );
       }
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
-      if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
+      if (!proof.ok) {
+        return rejectHistoricalWorkspacePreparation(config, state, proof.reasonCode);
+      }
       const originalCandidateIdentity = state.claimAuthority?.authority?.candidateIdentity || proof.candidateIdentity;
       const priorOutcome = preservedPriorOutcome || readPreservedPriorOutcome(config, state, {
         chargeId: lineageOptions.expectedChargeId,
         candidate: originalCandidateIdentity,
       });
-      if (!priorOutcome.ok) return { ok: false, reasonCode: priorOutcome.reasonCode, state };
+      if (!priorOutcome.ok) {
+        return rejectHistoricalWorkspacePreparation(config, state, priorOutcome.reasonCode);
+      }
       const recoveryClaim = validateClaimAuthority(config, state.issue, issue, {
         mode: claimAuthorityModes.preservedRecovery,
         taskKey: state.taskKey,
@@ -2149,7 +2155,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         lease: { valid: controlPlaneAdmission.lease?.valid, runId: controlPlaneAdmission.lease?.runId },
       });
       if (!recoveryClaim.ok) {
-        return { ok: false, reasonCode: recoveryClaim.reasonCode || "startup_recovery_claim_authority_failed", state };
+        return rejectHistoricalWorkspacePreparation(
+          config,
+          state,
+          recoveryClaim.reasonCode || "startup_recovery_claim_authority_failed",
+        );
       }
       state = { ...state, claimAuthority: recoveryClaim };
       writeRecoveryState(config, state);
@@ -2157,7 +2167,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       if (state.phase === "checkpoint_validation_commit" && sourceFailureCandidate) {
         checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
         if (!checkpoint.ok) {
-          return { ok: false, reasonCode: checkpoint.reasonCode, state };
+          return rejectHistoricalWorkspacePreparation(config, state, checkpoint.reasonCode);
         }
       }
       return {
@@ -2266,6 +2276,19 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+export function rejectHistoricalWorkspacePreparation(config, state, reasonCode) {
+  try {
+    restoreControlPlaneRepositoryContext(config);
+  } catch {
+    return {
+      ok: false,
+      reasonCode: "historical_candidate_control_plane_restore_failed",
+      state,
+    };
+  }
+  return { ok: false, reasonCode, state };
 }
 
 function readPreservedPriorOutcome(config, state, expected) {
