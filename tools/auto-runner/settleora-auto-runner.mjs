@@ -2072,6 +2072,9 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const laneDecision = classifyIssueLane(issue);
       const recoveryChargeId = Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null;
       const sourceFailureCandidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate || null;
+      const historicalCandidate = sourceFailureCandidate
+        || state.ordinaryContinuation?.identity
+        || null;
       let preservedPriorOutcome = null;
       if (state.phase === "checkpoint_validation_commit"
         && state.evidence?.localValidation?.status === "failed"
@@ -2108,7 +2111,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
       try {
         lineageOptions.expectedWorktreeOwnership = authenticateRecordedTaskWorkspace(
-          config, state, sourceFailureCandidate,
+          config, state, historicalCandidate,
         );
       } catch {
         return { ok: false, reasonCode: "historical_candidate_recorded_task_workspace_untrusted", state };

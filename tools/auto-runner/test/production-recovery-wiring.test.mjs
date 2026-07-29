@@ -180,6 +180,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
     source,
     /lineageOptions\.expectedWorktreeOwnership = authenticateRecordedTaskWorkspace\([\s\S]*function authenticateRecordedTaskWorkspace[\s\S]*requireExisting: true/,
   );
+  assert.match(
+    source,
+    /const historicalCandidate = sourceFailureCandidate[\s\S]*state\.ordinaryContinuation\?\.identity[\s\S]*authenticateRecordedTaskWorkspace\(\s*config, state, historicalCandidate,/,
+  );
   assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
   assert.doesNotMatch(
     source.slice(source.indexOf("function chargeStartupRecoveryLogicalTask"), source.indexOf("function createProductionRecoveryRecorder")),
