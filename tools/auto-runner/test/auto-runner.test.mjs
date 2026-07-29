@@ -122,6 +122,7 @@ import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import {
   loadSummaryConfig,
   planOrdinaryRecoveryBranch,
+  selectPreservedTerminalCommentDigest,
   verifyProspectiveMergeValidation,
 } from "../settleora-auto-runner.mjs";
 import { writeIterationState } from "../lib/state-store.mjs";
@@ -3090,6 +3091,46 @@ test("terminal comment digest read classifies exact fixture comments without exp
     complete: false,
     matchingCount: 0,
   });
+});
+
+test("preserved terminal outcome reuses the exact prepared intent digest after summary redaction", () => {
+  const expected = {
+    repository: "example/repository",
+    taskKey: "task-1",
+    runId: "run-1",
+    issueNumber: 11,
+    branchName: "feature/issue-11",
+    baseSha: "a".repeat(40),
+    headSha: "b".repeat(40),
+    outcome: "validation_failed",
+  };
+  const originalBodyDigest = "c".repeat(64);
+  const intent = {
+    repository: expected.repository,
+    sourceTaskKey: expected.taskKey,
+    runId: expected.runId,
+    effectType: "comment",
+    status: "prepared",
+    identity: {
+      repository: expected.repository,
+      sourceTaskKey: expected.taskKey,
+      runId: expected.runId,
+      issueNumber: expected.issueNumber,
+      branchName: expected.branchName,
+      baseSha: expected.baseSha,
+      headSha: expected.headSha,
+      candidateIdentity: expected.headSha,
+    },
+    effect: {
+      issueNumber: expected.issueNumber,
+      outcome: expected.outcome,
+      bodyDigest: originalBodyDigest,
+    },
+  };
+  assert.equal(selectPreservedTerminalCommentDigest([intent], expected), originalBodyDigest);
+  assert.equal(selectPreservedTerminalCommentDigest([intent, structuredClone(intent)], expected), null);
+  intent.effect.bodyDigest = "redacted-summary-reconstruction";
+  assert.equal(selectPreservedTerminalCommentDigest([intent], expected), null);
 });
 
 test("failure and gated terminal outcomes remove active claim labels", () => {

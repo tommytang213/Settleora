@@ -2308,14 +2308,52 @@ function readPreservedPriorOutcome(config, state, expected) {
     }
     const outcome = matching[0].outcome;
     const commentBodyDigest = outcome === "validation_failed"
-      ? canonicalGithubEvidenceDigest(boundIssueOutcomeBody(
-        validationFailureBody(state.issue, matching[0].validation),
-      ))
+      ? selectPreservedTerminalCommentDigest(
+        findPreEffectIntents(config, (intent) =>
+          intent.repository === config.repositorySlug
+          && intent.sourceTaskKey === taskKey
+          && intent.runId === runId
+          && intent.effectType === "comment"),
+        {
+          repository: config.repositorySlug,
+          taskKey,
+          runId,
+          issueNumber,
+          branchName,
+          baseSha,
+          headSha,
+          outcome,
+        },
+      )
       : null;
+    if (outcome === "validation_failed" && commentBodyDigest === null) {
+      return { ok: false, reasonCode: "preserved_claim_prior_outcome_comment_digest_mismatch" };
+    }
     return { ok: true, outcome, commentBodyDigest };
   } catch {
     return { ok: false, reasonCode: "preserved_claim_prior_outcome_unavailable" };
   }
+}
+
+export function selectPreservedTerminalCommentDigest(intents, expected) {
+  const matching = (intents || []).filter((intent) =>
+    intent?.repository === expected?.repository
+    && intent?.sourceTaskKey === expected?.taskKey
+    && intent?.runId === expected?.runId
+    && intent?.effectType === "comment"
+    && intent?.status === "prepared"
+    && intent?.identity?.repository === expected?.repository
+    && intent?.identity?.sourceTaskKey === expected?.taskKey
+    && intent?.identity?.runId === expected?.runId
+    && intent?.identity?.issueNumber === expected?.issueNumber
+    && intent?.identity?.branchName === expected?.branchName
+    && intent?.identity?.baseSha === expected?.baseSha
+    && intent?.identity?.headSha === expected?.headSha
+    && intent?.identity?.candidateIdentity === expected?.headSha
+    && intent?.effect?.issueNumber === expected?.issueNumber
+    && intent?.effect?.outcome === expected?.outcome
+    && /^[a-f0-9]{64}$/u.test(intent?.effect?.bodyDigest || ""));
+  return matching.length === 1 ? matching[0].effect.bodyDigest : null;
 }
 
 function authenticatedTaskRefGitEvidence(config, candidate) {
