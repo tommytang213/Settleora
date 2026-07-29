@@ -396,7 +396,9 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   const fingerprints = external.map((intent) => intent.fingerprint);
   const intentIds = external.map((intent) => intent.intentId);
   if (fingerprints.some((value) => !digest.test(value || ""))
-    || intentIds.some((value) => !digest.test(value || ""))
+    || intentIds.some((value) =>
+      typeof value !== "string" || value.length === 0 || value.length > 120
+        || /[\x00-\x1f\x7f]/u.test(value))
     || new Set(fingerprints).size !== fingerprints.length
     || new Set(intentIds).size !== intentIds.length) {
     return fail("historical_candidate_terminal_intent_duplicate");
@@ -451,8 +453,28 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     return fail("historical_candidate_terminal_live_labels_mismatch");
   }
   const comment = comments[0];
+  const provenanceIdentity = comment?.identity && comment?.recoveryProvenance
+    ? {
+      ...comment.identity,
+      sessionId: comment.recoveryProvenance.sessionId,
+      authorityGeneration: comment.recoveryProvenance.authorityGeneration,
+    }
+    : null;
+  const provenanceFingerprint = provenanceIdentity
+    ? hash(canonical({
+      effectType: comment.effectType,
+      identity: provenanceIdentity,
+      effect: comment.effect,
+    }))
+    : null;
+  const expectedRecoverySuccessor = recoverySuccessorIdentity({
+    runId,
+    operationId: lifecycle?.recovery?.operationId,
+    predecessorSessionId: comment?.recoveryProvenance?.sessionId,
+  });
   if (comment.status !== "prepared"
     || comment.sessionId !== lifecycle.sessions.current
+    || comment.sessionId !== expectedRecoverySuccessor
     || comment.authorityGeneration !== lifecycle.sessions.generation
     || comment.effect?.issueNumber !== issueNumber
     || comment.effect?.outcome !== terminalIntentOutcome
@@ -463,7 +485,8 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || !lifecycle.sessions.retired?.includes(comment.recoveryProvenance.sessionId)
     || !Number.isSafeInteger(comment.recoveryProvenance?.authorityGeneration)
     || comment.recoveryProvenance.authorityGeneration !== comment.authorityGeneration - 1
-    || !digest.test(comment.recoveryProvenance?.fingerprint || "")) {
+    || !digest.test(comment.recoveryProvenance?.fingerprint || "")
+    || comment.recoveryProvenance.fingerprint !== provenanceFingerprint) {
     return fail("historical_candidate_terminal_comment_mismatch");
   }
   if (!plainObject(state?.mutationMarkers)
@@ -868,8 +891,22 @@ function canonicalCorrelatedPath(candidate, root, prefix) {
   }
 }
 function lines(value) { return String(value || "").split(/\r?\n/u).filter(Boolean); }
+function recoverySuccessorIdentity({ runId, operationId, predecessorSessionId }) {
+  if (!runId || !operationId || !predecessorSessionId) return null;
+  const requestId = hash(`${operationId}:${predecessorSessionId}:validation-retry`);
+  return `recovery-handoff:${hash(JSON.stringify([runId, operationId, requestId]))}`;
+}
 function plainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(
+      (key) => `${JSON.stringify(key)}:${canonical(value[key])}`,
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 function hash(value) { return createHash("sha256").update(String(value)).digest("hex"); }
 function hashJson(value) { return hash(JSON.stringify(value)); }

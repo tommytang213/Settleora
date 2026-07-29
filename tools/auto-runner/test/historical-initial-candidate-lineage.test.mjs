@@ -349,6 +349,9 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     ["foreign recovery provenance", (f) => {
       f.intents[3].recoveryProvenance.sessionId = "foreign";
     }, "historical_candidate_terminal_comment_mismatch"],
+    ["wrong recovery provenance fingerprint", (f) => {
+      f.intents[3].recoveryProvenance.fingerprint = "9".repeat(64);
+    }, "historical_candidate_terminal_comment_mismatch"],
     ["non-adjacent recovery generation", (f) => {
       f.intents[3].recoveryProvenance.authorityGeneration -= 1;
     }, "historical_candidate_terminal_comment_mismatch"],
@@ -358,6 +361,9 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     }, "historical_candidate_terminal_hygiene_mismatch"],
     ["malformed intent fingerprint", (f) => {
       f.intents[1].fingerprint = "not-a-digest";
+    }, "historical_candidate_terminal_intent_duplicate"],
+    ["malformed intent id", (f) => {
+      f.intents[1].intentId = "bad\nid";
     }, "historical_candidate_terminal_intent_duplicate"],
     ["noncanonical retry handoff", (f) => {
       f.state.phase = "checkpoint_validation_commit";
@@ -790,7 +796,11 @@ function authenticatePrePrTerminalFixture(fixture) {
     issueNumber, taskKey, runId, supervisorRunId,
   };
   fixture.lifecycle.branch.prNumber = null;
-  fixture.lifecycle.sessions.retired = [terminalSessionId, "original-recovery-session"];
+  const recoverySessionId = "original-recovery-session";
+  const requestId = hash(`${operationId}:${recoverySessionId}:validation-retry`);
+  const successorSessionId = `recovery-handoff:${hash(JSON.stringify([runId, operationId, requestId]))}`;
+  fixture.lifecycle.sessions.current = successorSessionId;
+  fixture.lifecycle.sessions.retired = [terminalSessionId, recoverySessionId];
   fixture.lifecycle.mutationAuthority = {
     generation: fixture.lifecycle.sessions.generation,
     status: "terminal",
@@ -821,7 +831,7 @@ function authenticatePrePrTerminalFixture(fixture) {
   });
   fixture.intents.push({
     ...common(terminalSessionId, terminalGeneration),
-    effectType: "hygiene_component", intentId: "5".repeat(64), fingerprint: "1".repeat(64),
+    effectType: "hygiene_component", intentId: "11111111-1111-4111-8111-111111111111", fingerprint: "1".repeat(64),
     status: "finalized", identity: identity(terminalSessionId, terminalGeneration),
     effect: {
       addLabels: ["auto-failed"], issueNumber, operation: "add",
@@ -829,20 +839,24 @@ function authenticatePrePrTerminalFixture(fixture) {
     },
   }, {
     ...common(terminalSessionId, terminalGeneration),
-    effectType: "hygiene_component", intentId: "6".repeat(64), fingerprint: "2".repeat(64),
+    effectType: "hygiene_component", intentId: "22222222-2222-4222-8222-222222222222", fingerprint: "2".repeat(64),
     status: "finalized", identity: identity(terminalSessionId, terminalGeneration),
     effect: {
       addLabels: [], issueNumber, operation: "remove",
       outcome: "validation_failed", removeLabels: ["auto-running", "auto-claimed"],
     },
   }, {
-    ...common("successor-session", 6),
-    effectType: "comment", intentId: "7".repeat(64), fingerprint: "3".repeat(64),
-    status: "prepared", identity: identity("successor-session", 6),
+    ...common(successorSessionId, 6),
+    effectType: "comment", intentId: "33333333-3333-4333-8333-333333333333", fingerprint: "3".repeat(64),
+    status: "prepared", identity: identity(successorSessionId, 6),
     effect: { bodyDigest: commentDigest, issueNumber, outcome: "validation_failed" },
     recoveryProvenance: {
-      sessionId: "original-recovery-session", authorityGeneration: 5,
-      fingerprint: "4".repeat(64),
+      sessionId: recoverySessionId, authorityGeneration: 5,
+      fingerprint: hash(canonical({
+        effectType: "comment",
+        identity: identity(recoverySessionId, 5),
+        effect: { bodyDigest: commentDigest, issueNumber, outcome: "validation_failed" },
+      })),
     },
   });
 }
@@ -1164,3 +1178,12 @@ function overrideGit(fixture, overrides) {
 }
 function hash(value) { return createHash("sha256").update(String(value)).digest("hex"); }
 function hashJson(value) { return hash(JSON.stringify(value)); }
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(
+      (key) => `${JSON.stringify(key)}:${canonical(value[key])}`,
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
