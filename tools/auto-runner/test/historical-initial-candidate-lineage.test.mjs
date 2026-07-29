@@ -365,7 +365,7 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
     authority: {
       taskKey,
       runId,
-      chargeId: laterValidated.options.loadBudget().statePath,
+      chargeId,
       priorOutcome: "validation_failed",
       branchName: branch,
       baseSha: laterValidated.baseSha,

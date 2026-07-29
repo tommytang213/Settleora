@@ -250,6 +250,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
       branch,
       baseSha,
       headSha,
+      chargeId,
       chargeIdentity: budget.statePath,
       expectedOutcome: options.expectedTerminalOutcome,
       expectedCommentBodyDigest: options.expectedTerminalCommentBodyDigest,
@@ -344,7 +345,7 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   const fail = (reasonCode) => ({ ok: false, reasonCode });
   const {
     state, issue, intents, lifecycle, repository, issueNumber, taskKey, runId,
-    supervisorRunId, branch, baseSha, headSha, chargeIdentity, expectedOutcome,
+    supervisorRunId, branch, baseSha, headSha, chargeId, chargeIdentity, expectedOutcome,
     expectedCommentBodyDigest, expectedWorktreeOwnership,
     remoteTaskBranchRead,
     readTerminalComment,
@@ -376,7 +377,7 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     && preservedClaim?.ok === true
     && preservedClaim?.authority?.taskKey === taskKey
     && preservedClaim?.authority?.runId === runId
-    && preservedClaim?.authority?.chargeId === chargeIdentity
+    && preservedClaim?.authority?.chargeId === chargeId
     && preservedClaim?.authority?.priorOutcome === terminalIntentOutcome
     && preservedClaim?.authority?.branchName === branch
     && preservedClaim?.authority?.baseSha === baseSha
