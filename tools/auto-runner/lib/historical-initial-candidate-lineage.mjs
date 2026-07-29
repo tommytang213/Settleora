@@ -499,7 +499,7 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || !digest.test(comment.recoveryProvenance?.fingerprint || "")
     || comment.recoveryProvenance.fingerprint !== provenanceFingerprint
     || JSON.stringify(comment.diagnostics)
-      !== JSON.stringify(["authoritative_absence_successor_reissue"])
+      !== JSON.stringify(["validated_successor_authority_handoff"])
     || lifecycle?.recovery?.status !== "pending"
     || lifecycle?.recovery?.effectsAlreadyPresent?.comment !== false) {
     return fail("historical_candidate_terminal_comment_mismatch");

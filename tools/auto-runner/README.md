@@ -356,7 +356,7 @@ The two hygiene intents share the exact finalized candidate-commit
 session/generation; the prepared comment is owned by the exact current terminal
 generation and cites the immediately preceding retired recovery generation.
 The predecessor must be the recovery session derived from the exact operation,
-must be the last retired session, and must carry the authoritative-absence
+must be the last retired session, and must carry the validated-successor
 handoff diagnostic into the request-bound successor. A bounded, paginated live
 issue read must prove that zero comments match the canonical body digest.
 Missing, duplicated, differently fingerprinted, executing, finalized-comment,

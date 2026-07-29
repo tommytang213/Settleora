@@ -360,7 +360,7 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
       f.lifecycle.sessions.retired.push(foreign);
       f.intents[3].recoveryProvenance.sessionId = foreign;
     }, "historical_candidate_terminal_comment_mismatch"],
-    ["missing authoritative-absence handoff diagnostic", (f) => {
+    ["wrong successor handoff diagnostic", (f) => {
       f.intents[3].diagnostics = [];
     }, "historical_candidate_terminal_comment_mismatch"],
     ["hygiene generation differs from commit authority", (f) => {
@@ -872,7 +872,7 @@ function authenticatePrePrTerminalFixture(fixture) {
         effect: { bodyDigest: commentDigest, issueNumber, outcome: "validation_failed" },
       })),
     },
-    diagnostics: ["authoritative_absence_successor_reissue"],
+    diagnostics: ["validated_successor_authority_handoff"],
   });
 }
 
