@@ -8,6 +8,7 @@ import {
   exactRawValidationEvidence,
   exactLifecycle,
   exactTerminalIteration,
+  exactTerminalSummary,
   exactTerminalFailureFindings,
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
@@ -39,10 +40,14 @@ test("terminal retry projection binds the successor budget marker charge and tas
     baseOriginMainSha: target.baseSha,
     runnerCreatedCommitSha: target.headSha,
     pr: null,
+    existingPrRecovery: null,
+    bundle: null,
+    autoMerge: null,
     changedFiles: [],
     validation: null,
     review: null,
     externalReview: null,
+    systemicStop: "recoverable-work-blocked:historical_candidate_task_workspace_untrusted",
     logicalTaskBudget: {
       ok: true,
       duplicate: true,
@@ -98,6 +103,43 @@ test("terminal retry projection binds the successor budget marker charge and tas
       },
     },
   }, target), false);
+  for (const field of ["existingPrRecovery", "bundle", "autoMerge"]) {
+    assert.equal(exactTerminalIteration({ ...iteration, [field]: { status: "completed" } }, target), false);
+  }
+  assert.equal(exactTerminalIteration({
+    ...iteration,
+    systemicStop: "recoverable-work-blocked:different_reason",
+  }, target), false);
+});
+
+test("terminal retry projection binds the runner summary to the iteration systemic stop", () => {
+  const iteration = {
+    runId: "run-successor",
+    startedAt: "2026-07-30T09:32:43.249Z",
+    finishedAt: "2026-07-30T09:32:51.858Z",
+    systemicStop: "recoverable-work-blocked:historical_candidate_task_workspace_untrusted",
+  };
+  const target = { issueNumber: 959 };
+  const summary = {
+    iterations: [iteration],
+    runId: iteration.runId,
+    supervisorRunId: "supervised-successor",
+    stopReason: iteration.systemicStop,
+    attemptedIssueCount: 0,
+    attemptedIssueNumbers: [],
+    processedIssueCount: 1,
+    processedIssueNumbers: [target.issueNumber],
+    acceptedLogicalTaskCount: 1,
+    maxIterations: 1,
+    startedAt: "2026-07-30T09:32:43.185Z",
+    finishedAt: "2026-07-30T09:32:51.859Z",
+  };
+  assert.equal(exactTerminalSummary(summary, iteration, target), true);
+  assert.equal(exactTerminalSummary({ ...summary, stopReason: null }, iteration, target), false);
+  assert.equal(exactTerminalSummary({
+    ...summary,
+    stopReason: "recoverable-work-blocked:different_reason",
+  }, iteration, target), false);
 });
 
 test("terminal retry projection binds every lifecycle convergence counter", () => {

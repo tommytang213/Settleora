@@ -285,7 +285,9 @@ export function exactTerminalIteration(value, target) {
     && value?.baseOriginMainSha === target.baseSha
     && value?.runnerCreatedCommitSha === target.headSha
     && value?.pr === null && value?.changedFiles?.length === 0
+    && value?.existingPrRecovery === null && value?.bundle === null && value?.autoMerge === null
     && value?.validation === null && value?.review === null && value?.externalReview === null
+    && value?.systemicStop === "recoverable-work-blocked:historical_candidate_task_workspace_untrusted"
     && budget?.ok === true && budget?.duplicate === true && budget?.charged === false
     && budget?.chargeId === target.chargeId
     && budget?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
@@ -311,10 +313,11 @@ function exactTerminalProjection(value, target) {
     && value?.supervisorRunId === target.supervisorRunId;
 }
 
-function exactTerminalSummary(summary, iteration, target) {
+export function exactTerminalSummary(summary, iteration, target) {
   return summary?.iterations?.length === 1
     && canonical(summary.iterations[0]) === canonical(iteration)
     && summary?.runId === iteration.runId
+    && summary?.stopReason === iteration.systemicStop
     && typeof summary?.supervisorRunId === "string"
     && summary?.attemptedIssueCount === 0 && summary?.attemptedIssueNumbers?.length === 0
     && summary?.processedIssueCount === 1 && canonical(summary?.processedIssueNumbers) === canonical([target.issueNumber])
