@@ -1,5 +1,61 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#999 and PR #1021 — historical task-workspace authority repair merged (2026-07-30)
+
+- PR #1021 merged normally from exact source head
+  `ebd1184de96497b4055c3fc26f9f5861250eb3a6`, source tree
+  `c6655859b44c278a14e881965949b979fb290318`, and base
+  `e96376b03d1e11dddeec28be237201ce56681753` as merge/current `main`
+  `ffff36f95bae214db3165d701e0afa8dca8b20f5`. The ordered merge parents are
+  the exact base followed by the exact source head, and the merge tree equals
+  the authorized source tree.
+- The exact three-commit repair changed only
+  `tools/auto-runner/settleora-auto-runner.mjs`,
+  `tools/auto-runner/lib/git-workspace.mjs`,
+  `tools/auto-runner/test/production-recovery-wiring.test.mjs`, and
+  `tools/auto-runner/test/git-workspace.test.mjs`, with 91 additions and 26
+  deletions. No `.codex/reports/**` path entered the merge.
+- Root cause: canonical effect authority was evaluated while preserved
+  lifecycle authority was terminal, before active-successor handoff.
+  Authoritative preparation now remains read-only; reconstruction occurs at
+  the post-planning `checkpoint_validation_commit` boundary. Exact finalized
+  `worktree_create` effects may be reconciled across successor authority only
+  when repository, task, run, issue, claim, charge, branch, head,
+  deterministic-root, and common-dir identities match. Reconstructed intents
+  include exact issue authority, and contradictory or ambiguous evidence
+  remains fail-closed.
+- The authoritative post-run recovery baseline is
+  `6babf52dfea9e9edee4824b4d3933426ecd85f9066cb02ea95cc0c53cae80c99`;
+  historical pre-submit recovery hash
+  `2ce51e452bb3f4e2c87fd0cd98756067bce1641af5d88069f78a78fccf866171`
+  remains historical evidence only.
+- Exact final validation passed: `npm ci` with 0 vulnerabilities, doctor,
+  changed-module syntax, focused tests `83/83`, complete auto-runner tests
+  `1276/1276`, docs, scaffold, diff, exact-scope, and clean-worktree guards.
+  Fresh Gemini `strong_independent` and local Codex mechanics/integration/
+  recovery/Git/security reviews passed. Both GitHub Codex P1 findings were
+  fixed; all 2 review threads are resolved. Required CodeQL, Semgrep, Trivy,
+  and Scaffold checks passed, with open code/dependency/secret alerts `0/0/0`.
+- Issue #959 supplied immutable evidence only. PR #1021 and this hygiene caused
+  no deployment, runner submission, queue activation, runtime/profile/
+  approval/launcher/health mutation, #959 product or GitHub effect, #999
+  effect, or unrelated product, API/OpenAPI, auth/security, storage/privacy,
+  money/settlement, schema/migration, Docker/deployment/CI, architecture, or
+  Day 1 scope effect.
+- Keep Issue #1012 `OPEN` with `manual-gate`. The remaining operational gates
+  are a separately authorized deployment of the corrected current-main runtime
+  with installed runtime/profile/approval/launcher/health identity
+  verification, followed by another explicit authorization for exactly one
+  trusted preserved Issue #959 continuation proving no duplicate claim,
+  charge, task, branch, candidate, or product effect. Issue #959 remains
+  `OPEN`; Issue #999 remains separate, `OPEN`, unimplemented, and untouched.
+- Issue #1012 merge checkpoint comment:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5130241600`.
+  Source reports:
+  `/workspace/logs/settleora-codex-report-20260730-1804-issue-1012-recovery-baseline-dirty-workspace-repair-continuation.md`
+  and
+  `/workspace/logs/settleora-codex-report-20260730-1916-pr1021-metadata-reconciliation-merge-gate.md`.
+
 ### Issues #1012/#959/#999 and PR #1019 — recovery-authority reconciliation repair merged (2026-07-30)
 
 - PR #1019 merged normally from exact authorized source head
