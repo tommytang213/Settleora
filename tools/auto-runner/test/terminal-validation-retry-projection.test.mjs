@@ -44,6 +44,16 @@ test("terminal retry projection binds the successor budget marker charge and tas
     headSha: "2".repeat(40),
     runnerRunId: "run-original",
     supervisorRunId: "supervised-original",
+    chargeMarkerRef: "/trusted/logical-task-budget/original.json",
+  };
+  const marker = {
+    chargeId: target.chargeId,
+    identity: {
+      repository: target.repository,
+      issueNumber: target.issueNumber,
+      taskLineageId: `issue-${target.issueNumber}`,
+      claimIdentity: target.claimIdentity,
+    },
   };
   const iteration = {
     index: 1,
@@ -68,15 +78,17 @@ test("terminal retry projection binds the successor budget marker charge and tas
       charged: false,
       chargeId: target.chargeId,
       acceptedLogicalTaskCount: 1,
-      marker: {
-        chargeId: target.chargeId,
-        identity: {
-          repository: target.repository,
-          issueNumber: target.issueNumber,
-          taskLineageId: `issue-${target.issueNumber}`,
-          claimIdentity: target.claimIdentity,
+      statePath: target.chargeMarkerRef,
+      state: {
+        stateVersion: 1,
+        repository: target.repository,
+        budgetScopeId: target.supervisorRunId,
+        acceptedLogicalTaskCount: 1,
+        charges: {
+          [target.chargeId]: marker,
         },
       },
+      marker,
     },
     recovery: {
       states: [{
@@ -107,6 +119,26 @@ test("terminal retry projection binds the successor budget marker charge and tas
       marker: { ...iteration.logicalTaskBudget.marker, chargeId: "b".repeat(64) },
     },
   }, target), false);
+  for (const logicalTaskBudget of [
+    { ...iteration.logicalTaskBudget, statePath: "/trusted/logical-task-budget/other.json" },
+    {
+      ...iteration.logicalTaskBudget,
+      state: { ...iteration.logicalTaskBudget.state, budgetScopeId: "supervised-other" },
+    },
+    {
+      ...iteration.logicalTaskBudget,
+      state: {
+        ...iteration.logicalTaskBudget.state,
+        acceptedLogicalTaskCount: 2,
+        charges: {
+          ...iteration.logicalTaskBudget.state.charges,
+          ["b".repeat(64)]: { ...marker, chargeId: "b".repeat(64) },
+        },
+      },
+    },
+  ]) {
+    assert.equal(exactTerminalIteration({ ...iteration, logicalTaskBudget }, target), false);
+  }
   assert.equal(exactTerminalIteration({
     ...iteration,
     logicalTaskBudget: {
@@ -226,6 +258,38 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
     },
   };
   assert.equal(exactLifecycle(lifecycle, target), true);
+  const reopenedPending = {
+    ...lifecycle,
+    checkpoint: { digest: "c".repeat(64) },
+    sessions: { current: "terminal-session" },
+    controller: {
+      ...lifecycle.controller,
+      phase: "checkpoint_validation_commit",
+      nextExactAction: "run_validation_and_commit",
+    },
+    report: { status: "in_progress" },
+    mutationAuthority: {
+      status: "recovery_pending",
+      ownerSessionId: null,
+      handoff: {
+        requestId: "d".repeat(64),
+        retiredSessionId: "terminal-session",
+        successorSessionId: null,
+        reason: "validation_retry_derivative_reopened",
+        checkpointDigest: "c".repeat(64),
+        startedAt: "2026-07-30T20:00:00.000Z",
+      },
+    },
+  };
+  assert.equal(exactLifecycle(reopenedPending, target), false, "deployment posture remains terminal-only");
+  assert.equal(exactLifecycle(reopenedPending, { ...target, allowReopenedLifecycle: true }), true);
+  assert.equal(exactLifecycle({
+    ...reopenedPending,
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      handoff: { ...reopenedPending.mutationAuthority.handoff, checkpointDigest: "e".repeat(64) },
+    },
+  }, { ...target, allowReopenedLifecycle: true }), false);
   for (const [key, targetKey] of [
     ["localSourceChangingRoundsPerEpoch", "localSourceChangingRounds"],
     ["githubTriggeredFixEpochsPerPr", "githubTriggeredFixEpochs"],

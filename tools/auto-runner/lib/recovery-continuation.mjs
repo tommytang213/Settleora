@@ -223,6 +223,7 @@ function projectTargetedTerminalDerivative(config, rawState) {
     localSourceChangingRounds: counters?.localSourceChangingRoundsPerEpoch,
     githubTriggeredFixEpochs: counters?.githubTriggeredFixEpochsPerPr,
     lifetimeLocalSourceChangingRounds: counters?.lifetimeLocalSourceChangingRounds,
+    allowReopenedLifecycle: true,
   };
   const budget = loadLogicalTaskBudget(config, target.supervisorRunId || target.runnerRunId);
   const budgetCharges = budget.state?.charges || {};

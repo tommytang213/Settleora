@@ -10,6 +10,7 @@ import {
   specPathForRunId,
   validateRunSpecShape,
 } from "../supervisor/run-spec.mjs";
+import { recoverySuccessorSessionId } from "./session-lifecycle.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const TERMINAL_REASON_CODE = "checkpoint_validation_recovery_failed_closed";
@@ -318,7 +319,7 @@ export function stateMayBelongToTargetOrSuccessorRun(state, target, directlyAsso
 
 export function exactLifecycle(state, target) {
   const effects = state?.recovery?.effectsAlreadyPresent;
-  return state?.repository === target.repository
+  const common = state?.repository === target.repository
     && state?.logicalTask?.issueNumber === target.issueNumber
     && state?.logicalTask?.taskKey === target.taskKey
     && state?.logicalTask?.runId === target.runnerRunId
@@ -327,15 +328,9 @@ export function exactLifecycle(state, target) {
     && state?.logicalTask?.chargeMarkerRef === target.chargeMarkerRef
     && state?.branch?.name === target.branch && state?.branch?.baseSha === target.baseSha
     && state?.branch?.headSha === target.headSha && state?.branch?.prNumber === null
-    && state?.controller?.phase === "stopped"
-    && state?.controller?.nextExactAction === TERMINAL_REASON_CODE
     && state?.controller?.localSourceChangingRoundsPerEpoch === target.localSourceChangingRounds
     && state?.controller?.githubTriggeredFixEpochsPerPr === target.githubTriggeredFixEpochs
     && state?.controller?.lifetimeLocalSourceChangingRounds === target.lifetimeLocalSourceChangingRounds
-    && state?.report?.status === "stopped"
-    && state?.mutationAuthority?.status === "terminal"
-    && state?.mutationAuthority?.ownerSessionId === null
-    && state?.mutationAuthority?.handoff === null
     && state?.interruption?.class === "main_process_exit_without_terminal_report"
     && state?.interruption?.reasonCode === "interruption_main_process_exit_without_terminal_report"
     && state?.recovery?.status === "pending"
@@ -344,6 +339,35 @@ export function exactLifecycle(state, target) {
     && state?.recovery?.phaseAfter === "checkpoint_validation_commit"
     && effects?.mutation === false && effects?.commit === true && effects?.push === false
     && effects?.pr === false && effects?.merge === false && effects?.comment === false;
+  if (!common) return false;
+  const exactTerminal = state?.controller?.phase === "stopped"
+    && state?.controller?.nextExactAction === TERMINAL_REASON_CODE
+    && state?.report?.status === "stopped"
+    && state?.mutationAuthority?.status === "terminal"
+    && state?.mutationAuthority?.ownerSessionId === null
+    && state?.mutationAuthority?.handoff === null;
+  if (exactTerminal) return true;
+  if (target?.allowReopenedLifecycle !== true) return false;
+  const handoff = state?.mutationAuthority?.handoff;
+  const exactReopened = state?.controller?.phase === "checkpoint_validation_commit"
+    && state?.controller?.nextExactAction === "run_validation_and_commit"
+    && state?.report?.status === "in_progress"
+    && handoff?.reason === "validation_retry_derivative_reopened"
+    && handoff?.checkpointDigest === state?.checkpoint?.digest
+    && typeof handoff?.startedAt === "string";
+  if (!exactReopened) return false;
+  const successor = recoverySuccessorSessionId(state);
+  const exactPending = state?.mutationAuthority?.status === "recovery_pending"
+    && state?.mutationAuthority?.ownerSessionId === null
+    && handoff?.retiredSessionId === state?.sessions?.current
+    && handoff?.successorSessionId === null;
+  const exactActive = successor.ok
+    && state?.mutationAuthority?.status === "active"
+    && state?.mutationAuthority?.ownerSessionId === successor.sessionId
+    && state?.sessions?.current === successor.sessionId
+    && handoff?.successorSessionId === successor.sessionId
+    && state?.sessions?.retired?.includes(handoff?.retiredSessionId);
+  return exactPending || exactActive;
 }
 
 export function exactTerminalIteration(value, target) {
@@ -365,6 +389,13 @@ export function exactTerminalIteration(value, target) {
     && budget?.ok === true && budget?.duplicate === true && budget?.charged === false
     && budget?.chargeId === target.chargeId
     && budget?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
+    && budget?.statePath === target.chargeMarkerRef
+    && budget?.state?.stateVersion === 1
+    && budget?.state?.repository === target.repository
+    && budget?.state?.budgetScopeId === target.supervisorRunId
+    && budget?.state?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
+    && Object.keys(budget?.state?.charges || {}).length === target.acceptedLogicalTasks
+    && canonical(budget?.state?.charges?.[target.chargeId]) === canonical(budget?.marker)
     && budget?.marker?.chargeId === target.chargeId
     && budget?.marker?.identity?.repository === target.repository
     && budget?.marker?.identity?.issueNumber === target.issueNumber
