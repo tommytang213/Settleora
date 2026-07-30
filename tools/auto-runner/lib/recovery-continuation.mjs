@@ -14,6 +14,7 @@ import { assertMutationAuthority, completeSessionRotation, loadSessionLifecycleF
 import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvidence } from "./authoritative-recovery-evidence.mjs";
 import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAuthorityMatches } from "./pre-effect-intent.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
+import { projectAuthenticatedTerminalValidationRetryDerivative } from "./terminal-validation-retry-projection.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -134,7 +135,9 @@ export function discoverTargetedStartupRecovery(config) {
       stateCounts: partition.counts,
     };
   }
-  const state = partition.exactMatches[0];
+  const rawState = partition.exactMatches[0];
+  const projection = projectTargetedTerminalDerivative(config, rawState);
+  const state = rawState;
   if (!config.allowExistingPrRecovery) {
     return {
       found: true,
@@ -144,6 +147,7 @@ export function discoverTargetedStartupRecovery(config) {
       state: summarizeRecoverableState(state),
       states: partition.exactMatches.map(summarizeRecoverableState),
       stateCounts: partition.counts,
+      terminalDerivativeProjection: boundedProjectionEvidence(projection),
     };
   }
   const boundary = firstIncompleteContinuationAction(state);
@@ -156,10 +160,13 @@ export function discoverTargetedStartupRecovery(config) {
       state: summarizeRecoverableState(state),
       states: partition.exactMatches.map(summarizeRecoverableState),
       stateCounts: partition.counts,
+      terminalDerivativeProjection: boundedProjectionEvidence(projection),
     };
   }
-  const regeneration = recoveryRequiresExactHeadEvidenceRegeneration(state);
-  if (regeneration.required) {
+  const regeneration = recoveryRequiresExactHeadEvidenceRegeneration(
+    projection.ok ? projection.effectiveRecovery : state,
+  );
+  if (regeneration.required && !projection.ok) {
     return {
       found: true,
       allowed: false,
@@ -168,9 +175,10 @@ export function discoverTargetedStartupRecovery(config) {
       state: summarizeRecoverableState(state),
       states: partition.exactMatches.map(summarizeRecoverableState),
       stateCounts: partition.counts,
+      terminalDerivativeProjection: boundedProjectionEvidence(projection),
     };
   }
-  return {
+  const discovered = {
     found: true,
     allowed: true,
     action: "resume_recoverable_work",
@@ -180,7 +188,71 @@ export function discoverTargetedStartupRecovery(config) {
     states: partition.exactMatches.map(summarizeRecoverableState),
     stateCounts: partition.counts,
     target,
+    terminalDerivativeProjection: boundedProjectionEvidence(projection),
   };
+  if (projection.ok) {
+    Object.defineProperty(discovered, "projectedRecoveryState", {
+      value: projection.effectiveRecovery,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
+  }
+  return discovered;
+}
+
+function projectTargetedTerminalDerivative(config, rawState) {
+  const identity = rawState?.ordinaryContinuation?.identity;
+  const counters = rawState?.ordinaryContinuation?.counters;
+  const chargeIds = Object.keys(rawState?.mutationMarkers?.logical_task_charge || {});
+  if (chargeIds.length !== 1 || !identity) return { ok: false };
+  const target = {
+    repository: config.repositorySlug,
+    issueNumber: rawState.issue?.number,
+    taskKey: rawState.taskKey,
+    runnerRunId: rawState.run?.runId,
+    supervisorRunId: rawState.run?.supervisorRunId,
+    claimIdentity: `${config.repositorySlug}#${rawState.issue?.number}`,
+    chargeId: chargeIds[0],
+    branch: rawState.branch?.name,
+    baseSha: rawState.branch?.baseSha,
+    headSha: rawState.branch?.currentHeadSha,
+    treeSha: identity.treeSha,
+    changedFilesDigest: identity.changedFilesDigest,
+    diffDigest: identity.diffDigest,
+    acceptedLogicalTasks: counters?.acceptedLogicalTasks,
+  };
+  const lifecycle = loadSessionLifecycleForRecovery(config, {
+    repository: target.repository,
+    issueNumber: target.issueNumber,
+    taskKey: target.taskKey,
+    runId: target.runnerRunId,
+    supervisorRunId: target.supervisorRunId,
+    branchName: target.branch,
+    baseSha: target.baseSha,
+    headSha: target.headSha,
+  });
+  if (!lifecycle.ok) return { ok: false };
+  return projectAuthenticatedTerminalValidationRetryDerivative({
+    logsRoot: config.logsRoot,
+    rawRecovery: rawState,
+    rawRecoveryPath: rawState.statePath,
+    lifecycle: lifecycle.state,
+    lifecyclePath: lifecycle.statePath,
+    target,
+  });
+}
+
+function boundedProjectionEvidence(projection) {
+  if (!projection?.ok) return null;
+  return Object.freeze({
+    ok: true,
+    projectionApplied: true,
+    projectionReasonCode: projection.projectionReasonCode,
+    evidenceDigest: projection.evidenceDigest,
+    boundArtifacts: Object.freeze(projection.boundArtifacts.map(({ role, sha256 }) =>
+      Object.freeze({ role, sha256 }))),
+  });
 }
 
 export async function executeStartupContinuation(config, recovery, handlers = {}) {
@@ -204,8 +276,9 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
-  const validationRetryTerminal = isValidationFailureRetryAuthorized(loaded.state) ? loaded.state : null;
-  let state = normalizeValidationFailureContinuation(loaded.state);
+  const loadedState = recovery.projectedRecoveryState || loaded.state;
+  const validationRetryTerminal = isValidationFailureRetryAuthorized(loadedState) ? loadedState : null;
+  let state = normalizeValidationFailureContinuation(loadedState);
   const prepareAuthoritativeRecovery = selectOwnCallableHandler(handlers, "prepareAuthoritativeRecovery");
   const preparation = prepareAuthoritativeRecovery
     ? await prepareAuthoritativeRecovery({ state, loaded, recovery })
