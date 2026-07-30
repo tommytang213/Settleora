@@ -250,7 +250,7 @@ async function submit(cli, config) {
   const profile = resolveProfile(cli.profile, config.logsRoot);
   const admittedConfigPath = config.configPath || profile.runnerConfigPath;
   const runId = generateRunId();
-  const initialOriginMainSha = getRefSha("origin/main", { cwd: config.repoRoot });
+  const observedOriginMainSha = getRefSha("origin/main", { cwd: config.repoRoot });
   const recoveryOnlyTarget = cli.terminalValidationRetryDerivative
     ? {
         taskKey: cli.targetTaskKey,
@@ -269,6 +269,7 @@ async function submit(cli, config) {
         terminalValidationRetryDerivativeNoPr: true,
       }
     : null;
+  const initialOriginMainSha = recoveryOnlyTarget?.baseSha || observedOriginMainSha;
   const specResult = buildRunSpec({
     runId,
     maxTasks: cli.maxTasks,
@@ -314,6 +315,7 @@ async function submit(cli, config) {
     maxTasks: specResult.spec.maxTasks,
     maxRuntime: specResult.spec.maxRuntime,
     initialOriginMainSha,
+    observedOriginMainSha,
     spec: specResult.spec,
     specPath: specPathForRunId(runId, config.logsRoot),
     specSha256,
