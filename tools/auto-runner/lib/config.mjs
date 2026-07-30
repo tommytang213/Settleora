@@ -300,6 +300,7 @@ export function parseCliArgs(argv) {
     else if (arg === "--outage-target-head-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), currentHeadSha: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-pr") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prNumber: parseOutageTargetPositiveInteger(readValue(argv, ++index, arg), arg) };
     else if (arg === "--outage-target-pr-head-sha") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), prHeadSha: readValue(argv, ++index, arg) };
+    else if (arg === "--outage-target-terminal-validation-retry-derivative") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), terminalValidationRetryDerivativeNoPr: true };
     else if (arg === "--outage-target-runner-run-id") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), runnerRunId: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-supervisor-run-id") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), supervisorRunId: readValue(argv, ++index, arg) };
     else if (arg === "--outage-target-original-spec-digest") args.outageRecoveryTarget = { ...(args.outageRecoveryTarget || {}), originalSupervisorSpecDigest: readValue(argv, ++index, arg) };
@@ -644,6 +645,7 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
     currentHeadSha: String(value.currentHeadSha || "").trim(),
     prNumber: value.prNumber ?? null,
     prHeadSha: value.prHeadSha === null || value.prHeadSha === undefined ? null : String(value.prHeadSha || "").trim(),
+    terminalValidationRetryDerivativeNoPr: value.terminalValidationRetryDerivativeNoPr === true,
     runnerRunId: String(value.runnerRunId || "").trim(),
     supervisorRunId: String(value.supervisorRunId || "").trim(),
     originalSupervisorSpecDigest: String(value.originalSupervisorSpecDigest || "").trim(),
@@ -657,7 +659,13 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
   if (!/^[a-f0-9]{40}$/.test(target.baseSha)) throw new Error("Invalid outage target base SHA");
   if (!/^[a-f0-9]{40}$/.test(target.currentHeadSha)) throw new Error("Invalid outage target head SHA");
   if ((target.prNumber === null) !== (target.prHeadSha === null)) throw new Error("Outage target PR number/head SHA must be paired");
-  if (target.prNumber === null || target.prHeadSha === null) throw new Error("Outage recovery-only target requires PR number/head SHA");
+  if (target.terminalValidationRetryDerivativeNoPr) {
+    if (target.prNumber !== null || target.prHeadSha !== null) {
+      throw new Error("Terminal validation-retry derivative target must not include PR identity");
+    }
+  } else if (target.prNumber === null || target.prHeadSha === null) {
+    throw new Error("Outage recovery-only target requires PR number/head SHA");
+  }
   if (target.prNumber !== null && (!Number.isSafeInteger(target.prNumber) || target.prNumber < 1 || target.prNumber > 9999999)) throw new Error("Invalid outage target PR number");
   if (target.prHeadSha !== null && !/^[a-f0-9]{40}$/.test(target.prHeadSha)) throw new Error("Invalid outage target PR head SHA");
   if (!/^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?$/.test(target.runnerRunId)) throw new Error("Invalid outage target runner run ID");
@@ -667,9 +675,15 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
     ["marker key", target.markerKey],
     ["fingerprint", target.outageFingerprint],
   ]) {
-    if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`Invalid outage target ${label}`);
+    if (target.terminalValidationRetryDerivativeNoPr ? digest !== "" : !/^[a-f0-9]{64}$/.test(digest)) {
+      throw new Error(`Invalid outage target ${label}`);
+    }
   }
-  if (!Number.isSafeInteger(target.attemptNumber) || target.attemptNumber < 1 || target.attemptNumber > 20) throw new Error("Invalid outage target attempt");
+  if (target.terminalValidationRetryDerivativeNoPr) {
+    if (target.attemptNumber !== null && target.attemptNumber !== undefined) throw new Error("Invalid outage target attempt");
+  } else if (!Number.isSafeInteger(target.attemptNumber) || target.attemptNumber < 1 || target.attemptNumber > 20) {
+    throw new Error("Invalid outage target attempt");
+  }
   return target;
 }
 

@@ -269,7 +269,11 @@ export async function main() {
   const logger = createLogger(config.logsRoot, runId);
   const recoveryOnlyStartupDiscovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : null;
   const recoveryOnlyStartupEvidenceCheck = recoveryOnlyStartupDiscovery?.found && recoveryOnlyStartupDiscovery.allowed
-    ? validateRecoveryOnlyStartupEvidence(config, { issue: { number: config.outageRecoveryTarget?.issueNumber } })
+    ? validateRecoveryOnlyStartupEvidence(
+      config,
+      { issue: { number: config.outageRecoveryTarget?.issueNumber } },
+      recoveryOnlyStartupDiscovery.terminalDerivativeProjection,
+    )
     : { ok: true };
   let lockPath = null;
   const summary = {
@@ -2058,7 +2062,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         return { ok: false, reasonCode: reconciledHead.reasonCode, state };
       }
       state = reconciledHead.state;
-      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(
+        config,
+        state,
+        terminalDerivativeProjection,
+      );
       if (!startupEvidenceCheck.ok) {
         return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
       }
@@ -2229,7 +2237,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
     },
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
     default: async ({ state, boundary, preparation }) => {
-      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(
+        config,
+        state,
+        startupRecovery.terminalDerivativeProjection,
+      );
       if (!startupEvidenceCheck.ok) {
         return {
           ok: false,
@@ -3658,8 +3670,13 @@ function recoveredReviewerManualVerdict(evidence) {
   return verdict === "danger_gate" ? "danger_gate" : verdict === "needs_tommy" ? "blocked_needs_tommy" : null;
 }
 
-function validateRecoveryOnlyStartupEvidence(config, state) {
+function validateRecoveryOnlyStartupEvidence(config, state, terminalDerivativeProjection = null) {
   if (!config.outageRecoveryOnly) return { ok: true };
+  if (config.outageRecoveryTarget?.terminalValidationRetryDerivativeNoPr === true) {
+    return terminalDerivativeProjection?.ok === true
+      ? { ok: true }
+      : { ok: false, reason: "terminal_validation_retry_derivative_projection_missing" };
+  }
   const issueNumber = state?.issue?.number;
   const recoveryConfig = config.existingPrRecovery?.[issueNumber] || config.existingPrRecovery?.[String(issueNumber)] || null;
   if (!recoveryConfig) {
