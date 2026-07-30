@@ -848,17 +848,22 @@ function noLaterEffects(state) {
 function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const continuation = state.ordinaryContinuation;
   const pr = state.pr;
+  const priorHeads = new Set((continuation?.sourceFailureHistory || [])
+    .map((entry) => entry?.candidate?.headSha).filter((value) => sha.test(value || "")));
+  if (sha.test(continuation?.identity?.headSha || "")) priorHeads.add(continuation.identity.headSha);
   const livePr = authority.liveTaskPrRead?.prs?.length === 1
     ? authority.liveTaskPrRead.prs[0]
     : null;
-  const effectivePr = pr?.number == null && livePr ? {
+  const persistedPrCanLagLive = pr?.number != null && livePr
+    && pr.number === livePr.number && pr.url === livePr.url
+    && pr.headRefName === livePr.headRefName && pr.baseRefName === livePr.baseRefName
+    && ["OPEN", "open"].includes(pr.state) && livePr.state === "OPEN"
+    && priorHeads.has(pr.headSha) && livePr.headRefOid === authority.headSha;
+  const effectivePr = (pr?.number == null || persistedPrCanLagLive) && livePr ? {
     number: livePr.number, url: livePr.url, state: livePr.state,
     headSha: livePr.headRefOid, headRefName: livePr.headRefName,
     baseRefName: livePr.baseRefName,
   } : pr;
-  const priorHeads = new Set((continuation?.sourceFailureHistory || [])
-    .map((entry) => entry?.candidate?.headSha).filter((value) => sha.test(value || "")));
-  if (sha.test(continuation?.identity?.headSha || "")) priorHeads.add(continuation.identity.headSha);
   const fingerprints = continuation?.processedGithubFindingFingerprints;
   const externalIntents = intents.filter((entry) => externalEffects.has(entry.effectType));
   const allowedTypes = new Set(["push", "pr_create", "pr_head_update"]);
@@ -903,7 +908,7 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const exactPr = (entry) => commonIntentAuthority(entry)
     && entry.identity?.issueNumber === authority.issueNumber
     && entry.identity?.baseBranch === "main"
-    && entry.identity?.baseSha === authority.currentMainSha
+    && entry.identity?.baseSha === continuation.expectedOriginMainSha
     && entry.effect?.issueNumber === authority.issueNumber
     && entry.effect?.sourceBranch === authority.branch
     && intentHead(entry) === entry.identity.headSha
@@ -912,7 +917,7 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
       : [entry.effect?.localSha, entry.effect?.localCommitSha, entry.effect?.sourceHeadSha]
         .some((value) => value === intentHead(entry)))
     && entry.effect?.targetBaseBranch === "main"
-    && entry.effect?.targetBaseSha === authority.currentMainSha
+    && entry.effect?.targetBaseSha === continuation.expectedOriginMainSha
     && (entry.effect?.draft == null || entry.effect.draft === false)
     && (entry.effect?.prNumber == null || entry.effect.prNumber === effectivePr?.number)
     && (entry.effect?.prUrl == null || entry.effect.prUrl === exactUrl);
@@ -947,7 +952,8 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const markerHeads = (values, target) => values.every((entry) =>
     entry?.status === "completed" && entry?.target === target
       && orderedPushHeads.includes(entry?.correlation));
-  const pushChainValid = continuation?.expectedOriginMainSha === authority.currentMainSha
+  const pushChainValid = sha.test(continuation?.expectedOriginMainSha || "")
+    && ancestor(authority.git, continuation.expectedOriginMainSha, authority.currentMainSha)
     && [null, authority.headSha].includes(state.branch?.expectedRemoteHeadSha)
     && authority.remoteTaskBranchRead?.complete === true
     && authority.remoteTaskBranchRead?.absent === false
@@ -982,6 +988,14 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && entry?.baseRefName === "main"
     && entry?.headRefName === authority.branch
     && entry?.headRefOid === authority.headSha);
+  const prUpdatePending = continuation?.phase === "push"
+    && persistedPrCanLagLive
+    && prIntents.length === orderedPushHeads.length - 1
+    && prCreateIntents.length === prIntents.length
+    && prCreateIntents.every(exactPr)
+    && orderedPushHeads.slice(0, -1).every((head) => prHeads.has(head))
+    && prHeads.size === orderedPushHeads.length - 1
+    && prMarkers.length === orderedPushHeads.length - 1;
   return pushChainValid
     && authority.liveTaskPrRead.prs.length === 1 && livePrMatches.length === 1
     && Number.isSafeInteger(effectivePr?.number) && effectivePr.number > 0
@@ -989,18 +1003,21 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && effectivePr.headSha === authority.headSha && priorHeads.has(effectivePr.headSha)
     && effectivePr.headRefName === authority.branch && effectivePr.baseRefName === "main"
     && ["OPEN", "open"].includes(effectivePr.state)
-    && (pr?.number == null || (pr.number === effectivePr.number && pr.url === effectivePr.url
-      && pr.headSha === effectivePr.headSha && pr.headRefName === effectivePr.headRefName
+    && (pr?.number == null || persistedPrCanLagLive || (pr.number === effectivePr.number
+      && pr.url === effectivePr.url && pr.headSha === effectivePr.headSha
+      && pr.headRefName === effectivePr.headRefName
       && pr.baseRefName === effectivePr.baseRefName && pr.state === effectivePr.state))
     && markerHeads(prMarkers, exactUrl)
     && prMarkers.length <= orderedPushHeads.length
     && new Set(prMarkers.map((entry) => entry.correlation)).size === prMarkers.length
     && (terminalIntents.length === 0 || terminalIntentSetValid)
-    && prIntents.length === orderedPushHeads.length
-    && prCreateIntents.length === orderedPushHeads.length
-    && prCreateIntents.every(exactPr)
-    && prHeads.size === orderedPushHeads.length
-    && orderedPushHeads.every((head) => prHeads.has(head));
+    && (prUpdatePending || (
+      prIntents.length === orderedPushHeads.length
+      && prCreateIntents.length === orderedPushHeads.length
+      && prCreateIntents.every(exactPr)
+      && prHeads.size === orderedPushHeads.length
+      && orderedPushHeads.every((head) => prHeads.has(head)
+    )));
 }
 function continuationExternalEffectPresent(effects) {
   return effects && typeof effects === "object"

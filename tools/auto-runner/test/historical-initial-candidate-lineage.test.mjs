@@ -1093,6 +1093,75 @@ test("historical existing-PR authentication accepts only a contiguous bounded he
   }
 });
 
+test("historical existing-PR recovery adopts an exact pushed head before its PR checkpoint", () => {
+  const fixture = makeFixture(2);
+  advanceWithSourceFix(fixture);
+  authenticateExistingPrFixture(fixture);
+  const priorPr = structuredClone(fixture.state.pr);
+  advanceAuthenticatedExistingPrHead(fixture);
+  const liveHead = fixture.state.pr.headSha;
+  fixture.state.pr = priorPr;
+  fixture.intents.splice(
+    fixture.intents.findLastIndex((entry) => entry.effectType === "pr_create"),
+    1,
+  );
+  delete fixture.state.mutationMarkers.pr_create.update;
+  fixture.state.ordinaryContinuation.phase = "push";
+  fixture.state.ordinaryContinuation.effects = {};
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+    index < ordinaryContinuationPhases.indexOf("push"); index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    fixture.state.ordinaryContinuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(
+        fixture.state.ordinaryContinuation, phase,
+      ),
+      completedAt: "2026-07-30T00:00:00.000Z",
+    };
+  }
+  fixture.lifecycle.controller = {
+    phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+  };
+  fixture.lifecycle.recovery.phaseAfter = "pr_create_recover";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "pr_create_recover";
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  fixture.options.readLiveTaskPrs = () => ({
+    complete: true,
+    prs: [{
+      number: priorPr.number, url: priorPr.url, state: "OPEN", isDraft: false,
+      baseRefName: "main", headRefName: branch, headRefOid: liveHead,
+    }],
+  });
+  const exact = verify(fixture);
+  assert.equal(exact.ok, true, exact.reasonCode);
+  fixture.options.readLiveTaskPrs = () => ({
+    complete: true,
+    prs: [{
+      number: priorPr.number + 1, url: priorPr.url, state: "OPEN", isDraft: false,
+      baseRefName: "main", headRefName: branch, headRefOid: liveHead,
+    }],
+  });
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+});
+
+test("historical PR effects remain bound to their recorded main ancestor", () => {
+  const fixture = makeFixture(2);
+  advanceWithSourceFix(fixture);
+  authenticateExistingPrFixture(fixture);
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  run(fixture.repoRoot, ["checkout", "main"]);
+  writeFileSync(path.join(fixture.repoRoot, "later-main"), "later\n");
+  run(fixture.repoRoot, ["add", "later-main"]);
+  run(fixture.repoRoot, ["commit", "-m", "later main"]);
+  const laterMain = run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+  run(fixture.repoRoot, ["update-ref", "refs/remotes/origin/main", laterMain]);
+  run(fixture.repoRoot, ["checkout", branch]);
+  const exact = verify(fixture);
+  assert.equal(exact.ok, true, exact.reasonCode);
+  fixture.state.ordinaryContinuation.expectedOriginMainSha = fixture.baseSha;
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+});
+
 test("historical initial candidate fail-closes an unauthenticated local source-fix descendant", () => {
   const missingIntent = makeFixture(1);
   advanceWithSourceFix(missingIntent);
