@@ -70,6 +70,16 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     const root = trustedDirectory(logsRoot);
     const recoveryArtifact = trustedJsonArtifact(root, rawRecoveryPath, "recovery");
     const lifecycleArtifact = trustedJsonArtifact(root, lifecyclePath, "session-lifecycle");
+    const durableBudgetArtifact = trustedJsonArtifact(
+      root,
+      target.chargeMarkerRef,
+      "logical-task-budget",
+    );
+    if (durableBudgetArtifact.value?.acceptedLogicalTaskCount !== target.acceptedLogicalTasks
+      || canonical(durableBudgetArtifact.value?.charges?.[target.chargeId])
+        !== canonical(target.durableChargeMarker)) {
+      return denied("terminal_projection_durable_budget_mismatch");
+    }
     const comparableRecovery = structuredClone(rawRecovery);
     delete comparableRecovery.statePath;
     if (canonical(recoveryArtifact.value) !== canonical(comparableRecovery)
@@ -184,6 +194,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     const boundArtifacts = Object.freeze([
       publicArtifact(recoveryArtifact, "rawRecovery"),
       publicArtifact(lifecycleArtifact, "lifecycle"),
+      publicArtifact(durableBudgetArtifact, "logicalTaskBudget"),
       ...(lifecyclePredecessorArtifact
         ? [publicArtifact(lifecyclePredecessorArtifact, "lifecyclePredecessor")]
         : []),
