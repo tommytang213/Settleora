@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   exactRawCheckpointMutationMarkerShape,
   selectLatestIssueStateTimestamp,
+  stateMayBelongToTarget,
 } from "../lib/terminal-validation-retry-projection.mjs";
 
 test("terminal retry projection rejects any later or unknown mutation marker category", () => {
@@ -50,4 +51,26 @@ test("terminal retry projection selects the unique latest completed issue state"
     },
     latest,
   ]), { ok: true, finishedAt: latest.finishedAt });
+});
+
+test("terminal retry projection associates malformed successor issue state by task or branch lineage", () => {
+  const target = {
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    branch: "feature/auto-959-preserved",
+  };
+  assert.equal(stateMayBelongToTarget({
+    issue: null,
+    taskKey: target.taskKey,
+    branchName: target.branch,
+  }, target), true);
+  assert.equal(stateMayBelongToTarget({
+    issue: { number: "malformed" },
+    recovery: { states: [{ taskKey: target.taskKey }] },
+  }, target), true);
+  assert.equal(stateMayBelongToTarget({
+    issue: { number: 999 },
+    taskKey: "unrelated",
+    branchName: "feature/unrelated",
+  }, target), false);
 });

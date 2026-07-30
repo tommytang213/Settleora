@@ -39,7 +39,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
 
     const stateRoot = path.join(root, "state");
     const issueStates = trustedJsonFiles(stateRoot)
-      .filter((artifact) => artifact.value?.issue?.number === target.issueNumber);
+      .filter((artifact) => stateMayBelongToTarget(artifact.value, target));
     const latestState = selectLatestIssueStateTimestamp(issueStates.map(({ value }) => value));
     if (!latestState.ok) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
     const latestFinishedAt = latestState.finishedAt;
@@ -145,6 +145,17 @@ export function exactRawCheckpointMutationMarkerShape(markers) {
   if (!markers || typeof markers !== "object" || Array.isArray(markers)) return false;
   return canonical(Object.keys(markers).sort())
     === canonical(["branch_ownership_created", "claim", "logical_task_charge"]);
+}
+
+export function stateMayBelongToTarget(state, target) {
+  const projectedStates = Array.isArray(state?.recovery?.states) ? state.recovery.states : [];
+  return state?.issue?.number === target?.issueNumber
+    || state?.taskKey === target?.taskKey
+    || state?.branchName === target?.branch
+    || projectedStates.some((projected) =>
+      projected?.issueNumber === target?.issueNumber
+      || projected?.taskKey === target?.taskKey
+      || projected?.branchName === target?.branch);
 }
 
 function exactLifecycle(state, target) {
