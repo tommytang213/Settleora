@@ -2208,19 +2208,15 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         );
       }
       state = reconciledReload.state;
-      let checkpoint = null;
-      if (state.phase === "checkpoint_validation_commit" && sourceFailureCandidate) {
-        checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
-        if (!checkpoint.ok) {
-          return rejectHistoricalWorkspacePreparation(config, state, checkpoint.reasonCode);
-        }
-      }
       return {
         ok: true,
         state,
         issue,
         laneDecision,
-        checkpoint,
+        // Workspace creation is a canonical effect. Keep preparation read-only:
+        // the recovery planner must first reopen the exact validation derivative
+        // and establish its active successor mutation authority.
+        checkpoint: null,
         evidenceAdapters: {
           readGit: () => authenticatedTaskRefGitEvidence(config, {
             ...proof.candidateIdentity,

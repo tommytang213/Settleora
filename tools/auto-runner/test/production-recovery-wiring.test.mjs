@@ -234,7 +234,16 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
-    /prepareAuthoritativeRecovery:[\s\S]*checkpoint = reconstructInitialValidationFailureCheckpoint\(config, state, issue, laneDecision\);[\s\S]*return \{[\s\S]*checkpoint,[\s\S]*default: async \(\{ state, boundary, preparation \}\)[\s\S]*const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/,
+    /prepareAuthoritativeRecovery:[\s\S]*checkpoint: null,[\s\S]*default: async \(\{ state, boundary, preparation \}\)[\s\S]*const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/,
+  );
+  const preparationStart = source.indexOf("prepareAuthoritativeRecovery:");
+  const defaultStart = source.indexOf("default: async ({ state, boundary, preparation })", preparationStart);
+  assert.ok(preparationStart >= 0 && defaultStart > preparationStart);
+  assert.equal(
+    source.slice(preparationStart, defaultStart)
+      .includes("reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision)"),
+    false,
+    "read-only preparation must not attempt a canonical workspace effect under terminal authority",
   );
   assert.match(
     source,
