@@ -3695,7 +3695,7 @@ function validateRecoveryOnlyStartupEvidence(
   if (config.outageRecoveryTarget?.terminalValidationRetryDerivativeNoPr === true) {
     if (terminalDerivativeProjection?.ok === true
       || terminalDerivativeContinuationAdmission?.ok === true
-      || validateTerminalDerivativeContinuationAdmission(state, config.outageRecoveryTarget).ok) {
+      || validateTerminalDerivativeContinuationAdmission(config, state, config.outageRecoveryTarget).ok) {
       return { ok: true };
     }
     return { ok: false, reason: "terminal_validation_retry_derivative_projection_missing" };
