@@ -10,6 +10,7 @@ import {
   specPathForRunId,
   validateRunSpecShape,
 } from "../supervisor/run-spec.mjs";
+import { validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const TERMINAL_REASON_CODE = "checkpoint_validation_recovery_failed_closed";
@@ -155,6 +156,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
         path.join(predecessorRoot, `${lifecycle.mutationAuthority.handoff.checkpointDigest}.json`),
       );
       if (predecessorRoot !== path.dirname(lifecyclePredecessorArtifact.path)
+        || !validateSessionLifecycleState(lifecyclePredecessorArtifact.value).ok
         || lifecyclePredecessorArtifact.value?.checkpoint?.digest
           !== lifecycle.mutationAuthority.handoff.checkpointDigest
         || !exactLifecycle(

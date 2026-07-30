@@ -2528,6 +2528,13 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
       reopened.state.mutationAuthority.handoff.checkpointDigest,
       terminalPredecessor.checkpoint.digest,
     );
+    const tamperedPredecessor = structuredClone(terminalPredecessor);
+    tamperedPredecessor.checkpoint.tamperProbe = true;
+    writeFileSync(predecessorPath, `${JSON.stringify(tamperedPredecessor, null, 2)}\n`, { mode: 0o600 });
+    assert.equal(validateSessionLifecycleState(
+      JSON.parse(readFileSync(predecessorPath, "utf8")),
+    ).ok, false, "a semantically compatible predecessor with an invalid checkpoint digest must fail closed");
+    writeFileSync(predecessorPath, `${JSON.stringify(terminalPredecessor, null, 2)}\n`, { mode: 0o600 });
     const reconciled = planInterruptionRecovery(
       reopened.state,
       liveEffects,
