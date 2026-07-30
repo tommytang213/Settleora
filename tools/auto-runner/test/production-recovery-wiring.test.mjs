@@ -660,13 +660,14 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /reviewerResults: loaded\.state\.reviewerResults, reconstructedCurrentMainSha/);
   assert.match(source, /const historicalEffectMainSha = reconciledMain\?\.historicalEffectMainSha[\s\S]*\|\| initial\.expectedOriginMainSha/);
   assert.match(source, /const currentMainSha = reconciledMain\?\.currentMainSha[\s\S]*\|\| checkpoint\.reconstructedCurrentMainSha/);
+  assert.match(source, /const preEffectMainCanAdvance = !reconciledMain[\s\S]*state\.pr\?\.number == null[\s\S]*!initial\.effects\?\.push[\s\S]*expectedOriginMainSha: currentMainSha[\s\S]*ordinaryContinuationPhaseTarget\(advancedMain, phase\)[\s\S]*state = \(await persist\(initial\)\)\.state/);
   assert.doesNotMatch(source, /expectedOriginMainSha: checkpoint\.reconstructedCurrentMainSha/);
   assert.match(source, /getRefSha\("origin\/main"\) !== currentMainSha/);
   assert.match(source, /expectedOriginMainSha: currentMainSha,[\s\S]*historicalEffectMainSha/);
   assert.match(source, /baseSha: candidate\.baseSha, historicalEffectMainSha, currentMainSha/);
   assert.match(source, /const reconciledWrite = writeRecoveryState\(config, state\);[\s\S]*loadRecoveryState\(config, reconciledWrite\.state\)[\s\S]*recoveryReconciliation\?\.evidenceDigest !== reconciledRecovery\?\.evidenceDigest[\s\S]*state = reconciledReload\.state/);
   assert.match(source, /reconciledRecovery[\s\S]*reconciledReload\.state\.pr\?\.number !== \(reconciledPr\?\.number \?\? null\)/);
-  assert.equal((source.match(/recoveryReconciliation: null/g) || []).length, 2);
+  assert.equal((source.match(/recoveryReconciliation: null/g) || []).length, 3);
   assert.doesNotMatch(source, /getRefSha\("origin\/main"\) !== expectedCurrentMain/);
   assert.match(source, /baseSha: exactHeadEvidence\.baseSha \|\| recoveryState\?\.branch\?\.baseSha \|\| null,[\s\S]*expectedOriginMainSha: recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/);
   assert.match(source, /expectedReportPaths: \{[\s\S]*repoReportPath: promptInfo\.reportPath,[\s\S]*promptPath: promptInfo\.promptPath,[\s\S]*durableReportPath: iteration\.report\.copyPath/);
@@ -799,6 +800,7 @@ test("startup push, PR-create, and CI-wait recovery use ordinary continuation be
     /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?boundary,[\s\S]*?operationalCheckpoint/,
   );
   assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*state = recordIdempotentMutation\(\{[\s\S]*pr: \{[\s\S]*number: context\.pr\.number,[\s\S]*headSha: continuation\.identity\.headSha,[\s\S]*state: context\.pr\.state,[\s\S]*await writeRecoveryState\(config, state\)/);
+  assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*recordIdempotentMutation\(\{[\s\S]*recoveryReconciliation: null,[\s\S]*pr: \{/);
   assert.match(runner, /push: async \(continuation\)[\s\S]*expectedRemoteHeadSha: candidate\.headSha[\s\S]*await writeRecoveryState\(config, state\)[\s\S]*headSha: candidate\.headSha/);
   assert.match(runner, /outageTargetHeadIsAuthenticatedAncestor[\s\S]*sourceFailureHistory\?\.[\s\S]*config\.outageRecoveryTarget\?\.prHeadSha[\s\S]*outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor[\s\S]*prHeadSha: candidate\.headSha[\s\S]*const recoveryConfig = \{[\s\S]*outageRecoveryTarget/);
   assert.match(runner, /const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence\(laneDecision, exactHeadEvidence\)[\s\S]*allowRebuild: regenerationRequired[\s\S]*if \(regenerationRequired\)/);

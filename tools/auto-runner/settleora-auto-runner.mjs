@@ -2637,10 +2637,34 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     return writeRecoveryState(config, { ...state, ordinaryContinuation });
   };
   const reconciledMain = state.recoveryReconciliation;
-  const historicalEffectMainSha = reconciledMain?.historicalEffectMainSha
-    || initial.expectedOriginMainSha;
   const currentMainSha = reconciledMain?.currentMainSha
     || checkpoint.reconstructedCurrentMainSha;
+  const preEffectMainCanAdvance = !reconciledMain
+    && state.pr?.number == null
+    && state.branch?.expectedRemoteHeadSha == null
+    && !initial.effects?.push
+    && !initial.effects?.pr_create_or_update;
+  if (preEffectMainCanAdvance
+    && initial.expectedOriginMainSha !== currentMainSha
+    && /^[a-f0-9]{40}$/.test(currentMainSha || "")) {
+    const advancedMain = {
+      ...initial,
+      expectedOriginMainSha: currentMainSha,
+    };
+    advancedMain.effects = Object.fromEntries(
+      Object.entries(initial.effects || {}).map(([phase, evidence]) => [
+        phase,
+        {
+          ...evidence,
+          targetDigest: ordinaryContinuationPhaseTarget(advancedMain, phase),
+        },
+      ]),
+    );
+    initial = advancedMain;
+    state = (await persist(initial)).state;
+  }
+  const historicalEffectMainSha = reconciledMain?.historicalEffectMainSha
+    || initial.expectedOriginMainSha;
   if (initial.expectedOriginMainSha !== historicalEffectMainSha
     || !/^[a-f0-9]{40}$/.test(currentMainSha || "")) {
     return {
@@ -2927,6 +2951,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       }
       state = recordIdempotentMutation({
         ...state,
+        recoveryReconciliation: null,
         pr: {
           number: context.pr.number,
           url: context.pr.url,
