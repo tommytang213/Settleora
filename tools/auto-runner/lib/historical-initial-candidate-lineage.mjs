@@ -801,13 +801,21 @@ function noLaterEffects(state) {
 function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const continuation = state.ordinaryContinuation;
   const pr = state.pr;
+  const livePr = authority.liveTaskPrRead?.prs?.length === 1
+    ? authority.liveTaskPrRead.prs[0]
+    : null;
+  const effectivePr = pr?.number == null && livePr ? {
+    number: livePr.number, url: livePr.url, state: livePr.state,
+    headSha: livePr.headRefOid, headRefName: livePr.headRefName,
+    baseRefName: livePr.baseRefName,
+  } : pr;
   const priorHeads = new Set((continuation?.sourceFailureHistory || [])
     .map((entry) => entry?.candidate?.headSha).filter((value) => sha.test(value || "")));
   if (sha.test(continuation?.identity?.headSha || "")) priorHeads.add(continuation.identity.headSha);
   const fingerprints = continuation?.processedGithubFindingFingerprints;
   const externalIntents = intents.filter((entry) => externalEffects.has(entry.effectType));
   const allowedTypes = new Set(["push", "pr_create", "pr_head_update"]);
-  const exactUrl = `https://github.com/${authority.repository}/pull/${pr?.number}`;
+  const exactUrl = `https://github.com/${authority.repository}/pull/${effectivePr?.number}`;
   const markers = state.mutationMarkers || {};
   const pushMarkers = Object.values(markers.push || {});
   const prMarkers = [
@@ -859,7 +867,7 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && entry.effect?.targetBaseBranch === "main"
     && entry.effect?.targetBaseSha === authority.currentMainSha
     && (entry.effect?.draft == null || entry.effect.draft === false)
-    && (entry.effect?.prNumber == null || entry.effect.prNumber === pr?.number)
+    && (entry.effect?.prNumber == null || entry.effect.prNumber === effectivePr?.number)
     && (entry.effect?.prUrl == null || entry.effect.prUrl === exactUrl);
   const orderedPushHeads = [];
   let previousHead = null;
@@ -873,12 +881,27 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     previousHead = nextHead;
   }
   const prCreateIntents = prIntents.filter((entry) => entry.effectType === "pr_create");
+  const terminalIntents = externalIntents.filter((entry) => !allowedTypes.has(entry.effectType));
+  const terminalIntentSetValid = terminalIntents.length === 3
+    && terminalIntents.filter((entry) =>
+      entry.effectType === "hygiene_component" && entry.status === "finalized").length === 2
+    && terminalIntents.filter((entry) =>
+      entry.effectType === "comment" && entry.status === "prepared"
+      && digest.test(entry.effect?.bodyDigest || "")).length === 1
+    && terminalIntents.every((entry) =>
+      entry.repository === authority.repository
+      && entry.sourceTaskKey === authority.taskKey
+      && entry.runId === authority.runId
+      && entry.logicalTaskIdentity === `${authority.repository}#${authority.issueNumber}`
+      && entry.claimIdentity === `${authority.repository}#${authority.issueNumber}`
+      && entry.chargeIdentity === authority.chargeIdentity
+      && intentIssueAuthorityMatches(entry, authority.issueNumber));
   const prHeads = new Set(prIntents.filter(exactPr).map(intentHead));
   const markerHeads = (values, target) => values.every((entry) =>
     entry?.status === "completed" && entry?.target === target
       && orderedPushHeads.includes(entry?.correlation));
   const pushChainValid = continuation?.expectedOriginMainSha === authority.currentMainSha
-    && state.branch?.expectedRemoteHeadSha === authority.headSha
+    && [null, authority.headSha].includes(state.branch?.expectedRemoteHeadSha)
     && authority.remoteTaskBranchRead?.complete === true
     && authority.remoteTaskBranchRead?.absent === false
     && authority.remoteTaskBranchRead?.headSha === authority.headSha
@@ -902,11 +925,10 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && pr?.number == null && pr?.url == null && pr?.headSha == null
     && authority.liveTaskPrRead.prs.length === 0
     && prMarkers.length === 0 && prIntents.length === 0
-    && externalIntents.length === orderedPushHeads.length
-    && externalIntents.every((entry) => entry.effectType === "push");
+    && (terminalIntents.length === 0 || terminalIntentSetValid);
   if (pushChainValid && pushOnly) return true;
   const livePrMatches = authority.liveTaskPrRead.prs.filter((entry) =>
-    entry?.number === pr?.number
+    entry?.number === effectivePr?.number
     && entry?.url === exactUrl
     && entry?.state === "OPEN"
     && entry?.isDraft === false
@@ -915,15 +937,18 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && entry?.headRefOid === authority.headSha);
   return pushChainValid
     && authority.liveTaskPrRead.prs.length === 1 && livePrMatches.length === 1
-    && Number.isSafeInteger(pr?.number) && pr.number > 0 && pr.url === exactUrl
-    && pr.headSha === authority.headSha && priorHeads.has(pr.headSha)
-    && pr.headRefName === authority.branch && pr.baseRefName === "main"
-    && ["OPEN", "open"].includes(pr.state)
+    && Number.isSafeInteger(effectivePr?.number) && effectivePr.number > 0
+    && effectivePr.url === exactUrl
+    && effectivePr.headSha === authority.headSha && priorHeads.has(effectivePr.headSha)
+    && effectivePr.headRefName === authority.branch && effectivePr.baseRefName === "main"
+    && ["OPEN", "open"].includes(effectivePr.state)
+    && (pr?.number == null || (pr.number === effectivePr.number && pr.url === effectivePr.url
+      && pr.headSha === effectivePr.headSha && pr.headRefName === effectivePr.headRefName
+      && pr.baseRefName === effectivePr.baseRefName && pr.state === effectivePr.state))
     && markerHeads(prMarkers, exactUrl)
     && prMarkers.length <= orderedPushHeads.length
     && new Set(prMarkers.map((entry) => entry.correlation)).size === prMarkers.length
-    && externalIntents.length === orderedPushHeads.length * 2
-    && externalIntents.every((entry) => allowedTypes.has(entry.effectType))
+    && (terminalIntents.length === 0 || terminalIntentSetValid)
     && prIntents.length === orderedPushHeads.length
     && prCreateIntents.length === orderedPushHeads.length
     && prCreateIntents.every(exactPr)

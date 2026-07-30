@@ -950,7 +950,7 @@ test("historical recovery authenticates the exact push-only PR-create checkpoint
   assert.equal(pushOnlyResult.ok, true, pushOnlyResult.reasonCode);
 
   fixture.state.branch.expectedRemoteHeadSha = null;
-  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+  assert.equal(verify(fixture).ok, true);
   fixture.state.branch.expectedRemoteHeadSha = continuation.identity.headSha;
   fixture.intents.push(structuredClone(fixture.intents.find((entry) => entry.effectType === "push")));
   assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
