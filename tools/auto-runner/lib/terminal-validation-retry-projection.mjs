@@ -146,6 +146,24 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     )) {
       return denied("terminal_projection_successor_supervisor_state_mismatch");
     }
+    let lifecyclePredecessorArtifact = null;
+    if (target?.allowReopenedLifecycle === true
+      && lifecycle?.mutationAuthority?.handoff?.reason === "validation_retry_derivative_reopened") {
+      const predecessorRoot = trustedDirectory(path.join(root, "session-lifecycle-predecessors"));
+      lifecyclePredecessorArtifact = trustedJsonArtifact(
+        predecessorRoot,
+        path.join(predecessorRoot, `${lifecycle.mutationAuthority.handoff.checkpointDigest}.json`),
+      );
+      if (predecessorRoot !== path.dirname(lifecyclePredecessorArtifact.path)
+        || lifecyclePredecessorArtifact.value?.checkpoint?.digest
+          !== lifecycle.mutationAuthority.handoff.checkpointDigest
+        || !exactLifecycle(
+          lifecyclePredecessorArtifact.value,
+          { ...target, allowReopenedLifecycle: false },
+        )) {
+        return denied("terminal_projection_lifecycle_predecessor_mismatch");
+      }
+    }
 
     const effectiveRecovery = structuredClone(rawRecovery);
     effectiveRecovery.phase = "stopped";
@@ -159,6 +177,9 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     const boundArtifacts = Object.freeze([
       publicArtifact(recoveryArtifact, "rawRecovery"),
       publicArtifact(lifecycleArtifact, "lifecycle"),
+      ...(lifecyclePredecessorArtifact
+        ? [publicArtifact(lifecyclePredecessorArtifact, "lifecyclePredecessor")]
+        : []),
       publicArtifact(stateArtifact, "iterationState"),
       publicArtifact(summaryArtifact, "runnerSummary"),
       publicArtifact(summaryMarkdownArtifact, "runnerSummaryMarkdown"),

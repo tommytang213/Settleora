@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { beginSessionRotation, completeSessionRotation, createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, planInterruptionRecovery, recoverySuccessorSessionId, reopenKnownValidationRetryDerivative, sessionLifecyclePath, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
@@ -2503,6 +2503,7 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
       phase: "stopped",
       nextExactAction: "checkpoint_validation_recovery_failed_closed",
     }).state;
+    const terminalPredecessor = structuredClone(lifecycle);
     const liveEffects = { commitPresent: true, pushPresent: false, mergePresent: false, commentPresent: true };
     const reopened = reopenKnownValidationRetryDerivative(config, lifecycle, liveEffects);
     assert.equal(reopened.ok, true);
@@ -2512,6 +2513,21 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
     assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
     assert.equal(reopened.state.recovery.effectsAlreadyPresent.comment, true);
+    const predecessorPath = path.join(
+      config.logsRoot,
+      "session-lifecycle-predecessors",
+      `${terminalPredecessor.checkpoint.digest}.json`,
+    );
+    const predecessorInfo = lstatSync(predecessorPath);
+    assert.equal(predecessorInfo.isFile(), true);
+    assert.equal(predecessorInfo.isSymbolicLink(), false);
+    assert.equal(predecessorInfo.nlink, 1);
+    assert.equal(predecessorInfo.mode & 0o077, 0);
+    assert.deepEqual(JSON.parse(readFileSync(predecessorPath, "utf8")), terminalPredecessor);
+    assert.equal(
+      reopened.state.mutationAuthority.handoff.checkpointDigest,
+      terminalPredecessor.checkpoint.digest,
+    );
     const reconciled = planInterruptionRecovery(
       reopened.state,
       liveEffects,

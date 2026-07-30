@@ -610,7 +610,15 @@ must include an exact target derived from validated recovery/source evidence,
 the worker launches fixed scalar recovery-only arguments, and the runner exits
 fail-closed instead of polling eligible issues when the exact target is
 missing, mismatched, completed, unsafe, ambiguous, stale, or capability
-disabled. Attempt and wall-clock exhaustion persist a terminal `exhausted`
+disabled. The owner CLI can also produce the exceptional no-PR terminal
+validation-retry derivative spec by passing
+`--terminal-validation-retry-derivative` together with every exact
+`--target-*` task, issue, branch, base, head, runner-run, and supervisor-run
+identity. That form stores no PR or outage-resubmission identity, forces one
+task, requires trusted mode, and is independently reauthenticated by targeted
+startup discovery before work can resume. Use `submit --dry-run --json` to
+inspect this exact spec and fixed runner argv without writing supervisor
+artifacts or starting a unit. Attempt and wall-clock exhaustion persist a terminal `exhausted`
 marker when operator controls allow evaluation, so status and health stop
 reporting an active source run and repeated controller passes become stable
 terminal no-ops. A profile config digest mismatch blocks child planning before

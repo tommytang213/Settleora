@@ -995,6 +995,51 @@ test("operator CLI dry-run has no durable supervisor side effects and renders ex
   assert.deepEqual(snapshotSupervisorFiles(), before);
 });
 
+test("operator CLI dry-run produces an exact no-PR terminal validation-retry derivative spec", () => {
+  const before = snapshotSupervisorFiles();
+  const originMainSha = spawnSync("git", ["rev-parse", "origin/main"], {
+    cwd: path.resolve("."),
+    encoding: "utf8",
+  }).stdout.trim();
+  const result = spawnSync(process.execPath, [
+    "tools/auto-runner/settleora-auto-runnerctl.mjs",
+    "submit",
+    "--dry-run",
+    "--profile",
+    "default",
+    "--mode",
+    "trusted",
+    "--terminal-validation-retry-derivative",
+    "--target-task-key",
+    "20260724T075849",
+    "--target-issue",
+    "959",
+    "--target-branch",
+    "feature/auto-959-recovery",
+    "--target-base",
+    originMainSha,
+    "--target-head",
+    "b".repeat(40),
+    "--target-runner-run",
+    "run-2026-07-24T075849Z-066b80f4fc16",
+    "--target-supervisor-run",
+    "supervised-20260724T075849Z-066b80f4fc16",
+    "--json",
+  ], { cwd: path.resolve("."), encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.dryRun, true);
+  assert.equal(parsed.spec.recoveryOnlyTarget.terminalValidationRetryDerivativeNoPr, true);
+  assert.equal(parsed.spec.recoveryOnlyTarget.prNumber, null);
+  assert.equal(parsed.spec.outageResubmission, null);
+  assert.equal(parsed.spec.parentRunnerRunId, parsed.spec.recoveryOnlyTarget.runnerRunId);
+  assert.equal(parsed.spec.parentSupervisorRunId, parsed.spec.recoveryOnlyTarget.supervisorRunId);
+  assert.equal(parsed.runnerArgv.includes("--outage-target-terminal-validation-retry-derivative"), true);
+  assert.equal(parsed.runnerArgv.includes("--outage-resubmission"), false);
+  assert.equal(parsed.runnerArgv.includes("--outage-pr-number"), false);
+  assert.deepEqual(snapshotSupervisorFiles(), before);
+});
+
 test("operator CLI bounds extensions and refuses unknown supervisor run control", () => {
   const oversizedTasks = spawnSync(process.execPath, [
     "tools/auto-runner/settleora-auto-runnerctl.mjs",
