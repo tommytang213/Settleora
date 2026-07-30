@@ -404,6 +404,43 @@ test("historical initial candidate admits only the exact pre-PR terminal intent 
   const aggregateValidationResult = verify(laterValidated);
   assert.equal(aggregateValidationResult.ok, true, aggregateValidationResult.reasonCode);
 
+  const continuationPhaseBeforePrePush = laterValidated.state.ordinaryContinuation.phase;
+  const continuationEffectsBeforePrePush =
+    structuredClone(laterValidated.state.ordinaryContinuation.effects);
+  const statePhaseBeforePrePush = laterValidated.state.phase;
+  const expectedLifecyclePhaseBeforePrePush = laterValidated.options.expectedLifecyclePhase;
+  laterValidated.state.phase = "checkpoint_validation_commit";
+  laterValidated.options.expectedLifecyclePhase = "checkpoint_validation_commit";
+  laterValidated.state.ordinaryContinuation.phase = "push";
+  laterValidated.state.ordinaryContinuation.effects = {};
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+    index < ordinaryContinuationPhases.indexOf("push"); index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    laterValidated.state.ordinaryContinuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(
+        laterValidated.state.ordinaryContinuation, phase,
+      ),
+      completedAt: "2026-07-30T00:00:00.000Z",
+    };
+  }
+  const prePushResult = verify(laterValidated);
+  assert.equal(prePushResult.ok, true, prePushResult.reasonCode);
+  laterValidated.state.ordinaryContinuation.effects.push = {
+    targetDigest: ordinaryContinuationPhaseTarget(
+      laterValidated.state.ordinaryContinuation, "push",
+    ),
+    completedAt: "2026-07-30T00:00:01.000Z",
+  };
+  assert.equal(
+    verify(laterValidated).reasonCode,
+    "historical_candidate_continuation_mismatch",
+  );
+  delete laterValidated.state.ordinaryContinuation.effects.push;
+  laterValidated.state.ordinaryContinuation.phase = continuationPhaseBeforePrePush;
+  laterValidated.state.ordinaryContinuation.effects = continuationEffectsBeforePrePush;
+  laterValidated.state.phase = statePhaseBeforePrePush;
+  laterValidated.options.expectedLifecyclePhase = expectedLifecyclePhaseBeforePrePush;
+
   const handedOffAgain = laterValidated;
   const preparedComment = handedOffAgain.intents[3];
   const priorSessionId = preparedComment.sessionId;

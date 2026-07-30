@@ -255,6 +255,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
+    /allowTerminalValidationRetryPreparation: true,[\s\S]*expectedTerminalCommentBodyDigest:[\s\S]*allowAuthenticatedExistingPrEffects: true,[\s\S]*verifyHistoricalInitialCandidateLineage/,
+  );
+  assert.match(
+    source,
     /\["aggregate_validation", "external_review",[\s\S]*loadNormalLargeCandidateRecoveryCheckpoint/,
   );
   assert.match(

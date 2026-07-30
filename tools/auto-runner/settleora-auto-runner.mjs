@@ -2123,6 +2123,7 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         allowTerminalValidationRetryPreparation: true,
         expectedTerminalOutcome: preservedPriorOutcome?.outcome || null,
         expectedTerminalCommentBodyDigest: preservedPriorOutcome?.commentBodyDigest || null,
+        allowAuthenticatedExistingPrEffects: true,
         validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
       };
       try {

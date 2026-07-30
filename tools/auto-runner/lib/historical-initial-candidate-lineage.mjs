@@ -272,6 +272,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     }
     if (!validContinuationPhase(
       continuation, expectedLifecyclePhase, authenticatedExistingPrEffects,
+      authenticatedPrePrTerminalEffects,
     )) return fail("historical_candidate_continuation_mismatch");
     if (!validCompletedEffects(continuation, authenticatedExistingPrEffects)) {
       return fail("historical_candidate_local_effect_mismatch");
@@ -902,10 +903,17 @@ function continuationExternalEffectPresent(effects) {
       return index < 0 || index >= firstExternalPhase;
     });
 }
-function validContinuationPhase(continuation, lifecyclePhase, authenticatedExistingPrEffects) {
+function validContinuationPhase(
+  continuation, lifecyclePhase, authenticatedExistingPrEffects,
+  authenticatedPrePrTerminalEffects,
+) {
   const index = ordinaryContinuationPhases.indexOf(continuation?.phase);
   if (index >= ordinaryContinuationPhases.indexOf("local_validation")
     && index < firstExternalPhase) return true;
+  if (continuation?.phase === "push" && authenticatedPrePrTerminalEffects
+    && ["checkpoint_validation_commit", "aggregate_validation", "external_review",
+      "codex_mechanics_security_review", "review_fix"].includes(lifecyclePhase)
+    && !continuationExternalEffectPresent(continuation.effects)) return true;
   if (!authenticatedExistingPrEffects) return false;
   return new Map([
     ["push", "push"],
