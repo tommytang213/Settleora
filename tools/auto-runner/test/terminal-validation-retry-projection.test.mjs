@@ -355,6 +355,23 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
   assert.equal(exactLifecycle(reopenedPending, { ...target, allowReopenedLifecycle: true }), true);
   assert.equal(exactLifecycle({
     ...reopenedPending,
+    recovery: {
+      ...reopenedPending.recovery,
+      effectsAlreadyPresent: {
+        ...reopenedPending.recovery.effectsAlreadyPresent,
+        comment: true,
+      },
+    },
+  }, { ...target, allowReopenedLifecycle: true }), true, "adopted comments remain valid after reopen");
+  assert.equal(exactLifecycle({
+    ...reopenedPending,
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      handoff: { ...reopenedPending.mutationAuthority.handoff, startedAt: "not-a-timestamp" },
+    },
+  }, { ...target, allowReopenedLifecycle: true }), false, "reopen start must be parseable");
+  assert.equal(exactLifecycle({
+    ...reopenedPending,
     sessions: { current: successorSessionId, retired: ["terminal-session"] },
     mutationAuthority: {
       ...reopenedPending.mutationAuthority,
@@ -367,6 +384,33 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
       },
     },
   }, { ...target, allowReopenedLifecycle: true }), true);
+  assert.equal(exactLifecycle({
+    ...reopenedPending,
+    sessions: { current: successorSessionId, retired: ["terminal-session"] },
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      status: "active",
+      ownerSessionId: successorSessionId,
+      handoff: {
+        ...reopenedPending.mutationAuthority.handoff,
+        successorSessionId,
+      },
+    },
+  }, { ...target, allowReopenedLifecycle: true }), false, "active reopen requires completion evidence");
+  assert.equal(exactLifecycle({
+    ...reopenedPending,
+    sessions: { current: successorSessionId, retired: ["terminal-session"] },
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      status: "active",
+      ownerSessionId: successorSessionId,
+      handoff: {
+        ...reopenedPending.mutationAuthority.handoff,
+        successorSessionId,
+        completedAt: "not-a-timestamp",
+      },
+    },
+  }, { ...target, allowReopenedLifecycle: true }), false, "active completion must be parseable");
   assert.equal(exactLifecycle({
     ...reopenedPending,
     mutationAuthority: {

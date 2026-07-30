@@ -357,14 +357,15 @@ export function exactLifecycle(state, target) {
     && typeof state?.recovery?.operationId === "string" && state.recovery.operationId.length > 0
     && state?.recovery?.phaseAfter === "checkpoint_validation_commit"
     && effects?.mutation === false && effects?.commit === true && effects?.push === false
-    && effects?.pr === false && effects?.merge === false && effects?.comment === false;
+    && effects?.pr === false && effects?.merge === false;
   if (!common) return false;
   const exactTerminal = state?.controller?.phase === "stopped"
     && state?.controller?.nextExactAction === TERMINAL_REASON_CODE
     && state?.report?.status === "stopped"
     && state?.mutationAuthority?.status === "terminal"
     && state?.mutationAuthority?.ownerSessionId === null
-    && state?.mutationAuthority?.handoff === null;
+    && state?.mutationAuthority?.handoff === null
+    && effects?.comment === false;
   if (exactTerminal) return true;
   if (target?.allowReopenedLifecycle !== true) return false;
   const handoff = state?.mutationAuthority?.handoff;
@@ -373,7 +374,9 @@ export function exactLifecycle(state, target) {
     && state?.report?.status === "in_progress"
     && handoff?.reason === "validation_retry_derivative_reopened"
     && handoff?.checkpointDigest === state?.checkpoint?.digest
-    && typeof handoff?.startedAt === "string";
+    && typeof effects?.comment === "boolean"
+    && typeof handoff?.startedAt === "string"
+    && Number.isFinite(Date.parse(handoff.startedAt));
   if (!exactReopened) return false;
   const expectedRequestId = digest(
     `${state.recovery.operationId}:${handoff.retiredSessionId}:validation-retry`,
@@ -393,6 +396,8 @@ export function exactLifecycle(state, target) {
     && state?.mutationAuthority?.ownerSessionId === successorSessionId
     && state?.sessions?.current === successorSessionId
     && handoff?.successorSessionId === successorSessionId
+    && typeof handoff?.completedAt === "string"
+    && Number.isFinite(Date.parse(handoff.completedAt))
     && state?.sessions?.retired?.includes(handoff?.retiredSessionId);
   return exactPending || exactActive;
 }
