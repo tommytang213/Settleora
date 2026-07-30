@@ -117,8 +117,14 @@ test("terminal retry projection binds the successor budget marker charge and tas
       issueNumber: target.issueNumber,
       taskLineageId: `issue-${target.issueNumber}`,
       claimIdentity: target.claimIdentity,
+      acceptedAt: "2026-07-24T07:58:00.000Z",
     },
+    identityClass: "accepted_issue_claim",
+    reason: "authoritative_claim_reread_passed",
+    acceptedAt: "2026-07-24T07:58:00.000Z",
+    chargedAt: "2026-07-24T07:58:01.000Z",
   };
+  target.durableChargeMarker = marker;
   const iteration = {
     runId: "run-successor",
     index: 1,

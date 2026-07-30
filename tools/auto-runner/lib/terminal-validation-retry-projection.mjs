@@ -499,6 +499,8 @@ export function exactTerminalIteration(value, target) {
     && budget?.state?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
     && Object.keys(budget?.state?.charges || {}).length === target.acceptedLogicalTasks
     && canonical(budget?.state?.charges?.[target.chargeId]) === canonical(budget?.marker)
+    && canonical(budget?.marker) === canonical(target?.durableChargeMarker)
+    && exactDurableChargeMarker(budget?.marker, target)
     && budget?.marker?.chargeId === target.chargeId
     && budget?.marker?.identity?.repository === target.repository
     && budget?.marker?.identity?.issueNumber === target.issueNumber
@@ -506,6 +508,21 @@ export function exactTerminalIteration(value, target) {
     && budget?.marker?.identity?.claimIdentity === target.claimIdentity
     && Array.isArray(terminal) && terminal.length === 1
     && exactTerminalProjection(terminal[0], target);
+}
+
+function exactDurableChargeMarker(marker, target) {
+  return canonical(Object.keys(marker || {}).sort()) === canonical([
+    "acceptedAt", "chargeId", "chargedAt", "identity", "identityClass", "reason",
+  ])
+    && canonical(Object.keys(marker?.identity || {}).sort()) === canonical([
+      "acceptedAt", "claimIdentity", "issueNumber", "repository", "taskLineageId",
+    ])
+    && marker.identityClass === "accepted_issue_claim"
+    && marker.reason === "authoritative_claim_reread_passed"
+    && marker.acceptedAt === marker.identity.acceptedAt
+    && Number.isFinite(Date.parse(marker.acceptedAt))
+    && Number.isFinite(Date.parse(marker.chargedAt))
+    && marker.chargeId === target.chargeId;
 }
 
 function exactTerminalProjection(value, target) {

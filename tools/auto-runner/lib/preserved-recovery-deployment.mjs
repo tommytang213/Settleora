@@ -156,6 +156,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     const projectionTarget = {
       ...target,
       durableBudgetExact: true,
+      durableChargeMarker: chargeProof.marker,
       chargeMarkerRef: chargeProof.statePath,
     };
     const rawLifecycle = loadSessionLifecycleForRecovery(config, {
@@ -278,7 +279,7 @@ function validateCharge(config, state, target) {
       || marker?.identity?.claimIdentity !== target.claimIdentity) {
     return { ok: false, reasonCode: "preserved_recovery_charge_mismatch" };
   }
-  return { ok: true, statePath: loaded.statePath };
+  return { ok: true, statePath: loaded.statePath, marker };
 }
 
 function validateLifecycle(config, state, target, chargeMarkerRef, derivativeTerminalPhase) {

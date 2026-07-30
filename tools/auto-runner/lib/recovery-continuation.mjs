@@ -238,6 +238,7 @@ function projectTargetedTerminalDerivative(config, rawState) {
     return { ok: false };
   }
   target.durableBudgetExact = true;
+  target.durableChargeMarker = charge;
   target.chargeMarkerRef = budget.statePath;
   const lifecycle = loadSessionLifecycleForRecovery(config, {
     repository: target.repository,
