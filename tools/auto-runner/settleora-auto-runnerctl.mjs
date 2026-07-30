@@ -269,7 +269,7 @@ async function submit(cli, config) {
         terminalValidationRetryDerivativeNoPr: true,
       }
     : null;
-  const initialOriginMainSha = recoveryOnlyTarget?.baseSha || observedOriginMainSha;
+  const initialOriginMainSha = observedOriginMainSha;
   const specResult = buildRunSpec({
     runId,
     maxTasks: cli.maxTasks,

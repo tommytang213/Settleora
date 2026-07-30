@@ -463,15 +463,15 @@ function validateRecoveryOnlyContract(spec) {
   if (spec.maxTasks !== 1) {
     throw new Error("recovery-only run specs must store maxTasks 1");
   }
-  const targetChecks = [
+  const commonTargetChecks = [
     ["parentSupervisorRunId", spec.parentSupervisorRunId, target.supervisorRunId],
     ["parentRunnerRunId", spec.parentRunnerRunId, target.runnerRunId],
     ["sourceIssueNumber", spec.sourceIssueNumber, target.issueNumber],
     ["sourceBranchName", spec.sourceBranchName, target.branchName],
-    ["baseSha", spec.initialOriginMainSha, target.baseSha],
   ];
-  const duplicateChecks = terminalDerivative ? targetChecks : [
-    ...targetChecks,
+  const duplicateChecks = terminalDerivative ? commonTargetChecks : [
+    ...commonTargetChecks,
+    ["baseSha", spec.initialOriginMainSha, target.baseSha],
     ["taskKey", outage.taskKey, target.taskKey],
     ["currentHeadSha", outage.currentHeadSha, target.currentHeadSha],
     ["prNumber", outage.prNumber, target.prNumber],

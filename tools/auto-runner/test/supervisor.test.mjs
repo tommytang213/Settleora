@@ -1028,8 +1028,9 @@ test("operator CLI dry-run produces an exact no-PR terminal validation-retry der
   assert.equal(parsed.spec.recoveryOnlyTarget.terminalValidationRetryDerivativeNoPr, true);
   assert.equal(parsed.spec.recoveryOnlyTarget.prNumber, null);
   assert.equal(parsed.spec.outageResubmission, null);
-  assert.equal(parsed.spec.initialOriginMainSha, fakeSha);
-  assert.notEqual(parsed.observedOriginMainSha, parsed.spec.initialOriginMainSha);
+  assert.equal(parsed.spec.recoveryOnlyTarget.baseSha, fakeSha);
+  assert.equal(parsed.spec.initialOriginMainSha, parsed.observedOriginMainSha);
+  assert.notEqual(parsed.spec.initialOriginMainSha, parsed.spec.recoveryOnlyTarget.baseSha);
   assert.equal(parsed.spec.parentRunnerRunId, parsed.spec.recoveryOnlyTarget.runnerRunId);
   assert.equal(parsed.spec.parentSupervisorRunId, parsed.spec.recoveryOnlyTarget.supervisorRunId);
   assert.equal(parsed.runnerArgv.includes("--outage-target-terminal-validation-retry-derivative"), true);
