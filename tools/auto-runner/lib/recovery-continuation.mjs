@@ -1028,7 +1028,7 @@ export function validateTerminalDerivativeContinuationAdmission(config, state, t
   const { admissionDigest, ...evidence } = admission;
   if (!/^[a-f0-9]{64}$/.test(String(admissionDigest || ""))
     || admissionDigest !== createHash("sha256").update(JSON.stringify(evidence)).digest("hex")
-    || typeof admission.repository !== "string"
+    || admission.repository !== config.repositorySlug
     || admission.issueNumber !== target.issueNumber
     || admission.taskKey !== target.taskKey
     || admission.runnerRunId !== target.runnerRunId

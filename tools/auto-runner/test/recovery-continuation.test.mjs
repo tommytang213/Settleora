@@ -3083,7 +3083,12 @@ test("terminal derivative continuation admission survives later head and PR phas
     },
   });
   const validate = (value, loadLifecycle = lifecycleLoader) =>
-    validateTerminalDerivativeContinuationAdmission({}, value, target, { loadLifecycle });
+    validateTerminalDerivativeContinuationAdmission(
+      { repositorySlug: evidence.repository },
+      value,
+      target,
+      { loadLifecycle },
+    );
   assert.equal(validate(recovery).ok, true);
   assert.equal(validate({
     ...recovery,
@@ -3115,4 +3120,10 @@ test("terminal derivative continuation admission survives later head and PR phas
       },
     },
   })).ok, false);
+  assert.equal(validateTerminalDerivativeContinuationAdmission(
+    { repositorySlug: "other/repository" },
+    recovery,
+    target,
+    { loadLifecycle: lifecycleLoader },
+  ).ok, false);
 });
