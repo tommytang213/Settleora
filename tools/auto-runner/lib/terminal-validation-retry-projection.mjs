@@ -117,7 +117,8 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
 }
 
 export function exactRawCheckpoint(state, target) {
-  const candidate = state?.ordinaryContinuation?.sourceFailureBatch?.candidate;
+  const failureBatch = state?.ordinaryContinuation?.sourceFailureBatch;
+  const candidate = failureBatch?.candidate;
   const identity = state?.ordinaryContinuation?.identity;
   return state?.phase === "checkpoint_validation_commit"
     && state?.stopReason === null
@@ -132,7 +133,8 @@ export function exactRawCheckpoint(state, target) {
     && state?.branch?.currentHeadSha === target.headSha
     && state?.branch?.expectedRemoteHeadSha === null
     && state?.pr?.number === null && state?.pr?.url === null && state?.pr?.headSha === null
-    && identity?.repository === target.repository
+    && Array.isArray(failureBatch?.findings) && failureBatch.findings.length > 0
+    && failureBatch.findings.every((finding) => finding?.repository === target.repository)
     && identity?.baseSha === target.baseSha && identity?.headSha === target.headSha
     && identity?.treeSha === target.treeSha && identity?.changedFilesDigest === target.changedFilesDigest
     && identity?.diffDigest === target.diffDigest
@@ -140,7 +142,27 @@ export function exactRawCheckpoint(state, target) {
     && candidate?.baseSha === target.baseSha && candidate?.headSha === target.headSha
     && candidate?.treeSha === target.treeSha && candidate?.changedFilesDigest === target.changedFilesDigest
     && candidate?.diffDigest === target.diffDigest
+    && exactRawValidationEvidence(state?.evidence, target)
     && exactRawCheckpointMutationMarkerShape(state?.mutationMarkers);
+}
+
+export function exactRawValidationEvidence(evidence, target) {
+  const validation = evidence?.localValidation;
+  return validation?.status === "failed"
+    && validation?.headSha === target.baseSha
+    && validation?.baseSha === target.baseSha
+    && validation?.changedFilesDigest === target.changedFilesDigest
+    && validation?.stale === true
+    && validation?.invalidatedBy === "validation_failure_candidate_commit"
+    && validation?.invalidatedOldHeadSha === target.baseSha
+    && validation?.invalidatedNewHeadSha === target.headSha
+    && evidence?.externalReview === null
+    && evidence?.codexReview === null
+    && evidence?.ciChecks === null
+    && evidence?.codeScanning === null
+    && evidence?.mergeEligibility === null
+    && evidence?.finalRefresh === null
+    && evidence?.postMergeExpectations === null;
 }
 
 export function exactRawCheckpointMutationMarkerShape(markers) {

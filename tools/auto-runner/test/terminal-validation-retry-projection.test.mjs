@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   exactRawCheckpointMutationMarkerShape,
   exactRawCheckpoint,
+  exactRawValidationEvidence,
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
   stateMayBelongToTarget,
@@ -121,7 +122,6 @@ test("terminal retry projection binds raw continuation repository identity", () 
     diffDigest: "5".repeat(64),
   };
   const candidate = {
-    repository: target.repository,
     baseSha: target.baseSha,
     headSha: target.headSha,
     treeSha: target.treeSha,
@@ -146,7 +146,29 @@ test("terminal retry projection binds raw continuation repository identity", () 
     pr: { number: null, url: null, headSha: null },
     ordinaryContinuation: {
       identity: candidate,
-      sourceFailureBatch: { candidate },
+      sourceFailureBatch: {
+        candidate,
+        findings: [{ repository: target.repository }],
+      },
+    },
+    evidence: {
+      localValidation: {
+        status: "failed",
+        headSha: target.baseSha,
+        baseSha: target.baseSha,
+        changedFilesDigest: target.changedFilesDigest,
+        stale: true,
+        invalidatedBy: "validation_failure_candidate_commit",
+        invalidatedOldHeadSha: target.baseSha,
+        invalidatedNewHeadSha: target.headSha,
+      },
+      externalReview: null,
+      codexReview: null,
+      ciChecks: null,
+      codeScanning: null,
+      mergeEligibility: null,
+      finalRefresh: null,
+      postMergeExpectations: null,
     },
     mutationMarkers: {
       claim: {},
@@ -159,7 +181,46 @@ test("terminal retry projection binds raw continuation repository identity", () 
     ...state,
     ordinaryContinuation: {
       ...state.ordinaryContinuation,
-      identity: { ...candidate, repository: "other/Repository" },
+      sourceFailureBatch: {
+        ...state.ordinaryContinuation.sourceFailureBatch,
+        findings: [{ repository: "other/Repository" }],
+      },
     },
+  }, target), false);
+});
+
+test("terminal retry projection requires exact failed validation evidence and no later evidence", () => {
+  const target = {
+    baseSha: "1".repeat(40),
+    headSha: "2".repeat(40),
+    changedFilesDigest: "3".repeat(64),
+  };
+  const evidence = {
+    localValidation: {
+      status: "failed",
+      headSha: target.baseSha,
+      baseSha: target.baseSha,
+      changedFilesDigest: target.changedFilesDigest,
+      stale: true,
+      invalidatedBy: "validation_failure_candidate_commit",
+      invalidatedOldHeadSha: target.baseSha,
+      invalidatedNewHeadSha: target.headSha,
+    },
+    externalReview: null,
+    codexReview: null,
+    ciChecks: null,
+    codeScanning: null,
+    mergeEligibility: null,
+    finalRefresh: null,
+    postMergeExpectations: null,
+  };
+  assert.equal(exactRawValidationEvidence(evidence, target), true);
+  assert.equal(exactRawValidationEvidence({
+    ...evidence,
+    localValidation: { ...evidence.localValidation, headSha: target.headSha },
+  }, target), false);
+  assert.equal(exactRawValidationEvidence({
+    ...evidence,
+    externalReview: { status: "passed", headSha: target.headSha },
   }, target), false);
 });

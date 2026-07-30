@@ -136,7 +136,6 @@ export function discoverTargetedStartupRecovery(config) {
     };
   }
   const rawState = partition.exactMatches[0];
-  const projection = projectTargetedTerminalDerivative(config, rawState);
   const state = rawState;
   if (!config.allowExistingPrRecovery) {
     return {
@@ -147,9 +146,9 @@ export function discoverTargetedStartupRecovery(config) {
       state: summarizeRecoverableState(state),
       states: partition.exactMatches.map(summarizeRecoverableState),
       stateCounts: partition.counts,
-      terminalDerivativeProjection: boundedProjectionEvidence(projection),
     };
   }
+  const projection = projectTargetedTerminalDerivative(config, rawState);
   const boundary = firstIncompleteContinuationAction(state);
   if (!boundary.ok) {
     return {
