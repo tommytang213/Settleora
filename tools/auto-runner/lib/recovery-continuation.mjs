@@ -310,7 +310,12 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   let state = normalizeValidationFailureContinuation(loadedState);
   const prepareAuthoritativeRecovery = selectOwnCallableHandler(handlers, "prepareAuthoritativeRecovery");
   const preparation = prepareAuthoritativeRecovery
-    ? await prepareAuthoritativeRecovery({ state, loaded, recovery })
+    ? await prepareAuthoritativeRecovery({
+      state,
+      loaded,
+      recovery,
+      terminalDerivativeProjection: boundedProjectionEvidence(reloadedProjection),
+    })
     : { ok: true };
   if (preparation?.ok === false) {
     return {
@@ -322,7 +327,10 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }
   if (preparation?.state) state = preparation.state;
   if (reloadedProjection) {
-    const preReopenProjection = projectTargetedTerminalDerivative(config, loaded.state);
+    const preReopenLoaded = loadRecoveryState(config, loaded.state);
+    const preReopenProjection = preReopenLoaded.ok
+      ? projectTargetedTerminalDerivative(config, preReopenLoaded.state)
+      : { ok: false };
     if (!preReopenProjection.ok
       || preReopenProjection.evidenceDigest !== reloadedProjection.evidenceDigest) {
       return {

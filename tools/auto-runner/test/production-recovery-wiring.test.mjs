@@ -216,7 +216,11 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
   assert.match(
     continuationSource,
-    /await prepareAuthoritativeRecovery[\s\S]*projectTargetedTerminalDerivative\(config, loaded\.state\)[\s\S]*terminal_projection_pre_reopen_mismatch[\s\S]*consumeStartupInterruptionPlanner/,
+    /await prepareAuthoritativeRecovery[\s\S]*loadRecoveryState\(config, loaded\.state\)[\s\S]*projectTargetedTerminalDerivative\(config, preReopenLoaded\.state\)[\s\S]*terminal_projection_pre_reopen_mismatch[\s\S]*consumeStartupInterruptionPlanner/,
+  );
+  assert.match(
+    source,
+    /prepareAuthoritativeRecovery: async \(\{ state, terminalDerivativeProjection \}\)[\s\S]*if \(!terminalDerivativeProjection\?\.ok\) \{[\s\S]*writeRecoveryState\(config, state\)[\s\S]*state = reconciledReload\.state;/,
   );
   assert.match(
     source,
@@ -228,7 +232,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.doesNotMatch(
     source,
-    /prepareAuthoritativeRecovery:\s*async \(\{ state \}\) => \{\s*if \(state\.phase !== "checkpoint_validation_commit"\) return/,
+    /prepareAuthoritativeRecovery:\s*async \(\{ state, terminalDerivativeProjection \}\) => \{\s*if \(state\.phase !== "checkpoint_validation_commit"\) return/,
   );
   assert.match(
     source,
@@ -330,7 +334,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
-    /prepareAuthoritativeRecovery: async \(\{ state \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,
+    /prepareAuthoritativeRecovery: async \(\{ state, terminalDerivativeProjection \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,
   );
   assert.match(
     source,

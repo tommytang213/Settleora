@@ -2052,7 +2052,7 @@ function createProductionRecoveryRecorder(config, input) {
 async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null, authoritativeLoadedRecovery = null) {
   return executeStartupContinuation(config, startupRecovery, {
     authoritativeLoadedRecovery,
-    prepareAuthoritativeRecovery: async ({ state }) => {
+    prepareAuthoritativeRecovery: async ({ state, terminalDerivativeProjection }) => {
       const reconciledHead = reconcilePendingRecoveredSourceHeadTransition(config, state);
       if (!reconciledHead.ok) {
         return { ok: false, reasonCode: reconciledHead.reasonCode, state };
@@ -2194,20 +2194,22 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           } : state.pr,
         } : {}),
       };
-      const reconciledWrite = writeRecoveryState(config, state);
-      const reconciledReload = loadRecoveryState(config, reconciledWrite.state);
-      if (!reconciledReload.ok
-        || reconciledReload.state.recoveryReconciliation?.evidenceDigest !== reconciledRecovery?.evidenceDigest
-        || (reconciledRecovery
-          && (reconciledReload.state.pr?.number !== (reconciledPr?.number ?? null)
-            || reconciledReload.state.pr?.headSha !== (reconciledPr?.headSha ?? null)))) {
-        return rejectHistoricalWorkspacePreparation(
-          config,
-          state,
-          "startup_recovery_reconciliation_persistence_failed",
-        );
+      if (!terminalDerivativeProjection?.ok) {
+        const reconciledWrite = writeRecoveryState(config, state);
+        const reconciledReload = loadRecoveryState(config, reconciledWrite.state);
+        if (!reconciledReload.ok
+          || reconciledReload.state.recoveryReconciliation?.evidenceDigest !== reconciledRecovery?.evidenceDigest
+          || (reconciledRecovery
+            && (reconciledReload.state.pr?.number !== (reconciledPr?.number ?? null)
+              || reconciledReload.state.pr?.headSha !== (reconciledPr?.headSha ?? null)))) {
+          return rejectHistoricalWorkspacePreparation(
+            config,
+            state,
+            "startup_recovery_reconciliation_persistence_failed",
+          );
+        }
+        state = reconciledReload.state;
       }
-      state = reconciledReload.state;
       return {
         ok: true,
         state,
