@@ -272,7 +272,7 @@ export function exactLifecycle(state, target) {
     && effects?.pr === false && effects?.merge === false && effects?.comment === false;
 }
 
-function exactTerminalIteration(value, target) {
+export function exactTerminalIteration(value, target) {
   const terminal = value?.recovery?.states;
   const budget = value?.logicalTaskBudget;
   return target?.durableBudgetExact === true
@@ -289,8 +289,10 @@ function exactTerminalIteration(value, target) {
     && budget?.ok === true && budget?.duplicate === true && budget?.charged === false
     && budget?.chargeId === target.chargeId
     && budget?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
+    && budget?.marker?.chargeId === target.chargeId
     && budget?.marker?.identity?.repository === target.repository
     && budget?.marker?.identity?.issueNumber === target.issueNumber
+    && budget?.marker?.identity?.taskLineageId === `issue-${target.issueNumber}`
     && budget?.marker?.identity?.claimIdentity === target.claimIdentity
     && Array.isArray(terminal) && terminal.length === 1
     && exactTerminalProjection(terminal[0], target);

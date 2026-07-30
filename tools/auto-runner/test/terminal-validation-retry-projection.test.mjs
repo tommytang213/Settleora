@@ -7,12 +7,98 @@ import {
   exactRawCheckpoint,
   exactRawValidationEvidence,
   exactLifecycle,
+  exactTerminalIteration,
   exactTerminalFailureFindings,
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
   stateMayBelongToTarget,
   stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
+
+test("terminal retry projection binds the successor budget marker charge and task lineage", () => {
+  const target = {
+    durableBudgetExact: true,
+    acceptedLogicalTasks: 1,
+    issueNumber: 959,
+    repository: "owner/repo",
+    claimIdentity: "owner/repo#959",
+    chargeId: "a".repeat(64),
+    taskKey: "20260724T075849",
+    branch: "feature/auto-959-preserved",
+    baseSha: "1".repeat(40),
+    headSha: "2".repeat(40),
+    runnerRunId: "run-original",
+    supervisorRunId: "supervised-original",
+  };
+  const iteration = {
+    index: 1,
+    outcome: "blocked_recovery_state",
+    issue: { number: target.issueNumber },
+    issueSource: "startup_recovery",
+    branchName: target.branch,
+    baseOriginMainSha: target.baseSha,
+    runnerCreatedCommitSha: target.headSha,
+    pr: null,
+    changedFiles: [],
+    validation: null,
+    review: null,
+    externalReview: null,
+    logicalTaskBudget: {
+      ok: true,
+      duplicate: true,
+      charged: false,
+      chargeId: target.chargeId,
+      acceptedLogicalTaskCount: 1,
+      marker: {
+        chargeId: target.chargeId,
+        identity: {
+          repository: target.repository,
+          issueNumber: target.issueNumber,
+          taskLineageId: `issue-${target.issueNumber}`,
+          claimIdentity: target.claimIdentity,
+        },
+      },
+    },
+    recovery: {
+      states: [{
+        taskKey: target.taskKey,
+        issueNumber: target.issueNumber,
+        branchName: target.branch,
+        baseSha: target.baseSha,
+        currentHeadSha: target.headSha,
+        prNumber: null,
+        prUrl: null,
+        phase: "stopped",
+        stopReason: {
+          reasonCode: "checkpoint_validation_recovery_failed_closed",
+          reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+        },
+        firstIncompleteAction: "run_validation_and_commit",
+        nextSafeAction: "stop_fail_closed",
+        runId: target.runnerRunId,
+        supervisorRunId: target.supervisorRunId,
+      }],
+    },
+  };
+  assert.equal(exactTerminalIteration(iteration, target), true);
+  assert.equal(exactTerminalIteration({
+    ...iteration,
+    logicalTaskBudget: {
+      ...iteration.logicalTaskBudget,
+      marker: { ...iteration.logicalTaskBudget.marker, chargeId: "b".repeat(64) },
+    },
+  }, target), false);
+  assert.equal(exactTerminalIteration({
+    ...iteration,
+    logicalTaskBudget: {
+      ...iteration.logicalTaskBudget,
+      marker: {
+        ...iteration.logicalTaskBudget.marker,
+        identity: { ...iteration.logicalTaskBudget.marker.identity, taskLineageId: "issue-999" },
+      },
+    },
+  }, target), false);
+});
 
 test("terminal retry projection binds every lifecycle convergence counter", () => {
   const target = {
