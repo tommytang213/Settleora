@@ -40,7 +40,9 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     const stateRoot = path.join(root, "state");
     const issueStates = trustedJsonFiles(stateRoot)
       .filter((artifact) => artifact.value?.issue?.number === target.issueNumber);
-    const latestFinishedAt = latestTimestamp(issueStates.map(({ value }) => value.finishedAt));
+    const latestState = selectLatestIssueStateTimestamp(issueStates.map(({ value }) => value));
+    if (!latestState.ok) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
+    const latestFinishedAt = latestState.finishedAt;
     const terminalStates = issueStates.filter(({ value }) =>
       value.finishedAt === latestFinishedAt && exactTerminalIteration(value, target));
     if (terminalStates.length !== 1) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
@@ -136,8 +138,13 @@ function exactRawCheckpoint(state, target) {
     && candidate?.baseSha === target.baseSha && candidate?.headSha === target.headSha
     && candidate?.treeSha === target.treeSha && candidate?.changedFilesDigest === target.changedFilesDigest
     && candidate?.diffDigest === target.diffDigest
-    && Object.keys(state?.mutationMarkers?.push || {}).length === 0
-    && Object.keys(state?.mutationMarkers?.merge || {}).length === 0;
+    && exactRawCheckpointMutationMarkerShape(state?.mutationMarkers);
+}
+
+export function exactRawCheckpointMutationMarkerShape(markers) {
+  if (!markers || typeof markers !== "object" || Array.isArray(markers)) return false;
+  return canonical(Object.keys(markers).sort())
+    === canonical(["branch_ownership_created", "claim", "logical_task_charge"]);
 }
 
 function exactLifecycle(state, target) {
@@ -251,9 +258,25 @@ function publicArtifact(artifact, role) {
   return Object.freeze({ role, path: artifact.path, sha256: artifact.sha256, size: artifact.size });
 }
 
-function latestTimestamp(values) {
-  return values.filter((value) => Number.isFinite(Date.parse(value)))
-    .sort((left, right) => Date.parse(right) - Date.parse(left))[0] || null;
+export function selectLatestIssueStateTimestamp(states) {
+  if (!Array.isArray(states) || states.length === 0) return { ok: false, finishedAt: null };
+  const normalized = [];
+  for (const state of states) {
+    const startedAtMs = typeof state?.startedAt === "string" ? Date.parse(state.startedAt) : Number.NaN;
+    const finishedAtMs = typeof state?.finishedAt === "string" ? Date.parse(state.finishedAt) : Number.NaN;
+    if (!Number.isFinite(startedAtMs) || !Number.isFinite(finishedAtMs) || finishedAtMs < startedAtMs) {
+      return { ok: false, finishedAt: null };
+    }
+    normalized.push({ startedAtMs, finishedAtMs, finishedAt: state.finishedAt });
+  }
+  normalized.sort((left, right) =>
+    Math.max(right.startedAtMs, right.finishedAtMs) - Math.max(left.startedAtMs, left.finishedAtMs));
+  const latest = normalized[0];
+  const latestActivityAtMs = Math.max(latest.startedAtMs, latest.finishedAtMs);
+  const tied = normalized.filter((state) =>
+    Math.max(state.startedAtMs, state.finishedAtMs) === latestActivityAtMs);
+  if (tied.length !== 1) return { ok: false, finishedAt: null };
+  return { ok: true, finishedAt: latest.finishedAt };
 }
 
 function canonical(value) {
