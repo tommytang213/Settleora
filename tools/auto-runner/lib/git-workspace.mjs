@@ -591,6 +591,7 @@ export function canonicalEffectContext(config, input = {}) {
     logicalTaskIdentity: logical.claimIdentity,
     claimIdentity: logical.claimIdentity,
     chargeIdentity: logical.chargeMarkerRef,
+    issueNumber: logical.issueNumber,
     sessionId,
     authorityGeneration: authority.generation,
     branchName: state.branch?.name,
@@ -598,7 +599,7 @@ export function canonicalEffectContext(config, input = {}) {
     candidateIdentity: state.branch?.candidateDigest || state.branch?.headSha,
     reservationIdentity: input.reservationIdentity || null,
     currentAuthority: { runId: logical.runId, sessionId, authorityGeneration: authority.generation, status: authority.status },
-    expectedIdentity: { repository: state.repository, sourceTaskKey: logical.taskKey, runId: logical.runId, logicalTaskIdentity: logical.claimIdentity, claimIdentity: logical.claimIdentity, chargeIdentity: logical.chargeMarkerRef, sessionId, authorityGeneration: authority.generation },
+    expectedIdentity: { repository: state.repository, sourceTaskKey: logical.taskKey, runId: logical.runId, logicalTaskIdentity: logical.claimIdentity, claimIdentity: logical.claimIdentity, chargeIdentity: logical.chargeMarkerRef, issueNumber: logical.issueNumber, sessionId, authorityGeneration: authority.generation },
   };
 }
 
