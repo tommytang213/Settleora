@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -11,12 +12,14 @@ import {
   headBoundEvidenceKinds,
   loadRecoveryState,
   recordIdempotentMutation,
+  sanitizeRecoveryState,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { discoverStartupRecovery, executeStartupContinuation } from "../lib/recovery-continuation.mjs";
 import {
   chargeStartupRecoveryLogicalTask,
+  recoveredSourceHeadTransition,
   rejectHistoricalWorkspacePreparation,
   shouldReadPreservedPriorOutcome,
 } from "../settleora-auto-runner.mjs";
@@ -264,6 +267,18 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
+    /source_failure_fix: async[\s\S]*runReviewFixCycle[\s\S]*fixAttempt\.sessionLifecycleState[\s\S]*state = \{ \.\.\.state, sessionLifecycle: fixAttempt\.sessionLifecycleState \}[\s\S]*commitReviewFixAndRerunExactHeadReviews/,
+  );
+  assert.match(
+    source,
+    /review_convergence: async[\s\S]*runReviewFixCycle[\s\S]*fixAttempt\.sessionLifecycleState[\s\S]*state = \{ \.\.\.state, sessionLifecycle: fixAttempt\.sessionLifecycleState \}[\s\S]*headChangeCheckpoint/,
+  );
+  assert.match(
+    source,
+    /function recoveredSourceHeadTransition[\s\S]*sanitizeRecoveryState\(\{[\s\S]*ordinaryContinuation,[\s\S]*JSON\.stringify\(value\)/,
+  );
+  assert.match(
+    source,
     /prepareAuthoritativeRecovery: async \(\{ state \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,
   );
   assert.match(
@@ -317,6 +332,40 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /prospective_validation_source_checkout_not_restored/);
   assert.match(source, /getRefSha\("origin\/main"\) !== continuation\.expectedOriginMainSha/);
   assert.match(source, /headChangeCheckpoint: async \(headSha\)[\s\S]*expectedOriginMainSha: continuation\.expectedOriginMainSha/);
+});
+
+test("recovered source-head transition hashes the exact sanitized persisted payload", () => {
+  const ordinaryContinuation = {
+    identity: { baseSha: "1".repeat(40), headSha: "2".repeat(40) },
+    sourceFailureBatch: {
+      findings: [{
+        diagnosticExcerpt: "Unexpected token token=credential-value",
+        rawOutput: "must never persist",
+      }],
+    },
+  };
+  const input = {
+    branchName: "fix/recovered",
+    predecessorHead: "3".repeat(40),
+    newHead: "2".repeat(40),
+    reasonCode: "ordinary_source_failure_fix_committed",
+    ordinaryContinuation,
+  };
+  const transition = recoveredSourceHeadTransition(input);
+  const { digest, ...persistedPayload } = transition;
+  const exactSanitizedPayload = sanitizeRecoveryState({ version: 1, ...input });
+
+  assert.deepEqual(persistedPayload, exactSanitizedPayload);
+  assert.equal(
+    digest,
+    createHash("sha256").update(JSON.stringify(exactSanitizedPayload)).digest("hex"),
+  );
+  assert.notEqual(
+    digest,
+    createHash("sha256").update(JSON.stringify({ version: 1, ...input })).digest("hex"),
+  );
+  assert.equal(JSON.stringify(transition).includes("credential-value"), false);
+  assert.equal(JSON.stringify(transition).includes("must never persist"), false);
 });
 
 test("startup recovery reconciles the unique accepted charge after a claim-to-marker crash", () => {

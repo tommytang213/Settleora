@@ -127,6 +127,7 @@ import {
   persistCompleteHeadEvidence,
   recordIdempotentMutation,
   recordRecoveryAttempt,
+  sanitizeRecoveryState,
   writeRecoveryState,
 } from "./lib/recovery-state.mjs";
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
@@ -2752,6 +2753,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         reviewConvergenceState: state.reviewConvergenceState,
         sourceFailureFix: { batch, decision, candidateHead: continuation.identity.headSha, baseSha: continuation.identity.baseSha },
       });
+      if (fixAttempt.sessionLifecycleState) {
+        state = { ...state, sessionLifecycle: fixAttempt.sessionLifecycleState };
+      }
       if (!fixAttempt.proceeded) return { ok: false, reasonCode: fixAttempt.reason || "source_failure_fix_not_proceeded" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, branchName: continuation.branchName, commitMessage: `Auto-runner issue #${issue.number}: source-fix ${batch.batchIdentity.slice(0, 16)}` });
       if (!postFix.runnerCreatedCommitSha || postFix.runnerCreatedCommitSha === continuation.identity.headSha || postFix.forbiddenChangedFiles?.length) {
@@ -2807,6 +2811,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const reviewForFix = structuredFindings.length ? { ...context.review, verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: structuredFindings } } : context.review;
       operationalCheckpoint?.("ordinary_recovery_review_convergence");
       const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName: state.branch.name, promptInfo, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: context.validation, report: { found: true, recovered: true }, externalReview: context.externalReview, review: reviewForFix, largeCandidateReview: context.largeCandidateReview, reviewConvergenceState: state.reviewConvergenceState });
+      if (fixAttempt.sessionLifecycleState) {
+        state = { ...state, sessionLifecycle: fixAttempt.sessionLifecycleState };
+      }
       if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
@@ -3098,17 +3105,17 @@ function reconcilePendingRecoveredSourceHeadTransition(config, state) {
   return { ok: true, state: writeRecoveryState(config, finalized).state };
 }
 
-function recoveredSourceHeadTransition({
+export function recoveredSourceHeadTransition({
   branchName, predecessorHead, newHead, reasonCode, ordinaryContinuation,
 }) {
-  const value = {
+  const value = sanitizeRecoveryState({
     version: 1,
     branchName,
     predecessorHead,
     newHead,
     reasonCode,
     ordinaryContinuation,
-  };
+  });
   return {
     ...value,
     digest: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
@@ -4444,6 +4451,7 @@ async function runReviewFixCycle(config, context) {
       decision,
       promptPath,
       codex,
+      sessionLifecycleState: codex.sessionLifecycle?.state || null,
       changedFilesAfter,
       forbiddenChangedFilesAfter,
       evidence,
@@ -4475,7 +4483,7 @@ async function runReviewFixCycle(config, context) {
         validationAfter: summarizeValidation(validationAfter),
         stopReason: null,
       });
-      return { attempted: true, proceeded: true, reason: "source_fix_requires_recursive_validation_convergence", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter, evidence };
+      return { attempted: true, proceeded: true, reason: "source_fix_requires_recursive_validation_convergence", decision, promptPath, codex, sessionLifecycleState: codex.sessionLifecycle?.state || null, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter, evidence };
     }
     return finishBlocked("review_fix_validation_failed", { validationAfter: summarizeValidation(validationAfter) });
   }
@@ -4588,6 +4596,7 @@ async function runReviewFixCycle(config, context) {
     decision,
     promptPath,
     codex,
+    sessionLifecycleState: codex.sessionLifecycle?.state || null,
     changedFilesAfter,
     forbiddenChangedFilesAfter,
     validationAfter,
