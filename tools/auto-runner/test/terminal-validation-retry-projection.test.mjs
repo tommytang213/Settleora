@@ -161,6 +161,18 @@ test("terminal retry projection binds the runner summary to the iteration system
   }, iteration, target), false);
   assert.equal(exactTerminalSummary({ ...summary, maxRuntimeMs: 60_000 }, iteration, target), false);
   assert.equal(exactTerminalSummary({ ...summary, configPath: "/different/config.json" }, iteration, target), false);
+  assert.equal(exactTerminalSummary({
+    ...summary,
+    iterations: { 0: iteration, length: 1 },
+  }, iteration, target), false);
+  assert.equal(exactTerminalSummary({
+    ...summary,
+    attemptedIssueNumbers: { length: 0 },
+  }, iteration, target), false);
+  assert.equal(exactTerminalSummary({
+    ...summary,
+    processedIssueNumbers: { 0: target.issueNumber, length: 1 },
+  }, iteration, target), false);
 });
 
 test("terminal retry projection binds every lifecycle convergence counter", () => {
@@ -330,7 +342,7 @@ test("terminal retry projection treats a target-bound state filename as supersed
     supervisorRunId: "supervised-original",
   };
   const malformed = {
-    path: "/trusted/state/run-2026-07-30T100000Z-deadbeef-2-issue-959.json",
+    path: "/trusted/state/run-2026-07-30T100000Z-deadbeefcafe-2-issue-959.json",
     value: {
       finishedAt: "2026-07-30T10:00:01.000Z",
     },
@@ -341,14 +353,18 @@ test("terminal retry projection treats a target-bound state filename as supersed
     ...malformed,
     value: {
       ...malformed.value,
-      runId: "run-2026-07-30T100000Z-deadbeef",
+      runId: "run-2026-07-30T100000Z-deadbeefcafe",
       index: 2,
       issue: { number: 959 },
     },
   }), true);
   assert.equal(stateArtifactMayBelongToTarget({
     ...malformed,
-    path: "/trusted/state/run-2026-07-30T100000Z-deadbeef-2-issue-999.json",
+    path: "/trusted/state/run-2026-07-30T100000Z-deadbeefcafe-2-issue-999.json",
+  }, target), false);
+  assert.equal(stateArtifactMayBelongToTarget({
+    ...malformed,
+    path: "/trusted/state/run-invalid-2-issue-959.json",
   }, target), false);
 });
 
@@ -361,7 +377,7 @@ test("terminal retry projection treats a successor-run filename as superseding e
     supervisorRunId: "supervised-original",
   };
   const successor = {
-    runId: "run-2026-07-30T100000Z-deadbeef",
+    runId: "run-2026-07-30T100000Z-deadbeefcafe",
     issue: { number: 959 },
     branchName: target.branch,
   };
@@ -378,7 +394,7 @@ test("terminal retry projection treats a successor-run filename as superseding e
 });
 
 test("terminal retry projection rejects every additional successor-run artifact regardless of timestamp", () => {
-  const runId = "run-2026-07-30T100000Z-deadbeef";
+  const runId = "run-2026-07-30T100000Z-deadbeefcafe";
   const anchor = { runId };
   const first = {
     path: `/trusted/state/${runId}-1-issue-959.json`,

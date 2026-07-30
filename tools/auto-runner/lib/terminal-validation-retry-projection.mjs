@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { supervisorModeToRunnerMode } from "./run-correlation.mjs";
+import {
+  supervisorModeToRunnerMode,
+  validateRunnerRunId,
+} from "./run-correlation.mjs";
 import {
   allowedSpecFields,
   specPathForRunId,
@@ -249,7 +252,12 @@ export function stateMayBelongToTarget(state, target) {
 
 function iterationStateFilenameIdentity(artifact) {
   const match = /^(.+)-(\d+)-(?:issue-(\d+)|no-issue)\.json$/u.exec(path.basename(artifact?.path || ""));
-  if (!match || !match[1].startsWith("run-")) return null;
+  if (!match) return null;
+  try {
+    validateRunnerRunId(match[1]);
+  } catch {
+    return null;
+  }
   const index = Number(match[2]);
   const issueNumber = match[3] === undefined ? null : Number(match[3]);
   if (!Number.isSafeInteger(index) || index < 1
@@ -380,15 +388,18 @@ function exactTerminalProjection(value, target) {
 }
 
 export function exactTerminalSummary(summary, iteration, target) {
-  return summary?.iterations?.length === 1
+  return Array.isArray(summary?.iterations) && summary.iterations.length === 1
     && canonical(summary.iterations[0]) === canonical(iteration)
     && summary?.runId === iteration.runId
     && summary?.stopReason === iteration.systemicStop
     && typeof summary?.supervisorRunId === "string"
     && summary?.maxRuntimeMs === SUCCESSOR_MAX_RUNTIME_MS
     && summary?.configPath === SUCCESSOR_RUNNER_CONFIG_PATH
-    && summary?.attemptedIssueCount === 0 && summary?.attemptedIssueNumbers?.length === 0
-    && summary?.processedIssueCount === 1 && canonical(summary?.processedIssueNumbers) === canonical([target.issueNumber])
+    && summary?.attemptedIssueCount === 0
+    && Array.isArray(summary?.attemptedIssueNumbers) && summary.attemptedIssueNumbers.length === 0
+    && summary?.processedIssueCount === 1
+    && Array.isArray(summary?.processedIssueNumbers)
+    && canonical(summary.processedIssueNumbers) === canonical([target.issueNumber])
     && summary?.acceptedLogicalTaskCount === 1 && summary?.maxIterations === 1
     && Date.parse(summary?.startedAt) <= Date.parse(iteration?.startedAt)
     && Date.parse(summary?.finishedAt) >= Date.parse(iteration?.finishedAt);
