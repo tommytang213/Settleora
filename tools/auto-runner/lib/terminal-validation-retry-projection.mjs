@@ -116,7 +116,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
   }
 }
 
-function exactRawCheckpoint(state, target) {
+export function exactRawCheckpoint(state, target) {
   const candidate = state?.ordinaryContinuation?.sourceFailureBatch?.candidate;
   const identity = state?.ordinaryContinuation?.identity;
   return state?.phase === "checkpoint_validation_commit"
@@ -132,6 +132,7 @@ function exactRawCheckpoint(state, target) {
     && state?.branch?.currentHeadSha === target.headSha
     && state?.branch?.expectedRemoteHeadSha === null
     && state?.pr?.number === null && state?.pr?.url === null && state?.pr?.headSha === null
+    && identity?.repository === target.repository
     && identity?.baseSha === target.baseSha && identity?.headSha === target.headSha
     && identity?.treeSha === target.treeSha && identity?.changedFilesDigest === target.changedFilesDigest
     && identity?.diffDigest === target.diffDigest

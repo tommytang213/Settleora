@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   exactRawCheckpointMutationMarkerShape,
+  exactRawCheckpoint,
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
   stateMayBelongToTarget,
@@ -103,4 +104,62 @@ test("terminal retry projection binds successor spec base and compatible runner 
     initialOriginMainSha: "0".repeat(40),
   }, summary), false);
   assert.equal(exactSuccessorSpec(spec, { ...summary, mode: "dry-run" }), false);
+});
+
+test("terminal retry projection binds raw continuation repository identity", () => {
+  const target = {
+    repository: "tommytang213/Settleora",
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    runnerRunId: "run-original",
+    supervisorRunId: "supervised-original",
+    branch: "feature/auto-959-preserved",
+    baseSha: "1".repeat(40),
+    headSha: "2".repeat(40),
+    treeSha: "3".repeat(40),
+    changedFilesDigest: "4".repeat(64),
+    diffDigest: "5".repeat(64),
+  };
+  const candidate = {
+    repository: target.repository,
+    baseSha: target.baseSha,
+    headSha: target.headSha,
+    treeSha: target.treeSha,
+    changedFilesDigest: target.changedFilesDigest,
+    diffDigest: target.diffDigest,
+    changedFiles: ["tools/auto-runner/example.mjs"],
+  };
+  const state = {
+    phase: "checkpoint_validation_commit",
+    stopReason: null,
+    firstIncompleteAction: "run_validation_and_commit",
+    nextSafeAction: "run_validation_and_commit",
+    issue: { number: target.issueNumber },
+    taskKey: target.taskKey,
+    run: { runId: target.runnerRunId, supervisorRunId: target.supervisorRunId },
+    branch: {
+      name: target.branch,
+      baseSha: target.baseSha,
+      currentHeadSha: target.headSha,
+      expectedRemoteHeadSha: null,
+    },
+    pr: { number: null, url: null, headSha: null },
+    ordinaryContinuation: {
+      identity: candidate,
+      sourceFailureBatch: { candidate },
+    },
+    mutationMarkers: {
+      claim: {},
+      logical_task_charge: {},
+      branch_ownership_created: {},
+    },
+  };
+  assert.equal(exactRawCheckpoint(state, target), true);
+  assert.equal(exactRawCheckpoint({
+    ...state,
+    ordinaryContinuation: {
+      ...state.ordinaryContinuation,
+      identity: { ...candidate, repository: "other/Repository" },
+    },
+  }, target), false);
 });
