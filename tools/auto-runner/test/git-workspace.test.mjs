@@ -133,6 +133,30 @@ test("historical task workspace is materialized without moving canonical main", 
     });
     assert.equal(crashWindowRecovery.taskRoot, adopted.taskRoot);
     assert.equal(crashWindowRecovery.created, true);
+    const successorContext = {
+      ...effectContext,
+      sessionId: "fixture-successor",
+      authorityGeneration: 2,
+      currentAuthority: {
+        runId: "fixture-run",
+        sessionId: "fixture-successor",
+        authorityGeneration: 2,
+        status: "active",
+      },
+      expectedIdentity: {
+        ...effectContext.expectedIdentity,
+        sessionId: "fixture-successor",
+        authorityGeneration: 2,
+      },
+    };
+    const finalizedIntentSuccessorRecovery = adoptHistoricalTaskWorkspace(config, {
+      branchName: "feature/preserved",
+      headSha: candidateSha,
+      taskKey: "fixture-task",
+      effectContext: successorContext,
+    });
+    assert.equal(finalizedIntentSuccessorRecovery.taskRoot, adopted.taskRoot);
+    assert.equal(finalizedIntentSuccessorRecovery.created, true);
     const ownershipIdentity = canonicalGithubEvidenceDigest({
       repository: config.repositorySlug,
       branchName: "feature/preserved",
