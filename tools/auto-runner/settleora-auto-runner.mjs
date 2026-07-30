@@ -2841,6 +2841,15 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             },
           });
           await persist(next);
+          if (state.sessionLifecycle) {
+            issue.sessionLifecycle = state.sessionLifecycle;
+            if (promptInfo.sessionLifecycle) {
+              promptInfo.sessionLifecycle = {
+                ...promptInfo.sessionLifecycle,
+                state: state.sessionLifecycle,
+              };
+            }
+          }
         },
       });
       if (postFix.review?.sessionLifecycle) {

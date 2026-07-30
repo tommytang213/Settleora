@@ -287,6 +287,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
+    /headChangeCheckpoint: async \(headSha\)[\s\S]*await persist\(next\);[\s\S]*issue\.sessionLifecycle = state\.sessionLifecycle;[\s\S]*promptInfo\.sessionLifecycle = \{[\s\S]*state: state\.sessionLifecycle/,
+  );
+  assert.match(
+    source,
     /prepareAuthoritativeRecovery: async \(\{ state \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,
   );
   assert.match(
