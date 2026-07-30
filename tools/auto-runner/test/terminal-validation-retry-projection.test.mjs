@@ -388,6 +388,13 @@ test("terminal retry projection rejects every additional successor-run artifact 
       { path: extraPath, value: { finishedAt: "2026-07-30T09:00:00.000Z" } },
     ], [anchor]), false);
   }
+  assert.equal(successorRunArtifactsAreUnique([
+    first,
+    {
+      path: "/trusted/state/run-different-1-issue-999.json",
+      value: { runId, finishedAt: "2026-07-30T09:00:00.000Z" },
+    },
+  ], [anchor]), false);
   assert.equal(successorRunArtifactsAreUnique([first], [anchor, { runId: "run-other" }]), false);
 });
 

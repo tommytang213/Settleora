@@ -294,7 +294,8 @@ export function successorRunArtifactsAreUnique(artifacts, directlyAssociatedStat
     .filter((runId) => typeof runId === "string" && runId.length > 0));
   if (successorRunIds.size !== 1) return false;
   const matching = artifacts.filter((artifact) =>
-    successorRunIds.has(iterationStateFilenameIdentity(artifact)?.runId));
+    successorRunIds.has(iterationStateFilenameIdentity(artifact)?.runId)
+    || successorRunIds.has(artifact?.value?.runId));
   return matching.length === 1;
 }
 
