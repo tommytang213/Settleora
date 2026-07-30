@@ -1,5 +1,51 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#999 and PR #1019 — recovery-authority reconciliation repair merged (2026-07-30)
+
+- PR #1019 merged normally from exact authorized source head
+  `16711f6c4bc8f52fe8a30390bcf554ac834c67b5` and base
+  `56daf9d3716acc54215e75633580dfcb8a97e1e9` as merge commit/current
+  `main` `29c5802880c9375eaa616df223d649bbac30fef1`. Its ordered parents are
+  the exact base and source head, and its merge tree
+  `897ea6be51b98e3d1a558a81a3c919bcf2d68fb3` equals the authorized
+  source tree.
+- The repository recovery-authority repair authenticates a bounded contiguous
+  historical push/PR-intent lineage, reconciles that history with the unique
+  live PR and trusted current `main`, and persists the resulting projection
+  through the existing recovery-state authority before downstream planning.
+  Historical effect-time `main`, original base, and current `main` remain
+  distinct, ancestry-bound evidence; contradictory or incomplete identity,
+  lineage, intent, PR, digest, or current-main evidence fails closed.
+- Exact-head evidence converged on source head `16711f6c4b`:
+  - `npm ci` passed with 0 vulnerabilities; doctor, changed-module syntax and
+    import smoke, docs, scaffold, diff, exact-scope, and clean checks passed;
+  - focused recovery tests passed `58/58` and the complete auto-runner suite
+    passed `1276/1276`;
+  - fresh Gemini `strong_independent` and local Codex mechanics/integration/
+    recovery/Git/security reviews passed with no remaining finding;
+  - all required CodeQL, Semgrep, Trivy, and Scaffold Validation checks passed
+    on the exact head, and all 45 accumulated review threads were resolved.
+- Keep Issue #1012 `OPEN` with `manual-gate`. The repository repair is merged,
+  but its close rule remains unsatisfied until the corrected runtime is
+  separately deployed and its installed runtime/profile/health identities are
+  verified, then exactly one trusted continuation reuses the preserved #959
+  task, charge, branch, and candidate without duplicate effect.
+- Issue #959 remains `OPEN` and preserved with exactly `area:ocr`,
+  `area:mobile-ui`, `type:bug`, `scope:day1`, `auto-ready`, and `auto-failed`;
+  it has neither `auto-claimed` nor `auto-running` and has not been resumed.
+  Issue #999 remains `OPEN`, has zero comments, and remains separate,
+  unimplemented backlog work.
+- PR #1019 added no product/mobile OCR implementation. Its merge and this
+  repository hygiene performed no deployment, runtime/profile/service change,
+  runner submission, queue activation, #959/#999 mutation, API/OpenAPI,
+  auth/session/security, storage/privacy, money/settlement, schema/migration,
+  Docker/deployment/CI, secret, network, exposure, architecture, or Day 1
+  scope effect.
+- Issue #1012 merge checkpoint comment:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5128041480`.
+  Source report:
+  `/workspace/logs/settleora-codex-report-20260730-1335-issue-1012-pr1019-cross-cutting-recovery-reconciliation.md`.
+
 ### Issues #1012/#959 and PR #1017 — preserved-recovery claim-authority repair merged (2026-07-28)
 
 - GitHub state at the PR #1017 merge handoff: #1012 and #959 remain `OPEN`.
