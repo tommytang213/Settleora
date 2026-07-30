@@ -3550,6 +3550,7 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
     return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
   }
   let provenIdentity = null;
+  let lineageProof = null;
   if (baseSha !== reconstructedCurrentMainSha) {
     const recoveryChargeId =
       Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null;
@@ -3589,7 +3590,7 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
         };
       }
     }
-    const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
+    lineageProof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
       expectedLifecyclePhase: lifecyclePhase,
       allowAuthenticatedExistingPrEffects: true,
       expectedChargeId: recoveryChargeId,
@@ -3599,11 +3600,11 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
       validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
       ...terminalLineageOptions,
     });
-    if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode };
-    if (filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
+    if (!lineageProof.ok) return { ok: false, reasonCode: lineageProof.reasonCode };
+    if (filterForbiddenChangedFiles(lineageProof.candidateIdentity.changedFiles, laneDecision).length > 0) {
       return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
     }
-    provenIdentity = proof.candidateIdentity;
+    provenIdentity = lineageProof.candidateIdentity;
     baseSha = provenIdentity.baseSha;
     headSha = provenIdentity.headSha;
   }
@@ -3619,11 +3620,11 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
   };
   const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });
   const loaded = loadLargeCandidateRoutingState(config, seed);
-  const historicalEffectMainSha = proof?.reconciledRecovery?.historicalEffectMainSha
+  const historicalEffectMainSha = lineageProof?.reconciledRecovery?.historicalEffectMainSha
     || state.recoveryReconciliation?.historicalEffectMainSha
     || state.ordinaryContinuation?.expectedOriginMainSha
     || baseSha;
-  const recoveryProjection = proof?.reconciledRecovery || state.recoveryReconciliation || null;
+  const recoveryProjection = lineageProof?.reconciledRecovery || state.recoveryReconciliation || null;
   if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true, reconstructedCurrentMainSha, historicalEffectMainSha, recoveryProjection };
   if (!loaded.ok) return loaded;
   return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults, reconstructedCurrentMainSha, historicalEffectMainSha, recoveryProjection };
