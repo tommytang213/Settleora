@@ -205,6 +205,7 @@ test("startup continuation blocks corrupt or unsafe state without polling fallba
 
 test("production runner is wired past discovery-only recovery and legacy PR classifier", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const workspaceSource = readFileSync(new URL("../lib/git-workspace.mjs", import.meta.url), "utf8");
   const collector = readFileSync(new URL("../lib/authoritative-recovery-evidence.mjs", import.meta.url), "utf8");
   const lineage = readFileSync(
     new URL("../lib/historical-initial-candidate-lineage.mjs", import.meta.url), "utf8",
@@ -234,7 +235,21 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
-    /prepareAuthoritativeRecovery:[\s\S]*checkpoint = reconstructInitialValidationFailureCheckpoint\(config, state, issue, laneDecision\);[\s\S]*return \{[\s\S]*checkpoint,[\s\S]*default: async \(\{ state, boundary, preparation \}\)[\s\S]*const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/,
+    /prepareAuthoritativeRecovery:[\s\S]*checkpoint: null,[\s\S]*default: async \(\{ state, boundary, preparation \}\)[\s\S]*const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/,
+  );
+  assert.match(
+    workspaceSource,
+    /canonicalEffectContext[\s\S]*issueNumber: logical\.issueNumber,[\s\S]*expectedIdentity:[\s\S]*issueNumber: logical\.issueNumber/,
+    "canonical worktree intents must retain issue authority through a full startup restart",
+  );
+  const preparationStart = source.indexOf("prepareAuthoritativeRecovery:");
+  const defaultStart = source.indexOf("default: async ({ state, boundary, preparation })", preparationStart);
+  assert.ok(preparationStart >= 0 && defaultStart > preparationStart);
+  assert.equal(
+    source.slice(preparationStart, defaultStart)
+      .includes("reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision)"),
+    false,
+    "read-only preparation must not attempt a canonical workspace effect under terminal authority",
   );
   assert.match(
     source,

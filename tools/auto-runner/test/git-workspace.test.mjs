@@ -92,6 +92,7 @@ test("historical task workspace is materialized without moving canonical main", 
       logicalTaskIdentity: "tommytang213/Settleora#1",
       claimIdentity: "tommytang213/Settleora#1",
       chargeIdentity: "fixture-charge",
+      issueNumber: 1,
       sessionId: "fixture-session",
       authorityGeneration: 1,
       branchName: "feature/preserved",
@@ -108,6 +109,7 @@ test("historical task workspace is materialized without moving canonical main", 
         logicalTaskIdentity: "tommytang213/Settleora#1",
         claimIdentity: "tommytang213/Settleora#1",
         chargeIdentity: "fixture-charge",
+        issueNumber: 1,
         sessionId: "fixture-session",
         authorityGeneration: 1,
       },
@@ -133,6 +135,30 @@ test("historical task workspace is materialized without moving canonical main", 
     });
     assert.equal(crashWindowRecovery.taskRoot, adopted.taskRoot);
     assert.equal(crashWindowRecovery.created, true);
+    const successorContext = {
+      ...effectContext,
+      sessionId: "fixture-successor",
+      authorityGeneration: 2,
+      currentAuthority: {
+        runId: "fixture-run",
+        sessionId: "fixture-successor",
+        authorityGeneration: 2,
+        status: "active",
+      },
+      expectedIdentity: {
+        ...effectContext.expectedIdentity,
+        sessionId: "fixture-successor",
+        authorityGeneration: 2,
+      },
+    };
+    const finalizedIntentSuccessorRecovery = adoptHistoricalTaskWorkspace(config, {
+      branchName: "feature/preserved",
+      headSha: candidateSha,
+      taskKey: "fixture-task",
+      effectContext: successorContext,
+    });
+    assert.equal(finalizedIntentSuccessorRecovery.taskRoot, adopted.taskRoot);
+    assert.equal(finalizedIntentSuccessorRecovery.created, true);
     const ownershipIdentity = canonicalGithubEvidenceDigest({
       repository: config.repositorySlug,
       branchName: "feature/preserved",

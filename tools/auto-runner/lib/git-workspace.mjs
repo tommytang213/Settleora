@@ -101,24 +101,31 @@ export function adoptHistoricalTaskWorkspace(config, {
       (candidate) => candidate.effect?.taskRoot === intendedTaskRoot
         && candidate.effect?.headSha === headSha
         && candidate.effect?.commonDir === controlCommonDir);
-    if (linkedWorktreeAlreadyPresent && !pending) {
+    const finalized = linkedWorktreeAlreadyPresent && !pending
+      ? findFinalizedHistoricalWorktreeEffect(canonicalConfig, effectContext, {
+        branchName, headSha, taskRoot: intendedTaskRoot, commonDir: controlCommonDir,
+      })
+      : null;
+    if (linkedWorktreeAlreadyPresent && !pending && !finalized) {
       throw new Error("Historical task worktree has no prior durable creation intent");
     }
-    const execution = executeCanonicalEffectSync(canonicalConfig,
-      pending ? { intentId: pending.intentId } : canonicalExecutionInput(canonicalConfig, intent), {
-      readLive: (prepared) => readHistoricalWorktreeEffect(
-        controlRoot, intendedTaskRoot, branchName, headSha, prepared.identity, prepared.effect,
-      ),
-      execute: () => {
-        const creationResult = runFixedTrustedGit(controlRoot, [
-          "-c", "core.hooksPath=/dev/null",
-          "worktree", "add", "--", intendedTaskRoot, branchName,
-        ]);
-        assertGitSuccess(creationResult, "Unable to materialize historical task worktree");
-        return { ok: true };
-      },
-    });
-    if (!execution.ok) throw new Error(`Historical task worktree creation failed closed: ${execution.reasonCode || execution.classification}`);
+    if (!finalized) {
+      const execution = executeCanonicalEffectSync(canonicalConfig,
+        pending ? { intentId: pending.intentId } : canonicalExecutionInput(canonicalConfig, intent), {
+        readLive: (prepared) => readHistoricalWorktreeEffect(
+          controlRoot, intendedTaskRoot, branchName, headSha, prepared.identity, prepared.effect,
+        ),
+        execute: () => {
+          const creationResult = runFixedTrustedGit(controlRoot, [
+            "-c", "core.hooksPath=/dev/null",
+            "worktree", "add", "--", intendedTaskRoot, branchName,
+          ]);
+          assertGitSuccess(creationResult, "Unable to materialize historical task worktree");
+          return { ok: true };
+        },
+      });
+      if (!execution.ok) throw new Error(`Historical task worktree creation failed closed: ${execution.reasonCode || execution.classification}`);
+    }
     created = true;
   }
   const taskInfo = lstatSync(taskRoot);
@@ -584,6 +591,7 @@ export function canonicalEffectContext(config, input = {}) {
     logicalTaskIdentity: logical.claimIdentity,
     claimIdentity: logical.claimIdentity,
     chargeIdentity: logical.chargeMarkerRef,
+    issueNumber: logical.issueNumber,
     sessionId,
     authorityGeneration: authority.generation,
     branchName: state.branch?.name,
@@ -591,7 +599,7 @@ export function canonicalEffectContext(config, input = {}) {
     candidateIdentity: state.branch?.candidateDigest || state.branch?.headSha,
     reservationIdentity: input.reservationIdentity || null,
     currentAuthority: { runId: logical.runId, sessionId, authorityGeneration: authority.generation, status: authority.status },
-    expectedIdentity: { repository: state.repository, sourceTaskKey: logical.taskKey, runId: logical.runId, logicalTaskIdentity: logical.claimIdentity, claimIdentity: logical.claimIdentity, chargeIdentity: logical.chargeMarkerRef, sessionId, authorityGeneration: authority.generation },
+    expectedIdentity: { repository: state.repository, sourceTaskKey: logical.taskKey, runId: logical.runId, logicalTaskIdentity: logical.claimIdentity, claimIdentity: logical.claimIdentity, chargeIdentity: logical.chargeMarkerRef, issueNumber: logical.issueNumber, sessionId, authorityGeneration: authority.generation },
   };
 }
 
@@ -611,6 +619,26 @@ export function findPendingEffect(config, context, effectType, extra = () => tru
     && intent.sessionId === context.sessionId && intent.authorityGeneration === context.authorityGeneration
     && intent.identity?.branchName === context.branchName && extra(intent));
   if (matches.length > 1) throw new Error(`Ambiguous pending canonical ${effectType} intents`);
+  return matches[0] || null;
+}
+
+function findFinalizedHistoricalWorktreeEffect(config, context, effect) {
+  const matches = findPreEffectIntents(config, (intent) =>
+    intent.effectType === "worktree_create"
+    && intent.status === "finalized"
+    && intent.repository === context.repository
+    && intent.sourceTaskKey === context.sourceTaskKey
+    && intent.runId === context.runId
+    && intent.logicalTaskIdentity === context.logicalTaskIdentity
+    && intent.claimIdentity === context.claimIdentity
+    && intent.chargeIdentity === context.chargeIdentity
+    && intent.identity?.branchName === context.branchName
+    && intent.identity?.headSha === effect.headSha
+    && intent.effect?.branchName === effect.branchName
+    && intent.effect?.headSha === effect.headSha
+    && intent.effect?.taskRoot === effect.taskRoot
+    && intent.effect?.commonDir === effect.commonDir);
+  if (matches.length > 1) throw new Error("Ambiguous finalized canonical worktree_create intents");
   return matches[0] || null;
 }
 
