@@ -14,6 +14,7 @@ const TERMINAL_DETAIL = "initial_validation_failure_commit_reconstruction_ambigu
 const SUCCESSOR_SYSTEMIC_STOP = "recoverable-work-blocked:historical_candidate_task_workspace_untrusted";
 const SUCCESSOR_RUNNER_CONFIG_PATH = "/workspace/auto-runner/config/settleora.json";
 const SUCCESSOR_RUNNER_CONFIG_SHA256 = "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d";
+const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 
 export function projectAuthenticatedTerminalValidationRetryDerivative({
   logsRoot,
@@ -349,7 +350,7 @@ export function exactTerminalIteration(value, target) {
     && value?.branchName === target.branch
     && value?.baseOriginMainSha === target.baseSha
     && value?.runnerCreatedCommitSha === target.headSha
-    && value?.pr === null && value?.changedFiles?.length === 0
+    && value?.pr === null && Array.isArray(value?.changedFiles) && value.changedFiles.length === 0
     && value?.existingPrRecovery === null && value?.bundle === null && value?.autoMerge === null
     && value?.validation === null && value?.review === null && value?.externalReview === null
     && value?.systemicStop === SUCCESSOR_SYSTEMIC_STOP
@@ -384,6 +385,8 @@ export function exactTerminalSummary(summary, iteration, target) {
     && summary?.runId === iteration.runId
     && summary?.stopReason === iteration.systemicStop
     && typeof summary?.supervisorRunId === "string"
+    && summary?.maxRuntimeMs === SUCCESSOR_MAX_RUNTIME_MS
+    && summary?.configPath === SUCCESSOR_RUNNER_CONFIG_PATH
     && summary?.attemptedIssueCount === 0 && summary?.attemptedIssueNumbers?.length === 0
     && summary?.processedIssueCount === 1 && canonical(summary?.processedIssueNumbers) === canonical([target.issueNumber])
     && summary?.acceptedLogicalTaskCount === 1 && summary?.maxIterations === 1
@@ -404,6 +407,8 @@ export function exactSuccessorSpec(spec, summary) {
     && spec?.maxRuntime === "14d" && spec?.profile === "default"
     && spec?.runnerConfigPath === SUCCESSOR_RUNNER_CONFIG_PATH
     && spec?.runnerConfigSha256 === SUCCESSOR_RUNNER_CONFIG_SHA256
+    && summary?.maxRuntimeMs === SUCCESSOR_MAX_RUNTIME_MS
+    && summary?.configPath === spec.runnerConfigPath
     && supervisorModeToRunnerMode(spec.mode) === summary?.mode
     && spec?.initialOriginMainSha === summary?.baseOriginMainSha
     && spec?.requestedBy === "operator" && spec?.sourceBranchName === null

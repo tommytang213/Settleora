@@ -124,6 +124,9 @@ test("terminal retry projection binds the successor budget marker charge and tas
     ...iteration,
     systemicStop: "recoverable-work-blocked:different_reason",
   }, target), false);
+  for (const changedFiles of ["", { length: 0 }, null]) {
+    assert.equal(exactTerminalIteration({ ...iteration, changedFiles }, target), false);
+  }
 });
 
 test("terminal retry projection binds the runner summary to the iteration systemic stop", () => {
@@ -139,6 +142,8 @@ test("terminal retry projection binds the runner summary to the iteration system
     runId: iteration.runId,
     supervisorRunId: "supervised-successor",
     stopReason: iteration.systemicStop,
+    maxRuntimeMs: 14 * 24 * 60 * 60 * 1000,
+    configPath: "/workspace/auto-runner/config/settleora.json",
     attemptedIssueCount: 0,
     attemptedIssueNumbers: [],
     processedIssueCount: 1,
@@ -154,6 +159,8 @@ test("terminal retry projection binds the runner summary to the iteration system
     ...summary,
     stopReason: "recoverable-work-blocked:different_reason",
   }, iteration, target), false);
+  assert.equal(exactTerminalSummary({ ...summary, maxRuntimeMs: 60_000 }, iteration, target), false);
+  assert.equal(exactTerminalSummary({ ...summary, configPath: "/different/config.json" }, iteration, target), false);
 });
 
 test("terminal retry projection binds every lifecycle convergence counter", () => {
@@ -404,6 +411,8 @@ test("terminal retry projection binds successor spec base and compatible runner 
     mode: "run",
     baseOriginMainSha: "e96376b03d1e11dddeec28be237201ce56681753",
     startedAt: "2026-07-30T09:32:43.000Z",
+    maxRuntimeMs: 14 * 24 * 60 * 60 * 1000,
+    configPath: "/workspace/auto-runner/config/settleora.json",
   };
   const spec = {
     specVersion: 1,
@@ -437,6 +446,8 @@ test("terminal retry projection binds successor spec base and compatible runner 
   }
   assert.equal(exactSuccessorSpec({ ...spec, runnerConfigSha256: null }, summary), false);
   assert.equal(exactSuccessorSpec(spec, { ...summary, mode: "dry-run" }), false);
+  assert.equal(exactSuccessorSpec(spec, { ...summary, maxRuntimeMs: 60_000 }), false);
+  assert.equal(exactSuccessorSpec(spec, { ...summary, configPath: "/different/config.json" }), false);
 });
 
 test("terminal retry projection requires the successor spec's canonical storage path", (t) => {
@@ -447,6 +458,8 @@ test("terminal retry projection requires the successor spec's canonical storage 
     mode: "run",
     baseOriginMainSha: "e96376b03d1e11dddeec28be237201ce56681753",
     startedAt: "2026-07-30T09:32:43.000Z",
+    maxRuntimeMs: 14 * 24 * 60 * 60 * 1000,
+    configPath: "/workspace/auto-runner/config/settleora.json",
   };
   const canonicalPath = specPathForRunId(summary.supervisorRunId, logsRoot);
   const value = {
