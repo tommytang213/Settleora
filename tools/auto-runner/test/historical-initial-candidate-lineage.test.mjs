@@ -913,6 +913,17 @@ test("historical existing-PR recovery composes only the exact authenticated term
     const resumed = verify(fixture);
     assert.equal(resumed.ok, true, `${lifecyclePhase}: ${resumed.reasonCode}`);
   }
+  continuation.phase = "pr_create_or_update";
+  delete continuation.effects.pr_create_or_update;
+  fixture.state.phase = "ci_wait";
+  fixture.lifecycle.controller = { phase: "ci_wait", nextExactAction: "ci_wait" };
+  fixture.lifecycle.recovery.phaseAfter = "ci_wait";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "ci_wait";
+  const prFinalizedBeforeContinuation = verify(fixture);
+  assert.equal(
+    prFinalizedBeforeContinuation.ok, true, prFinalizedBeforeContinuation.reasonCode,
+  );
 
   const addIntent = fixture.intents.find((entry) =>
     entry.effectType === "hygiene_component" && entry.effect?.operation === "add");
@@ -1032,6 +1043,16 @@ test("historical recovery authenticates the exact push-only PR-create checkpoint
   fixture.options.expectedLifecyclePhase = "push";
   const finalizedBeforeCheckpoint = verify(fixture);
   assert.equal(finalizedBeforeCheckpoint.ok, true, finalizedBeforeCheckpoint.reasonCode);
+  fixture.lifecycle.controller = {
+    phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+  };
+  fixture.lifecycle.recovery.phaseAfter = "pr_create_recover";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "pr_create_recover";
+  const lifecycleAdvancedBeforeContinuation = verify(fixture);
+  assert.equal(
+    lifecycleAdvancedBeforeContinuation.ok, true, lifecycleAdvancedBeforeContinuation.reasonCode,
+  );
 
   fixture.state.branch.expectedRemoteHeadSha = null;
   assert.equal(verify(fixture).ok, true);

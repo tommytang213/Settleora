@@ -1028,6 +1028,8 @@ function validContinuationPhase(
     && ["checkpoint_validation_commit", "aggregate_validation", "external_review",
       "codex_mechanics_security_review", "review_fix", "push",
       "pr_create_recover"].includes(lifecyclePhase)) return true;
+  if (continuation?.phase === "push" && lifecyclePhase === "pr_create_recover") return true;
+  if (continuation?.phase === "pr_create_or_update" && lifecyclePhase === "ci_wait") return true;
   return new Map([
     ["push", "push"],
     ["pr_create_recover", "pr_create_or_update"],
