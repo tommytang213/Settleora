@@ -153,7 +153,11 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     const rawState = matching[0];
     const chargeProof = validateCharge(config, rawState, target);
     if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
-    const projectionTarget = { ...target, durableBudgetExact: true };
+    const projectionTarget = {
+      ...target,
+      durableBudgetExact: true,
+      chargeMarkerRef: chargeProof.statePath,
+    };
     const rawLifecycle = loadSessionLifecycleForRecovery(config, {
       repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
       runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,

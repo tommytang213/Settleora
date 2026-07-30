@@ -120,12 +120,17 @@ test("terminal retry projection binds successor spec base and compatible runner 
     runId: summary.supervisorRunId,
     mode: "trusted",
     maxTasks: 1,
+    maxRuntime: "3h",
+    profile: "default",
+    runnerConfigPath: "/workspace/logs/auto-runner/Settleora/configs/default.json",
+    runnerConfigSha256: "a".repeat(64),
     initialOriginMainSha: summary.baseOriginMainSha,
     requestedBy: "operator",
     sourceBranchName: null,
     sourceIssueNumber: null,
     parentRunnerRunId: null,
     parentSupervisorRunId: null,
+    outageResubmission: null,
     recoveryOnlyTarget: null,
     createdAt: "2026-07-30T09:32:34.000Z",
   };
@@ -134,6 +139,7 @@ test("terminal retry projection binds successor spec base and compatible runner 
     ...spec,
     initialOriginMainSha: "0".repeat(40),
   }, summary), false);
+  assert.equal(exactSuccessorSpec({ ...spec, unexpectedField: true }, summary), false);
   assert.equal(exactSuccessorSpec(spec, { ...summary, mode: "dry-run" }), false);
 });
 

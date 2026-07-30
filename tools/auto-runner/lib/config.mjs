@@ -13,8 +13,9 @@ import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./sess
 import { moduleRuntimeRoot, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
 import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
 import { bindTrustedRepositoryContext } from "./git-workspace.mjs";
+import { defaultLogsRoot } from "./runtime-path-defaults.mjs";
 
-export const defaultLogsRoot = "/workspace/logs/settleora-auto-runner";
+export { defaultLogsRoot };
 const mandatoryAutoMergeChecks = Object.freeze(["Validate scaffold", "CodeQL", "Semgrep CE scan", "Trivy repository scan"]);
 const defaultTrustedControlRoot = path.join(defaultLogsRoot, "trusted-control");
 const liveStackAcceptanceRootName = "live-stack-acceptance";

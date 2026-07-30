@@ -6,7 +6,8 @@ import {
   realpathSync,
 } from "node:fs";
 import path from "node:path";
-import { defaultLogsRoot, parseDuration, validateExternalProfilePath } from "../lib/config.mjs";
+import { parseDuration, validateExternalProfilePath } from "../lib/config.mjs";
+import { defaultLogsRoot } from "../lib/runtime-path-defaults.mjs";
 import { validateSupervisorRunId } from "../lib/run-correlation.mjs";
 import {
   configPathForProfile,

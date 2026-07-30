@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { supervisorModeToRunnerMode } from "./run-correlation.mjs";
+import { validateRunSpecShape } from "../supervisor/run-spec.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const TERMINAL_REASON_CODE = "checkpoint_validation_recovery_failed_closed";
@@ -249,6 +250,7 @@ function exactLifecycle(state, target) {
     && state?.logicalTask?.runId === target.runnerRunId
     && state?.logicalTask?.supervisorRunId === target.supervisorRunId
     && state?.logicalTask?.claimIdentity === target.claimIdentity
+    && state?.logicalTask?.chargeMarkerRef === target.chargeMarkerRef
     && state?.branch?.name === target.branch && state?.branch?.baseSha === target.baseSha
     && state?.branch?.headSha === target.headSha && state?.branch?.prNumber === null
     && state?.controller?.phase === "stopped"
@@ -317,6 +319,11 @@ function exactTerminalSummary(summary, iteration, target) {
 }
 
 export function exactSuccessorSpec(spec, summary) {
+  try {
+    validateRunSpecShape(spec);
+  } catch {
+    return false;
+  }
   return spec?.specVersion === 1 && spec?.runId === summary.supervisorRunId
     && spec?.mode === "trusted" && spec?.maxTasks === 1
     && supervisorModeToRunnerMode(spec.mode) === summary?.mode
