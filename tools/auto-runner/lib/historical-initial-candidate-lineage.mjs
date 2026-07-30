@@ -893,9 +893,9 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
       : fingerprints.length > 0)
     && orderedPushHeads.length >= 1 && orderedPushHeads.length <= 51
     && orderedPushHeads.at(-1) === authority.headSha
-    && pushMarkers.length === orderedPushHeads.length
     && markerHeads(pushMarkers, authority.branch)
-    && new Set(pushMarkers.map((entry) => entry.correlation)).size === orderedPushHeads.length
+    && pushMarkers.length <= orderedPushHeads.length
+    && new Set(pushMarkers.map((entry) => entry.correlation)).size === pushMarkers.length
     && pushIntents.length === orderedPushHeads.length
     && pushIntents.every(exactPush);
   const pushOnly = continuation?.phase === "pr_create_or_update"
@@ -919,9 +919,9 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && pr.headSha === authority.headSha && priorHeads.has(pr.headSha)
     && pr.headRefName === authority.branch && pr.baseRefName === "main"
     && ["OPEN", "open"].includes(pr.state)
-    && prMarkers.length === orderedPushHeads.length
     && markerHeads(prMarkers, exactUrl)
-    && new Set(prMarkers.map((entry) => entry.correlation)).size === orderedPushHeads.length
+    && prMarkers.length <= orderedPushHeads.length
+    && new Set(prMarkers.map((entry) => entry.correlation)).size === prMarkers.length
     && externalIntents.length === orderedPushHeads.length * 2
     && externalIntents.every((entry) => allowedTypes.has(entry.effectType))
     && prIntents.length === orderedPushHeads.length
@@ -949,6 +949,13 @@ function validContinuationPhase(
       "codex_mechanics_security_review", "review_fix"].includes(lifecyclePhase)
     && !continuationExternalEffectPresent(continuation.effects)) return true;
   if (!authenticatedExistingPrEffects) return false;
+  if (continuation?.phase === "push"
+    && ["checkpoint_validation_commit", "aggregate_validation", "external_review",
+      "codex_mechanics_security_review", "review_fix", "push"].includes(lifecyclePhase)) return true;
+  if (continuation?.phase === "pr_create_or_update"
+    && ["checkpoint_validation_commit", "aggregate_validation", "external_review",
+      "codex_mechanics_security_review", "review_fix", "push",
+      "pr_create_recover"].includes(lifecyclePhase)) return true;
   return new Map([
     ["push", "push"],
     ["pr_create_recover", "pr_create_or_update"],

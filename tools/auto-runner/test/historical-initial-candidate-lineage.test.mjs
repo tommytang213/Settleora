@@ -855,7 +855,6 @@ test("historical existing-PR authentication binds every durable authority to the
     ["wrong PR base", (f) => { f.state.pr.baseRefName = "release"; }],
     ["wrong PR branch", (f) => { f.state.pr.headRefName = `${branch}-foreign`; }],
     ["prior PR head", (f) => { f.state.pr.headSha = f.headSha; }],
-    ["missing push marker", (f) => { delete f.state.mutationMarkers.push; }],
     ["wrong push marker head", (f) => { f.state.mutationMarkers.push.push.correlation = f.headSha; }],
     ["wrong PR marker URL", (f) => { f.state.mutationMarkers.pr_create.pr.target = `https://github.com/${repository}/pull/1008`; }],
     ["duplicate-like push intent", (f) => { f.intents.push(structuredClone(f.intents.find((entry) => entry.effectType === "push"))); }],
@@ -895,6 +894,28 @@ test("historical existing-PR authentication binds every durable authority to the
     mutate(fixture);
     assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present", name);
   }
+
+  const crashBeforeRecoveryCheckpoint = makeFixture(2);
+  advanceWithSourceFix(crashBeforeRecoveryCheckpoint);
+  authenticateExistingPrFixture(crashBeforeRecoveryCheckpoint);
+  crashBeforeRecoveryCheckpoint.options.allowAuthenticatedExistingPrEffects = true;
+  delete crashBeforeRecoveryCheckpoint.state.mutationMarkers.push;
+  delete crashBeforeRecoveryCheckpoint.state.mutationMarkers.pr_create;
+  crashBeforeRecoveryCheckpoint.state.phase = "checkpoint_validation_commit";
+  crashBeforeRecoveryCheckpoint.options.expectedLifecyclePhase = "checkpoint_validation_commit";
+  crashBeforeRecoveryCheckpoint.state.ordinaryContinuation.phase = "pr_create_or_update";
+  crashBeforeRecoveryCheckpoint.state.ordinaryContinuation.effects = {};
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+    index < ordinaryContinuationPhases.indexOf("pr_create_or_update"); index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    crashBeforeRecoveryCheckpoint.state.ordinaryContinuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(
+        crashBeforeRecoveryCheckpoint.state.ordinaryContinuation, phase,
+      ),
+      completedAt: "2026-07-30T00:00:00.000Z",
+    };
+  }
+  assert.equal(verify(crashBeforeRecoveryCheckpoint).ok, true);
 });
 
 test("historical recovery authenticates the exact push-only PR-create checkpoint", () => {
@@ -960,13 +981,6 @@ test("historical existing-PR authentication accepts only a contiguous bounded he
     ["mixed update branch",
       () => { prUpdate.identity.branchName = `${branch}-foreign`; },
       () => { prUpdate.identity.branchName = branch; }],
-    ["missing update marker",
-      () => { delete fixture.state.mutationMarkers.pr_create.update; },
-      () => {
-        fixture.state.mutationMarkers.pr_create.update = {
-          status: "completed", target: fixture.state.pr.url, correlation: exactFinal,
-        };
-      }],
   ]) {
     mutate();
     assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present", name);

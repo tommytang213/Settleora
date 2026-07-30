@@ -2914,7 +2914,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         },
       }, {
         kind: "pr_create",
-        key: String(context.pr.number),
+        key: `${context.pr.number}:${continuation.identity.headSha}`,
         marker: { target: context.pr.url, correlation: continuation.identity.headSha },
       });
       const postPrLifecycle = transitionSessionLifecyclePhase(config, state.sessionLifecycle, {
