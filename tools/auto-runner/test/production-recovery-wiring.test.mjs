@@ -286,6 +286,14 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
+    /push: async \(continuation\)[\s\S]*recordIdempotentMutation[\s\S]*kind: "push"[\s\S]*transitionSessionLifecyclePhase[\s\S]*phase: "pr_create_recover"[\s\S]*advanceRecoveryPhase/,
+  );
+  assert.match(
+    source,
+    /pr_create_or_update: async \(continuation\)[\s\S]*recordIdempotentMutation[\s\S]*kind: "pr_create"[\s\S]*transitionSessionLifecyclePhase[\s\S]*phase: "ci_wait"[\s\S]*advanceRecoveryPhase/,
+  );
+  assert.match(
+    source,
     /function recoveredSourceHeadTransition[\s\S]*sanitizeRecoveryState\(\{[\s\S]*ordinaryContinuation,[\s\S]*JSON\.stringify\(value\)/,
   );
   assert.match(
@@ -786,7 +794,7 @@ test("startup push, PR-create, and CI-wait recovery use ordinary continuation be
     resume.slice(ordinaryPrCreate, existingPrRecovery),
     /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?boundary,[\s\S]*?operationalCheckpoint/,
   );
-  assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*state = \{[\s\S]*pr: \{[\s\S]*number: context\.pr\.number,[\s\S]*headSha: continuation\.identity\.headSha,[\s\S]*state: context\.pr\.state,[\s\S]*await writeRecoveryState\(config, state\)/);
+  assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*state = recordIdempotentMutation\(\{[\s\S]*pr: \{[\s\S]*number: context\.pr\.number,[\s\S]*headSha: continuation\.identity\.headSha,[\s\S]*state: context\.pr\.state,[\s\S]*await writeRecoveryState\(config, state\)/);
   assert.match(runner, /push: async \(continuation\)[\s\S]*expectedRemoteHeadSha: candidate\.headSha[\s\S]*await writeRecoveryState\(config, state\)[\s\S]*headSha: candidate\.headSha/);
   assert.match(runner, /outageTargetHeadIsAuthenticatedAncestor[\s\S]*sourceFailureHistory\?\.[\s\S]*config\.outageRecoveryTarget\?\.prHeadSha[\s\S]*outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor[\s\S]*prHeadSha: candidate\.headSha[\s\S]*const recoveryConfig = \{[\s\S]*outageRecoveryTarget/);
   assert.match(runner, /const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence\(laneDecision, exactHeadEvidence\)[\s\S]*allowRebuild: regenerationRequired[\s\S]*if \(regenerationRequired\)/);

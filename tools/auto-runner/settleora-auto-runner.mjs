@@ -2868,10 +2868,30 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const pushed = await pushBranch(config, state.branch.name, { effectContext: state.sessionLifecycle });
       operationalCheckpoint?.("ordinary_recovery_push_complete", { push: pushed });
       if (pushed.status !== 0) return { ok: false, reasonCode: "ordinary_continuation_push_failed" };
-      state = {
+      state = recordIdempotentMutation({
         ...state,
         branch: { ...state.branch, expectedRemoteHeadSha: candidate.headSha },
-      };
+      }, {
+        kind: "push",
+        key: candidate.headSha,
+        marker: { target: continuation.branchName, correlation: candidate.headSha },
+      });
+      const postPushLifecycle = transitionSessionLifecyclePhase(config, state.sessionLifecycle, {
+        phase: "pr_create_recover",
+        nextExactAction: "open_or_recover_pr",
+      });
+      if (!postPushLifecycle.ok) {
+        await writeRecoveryState(config, state);
+        return { ok: false, reasonCode: postPushLifecycle.reasonCode };
+      }
+      state = advanceRecoveryPhase({
+        ...state,
+        sessionLifecycle: postPushLifecycle.state,
+      }, {
+        phase: "pr_create_recover",
+        firstIncompleteAction: "open_or_recover_pr",
+        nextSafeAction: "open_or_recover_pr",
+      });
       await writeRecoveryState(config, state);
       return { ok: true, evidence: { headSha: candidate.headSha } };
     },
@@ -2882,7 +2902,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (!context.pr?.url || !Number.isSafeInteger(context.pr.number)) {
         return { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
       }
-      state = {
+      state = recordIdempotentMutation({
         ...state,
         pr: {
           number: context.pr.number,
@@ -2892,7 +2912,27 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           baseRefName: "main",
           state: context.pr.state,
         },
-      };
+      }, {
+        kind: "pr_create",
+        key: String(context.pr.number),
+        marker: { target: context.pr.url, correlation: continuation.identity.headSha },
+      });
+      const postPrLifecycle = transitionSessionLifecyclePhase(config, state.sessionLifecycle, {
+        phase: "ci_wait",
+        nextExactAction: "watch_ci",
+      });
+      if (!postPrLifecycle.ok) {
+        await writeRecoveryState(config, state);
+        return { ok: false, reasonCode: postPrLifecycle.reasonCode };
+      }
+      state = advanceRecoveryPhase({
+        ...state,
+        sessionLifecycle: postPrLifecycle.state,
+      }, {
+        phase: "ci_wait",
+        firstIncompleteAction: "watch_ci",
+        nextSafeAction: "watch_ci",
+      });
       await writeRecoveryState(config, state);
       return { ok: true, evidence: { url: context.pr.url, number: context.pr.number } };
     },
