@@ -281,6 +281,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
     source,
     /sessionLifecycleState: reviewAfter\.sessionLifecycle \|\| codex\.sessionLifecycle\?\.state \|\| null/,
   );
+  assert.equal(
+    (source.match(/state = \{ \.\.\.state, sessionLifecycle: postFix\.review\.sessionLifecycle \}/g) || []).length,
+    2,
+  );
   assert.match(
     source,
     /prepareAuthoritativeRecovery: async \(\{ state \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,

@@ -2758,6 +2758,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       }
       if (!fixAttempt.proceeded) return { ok: false, reasonCode: fixAttempt.reason || "source_failure_fix_not_proceeded" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, branchName: continuation.branchName, commitMessage: `Auto-runner issue #${issue.number}: source-fix ${batch.batchIdentity.slice(0, 16)}` });
+      if (postFix.review?.sessionLifecycle) {
+        state = { ...state, sessionLifecycle: postFix.review.sessionLifecycle };
+      }
       if (!postFix.runnerCreatedCommitSha || postFix.runnerCreatedCommitSha === continuation.identity.headSha || postFix.forbiddenChangedFiles?.length) {
         return { ok: false, reasonCode: "source_failure_fix_candidate_invalid" };
       }
@@ -2840,6 +2843,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           await persist(next);
         },
       });
+      if (postFix.review?.sessionLifecycle) {
+        state = { ...state, sessionLifecycle: postFix.review.sessionLifecycle };
+      }
       if (postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass" || postFix.review?.verdict?.verdict !== "approve" || postFix.forbiddenChangedFiles?.length) return { ok: false, outcome: "review_convergence_required", reasonCode: "ordinary_continuation_post_fix_recertification_failed" };
       const changedFiles = postFix.changedFiles;
       operationalCheckpoint?.("ordinary_recovery_review_convergence_complete", { validation: postFix.validation, externalReview: postFix.externalReview, review: postFix.review });
