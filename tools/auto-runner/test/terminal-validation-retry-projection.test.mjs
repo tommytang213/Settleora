@@ -216,6 +216,10 @@ test("terminal retry projection binds the successor budget marker charge and tas
   for (const field of ["existingPrRecovery", "bundle", "autoMerge"]) {
     assert.equal(exactTerminalIteration({ ...iteration, [field]: { status: "completed" } }, target), false);
   }
+  for (const field of ["push", "commit", "issueComment", "ci"]) {
+    assert.equal(exactTerminalIteration({ ...iteration, [field]: null }, target), false);
+    assert.equal(exactTerminalIteration({ ...iteration, [field]: { status: "completed" } }, target), false);
+  }
   assert.equal(exactTerminalIteration({
     ...iteration,
     systemicStop: "recoverable-work-blocked:different_reason",
@@ -421,6 +425,20 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
       },
     },
   }, { ...target, allowReopenedLifecycle: true }), false, "active completion must be parseable");
+  assert.equal(exactLifecycle({
+    ...reopenedPending,
+    sessions: { current: successorSessionId, retired: ["terminal-session"] },
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      status: "active",
+      ownerSessionId: successorSessionId,
+      handoff: {
+        ...reopenedPending.mutationAuthority.handoff,
+        successorSessionId,
+        completedAt: "2026-07-30T19:59:59.999Z",
+      },
+    },
+  }, { ...target, allowReopenedLifecycle: true }), false, "completion cannot precede handoff start");
   assert.equal(exactLifecycle({
     ...reopenedPending,
     mutationAuthority: {

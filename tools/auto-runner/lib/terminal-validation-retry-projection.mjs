@@ -399,6 +399,7 @@ export function exactLifecycle(state, target) {
     && handoff?.successorSessionId === successorSessionId
     && typeof handoff?.completedAt === "string"
     && Number.isFinite(Date.parse(handoff.completedAt))
+    && Date.parse(handoff.completedAt) >= Date.parse(handoff.startedAt)
     && state?.sessions?.retired?.includes(handoff?.retiredSessionId);
   return exactPending || exactActive;
 }
@@ -418,6 +419,9 @@ export function exactTerminalIteration(value, target) {
     && value?.pr === null && Array.isArray(value?.changedFiles) && value.changedFiles.length === 0
     && value?.existingPrRecovery === null && value?.bundle === null && value?.autoMerge === null
     && value?.validation === null && value?.review === null && value?.externalReview === null
+    && ["push", "commit", "issueComment", "ci"].every(
+      (field) => !Object.prototype.hasOwnProperty.call(value, field),
+    )
     && value?.systemicStop === SUCCESSOR_SYSTEMIC_STOP
     && budget?.ok === true && budget?.duplicate === true && budget?.charged === false
     && budget?.chargeId === target.chargeId
