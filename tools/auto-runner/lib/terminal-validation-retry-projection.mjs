@@ -270,7 +270,8 @@ function exactLifecycle(state, target) {
 function exactTerminalIteration(value, target) {
   const terminal = value?.recovery?.states;
   const budget = value?.logicalTaskBudget;
-  return value?.index === 1
+  return target?.acceptedLogicalTasks === 1
+    && value?.index === 1
     && value?.outcome === "blocked_recovery_state"
     && value?.issue?.number === target.issueNumber
     && value?.issueSource === "startup_recovery"
@@ -280,7 +281,8 @@ function exactTerminalIteration(value, target) {
     && value?.pr === null && value?.changedFiles?.length === 0
     && value?.validation === null && value?.review === null && value?.externalReview === null
     && budget?.ok === true && budget?.duplicate === true && budget?.charged === false
-    && budget?.chargeId === target.chargeId && budget?.acceptedLogicalTaskCount === 1
+    && budget?.chargeId === target.chargeId
+    && budget?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
     && budget?.marker?.identity?.repository === target.repository
     && budget?.marker?.identity?.issueNumber === target.issueNumber
     && budget?.marker?.identity?.claimIdentity === target.claimIdentity
