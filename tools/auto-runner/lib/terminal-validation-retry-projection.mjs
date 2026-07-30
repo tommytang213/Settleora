@@ -114,6 +114,10 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     if (!exactTerminalSummary(summaryArtifact.value, stateArtifact.value, target)) {
       return denied("terminal_projection_state_summary_mismatch");
     }
+    const summaryMarkdownArtifact = trustedFileArtifact(
+      summaryRoot,
+      path.join(summaryRoot, `${stateArtifact.value.runId}.md`),
+    );
 
     const specRoot = path.join(root, "supervisor", "run-specs");
     const specs = trustedNestedJsonFiles(specRoot, "spec.json")
@@ -157,6 +161,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
       publicArtifact(lifecycleArtifact, "lifecycle"),
       publicArtifact(stateArtifact, "iterationState"),
       publicArtifact(summaryArtifact, "runnerSummary"),
+      publicArtifact(summaryMarkdownArtifact, "runnerSummaryMarkdown"),
       publicArtifact(specArtifact, "supervisorSpec"),
       publicArtifact(supervisorStateArtifact, "supervisorState"),
     ]);
@@ -586,6 +591,11 @@ function trustedNestedJsonFiles(root, basename) {
 }
 
 function trustedJsonArtifact(root, artifactPath) {
+  const artifact = trustedFileArtifact(root, artifactPath);
+  return { ...artifact, value: JSON.parse(artifact.bytes.toString("utf8")) };
+}
+
+function trustedFileArtifact(root, artifactPath) {
   const resolved = realpathSync(path.resolve(artifactPath));
   if (resolved !== path.resolve(artifactPath) || !resolved.startsWith(`${root}${path.sep}`)) throw new Error("untrusted path");
   const info = lstatSync(resolved);
@@ -593,7 +603,7 @@ function trustedJsonArtifact(root, artifactPath) {
     || info.size <= 0 || info.size > MAX_ARTIFACT_BYTES
     || (typeof process.getuid === "function" && info.uid !== process.getuid())) throw new Error("untrusted artifact");
   const bytes = readFileSync(resolved);
-  return { path: resolved, sha256: digest(bytes), size: info.size, value: JSON.parse(bytes.toString("utf8")) };
+  return { path: resolved, sha256: digest(bytes), size: info.size, bytes };
 }
 
 function publicArtifact(artifact, role) {
