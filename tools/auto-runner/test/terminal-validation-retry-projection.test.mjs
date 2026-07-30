@@ -372,6 +372,16 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
   }, { ...target, allowReopenedLifecycle: true }), false, "reopen start must be parseable");
   assert.equal(exactLifecycle({
     ...reopenedPending,
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      handoff: {
+        ...reopenedPending.mutationAuthority.handoff,
+        completedAt: "2026-07-30T20:00:01.000Z",
+      },
+    },
+  }, { ...target, allowReopenedLifecycle: true }), false, "pending reopen rejects completion evidence");
+  assert.equal(exactLifecycle({
+    ...reopenedPending,
     sessions: { current: successorSessionId, retired: ["terminal-session"] },
     mutationAuthority: {
       ...reopenedPending.mutationAuthority,

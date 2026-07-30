@@ -391,6 +391,7 @@ export function exactLifecycle(state, target) {
     && state?.mutationAuthority?.ownerSessionId === null
     && handoff?.retiredSessionId === state?.sessions?.current
     && handoff?.successorSessionId === null
+    && !Object.prototype.hasOwnProperty.call(handoff, "completedAt")
     && state?.sessions?.retired?.includes(state.sessions.current);
   const exactActive = state?.mutationAuthority?.status === "active"
     && state?.mutationAuthority?.ownerSessionId === successorSessionId
