@@ -370,7 +370,7 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
         retiredSessionId: "terminal-session",
         successorSessionId: null,
         reason: "validation_retry_derivative_reopened",
-        checkpointDigest: "c".repeat(64),
+        checkpointDigest: "b".repeat(64),
         startedAt: "2026-07-30T20:00:00.000Z",
       },
     },
@@ -463,7 +463,7 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
     ...reopenedPending,
     mutationAuthority: {
       ...reopenedPending.mutationAuthority,
-      handoff: { ...reopenedPending.mutationAuthority.handoff, checkpointDigest: "e".repeat(64) },
+      handoff: { ...reopenedPending.mutationAuthority.handoff, checkpointDigest: "not-a-digest" },
     },
   }, { ...target, allowReopenedLifecycle: true }), false);
   for (const [key, targetKey] of [

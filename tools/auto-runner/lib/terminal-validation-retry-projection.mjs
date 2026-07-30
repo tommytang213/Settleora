@@ -404,7 +404,8 @@ export function exactLifecycle(state, target) {
     && state?.controller?.nextExactAction === "run_validation_and_commit"
     && state?.report?.status === "in_progress"
     && handoff?.reason === "validation_retry_derivative_reopened"
-    && handoff?.checkpointDigest === state?.checkpoint?.digest
+    && /^[a-f0-9]{64}$/.test(String(handoff?.checkpointDigest || ""))
+    && handoff.checkpointDigest !== state?.checkpoint?.digest
     && typeof effects?.comment === "boolean"
     && typeof handoff?.startedAt === "string"
     && Number.isFinite(Date.parse(handoff.startedAt));

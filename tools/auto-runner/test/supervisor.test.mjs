@@ -344,6 +344,27 @@ test("outage recovery-only run-spec maps to fixed target argv", () => {
     () => runnerArgvForSpec({ ...spec, recoveryOnlyTarget: { ...recoveryOnlyTarget, prNumber: null, prHeadSha: null } }),
     /requires PR number\/head SHA/,
   );
+  const derivativeTarget = {
+    ...recoveryOnlyTarget,
+    prNumber: null,
+    prHeadSha: null,
+    originalSupervisorSpecDigest: null,
+    markerKey: null,
+    outageFingerprint: null,
+    attemptNumber: null,
+    terminalValidationRetryDerivativeNoPr: true,
+  };
+  const derivativeSpec = {
+    ...spec,
+    requestedBy: "terminal-validation-retry-owner",
+    outageResubmission: null,
+    recoveryOnlyTarget: derivativeTarget,
+  };
+  validateRunSpecShape(derivativeSpec);
+  const derivativeArgv = runnerArgvForSpec(derivativeSpec);
+  assert.equal(derivativeArgv.includes("--outage-target-terminal-validation-retry-derivative"), true);
+  assert.equal(derivativeArgv.includes("--outage-target-pr"), false);
+  assert.equal(derivativeArgv.includes("--outage-target-original-spec-digest"), false);
 });
 
 test("trusted summary resolver maps exactly one correlated JSON and Markdown pair", () => {
