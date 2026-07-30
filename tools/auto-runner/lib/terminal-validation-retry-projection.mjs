@@ -18,6 +18,32 @@ const SUCCESSOR_SYSTEMIC_STOP = "recoverable-work-blocked:historical_candidate_t
 const SUCCESSOR_RUNNER_CONFIG_PATH = "/workspace/auto-runner/config/settleora.json";
 const SUCCESSOR_RUNNER_CONFIG_SHA256 = "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d";
 const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
+const EXACT_TERMINAL_ITERATION_FIELDS = Object.freeze([
+  "autoMerge",
+  "baseOriginMainSha",
+  "branchName",
+  "bundle",
+  "changedFiles",
+  "existingPrRecovery",
+  "externalReview",
+  "finishedAt",
+  "index",
+  "issue",
+  "issueSource",
+  "laneDecision",
+  "logicalTaskBudget",
+  "outcome",
+  "phase",
+  "pr",
+  "recovery",
+  "review",
+  "runId",
+  "runIssueState",
+  "runnerCreatedCommitSha",
+  "startedAt",
+  "systemicStop",
+  "validation",
+]);
 
 export function projectAuthenticatedTerminalValidationRetryDerivative({
   logsRoot,
@@ -407,7 +433,8 @@ export function exactLifecycle(state, target) {
 export function exactTerminalIteration(value, target) {
   const terminal = value?.recovery?.states;
   const budget = value?.logicalTaskBudget;
-  return target?.durableBudgetExact === true
+  return canonical(Object.keys(value || {}).sort()) === canonical(EXACT_TERMINAL_ITERATION_FIELDS)
+    && target?.durableBudgetExact === true
     && target?.acceptedLogicalTasks === 1
     && value?.index === 1
     && value?.outcome === "blocked_recovery_state"
@@ -419,9 +446,6 @@ export function exactTerminalIteration(value, target) {
     && value?.pr === null && Array.isArray(value?.changedFiles) && value.changedFiles.length === 0
     && value?.existingPrRecovery === null && value?.bundle === null && value?.autoMerge === null
     && value?.validation === null && value?.review === null && value?.externalReview === null
-    && ["push", "commit", "issueComment", "ci"].every(
-      (field) => !Object.prototype.hasOwnProperty.call(value, field),
-    )
     && value?.systemicStop === SUCCESSOR_SYSTEMIC_STOP
     && budget?.ok === true && budget?.duplicate === true && budget?.charged === false
     && budget?.chargeId === target.chargeId

@@ -120,7 +120,10 @@ test("terminal retry projection binds the successor budget marker charge and tas
     },
   };
   const iteration = {
+    runId: "run-successor",
     index: 1,
+    startedAt: "2026-07-30T09:32:43.249Z",
+    finishedAt: "2026-07-30T09:32:51.858Z",
     outcome: "blocked_recovery_state",
     issue: { number: target.issueNumber },
     issueSource: "startup_recovery",
@@ -135,6 +138,14 @@ test("terminal retry projection binds the successor budget marker charge and tas
     validation: null,
     review: null,
     externalReview: null,
+    laneDecision: null,
+    phase: "startup_recovery",
+    runIssueState: {
+      attemptedIssueNumbers: [],
+      attemptedIssueCount: 0,
+      processedIssueNumbers: [target.issueNumber],
+      processedIssueCount: 1,
+    },
     systemicStop: "recoverable-work-blocked:historical_candidate_task_workspace_untrusted",
     logicalTaskBudget: {
       ok: true,
@@ -216,7 +227,7 @@ test("terminal retry projection binds the successor budget marker charge and tas
   for (const field of ["existingPrRecovery", "bundle", "autoMerge"]) {
     assert.equal(exactTerminalIteration({ ...iteration, [field]: { status: "completed" } }, target), false);
   }
-  for (const field of ["push", "commit", "issueComment", "ci"]) {
+  for (const field of ["push", "commit", "issueComment", "ci", "securityFindings", "unknown"]) {
     assert.equal(exactTerminalIteration({ ...iteration, [field]: null }, target), false);
     assert.equal(exactTerminalIteration({ ...iteration, [field]: { status: "completed" } }, target), false);
   }
