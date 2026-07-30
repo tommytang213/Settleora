@@ -6,6 +6,7 @@ import {
   exactRawCheckpointMutationMarkers,
   exactRawCheckpoint,
   exactRawValidationEvidence,
+  exactTerminalFailureFindings,
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
   stateMayBelongToTarget,
@@ -178,7 +179,19 @@ test("terminal retry projection binds raw continuation repository identity", () 
       identity: candidate,
       sourceFailureBatch: {
         candidate,
-        findings: [{ repository: target.repository }],
+        findings: [{
+          sourceKind: "local_validation",
+          repository: target.repository,
+          issueNumber: target.issueNumber,
+          taskKey: target.taskKey,
+          branchName: target.branch,
+          identity: candidate,
+          classification: "unsafe_or_ambiguous",
+          sourceFixEligible: false,
+          retryable: false,
+          reasonCode: "source_failure_unsafe_or_ambiguous",
+          nextAction: "stop_fail_closed",
+        }],
       },
     },
     evidence: {
@@ -231,10 +244,42 @@ test("terminal retry projection binds raw continuation repository identity", () 
       ...state.ordinaryContinuation,
       sourceFailureBatch: {
         ...state.ordinaryContinuation.sourceFailureBatch,
-        findings: [{ repository: "other/Repository" }],
+        findings: [{
+          ...state.ordinaryContinuation.sourceFailureBatch.findings[0],
+          repository: "other/Repository",
+        }],
       },
     },
   }, target), false);
+});
+
+test("terminal retry projection requires terminal classification on every source finding", () => {
+  const target = {
+    repository: "tommytang213/Settleora",
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    branch: "feature/auto-959-preserved",
+  };
+  const candidate = {
+    baseSha: "1".repeat(40),
+    headSha: "2".repeat(40),
+  };
+  const finding = {
+    sourceKind: "local_validation",
+    repository: target.repository,
+    issueNumber: target.issueNumber,
+    taskKey: target.taskKey,
+    branchName: target.branch,
+    identity: candidate,
+    classification: "unsafe_or_ambiguous",
+    sourceFixEligible: false,
+    retryable: false,
+    reasonCode: "source_failure_unsafe_or_ambiguous",
+    nextAction: "stop_fail_closed",
+  };
+  assert.equal(exactTerminalFailureFindings([finding], candidate, target), true);
+  assert.equal(exactTerminalFailureFindings([{ ...finding, sourceFixEligible: true }], candidate, target), false);
+  assert.equal(exactTerminalFailureFindings([{ ...finding, nextAction: "run_validation_and_commit" }], candidate, target), false);
 });
 
 test("terminal retry projection binds exact completed marker identities", () => {

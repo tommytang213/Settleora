@@ -351,7 +351,9 @@ export function loadSessionLifecycleState(config, identity) {
   return validation.ok ? { ok: true, state, statePath } : { ...validation, statePath };
 }
 
-export function loadSessionLifecycleForRecovery(config, identity) {
+export function loadSessionLifecycleForRecovery(config, identity, {
+  allowLegacySupervisorBackfill = true,
+} = {}) {
   const root = path.join(config.logsRoot, "session-lifecycle");
   if (!existsSync(root)) return fail("session_lifecycle_state_missing", null, { statePath: root });
   const rootInfo = lstatSync(root);
@@ -375,7 +377,8 @@ export function loadSessionLifecycleForRecovery(config, identity) {
   }
   if (matches.length !== 1) return fail(matches.length === 0 ? "session_lifecycle_state_missing" : "session_lifecycle_state_ambiguous");
   let match = matches[0];
-  if (config.sessionLifecycle?.enabled === true
+  if (allowLegacySupervisorBackfill
+    && config.sessionLifecycle?.enabled === true
     && identity.supervisorRunId
     && !Object.hasOwn(match.state.logicalTask || {}, "supervisorRunId")) {
     if (match.state.branch.headSha !== identity.headSha) {

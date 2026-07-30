@@ -230,7 +230,7 @@ function projectTargetedTerminalDerivative(config, rawState) {
     branchName: target.branch,
     baseSha: target.baseSha,
     headSha: target.headSha,
-  });
+  }, { allowLegacySupervisorBackfill: false });
   if (!lifecycle.ok) return { ok: false };
   return projectAuthenticatedTerminalValidationRetryDerivative({
     logsRoot: config.logsRoot,

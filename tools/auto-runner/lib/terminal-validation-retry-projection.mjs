@@ -148,8 +148,7 @@ export function exactRawCheckpoint(state, target) {
     && state?.branch?.currentHeadSha === target.headSha
     && state?.branch?.expectedRemoteHeadSha === null
     && state?.pr?.number === null && state?.pr?.url === null && state?.pr?.headSha === null
-    && Array.isArray(failureBatch?.findings) && failureBatch.findings.length > 0
-    && failureBatch.findings.every((finding) => finding?.repository === target.repository)
+    && exactTerminalFailureFindings(failureBatch?.findings, candidate, target)
     && identity?.baseSha === target.baseSha && identity?.headSha === target.headSha
     && identity?.treeSha === target.treeSha && identity?.changedFilesDigest === target.changedFilesDigest
     && identity?.diffDigest === target.diffDigest
@@ -159,6 +158,22 @@ export function exactRawCheckpoint(state, target) {
     && candidate?.diffDigest === target.diffDigest
     && exactRawValidationEvidence(state?.evidence, target)
     && exactRawCheckpointMutationMarkers(state?.mutationMarkers, target);
+}
+
+export function exactTerminalFailureFindings(findings, candidate, target) {
+  return Array.isArray(findings) && findings.length > 0
+    && findings.every((finding) =>
+      finding?.sourceKind === "local_validation"
+      && finding?.repository === target.repository
+      && finding?.issueNumber === target.issueNumber
+      && finding?.taskKey === target.taskKey
+      && finding?.branchName === target.branch
+      && canonical(finding?.identity) === canonical(candidate)
+      && finding?.classification === "unsafe_or_ambiguous"
+      && finding?.sourceFixEligible === false
+      && finding?.retryable === false
+      && finding?.reasonCode === "source_failure_unsafe_or_ambiguous"
+      && finding?.nextAction === "stop_fail_closed");
 }
 
 export function exactRawValidationEvidence(evidence, target) {

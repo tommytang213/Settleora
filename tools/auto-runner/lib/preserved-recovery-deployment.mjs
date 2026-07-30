@@ -155,7 +155,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
       repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
       runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
       baseSha: target.baseSha, headSha: target.headSha,
-    });
+    }, { allowLegacySupervisorBackfill: false });
     const projection = rawLifecycle.ok
       ? projectAuthenticatedTerminalValidationRetryDerivative({
         logsRoot: config.logsRoot,
@@ -281,7 +281,7 @@ function validateLifecycle(config, state, target, chargeMarkerRef, derivativeTer
     repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
     runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
     baseSha: target.baseSha, headSha: target.headSha,
-  });
+  }, { allowLegacySupervisorBackfill: false });
   if (!loaded.ok) return { ok: false, reasonCode: "preserved_recovery_lifecycle_untrusted" };
   const lifecycle = loaded.state;
   const counters = lifecycle.controller;
