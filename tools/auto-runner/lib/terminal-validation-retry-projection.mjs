@@ -257,6 +257,8 @@ function exactLifecycle(state, target) {
     && state?.mutationAuthority?.status === "terminal"
     && state?.mutationAuthority?.ownerSessionId === null
     && state?.mutationAuthority?.handoff === null
+    && state?.interruption?.class === "main_process_exit_without_terminal_report"
+    && state?.interruption?.reasonCode === "interruption_main_process_exit_without_terminal_report"
     && state?.recovery?.status === "pending"
     && state?.recovery?.attempts === 1
     && typeof state?.recovery?.operationId === "string" && state.recovery.operationId.length > 0
