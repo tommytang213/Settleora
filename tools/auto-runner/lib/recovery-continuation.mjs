@@ -221,6 +221,19 @@ function projectTargetedTerminalDerivative(config, rawState) {
     diffDigest: identity.diffDigest,
     acceptedLogicalTasks: counters?.acceptedLogicalTasks,
   };
+  const budget = loadLogicalTaskBudget(config, target.supervisorRunId || target.runnerRunId);
+  const budgetCharges = budget.state?.charges || {};
+  const charge = budgetCharges[target.chargeId];
+  if (!budget.ok
+    || budget.state?.acceptedLogicalTaskCount !== 1
+    || Object.keys(budgetCharges).length !== 1
+    || charge?.identity?.repository !== target.repository
+    || charge?.identity?.issueNumber !== target.issueNumber
+    || charge?.identity?.taskLineageId !== `issue-${target.issueNumber}`
+    || charge?.identity?.claimIdentity !== target.claimIdentity) {
+    return { ok: false };
+  }
+  target.durableBudgetExact = true;
   const lifecycle = loadSessionLifecycleForRecovery(config, {
     repository: target.repository,
     issueNumber: target.issueNumber,

@@ -151,6 +151,9 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     if (matching.length !== 1) return denied(matching.length ? "preserved_recovery_ambiguous" : "preserved_recovery_not_found", target);
     if (states.some((state) => state.statePath !== matching[0].statePath)) return denied("other_unresolved_recovery_present", target);
     const rawState = matching[0];
+    const chargeProof = validateCharge(config, rawState, target);
+    if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
+    const projectionTarget = { ...target, durableBudgetExact: true };
     const rawLifecycle = loadSessionLifecycleForRecovery(config, {
       repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
       runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
@@ -163,7 +166,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
         rawRecoveryPath: rawState.statePath,
         lifecycle: rawLifecycle.state,
         lifecyclePath: rawLifecycle.statePath,
-        target,
+        target: projectionTarget,
       })
       : { ok: false };
     const state = projection.ok ? projection.effectiveRecovery : rawState;
@@ -177,8 +180,6 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     }
     const markerProof = validateMarkers(state, target);
     if (!markerProof.ok) return denied(markerProof.reasonCode, target);
-    const chargeProof = validateCharge(config, state, target);
-    if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
     const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath, derivativeTerminalPhase);
     if (!lifecycleProof.ok) return denied(lifecycleProof.reasonCode, target);
     const intentProof = validateIntents(

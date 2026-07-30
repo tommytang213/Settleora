@@ -270,7 +270,8 @@ function exactLifecycle(state, target) {
 function exactTerminalIteration(value, target) {
   const terminal = value?.recovery?.states;
   const budget = value?.logicalTaskBudget;
-  return target?.acceptedLogicalTasks === 1
+  return target?.durableBudgetExact === true
+    && target?.acceptedLogicalTasks === 1
     && value?.index === 1
     && value?.outcome === "blocked_recovery_state"
     && value?.issue?.number === target.issueNumber
