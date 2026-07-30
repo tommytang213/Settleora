@@ -890,6 +890,29 @@ test("historical existing-PR recovery composes only the exact authenticated term
   fixture.options.allowAuthenticatedExistingPrEffects = true;
   const exact = verify(fixture);
   assert.equal(exact.ok, true, exact.reasonCode);
+  for (const [lifecyclePhase, continuationPhase] of [
+    ["pr_create_recover", "pr_create_or_update"],
+    ["ci_wait", "github_convergence"],
+  ]) {
+    continuation.phase = continuationPhase;
+    continuation.effects = {};
+    const current = ordinaryContinuationPhases.indexOf(continuationPhase);
+    for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+      index < current; index += 1) {
+      const phase = ordinaryContinuationPhases[index];
+      continuation.effects[phase] = {
+        targetDigest: ordinaryContinuationPhaseTarget(continuation, phase),
+        completedAt: "2026-07-30T00:00:00.000Z",
+      };
+    }
+    fixture.state.phase = lifecyclePhase;
+    fixture.lifecycle.controller = { phase: lifecyclePhase, nextExactAction: lifecyclePhase };
+    fixture.lifecycle.recovery.phaseAfter = lifecyclePhase;
+    fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+    fixture.options.expectedLifecyclePhase = lifecyclePhase;
+    const resumed = verify(fixture);
+    assert.equal(resumed.ok, true, `${lifecyclePhase}: ${resumed.reasonCode}`);
+  }
 
   const addIntent = fixture.intents.find((entry) =>
     entry.effectType === "hygiene_component" && entry.effect?.operation === "add");
@@ -1000,6 +1023,15 @@ test("historical recovery authenticates the exact push-only PR-create checkpoint
   fixture.options.expectedLifecyclePhase = "pr_create_recover";
   const pushOnlyResult = verify(fixture);
   assert.equal(pushOnlyResult.ok, true, pushOnlyResult.reasonCode);
+
+  continuation.phase = "push";
+  delete continuation.effects.push;
+  fixture.lifecycle.controller = { phase: "push", nextExactAction: "push" };
+  fixture.lifecycle.recovery.phaseAfter = "push";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "push";
+  const finalizedBeforeCheckpoint = verify(fixture);
+  assert.equal(finalizedBeforeCheckpoint.ok, true, finalizedBeforeCheckpoint.reasonCode);
 
   fixture.state.branch.expectedRemoteHeadSha = null;
   assert.equal(verify(fixture).ok, true);

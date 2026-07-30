@@ -459,7 +459,8 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     && preservedClaim?.authority?.baseSha === baseSha
     && preservedClaim?.authority?.candidateIdentity?.headSha === terminalHeadSha
     && ["checkpoint_validation_commit", "aggregate_validation", "external_review",
-      "codex_mechanics_security_review", "review_fix"].includes(state?.phase)
+      "codex_mechanics_security_review", "review_fix",
+      ...(allowAuthenticatedLaterEffects ? ["pr_create_recover", "ci_wait"] : [])].includes(state?.phase)
     && ["passed", "failed"].includes(state?.evidence?.localValidation?.status)
     && state?.stopReason === null;
   const exactOriginalTerminalPosture = (exactTerminalState || exactValidationRetryHandoff)
@@ -967,7 +968,7 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && new Set(pushMarkers.map((entry) => entry.correlation)).size === pushMarkers.length
     && pushIntents.length === orderedPushHeads.length
     && pushIntents.every(exactPush);
-  const pushOnly = continuation?.phase === "pr_create_or_update"
+  const pushOnly = ["push", "pr_create_or_update"].includes(continuation?.phase)
     && pr?.number == null && pr?.url == null && pr?.headSha == null
     && authority.liveTaskPrRead.prs.length === 0
     && prMarkers.length === 0 && prIntents.length === 0
