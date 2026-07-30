@@ -2198,8 +2198,9 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const reconciledReload = loadRecoveryState(config, reconciledWrite.state);
       if (!reconciledReload.ok
         || reconciledReload.state.recoveryReconciliation?.evidenceDigest !== reconciledRecovery?.evidenceDigest
-        || reconciledReload.state.pr?.number !== reconciledPr?.number
-        || reconciledReload.state.pr?.headSha !== reconciledPr?.headSha) {
+        || (reconciledRecovery
+          && (reconciledReload.state.pr?.number !== (reconciledPr?.number ?? null)
+            || reconciledReload.state.pr?.headSha !== (reconciledPr?.headSha ?? null)))) {
         return rejectHistoricalWorkspacePreparation(
           config,
           state,
@@ -3130,6 +3131,7 @@ async function synchronizeRecoveredSourceChange(
     branch: { ...state.branch, currentHeadSha: newHead },
     sessionLifecycle: lifecycle.state,
     reviewConvergenceState: accounted,
+    recoveryReconciliation: null,
     pendingRecoveredSourceHeadTransition: null,
   };
 }
@@ -3179,6 +3181,7 @@ function reconcilePendingRecoveredSourceHeadTransition(config, state) {
     branch: { ...state.branch, currentHeadSha: pending.newHead },
     sessionLifecycle: lifecycle.state,
     ordinaryContinuation: pending.ordinaryContinuation,
+    recoveryReconciliation: null,
     pendingRecoveredSourceHeadTransition: null,
   };
   return { ok: true, state: writeRecoveryState(config, finalized).state };

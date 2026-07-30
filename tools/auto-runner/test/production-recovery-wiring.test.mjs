@@ -665,6 +665,8 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /expectedOriginMainSha: currentMainSha,[\s\S]*historicalEffectMainSha/);
   assert.match(source, /baseSha: candidate\.baseSha, historicalEffectMainSha, currentMainSha/);
   assert.match(source, /const reconciledWrite = writeRecoveryState\(config, state\);[\s\S]*loadRecoveryState\(config, reconciledWrite\.state\)[\s\S]*recoveryReconciliation\?\.evidenceDigest !== reconciledRecovery\?\.evidenceDigest[\s\S]*state = reconciledReload\.state/);
+  assert.match(source, /reconciledRecovery[\s\S]*reconciledReload\.state\.pr\?\.number !== \(reconciledPr\?\.number \?\? null\)/);
+  assert.equal((source.match(/recoveryReconciliation: null/g) || []).length, 2);
   assert.doesNotMatch(source, /getRefSha\("origin\/main"\) !== expectedCurrentMain/);
   assert.match(source, /baseSha: exactHeadEvidence\.baseSha \|\| recoveryState\?\.branch\?\.baseSha \|\| null,[\s\S]*expectedOriginMainSha: recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/);
   assert.match(source, /expectedReportPaths: \{[\s\S]*repoReportPath: promptInfo\.reportPath,[\s\S]*promptPath: promptInfo\.promptPath,[\s\S]*durableReportPath: iteration\.report\.copyPath/);

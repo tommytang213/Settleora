@@ -700,6 +700,14 @@ function validateRecoveryStateShape(state) {
     const matchedHeads = projection.matchedPrCheckpointHeads;
     const unmatchedHeads = projection.unmatchedFinalizedPushHeads;
     const effectivePr = projection.effectivePr;
+    const effectivePrMatchesState = effectivePr === null
+      ? state.pr.number === null && state.pr.url === null && state.pr.headSha === null
+        && state.pr.headRefName === null && state.pr.baseRefName === null
+      : effectivePr.number === state.pr.number
+        && effectivePr.url === state.pr.url
+        && effectivePr.headSha === state.pr.headSha
+        && effectivePr.headRefName === state.pr.headRefName
+        && effectivePr.baseRefName === state.pr.baseRefName;
     if (projection.version !== 1
       || typeof projection.repository !== "string"
       || projection.issueNumber !== state.issue.number
@@ -720,11 +728,7 @@ function validateRecoveryStateShape(state) {
       || orderedHeads.at(-1) !== projection.activeHeadSha
       || !Number.isInteger(projection.unmatchedPushBound)
       || unmatchedHeads.length > projection.unmatchedPushBound
-      || !effectivePr
-      || effectivePr.number !== state.pr.number
-      || effectivePr.headSha !== state.pr.headSha
-      || effectivePr.headRefName !== state.pr.headRefName
-      || effectivePr.baseRefName !== state.pr.baseRefName
+      || !effectivePrMatchesState
       || !isDigest(projection.liveReadDigest)
       || !isDigest(evidenceDigest)
       || evidenceDigest !== createHash("sha256").update(canonicalRecoveryEvidence(evidence)).digest("hex")) {

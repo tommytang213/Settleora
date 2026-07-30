@@ -1034,6 +1034,7 @@ test("historical recovery authenticates the exact push-only PR-create checkpoint
   fixture.options.expectedLifecyclePhase = "pr_create_recover";
   const pushOnlyResult = verify(fixture);
   assert.equal(pushOnlyResult.ok, true, pushOnlyResult.reasonCode);
+  assert.equal(pushOnlyResult.reconciledRecovery.effectivePr, null);
 
   continuation.phase = "push";
   delete continuation.effects.push;
