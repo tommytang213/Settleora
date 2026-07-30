@@ -361,7 +361,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /const prospectiveValidation = recovered\?\.generatedRecoveryEvidence\?\.validation/);
   assert.match(source, /sourceFailuresFromProspectiveValidation\(prospectiveValidation/);
   assert.match(source, /prospective_validation_source_checkout_not_restored/);
-  assert.match(source, /getRefSha\("origin\/main"\) !== continuation\.expectedOriginMainSha/);
+  assert.match(source, /prospectiveValidation\?\.passed === false[\s\S]*getRefSha\("origin\/main"\) !== currentMainSha/);
   assert.match(source, /headChangeCheckpoint: async \(headSha\)[\s\S]*expectedOriginMainSha: continuation\.expectedOriginMainSha/);
 });
 
@@ -655,15 +655,17 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint\(config, state, issue, laneDecision, lifecyclePhase\)[\s\S]*validateHistoricalRecoveryGitAuthority\(config\)[\s\S]*fetchOriginMain\(config, \{ trustedHistoricalRecovery: true \}\)[\s\S]*const reconstructedCurrentMainSha = getRefSha\("origin\/main"\)[\s\S]*"merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha/);
   assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*"merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha[\s\S]*candidateAlreadyInMain\.status === 0[\s\S]*historical_candidate_already_in_main[\s\S]*candidateAlreadyInMain\.status !== 1[\s\S]*large_candidate_recovery_current_main_untrusted/);
   assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*baseSha !== reconstructedCurrentMainSha[\s\S]*verifyHistoricalInitialCandidateLineage\(config, state, issue, \{[\s\S]*expectedLifecyclePhase: lifecyclePhase[\s\S]*filterForbiddenChangedFiles\(proof\.candidateIdentity\.changedFiles, laneDecision\)[\s\S]*provenIdentity = proof\.candidateIdentity/);
-  assert.match(source, /exactHeadEvidence: \{[\s\S]*baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
+  assert.match(source, /exactHeadEvidence: \{[\s\S]*baseSha: candidate\.baseSha, historicalEffectMainSha, currentMainSha/);
   assert.match(source, /large_candidate_routing_state_missing"[\s\S]*reconstructedCurrentMainSha/);
   assert.match(source, /reviewerResults: loaded\.state\.reviewerResults, reconstructedCurrentMainSha/);
   assert.match(source, /const historicalEffectMainSha = reconciledMain\?\.historicalEffectMainSha[\s\S]*\|\| initial\.expectedOriginMainSha/);
   assert.match(source, /const currentMainSha = reconciledMain\?\.currentMainSha[\s\S]*\|\| checkpoint\.reconstructedCurrentMainSha/);
   assert.doesNotMatch(source, /expectedOriginMainSha: checkpoint\.reconstructedCurrentMainSha/);
   assert.match(source, /getRefSha\("origin\/main"\) !== currentMainSha/);
-  assert.match(source, /expectedOriginMainSha: continuation\.expectedOriginMainSha/);
-  assert.match(source, /baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
+  assert.match(source, /expectedOriginMainSha: currentMainSha,[\s\S]*historicalEffectMainSha/);
+  assert.match(source, /baseSha: candidate\.baseSha, historicalEffectMainSha, currentMainSha/);
+  assert.match(source, /const reconciledWrite = writeRecoveryState\(config, state\);[\s\S]*loadRecoveryState\(config, reconciledWrite\.state\)[\s\S]*recoveryReconciliation\?\.evidenceDigest !== reconciledRecovery\?\.evidenceDigest[\s\S]*state = reconciledReload\.state/);
+  assert.doesNotMatch(source, /getRefSha\("origin\/main"\) !== expectedCurrentMain/);
   assert.match(source, /baseSha: exactHeadEvidence\.baseSha \|\| recoveryState\?\.branch\?\.baseSha \|\| null,[\s\S]*expectedOriginMainSha: recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/);
   assert.match(source, /expectedReportPaths: \{[\s\S]*repoReportPath: promptInfo\.reportPath,[\s\S]*promptPath: promptInfo\.promptPath,[\s\S]*durableReportPath: iteration\.report\.copyPath/);
   assert.match(source, /ordinaryContinuation\.sourceFailureBatch = iteration\.sourceFailureBatch \|\| null;[\s\S]*ordinaryContinuation\.sourceFailureHistory = \[\.\.\.\(iteration\.sourceFailureHistory \|\| \[\]\)\]/);

@@ -2194,7 +2194,19 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           } : state.pr,
         } : {}),
       };
-      state = writeRecoveryState(config, state).state;
+      const reconciledWrite = writeRecoveryState(config, state);
+      const reconciledReload = loadRecoveryState(config, reconciledWrite.state);
+      if (!reconciledReload.ok
+        || reconciledReload.state.recoveryReconciliation?.evidenceDigest !== reconciledRecovery?.evidenceDigest
+        || reconciledReload.state.pr?.number !== reconciledPr?.number
+        || reconciledReload.state.pr?.headSha !== reconciledPr?.headSha) {
+        return rejectHistoricalWorkspacePreparation(
+          config,
+          state,
+          "startup_recovery_reconciliation_persistence_failed",
+        );
+      }
+      state = reconciledReload.state;
       let checkpoint = null;
       if (state.phase === "checkpoint_validation_commit" && sourceFailureCandidate) {
         checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
@@ -2715,7 +2727,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     candidate_reconciliation: async (continuation) => {
       const candidate = continuation.identity;
       fetchOriginMain(config);
-      if (getCurrentBranch() !== state.branch.name || getRefSha("HEAD") !== candidate.headSha || getRefSha("origin/main") !== expectedCurrentMain || getStatusShort() !== "") return { ok: false, reasonCode: "ordinary_continuation_candidate_mismatch" };
+      if (getCurrentBranch() !== state.branch.name || getRefSha("HEAD") !== candidate.headSha || getRefSha("origin/main") !== currentMainSha || getStatusShort() !== "") return { ok: false, reasonCode: "ordinary_continuation_candidate_mismatch" };
       return { ok: true, evidence: candidate };
     },
     local_validation: async (continuation) => {
@@ -2842,7 +2854,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             issueNumber: continuation.issueNumber,
             branchName: continuation.branchName,
             identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
-            expectedOriginMainSha: continuation.expectedOriginMainSha,
+            expectedOriginMainSha: currentMainSha,
+            historicalEffectMainSha,
             phase: "candidate_reconciliation",
             counters: {
               ...continuation.counters,
@@ -2975,7 +2988,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             expectedRepository: config.repositorySlug,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
-            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: state.taskKey || initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, supervisorRunId: state.run?.supervisorRunId || null, headSha: candidate.headSha, baseSha: candidate.baseSha, currentMainSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, changedFilesDigest: digestChangedFiles(candidate.changedFiles), recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: state.taskKey || initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, supervisorRunId: state.run?.supervisorRunId || null, headSha: candidate.headSha, baseSha: candidate.baseSha, historicalEffectMainSha, currentMainSha, changedFiles: candidate.changedFiles, changedFilesDigest: digestChangedFiles(candidate.changedFiles), recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
           },
         },
       };
@@ -2994,7 +3007,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         if (getCurrentBranch() !== continuation.branchName
           || getRefSha("HEAD") !== candidate.headSha
           || getRefSha(`${candidate.headSha}^{tree}`) !== candidate.treeSha
-          || getRefSha("origin/main") !== continuation.expectedOriginMainSha
+          || getRefSha("origin/main") !== currentMainSha
           || getStatusShort() !== "") {
           return { ok: false, reasonCode: "prospective_validation_source_checkout_not_restored" };
         }
@@ -3005,7 +3018,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           branchName: continuation.branchName,
           prNumber,
           identity: candidate,
-          expectedOriginMainSha: continuation.expectedOriginMainSha,
+          expectedOriginMainSha: currentMainSha,
+          historicalEffectMainSha,
           profile: laneDecision.validationProfile,
           inContract: true,
         });

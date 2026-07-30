@@ -696,6 +696,10 @@ function validateRecoveryStateShape(state) {
   if (state.recoveryReconciliation != null) {
     const projection = state.recoveryReconciliation;
     const { evidenceDigest, ...evidence } = projection;
+    const orderedHeads = projection.orderedPushHeads;
+    const matchedHeads = projection.matchedPrCheckpointHeads;
+    const unmatchedHeads = projection.unmatchedFinalizedPushHeads;
+    const effectivePr = projection.effectivePr;
     if (projection.version !== 1
       || typeof projection.repository !== "string"
       || projection.issueNumber !== state.issue.number
@@ -705,14 +709,22 @@ function validateRecoveryStateShape(state) {
       || projection.branchName !== state.branch.name
       || projection.baseSha !== state.branch.baseSha
       || projection.activeHeadSha !== state.branch.currentHeadSha
-      || !isShaOrNull(projection.historicalEffectMainSha)
-      || !isShaOrNull(projection.currentMainSha)
+      || !isSha(projection.historicalEffectMainSha)
+      || !isSha(projection.currentMainSha)
       || projection.currentMainAncestryProven !== true
-      || !Array.isArray(projection.orderedPushHeads)
-      || !Array.isArray(projection.matchedPrCheckpointHeads)
-      || !Array.isArray(projection.unmatchedFinalizedPushHeads)
+      || !Array.isArray(orderedHeads)
+      || !Array.isArray(matchedHeads)
+      || !Array.isArray(unmatchedHeads)
+      || [...orderedHeads, ...matchedHeads, ...unmatchedHeads].some((head) => !isSha(head))
+      || JSON.stringify(orderedHeads) !== JSON.stringify([...matchedHeads, ...unmatchedHeads])
+      || orderedHeads.at(-1) !== projection.activeHeadSha
       || !Number.isInteger(projection.unmatchedPushBound)
-      || projection.unmatchedFinalizedPushHeads.length > projection.unmatchedPushBound
+      || unmatchedHeads.length > projection.unmatchedPushBound
+      || !effectivePr
+      || effectivePr.number !== state.pr.number
+      || effectivePr.headSha !== state.pr.headSha
+      || effectivePr.headRefName !== state.pr.headRefName
+      || effectivePr.baseRefName !== state.pr.baseRefName
       || !isDigest(projection.liveReadDigest)
       || !isDigest(evidenceDigest)
       || evidenceDigest !== createHash("sha256").update(canonicalRecoveryEvidence(evidence)).digest("hex")) {
