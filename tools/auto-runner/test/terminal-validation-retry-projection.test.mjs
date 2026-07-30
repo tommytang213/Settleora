@@ -193,6 +193,21 @@ test("terminal retry projection binds the successor budget marker charge and tas
     },
   };
   assert.equal(exactTerminalIteration(iteration, target), true);
+  const reversedTimestampMarker = {
+    ...marker,
+    chargedAt: "2026-07-24T07:57:59.999Z",
+  };
+  assert.equal(exactTerminalIteration({
+    ...iteration,
+    logicalTaskBudget: {
+      ...iteration.logicalTaskBudget,
+      state: {
+        ...iteration.logicalTaskBudget.state,
+        charges: { [target.chargeId]: reversedTimestampMarker },
+      },
+      marker: reversedTimestampMarker,
+    },
+  }, { ...target, durableChargeMarker: reversedTimestampMarker }), false);
   assert.equal(exactTerminalIteration({
     ...iteration,
     logicalTaskBudget: {

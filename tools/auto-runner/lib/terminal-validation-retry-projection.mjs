@@ -533,6 +533,7 @@ function exactDurableChargeMarker(marker, target) {
     && marker.acceptedAt === marker.identity.acceptedAt
     && Number.isFinite(Date.parse(marker.acceptedAt))
     && Number.isFinite(Date.parse(marker.chargedAt))
+    && Date.parse(marker.chargedAt) >= Date.parse(marker.acceptedAt)
     && marker.chargeId === target.chargeId;
 }
 
