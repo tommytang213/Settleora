@@ -233,7 +233,44 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const liveTaskPrRead = options.allowAuthenticatedExistingPrEffects === true
       ? (options.readLiveTaskPrs || readLiveTaskPrs)(config, branch)
       : null;
+    const terminalCommentIntent = intents.filter((entry) =>
+      entry.effectType === "comment" && entry.status === "prepared");
+    const existingPrTerminalIntents = intents.filter((entry) =>
+      externalEffects.has(entry.effectType)
+      && !["push", "pr_create", "pr_head_update"].includes(entry.effectType));
+    const existingPrTerminalAuthority = existingPrTerminalIntents.length === 0
+      ? { ok: true }
+      : options.allowAuthenticatedExistingPrEffects === true
+        && terminalCommentIntent.length === 1
+      ? validatePrePrTerminalIntentAuthority({
+        state,
+        issue,
+        intents,
+        lifecycle,
+        repository,
+        issueNumber,
+        taskKey,
+        runId,
+        supervisorRunId,
+        branch,
+        baseSha,
+        headSha,
+        originalHeadSha: initialHeadSha,
+        originalTreeSha: candidate.treeSha,
+        chargeId,
+        chargeIdentity: budget.statePath,
+        expectedOutcome: terminalIntentOutcome,
+        expectedCommentBodyDigest: terminalCommentIntent[0].effect?.bodyDigest,
+        expectedWorktreeOwnership: options.expectedWorktreeOwnership || null,
+        remoteTaskBranchRead,
+        readTerminalComment: () => (options.readIssueCommentDigest || readIssueCommentDigest)(
+          config, issueNumber, terminalCommentIntent[0].effect?.bodyDigest,
+        ),
+        allowAuthenticatedLaterEffects: true,
+      })
+      : { ok: false };
     const authenticatedExistingPrEffects = options.allowAuthenticatedExistingPrEffects === true
+      && existingPrTerminalAuthority.ok
       && validAuthenticatedExistingPrEffects(
         state, intents, {
           git, repository, issueNumber, taskKey, runId, branch, baseSha,
@@ -272,7 +309,9 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const authenticatedPrePrTerminalEffects = !authenticatedExistingPrEffects
       && prePrTerminalAuthority.ok;
     if (!noLaterEffects(state) && !authenticatedExistingPrEffects && !authenticatedPrePrTerminalEffects) {
-      return fail("historical_candidate_later_effect_present");
+      return fail(existingPrTerminalIntents.length > 0 && !existingPrTerminalAuthority.ok
+        ? existingPrTerminalAuthority.reasonCode || "historical_candidate_later_effect_present"
+        : "historical_candidate_later_effect_present");
     }
     if (!validContinuationPhase(
       continuation, expectedLifecyclePhase, authenticatedExistingPrEffects,
@@ -382,13 +421,16 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     expectedCommentBodyDigest, expectedWorktreeOwnership,
     remoteTaskBranchRead,
     readTerminalComment,
+    allowAuthenticatedLaterEffects = false,
   } = input;
   const claimIdentity = `${repository}#${issueNumber}`;
   const terminalHeadSha = originalHeadSha || headSha;
   if (remoteTaskBranchRead?.complete !== true) {
     return fail("historical_candidate_terminal_remote_branch_read_unavailable");
   }
-  if (remoteTaskBranchRead.absent !== true) {
+  if (allowAuthenticatedLaterEffects
+    ? remoteTaskBranchRead.absent !== false || !sha.test(remoteTaskBranchRead.headSha || "")
+    : remoteTaskBranchRead.absent !== true) {
     return fail("historical_candidate_terminal_remote_branch_present");
   }
   if (!repository || !Number.isSafeInteger(issueNumber) || state?.issue?.number !== issueNumber
@@ -440,8 +482,9 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
   }
   const recordedCommentEffect = lifecycle?.recovery?.effectsAlreadyPresent?.comment;
   if ((!exactOriginalTerminalPosture && !exactPreservedContinuation)
-    || state?.pr?.number !== null || state?.pr?.headSha !== null
-    || state?.branch?.expectedRemoteHeadSha !== null
+    || (!allowAuthenticatedLaterEffects
+      && (state?.pr?.number !== null || state?.pr?.headSha !== null
+        || state?.branch?.expectedRemoteHeadSha !== null))
     || lifecycle?.logicalTask?.issueNumber !== issueNumber
     || lifecycle?.logicalTask?.taskKey !== taskKey
     || lifecycle?.logicalTask?.runId !== runId
@@ -449,17 +492,20 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     || lifecycle?.logicalTask?.claimIdentity !== claimIdentity
     || lifecycle?.logicalTask?.chargeMarkerRef !== chargeIdentity
     || lifecycle?.branch?.name !== branch || lifecycle?.branch?.baseSha !== baseSha
-    || lifecycle?.branch?.headSha !== headSha || lifecycle?.branch?.prNumber !== null
+    || lifecycle?.branch?.headSha !== headSha
+    || (!allowAuthenticatedLaterEffects && lifecycle?.branch?.prNumber !== null)
     || lifecycle?.mutationAuthority?.generation !== lifecycle?.sessions?.generation
     || lifecycle?.recovery?.effectsAlreadyPresent?.commit !== true
-    || ["push", "pr", "merge"].some(
+    || (!allowAuthenticatedLaterEffects && ["push", "pr", "merge"].some(
       (effect) => lifecycle?.recovery?.effectsAlreadyPresent?.[effect] !== false,
-    )
+    ))
     || ![true, false].includes(recordedCommentEffect)
     || (recordedCommentEffect === true && terminalCommentRead.matchingCount !== 1)) {
     return fail("historical_candidate_terminal_outcome_mismatch");
   }
-  const external = intents.filter((intent) => externalEffects.has(intent.effectType));
+  const external = intents.filter((intent) => externalEffects.has(intent.effectType)
+    && (!allowAuthenticatedLaterEffects
+      || !["push", "pr_create", "pr_head_update"].includes(intent.effectType)));
   const hygiene = external.filter((intent) => intent.effectType === "hygiene_component");
   const comments = external.filter((intent) => intent.effectType === "comment");
   const commitIntents = intents.filter((intent) => intent.effectType === "commit");
@@ -584,11 +630,11 @@ export function validatePrePrTerminalIntentAuthority(input = {}) {
     && Number.isFinite(Date.parse(
       state.mutationMarkers.worktree_ownership_created[expectedWorktreeOwnership.key].completedAt,
     ));
-  if (!plainObject(state?.mutationMarkers)
+  if (!allowAuthenticatedLaterEffects && (!plainObject(state?.mutationMarkers)
     || Object.entries(state.mutationMarkers).some(([kind, markers]) =>
       (!["claim", "logical_task_charge", "branch_ownership_created"].includes(kind)
         && !(kind === "worktree_ownership_created" && exactWorktreeOwnership))
-        || !plainObject(markers))) {
+        || !plainObject(markers)))) {
     return fail("historical_candidate_terminal_later_effect_present");
   }
   return { ok: true, reasonCode: "historical_candidate_pre_pr_terminal_intents_authenticated" };

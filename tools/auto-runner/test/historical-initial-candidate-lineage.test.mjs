@@ -848,6 +848,58 @@ test("historical descendant admits only authenticated existing-PR effects", () =
   assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
 });
 
+test("historical existing-PR recovery composes only the exact authenticated terminal intent trio", () => {
+  const fixture = makeFixture(2);
+  authenticatePrePrTerminalFixture(fixture);
+  advanceWithSourceFix(fixture);
+  const continuation = fixture.state.ordinaryContinuation;
+  fixture.state.branch.currentHeadSha = continuation.identity.headSha;
+  fixture.state.claimAuthority = {
+    mode: "preserved_recovery_claim",
+    ok: true,
+    authority: {
+      taskKey, runId, chargeId,
+      priorOutcome: "validation_failed",
+      branchName: branch,
+      baseSha: fixture.baseSha,
+      candidateIdentity: { headSha: fixture.headSha },
+    },
+  };
+  fixture.state.phase = "review_fix";
+  fixture.state.stopReason = null;
+  fixture.state.evidence.localValidation.status = "passed";
+  fixture.lifecycle.controller = { phase: "review_fix", nextExactAction: "review_fix" };
+  fixture.lifecycle.report.status = "in_progress";
+  fixture.lifecycle.mutationAuthority = {
+    generation: fixture.lifecycle.sessions.generation,
+    status: "active",
+    ownerSessionId: fixture.lifecycle.sessions.current,
+    handoff: {
+      retiredSessionId: fixture.lifecycle.sessions.retired.at(-1),
+      reason: "validation_retry_derivative_reopened",
+      requestId: hash(`${fixture.lifecycle.recovery.operationId}:${
+        fixture.lifecycle.sessions.retired.at(-1)}:validation-retry`),
+      successorSessionId: fixture.lifecycle.sessions.current,
+    },
+  };
+  fixture.lifecycle.recovery.phaseAfter = "review_fix";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "review_fix";
+  fixture.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 0 });
+  authenticateExistingPrFixture(fixture);
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  const exact = verify(fixture);
+  assert.equal(exact.ok, true, exact.reasonCode);
+
+  const addIntent = fixture.intents.find((entry) =>
+    entry.effectType === "hygiene_component" && entry.effect?.operation === "add");
+  addIntent.effect.addLabels = ["unrelated-label"];
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_terminal_hygiene_mismatch");
+  addIntent.effect.addLabels = ["auto-failed"];
+  fixture.issue.labels = fixture.issue.labels.filter((label) => label !== "auto-failed");
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_terminal_live_labels_mismatch");
+});
+
 test("historical existing-PR authentication binds every durable authority to the exact PR and head", () => {
   const mutations = [
     ["wrong PR number", (f) => { f.state.pr.number = 1008; }],
