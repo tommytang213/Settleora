@@ -10,7 +10,6 @@ import {
   specPathForRunId,
   validateRunSpecShape,
 } from "../supervisor/run-spec.mjs";
-import { recoverySuccessorSessionId } from "./session-lifecycle.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const TERMINAL_REASON_CODE = "checkpoint_validation_recovery_failed_closed";
@@ -356,16 +355,24 @@ export function exactLifecycle(state, target) {
     && handoff?.checkpointDigest === state?.checkpoint?.digest
     && typeof handoff?.startedAt === "string";
   if (!exactReopened) return false;
-  const successor = recoverySuccessorSessionId(state);
+  const expectedRequestId = digest(
+    `${state.recovery.operationId}:${handoff.retiredSessionId}:validation-retry`,
+  );
+  const successorSessionId = `recovery-handoff:${digest(JSON.stringify([
+    state.logicalTask.runId,
+    state.recovery.operationId,
+    expectedRequestId,
+  ]))}`;
+  if (handoff.requestId !== expectedRequestId) return false;
   const exactPending = state?.mutationAuthority?.status === "recovery_pending"
     && state?.mutationAuthority?.ownerSessionId === null
     && handoff?.retiredSessionId === state?.sessions?.current
-    && handoff?.successorSessionId === null;
-  const exactActive = successor.ok
-    && state?.mutationAuthority?.status === "active"
-    && state?.mutationAuthority?.ownerSessionId === successor.sessionId
-    && state?.sessions?.current === successor.sessionId
-    && handoff?.successorSessionId === successor.sessionId
+    && handoff?.successorSessionId === null
+    && state?.sessions?.retired?.includes(state.sessions.current);
+  const exactActive = state?.mutationAuthority?.status === "active"
+    && state?.mutationAuthority?.ownerSessionId === successorSessionId
+    && state?.sessions?.current === successorSessionId
+    && handoff?.successorSessionId === successorSessionId
     && state?.sessions?.retired?.includes(handoff?.retiredSessionId);
   return exactPending || exactActive;
 }

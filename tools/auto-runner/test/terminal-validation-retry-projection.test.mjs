@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
@@ -258,10 +259,16 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
     },
   };
   assert.equal(exactLifecycle(lifecycle, target), true);
+  const requestId = createHash("sha256")
+    .update("recovery-operation:terminal-session:validation-retry")
+    .digest("hex");
+  const successorSessionId = `recovery-handoff:${createHash("sha256")
+    .update(JSON.stringify(["run-original", "recovery-operation", requestId]))
+    .digest("hex")}`;
   const reopenedPending = {
     ...lifecycle,
     checkpoint: { digest: "c".repeat(64) },
-    sessions: { current: "terminal-session" },
+    sessions: { current: "terminal-session", retired: ["terminal-session"] },
     controller: {
       ...lifecycle.controller,
       phase: "checkpoint_validation_commit",
@@ -272,7 +279,7 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
       status: "recovery_pending",
       ownerSessionId: null,
       handoff: {
-        requestId: "d".repeat(64),
+        requestId,
         retiredSessionId: "terminal-session",
         successorSessionId: null,
         reason: "validation_retry_derivative_reopened",
@@ -283,6 +290,20 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
   };
   assert.equal(exactLifecycle(reopenedPending, target), false, "deployment posture remains terminal-only");
   assert.equal(exactLifecycle(reopenedPending, { ...target, allowReopenedLifecycle: true }), true);
+  assert.equal(exactLifecycle({
+    ...reopenedPending,
+    sessions: { current: successorSessionId, retired: ["terminal-session"] },
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      status: "active",
+      ownerSessionId: successorSessionId,
+      handoff: {
+        ...reopenedPending.mutationAuthority.handoff,
+        successorSessionId,
+        completedAt: "2026-07-30T20:00:01.000Z",
+      },
+    },
+  }, { ...target, allowReopenedLifecycle: true }), true);
   assert.equal(exactLifecycle({
     ...reopenedPending,
     mutationAuthority: {
