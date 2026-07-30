@@ -275,7 +275,20 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       recovery,
     };
   }
-  const loadedState = recovery.projectedRecoveryState || loaded.state;
+  let reloadedProjection = null;
+  if (recovery.terminalDerivativeProjection?.ok) {
+    reloadedProjection = projectTargetedTerminalDerivative(config, loaded.state);
+    if (!reloadedProjection.ok
+      || reloadedProjection.evidenceDigest !== recovery.terminalDerivativeProjection.evidenceDigest) {
+      return {
+        ok: false,
+        outcome: "blocked_recovery_state",
+        reasonCode: "terminal_projection_reloaded_checkpoint_mismatch",
+        recovery,
+      };
+    }
+  }
+  const loadedState = reloadedProjection?.effectiveRecovery || loaded.state;
   const validationRetryTerminal = isValidationFailureRetryAuthorized(loadedState) ? loadedState : null;
   let state = normalizeValidationFailureContinuation(loadedState);
   const prepareAuthoritativeRecovery = selectOwnCallableHandler(handlers, "prepareAuthoritativeRecovery");

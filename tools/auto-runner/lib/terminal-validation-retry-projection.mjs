@@ -158,7 +158,7 @@ export function exactRawCheckpoint(state, target) {
     && candidate?.treeSha === target.treeSha && candidate?.changedFilesDigest === target.changedFilesDigest
     && candidate?.diffDigest === target.diffDigest
     && exactRawValidationEvidence(state?.evidence, target)
-    && exactRawCheckpointMutationMarkerShape(state?.mutationMarkers);
+    && exactRawCheckpointMutationMarkers(state?.mutationMarkers, target);
 }
 
 export function exactRawValidationEvidence(evidence, target) {
@@ -184,6 +184,27 @@ export function exactRawCheckpointMutationMarkerShape(markers) {
   if (!markers || typeof markers !== "object" || Array.isArray(markers)) return false;
   return canonical(Object.keys(markers).sort())
     === canonical(["branch_ownership_created", "claim", "logical_task_charge"]);
+}
+
+export function exactRawCheckpointMutationMarkers(markers, target) {
+  if (!exactRawCheckpointMutationMarkerShape(markers)) return false;
+  const claimKey = `issue-${target.issueNumber}`;
+  const branchKey = `${target.branch}:${target.baseSha}`;
+  const claim = markers.claim?.[claimKey];
+  const charge = markers.logical_task_charge?.[target.chargeId];
+  const branch = markers.branch_ownership_created?.[branchKey];
+  return canonical(Object.keys(markers.claim || {})) === canonical([claimKey])
+    && canonical(Object.keys(markers.logical_task_charge || {})) === canonical([target.chargeId])
+    && canonical(Object.keys(markers.branch_ownership_created || {})) === canonical([branchKey])
+    && claim?.status === "completed"
+    && claim?.target === `https://github.com/${target.repository}/issues/${target.issueNumber}`
+    && claim?.correlation === target.runnerRunId
+    && charge?.status === "completed"
+    && charge?.target === claimKey
+    && charge?.correlation === target.chargeId
+    && branch?.status === "completed"
+    && branch?.target === target.branch
+    && branch?.correlation === target.baseSha;
 }
 
 export function stateMayBelongToTarget(state, target) {

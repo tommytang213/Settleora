@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   exactRawCheckpointMutationMarkerShape,
+  exactRawCheckpointMutationMarkers,
   exactRawCheckpoint,
   exactRawValidationEvidence,
   exactSuccessorSpec,
@@ -148,6 +149,7 @@ test("terminal retry projection binds raw continuation repository identity", () 
     treeSha: "3".repeat(40),
     changedFilesDigest: "4".repeat(64),
     diffDigest: "5".repeat(64),
+    chargeId: "charge-959",
   };
   const candidate = {
     baseSha: target.baseSha,
@@ -199,9 +201,27 @@ test("terminal retry projection binds raw continuation repository identity", () 
       postMergeExpectations: null,
     },
     mutationMarkers: {
-      claim: {},
-      logical_task_charge: {},
-      branch_ownership_created: {},
+      claim: {
+        [`issue-${target.issueNumber}`]: {
+          status: "completed",
+          target: `https://github.com/${target.repository}/issues/${target.issueNumber}`,
+          correlation: target.runnerRunId,
+        },
+      },
+      logical_task_charge: {
+        [target.chargeId]: {
+          status: "completed",
+          target: `issue-${target.issueNumber}`,
+          correlation: target.chargeId,
+        },
+      },
+      branch_ownership_created: {
+        [`${target.branch}:${target.baseSha}`]: {
+          status: "completed",
+          target: target.branch,
+          correlation: target.baseSha,
+        },
+      },
     },
   };
   assert.equal(exactRawCheckpoint(state, target), true);
@@ -212,6 +232,54 @@ test("terminal retry projection binds raw continuation repository identity", () 
       sourceFailureBatch: {
         ...state.ordinaryContinuation.sourceFailureBatch,
         findings: [{ repository: "other/Repository" }],
+      },
+    },
+  }, target), false);
+});
+
+test("terminal retry projection binds exact completed marker identities", () => {
+  const target = {
+    repository: "tommytang213/Settleora",
+    issueNumber: 959,
+    runnerRunId: "run-original",
+    chargeId: "charge-959",
+    branch: "feature/auto-959-preserved",
+    baseSha: "1".repeat(40),
+  };
+  const markers = {
+    claim: {
+      "issue-959": {
+        status: "completed",
+        target: "https://github.com/tommytang213/Settleora/issues/959",
+        correlation: target.runnerRunId,
+      },
+    },
+    logical_task_charge: {
+      [target.chargeId]: {
+        status: "completed",
+        target: "issue-959",
+        correlation: target.chargeId,
+      },
+    },
+    branch_ownership_created: {
+      [`${target.branch}:${target.baseSha}`]: {
+        status: "completed",
+        target: target.branch,
+        correlation: target.baseSha,
+      },
+    },
+  };
+  assert.equal(exactRawCheckpointMutationMarkers(markers, target), true);
+  assert.equal(exactRawCheckpointMutationMarkers({
+    ...markers,
+    claim: { "issue-959": { ...markers.claim["issue-959"], status: "pending" } },
+  }, target), false);
+  assert.equal(exactRawCheckpointMutationMarkers({
+    ...markers,
+    branch_ownership_created: {
+      [`${target.branch}:${target.baseSha}`]: {
+        ...markers.branch_ownership_created[`${target.branch}:${target.baseSha}`],
+        correlation: "0".repeat(40),
       },
     },
   }, target), false);
