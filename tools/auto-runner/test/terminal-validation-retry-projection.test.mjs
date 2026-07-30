@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -7,11 +8,14 @@ import {
   exactRawCheckpoint,
   exactRawValidationEvidence,
   exactLifecycle,
+  exactStateArtifactFilenameIdentity,
+  exactSuccessorSpecArtifact,
   exactTerminalIteration,
   exactTerminalSummary,
   exactTerminalFailureFindings,
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
+  stateArtifactMayBelongToTarget,
   stateMayBelongToTarget,
   stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
@@ -300,6 +304,37 @@ test("terminal retry projection can carry direct association through successor r
   }, target, [associated]), false);
 });
 
+test("terminal retry projection treats a target-bound state filename as superseding evidence", () => {
+  const target = {
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    branch: "feature/auto-959-preserved",
+    runnerRunId: "run-original",
+    supervisorRunId: "supervised-original",
+  };
+  const malformed = {
+    path: "/trusted/state/run-2026-07-30T100000Z-deadbeef-2-issue-959.json",
+    value: {
+      finishedAt: "2026-07-30T10:00:01.000Z",
+    },
+  };
+  assert.equal(stateArtifactMayBelongToTarget(malformed, target), true);
+  assert.equal(exactStateArtifactFilenameIdentity(malformed), false);
+  assert.equal(exactStateArtifactFilenameIdentity({
+    ...malformed,
+    value: {
+      ...malformed.value,
+      runId: "run-2026-07-30T100000Z-deadbeef",
+      index: 2,
+      issue: { number: 959 },
+    },
+  }), true);
+  assert.equal(stateArtifactMayBelongToTarget({
+    ...malformed,
+    path: "/trusted/state/run-2026-07-30T100000Z-deadbeef-2-issue-999.json",
+  }, target), false);
+});
+
 test("terminal retry projection binds successor spec base and compatible runner mode", () => {
   const summary = {
     supervisorRunId: "supervised-20260730T093234Z-dcc42a3a61db",
@@ -312,10 +347,10 @@ test("terminal retry projection binds successor spec base and compatible runner 
     runId: summary.supervisorRunId,
     mode: "trusted",
     maxTasks: 1,
-    maxRuntime: "3h",
+    maxRuntime: "14d",
     profile: "default",
-    runnerConfigPath: "/workspace/logs/auto-runner/Settleora/configs/default.json",
-    runnerConfigSha256: "a".repeat(64),
+    runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
+    runnerConfigSha256: "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d",
     initialOriginMainSha: summary.baseOriginMainSha,
     requestedBy: "operator",
     sourceBranchName: null,
@@ -332,7 +367,30 @@ test("terminal retry projection binds successor spec base and compatible runner 
     initialOriginMainSha: "0".repeat(40),
   }, summary), false);
   assert.equal(exactSuccessorSpec({ ...spec, unexpectedField: true }, summary), false);
+  for (const field of ["maxRuntime", "profile", "runnerConfigPath", "runnerConfigSha256", "outageResubmission"]) {
+    const partial = { ...spec };
+    delete partial[field];
+    assert.equal(exactSuccessorSpec(partial, summary), false);
+  }
+  assert.equal(exactSuccessorSpec({ ...spec, runnerConfigSha256: null }, summary), false);
   assert.equal(exactSuccessorSpec(spec, { ...summary, mode: "dry-run" }), false);
+});
+
+test("terminal retry projection requires the successor spec's canonical storage path", () => {
+  const logsRoot = "/workspace/logs/auto-runner/Settleora";
+  const summary = {
+    supervisorRunId: "supervised-20260730T093234Z-dcc42a3a61db",
+    mode: "run",
+    baseOriginMainSha: "e96376b03d1e11dddeec28be237201ce56681753",
+    startedAt: "2026-07-30T09:32:43.000Z",
+  };
+  const canonicalPath = "/workspace/logs/auto-runner/Settleora/supervisor/run-specs/cab5948f36cade44c6029ef8926ecbf4974ff15a9388c94663e786f43889429e/spec.json";
+  const value = JSON.parse(readFileSync(canonicalPath, "utf8"));
+  assert.equal(exactSuccessorSpecArtifact({ path: canonicalPath, value }, summary, logsRoot), true);
+  assert.equal(exactSuccessorSpecArtifact({
+    path: "/workspace/logs/auto-runner/Settleora/supervisor/run-specs/not-canonical/spec.json",
+    value,
+  }, summary, logsRoot), false);
 });
 
 test("terminal retry projection binds raw continuation repository identity", () => {

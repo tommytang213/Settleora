@@ -2,11 +2,18 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { supervisorModeToRunnerMode } from "./run-correlation.mjs";
-import { validateRunSpecShape } from "../supervisor/run-spec.mjs";
+import {
+  allowedSpecFields,
+  specPathForRunId,
+  validateRunSpecShape,
+} from "../supervisor/run-spec.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const TERMINAL_REASON_CODE = "checkpoint_validation_recovery_failed_closed";
 const TERMINAL_DETAIL = "initial_validation_failure_commit_reconstruction_ambiguous";
+const SUCCESSOR_SYSTEMIC_STOP = "recoverable-work-blocked:historical_candidate_task_workspace_untrusted";
+const SUCCESSOR_RUNNER_CONFIG_PATH = "/workspace/auto-runner/config/settleora.json";
+const SUCCESSOR_RUNNER_CONFIG_SHA256 = "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d";
 
 export function projectAuthenticatedTerminalValidationRetryDerivative({
   logsRoot,
@@ -43,7 +50,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     const allStates = trustedJsonFiles(stateRoot)
       .filter((artifact) => /^run-.+-\d+-issue-\d+\.json$/.test(path.basename(artifact.path)));
     const directlyAssociatedStates = allStates
-      .filter((artifact) => stateMayBelongToTarget(artifact.value, target));
+      .filter((artifact) => stateArtifactMayBelongToTarget(artifact, target));
     const latestDirectState = selectLatestIssueStateTimestamp(
       directlyAssociatedStates.map(({ value }) => value),
     );
@@ -51,9 +58,10 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     const successorRunAnchors = directlyAssociatedStates
       .filter(({ value }) => value.finishedAt === latestDirectState.finishedAt)
       .map((artifact) => artifact.value);
-    const issueStates = allStates.filter(({ value }) =>
-      stateMayBelongToTargetOrSuccessorRun(
-        value,
+    const issueStates = allStates.filter((artifact) =>
+      stateArtifactMayBelongToTarget(artifact, target)
+      || stateMayBelongToTargetOrSuccessorRun(
+        artifact.value,
         target,
         successorRunAnchors,
       ));
@@ -61,7 +69,8 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     if (!latestState.ok) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
     const latestFinishedAt = latestState.finishedAt;
     const terminalStates = issueStates.filter(({ value }) =>
-      value.finishedAt === latestFinishedAt && exactTerminalIteration(value, target));
+      value.finishedAt === latestFinishedAt && exactTerminalIteration(value, target))
+      .filter((artifact) => exactStateArtifactFilenameIdentity(artifact));
     if (terminalStates.length !== 1) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
     const stateArtifact = terminalStates[0];
 
@@ -76,8 +85,9 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
 
     const specRoot = path.join(root, "supervisor", "run-specs");
     const specs = trustedNestedJsonFiles(specRoot, "spec.json")
-      .filter(({ value }) => value?.runId === summaryArtifact.value.supervisorRunId);
-    if (specs.length !== 1 || !exactSuccessorSpec(specs[0].value, summaryArtifact.value)) {
+      .filter(({ value }) => value?.runId === summaryArtifact.value.supervisorRunId)
+      .filter((artifact) => exactSuccessorSpecArtifact(artifact, summaryArtifact.value, root));
+    if (specs.length !== 1) {
       return denied("terminal_projection_successor_spec_missing_or_mismatch");
     }
     const specArtifact = specs[0];
@@ -234,6 +244,29 @@ export function stateMayBelongToTarget(state, target) {
       || projected?.branchName === target?.branch);
 }
 
+function iterationStateFilenameIdentity(artifact) {
+  const match = /^(.+)-(\d+)-issue-(\d+)\.json$/u.exec(path.basename(artifact?.path || ""));
+  if (!match || !match[1].startsWith("run-")) return null;
+  const index = Number(match[2]);
+  const issueNumber = Number(match[3]);
+  if (!Number.isSafeInteger(index) || index < 1 || !Number.isSafeInteger(issueNumber) || issueNumber < 1) return null;
+  return { runId: match[1], index, issueNumber };
+}
+
+export function stateArtifactMayBelongToTarget(artifact, target) {
+  const filename = iterationStateFilenameIdentity(artifact);
+  return filename?.issueNumber === target?.issueNumber
+    || stateMayBelongToTarget(artifact?.value, target);
+}
+
+export function exactStateArtifactFilenameIdentity(artifact) {
+  const filename = iterationStateFilenameIdentity(artifact);
+  return filename !== null
+    && artifact?.value?.runId === filename.runId
+    && artifact?.value?.index === filename.index
+    && artifact?.value?.issue?.number === filename.issueNumber;
+}
+
 export function stateMayBelongToTargetOrSuccessorRun(state, target, directlyAssociatedStates = []) {
   if (stateMayBelongToTarget(state, target)) return true;
   return directlyAssociatedStates.some((associated) =>
@@ -287,7 +320,7 @@ export function exactTerminalIteration(value, target) {
     && value?.pr === null && value?.changedFiles?.length === 0
     && value?.existingPrRecovery === null && value?.bundle === null && value?.autoMerge === null
     && value?.validation === null && value?.review === null && value?.externalReview === null
-    && value?.systemicStop === "recoverable-work-blocked:historical_candidate_task_workspace_untrusted"
+    && value?.systemicStop === SUCCESSOR_SYSTEMIC_STOP
     && budget?.ok === true && budget?.duplicate === true && budget?.charged === false
     && budget?.chargeId === target.chargeId
     && budget?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
@@ -332,14 +365,28 @@ export function exactSuccessorSpec(spec, summary) {
   } catch {
     return false;
   }
-  return spec?.specVersion === 1 && spec?.runId === summary.supervisorRunId
+  return Object.keys(spec).length === allowedSpecFields.size
+    && Object.keys(spec).every((field) => allowedSpecFields.has(field))
+    && spec?.specVersion === 1 && spec?.runId === summary.supervisorRunId
     && spec?.mode === "trusted" && spec?.maxTasks === 1
+    && spec?.maxRuntime === "14d" && spec?.profile === "default"
+    && spec?.runnerConfigPath === SUCCESSOR_RUNNER_CONFIG_PATH
+    && spec?.runnerConfigSha256 === SUCCESSOR_RUNNER_CONFIG_SHA256
     && supervisorModeToRunnerMode(spec.mode) === summary?.mode
     && spec?.initialOriginMainSha === summary?.baseOriginMainSha
     && spec?.requestedBy === "operator" && spec?.sourceBranchName === null
     && spec?.sourceIssueNumber === null && spec?.parentRunnerRunId === null
     && spec?.parentSupervisorRunId === null && spec?.recoveryOnlyTarget === null
     && Date.parse(spec?.createdAt) <= Date.parse(summary?.startedAt);
+}
+
+export function exactSuccessorSpecArtifact(artifact, summary, logsRoot) {
+  try {
+    return realpathSync(artifact?.path) === realpathSync(specPathForRunId(summary?.supervisorRunId, logsRoot))
+      && exactSuccessorSpec(artifact?.value, summary);
+  } catch {
+    return false;
+  }
 }
 
 function trustedDirectory(value) {
