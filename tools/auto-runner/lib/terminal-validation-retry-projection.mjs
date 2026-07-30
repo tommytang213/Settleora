@@ -159,6 +159,11 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
         || !validateSessionLifecycleState(lifecyclePredecessorArtifact.value).ok
         || lifecyclePredecessorArtifact.value?.checkpoint?.digest
           !== lifecycle.mutationAuthority.handoff.checkpointDigest
+        || lifecyclePredecessorArtifact.value?.sessions?.current
+          !== lifecycle.mutationAuthority.handoff.retiredSessionId
+        || lifecyclePredecessorArtifact.value?.sessions?.generation
+          !== lifecycle.sessions.generation
+            - (lifecycle.mutationAuthority.status === "active" ? 1 : 0)
         || !exactLifecycle(
           lifecyclePredecessorArtifact.value,
           { ...target, allowReopenedLifecycle: false },

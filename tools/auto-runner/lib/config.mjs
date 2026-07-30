@@ -648,10 +648,16 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
     terminalValidationRetryDerivativeNoPr: value.terminalValidationRetryDerivativeNoPr === true,
     runnerRunId: String(value.runnerRunId || "").trim(),
     supervisorRunId: String(value.supervisorRunId || "").trim(),
-    originalSupervisorSpecDigest: String(value.originalSupervisorSpecDigest || "").trim(),
-    markerKey: String(value.markerKey || "").trim(),
-    outageFingerprint: String(value.outageFingerprint || "").trim(),
-    attemptNumber: value.attemptNumber,
+    originalSupervisorSpecDigest: value.terminalValidationRetryDerivativeNoPr === true
+      ? null
+      : String(value.originalSupervisorSpecDigest || "").trim(),
+    markerKey: value.terminalValidationRetryDerivativeNoPr === true
+      ? null
+      : String(value.markerKey || "").trim(),
+    outageFingerprint: value.terminalValidationRetryDerivativeNoPr === true
+      ? null
+      : String(value.outageFingerprint || "").trim(),
+    attemptNumber: value.terminalValidationRetryDerivativeNoPr === true ? null : value.attemptNumber,
   };
   if (!/^[A-Za-z0-9._-]{1,80}$/.test(target.taskKey) || target.taskKey.includes("..")) throw new Error("Invalid outage target task key");
   if (!Number.isSafeInteger(target.issueNumber) || target.issueNumber < 1 || target.issueNumber > 9999999) throw new Error("Invalid outage target issue");
@@ -675,7 +681,7 @@ function normalizeOutageRecoveryCliTarget(value = {}) {
     ["marker key", target.markerKey],
     ["fingerprint", target.outageFingerprint],
   ]) {
-    if (target.terminalValidationRetryDerivativeNoPr ? digest !== "" : !/^[a-f0-9]{64}$/.test(digest)) {
+    if (target.terminalValidationRetryDerivativeNoPr ? digest !== null : !/^[a-f0-9]{64}$/.test(digest)) {
       throw new Error(`Invalid outage target ${label}`);
     }
   }

@@ -204,6 +204,10 @@ test("PR B config parser owns targeted recovery CLI without granting outage cont
   assert.equal(terminalDerivative.outageRecoveryTarget.terminalValidationRetryDerivativeNoPr, true);
   assert.equal(terminalDerivative.outageRecoveryTarget.prNumber, null);
   assert.equal(terminalDerivative.outageRecoveryTarget.prHeadSha, null);
+  assert.equal(terminalDerivative.outageRecoveryTarget.originalSupervisorSpecDigest, null);
+  assert.equal(terminalDerivative.outageRecoveryTarget.markerKey, null);
+  assert.equal(terminalDerivative.outageRecoveryTarget.outageFingerprint, null);
+  assert.equal(terminalDerivative.outageRecoveryTarget.attemptNumber, null);
   assert.throws(
     () => loadConfig({
       ...parsed,
