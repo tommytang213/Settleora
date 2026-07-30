@@ -4596,7 +4596,7 @@ async function runReviewFixCycle(config, context) {
     decision,
     promptPath,
     codex,
-    sessionLifecycleState: codex.sessionLifecycle?.state || null,
+    sessionLifecycleState: reviewAfter.sessionLifecycle || codex.sessionLifecycle?.state || null,
     changedFilesAfter,
     forbiddenChangedFilesAfter,
     validationAfter,
