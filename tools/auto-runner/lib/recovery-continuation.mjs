@@ -220,6 +220,9 @@ function projectTargetedTerminalDerivative(config, rawState) {
     changedFilesDigest: identity.changedFilesDigest,
     diffDigest: identity.diffDigest,
     acceptedLogicalTasks: counters?.acceptedLogicalTasks,
+    localSourceChangingRounds: counters?.localSourceChangingRoundsPerEpoch,
+    githubTriggeredFixEpochs: counters?.githubTriggeredFixEpochsPerPr,
+    lifetimeLocalSourceChangingRounds: counters?.lifetimeLocalSourceChangingRounds,
   };
   const budget = loadLogicalTaskBudget(config, target.supervisorRunId || target.runnerRunId);
   const budgetCharges = budget.state?.charges || {};

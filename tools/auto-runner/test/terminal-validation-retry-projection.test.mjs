@@ -6,12 +6,76 @@ import {
   exactRawCheckpointMutationMarkers,
   exactRawCheckpoint,
   exactRawValidationEvidence,
+  exactLifecycle,
   exactTerminalFailureFindings,
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
   stateMayBelongToTarget,
   stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
+
+test("terminal retry projection binds every lifecycle convergence counter", () => {
+  const target = {
+    repository: "owner/repo",
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    runnerRunId: "run-original",
+    supervisorRunId: "supervised-original",
+    claimIdentity: "owner/repo#959",
+    chargeMarkerRef: "/trusted/budget.json",
+    branch: "feature/auto-959-preserved",
+    baseSha: "1".repeat(40),
+    headSha: "2".repeat(40),
+    localSourceChangingRounds: 2,
+    githubTriggeredFixEpochs: 3,
+    lifetimeLocalSourceChangingRounds: 4,
+  };
+  const lifecycle = {
+    repository: target.repository,
+    logicalTask: {
+      issueNumber: target.issueNumber,
+      taskKey: target.taskKey,
+      runId: target.runnerRunId,
+      supervisorRunId: target.supervisorRunId,
+      claimIdentity: target.claimIdentity,
+      chargeMarkerRef: target.chargeMarkerRef,
+    },
+    branch: { name: target.branch, baseSha: target.baseSha, headSha: target.headSha, prNumber: null },
+    controller: {
+      phase: "stopped",
+      nextExactAction: "checkpoint_validation_recovery_failed_closed",
+      localSourceChangingRoundsPerEpoch: target.localSourceChangingRounds,
+      githubTriggeredFixEpochsPerPr: target.githubTriggeredFixEpochs,
+      lifetimeLocalSourceChangingRounds: target.lifetimeLocalSourceChangingRounds,
+    },
+    report: { status: "stopped" },
+    mutationAuthority: { status: "terminal", ownerSessionId: null, handoff: null },
+    interruption: {
+      class: "main_process_exit_without_terminal_report",
+      reasonCode: "interruption_main_process_exit_without_terminal_report",
+    },
+    recovery: {
+      status: "pending",
+      attempts: 1,
+      operationId: "recovery-operation",
+      phaseAfter: "checkpoint_validation_commit",
+      effectsAlreadyPresent: {
+        mutation: false, commit: true, push: false, pr: false, merge: false, comment: false,
+      },
+    },
+  };
+  assert.equal(exactLifecycle(lifecycle, target), true);
+  for (const [key, targetKey] of [
+    ["localSourceChangingRoundsPerEpoch", "localSourceChangingRounds"],
+    ["githubTriggeredFixEpochsPerPr", "githubTriggeredFixEpochs"],
+    ["lifetimeLocalSourceChangingRounds", "lifetimeLocalSourceChangingRounds"],
+  ]) {
+    assert.equal(exactLifecycle({
+      ...lifecycle,
+      controller: { ...lifecycle.controller, [key]: target[targetKey] + 1 },
+    }, target), false, key);
+  }
+});
 
 test("terminal retry projection rejects any later or unknown mutation marker category", () => {
   const exact = {

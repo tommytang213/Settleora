@@ -242,7 +242,7 @@ export function stateMayBelongToTargetOrSuccessorRun(state, target, directlyAsso
       && state.supervisorRunId === associated?.supervisorRunId));
 }
 
-function exactLifecycle(state, target) {
+export function exactLifecycle(state, target) {
   const effects = state?.recovery?.effectsAlreadyPresent;
   return state?.repository === target.repository
     && state?.logicalTask?.issueNumber === target.issueNumber
@@ -255,6 +255,9 @@ function exactLifecycle(state, target) {
     && state?.branch?.headSha === target.headSha && state?.branch?.prNumber === null
     && state?.controller?.phase === "stopped"
     && state?.controller?.nextExactAction === TERMINAL_REASON_CODE
+    && state?.controller?.localSourceChangingRoundsPerEpoch === target.localSourceChangingRounds
+    && state?.controller?.githubTriggeredFixEpochsPerPr === target.githubTriggeredFixEpochs
+    && state?.controller?.lifetimeLocalSourceChangingRounds === target.lifetimeLocalSourceChangingRounds
     && state?.report?.status === "stopped"
     && state?.mutationAuthority?.status === "terminal"
     && state?.mutationAuthority?.ownerSessionId === null
