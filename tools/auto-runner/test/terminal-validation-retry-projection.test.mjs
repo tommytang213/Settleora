@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
+import { specPathForRunId } from "../supervisor/run-spec.mjs";
 import {
   exactRawCheckpointMutationMarkerShape,
   exactRawCheckpointMutationMarkers,
@@ -16,6 +24,7 @@ import {
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
   stateArtifactMayBelongToTarget,
+  stateArtifactMayBelongToTargetOrSuccessorRun,
   stateMayBelongToTarget,
   stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
@@ -335,6 +344,31 @@ test("terminal retry projection treats a target-bound state filename as supersed
   }, target), false);
 });
 
+test("terminal retry projection treats a successor-run filename as superseding evidence", () => {
+  const target = {
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    branch: "feature/auto-959-preserved",
+    runnerRunId: "run-original",
+    supervisorRunId: "supervised-original",
+  };
+  const successor = {
+    runId: "run-2026-07-30T100000Z-deadbeef",
+    issue: { number: 959 },
+    branchName: target.branch,
+  };
+  const malformedDifferentIssue = {
+    path: `/trusted/state/${successor.runId}-2-issue-999.json`,
+    value: { finishedAt: "2026-07-30T10:00:01.000Z" },
+  };
+  assert.equal(stateArtifactMayBelongToTarget(malformedDifferentIssue, target), false);
+  assert.equal(stateArtifactMayBelongToTargetOrSuccessorRun(
+    malformedDifferentIssue,
+    target,
+    [successor],
+  ), true);
+});
+
 test("terminal retry projection binds successor spec base and compatible runner mode", () => {
   const summary = {
     supervisorRunId: "supervised-20260730T093234Z-dcc42a3a61db",
@@ -376,19 +410,40 @@ test("terminal retry projection binds successor spec base and compatible runner 
   assert.equal(exactSuccessorSpec(spec, { ...summary, mode: "dry-run" }), false);
 });
 
-test("terminal retry projection requires the successor spec's canonical storage path", () => {
-  const logsRoot = "/workspace/logs/auto-runner/Settleora";
+test("terminal retry projection requires the successor spec's canonical storage path", (t) => {
+  const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-terminal-spec-"));
+  t.after(() => rmSync(logsRoot, { recursive: true, force: true }));
   const summary = {
     supervisorRunId: "supervised-20260730T093234Z-dcc42a3a61db",
     mode: "run",
     baseOriginMainSha: "e96376b03d1e11dddeec28be237201ce56681753",
     startedAt: "2026-07-30T09:32:43.000Z",
   };
-  const canonicalPath = "/workspace/logs/auto-runner/Settleora/supervisor/run-specs/cab5948f36cade44c6029ef8926ecbf4974ff15a9388c94663e786f43889429e/spec.json";
-  const value = JSON.parse(readFileSync(canonicalPath, "utf8"));
+  const canonicalPath = specPathForRunId(summary.supervisorRunId, logsRoot);
+  const value = {
+    specVersion: 1,
+    runId: summary.supervisorRunId,
+    mode: "trusted",
+    maxTasks: 1,
+    maxRuntime: "14d",
+    profile: "default",
+    runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
+    runnerConfigSha256: "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d",
+    initialOriginMainSha: summary.baseOriginMainSha,
+    requestedBy: "operator",
+    sourceBranchName: null,
+    sourceIssueNumber: null,
+    parentRunnerRunId: null,
+    parentSupervisorRunId: null,
+    outageResubmission: null,
+    recoveryOnlyTarget: null,
+    createdAt: "2026-07-30T09:32:34.000Z",
+  };
+  mkdirSync(path.dirname(canonicalPath), { recursive: true, mode: 0o700 });
+  writeFileSync(canonicalPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   assert.equal(exactSuccessorSpecArtifact({ path: canonicalPath, value }, summary, logsRoot), true);
   assert.equal(exactSuccessorSpecArtifact({
-    path: "/workspace/logs/auto-runner/Settleora/supervisor/run-specs/not-canonical/spec.json",
+    path: path.join(logsRoot, "supervisor", "run-specs", "not-canonical", "spec.json"),
     value,
   }, summary, logsRoot), false);
 });

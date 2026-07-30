@@ -59,9 +59,8 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
       .filter(({ value }) => value.finishedAt === latestDirectState.finishedAt)
       .map((artifact) => artifact.value);
     const issueStates = allStates.filter((artifact) =>
-      stateArtifactMayBelongToTarget(artifact, target)
-      || stateMayBelongToTargetOrSuccessorRun(
-        artifact.value,
+      stateArtifactMayBelongToTargetOrSuccessorRun(
+        artifact,
         target,
         successorRunAnchors,
       ));
@@ -265,6 +264,24 @@ export function exactStateArtifactFilenameIdentity(artifact) {
     && artifact?.value?.runId === filename.runId
     && artifact?.value?.index === filename.index
     && artifact?.value?.issue?.number === filename.issueNumber;
+}
+
+export function stateArtifactMayBelongToTargetOrSuccessorRun(
+  artifact,
+  target,
+  directlyAssociatedStates = [],
+) {
+  if (stateArtifactMayBelongToTarget(artifact, target)) return true;
+  const filename = iterationStateFilenameIdentity(artifact);
+  const successorRunIds = new Set(directlyAssociatedStates
+    .map((state) => state?.runId)
+    .filter((runId) => typeof runId === "string" && runId.length > 0));
+  return successorRunIds.has(filename?.runId)
+    || stateMayBelongToTargetOrSuccessorRun(
+      artifact?.value,
+      target,
+      directlyAssociatedStates,
+    );
 }
 
 export function stateMayBelongToTargetOrSuccessorRun(state, target, directlyAssociatedStates = []) {
