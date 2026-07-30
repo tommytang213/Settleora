@@ -38,6 +38,8 @@ const recoverableLifecyclePhases = new Set([
   "ci_wait",
 ]);
 const terminalIntentOutcome = "validation_failed";
+// One head in the 50-round convergence budget is the matched PR-checkpoint prefix.
+export const maxRecoveredUnmatchedPushSuffix = 49;
 
 export function verifyHistoricalInitialCandidateLineage(config, state, issue, options = {}) {
   const fail = (reasonCode) => ({ ok: false, reasonCode });
@@ -269,15 +271,18 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
         allowAuthenticatedLaterEffects: true,
       })
       : { ok: false };
-    const authenticatedExistingPrEffects = options.allowAuthenticatedExistingPrEffects === true
+    const existingPrReconciliation = options.allowAuthenticatedExistingPrEffects === true
       && existingPrTerminalAuthority.ok
-      && validAuthenticatedExistingPrEffects(
+      ? reconcileAuthenticatedExistingPrEffects(
         state, intents, {
-          git, repository, issueNumber, taskKey, runId, branch, baseSha,
+          git, repository, issueNumber, taskKey, runId, supervisorRunId, branch, baseSha,
           currentMainSha: currentMain, headSha, chargeIdentity: budget.statePath,
+          lifecycleGeneration: lifecycle.sessions.generation,
+          recoveryOperationId: lifecycle.recovery.operationId,
           remoteTaskBranchRead, liveTaskPrRead,
         },
-      );
+      ) : { ok: false, reasonCode: "historical_candidate_existing_pr_effects_not_authorized" };
+    const authenticatedExistingPrEffects = existingPrReconciliation.ok === true;
     const readTerminalComment = options.allowTerminalValidationRetryPreparation === true
       ? () => (options.readIssueCommentDigest || readIssueCommentDigest)(
         config, issueNumber, options.expectedTerminalCommentBodyDigest,
@@ -367,6 +372,9 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
         : "historical_candidate_descendant_main_proven",
       candidateIdentity: { ...identity, changedFiles: expectedPaths },
       currentMainSha: currentMain,
+      reconciledRecovery: authenticatedExistingPrEffects
+        ? existingPrReconciliation.projection
+        : null,
       requiresTaskWorkspaceAdoption: controlPlaneCheckout,
     };
   } catch {
@@ -845,7 +853,8 @@ function noLaterEffects(state) {
       .every((kind) => Object.keys(state.mutationMarkers?.[kind] || {}).length === 0)
     && !continuationExternalEffectPresent(state.ordinaryContinuation?.effects);
 }
-function validAuthenticatedExistingPrEffects(state, intents, authority) {
+export function reconcileAuthenticatedExistingPrEffects(state, intents, authority) {
+  const fail = (reasonCode) => ({ ok: false, reasonCode });
   const continuation = state.ordinaryContinuation;
   const pr = state.pr;
   const priorHeads = new Set((continuation?.sourceFailureHistory || [])
@@ -952,8 +961,12 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const markerHeads = (values, target) => values.every((entry) =>
     entry?.status === "completed" && entry?.target === target
       && orderedPushHeads.includes(entry?.correlation));
-  const pushChainValid = sha.test(continuation?.expectedOriginMainSha || "")
-    && ancestor(authority.git, continuation.expectedOriginMainSha, authority.currentMainSha)
+  const historicalEffectMainSha = continuation?.expectedOriginMainSha;
+  const mainLineageValid = sha.test(historicalEffectMainSha || "")
+    && sha.test(authority.currentMainSha || "")
+    && ancestor(authority.git, authority.baseSha, historicalEffectMainSha)
+    && ancestor(authority.git, historicalEffectMainSha, authority.currentMainSha);
+  const pushChainValid = mainLineageValid
     && [null, authority.headSha].includes(state.branch?.expectedRemoteHeadSha)
     && authority.remoteTaskBranchRead?.complete === true
     && authority.remoteTaskBranchRead?.absent === false
@@ -979,7 +992,15 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && authority.liveTaskPrRead.prs.length === 0
     && prMarkers.length === 0 && prIntents.length === 0
     && (terminalIntents.length === 0 || terminalIntentSetValid);
-  if (pushChainValid && pushOnly) return true;
+  if (pushChainValid && pushOnly) {
+    return {
+      ok: true,
+      projection: recoveryProjection({
+        authority, continuation, effectivePr: null, orderedPushHeads,
+        matchedPrCheckpointHeads: [], historicalEffectMainSha,
+      }),
+    };
+  }
   const livePrMatches = authority.liveTaskPrRead.prs.filter((entry) =>
     entry?.number === effectivePr?.number
     && entry?.url === exactUrl
@@ -988,15 +1009,22 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && entry?.baseRefName === "main"
     && entry?.headRefName === authority.branch
     && entry?.headRefOid === authority.headSha);
-  const prUpdatePending = continuation?.phase === "push"
-    && persistedPrCanLagLive
-    && prIntents.length === orderedPushHeads.length - 1
+  const matchedPrCheckpointHeads = [];
+  for (const head of orderedPushHeads) {
+    if (!prHeads.has(head)) break;
+    matchedPrCheckpointHeads.push(head);
+  }
+  const unmatchedPushHeads = orderedPushHeads.slice(matchedPrCheckpointHeads.length);
+  const checkpointPrefixValid = prIntents.length === matchedPrCheckpointHeads.length
     && prCreateIntents.length === prIntents.length
     && prCreateIntents.every(exactPr)
-    && orderedPushHeads.slice(0, -1).every((head) => prHeads.has(head))
-    && prHeads.size === orderedPushHeads.length - 1
-    && prMarkers.length === orderedPushHeads.length - 1;
-  return pushChainValid
+    && prHeads.size === matchedPrCheckpointHeads.length
+    && matchedPrCheckpointHeads.every((head) => prHeads.has(head))
+    && prMarkers.length <= matchedPrCheckpointHeads.length
+    && unmatchedPushHeads.length <= maxRecoveredUnmatchedPushSuffix
+    && (unmatchedPushHeads.length === 0 || continuation?.phase === "push")
+    && (unmatchedPushHeads.length === 0 || persistedPrCanLagLive || pr?.number == null);
+  const valid = pushChainValid
     && authority.liveTaskPrRead.prs.length === 1 && livePrMatches.length === 1
     && Number.isSafeInteger(effectivePr?.number) && effectivePr.number > 0
     && effectivePr.url === exactUrl
@@ -1011,13 +1039,51 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && prMarkers.length <= orderedPushHeads.length
     && new Set(prMarkers.map((entry) => entry.correlation)).size === prMarkers.length
     && (terminalIntents.length === 0 || terminalIntentSetValid)
-    && (prUpdatePending || (
-      prIntents.length === orderedPushHeads.length
-      && prCreateIntents.length === orderedPushHeads.length
-      && prCreateIntents.every(exactPr)
-      && prHeads.size === orderedPushHeads.length
-      && orderedPushHeads.every((head) => prHeads.has(head)
-    )));
+    && checkpointPrefixValid;
+  if (!valid) return fail("historical_candidate_existing_pr_reconciliation_mismatch");
+  return {
+    ok: true,
+    projection: recoveryProjection({
+      authority, continuation, effectivePr, orderedPushHeads,
+      matchedPrCheckpointHeads, historicalEffectMainSha,
+    }),
+  };
+}
+function recoveryProjection({
+  authority, continuation, effectivePr, orderedPushHeads,
+  matchedPrCheckpointHeads, historicalEffectMainSha,
+}) {
+  const unmatchedFinalizedPushHeads = orderedPushHeads.slice(matchedPrCheckpointHeads.length);
+  const evidence = {
+    version: 1,
+    repository: authority.repository,
+    issueNumber: authority.issueNumber,
+    taskKey: authority.taskKey,
+    runId: authority.runId,
+    supervisorRunId: authority.supervisorRunId,
+    claimIdentity: `${authority.repository}#${authority.issueNumber}`,
+    chargeIdentity: authority.chargeIdentity,
+    lifecycleGeneration: authority.lifecycleGeneration,
+    recoveryOperationId: authority.recoveryOperationId,
+    branchName: authority.branch,
+    baseSha: authority.baseSha,
+    effectivePr,
+    activeHeadSha: authority.headSha,
+    orderedPushHeads,
+    matchedPrCheckpointHeads,
+    unmatchedFinalizedPushHeads,
+    unmatchedPushBound: maxRecoveredUnmatchedPushSuffix,
+    historicalEffectMainSha,
+    currentMainSha: authority.currentMainSha,
+    currentMainAncestryProven: true,
+    continuationPhase: continuation.phase,
+    recoveryProvenance: "authenticated_historical_push_pr_reconciliation",
+    liveReadDigest: hash(canonical({
+      remoteTaskBranchRead: authority.remoteTaskBranchRead,
+      liveTaskPrRead: authority.liveTaskPrRead,
+    })),
+  };
+  return Object.freeze({ ...evidence, evidenceDigest: hash(canonical(evidence)) });
 }
 function continuationExternalEffectPresent(effects) {
   return effects && typeof effects === "object"

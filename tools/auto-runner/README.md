@@ -1763,3 +1763,22 @@ or umbrella posture, manual/activation gate posture, major acceptance, or an
 explicit scheduled reconciliation. Wait, retry, heartbeat, check polling,
 source cycles, session rotation, and control transitions never request a
 ledger-only PR.
+
+# Historical push/PR recovery reconciliation
+
+Preserved existing-PR admission uses one shared authenticated projection. A
+contiguous matched PR-checkpoint prefix may be followed by zero through 49
+finalized push-only heads, bounded by the existing 50-round convergence limit.
+Each head must have one exact task-scoped push intent and descend from its
+predecessor; the unique live branch and open non-draft PR must end at the last
+head. PR intents in the unmatched suffix, gaps, duplicates, reordered or forked
+heads, multiple PRs, and live-head disagreement are rejected.
+
+The projection atomically replaces a stale persisted PR head before startup
+interruption planning and carries its own live-read/evidence digest,
+task/run/supervisor/claim/charge/lifecycle identity, continuation phase, and
+recovery provenance. Historical effect-time main remains immutable in ordinary
+continuation targets. Fresh current main is stored separately only after
+proving original-base to effect-time-main to current-main ancestry. Downstream
+recovery consumes both values and never substitutes current main for the
+historical effect identity.

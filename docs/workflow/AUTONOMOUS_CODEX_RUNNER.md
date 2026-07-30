@@ -1763,10 +1763,12 @@ or filter behavior, SSH command overrides, alternate objects, replace refs,
 and local/ext transports disabled. Unsafe include, URL rewrite, proxy,
 transport, credential, hook, filter, diff/textconv, object, or worktree
 configuration therefore cannot execute before rejection.
-The proven current-main SHA is persisted in ordinary continuation authority,
-included in every phase target, and propagated as the expected PR/merge base;
-a restart, stale checkpoint, or later main movement cannot silently fall back
-to the historical candidate base. Recovery validation runs on the clean
+Historical effect-time main and current main are separate authorities. The
+effect-time SHA recorded by finalized PR intents remains in ordinary
+continuation phase targets and is never rewritten. A fresh fixed-reader
+observation records current `origin/main` separately and proves
+`original base -> effect-time main -> current main` ancestry before recovery.
+Recovery validation runs on the clean
 prospective merge tree of that exact main and candidate, records its tree and
 two-parent synthetic commit, and re-proves those bytes before merge evaluation;
 Gemini and Codex reviews remain bound to the exact candidate head. A restart
@@ -1779,10 +1781,22 @@ descendant. Every intervening commit must be a one-parent contiguous step with
 one exact finalized commit intent binding its parent, tree, subject digest, and
 in-lane staged paths; a rewritten, merged, extra, or unauthenticated step fails
 closed.
-Version-1 checkpoints written before current-main authority was persisted may
-use the legacy phase-target format only while that field is absent; after the
-historical proof, the runner rewrites all validated local targets once to the
-new current-main-bound format.
+Version-1 checkpoints written before effect-time-main authority was persisted
+may use the legacy phase-target format only while that field is absent.
+
+Existing-PR historical recovery creates one authenticated reconciliation
+projection before interruption planning. It binds the contiguous finalized
+push chain, its matched PR-checkpoint prefix, and a suffix of at most 49
+finalized pushes (the remaining capacity inside the existing 50-round
+convergence budget). Every suffix entry needs one exact push intent and Git
+parentage; no PR intent may appear in the suffix, and the unique live branch
+and open non-draft PR must end at the last pushed head. The projection includes
+repository/task/run/supervisor/claim/charge/lifecycle identity, effective PR,
+historical and current main, live-read and evidence digests, continuation
+phase, and recovery provenance. It is atomically persisted and read back before
+the interruption planner. Missing, duplicate, reordered, forked, over-bound,
+tampered, multi-PR, live-head-mismatched, or ancestry-conflicting evidence
+fails closed without a GitHub mutation.
 Once push or PR effects exist, historical recovery admits them only when the
 ordinary continuation, state PR record, remote-tracking branch, finalized
 canonical push and PR intent, and their single completed mutation markers bind

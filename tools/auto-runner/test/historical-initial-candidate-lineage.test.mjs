@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -1144,6 +1144,100 @@ test("historical existing-PR recovery adopts an exact pushed head before its PR 
   assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
 });
 
+test("historical existing-PR recovery authenticates a bounded unmatched finalized-push suffix", () => {
+  for (const suffixLength of [0, 1, 3, 49]) {
+    const fixture = makeFixture(2);
+    advanceWithSourceFix(fixture);
+    authenticateExistingPrFixture(fixture);
+    const persistedPr = structuredClone(fixture.state.pr);
+    for (let index = 0; index < suffixLength; index += 1) {
+      advanceAuthenticatedExistingPrHead(fixture);
+      fixture.intents.splice(
+        fixture.intents.findLastIndex((entry) => entry.effectType === "pr_create"),
+        1,
+      );
+      delete fixture.state.mutationMarkers.pr_create.update;
+    }
+    const liveHead = fixture.state.pr.headSha;
+    fixture.state.pr = persistedPr;
+    fixture.state.ordinaryContinuation.phase = "push";
+    fixture.state.ordinaryContinuation.effects = {};
+    for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+      index < ordinaryContinuationPhases.indexOf("push"); index += 1) {
+      const phase = ordinaryContinuationPhases[index];
+      fixture.state.ordinaryContinuation.effects[phase] = {
+        targetDigest: ordinaryContinuationPhaseTarget(
+          fixture.state.ordinaryContinuation, phase,
+        ),
+        completedAt: "2026-07-30T00:00:00.000Z",
+      };
+    }
+    fixture.lifecycle.controller = {
+      phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+    };
+    fixture.lifecycle.recovery.phaseAfter = "pr_create_recover";
+    fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+    fixture.options.expectedLifecyclePhase = "pr_create_recover";
+    fixture.options.allowAuthenticatedExistingPrEffects = true;
+    fixture.options.readLiveTaskPrs = () => ({
+      complete: true,
+      prs: [{
+        number: persistedPr.number, url: persistedPr.url, state: "OPEN", isDraft: false,
+        baseRefName: "main", headRefName: branch, headRefOid: liveHead,
+      }],
+    });
+    const first = verify(fixture);
+    const second = verify(fixture);
+    assert.equal(first.ok, true, `suffix ${suffixLength}: ${first.reasonCode}`);
+    assert.deepEqual(second.reconciledRecovery, first.reconciledRecovery);
+    assert.equal(first.reconciledRecovery.unmatchedFinalizedPushHeads.length, suffixLength);
+    assert.equal(first.reconciledRecovery.activeHeadSha, liveHead);
+    assert.equal(first.reconciledRecovery.effectivePr.headSha, liveHead);
+    assert.equal(first.reconciledRecovery.historicalEffectMainSha, fixture.mainSha);
+    assert.equal(first.reconciledRecovery.currentMainSha, fixture.mainSha);
+  }
+
+  const overBound = makeFixture(2);
+  advanceWithSourceFix(overBound);
+  authenticateExistingPrFixture(overBound);
+  const persistedPr = structuredClone(overBound.state.pr);
+  for (let index = 0; index < 50; index += 1) {
+    advanceAuthenticatedExistingPrHead(overBound);
+    overBound.intents.splice(
+      overBound.intents.findLastIndex((entry) => entry.effectType === "pr_create"),
+      1,
+    );
+    delete overBound.state.mutationMarkers.pr_create.update;
+  }
+  const liveHead = overBound.state.pr.headSha;
+  overBound.state.pr = persistedPr;
+  overBound.state.ordinaryContinuation.phase = "push";
+  overBound.state.ordinaryContinuation.effects = {};
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+    index < ordinaryContinuationPhases.indexOf("push"); index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    overBound.state.ordinaryContinuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(overBound.state.ordinaryContinuation, phase),
+      completedAt: "2026-07-30T00:00:00.000Z",
+    };
+  }
+  overBound.lifecycle.controller = {
+    phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+  };
+  overBound.lifecycle.recovery.phaseAfter = "pr_create_recover";
+  overBound.state.sessionLifecycle = structuredClone(overBound.lifecycle);
+  overBound.options.expectedLifecyclePhase = "pr_create_recover";
+  overBound.options.allowAuthenticatedExistingPrEffects = true;
+  overBound.options.readLiveTaskPrs = () => ({
+    complete: true,
+    prs: [{
+      number: persistedPr.number, url: persistedPr.url, state: "OPEN", isDraft: false,
+      baseRefName: "main", headRefName: branch, headRefOid: liveHead,
+    }],
+  });
+  assert.equal(verify(overBound).reasonCode, "historical_candidate_later_effect_present");
+});
+
 test("historical PR effects remain bound to their recorded main ancestor", () => {
   const fixture = makeFixture(2);
   advanceWithSourceFix(fixture);
@@ -1397,7 +1491,8 @@ function advanceAuthenticatedExistingPrHead(fixture) {
   const previous = structuredClone(continuation.identity);
   const previousHead = previous.headSha;
   const subject = `Auto-runner issue #${issueNumber}: source-fix fedcba9876543210`;
-  writeFileSync(path.join(fixture.repoRoot, changedFiles[0]), "candidate-0\nsource-fix\nsecond-fix\n");
+  const changedPath = path.join(fixture.repoRoot, changedFiles[0]);
+  writeFileSync(changedPath, `${readFileSync(changedPath, "utf8")}next-fix-${continuation.sourceFailureHistory.length}\n`);
   run(fixture.repoRoot, ["add", changedFiles[0]]);
   run(fixture.repoRoot, ["commit", "-m", subject]);
   const headSha = run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim();

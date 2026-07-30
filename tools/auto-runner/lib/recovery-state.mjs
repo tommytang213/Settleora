@@ -693,6 +693,32 @@ function validateRecoveryStateShape(state) {
   if (!state.branch || typeof state.branch !== "object") return invalid("invalid branch");
   if (!state.branch.name) return invalid("missing branch name");
   if (!isShaOrNull(state.branch.baseSha) || !isShaOrNull(state.branch.currentHeadSha)) return invalid("invalid branch sha");
+  if (state.recoveryReconciliation != null) {
+    const projection = state.recoveryReconciliation;
+    const { evidenceDigest, ...evidence } = projection;
+    if (projection.version !== 1
+      || typeof projection.repository !== "string"
+      || projection.issueNumber !== state.issue.number
+      || projection.taskKey !== state.taskKey
+      || projection.runId !== state.run?.runId
+      || projection.supervisorRunId !== state.run?.supervisorRunId
+      || projection.branchName !== state.branch.name
+      || projection.baseSha !== state.branch.baseSha
+      || projection.activeHeadSha !== state.branch.currentHeadSha
+      || !isShaOrNull(projection.historicalEffectMainSha)
+      || !isShaOrNull(projection.currentMainSha)
+      || projection.currentMainAncestryProven !== true
+      || !Array.isArray(projection.orderedPushHeads)
+      || !Array.isArray(projection.matchedPrCheckpointHeads)
+      || !Array.isArray(projection.unmatchedFinalizedPushHeads)
+      || !Number.isInteger(projection.unmatchedPushBound)
+      || projection.unmatchedFinalizedPushHeads.length > projection.unmatchedPushBound
+      || !isDigest(projection.liveReadDigest)
+      || !isDigest(evidenceDigest)
+      || evidenceDigest !== createHash("sha256").update(canonicalRecoveryEvidence(evidence)).digest("hex")) {
+      return invalid("invalid recovery reconciliation");
+    }
+  }
   if (!recoveryPhases.includes(state.phase)) return invalid("invalid phase");
   if (!Array.isArray(state.attempts) || state.attempts.length > 100) return invalid("invalid attempts");
   for (const attempt of state.attempts) {
@@ -738,6 +764,16 @@ function validateRecoveryStateShape(state) {
     }
   }
   return { ok: true };
+}
+
+function canonicalRecoveryEvidence(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalRecoveryEvidence).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(
+      (key) => `${JSON.stringify(key)}:${canonicalRecoveryEvidence(value[key])}`,
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function normalizeOutageResubmissionBinding(value) {
