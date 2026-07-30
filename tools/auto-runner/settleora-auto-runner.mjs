@@ -3003,7 +3003,21 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const outageTargetHeadIsAuthenticatedAncestor = config.outageRecoveryOnly === true
         && continuation.sourceFailureHistory?.some((entry) =>
           entry?.candidate?.headSha === config.outageRecoveryTarget?.prHeadSha);
-      const outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor
+      const terminalDerivativeCreatedPrIsAuthenticated = config.outageRecoveryOnly === true
+        && config.outageRecoveryTarget?.terminalValidationRetryDerivativeNoPr === true
+        && state.pr?.number === prNumber
+        && state.pr?.headSha === candidate.headSha
+        && state.pr?.headRefName === state.branch.name
+        && state.pr?.baseRefName === "main"
+        && prEvidence.number === prNumber;
+      const outageRecoveryTarget = terminalDerivativeCreatedPrIsAuthenticated
+        ? {
+            ...config.outageRecoveryTarget,
+            terminalValidationRetryDerivativeNoPr: false,
+            prNumber,
+            prHeadSha: candidate.headSha,
+          }
+        : outageTargetHeadIsAuthenticatedAncestor
         ? {
             ...config.outageRecoveryTarget,
             currentHeadSha: candidate.headSha,
