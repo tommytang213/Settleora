@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  readRemoteTaskBranch,
   validateHistoricalRecoveryGitAuthority,
   verifyHistoricalInitialCandidateLineage,
 } from "../lib/historical-initial-candidate-lineage.mjs";
@@ -128,13 +129,13 @@ test("historical initial candidate fail-closes on durable identity and effect co
     ["prepared commit intent", (f) => { f.intents[0].status = "prepared"; }, "historical_candidate_commit_intent_mismatch"],
     ["failed closed commit intent", (f) => { f.intents[0].status = "failed_closed"; }, "historical_candidate_commit_intent_mismatch"],
     ["wrong commit parent intent", (f) => { f.intents[0].effect.expectedParents = [f.headSha]; }, "historical_candidate_commit_intent_mismatch"],
-    ["external intent", (f) => { f.intents.push({ ...structuredClone(f.intents[0]), effectType: "push" }); }, "historical_candidate_external_intent_present"],
+    ["external intent", (f) => { f.intents.push({ ...structuredClone(f.intents[0]), effectType: "push" }); }, "historical_candidate_terminal_intent_identity_mismatch"],
     ["canonical comment intent", (f) => {
       f.intents.push({ ...structuredClone(f.intents[0]), effectType: "comment" });
-    }, "historical_candidate_external_intent_present"],
+    }, "historical_candidate_terminal_intent_identity_mismatch"],
     ["hygiene component intent", (f) => {
       f.intents.push({ ...structuredClone(f.intents[0]), effectType: "hygiene_component" });
-    }, "historical_candidate_external_intent_present"],
+    }, "historical_candidate_terminal_intent_identity_mismatch"],
   ];
   for (const [name, mutate, reason] of cases) {
     const fixture = makeFixture(2);
@@ -224,6 +225,31 @@ test("historical initial candidate accepts canonical startup-approved remotes an
   assert.equal(verify(worktreeConfig).reasonCode, "historical_candidate_git_environment_untrusted");
 });
 
+test("authoritative remote read detects an unfetched task branch in a real bare remote", () => {
+  const fixture = makeFixture(1);
+  const bare = path.join(path.dirname(fixture.repoRoot), "remote.git");
+  run(path.dirname(fixture.repoRoot), ["init", "--bare", bare]);
+  run(fixture.repoRoot, ["remote", "set-url", "origin", bare]);
+  run(fixture.repoRoot, ["push", "origin", `${fixture.headSha}:refs/heads/${branch}`]);
+  run(fixture.repoRoot, ["update-ref", "-d", `refs/remotes/origin/${branch}`]);
+  const git = (args) => spawnSync("/usr/bin/git", args, {
+    cwd: fixture.repoRoot,
+    encoding: "utf8",
+    env: {
+      PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0",
+      GIT_NO_LAZY_FETCH: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null",
+    },
+  });
+  assert.equal(run(fixture.repoRoot,
+    ["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`], true).status, 1);
+  assert.deepEqual(readRemoteTaskBranch(git, branch), {
+    complete: true, absent: false, headSha: fixture.headSha,
+  });
+  run(fixture.repoRoot, ["push", "origin", "--delete", branch]);
+  assert.deepEqual(readRemoteTaskBranch(git, branch), { complete: true, absent: true });
+});
+
 test("historical initial candidate fail-closes on Git topology and history hazards", () => {
   const diverged = makeFixture(0);
   const unrelated = spawnSync("/usr/bin/git", ["commit-tree", diverged.baseTree], {
@@ -264,6 +290,298 @@ test("historical initial candidate proof is restart-idempotent", () => {
   assert.deepEqual(second, first);
   assert.equal(Object.keys(fixture.state.mutationMarkers.push || {}).length, 0);
   assert.equal(fixture.state.pr.number, null);
+});
+
+test("historical initial candidate admits only the exact pre-PR terminal intent lineage", () => {
+  const fixture = makeFixture(3);
+  authenticatePrePrTerminalFixture(fixture);
+  run(fixture.repoRoot, ["checkout", "main"]);
+  const before = JSON.stringify({
+    state: fixture.state,
+    lifecycle: fixture.lifecycle,
+    intents: fixture.intents,
+    labels: fixture.issue.labels,
+    main: run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim(),
+  });
+  const first = verify(fixture);
+  const second = verify(fixture);
+  assert.equal(first.ok, true, first.reasonCode);
+  assert.deepEqual(second, first);
+  assert.equal(first.requiresTaskWorkspaceAdoption, true);
+  assert.equal(JSON.stringify({
+    state: fixture.state,
+    lifecycle: fixture.lifecycle,
+    intents: fixture.intents,
+    labels: fixture.issue.labels,
+    main: run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim(),
+  }), before);
+
+  const normalized = makeFixture(3);
+  authenticatePrePrTerminalFixture(normalized);
+  normalized.state.phase = "checkpoint_validation_commit";
+  normalized.state.nextSafeAction = "run_validation_and_commit";
+  normalized.state.stopReason = null;
+  run(normalized.repoRoot, ["checkout", "main"]);
+  const normalizedBefore = JSON.stringify(normalized);
+  const normalizedFirst = verify(normalized);
+  const normalizedSecond = verify(normalized);
+  assert.equal(normalizedFirst.ok, true, normalizedFirst.reasonCode);
+  assert.deepEqual(normalizedSecond, normalizedFirst);
+  assert.equal(normalizedFirst.requiresTaskWorkspaceAdoption, true);
+  assert.equal(JSON.stringify(normalized), normalizedBefore);
+
+  const adopted = makeFixture(3);
+  authenticatePrePrTerminalFixture(adopted);
+  const workspaceIdentity = "9".repeat(64);
+  const ownershipKey = `${branch}:${workspaceIdentity}`;
+  adopted.state.mutationMarkers.worktree_ownership_created = {
+    [ownershipKey]: {
+      status: "completed",
+      target: workspaceIdentity,
+      correlation: branch,
+      completedAt: "2026-07-29T00:00:00.000Z",
+    },
+  };
+  adopted.options.expectedWorktreeOwnership = {
+    key: ownershipKey,
+    target: workspaceIdentity,
+    correlation: branch,
+  };
+  const adoptedResult = verify(adopted);
+  assert.equal(adoptedResult.ok, true, adoptedResult.reasonCode);
+  adopted.state.mutationMarkers.worktree_ownership_created[ownershipKey].target = "8".repeat(64);
+  const contradictedOwnership = verify(adopted);
+  assert.equal(contradictedOwnership.ok, false);
+  assert.equal(
+    contradictedOwnership.reasonCode,
+    "historical_candidate_terminal_later_effect_present",
+  );
+
+  const laterValidated = makeFixture(1);
+  authenticatePrePrTerminalFixture(laterValidated);
+  const originalTerminalCandidate =
+    laterValidated.state.ordinaryContinuation.sourceFailureHistory?.[0]?.candidate
+    || laterValidated.state.ordinaryContinuation.sourceFailureBatch.candidate;
+  laterValidated.state.claimAuthority = {
+    ok: true,
+    mode: "preserved_recovery_claim",
+    authority: {
+      taskKey,
+      runId,
+      chargeId,
+      priorOutcome: "validation_failed",
+      branchName: branch,
+      baseSha: laterValidated.baseSha,
+      candidateIdentity: {
+        headSha: originalTerminalCandidate.headSha,
+      },
+    },
+  };
+  laterValidated.state.phase = "external_review";
+  laterValidated.state.firstIncompleteAction = "run_external_review";
+  laterValidated.state.nextSafeAction = "run_external_review";
+  laterValidated.state.stopReason = null;
+  laterValidated.state.evidence.localValidation.status = "passed";
+  laterValidated.intents.push({
+    ...structuredClone(laterValidated.intents[0]),
+    identity: {
+      ...structuredClone(laterValidated.intents[0].identity),
+      headSha: originalTerminalCandidate.headSha,
+      candidateIdentity: originalTerminalCandidate.headSha,
+    },
+    effect: {
+      ...structuredClone(laterValidated.intents[0].effect),
+      expectedParents: [originalTerminalCandidate.headSha],
+      treeSha: laterValidated.state.ordinaryContinuation.identity.treeSha,
+    },
+  });
+  const laterValidatedResult = verify(laterValidated);
+  assert.equal(laterValidatedResult.ok, true, laterValidatedResult.reasonCode);
+
+  laterValidated.state.phase = "aggregate_validation";
+  laterValidated.state.firstIncompleteAction = "run_aggregate_validation";
+  laterValidated.state.nextSafeAction = "run_aggregate_validation";
+  const aggregateValidationResult = verify(laterValidated);
+  assert.equal(aggregateValidationResult.ok, true, aggregateValidationResult.reasonCode);
+
+  const continuationPhaseBeforePrePush = laterValidated.state.ordinaryContinuation.phase;
+  const continuationEffectsBeforePrePush =
+    structuredClone(laterValidated.state.ordinaryContinuation.effects);
+  const statePhaseBeforePrePush = laterValidated.state.phase;
+  const expectedLifecyclePhaseBeforePrePush = laterValidated.options.expectedLifecyclePhase;
+  laterValidated.state.phase = "checkpoint_validation_commit";
+  laterValidated.options.expectedLifecyclePhase = "checkpoint_validation_commit";
+  laterValidated.state.ordinaryContinuation.phase = "push";
+  laterValidated.state.ordinaryContinuation.effects = {};
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+    index < ordinaryContinuationPhases.indexOf("push"); index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    laterValidated.state.ordinaryContinuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(
+        laterValidated.state.ordinaryContinuation, phase,
+      ),
+      completedAt: "2026-07-30T00:00:00.000Z",
+    };
+  }
+  const prePushResult = verify(laterValidated);
+  assert.equal(prePushResult.ok, true, prePushResult.reasonCode);
+  laterValidated.state.ordinaryContinuation.effects.push = {
+    targetDigest: ordinaryContinuationPhaseTarget(
+      laterValidated.state.ordinaryContinuation, "push",
+    ),
+    completedAt: "2026-07-30T00:00:01.000Z",
+  };
+  assert.equal(
+    verify(laterValidated).reasonCode,
+    "historical_candidate_continuation_mismatch",
+  );
+  delete laterValidated.state.ordinaryContinuation.effects.push;
+  laterValidated.state.ordinaryContinuation.phase = continuationPhaseBeforePrePush;
+  laterValidated.state.ordinaryContinuation.effects = continuationEffectsBeforePrePush;
+  laterValidated.state.phase = statePhaseBeforePrePush;
+  laterValidated.options.expectedLifecyclePhase = expectedLifecyclePhaseBeforePrePush;
+
+  const handedOffAgain = laterValidated;
+  const preparedComment = handedOffAgain.intents[3];
+  const priorSessionId = preparedComment.sessionId;
+  const priorGeneration = preparedComment.authorityGeneration;
+  const requestId = hash(`${operationId}:${priorSessionId}:validation-retry`);
+  const nextSessionId =
+    `recovery-handoff:${hash(JSON.stringify([runId, operationId, requestId]))}`;
+  handedOffAgain.lifecycle.sessions.retired.push(priorSessionId);
+  handedOffAgain.lifecycle.sessions.current = nextSessionId;
+  handedOffAgain.lifecycle.sessions.generation = priorGeneration + 1;
+  handedOffAgain.lifecycle.mutationAuthority.generation = priorGeneration + 1;
+  handedOffAgain.state.sessionLifecycle = structuredClone(handedOffAgain.lifecycle);
+  preparedComment.sessionId = nextSessionId;
+  preparedComment.authorityGeneration = priorGeneration + 1;
+  preparedComment.identity.sessionId = nextSessionId;
+  preparedComment.identity.authorityGeneration = priorGeneration + 1;
+  preparedComment.recoveryProvenance = {
+    sessionId: priorSessionId,
+    authorityGeneration: priorGeneration,
+    fingerprint: hash(canonical({
+      effectType: preparedComment.effectType,
+      identity: {
+        ...preparedComment.identity,
+        sessionId: priorSessionId,
+        authorityGeneration: priorGeneration,
+      },
+      effect: preparedComment.effect,
+    })),
+  };
+  const handedOffAgainResult = verify(handedOffAgain);
+  assert.equal(handedOffAgainResult.ok, true, handedOffAgainResult.reasonCode);
+  handedOffAgain.lifecycle.sessions.retired =
+    handedOffAgain.lifecycle.sessions.retired.filter((sessionId) =>
+      sessionId !== `${runId}:recovery:${operationId}`);
+  handedOffAgain.state.sessionLifecycle = structuredClone(handedOffAgain.lifecycle);
+  assert.equal(
+    verify(handedOffAgain).reasonCode,
+    "historical_candidate_terminal_comment_mismatch",
+  );
+
+  const cases = [
+    ["missing hygiene", (f) => f.intents.splice(1, 1), "historical_candidate_terminal_intent_set_mismatch"],
+    ["duplicate hygiene", (f) => f.intents.push({ ...structuredClone(f.intents[1]), intentId: "duplicate" }), "historical_candidate_terminal_intent_set_mismatch"],
+    ["wrong hygiene status", (f) => { f.intents[1].status = "prepared"; }, "historical_candidate_terminal_hygiene_mismatch"],
+    ["wrong hygiene payload", (f) => { f.intents[1].effect.addLabels = ["auto-ready"]; }, "historical_candidate_terminal_hygiene_mismatch"],
+    ["contradictory live labels", (f) => f.issue.labels.push("auto-running"), "historical_candidate_terminal_live_labels_mismatch"],
+    ["missing comment", (f) => f.intents.pop(), "historical_candidate_terminal_intent_set_mismatch"],
+    ["wrong comment status", (f) => { f.intents[3].status = "finalized"; }, "historical_candidate_terminal_comment_mismatch"],
+    ["wrong comment digest", (f) => { f.intents[3].effect.bodyDigest = "0".repeat(64); }, "historical_candidate_terminal_comment_mismatch"],
+    ["wrong comment outcome", (f) => { f.intents[3].effect.outcome = "approved_pr_opened"; }, "historical_candidate_terminal_comment_mismatch"],
+    ["foreign session", (f) => { f.intents[3].sessionId = "foreign"; }, "historical_candidate_terminal_intent_identity_mismatch"],
+    ["generation drift", (f) => { f.intents[3].authorityGeneration = 99; }, "historical_candidate_terminal_intent_identity_mismatch"],
+    ["older current-comment generation", (f) => {
+      f.intents[3].authorityGeneration -= 1;
+      f.intents[3].identity.authorityGeneration -= 1;
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["foreign recovery provenance", (f) => {
+      f.intents[3].recoveryProvenance.sessionId = "foreign";
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["wrong recovery provenance fingerprint", (f) => {
+      f.intents[3].recoveryProvenance.fingerprint = "9".repeat(64);
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["non-adjacent recovery generation", (f) => {
+      f.intents[3].recoveryProvenance.authorityGeneration -= 1;
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["different adjacent retired recovery session", (f) => {
+      const foreign = `${runId}:recovery:foreign-operation`;
+      f.lifecycle.sessions.retired.push(foreign);
+      f.intents[3].recoveryProvenance.sessionId = foreign;
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["wrong successor handoff diagnostic", (f) => {
+      f.intents[3].diagnostics = [];
+    }, "historical_candidate_terminal_comment_mismatch"],
+    ["hygiene generation differs from commit authority", (f) => {
+      f.intents[1].authorityGeneration += 1;
+      f.intents[1].identity.authorityGeneration += 1;
+    }, "historical_candidate_terminal_hygiene_mismatch"],
+    ["malformed intent fingerprint", (f) => {
+      f.intents[1].fingerprint = "not-a-digest";
+    }, "historical_candidate_terminal_intent_duplicate"],
+    ["malformed intent id", (f) => {
+      f.intents[1].intentId = "bad\nid";
+    }, "historical_candidate_terminal_intent_duplicate"],
+    ["noncanonical retry handoff", (f) => {
+      f.state.phase = "checkpoint_validation_commit";
+      f.state.nextSafeAction = "run_validation_and_commit";
+      f.state.stopReason = null;
+      f.state.firstIncompleteAction = "implement_source_changes";
+    }, "historical_candidate_terminal_outcome_mismatch"],
+    ["push marker", (f) => {
+      f.state.mutationMarkers.push = { x: { status: "completed" } };
+    }, "historical_candidate_later_effect_present"],
+    ["empty unknown marker", (f) => {
+      f.state.mutationMarkers.unknown = {};
+    }, "historical_candidate_terminal_later_effect_present"],
+    ["malformed unknown marker", (f) => {
+      f.state.mutationMarkers.unknown = null;
+    }, "historical_candidate_terminal_later_effect_present"],
+    ["extra push intent", (f) => {
+      f.intents.push({ ...structuredClone(f.intents[3]), effectType: "push", intentId: "push" });
+    }, "historical_candidate_terminal_intent_set_mismatch"],
+    ["remote task branch without tracking ref", (f) => {
+      f.options.readRemoteTaskBranch = () => ({
+        complete: true, absent: false, headSha: f.headSha,
+      });
+    }, "historical_candidate_terminal_remote_branch_present"],
+    ["remote branch read failure", (f) => {
+      f.options.readRemoteTaskBranch = () => ({ complete: false, absent: false });
+    }, "historical_candidate_terminal_remote_branch_read_unavailable"],
+    ["duplicate terminal comments already live", (f) => {
+      f.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 2 });
+    }, "historical_candidate_terminal_comment_present"],
+    ["terminal comment read failure", (f) => {
+      f.options.readIssueCommentDigest = () => ({ complete: false, matchingCount: 0 });
+    }, "historical_candidate_terminal_comment_read_unavailable"],
+  ];
+  for (const [name, mutate, reason] of cases) {
+    const candidate = makeFixture(2);
+    authenticatePrePrTerminalFixture(candidate);
+    mutate(candidate);
+    const result = verify(candidate);
+    assert.equal(result.ok, false, name);
+    assert.equal(result.reasonCode, reason, name);
+  }
+});
+
+test("historical terminal authority adopts one exact already-posted prepared comment", () => {
+  const fixture = makeFixture(2);
+  authenticatePrePrTerminalFixture(fixture);
+  fixture.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 1 });
+  const persistedComment = verify(fixture);
+  assert.equal(persistedComment.ok, true, persistedComment.reasonCode);
+  fixture.lifecycle.recovery.effectsAlreadyPresent.comment = true;
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  const recordedComment = verify(fixture);
+  assert.equal(recordedComment.ok, true, recordedComment.reasonCode);
+  fixture.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 0 });
+  assert.equal(
+    verify(fixture).reasonCode,
+    "historical_candidate_terminal_outcome_mismatch",
+  );
 });
 
 test("historical proof admits only an exact finalized-intent prepared source-fix checkout", () => {
@@ -396,6 +714,32 @@ test("historical initial candidate accepts only bounded downstream lifecycle pos
     const result = verify(fixture);
     assert.equal(result.ok, true, `${phase}: ${result.reasonCode}`);
   }
+  const genericHandoff = makeFixture(2);
+  const genericPredecessor = genericHandoff.lifecycle.sessions.retired.at(-1);
+  const genericRequestId = hash(`${operationId}:${genericPredecessor}`);
+  const genericSuccessor =
+    `recovery-handoff:${hash(JSON.stringify([runId, operationId, genericRequestId]))}`;
+  genericHandoff.lifecycle.sessions.current = genericSuccessor;
+  genericHandoff.lifecycle.mutationAuthority.ownerSessionId = genericSuccessor;
+  genericHandoff.lifecycle.mutationAuthority.handoff = {
+    ...genericHandoff.lifecycle.mutationAuthority.handoff,
+    requestId: genericRequestId,
+    reason: "provider_stream_disconnect",
+    successorSessionId: genericSuccessor,
+  };
+  genericHandoff.lifecycle.controller = {
+    phase: "external_review",
+    nextExactAction: "resume_external_review",
+  };
+  genericHandoff.lifecycle.recovery.phaseAfter = "external_review";
+  genericHandoff.state.sessionLifecycle = structuredClone(genericHandoff.lifecycle);
+  genericHandoff.options.expectedLifecyclePhase = "external_review";
+  assert.equal(verify(genericHandoff).ok, true);
+  genericHandoff.lifecycle.mutationAuthority.handoff.requestId = "f".repeat(64);
+  assert.equal(
+    verify(genericHandoff).reasonCode,
+    "historical_candidate_lifecycle_mismatch",
+  );
   const unsupported = makeFixture(2);
   unsupported.lifecycle.controller = { phase: "merge", nextExactAction: "merge" };
   unsupported.lifecycle.recovery.phaseAfter = "merge";
@@ -504,6 +848,92 @@ test("historical descendant admits only authenticated existing-PR effects", () =
   assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
 });
 
+test("historical existing-PR recovery composes only the exact authenticated terminal intent trio", () => {
+  const fixture = makeFixture(2);
+  authenticatePrePrTerminalFixture(fixture);
+  advanceWithSourceFix(fixture);
+  const continuation = fixture.state.ordinaryContinuation;
+  fixture.state.branch.currentHeadSha = continuation.identity.headSha;
+  fixture.state.claimAuthority = {
+    mode: "preserved_recovery_claim",
+    ok: true,
+    authority: {
+      taskKey, runId, chargeId,
+      priorOutcome: "validation_failed",
+      branchName: branch,
+      baseSha: fixture.baseSha,
+      candidateIdentity: { headSha: fixture.headSha },
+    },
+  };
+  fixture.state.phase = "review_fix";
+  fixture.state.stopReason = null;
+  fixture.state.evidence.localValidation.status = "passed";
+  fixture.lifecycle.controller = { phase: "review_fix", nextExactAction: "review_fix" };
+  fixture.lifecycle.report.status = "in_progress";
+  fixture.lifecycle.mutationAuthority = {
+    generation: fixture.lifecycle.sessions.generation,
+    status: "active",
+    ownerSessionId: fixture.lifecycle.sessions.current,
+    handoff: {
+      retiredSessionId: fixture.lifecycle.sessions.retired.at(-1),
+      reason: "validation_retry_derivative_reopened",
+      requestId: hash(`${fixture.lifecycle.recovery.operationId}:${
+        fixture.lifecycle.sessions.retired.at(-1)}:validation-retry`),
+      successorSessionId: fixture.lifecycle.sessions.current,
+    },
+  };
+  fixture.lifecycle.recovery.phaseAfter = "review_fix";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "review_fix";
+  fixture.options.readIssueCommentDigest = () => ({ complete: true, matchingCount: 0 });
+  authenticateExistingPrFixture(fixture);
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  const exact = verify(fixture);
+  assert.equal(exact.ok, true, exact.reasonCode);
+  for (const [lifecyclePhase, continuationPhase] of [
+    ["pr_create_recover", "pr_create_or_update"],
+    ["ci_wait", "github_convergence"],
+  ]) {
+    continuation.phase = continuationPhase;
+    continuation.effects = {};
+    const current = ordinaryContinuationPhases.indexOf(continuationPhase);
+    for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+      index < current; index += 1) {
+      const phase = ordinaryContinuationPhases[index];
+      continuation.effects[phase] = {
+        targetDigest: ordinaryContinuationPhaseTarget(continuation, phase),
+        completedAt: "2026-07-30T00:00:00.000Z",
+      };
+    }
+    fixture.state.phase = lifecyclePhase;
+    fixture.lifecycle.controller = { phase: lifecyclePhase, nextExactAction: lifecyclePhase };
+    fixture.lifecycle.recovery.phaseAfter = lifecyclePhase;
+    fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+    fixture.options.expectedLifecyclePhase = lifecyclePhase;
+    const resumed = verify(fixture);
+    assert.equal(resumed.ok, true, `${lifecyclePhase}: ${resumed.reasonCode}`);
+  }
+  continuation.phase = "pr_create_or_update";
+  delete continuation.effects.pr_create_or_update;
+  fixture.state.phase = "ci_wait";
+  fixture.lifecycle.controller = { phase: "ci_wait", nextExactAction: "ci_wait" };
+  fixture.lifecycle.recovery.phaseAfter = "ci_wait";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "ci_wait";
+  const prFinalizedBeforeContinuation = verify(fixture);
+  assert.equal(
+    prFinalizedBeforeContinuation.ok, true, prFinalizedBeforeContinuation.reasonCode,
+  );
+
+  const addIntent = fixture.intents.find((entry) =>
+    entry.effectType === "hygiene_component" && entry.effect?.operation === "add");
+  addIntent.effect.addLabels = ["unrelated-label"];
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_terminal_hygiene_mismatch");
+  addIntent.effect.addLabels = ["auto-failed"];
+  fixture.issue.labels = fixture.issue.labels.filter((label) => label !== "auto-failed");
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_terminal_live_labels_mismatch");
+});
+
 test("historical existing-PR authentication binds every durable authority to the exact PR and head", () => {
   const mutations = [
     ["wrong PR number", (f) => { f.state.pr.number = 1008; }],
@@ -511,8 +941,6 @@ test("historical existing-PR authentication binds every durable authority to the
     ["wrong PR base", (f) => { f.state.pr.baseRefName = "release"; }],
     ["wrong PR branch", (f) => { f.state.pr.headRefName = `${branch}-foreign`; }],
     ["prior PR head", (f) => { f.state.pr.headSha = f.headSha; }],
-    ["wrong remote head", (f) => { run(f.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, f.headSha]); }],
-    ["missing push marker", (f) => { delete f.state.mutationMarkers.push; }],
     ["wrong push marker head", (f) => { f.state.mutationMarkers.push.push.correlation = f.headSha; }],
     ["wrong PR marker URL", (f) => { f.state.mutationMarkers.pr_create.pr.target = `https://github.com/${repository}/pull/1008`; }],
     ["duplicate-like push intent", (f) => { f.intents.push(structuredClone(f.intents.find((entry) => entry.effectType === "push"))); }],
@@ -521,6 +949,28 @@ test("historical existing-PR authentication binds every durable authority to the
     ["wrong PR intent base", (f) => { f.intents.find((entry) => entry.effectType === "pr_create").effect.targetBaseSha = f.baseSha; }],
     ["wrong PR intent issue", (f) => { f.intents.find((entry) => entry.effectType === "pr_create").effect.issueNumber = issueNumber + 1; }],
     ["wrong continuation main", (f) => { f.state.ordinaryContinuation.expectedOriginMainSha = f.baseSha; }],
+    ["missing live branch", (f) => {
+      f.options.readRemoteTaskBranch = () => ({ complete: true, absent: true });
+    }],
+    ["moved live branch", (f) => {
+      f.options.readRemoteTaskBranch = () => ({
+        complete: true, absent: false, headSha: f.headSha,
+      });
+    }],
+    ["closed live PR", (f) => {
+      const read = f.options.readLiveTaskPrs;
+      f.options.readLiveTaskPrs = () => ({
+        ...read(),
+        prs: read().prs.map((entry) => ({ ...entry, state: "CLOSED" })),
+      });
+    }],
+    ["retargeted live PR", (f) => {
+      const read = f.options.readLiveTaskPrs;
+      f.options.readLiveTaskPrs = () => ({
+        ...read(),
+        prs: read().prs.map((entry) => ({ ...entry, baseRefName: "release" })),
+      });
+    }],
   ];
   for (const [name, mutate] of mutations) {
     const fixture = makeFixture(2);
@@ -530,6 +980,28 @@ test("historical existing-PR authentication binds every durable authority to the
     mutate(fixture);
     assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present", name);
   }
+
+  const crashBeforeRecoveryCheckpoint = makeFixture(2);
+  advanceWithSourceFix(crashBeforeRecoveryCheckpoint);
+  authenticateExistingPrFixture(crashBeforeRecoveryCheckpoint);
+  crashBeforeRecoveryCheckpoint.options.allowAuthenticatedExistingPrEffects = true;
+  delete crashBeforeRecoveryCheckpoint.state.mutationMarkers.push;
+  delete crashBeforeRecoveryCheckpoint.state.mutationMarkers.pr_create;
+  crashBeforeRecoveryCheckpoint.state.phase = "checkpoint_validation_commit";
+  crashBeforeRecoveryCheckpoint.options.expectedLifecyclePhase = "checkpoint_validation_commit";
+  crashBeforeRecoveryCheckpoint.state.ordinaryContinuation.phase = "pr_create_or_update";
+  crashBeforeRecoveryCheckpoint.state.ordinaryContinuation.effects = {};
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+    index < ordinaryContinuationPhases.indexOf("pr_create_or_update"); index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    crashBeforeRecoveryCheckpoint.state.ordinaryContinuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(
+        crashBeforeRecoveryCheckpoint.state.ordinaryContinuation, phase,
+      ),
+      completedAt: "2026-07-30T00:00:00.000Z",
+    };
+  }
+  assert.equal(verify(crashBeforeRecoveryCheckpoint).ok, true);
 });
 
 test("historical recovery authenticates the exact push-only PR-create checkpoint", () => {
@@ -562,9 +1034,29 @@ test("historical recovery authenticates the exact push-only PR-create checkpoint
   fixture.options.expectedLifecyclePhase = "pr_create_recover";
   const pushOnlyResult = verify(fixture);
   assert.equal(pushOnlyResult.ok, true, pushOnlyResult.reasonCode);
+  assert.equal(pushOnlyResult.reconciledRecovery.effectivePr, null);
+
+  continuation.phase = "push";
+  delete continuation.effects.push;
+  fixture.lifecycle.controller = { phase: "push", nextExactAction: "push" };
+  fixture.lifecycle.recovery.phaseAfter = "push";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "push";
+  const finalizedBeforeCheckpoint = verify(fixture);
+  assert.equal(finalizedBeforeCheckpoint.ok, true, finalizedBeforeCheckpoint.reasonCode);
+  fixture.lifecycle.controller = {
+    phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+  };
+  fixture.lifecycle.recovery.phaseAfter = "pr_create_recover";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "pr_create_recover";
+  const lifecycleAdvancedBeforeContinuation = verify(fixture);
+  assert.equal(
+    lifecycleAdvancedBeforeContinuation.ok, true, lifecycleAdvancedBeforeContinuation.reasonCode,
+  );
 
   fixture.state.branch.expectedRemoteHeadSha = null;
-  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+  assert.equal(verify(fixture).ok, true);
   fixture.state.branch.expectedRemoteHeadSha = continuation.identity.headSha;
   fixture.intents.push(structuredClone(fixture.intents.find((entry) => entry.effectType === "push")));
   assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
@@ -595,18 +1087,174 @@ test("historical existing-PR authentication accepts only a contiguous bounded he
     ["mixed update branch",
       () => { prUpdate.identity.branchName = `${branch}-foreign`; },
       () => { prUpdate.identity.branchName = branch; }],
-    ["missing update marker",
-      () => { delete fixture.state.mutationMarkers.pr_create.update; },
-      () => {
-        fixture.state.mutationMarkers.pr_create.update = {
-          status: "completed", target: fixture.state.pr.url, correlation: exactFinal,
-        };
-      }],
   ]) {
     mutate();
     assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present", name);
     restore();
   }
+});
+
+test("historical existing-PR recovery adopts an exact pushed head before its PR checkpoint", () => {
+  const fixture = makeFixture(2);
+  advanceWithSourceFix(fixture);
+  authenticateExistingPrFixture(fixture);
+  const priorPr = structuredClone(fixture.state.pr);
+  advanceAuthenticatedExistingPrHead(fixture);
+  const liveHead = fixture.state.pr.headSha;
+  fixture.state.pr = priorPr;
+  fixture.intents.splice(
+    fixture.intents.findLastIndex((entry) => entry.effectType === "pr_create"),
+    1,
+  );
+  delete fixture.state.mutationMarkers.pr_create.update;
+  fixture.state.ordinaryContinuation.phase = "push";
+  fixture.state.ordinaryContinuation.effects = {};
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+    index < ordinaryContinuationPhases.indexOf("push"); index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    fixture.state.ordinaryContinuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(
+        fixture.state.ordinaryContinuation, phase,
+      ),
+      completedAt: "2026-07-30T00:00:00.000Z",
+    };
+  }
+  fixture.lifecycle.controller = {
+    phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+  };
+  fixture.lifecycle.recovery.phaseAfter = "pr_create_recover";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.expectedLifecyclePhase = "pr_create_recover";
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  fixture.options.readLiveTaskPrs = () => ({
+    complete: true,
+    prs: [{
+      number: priorPr.number, url: priorPr.url, state: "OPEN", isDraft: false,
+      baseRefName: "main", headRefName: branch, headRefOid: liveHead,
+    }],
+  });
+  const exact = verify(fixture);
+  assert.equal(exact.ok, true, exact.reasonCode);
+  fixture.options.readLiveTaskPrs = () => ({
+    complete: true,
+    prs: [{
+      number: priorPr.number + 1, url: priorPr.url, state: "OPEN", isDraft: false,
+      baseRefName: "main", headRefName: branch, headRefOid: liveHead,
+    }],
+  });
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
+});
+
+test("historical existing-PR recovery authenticates a bounded unmatched finalized-push suffix", () => {
+  for (const suffixLength of [0, 1, 3, 49]) {
+    const fixture = makeFixture(2);
+    advanceWithSourceFix(fixture);
+    authenticateExistingPrFixture(fixture);
+    const persistedPr = structuredClone(fixture.state.pr);
+    for (let index = 0; index < suffixLength; index += 1) {
+      advanceAuthenticatedExistingPrHead(fixture);
+      fixture.intents.splice(
+        fixture.intents.findLastIndex((entry) => entry.effectType === "pr_create"),
+        1,
+      );
+      delete fixture.state.mutationMarkers.pr_create.update;
+    }
+    const liveHead = fixture.state.pr.headSha;
+    fixture.state.pr = persistedPr;
+    fixture.state.ordinaryContinuation.phase = "push";
+    fixture.state.ordinaryContinuation.effects = {};
+    for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+      index < ordinaryContinuationPhases.indexOf("push"); index += 1) {
+      const phase = ordinaryContinuationPhases[index];
+      fixture.state.ordinaryContinuation.effects[phase] = {
+        targetDigest: ordinaryContinuationPhaseTarget(
+          fixture.state.ordinaryContinuation, phase,
+        ),
+        completedAt: "2026-07-30T00:00:00.000Z",
+      };
+    }
+    fixture.lifecycle.controller = {
+      phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+    };
+    fixture.lifecycle.recovery.phaseAfter = "pr_create_recover";
+    fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+    fixture.options.expectedLifecyclePhase = "pr_create_recover";
+    fixture.options.allowAuthenticatedExistingPrEffects = true;
+    fixture.options.readLiveTaskPrs = () => ({
+      complete: true,
+      prs: [{
+        number: persistedPr.number, url: persistedPr.url, state: "OPEN", isDraft: false,
+        baseRefName: "main", headRefName: branch, headRefOid: liveHead,
+      }],
+    });
+    const first = verify(fixture);
+    const second = verify(fixture);
+    assert.equal(first.ok, true, `suffix ${suffixLength}: ${first.reasonCode}`);
+    assert.deepEqual(second.reconciledRecovery, first.reconciledRecovery);
+    assert.equal(first.reconciledRecovery.unmatchedFinalizedPushHeads.length, suffixLength);
+    assert.equal(first.reconciledRecovery.activeHeadSha, liveHead);
+    assert.equal(first.reconciledRecovery.effectivePr.headSha, liveHead);
+    assert.equal(first.reconciledRecovery.historicalEffectMainSha, fixture.mainSha);
+    assert.equal(first.reconciledRecovery.currentMainSha, fixture.mainSha);
+  }
+
+  const overBound = makeFixture(2);
+  advanceWithSourceFix(overBound);
+  authenticateExistingPrFixture(overBound);
+  const persistedPr = structuredClone(overBound.state.pr);
+  for (let index = 0; index < 50; index += 1) {
+    advanceAuthenticatedExistingPrHead(overBound);
+    overBound.intents.splice(
+      overBound.intents.findLastIndex((entry) => entry.effectType === "pr_create"),
+      1,
+    );
+    delete overBound.state.mutationMarkers.pr_create.update;
+  }
+  const liveHead = overBound.state.pr.headSha;
+  overBound.state.pr = persistedPr;
+  overBound.state.ordinaryContinuation.phase = "push";
+  overBound.state.ordinaryContinuation.effects = {};
+  for (let index = ordinaryContinuationPhases.indexOf("local_validation");
+    index < ordinaryContinuationPhases.indexOf("push"); index += 1) {
+    const phase = ordinaryContinuationPhases[index];
+    overBound.state.ordinaryContinuation.effects[phase] = {
+      targetDigest: ordinaryContinuationPhaseTarget(overBound.state.ordinaryContinuation, phase),
+      completedAt: "2026-07-30T00:00:00.000Z",
+    };
+  }
+  overBound.lifecycle.controller = {
+    phase: "pr_create_recover", nextExactAction: "pr_create_recover",
+  };
+  overBound.lifecycle.recovery.phaseAfter = "pr_create_recover";
+  overBound.state.sessionLifecycle = structuredClone(overBound.lifecycle);
+  overBound.options.expectedLifecyclePhase = "pr_create_recover";
+  overBound.options.allowAuthenticatedExistingPrEffects = true;
+  overBound.options.readLiveTaskPrs = () => ({
+    complete: true,
+    prs: [{
+      number: persistedPr.number, url: persistedPr.url, state: "OPEN", isDraft: false,
+      baseRefName: "main", headRefName: branch, headRefOid: liveHead,
+    }],
+  });
+  assert.equal(verify(overBound).reasonCode, "historical_candidate_later_effect_present");
+});
+
+test("historical PR effects remain bound to their recorded main ancestor", () => {
+  const fixture = makeFixture(2);
+  advanceWithSourceFix(fixture);
+  authenticateExistingPrFixture(fixture);
+  fixture.options.allowAuthenticatedExistingPrEffects = true;
+  run(fixture.repoRoot, ["checkout", "main"]);
+  writeFileSync(path.join(fixture.repoRoot, "later-main"), "later\n");
+  run(fixture.repoRoot, ["add", "later-main"]);
+  run(fixture.repoRoot, ["commit", "-m", "later main"]);
+  const laterMain = run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
+  run(fixture.repoRoot, ["update-ref", "refs/remotes/origin/main", laterMain]);
+  run(fixture.repoRoot, ["checkout", branch]);
+  const exact = verify(fixture);
+  assert.equal(exact.ok, true, exact.reasonCode);
+  fixture.state.ordinaryContinuation.expectedOriginMainSha = fixture.baseSha;
+  assert.equal(verify(fixture).reasonCode, "historical_candidate_later_effect_present");
 });
 
 test("historical initial candidate fail-closes an unauthenticated local source-fix descendant", () => {
@@ -631,8 +1279,99 @@ test("historical initial candidate fail-closes an unauthenticated local source-f
 
 function verify(fixture) {
   return verifyHistoricalInitialCandidateLineage(
-    fixture.config, fixture.state, { number: issueNumber }, fixture.options,
+    fixture.config, fixture.state, fixture.issue || { number: issueNumber }, fixture.options,
   );
+}
+
+function authenticatePrePrTerminalFixture(fixture) {
+  const chargeIdentity = fixture.options.loadBudget().statePath;
+  const commentDigest = "d".repeat(64);
+  fixture.intents[0].sessionId ||= "terminal-hygiene-session";
+  fixture.intents[0].authorityGeneration ??= 3;
+  const terminalSessionId = fixture.intents[0].sessionId;
+  const terminalGeneration = fixture.intents[0].authorityGeneration;
+  fixture.issue = {
+    number: issueNumber,
+    labels: ["area:ocr", "area:mobile-ui", "type:bug", "scope:day1", "auto-ready", "auto-failed"],
+  };
+  fixture.state.phase = "stopped";
+  fixture.state.firstIncompleteAction = "run_validation_and_commit";
+  fixture.state.nextSafeAction = "stop_fail_closed";
+  fixture.state.stopReason = {
+    reasonCode: "checkpoint_validation_recovery_failed_closed",
+    reason: "initial_validation_failure_commit_reconstruction_ambiguous",
+  };
+  fixture.state.evidence = { localValidation: { status: "failed" } };
+  fixture.lifecycle.repository = repository;
+  fixture.lifecycle.logicalTask = {
+    ...fixture.lifecycle.logicalTask,
+    issueNumber, taskKey, runId, supervisorRunId,
+  };
+  fixture.lifecycle.branch.prNumber = null;
+  const recoverySessionId = `${runId}:recovery:${operationId}`;
+  const requestId = hash(`${operationId}:${recoverySessionId}:validation-retry`);
+  const successorSessionId = `recovery-handoff:${hash(JSON.stringify([runId, operationId, requestId]))}`;
+  fixture.lifecycle.sessions.current = successorSessionId;
+  fixture.lifecycle.sessions.retired = [terminalSessionId, recoverySessionId];
+  fixture.lifecycle.mutationAuthority = {
+    generation: fixture.lifecycle.sessions.generation,
+    status: "terminal",
+    ownerSessionId: null,
+  };
+  fixture.lifecycle.controller = {
+    phase: "stopped",
+    nextExactAction: "checkpoint_validation_recovery_failed_closed",
+  };
+  fixture.lifecycle.report.status = "stopped";
+  fixture.state.sessionLifecycle = structuredClone(fixture.lifecycle);
+  fixture.options.allowTerminalValidationRetryPreparation = true;
+  fixture.options.expectedTerminalLifecyclePhase = "checkpoint_validation_commit";
+  fixture.options.expectedTerminalOutcome = "validation_failed";
+  fixture.options.expectedTerminalCommentBodyDigest = commentDigest;
+  const identity = (sessionId, authorityGeneration) => ({
+    repository, sourceTaskKey: taskKey, runId,
+    logicalTaskIdentity: `${repository}#${issueNumber}`,
+    claimIdentity: `${repository}#${issueNumber}`, chargeIdentity,
+    sessionId, authorityGeneration, issueNumber, branchName: branch,
+    baseSha: fixture.baseSha, headSha: fixture.headSha, candidateIdentity: fixture.headSha,
+  });
+  const common = (sessionId, authorityGeneration) => ({
+    repository, sourceTaskKey: taskKey, runId,
+    logicalTaskIdentity: `${repository}#${issueNumber}`,
+    claimIdentity: `${repository}#${issueNumber}`, chargeIdentity,
+    sessionId, authorityGeneration,
+  });
+  fixture.intents.push({
+    ...common(terminalSessionId, terminalGeneration),
+    effectType: "hygiene_component", intentId: "11111111-1111-4111-8111-111111111111", fingerprint: "1".repeat(64),
+    status: "finalized", identity: identity(terminalSessionId, terminalGeneration),
+    effect: {
+      addLabels: ["auto-failed"], issueNumber, operation: "add",
+      outcome: "validation_failed", removeLabels: [],
+    },
+  }, {
+    ...common(terminalSessionId, terminalGeneration),
+    effectType: "hygiene_component", intentId: "22222222-2222-4222-8222-222222222222", fingerprint: "2".repeat(64),
+    status: "finalized", identity: identity(terminalSessionId, terminalGeneration),
+    effect: {
+      addLabels: [], issueNumber, operation: "remove",
+      outcome: "validation_failed", removeLabels: ["auto-running", "auto-claimed"],
+    },
+  }, {
+    ...common(successorSessionId, 6),
+    effectType: "comment", intentId: "33333333-3333-4333-8333-333333333333", fingerprint: "3".repeat(64),
+    status: "prepared", identity: identity(successorSessionId, 6),
+    effect: { bodyDigest: commentDigest, issueNumber, outcome: "validation_failed" },
+    recoveryProvenance: {
+      sessionId: recoverySessionId, authorityGeneration: 5,
+      fingerprint: hash(canonical({
+        effectType: "comment",
+        identity: identity(recoverySessionId, 5),
+        effect: { bodyDigest: commentDigest, issueNumber, outcome: "validation_failed" },
+      })),
+    },
+    diagnostics: ["validated_successor_authority_handoff"],
+  });
 }
 
 function advanceWithSourceFix(fixture, addedPath = null) {
@@ -696,6 +1435,21 @@ function authenticateExistingPrFixture(fixture) {
   fixture.state.mutationMarkers.pr_create = {
     pr: { status: "completed", target: exactUrl, correlation: exactHead },
   };
+  fixture.options.readRemoteTaskBranch = () => ({
+    complete: true, absent: false, headSha: fixture.state.ordinaryContinuation.identity.headSha,
+  });
+  fixture.options.readLiveTaskPrs = () => ({
+    complete: true,
+    prs: fixture.state.pr.number == null ? [] : [{
+      number: fixture.state.pr.number,
+      url: fixture.state.pr.url,
+      state: fixture.state.pr.state,
+      isDraft: false,
+      baseRefName: fixture.state.pr.baseRefName,
+      headRefName: fixture.state.pr.headRefName,
+      headRefOid: fixture.state.pr.headSha,
+    }],
+  });
   run(fixture.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, exactHead]);
   fixture.intents.push({
     repository, sourceTaskKey: taskKey, runId, effectType: "push", status: "finalized",
@@ -738,7 +1492,8 @@ function advanceAuthenticatedExistingPrHead(fixture) {
   const previous = structuredClone(continuation.identity);
   const previousHead = previous.headSha;
   const subject = `Auto-runner issue #${issueNumber}: source-fix fedcba9876543210`;
-  writeFileSync(path.join(fixture.repoRoot, changedFiles[0]), "candidate-0\nsource-fix\nsecond-fix\n");
+  const changedPath = path.join(fixture.repoRoot, changedFiles[0]);
+  writeFileSync(changedPath, `${readFileSync(changedPath, "utf8")}next-fix-${continuation.sourceFailureHistory.length}\n`);
   run(fixture.repoRoot, ["add", changedFiles[0]]);
   run(fixture.repoRoot, ["commit", "-m", subject]);
   const headSha = run(fixture.repoRoot, ["rev-parse", "HEAD"]).stdout.trim();
@@ -877,15 +1632,23 @@ function makeFixture(advances, candidateSuffix = "") {
       sourceFailureBatch: { candidate: structuredClone(candidate) },
     },
   };
+  const recoveryPredecessor = `${runId}:recovery:${operationId}`;
+  const recoveryRequestId = hash(
+    `${operationId}:${recoveryPredecessor}:validation-retry`,
+  );
+  const recoverySuccessor =
+    `recovery-handoff:${hash(JSON.stringify([runId, operationId, recoveryRequestId]))}`;
   const lifecycle = {
     logicalTask: { claimIdentity: `${repository}#${issueNumber}`, supervisorRunId, chargeMarkerRef: budgetPath },
     branch: { name: branch, baseSha, headSha },
-    sessions: { generation: 6, current: "successor-session" },
+    sessions: { generation: 6, current: recoverySuccessor, retired: [recoveryPredecessor] },
     mutationAuthority: {
-      generation: 6, status: "active", ownerSessionId: "successor-session",
+      generation: 6, status: "active", ownerSessionId: recoverySuccessor,
       handoff: {
+        requestId: recoveryRequestId,
+        retiredSessionId: recoveryPredecessor,
         reason: "validation_retry_derivative_reopened",
-        successorSessionId: "successor-session",
+        successorSessionId: recoverySuccessor,
       },
     },
     controller: {
@@ -893,7 +1656,7 @@ function makeFixture(advances, candidateSuffix = "") {
     },
     checkpoint: { status: "ready", digest: "a".repeat(64) },
     recovery: {
-      phaseAfter: "checkpoint_validation_commit",
+      status: "pending", phaseAfter: "checkpoint_validation_commit",
       operationId, effectsAlreadyPresent: {
         commit: true, push: false, pr: false, merge: false, comment: false,
       },
@@ -930,13 +1693,15 @@ function makeFixture(advances, candidateSuffix = "") {
       findIntents: (_config, predicate) => intents.filter(predicate),
       validateProjectNamespace: () => true,
       validateCommitLineage: () => ({ ok: true }),
+      readRemoteTaskBranch: () => ({ complete: true, absent: true }),
+      readIssueCommentDigest: () => ({ complete: true, matchingCount: 0 }),
     },
   };
 }
 
-function run(cwd, args) {
+function run(cwd, args, allowFailure = false) {
   const result = spawnSync("/usr/bin/git", args, { cwd, encoding: "utf8" });
-  assert.equal(result.status, 0, `${args.join(" ")}\n${result.stderr}`);
+  if (!allowFailure) assert.equal(result.status, 0, `${args.join(" ")}\n${result.stderr}`);
   return result;
 }
 function overrideGit(fixture, overrides) {
@@ -951,3 +1716,12 @@ function overrideGit(fixture, overrides) {
 }
 function hash(value) { return createHash("sha256").update(String(value)).digest("hex"); }
 function hashJson(value) { return hash(JSON.stringify(value)); }
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(
+      (key) => `${JSON.stringify(key)}:${canonical(value[key])}`,
+    ).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}

@@ -143,6 +143,7 @@ test("historical task workspace is materialized without moving canonical main", 
       headSha: candidateSha,
       taskKey: "fixture-task",
       effectContext,
+      requireExisting: true,
       ownershipMarkers: {
         [`feature/preserved:${ownershipIdentity}`]: {
           target: ownershipIdentity,
@@ -152,6 +153,27 @@ test("historical task workspace is materialized without moving canonical main", 
     });
     assert.equal(repeated.taskRoot, adopted.taskRoot);
     assert.equal(repeated.created, false);
+    writeFileSync(path.join(adopted.taskRoot, "repair.txt"), "repair\n");
+    const repairAdd = runGit(["add", "repair.txt"], { cwd: adopted.taskRoot });
+    assert.equal(repairAdd.status, 0, repairAdd.stderr);
+    const repairCommit = runGit(["commit", "-m", "prepared repair"], { cwd: adopted.taskRoot });
+    assert.equal(repairCommit.status, 0, repairCommit.stderr);
+    const preparedRecovery = adoptHistoricalTaskWorkspace(config, {
+      branchName: "feature/preserved",
+      headSha: candidateSha,
+      taskKey: "fixture-task",
+      effectContext,
+      requireExisting: true,
+      allowLiveBranchHead: true,
+      ownershipMarkers: {
+        [`feature/preserved:${ownershipIdentity}`]: {
+          target: ownershipIdentity,
+          correlation: "feature/preserved",
+        },
+      },
+    });
+    assert.equal(preparedRecovery.taskRoot, adopted.taskRoot);
+    assert.equal(preparedRecovery.created, false);
     assert.equal(restoreControlPlaneRepositoryContext(config), repoRoot);
     assert.equal(config.repoRoot, repoRoot);
     assert.equal(process.cwd(), repoRoot);

@@ -101,6 +101,33 @@ admitted control-plane repository context after successful cleanup. Unowned
 or conflicting worktrees, ref drift, unsafe worktree-scoped config, or any
 later external effect remain fail-closed.
 
+Historical admission has one narrow pre-PR terminal-intent authority. It may
+classify original validation-failure bookkeeping as already-recorded lineage
+only when the authenticated stopped lifecycle, recovery state, accepted
+charge, candidate identity, and original summary agree; the remote task branch
+and PR are absent; the live issue has `auto-failed` and lacks
+`auto-running`/`auto-claimed`; and the complete external-intent set is exactly
+one finalized `auto-failed` add, one finalized transient-label removal, and one
+prepared validation-failure issue comment. The comment digest is read from the
+unique authenticated prepared intent, which preserves the original bounded
+body digest without retaining raw failure text that summary sanitization may
+change.
+Both hygiene intents must use the exact finalized candidate-commit
+session/generation. The comment must use the exact current terminal generation,
+with the immediately preceding retired session as its provenance; the original
+recovery session must remain in retired history across later exact handoffs.
+An authoritative bounded read must also prove that at most one live issue
+comment has the canonical body digest before the prepared intent is admitted.
+The intent's recorded validated-successor handoff diagnostic, immediate
+predecessor identity, adjacent generation, and request-bound successor must all
+agree with the lifecycle recovery operation; the fresh live read, not the older
+handoff diagnostic, proves exact absence-or-one adoption at admission time.
+Admission only reads and classifies this evidence. It never consumes an
+intent, changes a label, posts a comment, creates a branch, or writes recovery
+state. Any extra, duplicate, non-exact, unresolved, later, or unreadable
+effect remains fail-closed. Existing-PR effects continue to require the
+separate existing-PR authority.
+
 ## Post-implementation continuation authorities
 
 The ordinary issue path and startup recovery share an idempotent continuation spanning exact candidate reconciliation, validation, independent and local/structured review, convergence, push, PR recovery, GitHub convergence, exact-head merge, and post-merge hygiene. Durable exact-target effects are adopted rather than replayed, a source change invalidates review and downstream effects, and the accepted logical-task charge remains the root task charge across execution/session continuations.
@@ -1736,10 +1763,12 @@ or filter behavior, SSH command overrides, alternate objects, replace refs,
 and local/ext transports disabled. Unsafe include, URL rewrite, proxy,
 transport, credential, hook, filter, diff/textconv, object, or worktree
 configuration therefore cannot execute before rejection.
-The proven current-main SHA is persisted in ordinary continuation authority,
-included in every phase target, and propagated as the expected PR/merge base;
-a restart, stale checkpoint, or later main movement cannot silently fall back
-to the historical candidate base. Recovery validation runs on the clean
+Historical effect-time main and current main are separate authorities. The
+effect-time SHA recorded by finalized PR intents remains in ordinary
+continuation phase targets and is never rewritten. A fresh fixed-reader
+observation records current `origin/main` separately and proves
+`original base -> effect-time main -> current main` ancestry before recovery.
+Recovery validation runs on the clean
 prospective merge tree of that exact main and candidate, records its tree and
 two-parent synthetic commit, and re-proves those bytes before merge evaluation;
 Gemini and Codex reviews remain bound to the exact candidate head. A restart
@@ -1752,10 +1781,22 @@ descendant. Every intervening commit must be a one-parent contiguous step with
 one exact finalized commit intent binding its parent, tree, subject digest, and
 in-lane staged paths; a rewritten, merged, extra, or unauthenticated step fails
 closed.
-Version-1 checkpoints written before current-main authority was persisted may
-use the legacy phase-target format only while that field is absent; after the
-historical proof, the runner rewrites all validated local targets once to the
-new current-main-bound format.
+Version-1 checkpoints written before effect-time-main authority was persisted
+may use the legacy phase-target format only while that field is absent.
+
+Existing-PR historical recovery creates one authenticated reconciliation
+projection before interruption planning. It binds the contiguous finalized
+push chain, its matched PR-checkpoint prefix, and a suffix of at most 49
+finalized pushes (the remaining capacity inside the existing 50-round
+convergence budget). Every suffix entry needs one exact push intent and Git
+parentage; no PR intent may appear in the suffix, and the unique live branch
+and open non-draft PR must end at the last pushed head. The projection includes
+repository/task/run/supervisor/claim/charge/lifecycle identity, effective PR,
+historical and current main, live-read and evidence digests, continuation
+phase, and recovery provenance. It is atomically persisted and read back before
+the interruption planner. Missing, duplicate, reordered, forked, over-bound,
+tampered, multi-PR, live-head-mismatched, or ancestry-conflicting evidence
+fails closed without a GitHub mutation.
 Once push or PR effects exist, historical recovery admits them only when the
 ordinary continuation, state PR record, remote-tracking branch, finalized
 canonical push and PR intent, and their single completed mutation markers bind

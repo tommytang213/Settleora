@@ -20,7 +20,12 @@ import { createLogger, safeTimestamp, slugify } from "./lib/logger.mjs";
 import { acquireRunnerLock, processAppearsActive, releaseRunnerLock, writeIterationState } from "./lib/state-store.mjs";
 import { assertRepositoryRemoteIdentity, matchAuthorizedSupervisorProcess, moduleRuntimeRoot } from "./lib/runtime-identity.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles } from "./lib/lane-policy.mjs";
-import { pollEligibleIssues, claimIssue, commentIssueOutcome, readIssueLive } from "./lib/github-issues.mjs";
+import {
+  pollEligibleIssues,
+  claimIssue,
+  commentIssueOutcome,
+  readIssueLive,
+} from "./lib/github-issues.mjs";
 import {
   createRunIssueTracker,
   markIssueAttempted,
@@ -122,6 +127,7 @@ import {
   persistCompleteHeadEvidence,
   recordIdempotentMutation,
   recordRecoveryAttempt,
+  sanitizeRecoveryState,
   writeRecoveryState,
 } from "./lib/recovery-state.mjs";
 import { evaluateExistingPrRecovery } from "./lib/recovery-orchestrator.mjs";
@@ -129,7 +135,14 @@ import { runSecurityFindingsDryRun } from "./lib/security-findings-dry-run.mjs";
 import { runSecurityFindingsProductionPhase, securityFindingsProductionPhaseEnabled } from "./lib/security-findings-production.mjs";
 import { runPrStackExecution } from "./lib/pr-stack-executor.mjs";
 import { chargeAcceptedLogicalTask, loadLogicalTaskBudget } from "./lib/logical-task-budget.mjs";
-import { createSessionLifecycleState, persistSessionLifecycleState, synchronizeSessionLifecycleCounters, transitionSessionLifecyclePhase } from "./lib/session-lifecycle.mjs";
+import {
+  createSessionLifecycleState,
+  loadSessionLifecycleForRecovery,
+  persistSessionLifecycleState,
+  synchronizeSessionLifecycleCounters,
+  transitionSessionLifecycleHead,
+  transitionSessionLifecyclePhase,
+} from "./lib/session-lifecycle.mjs";
 import { findPreEffectIntents } from "./lib/pre-effect-intent.mjs";
 import {
   continueOrdinaryCandidate,
@@ -2040,6 +2053,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
   return executeStartupContinuation(config, startupRecovery, {
     authoritativeLoadedRecovery,
     prepareAuthoritativeRecovery: async ({ state }) => {
+      const reconciledHead = reconcilePendingRecoveredSourceHeadTransition(config, state);
+      if (!reconciledHead.ok) {
+        return { ok: false, reasonCode: reconciledHead.reasonCode, state };
+      }
+      state = reconciledHead.state;
       const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
       if (!startupEvidenceCheck.ok) {
         return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
@@ -2067,14 +2085,18 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       const laneDecision = classifyIssueLane(issue);
       const recoveryChargeId = Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null;
       const sourceFailureCandidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate || null;
+      const historicalCandidate = sourceFailureCandidate
+        || state.ordinaryContinuation?.identity
+        || null;
+      const priorOutcomeCandidate = state.claimAuthority?.authority?.candidateIdentity
+        || state.ordinaryContinuation?.sourceFailureHistory?.[0]?.candidate
+        || sourceFailureCandidate
+        || historicalCandidate;
       let preservedPriorOutcome = null;
-      if (state.claimAuthority?.mode !== claimAuthorityModes.preservedRecovery
-        && state.phase === "checkpoint_validation_commit"
-        && state.evidence?.localValidation?.status === "failed"
-        && sourceFailureCandidate) {
+      if (shouldReadPreservedPriorOutcome(state, priorOutcomeCandidate)) {
         const tentativePriorOutcome = readPreservedPriorOutcome(config, state, {
           chargeId: recoveryChargeId,
-          candidate: sourceFailureCandidate,
+          candidate: priorOutcomeCandidate,
         });
         if (tentativePriorOutcome.ok) preservedPriorOutcome = tentativePriorOutcome;
       }
@@ -2097,17 +2119,34 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           || state.sessionLifecycle?.state?.recovery?.operationId
           || null,
         expectedTerminalLifecyclePhase: state.sessionLifecycle?.recovery?.phaseAfter || null,
+        expectedLifecyclePhase: state.phase,
         allowTerminalValidationRetryPreparation: true,
+        expectedTerminalOutcome: preservedPriorOutcome?.outcome || null,
+        expectedTerminalCommentBodyDigest: preservedPriorOutcome?.commentBodyDigest || null,
+        allowAuthenticatedExistingPrEffects: true,
         validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
       };
+      try {
+        lineageOptions.expectedWorktreeOwnership = authenticateRecordedTaskWorkspace(
+          config, state, historicalCandidate,
+        );
+      } catch {
+        return rejectHistoricalWorkspacePreparation(
+          config, state, "historical_candidate_recorded_task_workspace_untrusted",
+        );
+      }
       const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
-      if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode, state };
+      if (!proof.ok) {
+        return rejectHistoricalWorkspacePreparation(config, state, proof.reasonCode);
+      }
       const originalCandidateIdentity = state.claimAuthority?.authority?.candidateIdentity || proof.candidateIdentity;
       const priorOutcome = preservedPriorOutcome || readPreservedPriorOutcome(config, state, {
         chargeId: lineageOptions.expectedChargeId,
         candidate: originalCandidateIdentity,
       });
-      if (!priorOutcome.ok) return { ok: false, reasonCode: priorOutcome.reasonCode, state };
+      if (!priorOutcome.ok) {
+        return rejectHistoricalWorkspacePreparation(config, state, priorOutcome.reasonCode);
+      }
       const recoveryClaim = validateClaimAuthority(config, state.issue, issue, {
         mode: claimAuthorityModes.preservedRecovery,
         taskKey: state.taskKey,
@@ -2131,15 +2170,57 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         lease: { valid: controlPlaneAdmission.lease?.valid, runId: controlPlaneAdmission.lease?.runId },
       });
       if (!recoveryClaim.ok) {
-        return { ok: false, reasonCode: recoveryClaim.reasonCode || "startup_recovery_claim_authority_failed", state };
+        return rejectHistoricalWorkspacePreparation(
+          config,
+          state,
+          recoveryClaim.reasonCode || "startup_recovery_claim_authority_failed",
+        );
       }
-      state = { ...state, claimAuthority: recoveryClaim };
-      writeRecoveryState(config, state);
+      const reconciledRecovery = proof.reconciledRecovery;
+      const reconciledPr = reconciledRecovery?.effectivePr;
+      state = {
+        ...state,
+        claimAuthority: recoveryClaim,
+        ...(reconciledRecovery ? {
+          recoveryReconciliation: reconciledRecovery,
+          pr: reconciledPr ? {
+            ...state.pr,
+            number: reconciledPr.number,
+            url: reconciledPr.url,
+            state: reconciledPr.state,
+            headSha: reconciledPr.headSha,
+            headRefName: reconciledPr.headRefName,
+            baseRefName: reconciledPr.baseRefName,
+          } : state.pr,
+        } : {}),
+      };
+      const reconciledWrite = writeRecoveryState(config, state);
+      const reconciledReload = loadRecoveryState(config, reconciledWrite.state);
+      if (!reconciledReload.ok
+        || reconciledReload.state.recoveryReconciliation?.evidenceDigest !== reconciledRecovery?.evidenceDigest
+        || (reconciledRecovery
+          && (reconciledReload.state.pr?.number !== (reconciledPr?.number ?? null)
+            || reconciledReload.state.pr?.headSha !== (reconciledPr?.headSha ?? null)))) {
+        return rejectHistoricalWorkspacePreparation(
+          config,
+          state,
+          "startup_recovery_reconciliation_persistence_failed",
+        );
+      }
+      state = reconciledReload.state;
+      let checkpoint = null;
+      if (state.phase === "checkpoint_validation_commit" && sourceFailureCandidate) {
+        checkpoint = reconstructInitialValidationFailureCheckpoint(config, state, issue, laneDecision);
+        if (!checkpoint.ok) {
+          return rejectHistoricalWorkspacePreparation(config, state, checkpoint.reasonCode);
+        }
+      }
       return {
         ok: true,
         state,
         issue,
         laneDecision,
+        checkpoint,
         evidenceAdapters: {
           readGit: () => authenticatedTaskRefGitEvidence(config, {
             ...proof.candidateIdentity,
@@ -2183,7 +2264,8 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
         });
         return { ok: bundle.ok !== false, outcome: bundle.outcome || "recovery_bundle_continued", reasonCode: bundle.stopReason?.reasonCode, bundle, state };
       }
-      if (["external_review", "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
+      if (["aggregate_validation", "external_review",
+        "codex_mechanics_security_review", "review_fix"].includes(boundary.phase)) {
         const checkpoint = loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDecision, boundary.phase);
         if (checkpoint.ok) {
           return continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint, currentRunId: runId });
@@ -2240,6 +2322,19 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
       };
     },
   });
+}
+
+export function rejectHistoricalWorkspacePreparation(config, state, reasonCode) {
+  try {
+    restoreControlPlaneRepositoryContext(config);
+  } catch {
+    return {
+      ok: false,
+      reasonCode: "historical_candidate_control_plane_restore_failed",
+      state,
+    };
+  }
+  return { ok: false, reasonCode, state };
 }
 
 function readPreservedPriorOutcome(config, state, expected) {
@@ -2299,10 +2394,60 @@ function readPreservedPriorOutcome(config, state, expected) {
     if (matching.length !== 1 || typeof matching[0].outcome !== "string") {
       return { ok: false, reasonCode: "preserved_claim_prior_outcome_ambiguous" };
     }
-    return { ok: true, outcome: matching[0].outcome };
+    const outcome = matching[0].outcome;
+    const commentBodyDigest = outcome === "validation_failed"
+      ? selectPreservedTerminalCommentDigest(
+        findPreEffectIntents(config, (intent) =>
+          intent.repository === config.repositorySlug
+          && intent.sourceTaskKey === taskKey
+          && intent.runId === runId
+          && intent.effectType === "comment"),
+        {
+          repository: config.repositorySlug,
+          taskKey,
+          runId,
+          issueNumber,
+          branchName,
+          baseSha,
+          headSha,
+          outcome,
+        },
+      )
+      : null;
+    if (outcome === "validation_failed" && commentBodyDigest === null) {
+      return { ok: false, reasonCode: "preserved_claim_prior_outcome_comment_digest_mismatch" };
+    }
+    return { ok: true, outcome, commentBodyDigest };
   } catch {
     return { ok: false, reasonCode: "preserved_claim_prior_outcome_unavailable" };
   }
+}
+
+export function shouldReadPreservedPriorOutcome(state, priorOutcomeCandidate) {
+  if (!priorOutcomeCandidate) return false;
+  return state?.claimAuthority?.mode === claimAuthorityModes.preservedRecovery
+    || state?.evidence?.localValidation?.status === "failed";
+}
+
+export function selectPreservedTerminalCommentDigest(intents, expected) {
+  const matching = (intents || []).filter((intent) =>
+    intent?.repository === expected?.repository
+    && intent?.sourceTaskKey === expected?.taskKey
+    && intent?.runId === expected?.runId
+    && intent?.effectType === "comment"
+    && intent?.status === "prepared"
+    && intent?.identity?.repository === expected?.repository
+    && intent?.identity?.sourceTaskKey === expected?.taskKey
+    && intent?.identity?.runId === expected?.runId
+    && intent?.identity?.issueNumber === expected?.issueNumber
+    && intent?.identity?.branchName === expected?.branchName
+    && intent?.identity?.baseSha === expected?.baseSha
+    && intent?.identity?.headSha === expected?.headSha
+    && intent?.identity?.candidateIdentity === expected?.headSha
+    && intent?.effect?.issueNumber === expected?.issueNumber
+    && intent?.effect?.outcome === expected?.outcome
+    && /^[a-f0-9]{64}$/u.test(intent?.effect?.bodyDigest || ""));
+  return matching.length === 1 ? matching[0].effect.bodyDigest : null;
 }
 
 function authenticatedTaskRefGitEvidence(config, candidate) {
@@ -2350,13 +2495,36 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
     return { ok: false, reasonCode: "historical_candidate_git_environment_untrusted" };
   }
   fetchOriginMain(config, { trustedHistoricalRecovery: true });
+  const candidate = state.ordinaryContinuation?.sourceFailureBatch?.candidate
+    || state.ordinaryContinuation?.identity;
+  const terminalCandidate = state.claimAuthority?.authority?.candidateIdentity
+    || state.ordinaryContinuation?.sourceFailureHistory?.[0]?.candidate
+    || candidate;
+  const priorOutcome = readPreservedPriorOutcome(config, state, {
+    chargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+    candidate: terminalCandidate,
+  });
   const lineageOptions = {
     expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
     expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
       || state.sessionLifecycle?.state?.recovery?.operationId
       || null,
+    expectedTerminalLifecyclePhase: state.sessionLifecycle?.recovery?.phaseAfter
+      || state.sessionLifecycle?.state?.recovery?.phaseAfter
+      || null,
+    expectedLifecyclePhase: state.phase,
+    allowTerminalValidationRetryPreparation: true,
+    expectedTerminalOutcome: priorOutcome.ok ? priorOutcome.outcome : null,
+    expectedTerminalCommentBodyDigest: priorOutcome.ok ? priorOutcome.commentBodyDigest : null,
     validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
   };
+  try {
+    lineageOptions.expectedWorktreeOwnership = authenticateRecordedTaskWorkspace(
+      config, state, candidate,
+    );
+  } catch {
+    return { ok: false, reasonCode: "historical_candidate_recorded_task_workspace_untrusted" };
+  }
   let proof = verifyHistoricalInitialCandidateLineage(config, state, issue, lineageOptions);
   if (proof.ok && filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
     return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
@@ -2375,6 +2543,11 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
         branchName: state.branch.name,
         realPath: workspace.taskRoot,
       });
+      lineageOptions.expectedWorktreeOwnership = {
+        key: `${state.branch.name}:${workspaceIdentity}`,
+        target: workspaceIdentity,
+        correlation: state.branch.name,
+      };
       if (workspace.created) {
         const markedState = recordIdempotentMutation(state, {
           kind: "worktree_ownership_created",
@@ -2411,6 +2584,35 @@ function reconstructInitialValidationFailureCheckpoint(config, state, issue, lan
     : { ok: false, reasonCode: proof.reasonCode || "initial_validation_failure_commit_reconstruction_ambiguous" };
 }
 
+function authenticateRecordedTaskWorkspace(config, state, candidate) {
+  const ownershipMarkers = state?.mutationMarkers?.worktree_ownership_created || {};
+  const markerEntries = Object.entries(ownershipMarkers);
+  if (markerEntries.length === 0) return null;
+  if (markerEntries.length !== 1 || !candidate?.headSha) {
+    throw new Error("Recorded historical task workspace authority is ambiguous");
+  }
+  const workspace = adoptHistoricalTaskWorkspace(config, {
+    branchName: state.branch.name,
+    headSha: candidate.headSha,
+    taskKey: state.taskKey,
+    ownershipMarkers,
+    effectContext: null,
+    requireExisting: true,
+    allowLiveBranchHead:
+      state.ordinaryContinuation?.sourceFailureFixIntent?.status === "prepared",
+  });
+  const workspaceIdentity = canonicalGithubEvidenceDigest({
+    repository: config.repositorySlug,
+    branchName: state.branch.name,
+    realPath: workspace.taskRoot,
+  });
+  return {
+    key: `${state.branch.name}:${workspaceIdentity}`,
+    target: workspaceIdentity,
+    correlation: state.branch.name,
+  };
+}
+
 async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDecision, state, checkpoint, boundary, operationalCheckpoint = null, currentRunId = null }) {
   const identity = checkpoint.candidateIdentity;
   let initial = state.ordinaryContinuation || createOrdinaryContinuationState({
@@ -2419,7 +2621,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     issueNumber: issue.number,
     branchName: state.branch.name,
     identity: { ...identity, changedFiles: listChangedFiles(identity.baseSha, identity.headSha) },
-    expectedOriginMainSha: checkpoint.reconstructedCurrentMainSha || identity.baseSha,
+    expectedOriginMainSha: checkpoint.historicalEffectMainSha || identity.baseSha,
     phase: "candidate_reconciliation",
     counters: {
       acceptedLogicalTasks: 1,
@@ -2429,31 +2631,50 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     },
   });
   const persist = async (ordinaryContinuation) => {
-    state = synchronizeRecoveredSourceChange(state, ordinaryContinuation, "ordinary_source_failure_fix_committed");
+    state = await synchronizeRecoveredSourceChange(
+      config, state, ordinaryContinuation, "ordinary_source_failure_fix_committed",
+    );
     return writeRecoveryState(config, { ...state, ordinaryContinuation });
   };
-  if (checkpoint.reconstructedCurrentMainSha
-    && initial.expectedOriginMainSha !== checkpoint.reconstructedCurrentMainSha) {
-    if (initial.expectedOriginMainSha != null
-      && initial.expectedOriginMainSha !== initial.identity.baseSha) {
-      return {
-        ok: false,
-        outcome: "blocked",
-        reasonCode: "ordinary_continuation_current_main_authority_mismatch",
-        ordinaryContinuation: initial,
-        largeCandidateReviewRecovery: checkpoint,
-        state,
-      };
-    }
-    const upgraded = { ...initial, expectedOriginMainSha: checkpoint.reconstructedCurrentMainSha };
-    initial = {
-      ...upgraded,
-      effects: Object.fromEntries(Object.entries(upgraded.effects || {}).map(([phase, effect]) => [
-        phase,
-        { ...effect, targetDigest: ordinaryContinuationPhaseTarget(upgraded, phase) },
-      ])),
+  const reconciledMain = state.recoveryReconciliation;
+  const currentMainSha = reconciledMain?.currentMainSha
+    || checkpoint.reconstructedCurrentMainSha;
+  const preEffectMainCanAdvance = !reconciledMain
+    && state.pr?.number == null
+    && state.branch?.expectedRemoteHeadSha == null
+    && !initial.effects?.push
+    && !initial.effects?.pr_create_or_update;
+  if (preEffectMainCanAdvance
+    && initial.expectedOriginMainSha !== currentMainSha
+    && /^[a-f0-9]{40}$/.test(currentMainSha || "")) {
+    const advancedMain = {
+      ...initial,
+      expectedOriginMainSha: currentMainSha,
     };
-    await persist(initial);
+    advancedMain.effects = Object.fromEntries(
+      Object.entries(initial.effects || {}).map(([phase, evidence]) => [
+        phase,
+        {
+          ...evidence,
+          targetDigest: ordinaryContinuationPhaseTarget(advancedMain, phase),
+        },
+      ]),
+    );
+    initial = advancedMain;
+    state = (await persist(initial)).state;
+  }
+  const historicalEffectMainSha = reconciledMain?.historicalEffectMainSha
+    || initial.expectedOriginMainSha;
+  if (initial.expectedOriginMainSha !== historicalEffectMainSha
+    || !/^[a-f0-9]{40}$/.test(currentMainSha || "")) {
+    return {
+      ok: false,
+      outcome: "blocked",
+      reasonCode: "ordinary_continuation_current_main_authority_mismatch",
+      ordinaryContinuation: initial,
+      largeCandidateReviewRecovery: checkpoint,
+      state,
+    };
   }
   fetchOriginMain(config, { trustedHistoricalRecovery: true });
   const liveHeadAtRecovery = getRefSha("HEAD");
@@ -2466,8 +2687,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     && spawnSync("git", ["show", "-s", "--format=%s", liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === `Auto-runner issue #${issue.number}: source-fix ${initial.sourceFailureFixIntent?.batchIdentity?.slice(0, 16)}`
   );
   const cleanupOnlyRecovery = initial.phase === "post_merge_cleanup";
-  const expectedCurrentMain = initial.expectedOriginMainSha;
-  if (!cleanupOnlyRecovery && (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== expectedCurrentMain || getStatusShort() !== "")) {
+  if (!cleanupOnlyRecovery && (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== currentMainSha || getStatusShort() !== "")) {
     return { ok: false, outcome: "blocked", reasonCode: "ordinary_continuation_live_candidate_mismatch", ordinaryContinuation: initial, largeCandidateReviewRecovery: checkpoint, state };
   }
   const actualChangedFiles = listChangedFiles(initial.identity.baseSha, initial.identity.headSha);
@@ -2512,7 +2732,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           },
         }
       : replacement;
-    state = synchronizeRecoveredSourceChange(state, initial, "ordinary_source_failure_fix_adopted");
+    state = await synchronizeRecoveredSourceChange(
+      config, state, initial, "ordinary_source_failure_fix_adopted",
+    );
     await writeRecoveryState(config, { ...state, ordinaryContinuation: initial });
   }
   const context = {
@@ -2530,7 +2752,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     candidate_reconciliation: async (continuation) => {
       const candidate = continuation.identity;
       fetchOriginMain(config);
-      if (getCurrentBranch() !== state.branch.name || getRefSha("HEAD") !== candidate.headSha || getRefSha("origin/main") !== expectedCurrentMain || getStatusShort() !== "") return { ok: false, reasonCode: "ordinary_continuation_candidate_mismatch" };
+      if (getCurrentBranch() !== state.branch.name || getRefSha("HEAD") !== candidate.headSha || getRefSha("origin/main") !== currentMainSha || getStatusShort() !== "") return { ok: false, reasonCode: "ordinary_continuation_candidate_mismatch" };
       return { ok: true, evidence: candidate };
     },
     local_validation: async (continuation) => {
@@ -2578,8 +2800,14 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         reviewConvergenceState: state.reviewConvergenceState,
         sourceFailureFix: { batch, decision, candidateHead: continuation.identity.headSha, baseSha: continuation.identity.baseSha },
       });
+      if (fixAttempt.sessionLifecycleState) {
+        state = { ...state, sessionLifecycle: fixAttempt.sessionLifecycleState };
+      }
       if (!fixAttempt.proceeded) return { ok: false, reasonCode: fixAttempt.reason || "source_failure_fix_not_proceeded" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, { issue, laneDecision, promptInfo, report: { found: true, recovered: true }, fixAttempt, branchName: continuation.branchName, commitMessage: `Auto-runner issue #${issue.number}: source-fix ${batch.batchIdentity.slice(0, 16)}` });
+      if (postFix.review?.sessionLifecycle) {
+        state = { ...state, sessionLifecycle: postFix.review.sessionLifecycle };
+      }
       if (!postFix.runnerCreatedCommitSha || postFix.runnerCreatedCommitSha === continuation.identity.headSha || postFix.forbiddenChangedFiles?.length) {
         return { ok: false, reasonCode: "source_failure_fix_candidate_invalid" };
       }
@@ -2633,6 +2861,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const reviewForFix = structuredFindings.length ? { ...context.review, verdict: { verdict: "changes_requested", recommended_next_action: "run_safe_fix_cycle", blocking_findings: structuredFindings } } : context.review;
       operationalCheckpoint?.("ordinary_recovery_review_convergence");
       const fixAttempt = await runReviewFixCycle(config, { issue, laneDecision, branchName: state.branch.name, promptInfo, changedFiles: candidate.changedFiles, forbiddenChangedFiles: [], validation: context.validation, report: { found: true, recovered: true }, externalReview: context.externalReview, review: reviewForFix, largeCandidateReview: context.largeCandidateReview, reviewConvergenceState: state.reviewConvergenceState });
+      if (fixAttempt.sessionLifecycleState) {
+        state = { ...state, sessionLifecycle: fixAttempt.sessionLifecycleState };
+      }
       if (!fixAttempt.proceeded) return { ok: false, outcome: "review_convergence_required", reasonCode: fixAttempt.reason || "ordinary_continuation_review_fix_blocked" };
       const postFix = await commitReviewFixAndRerunExactHeadReviews(config, {
         issue,
@@ -2648,7 +2879,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             issueNumber: continuation.issueNumber,
             branchName: continuation.branchName,
             identity: { baseSha: candidate.baseSha, headSha, treeSha: getRefSha(`${headSha}^{tree}`), diffDigest: createHash("sha256").update(getBoundedDiff(candidate.baseSha, headSha).text).digest("hex"), changedFiles },
-            expectedOriginMainSha: continuation.expectedOriginMainSha,
+            expectedOriginMainSha: currentMainSha,
+            historicalEffectMainSha,
             phase: "candidate_reconciliation",
             counters: {
               ...continuation.counters,
@@ -2657,8 +2889,20 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             },
           });
           await persist(next);
+          if (state.sessionLifecycle) {
+            issue.sessionLifecycle = state.sessionLifecycle;
+            if (promptInfo.sessionLifecycle) {
+              promptInfo.sessionLifecycle = {
+                ...promptInfo.sessionLifecycle,
+                state: state.sessionLifecycle,
+              };
+            }
+          }
         },
       });
+      if (postFix.review?.sessionLifecycle) {
+        state = { ...state, sessionLifecycle: postFix.review.sessionLifecycle };
+      }
       if (postFix.reviewMutationGuard?.mutationDetected || postFix.externalReview?.status !== "pass" || postFix.review?.verdict?.verdict !== "approve" || postFix.forbiddenChangedFiles?.length) return { ok: false, outcome: "review_convergence_required", reasonCode: "ordinary_continuation_post_fix_recertification_failed" };
       const changedFiles = postFix.changedFiles;
       operationalCheckpoint?.("ordinary_recovery_review_convergence_complete", { validation: postFix.validation, externalReview: postFix.externalReview, review: postFix.review });
@@ -2671,10 +2915,30 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const pushed = await pushBranch(config, state.branch.name, { effectContext: state.sessionLifecycle });
       operationalCheckpoint?.("ordinary_recovery_push_complete", { push: pushed });
       if (pushed.status !== 0) return { ok: false, reasonCode: "ordinary_continuation_push_failed" };
-      state = {
+      state = recordIdempotentMutation({
         ...state,
         branch: { ...state.branch, expectedRemoteHeadSha: candidate.headSha },
-      };
+      }, {
+        kind: "push",
+        key: candidate.headSha,
+        marker: { target: continuation.branchName, correlation: candidate.headSha },
+      });
+      const postPushLifecycle = transitionSessionLifecyclePhase(config, state.sessionLifecycle, {
+        phase: "pr_create_recover",
+        nextExactAction: "open_or_recover_pr",
+      });
+      if (!postPushLifecycle.ok) {
+        await writeRecoveryState(config, state);
+        return { ok: false, reasonCode: postPushLifecycle.reasonCode };
+      }
+      state = advanceRecoveryPhase({
+        ...state,
+        sessionLifecycle: postPushLifecycle.state,
+      }, {
+        phase: "pr_create_recover",
+        firstIncompleteAction: "open_or_recover_pr",
+        nextSafeAction: "open_or_recover_pr",
+      });
       await writeRecoveryState(config, state);
       return { ok: true, evidence: { headSha: candidate.headSha } };
     },
@@ -2685,8 +2949,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       if (!context.pr?.url || !Number.isSafeInteger(context.pr.number)) {
         return { ok: false, reasonCode: "ordinary_continuation_pr_failed" };
       }
-      state = {
+      state = recordIdempotentMutation({
         ...state,
+        recoveryReconciliation: null,
         pr: {
           number: context.pr.number,
           url: context.pr.url,
@@ -2695,7 +2960,27 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           baseRefName: "main",
           state: context.pr.state,
         },
-      };
+      }, {
+        kind: "pr_create",
+        key: `${context.pr.number}:${continuation.identity.headSha}`,
+        marker: { target: context.pr.url, correlation: continuation.identity.headSha },
+      });
+      const postPrLifecycle = transitionSessionLifecyclePhase(config, state.sessionLifecycle, {
+        phase: "ci_wait",
+        nextExactAction: "watch_ci",
+      });
+      if (!postPrLifecycle.ok) {
+        await writeRecoveryState(config, state);
+        return { ok: false, reasonCode: postPrLifecycle.reasonCode };
+      }
+      state = advanceRecoveryPhase({
+        ...state,
+        sessionLifecycle: postPrLifecycle.state,
+      }, {
+        phase: "ci_wait",
+        firstIncompleteAction: "watch_ci",
+        nextSafeAction: "watch_ci",
+      });
       await writeRecoveryState(config, state);
       return { ok: true, evidence: { url: context.pr.url, number: context.pr.number } };
     },
@@ -2729,7 +3014,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
             expectedRepository: config.repositorySlug,
             checkoutReconstructable: true,
             allowStateRebuildFromEvidence: true,
-            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: state.taskKey || initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, supervisorRunId: state.run?.supervisorRunId || null, headSha: candidate.headSha, baseSha: candidate.baseSha, currentMainSha: continuation.expectedOriginMainSha, changedFiles: candidate.changedFiles, changedFilesDigest: digestChangedFiles(candidate.changedFiles), recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
+            exactHeadEvidence: { repositorySlug: config.repositorySlug, issueNumber: issue.number, prNumber, taskKey: state.taskKey || initial.logicalTaskKey, runnerRunId: state.run?.runId || config.runnerRunId, supervisorRunId: state.run?.supervisorRunId || null, headSha: candidate.headSha, baseSha: candidate.baseSha, historicalEffectMainSha, currentMainSha, changedFiles: candidate.changedFiles, changedFilesDigest: digestChangedFiles(candidate.changedFiles), recoveryStateRebuildable: true, prospectiveMergeValidationRequired: true },
           },
         },
       };
@@ -2748,7 +3033,7 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
         if (getCurrentBranch() !== continuation.branchName
           || getRefSha("HEAD") !== candidate.headSha
           || getRefSha(`${candidate.headSha}^{tree}`) !== candidate.treeSha
-          || getRefSha("origin/main") !== continuation.expectedOriginMainSha
+          || getRefSha("origin/main") !== currentMainSha
           || getStatusShort() !== "") {
           return { ok: false, reasonCode: "prospective_validation_source_checkout_not_restored" };
         }
@@ -2759,7 +3044,8 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
           branchName: continuation.branchName,
           prNumber,
           identity: candidate,
-          expectedOriginMainSha: continuation.expectedOriginMainSha,
+          expectedOriginMainSha: currentMainSha,
+          historicalEffectMainSha,
           profile: laneDecision.validationProfile,
           inContract: true,
         });
@@ -2821,17 +3107,126 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     onCheckpoint: persist,
   });
   logger.info(`Issue #${issue.number}: ordinary continuation advanced to ${result.state?.phase || result.outcome}.`);
-  state = synchronizeRecoveredSourceChange(state, result.state, "ordinary_source_failure_fix_committed");
+  state = await synchronizeRecoveredSourceChange(
+    config, state, result.state, "ordinary_source_failure_fix_committed",
+  );
   return { ...result, ordinaryContinuation: result.state, largeCandidateReviewRecovery: checkpoint, state };
 }
 
-function synchronizeRecoveredSourceChange(state, ordinaryContinuation, reasonCode) {
-  const convergence = state.reviewConvergenceState;
+async function synchronizeRecoveredSourceChange(
+  config, state, ordinaryContinuation, reasonCode,
+) {
   const newHead = ordinaryContinuation?.identity?.headSha;
-  if (!convergence?.pr?.exactHead || !newHead || convergence.pr.exactHead === newHead) return state;
-  const accounted = accountConvergenceEvent(convergence, { kind: "source_changed", newHead, reasonCode });
-  if (!accounted.consumedSourceCycle) return { ...state, reviewConvergenceState: accounted.state };
-  return { ...state, reviewConvergenceState: accounted.state };
+  if (!newHead) return state;
+  if (state.branch?.currentHeadSha === newHead
+    && state.sessionLifecycle?.branch?.headSha === newHead) return state;
+  if (!state.sessionLifecycle) {
+    throw new Error(
+      "Recovered source head synchronization failed: session_lifecycle_state_missing",
+    );
+  }
+  const convergence = state.reviewConvergenceState;
+  const accounted = !convergence?.pr?.exactHead || convergence.pr.exactHead === newHead
+    ? convergence
+    : accountConvergenceEvent(convergence, { kind: "source_changed", newHead, reasonCode }).state;
+  const transition = recoveredSourceHeadTransition({
+    branchName: state.branch?.name,
+    predecessorHead: state.branch?.currentHeadSha,
+    newHead,
+    reasonCode,
+    ordinaryContinuation,
+  });
+  writeRecoveryState(config, {
+    ...state,
+    reviewConvergenceState: accounted,
+    pendingRecoveredSourceHeadTransition: transition,
+  });
+  const lifecycle = transitionSessionLifecycleHead(config, state.sessionLifecycle, {
+    branchName: state.branch?.name,
+    headSha: newHead,
+    prNumber: state.pr?.number,
+  });
+  if (!lifecycle.ok) {
+    throw new Error(
+      `Recovered source head synchronization failed: ${lifecycle.reasonCode}`,
+    );
+  }
+  return {
+    ...state,
+    branch: { ...state.branch, currentHeadSha: newHead },
+    sessionLifecycle: lifecycle.state,
+    reviewConvergenceState: accounted,
+    recoveryReconciliation: null,
+    pendingRecoveredSourceHeadTransition: null,
+  };
+}
+
+function reconcilePendingRecoveredSourceHeadTransition(config, state) {
+  const pending = state.pendingRecoveredSourceHeadTransition;
+  if (!pending) return { ok: true, state };
+  const expected = recoveredSourceHeadTransition({
+    branchName: pending.branchName,
+    predecessorHead: pending.predecessorHead,
+    newHead: pending.newHead,
+    reasonCode: pending.reasonCode,
+    ordinaryContinuation: pending.ordinaryContinuation,
+  });
+  if (pending.version !== 1
+    || pending.digest !== expected.digest
+    || pending.branchName !== state.branch?.name
+    || pending.predecessorHead !== state.branch?.currentHeadSha
+    || pending.newHead !== pending.ordinaryContinuation?.identity?.headSha) {
+    return { ok: false, reasonCode: "recovered_source_head_transition_invalid" };
+  }
+  const loaded = loadSessionLifecycleForRecovery(config, {
+    repository: config.repositorySlug,
+    issueNumber: state.issue?.number,
+    taskKey: state.taskKey,
+    runId: state.run?.runId,
+    supervisorRunId: state.run?.supervisorRunId,
+    branchName: state.branch?.name,
+    baseSha: state.branch?.baseSha,
+    headSha: pending.predecessorHead,
+  });
+  if (!loaded.ok
+    || ![pending.predecessorHead, pending.newHead].includes(loaded.state?.branch?.headSha)) {
+    return { ok: false, reasonCode: loaded.reasonCode || "recovered_source_head_transition_lifecycle_mismatch" };
+  }
+  let lifecycle = loaded;
+  if (loaded.state.branch.headSha === pending.predecessorHead) {
+    lifecycle = transitionSessionLifecycleHead(config, loaded.state, {
+      branchName: pending.branchName,
+      headSha: pending.newHead,
+      prNumber: state.pr?.number,
+    });
+    if (!lifecycle.ok) return { ok: false, reasonCode: lifecycle.reasonCode };
+  }
+  const finalized = {
+    ...state,
+    branch: { ...state.branch, currentHeadSha: pending.newHead },
+    sessionLifecycle: lifecycle.state,
+    ordinaryContinuation: pending.ordinaryContinuation,
+    recoveryReconciliation: null,
+    pendingRecoveredSourceHeadTransition: null,
+  };
+  return { ok: true, state: writeRecoveryState(config, finalized).state };
+}
+
+export function recoveredSourceHeadTransition({
+  branchName, predecessorHead, newHead, reasonCode, ordinaryContinuation,
+}) {
+  const value = sanitizeRecoveryState({
+    version: 1,
+    branchName,
+    predecessorHead,
+    newHead,
+    reasonCode,
+    ordinaryContinuation,
+  });
+  return {
+    ...value,
+    digest: createHash("sha256").update(JSON.stringify(value)).digest("hex"),
+  };
 }
 
 function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {
@@ -3180,21 +3575,61 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
     return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
   }
   let provenIdentity = null;
+  let lineageProof = null;
   if (baseSha !== reconstructedCurrentMainSha) {
-    const proof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
+    const recoveryChargeId =
+      Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null;
+    const terminalCandidate = state.claimAuthority?.authority?.candidateIdentity
+      || state.ordinaryContinuation?.sourceFailureHistory?.[0]?.candidate
+      || state.ordinaryContinuation?.sourceFailureBatch?.candidate
+      || state.ordinaryContinuation?.identity
+      || null;
+    const terminalLineageOptions = {};
+    if (state.claimAuthority?.mode === claimAuthorityModes.preservedRecovery) {
+      const priorOutcome = readPreservedPriorOutcome(config, state, {
+        chargeId: recoveryChargeId,
+        candidate: terminalCandidate,
+      });
+      if (!priorOutcome.ok) return { ok: false, reasonCode: priorOutcome.reasonCode };
+      terminalLineageOptions.allowTerminalValidationRetryPreparation = true;
+      terminalLineageOptions.expectedTerminalLifecyclePhase =
+        state.sessionLifecycle?.recovery?.phaseAfter
+        || state.sessionLifecycle?.state?.recovery?.phaseAfter
+        || null;
+      terminalLineageOptions.expectedTerminalOutcome = priorOutcome.outcome;
+      terminalLineageOptions.expectedTerminalCommentBodyDigest =
+        priorOutcome.commentBodyDigest;
+      try {
+        terminalLineageOptions.expectedWorktreeOwnership =
+          authenticateRecordedTaskWorkspace(
+            config,
+            state,
+            state.ordinaryContinuation?.sourceFailureBatch?.candidate
+              || state.ordinaryContinuation?.identity
+              || terminalCandidate,
+          );
+      } catch {
+        return {
+          ok: false,
+          reasonCode: "historical_candidate_recorded_task_workspace_untrusted",
+        };
+      }
+    }
+    lineageProof = verifyHistoricalInitialCandidateLineage(config, state, issue, {
       expectedLifecyclePhase: lifecyclePhase,
       allowAuthenticatedExistingPrEffects: true,
-      expectedChargeId: Object.keys(state.mutationMarkers?.logical_task_charge || {})[0] || null,
+      expectedChargeId: recoveryChargeId,
       expectedRecoveryOperationId: state.sessionLifecycle?.recovery?.operationId
         || state.sessionLifecycle?.state?.recovery?.operationId
         || null,
       validateChangedPaths: (paths) => filterForbiddenChangedFiles(paths, laneDecision).length === 0,
+      ...terminalLineageOptions,
     });
-    if (!proof.ok) return { ok: false, reasonCode: proof.reasonCode };
-    if (filterForbiddenChangedFiles(proof.candidateIdentity.changedFiles, laneDecision).length > 0) {
+    if (!lineageProof.ok) return { ok: false, reasonCode: lineageProof.reasonCode };
+    if (filterForbiddenChangedFiles(lineageProof.candidateIdentity.changedFiles, laneDecision).length > 0) {
       return { ok: false, reasonCode: "historical_candidate_changed_paths_out_of_contract" };
     }
-    provenIdentity = proof.candidateIdentity;
+    provenIdentity = lineageProof.candidateIdentity;
     baseSha = provenIdentity.baseSha;
     headSha = provenIdentity.headSha;
   }
@@ -3210,9 +3645,14 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
   };
   const seed = createLargeCandidateRoutingState({ taskKey: state.taskKey || `issue-${state.issue?.number || "unknown"}`, candidateIdentity, changedFiles });
   const loaded = loadLargeCandidateRoutingState(config, seed);
-  if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true, reconstructedCurrentMainSha };
+  const historicalEffectMainSha = lineageProof?.reconciledRecovery?.historicalEffectMainSha
+    || state.recoveryReconciliation?.historicalEffectMainSha
+    || state.ordinaryContinuation?.expectedOriginMainSha
+    || baseSha;
+  const recoveryProjection = lineageProof?.reconciledRecovery || state.recoveryReconciliation || null;
+  if (!loaded.ok && loaded.reasonCode === "large_candidate_routing_state_missing") return { ok: true, statePath: loaded.statePath, routeState: "external_review_normal_ready", candidateIdentity, coverageManifest: null, reviewerResults: [], checkpointMissing: true, reconstructedCurrentMainSha, historicalEffectMainSha, recoveryProjection };
   if (!loaded.ok) return loaded;
-  return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults, reconstructedCurrentMainSha };
+  return { ok: true, statePath: loaded.statePath, routeState: loaded.state.routeState, candidateIdentity: loaded.state.candidateIdentity, coverageManifest: loaded.state.coverageManifest, reviewerResults: loaded.state.reviewerResults, reconstructedCurrentMainSha, historicalEffectMainSha, recoveryProjection };
 }
 
 function recoveredReviewerManualVerdict(evidence) {
@@ -4124,6 +4564,7 @@ async function runReviewFixCycle(config, context) {
       decision,
       promptPath,
       codex,
+      sessionLifecycleState: codex.sessionLifecycle?.state || null,
       changedFilesAfter,
       forbiddenChangedFilesAfter,
       evidence,
@@ -4155,7 +4596,7 @@ async function runReviewFixCycle(config, context) {
         validationAfter: summarizeValidation(validationAfter),
         stopReason: null,
       });
-      return { attempted: true, proceeded: true, reason: "source_fix_requires_recursive_validation_convergence", decision, promptPath, codex, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter, evidence };
+      return { attempted: true, proceeded: true, reason: "source_fix_requires_recursive_validation_convergence", decision, promptPath, codex, sessionLifecycleState: codex.sessionLifecycle?.state || null, changedFilesAfter, forbiddenChangedFilesAfter, validationAfter, evidence };
     }
     return finishBlocked("review_fix_validation_failed", { validationAfter: summarizeValidation(validationAfter) });
   }
@@ -4268,6 +4709,7 @@ async function runReviewFixCycle(config, context) {
     decision,
     promptPath,
     codex,
+    sessionLifecycleState: reviewAfter.sessionLifecycle || codex.sessionLifecycle?.state || null,
     changedFilesAfter,
     forbiddenChangedFilesAfter,
     validationAfter,

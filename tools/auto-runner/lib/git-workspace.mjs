@@ -28,6 +28,7 @@ export function bindTrustedRepositoryContext(repoRoot) {
 
 export function adoptHistoricalTaskWorkspace(config, {
   branchName, headSha, taskKey, ownershipMarkers = {}, effectContext = null,
+  requireExisting = false, allowLiveBranchHead = false,
 } = {}) {
   const controlRoot = path.resolve(config?.controlPlaneRepoRoot || config?.repoRoot || "");
   if (!/^[a-f0-9]{40}$/u.test(headSha || "")
@@ -39,7 +40,8 @@ export function adoptHistoricalTaskWorkspace(config, {
   const literalRef = `refs/heads/${branchName}`;
   const ref = runGit(["rev-parse", "--verify", literalRef], { cwd: controlRoot });
   assertGitSuccess(ref, "Unable to authenticate historical task branch");
-  if (ref.stdout.trim() !== headSha) {
+  const liveBranchHead = ref.stdout.trim();
+  if (liveBranchHead !== headSha && !allowLiveBranchHead) {
     throw new Error("Historical task branch ref drifted from the authenticated candidate");
   }
   const controlCommonDir = canonicalGitCommonDir(controlRoot);
@@ -49,7 +51,8 @@ export function adoptHistoricalTaskWorkspace(config, {
   }
   const parent = trustedTaskWorktreeParent(logsRoot);
   const identity = createHash("sha256")
-    .update(JSON.stringify([config.repositorySlug, taskKey, branchName, headSha]))
+    .update(JSON.stringify([config.repositorySlug, taskKey, branchName,
+      allowLiveBranchHead ? liveBranchHead : headSha]))
     .digest("hex").slice(0, 20);
   const intendedTaskRoot = path.join(parent, `recovery-${identity}`);
   const listed = runGit(["worktree", "list", "--porcelain"], { cwd: controlRoot });
@@ -59,6 +62,9 @@ export function adoptHistoricalTaskWorkspace(config, {
   let taskRoot = matches[0]?.worktree || null;
   const linkedWorktreeAlreadyPresent = Boolean(taskRoot);
   let created = false;
+  if (!taskRoot && requireExisting) {
+    throw new Error("Recorded historical task worktree is not linked");
+  }
   if (taskRoot && path.resolve(taskRoot) !== intendedTaskRoot) {
     const canonicalExistingRoot = realpathSync(taskRoot);
     const ownershipIdentity = canonicalGithubEvidenceDigest({
@@ -129,16 +135,17 @@ export function adoptHistoricalTaskWorkspace(config, {
   const taskBranch = getCurrentBranch({ cwd: canonicalTaskRoot });
   const taskHead = getRefSha("HEAD", { cwd: canonicalTaskRoot });
   const taskStatus = getStatusShort({ cwd: canonicalTaskRoot });
+  const expectedTaskHead = allowLiveBranchHead ? liveBranchHead : headSha;
   if (canonicalTaskRoot === controlRoot || taskCommonDir !== controlCommonDir
-    || taskBranch !== branchName || taskHead !== headSha || taskStatus !== "") {
-    throw new Error(`Historical task worktree failed exact authority checks: sameRoot=${canonicalTaskRoot === controlRoot}; commonDir=${taskCommonDir === controlCommonDir}; branch=${taskBranch === branchName}; head=${taskHead === headSha}; clean=${taskStatus === ""}`);
+    || taskBranch !== branchName || taskHead !== expectedTaskHead || taskStatus !== "") {
+    throw new Error(`Historical task worktree failed exact authority checks: sameRoot=${canonicalTaskRoot === controlRoot}; commonDir=${taskCommonDir === controlCommonDir}; branch=${taskBranch === branchName}; head=${taskHead === expectedTaskHead}; clean=${taskStatus === ""}`);
   }
   trustedRepositoryContext = canonicalTaskRoot;
   config.controlPlaneRepoRoot = controlRoot;
   config.repoRoot = canonicalTaskRoot;
   process.chdir(canonicalTaskRoot);
   return {
-    controlRoot, taskRoot: canonicalTaskRoot, branchName, headSha, created,
+    controlRoot, taskRoot: canonicalTaskRoot, branchName, headSha: expectedTaskHead, created,
   };
 }
 

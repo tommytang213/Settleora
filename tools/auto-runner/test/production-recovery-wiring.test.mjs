@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -10,11 +12,17 @@ import {
   headBoundEvidenceKinds,
   loadRecoveryState,
   recordIdempotentMutation,
+  sanitizeRecoveryState,
   writeRecoveryState,
 } from "../lib/recovery-state.mjs";
 import { chargeAcceptedLogicalTask } from "../lib/logical-task-budget.mjs";
 import { discoverStartupRecovery, executeStartupContinuation } from "../lib/recovery-continuation.mjs";
-import { chargeStartupRecoveryLogicalTask } from "../settleora-auto-runner.mjs";
+import {
+  chargeStartupRecoveryLogicalTask,
+  recoveredSourceHeadTransition,
+  rejectHistoricalWorkspacePreparation,
+  shouldReadPreservedPriorOutcome,
+} from "../settleora-auto-runner.mjs";
 
 function tempConfig(extra = {}) {
   const logsRoot = mkdtempSync(path.join(tmpdir(), "settleora-production-recovery-"));
@@ -63,6 +71,59 @@ test("startup continuation executes first incomplete phase before polling", asyn
     assert.equal(continued.recovery.executedPhase, "pr_create_recover");
   } finally {
     config.cleanup();
+  }
+});
+
+test("preserved terminal outcome remains readable after later validation passes", () => {
+  const candidate = { headSha: "c".repeat(40) };
+  assert.equal(shouldReadPreservedPriorOutcome({
+    claimAuthority: { mode: "preserved_recovery_claim" },
+    evidence: { localValidation: { status: "passed" } },
+  }, candidate), true);
+  assert.equal(shouldReadPreservedPriorOutcome({
+    evidence: { localValidation: { status: "failed" } },
+  }, candidate), true);
+  assert.equal(shouldReadPreservedPriorOutcome({
+    claimAuthority: { mode: "fresh_active" },
+    evidence: { localValidation: { status: "passed" } },
+  }, candidate), false);
+  assert.equal(shouldReadPreservedPriorOutcome({
+    claimAuthority: { mode: "preserved_recovery_claim" },
+    evidence: { localValidation: { status: "passed" } },
+  }, null), false);
+});
+
+test("rejected prepared descendant restores the clean control-plane repository context", () => {
+  const originalCwd = process.cwd();
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-rejected-descendant-"));
+  const controlRoot = path.join(root, "control");
+  const rejectedWorkspace = path.join(root, "rejected-workspace");
+  const run = (cwd, args) => {
+    const result = spawnSync("git", args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  try {
+    run(root, ["init", controlRoot]);
+    run(root, ["init", rejectedWorkspace]);
+    process.chdir(rejectedWorkspace);
+    const config = {
+      controlPlaneRepoRoot: controlRoot,
+      repoRoot: rejectedWorkspace,
+    };
+    const state = { taskKey: "prepared-descendant" };
+    const rejected = rejectHistoricalWorkspacePreparation(
+      config, state, "historical_candidate_prepared_descendant_mismatch",
+    );
+    assert.deepEqual(rejected, {
+      ok: false,
+      reasonCode: "historical_candidate_prepared_descendant_mismatch",
+      state,
+    });
+    assert.equal(config.repoRoot, controlRoot);
+    assert.equal(process.cwd(), controlRoot);
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -145,9 +206,16 @@ test("startup continuation blocks corrupt or unsafe state without polling fallba
 test("production runner is wired past discovery-only recovery and legacy PR classifier", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   const collector = readFileSync(new URL("../lib/authoritative-recovery-evidence.mjs", import.meta.url), "utf8");
+  const lineage = readFileSync(
+    new URL("../lib/historical-initial-candidate-lineage.mjs", import.meta.url), "utf8",
+  );
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
+  assert.match(
+    source,
+    /function reconstructInitialValidationFailureCheckpoint[\s\S]*allowTerminalValidationRetryPreparation: true,[\s\S]*verifyHistoricalInitialCandidateLineage/,
+  );
   assert.match(
     source,
     /const controlPlaneAdmission = collectControlPlaneRecoveryAdmission[\s\S]*if \(!controlPlaneAdmission\.ok\)[\s\S]*const live = readIssueLive\(config, state\.issue\.number\)/,
@@ -163,6 +231,103 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(
     source,
     /default: async \(\{ state, boundary, preparation \}\) => \{[\s\S]*const issue = preparation\?\.issue;[\s\S]*const laneDecision = preparation\?\.laneDecision;[\s\S]*recovery_admitted_issue_snapshot_missing/,
+  );
+  assert.match(
+    source,
+    /prepareAuthoritativeRecovery:[\s\S]*checkpoint = reconstructInitialValidationFailureCheckpoint\(config, state, issue, laneDecision\);[\s\S]*return \{[\s\S]*checkpoint,[\s\S]*default: async \(\{ state, boundary, preparation \}\)[\s\S]*const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/,
+  );
+  assert.match(
+    source,
+    /lineageOptions\.expectedWorktreeOwnership = \{[\s\S]*key: `\$\{state\.branch\.name\}:\$\{workspaceIdentity\}`,[\s\S]*proof = verifyHistoricalInitialCandidateLineage/,
+  );
+  assert.match(
+    source,
+    /lineageOptions\.expectedWorktreeOwnership = authenticateRecordedTaskWorkspace\([\s\S]*function authenticateRecordedTaskWorkspace[\s\S]*requireExisting: true/,
+  );
+  assert.match(
+    source,
+    /const historicalCandidate = sourceFailureCandidate[\s\S]*state\.ordinaryContinuation\?\.identity[\s\S]*authenticateRecordedTaskWorkspace\(\s*config, state, historicalCandidate,/,
+  );
+  assert.match(
+    source,
+    /const priorOutcomeCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*sourceFailureCandidate[\s\S]*shouldReadPreservedPriorOutcome\(state, priorOutcomeCandidate\)[\s\S]*candidate: priorOutcomeCandidate,[\s\S]*verifyHistoricalInitialCandidateLineage/,
+  );
+  assert.match(
+    source,
+    /expectedTerminalLifecyclePhase:[\s\S]*expectedLifecyclePhase: state\.phase,[\s\S]*allowTerminalValidationRetryPreparation: true/,
+  );
+  assert.match(
+    source,
+    /allowTerminalValidationRetryPreparation: true,[\s\S]*expectedTerminalCommentBodyDigest:[\s\S]*allowAuthenticatedExistingPrEffects: true,[\s\S]*verifyHistoricalInitialCandidateLineage/,
+  );
+  assert.match(
+    lineage,
+    /readRemoteTaskBranch[\s\S]*readLiveTaskPrs[\s\S]*reconcileAuthenticatedExistingPrEffects[\s\S]*remoteTaskBranchRead[\s\S]*liveTaskPrRead/,
+  );
+  assert.match(
+    source,
+    /\["aggregate_validation", "external_review",[\s\S]*loadNormalLargeCandidateRecoveryCheckpoint/,
+  );
+  assert.match(
+    source,
+    /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*const terminalCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*readPreservedPriorOutcome[\s\S]*allowTerminalValidationRetryPreparation = true[\s\S]*expectedTerminalCommentBodyDigest[\s\S]*authenticateRecordedTaskWorkspace[\s\S]*\.\.\.terminalLineageOptions/,
+  );
+  assert.match(
+    source,
+    /async function synchronizeRecoveredSourceChange[\s\S]*pendingRecoveredSourceHeadTransition: transition[\s\S]*transitionSessionLifecycleHead\(config, state\.sessionLifecycle,[\s\S]*currentHeadSha: newHead[\s\S]*pendingRecoveredSourceHeadTransition: null/,
+  );
+  assert.match(
+    source,
+    /source_failure_fix: async[\s\S]*runReviewFixCycle[\s\S]*fixAttempt\.sessionLifecycleState[\s\S]*state = \{ \.\.\.state, sessionLifecycle: fixAttempt\.sessionLifecycleState \}[\s\S]*commitReviewFixAndRerunExactHeadReviews/,
+  );
+  assert.match(
+    source,
+    /review_convergence: async[\s\S]*runReviewFixCycle[\s\S]*fixAttempt\.sessionLifecycleState[\s\S]*state = \{ \.\.\.state, sessionLifecycle: fixAttempt\.sessionLifecycleState \}[\s\S]*headChangeCheckpoint/,
+  );
+  assert.match(
+    source,
+    /push: async \(continuation\)[\s\S]*recordIdempotentMutation[\s\S]*kind: "push"[\s\S]*transitionSessionLifecyclePhase[\s\S]*phase: "pr_create_recover"[\s\S]*advanceRecoveryPhase/,
+  );
+  assert.match(
+    source,
+    /pr_create_or_update: async \(continuation\)[\s\S]*recordIdempotentMutation[\s\S]*kind: "pr_create"[\s\S]*transitionSessionLifecyclePhase[\s\S]*phase: "ci_wait"[\s\S]*advanceRecoveryPhase/,
+  );
+  assert.match(
+    source,
+    /function recoveredSourceHeadTransition[\s\S]*sanitizeRecoveryState\(\{[\s\S]*ordinaryContinuation,[\s\S]*JSON\.stringify\(value\)/,
+  );
+  assert.match(
+    source,
+    /sessionLifecycleState: reviewAfter\.sessionLifecycle \|\| codex\.sessionLifecycle\?\.state \|\| null/,
+  );
+  assert.equal(
+    (source.match(/state = \{ \.\.\.state, sessionLifecycle: postFix\.review\.sessionLifecycle \}/g) || []).length,
+    2,
+  );
+  assert.match(
+    source,
+    /headChangeCheckpoint: async \(headSha\)[\s\S]*await persist\(next\);[\s\S]*issue\.sessionLifecycle = state\.sessionLifecycle;[\s\S]*promptInfo\.sessionLifecycle = \{[\s\S]*state: state\.sessionLifecycle/,
+  );
+  assert.match(
+    source,
+    /prepareAuthoritativeRecovery: async \(\{ state \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,
+  );
+  assert.match(
+    source,
+    /function reconcilePendingRecoveredSourceHeadTransition[\s\S]*pending\.digest !== expected\.digest[\s\S]*loadSessionLifecycleForRecovery[\s\S]*\[pending\.predecessorHead, pending\.newHead\][\s\S]*transitionSessionLifecycleHead[\s\S]*ordinaryContinuation: pending\.ordinaryContinuation[\s\S]*writeRecoveryState\(config, finalized\)/,
+  );
+  assert.match(
+    source,
+    /function reconstructInitialValidationFailureCheckpoint[\s\S]*const terminalCandidate = state\.claimAuthority\?\.authority\?\.candidateIdentity[\s\S]*sourceFailureHistory\?\.\[0\]\?\.candidate[\s\S]*candidate: terminalCandidate,[\s\S]*authenticateRecordedTaskWorkspace\(\s*config, state, candidate,/,
+  );
+  assert.match(source, /allowLiveBranchHead:[\s\S]*sourceFailureFixIntent\?\.status === "prepared"/);
+  assert.match(
+    source,
+    /const proof = verifyHistoricalInitialCandidateLineage[\s\S]*if \(!proof\.ok\) \{[\s\S]*rejectHistoricalWorkspacePreparation\(config, state, proof\.reasonCode\)/,
+  );
+  assert.match(
+    source,
+    /function rejectHistoricalWorkspacePreparation\(config, state, reasonCode\) \{[\s\S]*restoreControlPlaneRepositoryContext\(config\)[\s\S]*historical_candidate_control_plane_restore_failed[\s\S]*return \{ ok: false, reasonCode, state \};/,
   );
   assert.match(source, /function chargeStartupRecoveryLogicalTask[\s\S]*startup_recovery_existing_charge_reused/);
   assert.doesNotMatch(
@@ -189,12 +354,49 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /const checkpoint = preparation\?\.checkpoint[\s\S]*reconstructInitialValidationFailureCheckpoint/);
   assert.match(source, /evaluateExistingPrRecovery\(/);
   assert.equal(source.includes("evaluateExistingPrRecoveryDecision(context)"), false);
-  assert.match(source, /\["external_review", "codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/);
+  assert.match(
+    source,
+    /\["aggregate_validation", "external_review",[\s\S]*"codex_mechanics_security_review", "review_fix"\]\.includes\(boundary\.phase\)/,
+  );
   assert.match(source, /const prospectiveValidation = recovered\?\.generatedRecoveryEvidence\?\.validation/);
   assert.match(source, /sourceFailuresFromProspectiveValidation\(prospectiveValidation/);
   assert.match(source, /prospective_validation_source_checkout_not_restored/);
-  assert.match(source, /getRefSha\("origin\/main"\) !== continuation\.expectedOriginMainSha/);
+  assert.match(source, /prospectiveValidation\?\.passed === false[\s\S]*getRefSha\("origin\/main"\) !== currentMainSha/);
   assert.match(source, /headChangeCheckpoint: async \(headSha\)[\s\S]*expectedOriginMainSha: continuation\.expectedOriginMainSha/);
+});
+
+test("recovered source-head transition hashes the exact sanitized persisted payload", () => {
+  const ordinaryContinuation = {
+    identity: { baseSha: "1".repeat(40), headSha: "2".repeat(40) },
+    sourceFailureBatch: {
+      findings: [{
+        diagnosticExcerpt: "Unexpected token token=credential-value",
+        rawOutput: "must never persist",
+      }],
+    },
+  };
+  const input = {
+    branchName: "fix/recovered",
+    predecessorHead: "3".repeat(40),
+    newHead: "2".repeat(40),
+    reasonCode: "ordinary_source_failure_fix_committed",
+    ordinaryContinuation,
+  };
+  const transition = recoveredSourceHeadTransition(input);
+  const { digest, ...persistedPayload } = transition;
+  const exactSanitizedPayload = sanitizeRecoveryState({ version: 1, ...input });
+
+  assert.deepEqual(persistedPayload, exactSanitizedPayload);
+  assert.equal(
+    digest,
+    createHash("sha256").update(JSON.stringify(exactSanitizedPayload)).digest("hex"),
+  );
+  assert.notEqual(
+    digest,
+    createHash("sha256").update(JSON.stringify({ version: 1, ...input })).digest("hex"),
+  );
+  assert.equal(JSON.stringify(transition).includes("credential-value"), false);
+  assert.equal(JSON.stringify(transition).includes("must never persist"), false);
 });
 
 test("startup recovery reconciles the unique accepted charge after a claim-to-marker crash", () => {
@@ -441,7 +643,7 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /recommended_next_action: "run_safe_fix_cycle"/);
   assert.match(source, /reviewConvergenceState: iteration\.reviewConvergenceState/);
   assert.doesNotMatch(source, /reviewFixAttempts: iteration\.reviewFixAttempts \|\| \[\]/);
-  assert.match(source, /synchronizeRecoveredSourceChange\(state, ordinaryContinuation, "ordinary_source_failure_fix_committed"\)/);
+  assert.match(source, /await synchronizeRecoveredSourceChange\(\s*config, state, ordinaryContinuation, "ordinary_source_failure_fix_committed"/);
   assert.match(source, /accountConvergenceEvent\(convergence, \{ kind: "source_changed", newHead, reasonCode \}\)/);
   assert.match(source, /if \(decision\.retryable\) \{[\s\S]*iteration\.outcome = "validation_retryable";[\s\S]*decision\.nextAction/);
   assert.match(source, /counters: ordinaryCountersFromReviewConvergence\(iteration\.reviewConvergenceState\)/);
@@ -452,16 +654,21 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /reconstructedCurrentMainSha: proof\.currentMainSha/);
   assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint\(config, state, issue, laneDecision, lifecyclePhase\)[\s\S]*validateHistoricalRecoveryGitAuthority\(config\)[\s\S]*fetchOriginMain\(config, \{ trustedHistoricalRecovery: true \}\)[\s\S]*const reconstructedCurrentMainSha = getRefSha\("origin\/main"\)[\s\S]*"merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha/);
   assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*"merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha[\s\S]*candidateAlreadyInMain\.status === 0[\s\S]*historical_candidate_already_in_main[\s\S]*candidateAlreadyInMain\.status !== 1[\s\S]*large_candidate_recovery_current_main_untrusted/);
-  assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*baseSha !== reconstructedCurrentMainSha[\s\S]*verifyHistoricalInitialCandidateLineage\(config, state, issue, \{[\s\S]*expectedLifecyclePhase: lifecyclePhase[\s\S]*filterForbiddenChangedFiles\(proof\.candidateIdentity\.changedFiles, laneDecision\)[\s\S]*provenIdentity = proof\.candidateIdentity/);
-  assert.match(source, /exactHeadEvidence: \{[\s\S]*baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
+  assert.match(source, /function loadNormalLargeCandidateRecoveryCheckpoint[\s\S]*let lineageProof = null;[\s\S]*baseSha !== reconstructedCurrentMainSha[\s\S]*lineageProof = verifyHistoricalInitialCandidateLineage\(config, state, issue, \{[\s\S]*expectedLifecyclePhase: lifecyclePhase[\s\S]*filterForbiddenChangedFiles\(lineageProof\.candidateIdentity\.changedFiles, laneDecision\)[\s\S]*provenIdentity = lineageProof\.candidateIdentity[\s\S]*lineageProof\?\.reconciledRecovery/);
+  assert.match(source, /exactHeadEvidence: \{[\s\S]*baseSha: candidate\.baseSha, historicalEffectMainSha, currentMainSha/);
   assert.match(source, /large_candidate_routing_state_missing"[\s\S]*reconstructedCurrentMainSha/);
   assert.match(source, /reviewerResults: loaded\.state\.reviewerResults, reconstructedCurrentMainSha/);
-  assert.match(source, /const upgraded = \{ \.\.\.initial, expectedOriginMainSha: checkpoint\.reconstructedCurrentMainSha \}/);
-  assert.match(source, /targetDigest: ordinaryContinuationPhaseTarget\(upgraded, phase\)/);
-  assert.match(source, /const persist = async \(ordinaryContinuation\)[\s\S]*const upgraded = \{ \.\.\.initial, expectedOriginMainSha: checkpoint\.reconstructedCurrentMainSha \}[\s\S]*await persist\(initial\)[\s\S]*const result = await continueOrdinaryCandidate\(initial/);
-  assert.match(source, /const expectedCurrentMain = initial\.expectedOriginMainSha/);
-  assert.match(source, /expectedOriginMainSha: continuation\.expectedOriginMainSha/);
-  assert.match(source, /baseSha: candidate\.baseSha, currentMainSha: continuation\.expectedOriginMainSha/);
+  assert.match(source, /const historicalEffectMainSha = reconciledMain\?\.historicalEffectMainSha[\s\S]*\|\| initial\.expectedOriginMainSha/);
+  assert.match(source, /const currentMainSha = reconciledMain\?\.currentMainSha[\s\S]*\|\| checkpoint\.reconstructedCurrentMainSha/);
+  assert.match(source, /const preEffectMainCanAdvance = !reconciledMain[\s\S]*state\.pr\?\.number == null[\s\S]*!initial\.effects\?\.push[\s\S]*expectedOriginMainSha: currentMainSha[\s\S]*ordinaryContinuationPhaseTarget\(advancedMain, phase\)[\s\S]*state = \(await persist\(initial\)\)\.state/);
+  assert.doesNotMatch(source, /expectedOriginMainSha: checkpoint\.reconstructedCurrentMainSha/);
+  assert.match(source, /getRefSha\("origin\/main"\) !== currentMainSha/);
+  assert.match(source, /expectedOriginMainSha: currentMainSha,[\s\S]*historicalEffectMainSha/);
+  assert.match(source, /baseSha: candidate\.baseSha, historicalEffectMainSha, currentMainSha/);
+  assert.match(source, /const reconciledWrite = writeRecoveryState\(config, state\);[\s\S]*loadRecoveryState\(config, reconciledWrite\.state\)[\s\S]*recoveryReconciliation\?\.evidenceDigest !== reconciledRecovery\?\.evidenceDigest[\s\S]*state = reconciledReload\.state/);
+  assert.match(source, /reconciledRecovery[\s\S]*reconciledReload\.state\.pr\?\.number !== \(reconciledPr\?\.number \?\? null\)/);
+  assert.equal((source.match(/recoveryReconciliation: null/g) || []).length, 3);
+  assert.doesNotMatch(source, /getRefSha\("origin\/main"\) !== expectedCurrentMain/);
   assert.match(source, /baseSha: exactHeadEvidence\.baseSha \|\| recoveryState\?\.branch\?\.baseSha \|\| null,[\s\S]*expectedOriginMainSha: recoveryConfig\.expectedOriginMainSha \|\| baseOriginMainSha/);
   assert.match(source, /expectedReportPaths: \{[\s\S]*repoReportPath: promptInfo\.reportPath,[\s\S]*promptPath: promptInfo\.promptPath,[\s\S]*durableReportPath: iteration\.report\.copyPath/);
   assert.match(source, /ordinaryContinuation\.sourceFailureBatch = iteration\.sourceFailureBatch \|\| null;[\s\S]*ordinaryContinuation\.sourceFailureHistory = \[\.\.\.\(iteration\.sourceFailureHistory \|\| \[\]\)\]/);
@@ -592,7 +799,8 @@ test("startup push, PR-create, and CI-wait recovery use ordinary continuation be
     resume.slice(ordinaryPrCreate, existingPrRecovery),
     /continueOrdinaryCandidateRecovery\(config, logger,[\s\S]*?boundary,[\s\S]*?operationalCheckpoint/,
   );
-  assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*state = \{[\s\S]*pr: \{[\s\S]*number: context\.pr\.number,[\s\S]*headSha: continuation\.identity\.headSha,[\s\S]*state: context\.pr\.state,[\s\S]*await writeRecoveryState\(config, state\)/);
+  assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*state = recordIdempotentMutation\(\{[\s\S]*pr: \{[\s\S]*number: context\.pr\.number,[\s\S]*headSha: continuation\.identity\.headSha,[\s\S]*state: context\.pr\.state,[\s\S]*await writeRecoveryState\(config, state\)/);
+  assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*recordIdempotentMutation\(\{[\s\S]*recoveryReconciliation: null,[\s\S]*pr: \{/);
   assert.match(runner, /push: async \(continuation\)[\s\S]*expectedRemoteHeadSha: candidate\.headSha[\s\S]*await writeRecoveryState\(config, state\)[\s\S]*headSha: candidate\.headSha/);
   assert.match(runner, /outageTargetHeadIsAuthenticatedAncestor[\s\S]*sourceFailureHistory\?\.[\s\S]*config\.outageRecoveryTarget\?\.prHeadSha[\s\S]*outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor[\s\S]*prHeadSha: candidate\.headSha[\s\S]*const recoveryConfig = \{[\s\S]*outageRecoveryTarget/);
   assert.match(runner, /const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence\(laneDecision, exactHeadEvidence\)[\s\S]*allowRebuild: regenerationRequired[\s\S]*if \(regenerationRequired\)/);

@@ -344,6 +344,28 @@ the candidate's exact single-child topology and bytes, its literal branch ref,
 the canonical repository/remote and trusted Git environment,
 and the matching recovery/lifecycle/charge/checkpoint/finalized-commit-intent
 authority with no later push, PR, merge, or replacement-candidate effect.
+The only pre-PR exception is exact terminal validation-failure bookkeeping
+from the authenticated original outcome: two finalized hygiene components
+(add only `auto-failed`; remove only `auto-running` and `auto-claimed`) and one
+prepared issue-comment intent whose canonical bounded body digest is read from
+that unique authenticated intent rather than reconstructed from sanitized
+summary text. Every identity,
+lifecycle generation/session, charge, branch/base/candidate, terminal outcome,
+and live label must agree, with no remote task branch, PR, push marker, or
+other external effect. Admission performs no GitHub or durable-state mutation.
+The two hygiene intents share the exact finalized candidate-commit
+session/generation; the prepared comment is owned by the exact current terminal
+generation and cites the immediately preceding retired generation. That
+immediate predecessor must be the last retired session, while the recovery
+session derived from the exact operation must remain present in retired
+history across later handoffs. The predecessor must carry the
+validated-successor handoff diagnostic into the request-bound successor. A
+bounded, paginated live issue read must prove that zero or one comments match
+the canonical body digest.
+Missing, duplicated, differently fingerprinted, executing, finalized-comment,
+failed-closed, payload-mismatched, label-contradictory, foreign-owner,
+generation-drifted, later, or unreadable evidence fails closed. Authenticated
+existing-PR recovery remains a separate authority and is not broadened.
 The clean current-`main` control-plane checkout may remain in place. Recovery
 reuses an exact linked task worktree only when its durable ownership marker
 already matches, or materializes one for the already authenticated literal
@@ -1741,3 +1763,22 @@ or umbrella posture, manual/activation gate posture, major acceptance, or an
 explicit scheduled reconciliation. Wait, retry, heartbeat, check polling,
 source cycles, session rotation, and control transitions never request a
 ledger-only PR.
+
+# Historical push/PR recovery reconciliation
+
+Preserved existing-PR admission uses one shared authenticated projection. A
+contiguous matched PR-checkpoint prefix may be followed by zero through 49
+finalized push-only heads, bounded by the existing 50-round convergence limit.
+Each head must have one exact task-scoped push intent and descend from its
+predecessor; the unique live branch and open non-draft PR must end at the last
+head. PR intents in the unmatched suffix, gaps, duplicates, reordered or forked
+heads, multiple PRs, and live-head disagreement are rejected.
+
+The projection atomically replaces a stale persisted PR head before startup
+interruption planning and carries its own live-read/evidence digest,
+task/run/supervisor/claim/charge/lifecycle identity, continuation phase, and
+recovery provenance. Historical effect-time main remains immutable in ordinary
+continuation targets. Fresh current main is stored separately only after
+proving original-base to effect-time-main to current-main ancestry. Downstream
+recovery consumes both values and never substitutes current main for the
+historical effect identity.

@@ -8,7 +8,13 @@ function runGh(config, args, { mutation = false } = {}) {
   const boundArgs = args[0] === "issue" && !args.includes("--repo")
     ? [...args, "--repo", config.repositorySlug]
     : args;
-  const result = spawnSync("gh", boundArgs, { cwd: config.repoRoot, encoding: "utf8", windowsHide: true });
+  const result = spawnSync("gh", boundArgs, {
+    cwd: config.repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 30_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
   return {
     command: `gh ${boundArgs.join(" ")}`,
     status: result.status,
@@ -187,9 +193,68 @@ export function readIssueLive(config, issueNumber) {
   }
 }
 
+export function readIssueCommentDigest(config, issueNumber, bodyDigest) {
+  if (!Number.isSafeInteger(issueNumber) || !/^[a-f0-9]{64}$/u.test(bodyDigest || "")) {
+    return { complete: false, matchingCount: 0 };
+  }
+  if (config.fixtureLiveIssues || config.fixtureIssues) {
+    const live = readIssueLive(config, issueNumber);
+    if (!live.ok || !Array.isArray(live.issue.comments)) {
+      return { complete: false, matchingCount: 0 };
+    }
+    return {
+      complete: true,
+      matchingCount: live.issue.comments.filter(
+        (comment) => canonicalGithubEvidenceDigest(String(comment?.body || "")) === bodyDigest,
+      ).length,
+    };
+  }
+  const [owner, name] = String(config.repositorySlug || "").split("/");
+  if (!owner || !name) return { complete: false, matchingCount: 0 };
+  let cursor = null;
+  let matchingCount = 0;
+  for (let page = 0; page < 100; page += 1) {
+    const args = [
+      "api", "graphql",
+      "-f", "query=query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){issue(number:$number){number comments(first:100,after:$cursor){nodes{body} pageInfo{hasNextPage endCursor}}}}}",
+      "-f", `owner=${owner}`,
+      "-f", `name=${name}`,
+      "-F", `number=${issueNumber}`,
+    ];
+    if (cursor) args.push("-f", `cursor=${cursor}`);
+    const result = runGh(config, args);
+    if (result.error || result.status !== 0 || result.stderr !== "") {
+      return { complete: false, matchingCount: 0 };
+    }
+    try {
+      const payload = JSON.parse(result.stdout || "{}");
+      const issue = payload?.data?.repository?.issue;
+      if ((Array.isArray(payload?.errors) && payload.errors.length > 0)
+        || issue?.number !== issueNumber
+        || !Array.isArray(issue?.comments?.nodes)
+        || typeof issue?.comments?.pageInfo?.hasNextPage !== "boolean") {
+        return { complete: false, matchingCount: 0 };
+      }
+      matchingCount += issue.comments.nodes.filter(
+        (comment) => canonicalGithubEvidenceDigest(String(comment?.body || "")) === bodyDigest,
+      ).length;
+      if (!issue.comments.pageInfo.hasNextPage) {
+        return { complete: true, matchingCount };
+      }
+      if (!issue.comments.pageInfo.endCursor || page === 99) {
+        return { complete: false, matchingCount: 0 };
+      }
+      cursor = issue.comments.pageInfo.endCursor;
+    } catch {
+      return { complete: false, matchingCount: 0 };
+    }
+  }
+  return { complete: false, matchingCount: 0 };
+}
+
 export function commentIssueOutcome(config, issue, outcome, body, { effectContext = null } = {}) {
   const mutations = outcomeToMutations(outcome);
-  const boundedBody = body.length > 4000 ? `${body.slice(0, 3900)}\n\n[truncated]` : body;
+  const boundedBody = boundIssueOutcomeBody(body);
   if (config.dryRun) {
     return {
       skipped: true,
@@ -245,6 +310,11 @@ export function commentIssueOutcome(config, issue, outcome, body, { effectContex
   }
   const result = runGh(config, ["issue", "comment", String(issue.number), "--body", boundedBody], { mutation: true });
   return { skipped: false, status: result.status, stderr: result.stderr };
+}
+
+export function boundIssueOutcomeBody(body) {
+  const text = String(body || "");
+  return text.length > 4000 ? `${text.slice(0, 3900)}\n\n[truncated]` : text;
 }
 
 function issueSortKey(config, issue) {
