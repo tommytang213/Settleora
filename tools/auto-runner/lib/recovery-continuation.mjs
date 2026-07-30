@@ -348,7 +348,17 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     validationRetryDerivativeTerminalPhase: validationRetryTerminal
       ? validationRetryDerivativeTerminalPhase(validationRetryTerminal)
       : null,
-  }, preparation?.evidenceAdapters || {});
+  }, preparation?.evidenceAdapters || {}, {
+    revalidateValidationRetryDerivative: reloadedProjection
+      ? () => {
+        const projection = projectTargetedTerminalDerivative(config, loaded.state);
+        return {
+          ok: projection.ok && projection.evidenceDigest === reloadedProjection.evidenceDigest,
+          reasonCode: "terminal_projection_at_reopen_mismatch",
+        };
+      }
+      : null,
+  });
   if (!lifecycleRecovery.ok) {
     return {
       ok: false,
@@ -466,7 +476,13 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   };
 }
 
-export function consumeStartupInterruptionPlanner(config, recoveryState, interruption = {}, evidenceAdapters = {}) {
+export function consumeStartupInterruptionPlanner(
+  config,
+  recoveryState,
+  interruption = {},
+  evidenceAdapters = {},
+  { revalidateValidationRetryDerivative = null } = {},
+) {
   const identity = {
     repository: config.repositorySlug,
     issueNumber: recoveryState.issue?.number,
@@ -549,6 +565,13 @@ export function consumeStartupInterruptionPlanner(config, recoveryState, interru
     lifecycleState = headPersisted.state;
   }
   if (interruption.validationRetryDerivativeAuthorized === true) {
+    const revalidation = typeof revalidateValidationRetryDerivative === "function"
+      ? revalidateValidationRetryDerivative()
+      : { ok: false, reasonCode: "terminal_projection_at_reopen_revalidation_missing" };
+    if (!revalidation?.ok) return {
+      ok: false,
+      reasonCode: revalidation?.reasonCode || "terminal_projection_at_reopen_mismatch",
+    };
     const reopened = reopenKnownValidationRetryDerivative(config, lifecycleState, inputs.liveEffects, {
       terminalPhaseAfter: interruption.validationRetryDerivativeTerminalPhase,
     });

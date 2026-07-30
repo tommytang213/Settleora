@@ -219,6 +219,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
     /await prepareAuthoritativeRecovery[\s\S]*loadRecoveryState\(config, loaded\.state\)[\s\S]*projectTargetedTerminalDerivative\(config, preReopenLoaded\.state\)[\s\S]*terminal_projection_pre_reopen_mismatch[\s\S]*consumeStartupInterruptionPlanner/,
   );
   assert.match(
+    continuationSource,
+    /consumeStartupInterruptionPlanner[\s\S]*revalidateValidationRetryDerivative:[\s\S]*projectTargetedTerminalDerivative\(config, loaded\.state\)[\s\S]*collectAuthoritativeRecoveryEvidence[\s\S]*revalidateValidationRetryDerivative\(\)[\s\S]*reopenKnownValidationRetryDerivative/,
+  );
+  assert.match(
     source,
     /prepareAuthoritativeRecovery: async \(\{ state, terminalDerivativeProjection \}\)[\s\S]*if \(!terminalDerivativeProjection\?\.ok\) \{[\s\S]*writeRecoveryState\(config, state\)[\s\S]*state = reconciledReload\.state;/,
   );

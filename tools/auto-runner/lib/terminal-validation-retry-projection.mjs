@@ -132,6 +132,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
       publicArtifact(stateArtifact, "iterationState"),
       publicArtifact(summaryArtifact, "runnerSummary"),
       publicArtifact(specArtifact, "supervisorSpec"),
+      publicArtifact(supervisorStateArtifact, "supervisorState"),
     ]);
     const evidenceDigest = digest(canonical({
       artifacts: boundArtifacts.map(({ role, sha256 }) => ({ role, sha256 })),
