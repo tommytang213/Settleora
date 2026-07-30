@@ -39,8 +39,23 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     }
 
     const stateRoot = path.join(root, "state");
-    const issueStates = trustedJsonFiles(stateRoot)
+    const allStates = trustedJsonFiles(stateRoot)
+      .filter((artifact) => /^run-.+-\d+-issue-\d+\.json$/.test(path.basename(artifact.path)));
+    const directlyAssociatedStates = allStates
       .filter((artifact) => stateMayBelongToTarget(artifact.value, target));
+    const latestDirectState = selectLatestIssueStateTimestamp(
+      directlyAssociatedStates.map(({ value }) => value),
+    );
+    if (!latestDirectState.ok) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
+    const successorRunAnchors = directlyAssociatedStates
+      .filter(({ value }) => value.finishedAt === latestDirectState.finishedAt)
+      .map((artifact) => artifact.value);
+    const issueStates = allStates.filter(({ value }) =>
+      stateMayBelongToTargetOrSuccessorRun(
+        value,
+        target,
+        successorRunAnchors,
+      ));
     const latestState = selectLatestIssueStateTimestamp(issueStates.map(({ value }) => value));
     if (!latestState.ok) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
     const latestFinishedAt = latestState.finishedAt;
@@ -180,6 +195,14 @@ export function stateMayBelongToTarget(state, target) {
       projected?.issueNumber === target?.issueNumber
       || projected?.taskKey === target?.taskKey
       || projected?.branchName === target?.branch);
+}
+
+export function stateMayBelongToTargetOrSuccessorRun(state, target, directlyAssociatedStates = []) {
+  if (stateMayBelongToTarget(state, target)) return true;
+  return directlyAssociatedStates.some((associated) =>
+    (typeof state?.runId === "string" && state.runId.length > 0 && state.runId === associated?.runId)
+    || (typeof state?.supervisorRunId === "string" && state.supervisorRunId.length > 0
+      && state.supervisorRunId === associated?.supervisorRunId));
 }
 
 function exactLifecycle(state, target) {

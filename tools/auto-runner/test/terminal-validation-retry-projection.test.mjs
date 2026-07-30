@@ -8,6 +8,7 @@ import {
   exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
   stateMayBelongToTarget,
+  stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
 
 test("terminal retry projection rejects any later or unknown mutation marker category", () => {
@@ -76,6 +77,33 @@ test("terminal retry projection associates malformed successor issue state by ta
     taskKey: "unrelated",
     branchName: "feature/unrelated",
   }, target), false);
+});
+
+test("terminal retry projection can carry direct association through successor run identity", () => {
+  const target = {
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    branch: "feature/auto-959-preserved",
+  };
+  const associated = {
+    runId: "run-successor",
+    issue: { number: target.issueNumber },
+    taskKey: null,
+    branchName: target.branch,
+  };
+  const malformedLater = {
+    runId: associated.runId,
+    issue: null,
+    taskKey: null,
+    branchName: null,
+  };
+  assert.equal(stateMayBelongToTarget(associated, target), true);
+  assert.equal(stateMayBelongToTarget(malformedLater, target), false);
+  assert.equal(stateMayBelongToTargetOrSuccessorRun(malformedLater, target, [associated]), true);
+  assert.equal(stateMayBelongToTargetOrSuccessorRun({
+    ...malformedLater,
+    runId: "unrelated-successor",
+  }, target, [associated]), false);
 });
 
 test("terminal retry projection binds successor spec base and compatible runner mode", () => {
