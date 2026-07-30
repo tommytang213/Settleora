@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
+import { supervisorModeToRunnerMode } from "./run-correlation.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const TERMINAL_REASON_CODE = "checkpoint_validation_recovery_failed_closed";
@@ -228,9 +229,11 @@ function exactTerminalSummary(summary, iteration, target) {
     && Date.parse(summary?.finishedAt) >= Date.parse(iteration?.finishedAt);
 }
 
-function exactSuccessorSpec(spec, summary) {
+export function exactSuccessorSpec(spec, summary) {
   return spec?.specVersion === 1 && spec?.runId === summary.supervisorRunId
     && spec?.mode === "trusted" && spec?.maxTasks === 1
+    && supervisorModeToRunnerMode(spec.mode) === summary?.mode
+    && spec?.initialOriginMainSha === summary?.baseOriginMainSha
     && spec?.requestedBy === "operator" && spec?.sourceBranchName === null
     && spec?.sourceIssueNumber === null && spec?.parentRunnerRunId === null
     && spec?.parentSupervisorRunId === null && spec?.recoveryOnlyTarget === null

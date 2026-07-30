@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   exactRawCheckpointMutationMarkerShape,
+  exactSuccessorSpec,
   selectLatestIssueStateTimestamp,
   stateMayBelongToTarget,
 } from "../lib/terminal-validation-retry-projection.mjs";
@@ -73,4 +74,33 @@ test("terminal retry projection associates malformed successor issue state by ta
     taskKey: "unrelated",
     branchName: "feature/unrelated",
   }, target), false);
+});
+
+test("terminal retry projection binds successor spec base and compatible runner mode", () => {
+  const summary = {
+    supervisorRunId: "supervised-20260730T093234Z-dcc42a3a61db",
+    mode: "run",
+    baseOriginMainSha: "e96376b03d1e11dddeec28be237201ce56681753",
+    startedAt: "2026-07-30T09:32:43.000Z",
+  };
+  const spec = {
+    specVersion: 1,
+    runId: summary.supervisorRunId,
+    mode: "trusted",
+    maxTasks: 1,
+    initialOriginMainSha: summary.baseOriginMainSha,
+    requestedBy: "operator",
+    sourceBranchName: null,
+    sourceIssueNumber: null,
+    parentRunnerRunId: null,
+    parentSupervisorRunId: null,
+    recoveryOnlyTarget: null,
+    createdAt: "2026-07-30T09:32:34.000Z",
+  };
+  assert.equal(exactSuccessorSpec(spec, summary), true);
+  assert.equal(exactSuccessorSpec({
+    ...spec,
+    initialOriginMainSha: "0".repeat(40),
+  }, summary), false);
+  assert.equal(exactSuccessorSpec(spec, { ...summary, mode: "dry-run" }), false);
 });
