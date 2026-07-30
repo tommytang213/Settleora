@@ -114,7 +114,7 @@ import {
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
-import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor } from "./lib/recovery-continuation.mjs";
+import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor, validateTerminalDerivativeContinuationAdmission } from "./lib/recovery-continuation.mjs";
 import { collectControlPlaneRecoveryAdmission } from "./lib/authoritative-recovery-evidence.mjs";
 import { autoMergeEffectsConfirmed } from "./lib/terminal-effects.mjs";
 import {
@@ -273,6 +273,7 @@ export async function main() {
       config,
       { issue: { number: config.outageRecoveryTarget?.issueNumber } },
       recoveryOnlyStartupDiscovery.terminalDerivativeProjection,
+      recoveryOnlyStartupDiscovery.terminalDerivativeContinuationAdmission,
     )
     : { ok: true };
   let lockPath = null;
@@ -3684,12 +3685,20 @@ function recoveredReviewerManualVerdict(evidence) {
   return verdict === "danger_gate" ? "danger_gate" : verdict === "needs_tommy" ? "blocked_needs_tommy" : null;
 }
 
-function validateRecoveryOnlyStartupEvidence(config, state, terminalDerivativeProjection = null) {
+function validateRecoveryOnlyStartupEvidence(
+  config,
+  state,
+  terminalDerivativeProjection = null,
+  terminalDerivativeContinuationAdmission = null,
+) {
   if (!config.outageRecoveryOnly) return { ok: true };
   if (config.outageRecoveryTarget?.terminalValidationRetryDerivativeNoPr === true) {
-    return terminalDerivativeProjection?.ok === true
-      ? { ok: true }
-      : { ok: false, reason: "terminal_validation_retry_derivative_projection_missing" };
+    if (terminalDerivativeProjection?.ok === true
+      || terminalDerivativeContinuationAdmission?.ok === true
+      || validateTerminalDerivativeContinuationAdmission(state, config.outageRecoveryTarget).ok) {
+      return { ok: true };
+    }
+    return { ok: false, reason: "terminal_validation_retry_derivative_projection_missing" };
   }
   const issueNumber = state?.issue?.number;
   const recoveryConfig = config.existingPrRecovery?.[issueNumber] || config.existingPrRecovery?.[String(issueNumber)] || null;

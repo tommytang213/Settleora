@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   advanceRecoveryPhase,
@@ -188,6 +189,7 @@ export function discoverTargetedStartupRecovery(config) {
     stateCounts: partition.counts,
     target,
     terminalDerivativeProjection: boundedProjectionEvidence(projection),
+    terminalDerivativeContinuationAdmission: boundedTerminalDerivativeContinuationAdmission(state, target),
   };
   if (projection.ok) {
     Object.defineProperty(discovered, "projectedRecoveryState", {
@@ -385,6 +387,16 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   if (lifecycleRecovery.state) state = { ...state, sessionLifecycle: lifecycleRecovery.state };
+  if (reloadedProjection) {
+    state = {
+      ...state,
+      terminalDerivativeContinuationAdmission: createTerminalDerivativeContinuationAdmission(
+        config,
+        loaded.state,
+        reloadedProjection,
+      ),
+    };
+  }
   if (!validationRetryTerminal && lifecycleRecovery.earliestSafePhase && lifecycleRecovery.earliestSafePhase !== state.phase) {
     state = advanceRecoveryPhase(state, {
       phase: lifecycleRecovery.earliestSafePhase,
@@ -972,6 +984,100 @@ function compareRecoveryStateToTarget(state, target) {
     ["attemptNumber", state.outageResubmission?.attemptNumber || null, target.attemptNumber],
   ];
   const mismatch = checks.find(([, actual, expected]) => actual !== expected);
-  if (mismatch) return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
+  if (mismatch) {
+    if (target.terminalValidationRetryDerivativeNoPr === true
+      && validateTerminalDerivativeContinuationAdmission(state, target).ok) {
+      return { ok: true, terminalDerivativeContinuation: true };
+    }
+    return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
+  }
   return { ok: true };
+}
+
+function createTerminalDerivativeContinuationAdmission(config, originalState, projection) {
+  const identity = originalState.ordinaryContinuation?.identity;
+  const evidence = {
+    version: 1,
+    repository: config.repositorySlug,
+    issueNumber: originalState.issue?.number,
+    taskKey: originalState.taskKey,
+    runnerRunId: originalState.run?.runId,
+    supervisorRunId: originalState.run?.supervisorRunId,
+    branchName: originalState.branch?.name,
+    baseSha: originalState.branch?.baseSha,
+    originalHeadSha: originalState.branch?.currentHeadSha,
+    originalTreeSha: identity?.treeSha,
+    originalChangedFilesDigest: identity?.changedFilesDigest,
+    originalDiffDigest: identity?.diffDigest,
+    projectionEvidenceDigest: projection.evidenceDigest,
+  };
+  return {
+    ...evidence,
+    admissionDigest: createHash("sha256").update(JSON.stringify(evidence)).digest("hex"),
+  };
+}
+
+export function validateTerminalDerivativeContinuationAdmission(state, target) {
+  const admission = state?.terminalDerivativeContinuationAdmission;
+  if (!admission || admission.version !== 1) return { ok: false };
+  const { admissionDigest, ...evidence } = admission;
+  if (!/^[a-f0-9]{64}$/.test(String(admissionDigest || ""))
+    || admissionDigest !== createHash("sha256").update(JSON.stringify(evidence)).digest("hex")
+    || typeof admission.repository !== "string"
+    || admission.issueNumber !== target.issueNumber
+    || admission.taskKey !== target.taskKey
+    || admission.runnerRunId !== target.runnerRunId
+    || admission.supervisorRunId !== target.supervisorRunId
+    || admission.branchName !== target.branchName
+    || admission.baseSha !== target.baseSha
+    || admission.originalHeadSha !== target.currentHeadSha
+    || !/^[a-f0-9]{40}$/.test(String(admission.originalTreeSha || ""))
+    || !/^[a-f0-9]{64}$/.test(String(admission.originalChangedFilesDigest || ""))
+    || !/^[a-f0-9]{64}$/.test(String(admission.originalDiffDigest || ""))
+    || !/^[a-f0-9]{64}$/.test(String(admission.projectionEvidenceDigest || ""))) {
+    return { ok: false };
+  }
+  const current = state.ordinaryContinuation?.identity;
+  const originalCandidates = [
+    state.claimAuthority?.authority?.candidateIdentity,
+    state.ordinaryContinuation?.sourceFailureBatch?.candidate,
+    ...(state.ordinaryContinuation?.sourceFailureHistory || []).map((entry) => entry?.candidate),
+  ].filter(Boolean);
+  const sourceRepositories = [
+    ...(state.ordinaryContinuation?.sourceFailureBatch?.findings || []),
+    ...(state.ordinaryContinuation?.sourceFailureHistory || []).flatMap((entry) => entry?.findings || []),
+  ].map((finding) => finding?.repository).filter(Boolean);
+  const originalBound = originalCandidates.some((candidate) =>
+    candidate.headSha === admission.originalHeadSha
+      && candidate.treeSha === admission.originalTreeSha
+      && candidate.changedFilesDigest === admission.originalChangedFilesDigest
+      && candidate.diffDigest === admission.originalDiffDigest);
+  const prIsAbsent = state.pr?.number == null && state.pr?.headSha == null;
+  const prIsCurrent = Number.isSafeInteger(state.pr?.number)
+    && state.pr.number > 0
+    && state.pr.headSha === state.branch?.currentHeadSha
+    && state.pr.headRefName === state.branch?.name
+    && state.pr.baseRefName === "main";
+  if (!originalBound
+    || sourceRepositories.length === 0
+    || sourceRepositories.some((repository) => repository !== admission.repository)
+    || state.issue?.number !== admission.issueNumber
+    || state.taskKey !== admission.taskKey
+    || state.run?.runId !== admission.runnerRunId
+    || state.run?.supervisorRunId !== admission.supervisorRunId
+    || state.branch?.name !== admission.branchName
+    || state.branch?.baseSha !== admission.baseSha
+    || current?.headSha !== state.branch?.currentHeadSha
+    || !/^[a-f0-9]{40}$/.test(String(current?.treeSha || ""))
+    || !/^[a-f0-9]{64}$/.test(String(current?.changedFilesDigest || ""))
+    || !/^[a-f0-9]{64}$/.test(String(current?.diffDigest || ""))
+    || (!prIsAbsent && !prIsCurrent)) {
+    return { ok: false };
+  }
+  return { ok: true, admissionDigest, projectionEvidenceDigest: admission.projectionEvidenceDigest };
+}
+
+function boundedTerminalDerivativeContinuationAdmission(state, target) {
+  const validated = validateTerminalDerivativeContinuationAdmission(state, target);
+  return validated.ok ? Object.freeze(validated) : null;
 }

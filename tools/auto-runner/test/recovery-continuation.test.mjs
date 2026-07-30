@@ -45,6 +45,7 @@ import {
   shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
   consumeStartupInterruptionPlanner,
+  validateTerminalDerivativeContinuationAdmission,
 } from "../lib/recovery-continuation.mjs";
 
 test("startup recovery intent identity is effect-type-aware and fail-closed", () => {
@@ -3002,4 +3003,88 @@ test("status summary remains bounded and sanitized", () => {
   assert.equal(Object.hasOwn(summary, "rawPrompt"), false);
   assert.equal(Object.hasOwn(summary, "providerResponse"), false);
   assert.equal(summary.branchName.includes("20260713-1927"), true);
+});
+
+test("terminal derivative continuation admission survives later head and PR phases only with exact lineage", () => {
+  const target = {
+    terminalValidationRetryDerivativeNoPr: true,
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    runnerRunId: "run-original",
+    supervisorRunId: "supervised-original",
+    branchName: "feature/auto-959-preserved",
+    baseSha: "1".repeat(40),
+    currentHeadSha: "2".repeat(40),
+  };
+  const original = {
+    headSha: target.currentHeadSha,
+    treeSha: "3".repeat(40),
+    changedFilesDigest: "4".repeat(64),
+    diffDigest: "5".repeat(64),
+  };
+  const current = {
+    headSha: "6".repeat(40),
+    treeSha: "7".repeat(40),
+    changedFilesDigest: "8".repeat(64),
+    diffDigest: "9".repeat(64),
+  };
+  const evidence = {
+    version: 1,
+    repository: "tommytang213/Settleora",
+    issueNumber: target.issueNumber,
+    taskKey: target.taskKey,
+    runnerRunId: target.runnerRunId,
+    supervisorRunId: target.supervisorRunId,
+    branchName: target.branchName,
+    baseSha: target.baseSha,
+    originalHeadSha: original.headSha,
+    originalTreeSha: original.treeSha,
+    originalChangedFilesDigest: original.changedFilesDigest,
+    originalDiffDigest: original.diffDigest,
+    projectionEvidenceDigest: "a".repeat(64),
+  };
+  const admission = {
+    ...evidence,
+    admissionDigest: createHash("sha256").update(JSON.stringify(evidence)).digest("hex"),
+  };
+  const recovery = {
+    terminalDerivativeContinuationAdmission: admission,
+    issue: { number: target.issueNumber },
+    taskKey: target.taskKey,
+    run: { runId: target.runnerRunId, supervisorRunId: target.supervisorRunId },
+    branch: { name: target.branchName, baseSha: target.baseSha, currentHeadSha: current.headSha },
+    pr: {
+      number: 1023,
+      headSha: current.headSha,
+      headRefName: target.branchName,
+      baseRefName: "main",
+    },
+    claimAuthority: { authority: { candidateIdentity: original } },
+    ordinaryContinuation: {
+      identity: current,
+      sourceFailureHistory: [{
+        candidate: original,
+        findings: [{ repository: evidence.repository }],
+      }],
+    },
+  };
+  assert.equal(validateTerminalDerivativeContinuationAdmission(recovery, target).ok, true);
+  assert.equal(validateTerminalDerivativeContinuationAdmission({
+    ...recovery,
+    pr: { ...recovery.pr, headSha: "b".repeat(40) },
+  }, target).ok, false);
+  assert.equal(validateTerminalDerivativeContinuationAdmission({
+    ...recovery,
+    ordinaryContinuation: {
+      ...recovery.ordinaryContinuation,
+      sourceFailureHistory: [{
+        candidate: original,
+        findings: [{ repository: "other/repository" }],
+      }],
+    },
+  }, target).ok, false);
+  assert.equal(validateTerminalDerivativeContinuationAdmission({
+    ...recovery,
+    terminalDerivativeContinuationAdmission: { ...admission, projectionEvidenceDigest: "c".repeat(64) },
+  }, target).ok, false);
 });
