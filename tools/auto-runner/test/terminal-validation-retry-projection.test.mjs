@@ -23,6 +23,7 @@ import {
   exactTerminalSummary,
   exactTerminalFailureFindings,
   exactSuccessorSpec,
+  exactSuccessorSupervisorState,
   selectLatestIssueStateTimestamp,
   stateArtifactMayBelongToTarget,
   stateArtifactMayBelongToTargetOrSuccessorRun,
@@ -30,6 +31,68 @@ import {
   stateMayBelongToTarget,
   stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
+
+test("terminal retry projection binds the canonical supervisor state to the selected runner", () => {
+  const logsRoot = "/trusted/logs";
+  const iteration = {
+    runId: "run-successor",
+    startedAt: "2026-07-30T09:32:43.249Z",
+    finishedAt: "2026-07-30T09:32:51.858Z",
+  };
+  const summary = { supervisorRunId: "supervised-successor" };
+  const specArtifact = {
+    path: `${logsRoot}/supervisor/run-specs/spec-key/spec.json`,
+    sha256: "a".repeat(64),
+    value: { initialOriginMainSha: "b".repeat(40) },
+  };
+  const summaryJsonPath = `${logsRoot}/summaries/${iteration.runId}.json`;
+  const summaryMarkdownPath = `${logsRoot}/summaries/${iteration.runId}.md`;
+  const state = {
+    state: "blocked",
+    runId: summary.supervisorRunId,
+    runnerRunId: iteration.runId,
+    childTerminalState: "blocked",
+    childStatus: 2,
+    childSignal: null,
+    terminalReason: "child_exit_mapped",
+    specPath: specArtifact.path,
+    specSha256: specArtifact.sha256,
+    runnerConfigSha256: "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d",
+    maxTasks: 1,
+    maxRuntime: "14d",
+    initialOriginMainSha: specArtifact.value.initialOriginMainSha,
+    runnerSummaryJsonPath: summaryJsonPath,
+    runnerSummaryMarkdownPath: summaryMarkdownPath,
+    reportPath: summaryMarkdownPath,
+    reportResolution: {
+      ok: true,
+      status: "matched",
+      reason: null,
+      runnerRunId: iteration.runId,
+      runnerSummaryJsonPath: summaryJsonPath,
+      runnerSummaryMarkdownPath: summaryMarkdownPath,
+      reportPath: summaryMarkdownPath,
+    },
+    startedAt: "2026-07-30T09:32:43.035Z",
+    finishedAt: "2026-07-30T09:32:51.870Z",
+    heartbeatGeneration: 3,
+  };
+  assert.equal(exactSuccessorSupervisorState(state, iteration, summary, specArtifact, logsRoot), true);
+  for (const mutation of [
+    { runnerRunId: "run-later" },
+    { state: "running" },
+    { childTerminalState: "failed" },
+    { runnerSummaryJsonPath: `${logsRoot}/summaries/run-later.json` },
+  ]) {
+    assert.equal(exactSuccessorSupervisorState(
+      { ...state, ...mutation },
+      iteration,
+      summary,
+      specArtifact,
+      logsRoot,
+    ), false);
+  }
+});
 
 test("terminal retry projection binds the successor budget marker charge and task lineage", () => {
   const target = {

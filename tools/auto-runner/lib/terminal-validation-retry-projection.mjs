@@ -97,6 +97,25 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
       return denied("terminal_projection_successor_spec_missing_or_mismatch");
     }
     const specArtifact = specs[0];
+    const supervisorStateRoot = path.join(
+      root,
+      "supervisor",
+      "runs",
+      digest(summaryArtifact.value.supervisorRunId),
+    );
+    const supervisorStateArtifact = trustedJsonArtifact(
+      supervisorStateRoot,
+      path.join(supervisorStateRoot, "state.json"),
+    );
+    if (!exactSuccessorSupervisorState(
+      supervisorStateArtifact.value,
+      stateArtifact.value,
+      summaryArtifact.value,
+      specArtifact,
+      root,
+    )) {
+      return denied("terminal_projection_successor_supervisor_state_mismatch");
+    }
 
     const effectiveRecovery = structuredClone(rawRecovery);
     effectiveRecovery.phase = "stopped";
@@ -441,6 +460,37 @@ export function exactTerminalSummary(summary, iteration, target) {
     && summary?.acceptedLogicalTaskCount === 1 && summary?.maxIterations === 1
     && Date.parse(summary?.startedAt) <= Date.parse(iteration?.startedAt)
     && Date.parse(summary?.finishedAt) >= Date.parse(iteration?.finishedAt);
+}
+
+export function exactSuccessorSupervisorState(state, iteration, summary, specArtifact, logsRoot) {
+  const summaryJsonPath = path.join(logsRoot, "summaries", `${iteration?.runId}.json`);
+  const summaryMarkdownPath = path.join(logsRoot, "summaries", `${iteration?.runId}.md`);
+  return state?.state === "blocked"
+    && state?.runId === summary?.supervisorRunId
+    && state?.runnerRunId === iteration?.runId
+    && state?.childTerminalState === "blocked"
+    && state?.childStatus === 2
+    && state?.childSignal === null
+    && state?.terminalReason === "child_exit_mapped"
+    && state?.specPath === specArtifact?.path
+    && state?.specSha256 === specArtifact?.sha256
+    && state?.runnerConfigSha256 === SUCCESSOR_RUNNER_CONFIG_SHA256
+    && state?.maxTasks === 1
+    && state?.maxRuntime === "14d"
+    && state?.initialOriginMainSha === specArtifact?.value?.initialOriginMainSha
+    && state?.runnerSummaryJsonPath === summaryJsonPath
+    && state?.runnerSummaryMarkdownPath === summaryMarkdownPath
+    && state?.reportPath === summaryMarkdownPath
+    && state?.reportResolution?.ok === true
+    && state?.reportResolution?.status === "matched"
+    && state?.reportResolution?.reason === null
+    && state?.reportResolution?.runnerRunId === iteration?.runId
+    && state?.reportResolution?.runnerSummaryJsonPath === summaryJsonPath
+    && state?.reportResolution?.runnerSummaryMarkdownPath === summaryMarkdownPath
+    && state?.reportResolution?.reportPath === summaryMarkdownPath
+    && Date.parse(state?.startedAt) <= Date.parse(iteration?.startedAt)
+    && Date.parse(state?.finishedAt) >= Date.parse(iteration?.finishedAt)
+    && Number.isSafeInteger(state?.heartbeatGeneration) && state.heartbeatGeneration >= 1;
 }
 
 export function exactSuccessorSpec(spec, summary) {
