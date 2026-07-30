@@ -25,6 +25,7 @@ import {
   selectLatestIssueStateTimestamp,
   stateArtifactMayBelongToTarget,
   stateArtifactMayBelongToTargetOrSuccessorRun,
+  successorRunArtifactsAreUnique,
   stateMayBelongToTarget,
   stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
@@ -367,6 +368,27 @@ test("terminal retry projection treats a successor-run filename as superseding e
     target,
     [successor],
   ), true);
+});
+
+test("terminal retry projection rejects every additional successor-run artifact regardless of timestamp", () => {
+  const runId = "run-2026-07-30T100000Z-deadbeef";
+  const anchor = { runId };
+  const first = {
+    path: `/trusted/state/${runId}-1-issue-959.json`,
+    value: { runId, index: 1, issue: { number: 959 }, finishedAt: "2026-07-30T10:00:01.000Z" },
+  };
+  assert.equal(successorRunArtifactsAreUnique([first], [anchor]), true);
+  for (const extraPath of [
+    `/trusted/state/${runId}-2-issue-999.json`,
+    `/trusted/state/${runId}-2-no-issue.json`,
+    `/trusted/state/${runId}-1-issue-999.json`,
+  ]) {
+    assert.equal(successorRunArtifactsAreUnique([
+      first,
+      { path: extraPath, value: { finishedAt: "2026-07-30T09:00:00.000Z" } },
+    ], [anchor]), false);
+  }
+  assert.equal(successorRunArtifactsAreUnique([first], [anchor, { runId: "run-other" }]), false);
 });
 
 test("terminal retry projection binds successor spec base and compatible runner mode", () => {

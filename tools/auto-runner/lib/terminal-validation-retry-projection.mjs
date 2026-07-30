@@ -48,7 +48,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
 
     const stateRoot = path.join(root, "state");
     const allStates = trustedJsonFiles(stateRoot)
-      .filter((artifact) => /^run-.+-\d+-issue-\d+\.json$/.test(path.basename(artifact.path)));
+      .filter((artifact) => iterationStateFilenameIdentity(artifact) !== null);
     const directlyAssociatedStates = allStates
       .filter((artifact) => stateArtifactMayBelongToTarget(artifact, target));
     const latestDirectState = selectLatestIssueStateTimestamp(
@@ -64,6 +64,9 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
         target,
         successorRunAnchors,
       ));
+    if (!successorRunArtifactsAreUnique(allStates, successorRunAnchors)) {
+      return denied("terminal_projection_state_missing_ambiguous_or_superseded");
+    }
     const latestState = selectLatestIssueStateTimestamp(issueStates.map(({ value }) => value));
     if (!latestState.ok) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
     const latestFinishedAt = latestState.finishedAt;
@@ -244,11 +247,12 @@ export function stateMayBelongToTarget(state, target) {
 }
 
 function iterationStateFilenameIdentity(artifact) {
-  const match = /^(.+)-(\d+)-issue-(\d+)\.json$/u.exec(path.basename(artifact?.path || ""));
+  const match = /^(.+)-(\d+)-(?:issue-(\d+)|no-issue)\.json$/u.exec(path.basename(artifact?.path || ""));
   if (!match || !match[1].startsWith("run-")) return null;
   const index = Number(match[2]);
-  const issueNumber = Number(match[3]);
-  if (!Number.isSafeInteger(index) || index < 1 || !Number.isSafeInteger(issueNumber) || issueNumber < 1) return null;
+  const issueNumber = match[3] === undefined ? null : Number(match[3]);
+  if (!Number.isSafeInteger(index) || index < 1
+    || (issueNumber !== null && (!Number.isSafeInteger(issueNumber) || issueNumber < 1))) return null;
   return { runId: match[1], index, issueNumber };
 }
 
@@ -282,6 +286,16 @@ export function stateArtifactMayBelongToTargetOrSuccessorRun(
       target,
       directlyAssociatedStates,
     );
+}
+
+export function successorRunArtifactsAreUnique(artifacts, directlyAssociatedStates = []) {
+  const successorRunIds = new Set(directlyAssociatedStates
+    .map((state) => state?.runId)
+    .filter((runId) => typeof runId === "string" && runId.length > 0));
+  if (successorRunIds.size !== 1) return false;
+  const matching = artifacts.filter((artifact) =>
+    successorRunIds.has(iterationStateFilenameIdentity(artifact)?.runId));
+  return matching.length === 1;
 }
 
 export function stateMayBelongToTargetOrSuccessorRun(state, target, directlyAssociatedStates = []) {
