@@ -205,6 +205,7 @@ test("startup continuation blocks corrupt or unsafe state without polling fallba
 
 test("production runner is wired past discovery-only recovery and legacy PR classifier", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const continuationSource = readFileSync(new URL("../lib/recovery-continuation.mjs", import.meta.url), "utf8");
   const workspaceSource = readFileSync(new URL("../lib/git-workspace.mjs", import.meta.url), "utf8");
   const collector = readFileSync(new URL("../lib/authoritative-recovery-evidence.mjs", import.meta.url), "utf8");
   const lineage = readFileSync(
@@ -213,6 +214,10 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
+  assert.match(
+    continuationSource,
+    /await prepareAuthoritativeRecovery[\s\S]*projectTargetedTerminalDerivative\(config, loaded\.state\)[\s\S]*terminal_projection_pre_reopen_mismatch[\s\S]*consumeStartupInterruptionPlanner/,
+  );
   assert.match(
     source,
     /function reconstructInitialValidationFailureCheckpoint[\s\S]*allowTerminalValidationRetryPreparation: true,[\s\S]*verifyHistoricalInitialCandidateLineage/,

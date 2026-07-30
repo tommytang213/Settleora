@@ -321,6 +321,18 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   if (preparation?.state) state = preparation.state;
+  if (reloadedProjection) {
+    const preReopenProjection = projectTargetedTerminalDerivative(config, loaded.state);
+    if (!preReopenProjection.ok
+      || preReopenProjection.evidenceDigest !== reloadedProjection.evidenceDigest) {
+      return {
+        ok: false,
+        outcome: "blocked_recovery_state",
+        reasonCode: "terminal_projection_pre_reopen_mismatch",
+        recovery,
+      };
+    }
+  }
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
     ...(recovery.interruption || {}),
     validationRetryDerivativeAuthorized: validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
