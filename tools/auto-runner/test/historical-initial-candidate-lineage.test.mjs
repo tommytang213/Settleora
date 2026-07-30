@@ -855,7 +855,6 @@ test("historical existing-PR authentication binds every durable authority to the
     ["wrong PR base", (f) => { f.state.pr.baseRefName = "release"; }],
     ["wrong PR branch", (f) => { f.state.pr.headRefName = `${branch}-foreign`; }],
     ["prior PR head", (f) => { f.state.pr.headSha = f.headSha; }],
-    ["wrong remote head", (f) => { run(f.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, f.headSha]); }],
     ["missing push marker", (f) => { delete f.state.mutationMarkers.push; }],
     ["wrong push marker head", (f) => { f.state.mutationMarkers.push.push.correlation = f.headSha; }],
     ["wrong PR marker URL", (f) => { f.state.mutationMarkers.pr_create.pr.target = `https://github.com/${repository}/pull/1008`; }],
@@ -865,6 +864,28 @@ test("historical existing-PR authentication binds every durable authority to the
     ["wrong PR intent base", (f) => { f.intents.find((entry) => entry.effectType === "pr_create").effect.targetBaseSha = f.baseSha; }],
     ["wrong PR intent issue", (f) => { f.intents.find((entry) => entry.effectType === "pr_create").effect.issueNumber = issueNumber + 1; }],
     ["wrong continuation main", (f) => { f.state.ordinaryContinuation.expectedOriginMainSha = f.baseSha; }],
+    ["missing live branch", (f) => {
+      f.options.readRemoteTaskBranch = () => ({ complete: true, absent: true });
+    }],
+    ["moved live branch", (f) => {
+      f.options.readRemoteTaskBranch = () => ({
+        complete: true, absent: false, headSha: f.headSha,
+      });
+    }],
+    ["closed live PR", (f) => {
+      const read = f.options.readLiveTaskPrs;
+      f.options.readLiveTaskPrs = () => ({
+        ...read(),
+        prs: read().prs.map((entry) => ({ ...entry, state: "CLOSED" })),
+      });
+    }],
+    ["retargeted live PR", (f) => {
+      const read = f.options.readLiveTaskPrs;
+      f.options.readLiveTaskPrs = () => ({
+        ...read(),
+        prs: read().prs.map((entry) => ({ ...entry, baseRefName: "release" })),
+      });
+    }],
   ];
   for (const [name, mutate] of mutations) {
     const fixture = makeFixture(2);
@@ -1131,6 +1152,21 @@ function authenticateExistingPrFixture(fixture) {
   fixture.state.mutationMarkers.pr_create = {
     pr: { status: "completed", target: exactUrl, correlation: exactHead },
   };
+  fixture.options.readRemoteTaskBranch = () => ({
+    complete: true, absent: false, headSha: fixture.state.ordinaryContinuation.identity.headSha,
+  });
+  fixture.options.readLiveTaskPrs = () => ({
+    complete: true,
+    prs: fixture.state.pr.number == null ? [] : [{
+      number: fixture.state.pr.number,
+      url: fixture.state.pr.url,
+      state: fixture.state.pr.state,
+      isDraft: false,
+      baseRefName: fixture.state.pr.baseRefName,
+      headRefName: fixture.state.pr.headRefName,
+      headRefOid: fixture.state.pr.headSha,
+    }],
+  });
   run(fixture.repoRoot, ["update-ref", `refs/remotes/origin/${branch}`, exactHead]);
   fixture.intents.push({
     repository, sourceTaskKey: taskKey, runId, effectType: "push", status: "finalized",

@@ -228,15 +228,19 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const intentFinder = options.findIntents || findPreEffectIntents;
     const intents = intentFinder(config, (intent) => intent.repository === repository
       && intent.sourceTaskKey === taskKey && intent.runId === runId);
+    const remoteTaskBranchRead = (options.readRemoteTaskBranch
+      || readRemoteTaskBranch)(git, branch);
+    const liveTaskPrRead = options.allowAuthenticatedExistingPrEffects === true
+      ? (options.readLiveTaskPrs || readLiveTaskPrs)(config, branch)
+      : null;
     const authenticatedExistingPrEffects = options.allowAuthenticatedExistingPrEffects === true
       && validAuthenticatedExistingPrEffects(
         state, intents, {
           git, repository, issueNumber, taskKey, runId, branch, baseSha,
           currentMainSha: currentMain, headSha, chargeIdentity: budget.statePath,
+          remoteTaskBranchRead, liveTaskPrRead,
         },
       );
-    const remoteTaskBranchRead = (options.readRemoteTaskBranch
-      || readRemoteTaskBranch)(git, branch);
     const readTerminalComment = options.allowTerminalValidationRetryPreparation === true
       ? () => (options.readIssueCommentDigest || readIssueCommentDigest)(
         config, issueNumber, options.expectedTerminalCommentBodyDigest,
@@ -347,6 +351,26 @@ export function readRemoteTaskBranch(git, branch) {
   return sha.test(headSha || "") && ref === expectedRef && extra.length === 0
     ? { complete: true, absent: false, headSha }
     : { complete: false, absent: false };
+}
+
+export function readLiveTaskPrs(config, branch) {
+  const result = spawnSync("gh", [
+    "pr", "list", "--repo", config.repositorySlug, "--head", branch,
+    "--state", "all", "--limit", "100",
+    "--json", "number,url,state,isDraft,baseRefName,headRefName,headRefOid",
+  ], {
+    cwd: config.repoRoot,
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+  if (result.status !== 0 || result.stderr !== "") return { complete: false, prs: [] };
+  try {
+    const prs = JSON.parse(result.stdout || "[]");
+    if (!Array.isArray(prs) || prs.length > 100) return { complete: false, prs: [] };
+    return { complete: true, prs };
+  } catch {
+    return { complete: false, prs: [] };
+  }
 }
 
 export function validatePrePrTerminalIntentAuthority(input = {}) {
@@ -853,12 +877,12 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
   const markerHeads = (values, target) => values.every((entry) =>
     entry?.status === "completed" && entry?.target === target
       && orderedPushHeads.includes(entry?.correlation));
-  const remoteHead = authority.git([
-    "rev-parse", "--verify", `refs/remotes/origin/${authority.branch}`,
-  ]);
   const pushChainValid = continuation?.expectedOriginMainSha === authority.currentMainSha
     && state.branch?.expectedRemoteHeadSha === authority.headSha
-    && remoteHead.status === 0 && remoteHead.stdout.trim() === authority.headSha
+    && authority.remoteTaskBranchRead?.complete === true
+    && authority.remoteTaskBranchRead?.absent === false
+    && authority.remoteTaskBranchRead?.headSha === authority.headSha
+    && authority.liveTaskPrRead?.complete === true
     && Number.isSafeInteger(continuation?.counters?.githubTriggeredFixEpochsPerPr)
     && continuation.counters.githubTriggeredFixEpochsPerPr >= 0
     && continuation.counters.githubTriggeredFixEpochsPerPr <= 50
@@ -876,11 +900,21 @@ function validAuthenticatedExistingPrEffects(state, intents, authority) {
     && pushIntents.every(exactPush);
   const pushOnly = continuation?.phase === "pr_create_or_update"
     && pr?.number == null && pr?.url == null && pr?.headSha == null
+    && authority.liveTaskPrRead.prs.length === 0
     && prMarkers.length === 0 && prIntents.length === 0
     && externalIntents.length === orderedPushHeads.length
     && externalIntents.every((entry) => entry.effectType === "push");
   if (pushChainValid && pushOnly) return true;
+  const livePrMatches = authority.liveTaskPrRead.prs.filter((entry) =>
+    entry?.number === pr?.number
+    && entry?.url === exactUrl
+    && entry?.state === "OPEN"
+    && entry?.isDraft === false
+    && entry?.baseRefName === "main"
+    && entry?.headRefName === authority.branch
+    && entry?.headRefOid === authority.headSha);
   return pushChainValid
+    && authority.liveTaskPrRead.prs.length === 1 && livePrMatches.length === 1
     && Number.isSafeInteger(pr?.number) && pr.number > 0 && pr.url === exactUrl
     && pr.headSha === authority.headSha && priorHeads.has(pr.headSha)
     && pr.headRefName === authority.branch && pr.baseRefName === "main"
