@@ -115,7 +115,7 @@ export function discoverTargetedStartupRecovery(config) {
       states: [],
     };
   }
-  const partition = partitionRecoveryStatesByTarget(states, target);
+  const partition = partitionRecoveryStatesByTarget(config, states, target);
   if (partition.exactMatches.length === 0) {
     return {
       found: true,
@@ -189,7 +189,7 @@ export function discoverTargetedStartupRecovery(config) {
     stateCounts: partition.counts,
     target,
     terminalDerivativeProjection: boundedProjectionEvidence(projection),
-    terminalDerivativeContinuationAdmission: boundedTerminalDerivativeContinuationAdmission(state, target),
+    terminalDerivativeContinuationAdmission: boundedTerminalDerivativeContinuationAdmission(config, state, target),
   };
   if (projection.ok) {
     Object.defineProperty(discovered, "projectedRecoveryState", {
@@ -394,6 +394,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
         config,
         loaded.state,
         reloadedProjection,
+        lifecycleRecovery.state,
       ),
     };
   }
@@ -946,11 +947,11 @@ function summarizeRecoverableState(state) {
   };
 }
 
-function partitionRecoveryStatesByTarget(states, target) {
+function partitionRecoveryStatesByTarget(config, states, target) {
   const exactMatches = [];
   let nonMatchCount = 0;
   for (const state of states) {
-    const comparison = compareRecoveryStateToTarget(state, target);
+    const comparison = compareRecoveryStateToTarget(config, state, target);
     if (comparison.ok) {
       exactMatches.push(state);
     } else {
@@ -967,7 +968,7 @@ function partitionRecoveryStatesByTarget(states, target) {
   };
 }
 
-function compareRecoveryStateToTarget(state, target) {
+function compareRecoveryStateToTarget(config, state, target) {
   const checks = [
     ["taskKey", state.taskKey || null, target.taskKey],
     ["issueNumber", state.issue?.number || null, target.issueNumber],
@@ -986,7 +987,7 @@ function compareRecoveryStateToTarget(state, target) {
   const mismatch = checks.find(([, actual, expected]) => actual !== expected);
   if (mismatch) {
     if (target.terminalValidationRetryDerivativeNoPr === true
-      && validateTerminalDerivativeContinuationAdmission(state, target).ok) {
+      && validateTerminalDerivativeContinuationAdmission(config, state, target).ok) {
       return { ok: true, terminalDerivativeContinuation: true };
     }
     return { ok: false, reasonCode: "outage_recovery_target_mismatch", field: mismatch[0] };
@@ -994,7 +995,7 @@ function compareRecoveryStateToTarget(state, target) {
   return { ok: true };
 }
 
-function createTerminalDerivativeContinuationAdmission(config, originalState, projection) {
+function createTerminalDerivativeContinuationAdmission(config, originalState, projection, lifecycle) {
   const identity = originalState.ordinaryContinuation?.identity;
   const evidence = {
     version: 1,
@@ -1010,6 +1011,8 @@ function createTerminalDerivativeContinuationAdmission(config, originalState, pr
     originalChangedFilesDigest: identity?.changedFilesDigest,
     originalDiffDigest: identity?.diffDigest,
     projectionEvidenceDigest: projection.evidenceDigest,
+    lifecycleRequestId: lifecycle?.mutationAuthority?.handoff?.requestId,
+    lifecyclePredecessorDigest: lifecycle?.mutationAuthority?.handoff?.checkpointDigest,
   };
   return {
     ...evidence,
@@ -1017,7 +1020,9 @@ function createTerminalDerivativeContinuationAdmission(config, originalState, pr
   };
 }
 
-export function validateTerminalDerivativeContinuationAdmission(state, target) {
+export function validateTerminalDerivativeContinuationAdmission(config, state, target, {
+  loadLifecycle = loadSessionLifecycleForRecovery,
+} = {}) {
   const admission = state?.terminalDerivativeContinuationAdmission;
   if (!admission || admission.version !== 1) return { ok: false };
   const { admissionDigest, ...evidence } = admission;
@@ -1034,7 +1039,26 @@ export function validateTerminalDerivativeContinuationAdmission(state, target) {
     || !/^[a-f0-9]{40}$/.test(String(admission.originalTreeSha || ""))
     || !/^[a-f0-9]{64}$/.test(String(admission.originalChangedFilesDigest || ""))
     || !/^[a-f0-9]{64}$/.test(String(admission.originalDiffDigest || ""))
-    || !/^[a-f0-9]{64}$/.test(String(admission.projectionEvidenceDigest || ""))) {
+    || !/^[a-f0-9]{64}$/.test(String(admission.projectionEvidenceDigest || ""))
+    || !/^[a-f0-9]{64}$/.test(String(admission.lifecycleRequestId || ""))
+    || !/^[a-f0-9]{64}$/.test(String(admission.lifecyclePredecessorDigest || ""))) {
+    return { ok: false };
+  }
+  const authoritativeLifecycle = loadLifecycle(config, {
+    repository: admission.repository,
+    issueNumber: state.issue?.number,
+    taskKey: state.taskKey,
+    runId: state.run?.runId,
+    supervisorRunId: state.run?.supervisorRunId,
+    branchName: state.branch?.name,
+    baseSha: state.branch?.baseSha,
+    headSha: state.branch?.currentHeadSha,
+  }, { allowLegacySupervisorBackfill: false });
+  const handoff = authoritativeLifecycle.state?.mutationAuthority?.handoff;
+  if (!authoritativeLifecycle.ok
+    || handoff?.reason !== "validation_retry_derivative_reopened"
+    || handoff?.requestId !== admission.lifecycleRequestId
+    || handoff?.checkpointDigest !== admission.lifecyclePredecessorDigest) {
     return { ok: false };
   }
   const current = state.ordinaryContinuation?.identity;
@@ -1077,7 +1101,7 @@ export function validateTerminalDerivativeContinuationAdmission(state, target) {
   return { ok: true, admissionDigest, projectionEvidenceDigest: admission.projectionEvidenceDigest };
 }
 
-function boundedTerminalDerivativeContinuationAdmission(state, target) {
-  const validated = validateTerminalDerivativeContinuationAdmission(state, target);
+function boundedTerminalDerivativeContinuationAdmission(config, state, target) {
+  const validated = validateTerminalDerivativeContinuationAdmission(config, state, target);
   return validated.ok ? Object.freeze(validated) : null;
 }

@@ -3042,6 +3042,8 @@ test("terminal derivative continuation admission survives later head and PR phas
     originalChangedFilesDigest: original.changedFilesDigest,
     originalDiffDigest: original.diffDigest,
     projectionEvidenceDigest: "a".repeat(64),
+    lifecycleRequestId: "b".repeat(64),
+    lifecyclePredecessorDigest: "c".repeat(64),
   };
   const admission = {
     ...evidence,
@@ -3068,12 +3070,26 @@ test("terminal derivative continuation admission survives later head and PR phas
       }],
     },
   };
-  assert.equal(validateTerminalDerivativeContinuationAdmission(recovery, target).ok, true);
-  assert.equal(validateTerminalDerivativeContinuationAdmission({
+  const lifecycleLoader = () => ({
+    ok: true,
+    state: {
+      mutationAuthority: {
+        handoff: {
+          reason: "validation_retry_derivative_reopened",
+          requestId: evidence.lifecycleRequestId,
+          checkpointDigest: evidence.lifecyclePredecessorDigest,
+        },
+      },
+    },
+  });
+  const validate = (value, loadLifecycle = lifecycleLoader) =>
+    validateTerminalDerivativeContinuationAdmission({}, value, target, { loadLifecycle });
+  assert.equal(validate(recovery).ok, true);
+  assert.equal(validate({
     ...recovery,
     pr: { ...recovery.pr, headSha: "b".repeat(40) },
-  }, target).ok, false);
-  assert.equal(validateTerminalDerivativeContinuationAdmission({
+  }).ok, false);
+  assert.equal(validate({
     ...recovery,
     ordinaryContinuation: {
       ...recovery.ordinaryContinuation,
@@ -3082,9 +3098,21 @@ test("terminal derivative continuation admission survives later head and PR phas
         findings: [{ repository: "other/repository" }],
       }],
     },
-  }, target).ok, false);
-  assert.equal(validateTerminalDerivativeContinuationAdmission({
+  }).ok, false);
+  assert.equal(validate({
     ...recovery,
     terminalDerivativeContinuationAdmission: { ...admission, projectionEvidenceDigest: "c".repeat(64) },
-  }, target).ok, false);
+  }).ok, false);
+  assert.equal(validate(recovery, () => ({
+    ok: true,
+    state: {
+      mutationAuthority: {
+        handoff: {
+          reason: "validation_retry_derivative_reopened",
+          requestId: "d".repeat(64),
+          checkpointDigest: evidence.lifecyclePredecessorDigest,
+        },
+      },
+    },
+  })).ok, false);
 });

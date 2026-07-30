@@ -709,6 +709,8 @@ function validateRecoveryStateShape(state) {
       || !isDigest(admission.originalChangedFilesDigest)
       || !isDigest(admission.originalDiffDigest)
       || !isDigest(admission.projectionEvidenceDigest)
+      || !isDigest(admission.lifecycleRequestId)
+      || !isDigest(admission.lifecyclePredecessorDigest)
       || !isDigest(admissionDigest)
       || admissionDigest !== createHash("sha256").update(JSON.stringify(evidence)).digest("hex")) {
       return invalid("invalid terminal derivative continuation admission");
