@@ -440,6 +440,14 @@ export function exactTerminalIteration(value, target) {
     && value?.outcome === "blocked_recovery_state"
     && value?.issue?.number === target.issueNumber
     && value?.issueSource === "startup_recovery"
+    && value?.phase === "startup_recovery"
+    && value?.laneDecision === null
+    && canonical(value?.runIssueState) === canonical({
+      attemptedIssueNumbers: [],
+      attemptedIssueCount: 0,
+      processedIssueNumbers: [target.issueNumber],
+      processedIssueCount: 1,
+    })
     && value?.branchName === target.branch
     && value?.baseOriginMainSha === target.baseSha
     && value?.runnerCreatedCommitSha === target.headSha

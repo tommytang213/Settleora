@@ -231,6 +231,15 @@ test("terminal retry projection binds the successor budget marker charge and tas
     assert.equal(exactTerminalIteration({ ...iteration, [field]: null }, target), false);
     assert.equal(exactTerminalIteration({ ...iteration, [field]: { status: "completed" } }, target), false);
   }
+  assert.equal(exactTerminalIteration({ ...iteration, phase: "merge" }, target), false);
+  assert.equal(exactTerminalIteration({ ...iteration, laneDecision: {} }, target), false);
+  for (const runIssueState of [
+    { ...iteration.runIssueState, attemptedIssueNumbers: [target.issueNumber], attemptedIssueCount: 1 },
+    { ...iteration.runIssueState, processedIssueNumbers: [999] },
+    { ...iteration.runIssueState, processedIssueCount: 2 },
+  ]) {
+    assert.equal(exactTerminalIteration({ ...iteration, runIssueState }, target), false);
+  }
   assert.equal(exactTerminalIteration({
     ...iteration,
     systemicStop: "recoverable-work-blocked:different_reason",
