@@ -1276,12 +1276,17 @@ function trustedJsonFiles(root) {
 }
 
 function trustedRunnerSummaryJsonFiles(root) {
-  return readdirSync(root)
+  const names = readdirSync(root)
     .filter((name) => RUNNER_SUMMARY_FILENAME_PATTERN.test(name))
-    .sort()
+    .sort();
+  if (names.length > MAX_RUNNER_SUMMARY_FILES) {
+    throw new Error("runner summary scan limit exceeded");
+  }
+  return names
     .map((name) => trustedJsonArtifact(
       root,
       path.join(root, name),
+      null,
       MAX_RUNNER_SUMMARY_BYTES,
     ));
 }
@@ -1333,7 +1338,12 @@ function trustedNestedJsonFiles(root, basename) {
     .map((artifactPath) => trustedJsonArtifact(root, artifactPath));
 }
 
-function trustedJsonArtifact(root, artifactPath, maxBytes = MAX_ARTIFACT_BYTES) {
+function trustedJsonArtifact(
+  root,
+  artifactPath,
+  _artifactLabel = null,
+  maxBytes = MAX_ARTIFACT_BYTES,
+) {
   const artifact = trustedFileArtifact(root, artifactPath, maxBytes);
   return { ...artifact, value: JSON.parse(artifact.bytes.toString("utf8")) };
 }
