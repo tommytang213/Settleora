@@ -68,7 +68,7 @@ test("deployment projection diagnostics use a finite failure taxonomy", () => {
     ["terminal_projection_lifecycle_predecessor_mismatch", "predecessor_evidence_binding"],
     ["terminal_projection_failed_continuation_predecessor_identity_mismatch", "predecessor_evidence_binding"],
     ["terminal_projection_state_missing_ambiguous_or_superseded", "latest_state_selection"],
-    ["terminal_projection_loaded_artifact_mismatch", "iteration_shape_or_filename_identity"],
+    ["terminal_projection_loaded_artifact_mismatch", "authoritative_artifact_read"],
     ["terminal_projection_failed_continuation_overlay_mismatch", "iteration_shape_or_filename_identity"],
     ["terminal_projection_lifecycle_mismatch", "target_association"],
     ["terminal_projection_durable_budget_mismatch", "target_association"],

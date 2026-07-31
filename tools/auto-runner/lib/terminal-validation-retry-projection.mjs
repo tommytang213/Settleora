@@ -1291,11 +1291,13 @@ function trustedRunnerSummaryScan(root, selectedName) {
   const summaries = [];
   let selectedArtifact = null;
   for (const name of names) {
+    const diagnostic = observeRunnerSummaryDiagnostic(root, name);
     if (!runnerSummaryRequiresAuthentication(name, selectedName)) {
       summaries.push({
         path: path.join(root, name),
-        value: { supervisorRunId: false },
+        value: { supervisorRunId: diagnostic.supervisorRunId },
         supervisorRunIdDigest: null,
+        diagnostic,
       });
       continue;
     }
@@ -1313,9 +1315,44 @@ function trustedRunnerSummaryScan(root, selectedName) {
       supervisorRunIdDigest: typeof supervisorRunId === "string"
         ? digest(supervisorRunId)
         : null,
+      diagnostic,
     });
   }
   return { selectedArtifact, summaries };
+}
+
+export function observeRunnerSummaryDiagnostic(root, name) {
+  const file = path.join(root, name);
+  const base = { file: name, status: "skipped", reason: null, runnerRunId: null };
+  try {
+    const info = lstatSync(file);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      return { ...base, reason: "json_not_regular_file", supervisorRunId: false };
+    }
+    if (info.size > MAX_RUNNER_SUMMARY_BYTES) {
+      return { ...base, reason: "oversized_unrelated_candidate", supervisorRunId: false };
+    }
+    let value;
+    try {
+      value = JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      return { ...base, reason: "malformed_unrelated_json", supervisorRunId: false };
+    }
+    return {
+      ...base,
+      reason: value?.supervisorRunId
+        ? "wrong_supervisor_run_id"
+        : "missing_supervisor_run_id",
+      supervisorRunId: Boolean(value?.supervisorRunId),
+    };
+  } catch {
+    return {
+      ...base,
+      status: "fail_closed",
+      reason: "candidate_inspection_failed",
+      supervisorRunId: false,
+    };
+  }
 }
 
 export function runnerSummaryRequiresAuthentication(name, selectedName) {
@@ -1336,7 +1373,7 @@ export function failedContinuationTruncatedDiagnostics(
     .sort()
     .slice(0, 20)
     .map((name) => artifactsByName.get(name))
-    .map(({ path: artifactPath, value }) =>
+    .map(({ path: artifactPath, value, diagnostic }) =>
       artifactPath === selectedSummaryArtifact?.path
         ? {
           file: path.basename(artifactPath),
@@ -1344,7 +1381,12 @@ export function failedContinuationTruncatedDiagnostics(
           runnerRunId: selectedRunnerRunId,
           status: "matched",
         }
-        : {
+        : diagnostic ? {
+          file: diagnostic.file,
+          reason: diagnostic.reason,
+          runnerRunId: diagnostic.runnerRunId,
+          status: diagnostic.status,
+        } : {
           file: path.basename(artifactPath),
           reason: value?.supervisorRunId
             ? "wrong_supervisor_run_id"
