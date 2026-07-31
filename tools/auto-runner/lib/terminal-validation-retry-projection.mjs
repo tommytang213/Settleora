@@ -29,6 +29,10 @@ const FAILED_CONTINUATION_OWNER_PID = 2744812;
 const FAILED_CONTINUATION_COUNT_FIELDS = Object.freeze([
   "attempted", "blocked", "completed", "failed", "merged", "processed", "skipped",
 ]);
+const FAILED_CONTINUATION_BUDGET_FIELDS = Object.freeze([
+  "acceptedLogicalTaskCount", "chargeId", "charged", "duplicate", "marker", "ok",
+  "reasonCode", "state", "statePath",
+]);
 const FAILED_CONTINUATION_REPORT_RESOLUTION_FIELDS = Object.freeze([
   "diagnostics", "ok", "reason", "reportPath", "runnerRunId",
   "runnerSummaryJsonPath", "runnerSummaryMarkdownPath", "status",
@@ -886,8 +890,11 @@ export function exactFailedContinuationIteration(value, target, durableBudgetSta
       processedIssueCount: 1,
     })
     && budget?.ok === true
+    && canonical(Object.keys(budget || {}).sort())
+      === canonical(FAILED_CONTINUATION_BUDGET_FIELDS)
     && budget?.duplicate === true
     && budget?.charged === false
+    && budget?.reasonCode === "startup_recovery_existing_charge_reused"
     && budget?.chargeId === target.chargeId
     && budget?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
     && budget?.statePath === target.chargeMarkerRef
