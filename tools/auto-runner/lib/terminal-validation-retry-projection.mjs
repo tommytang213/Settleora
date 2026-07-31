@@ -308,17 +308,19 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
       ...predecessorBoundArtifacts,
       ...(failedContinuationOverlay?.artifacts || []),
     ]);
-    const evidenceDigest = digest(canonical({
-      artifacts: boundArtifacts.map(({ role, sha256 }) => ({ role, sha256 })),
-      identity: {
-        ...predecessorIdentity,
-        failedContinuationOverlay: failedContinuationOverlay ? {
-          runnerRunId: failedContinuationOverlay.runnerRunId,
-          supervisorRunId: failedContinuationOverlay.supervisorRunId,
-          predecessorEvidenceDigest: failedContinuationOverlay.predecessorEvidenceDigest,
-        } : null,
-      },
-    }));
+    const evidenceDigest = failedContinuationOverlay
+      ? digest(canonical({
+        artifacts: boundArtifacts.map(({ role, sha256 }) => ({ role, sha256 })),
+        identity: {
+          ...predecessorIdentity,
+          failedContinuationOverlay: {
+            runnerRunId: failedContinuationOverlay.runnerRunId,
+            supervisorRunId: failedContinuationOverlay.supervisorRunId,
+            predecessorEvidenceDigest: failedContinuationOverlay.predecessorEvidenceDigest,
+          },
+        },
+      }))
+      : predecessorEvidenceDigest;
     return {
       ok: true,
       projectionApplied: true,
@@ -820,6 +822,7 @@ export function exactFailedContinuationIteration(value, target) {
     && value?.recovery?.reasonCode === "outage_recovery_target_discovered"
     && value?.recovery?.outcome?.ok === true
     && value?.recovery?.outcome?.mutationAllowed === false
+    && exactFailedContinuationRecoveryTarget(value?.recovery?.target, target)
     && value?.recovery?.terminalDerivativeContinuationAdmission === null
     && projected?.ok === true
     && projected?.projectionApplied === true
@@ -843,6 +846,29 @@ export function exactFailedContinuationIteration(value, target) {
     && state?.supervisorRunId === target.supervisorRunId
     && Array.isArray(states) && states.length === 1
     && canonical(states[0]) === canonical(state);
+}
+
+function exactFailedContinuationRecoveryTarget(recoveryTarget, target) {
+  return canonical(Object.keys(recoveryTarget || {}).sort()) === canonical([
+    "attemptNumber", "baseSha", "branchName", "currentHeadSha", "issueNumber",
+    "markerKey", "originalSupervisorSpecDigest", "outageFingerprint", "prHeadSha",
+    "prNumber", "runnerRunId", "supervisorRunId", "taskKey",
+    "terminalValidationRetryDerivativeNoPr",
+  ])
+    && recoveryTarget.taskKey === target.taskKey
+    && recoveryTarget.issueNumber === target.issueNumber
+    && recoveryTarget.branchName === target.branch
+    && recoveryTarget.baseSha === target.baseSha
+    && recoveryTarget.currentHeadSha === target.headSha
+    && recoveryTarget.runnerRunId === target.runnerRunId
+    && recoveryTarget.supervisorRunId === target.supervisorRunId
+    && recoveryTarget.terminalValidationRetryDerivativeNoPr === true
+    && recoveryTarget.prNumber === null
+    && recoveryTarget.prHeadSha === null
+    && recoveryTarget.attemptNumber === null
+    && recoveryTarget.markerKey === null
+    && recoveryTarget.originalSupervisorSpecDigest === null
+    && recoveryTarget.outageFingerprint === null;
 }
 
 export function exactFailedContinuationSummary(summary, iteration, target) {
@@ -889,20 +915,7 @@ export function exactFailedContinuationSpec(spec, summary, target) {
     && spec?.sourceBranchName === target.branch
     && spec?.parentRunnerRunId === target.runnerRunId
     && spec?.parentSupervisorRunId === target.supervisorRunId
-    && recoveryTarget?.taskKey === target.taskKey
-    && recoveryTarget?.issueNumber === target.issueNumber
-    && recoveryTarget?.branchName === target.branch
-    && recoveryTarget?.baseSha === target.baseSha
-    && recoveryTarget?.currentHeadSha === target.headSha
-    && recoveryTarget?.runnerRunId === target.runnerRunId
-    && recoveryTarget?.supervisorRunId === target.supervisorRunId
-    && recoveryTarget?.terminalValidationRetryDerivativeNoPr === true
-    && recoveryTarget?.prNumber === null
-    && recoveryTarget?.prHeadSha === null
-    && recoveryTarget?.attemptNumber === null
-    && recoveryTarget?.markerKey === null
-    && recoveryTarget?.originalSupervisorSpecDigest === null
-    && recoveryTarget?.outageFingerprint === null
+    && exactFailedContinuationRecoveryTarget(recoveryTarget, target)
     && Date.parse(spec?.createdAt) <= Date.parse(summary?.startedAt);
 }
 
