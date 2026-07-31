@@ -759,6 +759,7 @@ export function exactTerminalIteration(value, target) {
     && value?.issueSource === "startup_recovery"
     && value?.phase === "startup_recovery"
     && value?.laneDecision === null
+    && Date.parse(value?.startedAt) <= Date.parse(value?.finishedAt)
     && canonical(value?.runIssueState) === canonical({
       attemptedIssueNumbers: [],
       attemptedIssueCount: 0,
@@ -836,6 +837,7 @@ export function exactTerminalSummary(summary, iteration, target) {
     && Array.isArray(summary?.processedIssueNumbers)
     && canonical(summary.processedIssueNumbers) === canonical([target.issueNumber])
     && summary?.acceptedLogicalTaskCount === 1 && summary?.maxIterations === 1
+    && Date.parse(summary?.startedAt) <= Date.parse(summary?.finishedAt)
     && Date.parse(summary?.startedAt) <= Date.parse(iteration?.startedAt)
     && Date.parse(summary?.finishedAt) >= Date.parse(iteration?.finishedAt);
 }
@@ -915,13 +917,21 @@ export function exactFailedContinuationIteration(value, target) {
     && state?.prNumber === null
     && state?.prUrl === null
     && state?.phase === "checkpoint_validation_commit"
+    && state?.active === true
+    && state?.attemptClass === null
+    && state?.blocker === null
     && state?.firstIncompleteAction === "run_validation_and_commit"
     && state?.nextSafeAction === "run_validation_and_commit"
     && state?.stopReason === null
     && state?.runId === target.runnerRunId
     && state?.supervisorRunId === target.supervisorRunId
     && Array.isArray(states) && states.length === 1
-    && canonical(states[0]) === canonical(state);
+    && canonical(states[0]) === canonical(state)
+    && canonical(value?.recovery?.stateCounts) === canonical({
+      totalRecoverableCount: 1,
+      exactMatchingCount: 1,
+      ignoredNonmatchingCount: 0,
+    });
 }
 
 function exactFailedContinuationRecoveryTarget(recoveryTarget, target) {

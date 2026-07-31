@@ -185,6 +185,13 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
     (value) => { value.logicalTaskBudget.charged = true; },
     (value) => { value.recovery.terminalDerivativeContinuationAdmission = {}; },
     (value) => { value.recovery.state.nextSafeAction = "continue"; },
+    (value) => { value.recovery.state.active = false; },
+    (value) => { value.recovery.state.attemptClass = "retry"; },
+    (value) => { value.recovery.state.blocker = "blocked"; },
+    (value) => { value.recovery.stateCounts.totalRecoverableCount = 2; },
+    (value) => { value.recovery.stateCounts.exactMatchingCount = 0; },
+    (value) => { value.recovery.stateCounts.ignoredNonmatchingCount = 1; },
+    (value) => { value.recovery.stateCounts.unexpected = 0; },
     (value) => { value.recovery.outcome.outcomeClass = "unsafe_or_ambiguous"; },
     (value) => { value.recovery.outcome.reasonCode = "recovery_state_invalid"; },
     (value) => { value.recovery.outcome.nextAction = "stop"; },
@@ -784,6 +791,14 @@ test("terminal retry projection binds the successor budget marker charge and tas
     ...iteration,
     systemicStop: "recoverable-work-blocked:different_reason",
   }, target), false);
+  assert.equal(exactTerminalIteration({
+    ...iteration,
+    startedAt: "2026-07-30T09:32:51.859Z",
+  }, target), false);
+  assert.equal(exactTerminalIteration({
+    ...iteration,
+    startedAt: "not-a-date",
+  }, target), false);
   for (const changedFiles of ["", { length: 0 }, null]) {
     assert.equal(exactTerminalIteration({ ...iteration, changedFiles }, target), false);
   }
@@ -821,6 +836,14 @@ test("terminal retry projection binds the runner summary to the iteration system
   }, iteration, target), false);
   assert.equal(exactTerminalSummary({ ...summary, maxRuntimeMs: 60_000 }, iteration, target), false);
   assert.equal(exactTerminalSummary({ ...summary, configPath: "/different/config.json" }, iteration, target), false);
+  assert.equal(exactTerminalSummary({
+    ...summary,
+    startedAt: "2026-07-30T09:32:51.860Z",
+  }, iteration, target), false);
+  assert.equal(exactTerminalSummary({
+    ...summary,
+    finishedAt: "not-a-date",
+  }, iteration, target), false);
   assert.equal(exactTerminalSummary({
     ...summary,
     iterations: { 0: iteration, length: 1 },
