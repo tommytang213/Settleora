@@ -176,6 +176,10 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
         || lifecyclePredecessorArtifact.value?.sessions?.generation
           !== lifecycle.sessions.generation
             - (lifecycle.mutationAuthority.status === "active" ? 1 : 0)
+        || !exactReopenedHandoffCheckpointOrdering(
+          lifecycle,
+          lifecyclePredecessorArtifact.value,
+        )
         || !exactLifecycle(
           lifecyclePredecessorArtifact.value,
           { ...target, allowReopenedLifecycle: false },
@@ -481,6 +485,28 @@ export function exactLifecycle(state, target) {
     && Date.parse(handoff.completedAt) >= Date.parse(handoff.startedAt)
     && state?.sessions?.retired?.includes(handoff?.retiredSessionId);
   return exactPending || exactActive;
+}
+
+export function exactReopenedHandoffCheckpointOrdering(lifecycle, predecessor) {
+  const handoff = lifecycle?.mutationAuthority?.handoff;
+  const predecessorWrittenAt = Date.parse(predecessor?.checkpoint?.writtenAt);
+  const startedAt = Date.parse(handoff?.startedAt);
+  const completedAt = handoff?.completedAt == null
+    ? null
+    : Date.parse(handoff.completedAt);
+  const lifecycleWrittenAt = Date.parse(lifecycle?.checkpoint?.writtenAt);
+  if (![predecessorWrittenAt, startedAt, lifecycleWrittenAt].every(Number.isFinite)
+    || predecessorWrittenAt > startedAt
+    || startedAt > lifecycleWrittenAt) {
+    return false;
+  }
+  if (lifecycle?.mutationAuthority?.status === "active") {
+    return Number.isFinite(completedAt)
+      && startedAt <= completedAt
+      && completedAt <= lifecycleWrittenAt;
+  }
+  return lifecycle?.mutationAuthority?.status === "recovery_pending"
+    && completedAt === null;
 }
 
 export function exactTerminalIteration(value, target) {

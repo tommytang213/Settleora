@@ -17,6 +17,7 @@ import {
   exactRawCheckpoint,
   exactRawValidationEvidence,
   exactLifecycle,
+  exactReopenedHandoffCheckpointOrdering,
   exactStateArtifactFilenameIdentity,
   exactSuccessorSpecArtifact,
   exactTerminalIteration,
@@ -402,7 +403,10 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
     .digest("hex")}`;
   const reopenedPending = {
     ...lifecycle,
-    checkpoint: { digest: "c".repeat(64) },
+    checkpoint: {
+      digest: "c".repeat(64),
+      writtenAt: "2026-07-30T20:00:02.000Z",
+    },
     sessions: { current: "terminal-session", retired: ["terminal-session"] },
     controller: {
       ...lifecycle.controller,
@@ -425,6 +429,20 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
   };
   assert.equal(exactLifecycle(reopenedPending, target), false, "deployment posture remains terminal-only");
   assert.equal(exactLifecycle(reopenedPending, { ...target, allowReopenedLifecycle: true }), true);
+  const predecessor = {
+    checkpoint: { writtenAt: "2026-07-30T19:59:59.000Z" },
+  };
+  assert.equal(exactReopenedHandoffCheckpointOrdering(reopenedPending, predecessor), true);
+  assert.equal(exactReopenedHandoffCheckpointOrdering({
+    ...reopenedPending,
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      handoff: {
+        ...reopenedPending.mutationAuthority.handoff,
+        startedAt: "2026-07-30T20:00:03.000Z",
+      },
+    },
+  }, predecessor), false, "handoff cannot start after its persisted lifecycle");
   assert.equal(exactLifecycle({
     ...reopenedPending,
     recovery: {
@@ -466,6 +484,31 @@ test("terminal retry projection binds every lifecycle convergence counter", () =
       },
     },
   }, { ...target, allowReopenedLifecycle: true }), true);
+  const reopenedActive = {
+    ...reopenedPending,
+    sessions: { current: successorSessionId, retired: ["terminal-session"] },
+    mutationAuthority: {
+      ...reopenedPending.mutationAuthority,
+      status: "active",
+      ownerSessionId: successorSessionId,
+      handoff: {
+        ...reopenedPending.mutationAuthority.handoff,
+        successorSessionId,
+        completedAt: "2026-07-30T20:00:01.000Z",
+      },
+    },
+  };
+  assert.equal(exactReopenedHandoffCheckpointOrdering(reopenedActive, predecessor), true);
+  assert.equal(exactReopenedHandoffCheckpointOrdering({
+    ...reopenedActive,
+    mutationAuthority: {
+      ...reopenedActive.mutationAuthority,
+      handoff: {
+        ...reopenedActive.mutationAuthority.handoff,
+        completedAt: "2026-07-30T20:00:03.000Z",
+      },
+    },
+  }, predecessor), false, "handoff cannot complete after its persisted lifecycle");
   assert.equal(exactLifecycle({
     ...reopenedPending,
     sessions: { current: successorSessionId, retired: ["terminal-session"] },
