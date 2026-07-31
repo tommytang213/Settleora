@@ -1059,6 +1059,7 @@ export function exactFailedContinuationSupervisorState(
     && Date.parse(specArtifact.value.createdAt) <= Date.parse(state?.startedAt)
     && Date.parse(state?.startedAt) <= Date.parse(summary?.startedAt)
     && Date.parse(summary?.finishedAt) <= Date.parse(state?.finishedAt)
+    && Date.parse(state?.finishedAt) <= Date.parse(state?.updatedAt)
     && Number.isSafeInteger(state?.heartbeatGeneration)
     && state.heartbeatGeneration >= 1;
   return exactState

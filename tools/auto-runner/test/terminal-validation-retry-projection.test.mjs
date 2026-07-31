@@ -579,6 +579,18 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     logsRoot,
   ), false);
   assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, updatedAt: "2026-07-31T06:03:19.787Z" },
+    {
+      ...heartbeat,
+      updatedAt: "2026-07-31T06:03:19.787Z",
+      leaseExpiresAt: "2026-07-31T06:08:19.787Z",
+    },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
     state,
     { ...heartbeat, reportResolution: { ...reportResolution, status: "foreign" } },
     iteration,
