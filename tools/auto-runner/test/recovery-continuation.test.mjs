@@ -62,6 +62,9 @@ test("deployment projection diagnostics use a finite failure taxonomy", () => {
   assert.equal(projectionFailureClass("terminal_projection_failed_continuation_predecessor_identity_mismatch"), "predecessor_evidence_binding");
   assert.equal(lifecycleProjectionFailureReason("session_lifecycle_state_corrupt"), "terminal_projection_authoritative_read_unavailable");
   assert.equal(lifecycleProjectionFailureReason("session_lifecycle_recovery_artifact_untrusted"), "terminal_projection_authoritative_read_unavailable");
+  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_checkpoint_digest_mismatch"), "terminal_projection_authoritative_read_unavailable");
+  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_identity_incomplete"), "terminal_projection_authoritative_read_unavailable");
+  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_version_unsupported"), "terminal_projection_authoritative_read_unavailable");
   assert.equal(lifecycleProjectionFailureReason("session_lifecycle_identity_mismatch"), "terminal_projection_lifecycle_mismatch");
 });
 

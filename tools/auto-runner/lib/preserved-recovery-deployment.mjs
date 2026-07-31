@@ -1098,9 +1098,11 @@ export function projectionFailureClass(reasonCode) {
 }
 
 export function lifecycleProjectionFailureReason(reasonCode) {
-  return /(?:corrupt|untrusted|read|unavailable)/.test(String(reasonCode || ""))
-    ? "terminal_projection_authoritative_read_unavailable"
-    : "terminal_projection_lifecycle_mismatch";
+  const reason = String(reasonCode || "");
+  return !/(?:digest|incomplete|unsupported|invalid|corrupt|untrusted|unavailable|missing|ambiguous)/.test(reason)
+    && /(?:mismatch|contradictory)$/.test(reason)
+    ? "terminal_projection_lifecycle_mismatch"
+    : "terminal_projection_authoritative_read_unavailable";
 }
 
 function evidence(value) {
