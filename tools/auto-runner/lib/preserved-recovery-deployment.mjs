@@ -1085,17 +1085,29 @@ function denied(reasonCode, target, diagnostics = {}) {
 }
 
 export function projectionFailureClass(reasonCode) {
-  const reason = String(reasonCode || "");
-  if (reason === "terminal_projection_authoritative_read_unavailable") return "authoritative_artifact_read";
-  if (reason.includes("summary")) return "summary_authentication";
-  if (reason.includes("spec")) return "supervisor_spec_authentication";
-  if (reason.includes("supervisor")) return "supervisor_state_heartbeat_authentication";
-  if (reason.includes("chronology")) return "chronology";
-  if (reason.includes("predecessor")) return "predecessor_evidence_binding";
-  if (reason.includes("state_missing") || reason.includes("superseded")) return "latest_state_selection";
-  if (reason.includes("state") || reason.includes("iteration")) return "iteration_shape_or_filename_identity";
-  return "target_association";
+  return projectionFailureClasses.get(String(reasonCode || "")) || "authoritative_artifact_read";
 }
+
+const projectionFailureClasses = new Map([
+  ["terminal_projection_authoritative_read_unavailable", "authoritative_artifact_read"],
+  ["terminal_projection_raw_checkpoint_mismatch", "authoritative_artifact_read"],
+  ["terminal_projection_state_summary_mismatch", "summary_authentication"],
+  ["terminal_projection_failed_continuation_summary_ambiguous", "summary_authentication"],
+  ["terminal_projection_failed_continuation_summary_mismatch", "summary_authentication"],
+  ["terminal_projection_successor_spec_missing_or_mismatch", "supervisor_spec_authentication"],
+  ["terminal_projection_failed_continuation_spec_mismatch", "supervisor_spec_authentication"],
+  ["terminal_projection_successor_supervisor_state_mismatch", "supervisor_state_heartbeat_authentication"],
+  ["terminal_projection_failed_continuation_supervisor_mismatch", "supervisor_state_heartbeat_authentication"],
+  ["terminal_projection_failed_continuation_chronology_mismatch", "chronology"],
+  ["terminal_projection_lifecycle_predecessor_mismatch", "predecessor_evidence_binding"],
+  ["terminal_projection_failed_continuation_predecessor_identity_mismatch", "predecessor_evidence_binding"],
+  ["terminal_projection_state_missing_ambiguous_or_superseded", "latest_state_selection"],
+  ["terminal_projection_loaded_artifact_mismatch", "iteration_shape_or_filename_identity"],
+  ["terminal_projection_failed_continuation_overlay_mismatch", "iteration_shape_or_filename_identity"],
+  ["terminal_projection_lifecycle_mismatch", "target_association"],
+  ["terminal_projection_durable_budget_mismatch", "target_association"],
+  ["terminal_projection_reloaded_checkpoint_mismatch", "target_association"],
+]);
 
 export function lifecycleProjectionFailureReason(reasonCode) {
   return lifecycleTargetAssociationFailureReasons.has(String(reasonCode || ""))

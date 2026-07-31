@@ -54,12 +54,31 @@ import {
 } from "../lib/recovery-continuation.mjs";
 
 test("deployment projection diagnostics use a finite failure taxonomy", () => {
-  assert.equal(projectionFailureClass("terminal_projection_authoritative_read_unavailable"), "authoritative_artifact_read");
-  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_summary_mismatch"), "summary_authentication");
-  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_spec_mismatch"), "supervisor_spec_authentication");
-  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_supervisor_mismatch"), "supervisor_state_heartbeat_authentication");
-  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_chronology_mismatch"), "chronology");
-  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_predecessor_identity_mismatch"), "predecessor_evidence_binding");
+  const projectionFailures = new Map([
+    ["terminal_projection_authoritative_read_unavailable", "authoritative_artifact_read"],
+    ["terminal_projection_raw_checkpoint_mismatch", "authoritative_artifact_read"],
+    ["terminal_projection_state_summary_mismatch", "summary_authentication"],
+    ["terminal_projection_failed_continuation_summary_ambiguous", "summary_authentication"],
+    ["terminal_projection_failed_continuation_summary_mismatch", "summary_authentication"],
+    ["terminal_projection_successor_spec_missing_or_mismatch", "supervisor_spec_authentication"],
+    ["terminal_projection_failed_continuation_spec_mismatch", "supervisor_spec_authentication"],
+    ["terminal_projection_successor_supervisor_state_mismatch", "supervisor_state_heartbeat_authentication"],
+    ["terminal_projection_failed_continuation_supervisor_mismatch", "supervisor_state_heartbeat_authentication"],
+    ["terminal_projection_failed_continuation_chronology_mismatch", "chronology"],
+    ["terminal_projection_lifecycle_predecessor_mismatch", "predecessor_evidence_binding"],
+    ["terminal_projection_failed_continuation_predecessor_identity_mismatch", "predecessor_evidence_binding"],
+    ["terminal_projection_state_missing_ambiguous_or_superseded", "latest_state_selection"],
+    ["terminal_projection_loaded_artifact_mismatch", "iteration_shape_or_filename_identity"],
+    ["terminal_projection_failed_continuation_overlay_mismatch", "iteration_shape_or_filename_identity"],
+    ["terminal_projection_lifecycle_mismatch", "target_association"],
+    ["terminal_projection_durable_budget_mismatch", "target_association"],
+    ["terminal_projection_reloaded_checkpoint_mismatch", "target_association"],
+    ["terminal_projection_future_reason", "authoritative_artifact_read"],
+    ["", "authoritative_artifact_read"],
+  ]);
+  for (const [reason, failureClass] of projectionFailures) {
+    assert.equal(projectionFailureClass(reason), failureClass, reason || "empty projection reason");
+  }
   const authoritativeReadFailures = [
     "session_lifecycle_state_missing",
     "session_lifecycle_state_ambiguous",
