@@ -869,7 +869,7 @@ export function exactFailedContinuationIteration(value, target, durableBudgetSta
     && canonical(Object.keys(state || {}).sort()) === canonical(FAILED_CONTINUATION_STATE_FIELDS)
     && value?.index === 1
     && value?.outcome === "blocked_recovery_state"
-    && value?.issue?.number === target.issueNumber
+    && canonical(value?.issue) === canonical({ number: target.issueNumber })
     && value?.issueSource === "startup_recovery"
     && value?.phase === "startup_recovery"
     && value?.laneDecision === null
