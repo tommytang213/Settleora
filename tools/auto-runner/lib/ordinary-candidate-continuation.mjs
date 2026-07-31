@@ -49,7 +49,7 @@ export async function continueOrdinaryCandidate(input, handlers = {}) {
         && state.preparedGithubSourceFailureBatch?.batchIdentity === batch.batchIdentity
         && state.preparedGithubSourceFailureBatch?.candidateHead === state.identity.headSha;
       const decision = evaluateSourceFailureBatch(batch, matchingPrepared ? [] : state.sourceFailureHistory || []);
-      state = { ...state, sourceFailureBatch: batch, sourceFailureHistory: matchingPrepared ? state.sourceFailureHistory : [...(state.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }].slice(-100) };
+      state = { ...state, sourceFailureBatch: batch, sourceFailureHistory: matchingPrepared ? state.sourceFailureHistory : [...(state.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate, repository: batch.findings[0]?.repository }].slice(-100) };
       await handlers.onCheckpoint?.(state, { phase, action: "source_failure_batch_frozen", batch, decision });
       if (!decision.sourceFixEligible) {
         if (decision.classification === "pending" || decision.retryable) return { ok: true, outcome: "waiting", reasonCode: decision.reasonCode, state };
@@ -151,6 +151,39 @@ export function ordinaryContinuationLegacyPhaseTarget(value, phase) {
       branchName: normalized.branchName,
       identity: normalized.identity,
     });
+}
+
+export function validateOrdinaryContinuationPhaseEffects(value, {
+  requireInitialLocalValidation = false,
+} = {}) {
+  if (!value?.effects || typeof value.effects !== "object" || Array.isArray(value.effects)) {
+    return false;
+  }
+  const normalized = normalizeState(value);
+  const current = normalized.phase === "complete"
+    ? ordinaryContinuationPhases.length
+    : ordinaryContinuationPhases.indexOf(normalized.phase);
+  const localValidation = ordinaryContinuationPhases.indexOf("local_validation");
+  if (normalized.phase === "invalid" || current < localValidation) return false;
+  const effects = normalized.effects;
+  if (requireInitialLocalValidation) {
+    return normalized.phase === "local_validation"
+      && Object.keys(effects).length === 0;
+  }
+  for (const [phase, effect] of Object.entries(effects)) {
+    const index = ordinaryContinuationPhases.indexOf(phase);
+    if (index < 0
+      || index >= current
+      || effect?.targetDigest !== phaseTarget(normalized, phase)
+      || typeof effect?.completedAt !== "string"
+      || !Number.isFinite(Date.parse(effect.completedAt))) {
+      return false;
+    }
+  }
+  for (let index = localValidation; index < current; index += 1) {
+    if (!Object.hasOwn(effects, ordinaryContinuationPhases[index])) return false;
+  }
+  return true;
 }
 
 function normalizeState(value = {}) {

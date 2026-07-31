@@ -958,7 +958,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     const batch = freezeSourceFailureBatch(failures, initialIdentity);
     const decision = evaluateSourceFailureBatch(batch, iteration.sourceFailureHistory || []);
     iteration.sourceFailureBatch = batch;
-    iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }];
+    iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate, repository: batch.findings[0]?.repository }];
     if (recoveryRecorder) {
       const continuation = createOrdinaryContinuationState({
         logicalTaskKey: config.taskKey || `issue-${issue.number}`,
@@ -1023,7 +1023,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       const replacementBatch = freezeSourceFailureBatch(replacementFailures, replacementIdentity);
       const replacementDecision = evaluateSourceFailureBatch(replacementBatch, iteration.sourceFailureHistory || []);
       iteration.sourceFailureBatch = replacementBatch;
-      iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: replacementBatch.batchIdentity, findingSetSignature: replacementBatch.findingSetSignature, candidate: replacementBatch.candidate }].slice(-100);
+      iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: replacementBatch.batchIdentity, findingSetSignature: replacementBatch.findingSetSignature, candidate: replacementBatch.candidate, repository: replacementBatch.findings[0]?.repository }].slice(-100);
       iteration.validation = postFix.validation;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
       iteration.changedFiles = postFix.changedFiles;

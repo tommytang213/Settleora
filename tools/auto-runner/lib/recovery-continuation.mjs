@@ -16,6 +16,7 @@ import { collectAuthoritativeRecoveryEvidence, plannerInputsFromAuthoritativeEvi
 import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAuthorityMatches } from "./pre-effect-intent.mjs";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { projectAuthenticatedTerminalValidationRetryDerivative } from "./terminal-validation-retry-projection.mjs";
+import { validateOrdinaryContinuationPhaseEffects } from "./ordinary-candidate-continuation.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -344,6 +345,17 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
         recovery,
       };
     }
+  }
+  if (reloadedProjection && !validateOrdinaryContinuationPhaseEffects(
+    loaded.state?.ordinaryContinuation,
+    { requireInitialLocalValidation: true },
+  )) {
+    return {
+      ok: false,
+      outcome: "blocked_recovery_state",
+      reasonCode: "terminal_derivative_initial_continuation_posture_invalid",
+      recovery,
+    };
   }
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
     ...(recovery.interruption || {}),
@@ -1013,6 +1025,10 @@ function createTerminalDerivativeContinuationAdmission(config, originalState, pr
     projectionEvidenceDigest: projection.evidenceDigest,
     lifecycleRequestId: lifecycle?.mutationAuthority?.handoff?.requestId,
     lifecyclePredecessorDigest: lifecycle?.mutationAuthority?.handoff?.checkpointDigest,
+    originalContinuationPhase: originalState.ordinaryContinuation?.phase,
+    originalContinuationEffectsDigest: createHash("sha256")
+      .update(JSON.stringify(originalState.ordinaryContinuation?.effects || {}))
+      .digest("hex"),
   };
   return {
     ...evidence,
@@ -1041,7 +1057,10 @@ export function validateTerminalDerivativeContinuationAdmission(config, state, t
     || !/^[a-f0-9]{64}$/.test(String(admission.originalDiffDigest || ""))
     || !/^[a-f0-9]{64}$/.test(String(admission.projectionEvidenceDigest || ""))
     || !/^[a-f0-9]{64}$/.test(String(admission.lifecycleRequestId || ""))
-    || !/^[a-f0-9]{64}$/.test(String(admission.lifecyclePredecessorDigest || ""))) {
+    || !/^[a-f0-9]{64}$/.test(String(admission.lifecyclePredecessorDigest || ""))
+    || admission.originalContinuationPhase !== "local_validation"
+    || admission.originalContinuationEffectsDigest
+      !== createHash("sha256").update(JSON.stringify({})).digest("hex")) {
     return { ok: false };
   }
   const authoritativeLifecycle = loadLifecycle(config, {
@@ -1069,8 +1088,11 @@ export function validateTerminalDerivativeContinuationAdmission(config, state, t
   ].filter(Boolean);
   const sourceRepositories = [
     ...(state.ordinaryContinuation?.sourceFailureBatch?.findings || []),
-    ...(state.ordinaryContinuation?.sourceFailureHistory || []).flatMap((entry) => entry?.findings || []),
-  ].map((finding) => finding?.repository).filter(Boolean);
+  ].map((finding) => finding?.repository).filter(Boolean).concat(
+    (state.ordinaryContinuation?.sourceFailureHistory || [])
+      .map((entry) => entry?.repository)
+      .filter(Boolean),
+  );
   const originalBound = originalCandidates.some((candidate) =>
     candidate.headSha === admission.originalHeadSha
       && candidate.treeSha === admission.originalTreeSha
@@ -1092,6 +1114,7 @@ export function validateTerminalDerivativeContinuationAdmission(config, state, t
     || state.branch?.name !== admission.branchName
     || state.branch?.baseSha !== admission.baseSha
     || current?.headSha !== state.branch?.currentHeadSha
+    || !validateOrdinaryContinuationPhaseEffects(state.ordinaryContinuation)
     || !/^[a-f0-9]{40}$/.test(String(current?.treeSha || ""))
     || !/^[a-f0-9]{64}$/.test(String(current?.changedFilesDigest || ""))
     || !/^[a-f0-9]{64}$/.test(String(current?.diffDigest || ""))

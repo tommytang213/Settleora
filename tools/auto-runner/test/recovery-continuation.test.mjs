@@ -3023,10 +3023,12 @@ test("terminal derivative continuation admission survives later head and PR phas
     diffDigest: "5".repeat(64),
   };
   const current = {
+    baseSha: target.baseSha,
     headSha: "6".repeat(40),
     treeSha: "7".repeat(40),
     changedFilesDigest: "8".repeat(64),
     diffDigest: "9".repeat(64),
+    changedFiles: ["tools/auto-runner/lib/recovery-continuation.mjs"],
   };
   const evidence = {
     version: 1,
@@ -3044,6 +3046,10 @@ test("terminal derivative continuation admission survives later head and PR phas
     projectionEvidenceDigest: "a".repeat(64),
     lifecycleRequestId: "b".repeat(64),
     lifecyclePredecessorDigest: "c".repeat(64),
+    originalContinuationPhase: "local_validation",
+    originalContinuationEffectsDigest: createHash("sha256")
+      .update(JSON.stringify({}))
+      .digest("hex"),
   };
   const admission = {
     ...evidence,
@@ -3063,10 +3069,18 @@ test("terminal derivative continuation admission survives later head and PR phas
     },
     claimAuthority: { authority: { candidateIdentity: original } },
     ordinaryContinuation: {
+      version: 1,
+      logicalTaskKey: target.taskKey,
+      executionKey: target.runnerRunId,
+      issueNumber: target.issueNumber,
+      branchName: target.branchName,
       identity: current,
+      expectedOriginMainSha: target.baseSha,
+      phase: "local_validation",
+      effects: {},
       sourceFailureHistory: [{
         candidate: original,
-        findings: [{ repository: evidence.repository }],
+        repository: evidence.repository,
       }],
     },
   };
@@ -3100,8 +3114,36 @@ test("terminal derivative continuation admission survives later head and PR phas
       ...recovery.ordinaryContinuation,
       sourceFailureHistory: [{
         candidate: original,
-        findings: [{ repository: "other/repository" }],
+        repository: "other/repository",
       }],
+    },
+  }).ok, false);
+  assert.equal(validate({
+    ...recovery,
+    ordinaryContinuation: {
+      ...recovery.ordinaryContinuation,
+      phase: "push",
+      effects: {},
+    },
+  }).ok, false);
+  assert.equal(validate({
+    ...recovery,
+    ordinaryContinuation: {
+      ...recovery.ordinaryContinuation,
+      phase: "external_review",
+      effects: {
+        local_validation: {
+          targetDigest: "d".repeat(64),
+          completedAt: new Date().toISOString(),
+        },
+      },
+    },
+  }).ok, false);
+  assert.equal(validate({
+    ...recovery,
+    ordinaryContinuation: {
+      ...recovery.ordinaryContinuation,
+      sourceFailureHistory: [{ candidate: original }],
     },
   }).ok, false);
   assert.equal(validate({
