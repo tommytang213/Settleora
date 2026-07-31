@@ -150,10 +150,12 @@ test("unsuffixed summary candidates retain producer diagnostic parity without ov
     const wrong = path.join(root, "run-2026-07-24T034256Z.json");
     const malformed = path.join(root, "run-2026-07-24T034257Z.json");
     const symlink = path.join(root, "run-2026-07-24T034258Z.json");
+    const matching = path.join(root, "run-2026-07-24T034259Z.json");
     writeFileSync(missing, "{}\n");
     writeFileSync(wrong, '{"supervisorRunId":"supervised-foreign"}\n');
     writeFileSync(malformed, "{\n");
     symlinkSync(missing, symlink);
+    writeFileSync(matching, '{"supervisorRunId":"supervised-selected"}\n');
     const artifacts = [missing, wrong, malformed, symlink].map((artifactPath) => ({
       path: artifactPath,
       diagnostic: observeRunnerSummaryDiagnostic(root, path.basename(artifactPath)),
@@ -168,6 +170,11 @@ test("unsuffixed summary candidates retain producer diagnostic parity without ov
     for (const artifact of [missing, wrong, malformed, symlink]) {
       assert.equal(runnerSummaryRequiresAuthentication(path.basename(artifact), "run-2026-07-31T060319Z-c382043104fa.json"), false);
     }
+    assert.equal(
+      observeRunnerSummaryDiagnostic(root, path.basename(matching), "supervised-selected")
+        .claimsExpectedSupervisor,
+      true,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

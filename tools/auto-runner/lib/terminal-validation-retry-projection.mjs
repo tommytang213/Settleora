@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   supervisorModeToRunnerMode,
@@ -1318,10 +1318,24 @@ function trustedRunnerSummaryScan(root, selectedName) {
       diagnostic,
     });
   }
+  if (selectedArtifact) {
+    const expectedSupervisorRunId = selectedArtifact.value?.supervisorRunId;
+    for (const summary of summaries) {
+      summary.diagnostic = observeRunnerSummaryDiagnostic(
+        root,
+        path.basename(summary.path),
+        expectedSupervisorRunId,
+      );
+      if (summary.supervisorRunIdDigest === null
+        && summary.diagnostic.claimsExpectedSupervisor === true) {
+        throw new Error("unsuffixed summary claims selected supervisor authority");
+      }
+    }
+  }
   return { selectedArtifact, summaries };
 }
 
-export function observeRunnerSummaryDiagnostic(root, name) {
+export function observeRunnerSummaryDiagnostic(root, name, expectedSupervisorRunId = null) {
   const file = path.join(root, name);
   const base = { file: name, status: "skipped", reason: null, runnerRunId: null };
   try {
@@ -1330,20 +1344,53 @@ export function observeRunnerSummaryDiagnostic(root, name) {
       return { ...base, reason: "json_not_regular_file", supervisorRunId: false };
     }
     if (info.size > MAX_RUNNER_SUMMARY_BYTES) {
-      return { ...base, reason: "oversized_unrelated_candidate", supervisorRunId: false };
+      const descriptor = openSync(file, "r");
+      let prefix;
+      try {
+        const buffer = Buffer.alloc(MAX_RUNNER_SUMMARY_BYTES);
+        const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0);
+        prefix = buffer.subarray(0, bytesRead).toString("utf8");
+      } finally {
+        closeSync(descriptor);
+      }
+      const claimsExpectedSupervisor = Boolean(expectedSupervisorRunId)
+        && prefix.includes(expectedSupervisorRunId);
+      return {
+        ...base,
+        reason: claimsExpectedSupervisor
+          ? "oversized_matching_candidate"
+          : "oversized_unrelated_candidate",
+        supervisorRunId: false,
+        claimsExpectedSupervisor,
+      };
     }
     let value;
     try {
       value = JSON.parse(readFileSync(file, "utf8"));
     } catch {
-      return { ...base, reason: "malformed_unrelated_json", supervisorRunId: false };
+      const text = readFileSync(file, "utf8");
+      const claimsExpectedSupervisor = Boolean(expectedSupervisorRunId)
+        && text.includes(expectedSupervisorRunId);
+      return {
+        ...base,
+        reason: claimsExpectedSupervisor
+          ? "malformed_matching_json"
+          : "malformed_unrelated_json",
+        supervisorRunId: false,
+        claimsExpectedSupervisor,
+      };
     }
+    const claimsExpectedSupervisor = Boolean(expectedSupervisorRunId)
+      && value?.supervisorRunId === expectedSupervisorRunId;
     return {
       ...base,
-      reason: value?.supervisorRunId
+      reason: claimsExpectedSupervisor
+        ? null
+        : value?.supervisorRunId
         ? "wrong_supervisor_run_id"
         : "missing_supervisor_run_id",
       supervisorRunId: Boolean(value?.supervisorRunId),
+      claimsExpectedSupervisor,
     };
   } catch {
     return {
