@@ -183,6 +183,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     if (state.phase !== "stopped" || !isEligibleValidationRetryCheckpoint(state)) {
       return denied("preserved_recovery_checkpoint_not_eligible", target, projectionDiagnostics || {});
     }
+    projectionDiagnostics = null;
     const derivative = isKnownValidationRetryDerivative(state);
     const derivativeTerminalPhase = derivative ? validationRetryDerivativeTerminalPhase(state) : null;
     if (!validateProjectNamespace(config.logsRoot, target, repositoryRoot, gitEnvironment)) {

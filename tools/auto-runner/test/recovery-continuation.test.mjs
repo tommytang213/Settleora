@@ -628,6 +628,18 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     });
     assert.equal(legacyAdmitted.preservedRecoveryAdmitted, true, JSON.stringify(legacyAdmitted));
     assert.equal(legacyAdmitted.reasonCode, "exact_preserved_recovery_legacy_repository_omission_admitted");
+    const malformedIntentRoot = path.join(config.logsRoot, "recovery", "pre-effect-intents");
+    mkdirSync(malformedIntentRoot, { recursive: true, mode: 0o700 });
+    const malformedIntent = path.join(malformedIntentRoot, `${"0".repeat(64)}.json`);
+    writeFileSync(malformedIntent, "{}\n", { mode: 0o600 });
+    const malformedIntentDenied = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+      repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+    });
+    assert.equal(malformedIntentDenied.reasonCode, "preserved_recovery_authoritative_read_unavailable");
+    assert.equal(malformedIntentDenied.projectionFailureReasonCode, null);
+    assert.equal(malformedIntentDenied.projectionFailureClass, null);
+    unlinkSync(malformedIntent);
     writeRecoveryState(config, {
       ...legacyRecovery,
       ordinaryContinuation: {
