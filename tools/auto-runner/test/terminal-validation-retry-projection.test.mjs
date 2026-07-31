@@ -20,6 +20,7 @@ import {
   exactFailedContinuationIteration,
   exactFailedContinuationSpec,
   exactFailedContinuationSummary,
+  exactFailedContinuationSupervisorState,
   exactReopenedHandoffCheckpointOrdering,
   exactStateArtifactFilenameIdentity,
   exactSuccessorSpecArtifact,
@@ -244,7 +245,7 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
     requestedBy: "operator",
     runId: summary.supervisorRunId,
     runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
-    runnerConfigSha256: "c".repeat(64),
+    runnerConfigSha256: "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7",
     sourceBranchName: target.branch,
     sourceIssueNumber: target.issueNumber,
     specVersion: 1,
@@ -256,6 +257,8 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
     { sourceIssueNumber: 999 },
     { sourceBranchName: "feature/foreign" },
     { maxTasks: 2 },
+    { runnerConfigPath: "/different/config.json" },
+    { runnerConfigSha256: "c".repeat(64) },
   ]) {
     assert.equal(exactFailedContinuationSpec({ ...spec, ...mutation }, summary, target), false);
   }
@@ -356,6 +359,176 @@ test("terminal retry projection binds the canonical supervisor state to the sele
       logsRoot,
     ), false);
   }
+});
+
+test("failed-continuation overlay binds canonical config and heartbeat identity", () => {
+  const logsRoot = "/workspace/logs/auto-runner/Settleora";
+  const iteration = {
+    runId: "run-2026-07-31T060319Z-c382043104fa",
+    startedAt: "2026-07-31T06:03:19.766Z",
+    finishedAt: "2026-07-31T06:03:19.776Z",
+  };
+  const summary = {
+    supervisorRunId: "supervised-20260731T060311Z-c382043104fa",
+    startedAt: "2026-07-31T06:03:19.700Z",
+    finishedAt: "2026-07-31T06:03:19.777Z",
+  };
+  const runnerConfigSha256 = "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7";
+  const specArtifact = {
+    path: `${logsRoot}/supervisor/run-specs/spec-key/spec.json`,
+    sha256: "a".repeat(64),
+    value: {
+      runId: summary.supervisorRunId,
+      mode: "trusted",
+      maxTasks: 1,
+      maxRuntime: "14d",
+      runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
+      runnerConfigSha256,
+      initialOriginMainSha: "b".repeat(40),
+      recoveryOnlyTarget: null,
+      createdAt: "2026-07-31T06:03:11.209Z",
+    },
+  };
+  const supervisorRunRoot = `${logsRoot}/supervisor/runs/${
+    createHash("sha256").update(summary.supervisorRunId).digest("hex")
+  }`;
+  const summaryJsonPath = `${logsRoot}/summaries/${iteration.runId}.json`;
+  const summaryMarkdownPath = `${logsRoot}/summaries/${iteration.runId}.md`;
+  const reportResolution = {
+    ok: true,
+    status: "matched",
+    reason: null,
+    runnerRunId: iteration.runId,
+    runnerSummaryJsonPath: summaryJsonPath,
+    runnerSummaryMarkdownPath: summaryMarkdownPath,
+    reportPath: summaryMarkdownPath,
+  };
+  const unitName = `settleora-auto-runner@${summary.supervisorRunId}.service`;
+  const state = {
+    state: "blocked",
+    runId: summary.supervisorRunId,
+    runnerRunId: iteration.runId,
+    childTerminalState: "blocked",
+    childStatus: 2,
+    childSignal: null,
+    terminalReason: "child_exit_mapped",
+    specPath: specArtifact.path,
+    specSha256: specArtifact.sha256,
+    runnerConfigSha256,
+    maxTasks: 1,
+    maxRuntime: "14d",
+    initialOriginMainSha: specArtifact.value.initialOriginMainSha,
+    runnerArgv: [
+      process.execPath,
+      "/workspace/auto-runner/runtime/settleora-auto-runner.mjs",
+      "--run",
+      "--supervisor-run-id",
+      summary.supervisorRunId,
+      "--runner-run-id",
+      iteration.runId,
+      "--config",
+      "[config-path]",
+      "--expected-config-sha256",
+      runnerConfigSha256,
+      "--max-iterations",
+      "1",
+      "--max-runtime",
+      "14d",
+    ],
+    runnerSummaryJsonPath: summaryJsonPath,
+    runnerSummaryMarkdownPath: summaryMarkdownPath,
+    reportPath: summaryMarkdownPath,
+    reportResolution,
+    startedAt: "2026-07-31T06:03:19.519Z",
+    finishedAt: "2026-07-31T06:03:19.788Z",
+    createdAt: "2026-07-31T06:03:11.209Z",
+    updatedAt: "2026-07-31T06:03:19.788Z",
+    heartbeatGeneration: 3,
+    stdoutPath: `${supervisorRunRoot}/stdout.log`,
+    stderrPath: `${supervisorRunRoot}/stderr.log`,
+    unitName,
+  };
+  const heartbeat = {
+    schemaVersion: 2,
+    runId: state.runId,
+    runnerRunId: state.runnerRunId,
+    state: "blocked",
+    terminal: true,
+    heartbeatGeneration: state.heartbeatGeneration,
+    heartbeatIntervalSeconds: 60,
+    heartbeatLeaseSeconds: 300,
+    leaseExpiresAt: "2026-07-31T06:08:19.788Z",
+    maxTasks: state.maxTasks,
+    maxRuntime: state.maxRuntime,
+    monitoringDelivery: null,
+    ownerPid: 1234,
+    currentIssue: null,
+    currentPr: null,
+    counts: {
+      attempted: 0,
+      processed: 0,
+      completed: 0,
+      failed: 0,
+      blocked: 0,
+      merged: 0,
+      skipped: 0,
+    },
+    reportPath: summaryMarkdownPath,
+    reportResolution,
+    startedAt: state.startedAt,
+    updatedAt: state.updatedAt,
+    unitName,
+  };
+  assert.equal(exactFailedContinuationSupervisorState(
+    state,
+    heartbeat,
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), true);
+  for (const [field, value] of [
+    ["maxTasks", 2],
+    ["maxRuntime", "1d"],
+    ["unitName", "settleora-auto-runner@foreign.service"],
+    ["heartbeatIntervalSeconds", 30],
+    ["heartbeatLeaseSeconds", 600],
+    ["leaseExpiresAt", "2026-07-31T06:09:19.788Z"],
+    ["reportPath", `${logsRoot}/summaries/foreign.md`],
+  ]) {
+    assert.equal(exactFailedContinuationSupervisorState(
+      state,
+      { ...heartbeat, [field]: value },
+      iteration,
+      summary,
+      specArtifact,
+      logsRoot,
+    ), false);
+  }
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, runnerConfigSha256: "c".repeat(64) },
+    heartbeat,
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, stdoutPath: `${supervisorRunRoot}/foreign.log` },
+    heartbeat,
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    state,
+    { ...heartbeat, reportResolution: { ...reportResolution, status: "foreign" } },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
 });
 
 test("terminal retry projection binds the successor budget marker charge and task lineage", () => {

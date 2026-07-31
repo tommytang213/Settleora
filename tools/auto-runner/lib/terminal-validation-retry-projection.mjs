@@ -22,6 +22,9 @@ const SUCCESSOR_RUNNER_CONFIG_SHA256 = "644f69637cb69911f85bed367cfda13b2db889a3
 const SUCCESSOR_RUNTIME_ROOT = "/workspace/auto-runner/runtime";
 const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 const FAILED_CONTINUATION_STOP = "recoverable-work-blocked:terminal_projection_reloaded_checkpoint_mismatch";
+const FAILED_CONTINUATION_RUNNER_CONFIG_SHA256 = "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7";
+const FAILED_CONTINUATION_HEARTBEAT_INTERVAL_SECONDS = 60;
+const FAILED_CONTINUATION_HEARTBEAT_LEASE_SECONDS = 300;
 const EXACT_TERMINAL_ITERATION_FIELDS = Object.freeze([
   "autoMerge",
   "baseOriginMainSha",
@@ -909,7 +912,9 @@ export function exactFailedContinuationSpec(spec, summary, target) {
     && spec?.requestedBy === "operator"
     && spec?.outageResubmission === null
     && spec?.initialOriginMainSha === summary?.baseOriginMainSha
-    && spec?.runnerConfigPath === summary?.configPath
+    && spec?.runnerConfigPath === SUCCESSOR_RUNNER_CONFIG_PATH
+    && summary?.configPath === SUCCESSOR_RUNNER_CONFIG_PATH
+    && spec?.runnerConfigSha256 === FAILED_CONTINUATION_RUNNER_CONFIG_SHA256
     && supervisorModeToRunnerMode(spec?.mode) === summary?.mode
     && spec?.sourceIssueNumber === target.issueNumber
     && spec?.sourceBranchName === target.branch
@@ -939,6 +944,13 @@ export function exactFailedContinuationSupervisorState(
 ) {
   const summaryJsonPath = path.join(logsRoot, "summaries", `${iteration.runId}.json`);
   const summaryMarkdownPath = path.join(logsRoot, "summaries", `${iteration.runId}.md`);
+  const supervisorRunRoot = path.join(
+    logsRoot,
+    "supervisor",
+    "runs",
+    digest(summary.supervisorRunId),
+  );
+  const expectedUnitName = `settleora-auto-runner@${summary.supervisorRunId}.service`;
   let expectedArgv;
   try {
     expectedArgv = runnerArgvForSpec(specArtifact.value, {
@@ -962,11 +974,15 @@ export function exactFailedContinuationSupervisorState(
     && state?.terminalReason === "child_exit_mapped"
     && state?.specPath === specArtifact.path
     && state?.specSha256 === specArtifact.sha256
+    && state?.runnerConfigSha256 === FAILED_CONTINUATION_RUNNER_CONFIG_SHA256
     && state?.runnerConfigSha256 === specArtifact.value.runnerConfigSha256
-    && state?.maxTasks === 1
-    && state?.maxRuntime === "14d"
+    && state?.maxTasks === specArtifact.value.maxTasks
+    && state?.maxRuntime === specArtifact.value.maxRuntime
     && state?.initialOriginMainSha === specArtifact.value.initialOriginMainSha
     && canonical(state?.runnerArgv) === canonical(expectedArgv)
+    && state?.unitName === expectedUnitName
+    && state?.stdoutPath === path.join(supervisorRunRoot, "stdout.log")
+    && state?.stderrPath === path.join(supervisorRunRoot, "stderr.log")
     && state?.runnerSummaryJsonPath === summaryJsonPath
     && state?.runnerSummaryMarkdownPath === summaryMarkdownPath
     && state?.reportPath === summaryMarkdownPath
@@ -989,6 +1005,14 @@ export function exactFailedContinuationSupervisorState(
     && heartbeat?.state === "blocked"
     && heartbeat?.terminal === true
     && heartbeat?.heartbeatGeneration === state.heartbeatGeneration
+    && heartbeat?.maxTasks === state.maxTasks
+    && heartbeat?.maxRuntime === state.maxRuntime
+    && heartbeat?.unitName === state.unitName
+    && heartbeat?.heartbeatIntervalSeconds
+      === FAILED_CONTINUATION_HEARTBEAT_INTERVAL_SECONDS
+    && heartbeat?.heartbeatLeaseSeconds
+      === FAILED_CONTINUATION_HEARTBEAT_LEASE_SECONDS
+    && heartbeat?.monitoringDelivery === null
     && heartbeat?.currentIssue === null
     && heartbeat?.currentPr === null
     && heartbeat?.counts?.attempted === 0
@@ -999,8 +1023,12 @@ export function exactFailedContinuationSupervisorState(
     && heartbeat?.counts?.merged === 0
     && heartbeat?.counts?.skipped === 0
     && heartbeat?.reportPath === summaryMarkdownPath
+    && canonical(heartbeat?.reportResolution) === canonical(state.reportResolution)
     && Date.parse(heartbeat?.startedAt) === Date.parse(state?.startedAt)
-    && Date.parse(heartbeat?.updatedAt) === Date.parse(state?.updatedAt);
+    && Date.parse(heartbeat?.updatedAt) === Date.parse(state?.updatedAt)
+    && Date.parse(heartbeat?.leaseExpiresAt)
+      === Date.parse(heartbeat?.updatedAt)
+        + (FAILED_CONTINUATION_HEARTBEAT_LEASE_SECONDS * 1000);
 }
 
 export function exactSuccessorSupervisorState(state, iteration, summary, specArtifact, logsRoot) {
