@@ -837,6 +837,28 @@ test("startup push, PR-create, and CI-wait recovery use ordinary continuation be
   assert.match(runner, /exactHeadEvidence: \{[\s\S]*changedFilesDigest: digestChangedFiles\(candidate\.changedFiles\)[\s\S]*recoveryStateRebuildable: true/);
 });
 
+test("terminal derivative execution reconstructs replay-safe review gates after recovery reload", () => {
+  const recoverySource = readFileSync(
+    new URL("../lib/recovery-continuation.mjs", import.meta.url),
+    "utf8",
+  );
+  const execution = recoverySource.indexOf("export async function executeStartupContinuation");
+  const admission = recoverySource.indexOf(
+    "validateTerminalDerivativeContinuationAdmission(",
+    execution,
+  );
+  const replay = recoverySource.indexOf(
+    "replaySafeTerminalDerivativeContinuation(loaded.state)",
+    admission,
+  );
+  const normalization = recoverySource.indexOf(
+    "normalizeValidationFailureContinuation(loadedState)",
+    replay,
+  );
+  assert.ok(execution >= 0 && admission > execution && replay > admission);
+  assert.ok(normalization > replay);
+});
+
 test("projection checkpoints retain recovery, implementation, convergence, split, and stack authority", () => {
   const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   const bundle = readFileSync(new URL("../lib/feature-bundle-orchestrator.mjs", import.meta.url), "utf8");

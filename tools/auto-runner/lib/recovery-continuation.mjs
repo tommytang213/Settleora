@@ -316,7 +316,17 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
       };
     }
   }
-  const loadedState = reloadedProjection?.effectiveRecovery || loaded.state;
+  const persistedContinuationAdmission = config.outageRecoveryTarget?.terminalValidationRetryDerivativeNoPr === true
+    ? validateTerminalDerivativeContinuationAdmission(
+      config,
+      loaded.state,
+      config.outageRecoveryTarget,
+    )
+    : { ok: false };
+  const loadedState = reloadedProjection?.effectiveRecovery
+    || (persistedContinuationAdmission.ok
+      ? replaySafeTerminalDerivativeContinuation(loaded.state)
+      : loaded.state);
   const validationRetryTerminal = isValidationFailureRetryAuthorized(loadedState) ? loadedState : null;
   let state = normalizeValidationFailureContinuation(loadedState);
   const prepareAuthoritativeRecovery = selectOwnCallableHandler(handlers, "prepareAuthoritativeRecovery");
