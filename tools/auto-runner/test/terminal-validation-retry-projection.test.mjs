@@ -21,6 +21,7 @@ import {
   failedContinuationTruncatedDiagnostics,
   runnerSummaryCandidateCountWithinResolverLimit,
   runnerSummaryCandidateSizeWithinResolverLimit,
+  runnerSummaryRequiresAuthentication,
   exactFailedContinuationSpec,
   exactFailedContinuationSummary,
   exactFailedContinuationSupervisorState,
@@ -124,6 +125,20 @@ test("failed-continuation truncated diagnostics use resolver candidate order", (
   );
   assert.equal(runnerSummaryCandidateSizeWithinResolverLimit(512 * 1024), true);
   assert.equal(runnerSummaryCandidateSizeWithinResolverLimit((512 * 1024) + 1), false);
+});
+
+test("failed-continuation summary authentication follows correlated producer filenames", () => {
+  const selected = "run-2026-07-31T060319Z-c382043104fa.json";
+  assert.equal(runnerSummaryRequiresAuthentication(selected, selected), true);
+  assert.equal(
+    runnerSummaryRequiresAuthentication("run-2026-07-30T093243Z-dcc42a3a61db.json", selected),
+    true,
+  );
+  assert.equal(
+    runnerSummaryRequiresAuthentication("run-2026-07-24T034255Z.json", selected),
+    false,
+    "an unsuffixed legacy diagnostic candidate cannot authenticate as a correlated overlay summary",
+  );
 });
 
 test("failed-continuation overlay binds the exact no-effect target and predecessor projection", () => {

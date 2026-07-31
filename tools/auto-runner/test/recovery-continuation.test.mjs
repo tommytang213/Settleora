@@ -12,12 +12,14 @@ import {
   defaultGitAttributeFilesAreAbsent,
   inspectPreservedRecoveryForDeployment,
   normalizePreservedRecoveryDeploymentTarget,
+  projectionFailureClass,
   resumedGitConfigIsTrusted,
   resumedGitEnvironmentIsTrusted,
   resumedGitRemotesMatchExpected,
   resumedGitRepositoryAuthorityIsTrusted,
   sanitizedDeploymentGitEnvironment,
 } from "../lib/preserved-recovery-deployment.mjs";
+
 import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
 import {
   advanceRecoveryPhase,
@@ -49,6 +51,15 @@ import {
   consumeStartupInterruptionPlanner,
   validateTerminalDerivativeContinuationAdmission,
 } from "../lib/recovery-continuation.mjs";
+
+test("deployment projection diagnostics use a finite failure taxonomy", () => {
+  assert.equal(projectionFailureClass("terminal_projection_authoritative_read_unavailable"), "authoritative_artifact_read");
+  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_summary_mismatch"), "summary_authentication");
+  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_spec_mismatch"), "supervisor_spec_authentication");
+  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_supervisor_mismatch"), "supervisor_state_heartbeat_authentication");
+  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_chronology_mismatch"), "chronology");
+  assert.equal(projectionFailureClass("terminal_projection_failed_continuation_predecessor_identity_mismatch"), "predecessor_evidence_binding");
+});
 
 test("authoritative terminal projection uses the separately reloaded checkpoint path", () => {
   const state = Object.freeze({ taskKey: "20260724T075849" });

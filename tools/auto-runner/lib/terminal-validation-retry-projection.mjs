@@ -24,6 +24,8 @@ const SUCCESSOR_NODE_EXECUTABLE = "/usr/bin/node";
 const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 const RUNNER_SUMMARY_FILENAME_PATTERN =
   /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?\.json$/;
+const CORRELATED_RUNNER_SUMMARY_FILENAME_PATTERN =
+  /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z-[a-f0-9]{12}\.json$/;
 const MAX_RUNNER_SUMMARY_FILES = 2000;
 const FAILED_CONTINUATION_STOP = "recoverable-work-blocked:terminal_projection_reloaded_checkpoint_mismatch";
 const FAILED_CONTINUATION_RUNNER_CONFIG_SHA256 = "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7";
@@ -1289,6 +1291,14 @@ function trustedRunnerSummaryScan(root, selectedName) {
   const summaries = [];
   let selectedArtifact = null;
   for (const name of names) {
+    if (!runnerSummaryRequiresAuthentication(name, selectedName)) {
+      summaries.push({
+        path: path.join(root, name),
+        value: { supervisorRunId: false },
+        supervisorRunIdDigest: null,
+      });
+      continue;
+    }
     const artifact = trustedJsonArtifact(
       root,
       path.join(root, name),
@@ -1306,6 +1316,11 @@ function trustedRunnerSummaryScan(root, selectedName) {
     });
   }
   return { selectedArtifact, summaries };
+}
+
+export function runnerSummaryRequiresAuthentication(name, selectedName) {
+  return name === selectedName
+    || CORRELATED_RUNNER_SUMMARY_FILENAME_PATTERN.test(name);
 }
 
 export function failedContinuationTruncatedDiagnostics(

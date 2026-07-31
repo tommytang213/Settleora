@@ -173,10 +173,13 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
         lifecyclePath: rawLifecycle.statePath,
         target: projectionTarget,
       })
-      : { ok: false };
+      : { ok: false, projectionReasonCode: "terminal_projection_lifecycle_mismatch" };
     const state = projection.ok ? projection.effectiveRecovery : rawState;
     if (state.phase !== "stopped" || !isEligibleValidationRetryCheckpoint(state)) {
-      return denied("preserved_recovery_checkpoint_not_eligible", target);
+      return denied("preserved_recovery_checkpoint_not_eligible", target, projection.ok ? {} : {
+        projectionFailureReasonCode: projection.projectionReasonCode,
+        projectionFailureClass: projectionFailureClass(projection.projectionReasonCode),
+      });
     }
     const derivative = isKnownValidationRetryDerivative(state);
     const derivativeTerminalPhase = derivative ? validationRetryDerivativeTerminalPhase(state) : null;
@@ -217,7 +220,10 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
       } : null,
     });
   } catch {
-    return denied("preserved_recovery_authoritative_read_unavailable", target);
+    return denied("preserved_recovery_authoritative_read_unavailable", target, {
+      projectionFailureReasonCode: "terminal_projection_authoritative_read_unavailable",
+      projectionFailureClass: "authoritative_artifact_read",
+    });
   }
 }
 
@@ -1069,11 +1075,26 @@ function parseBoundedJson(file, limit) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-function denied(reasonCode, target) {
+function denied(reasonCode, target, diagnostics = {}) {
   return evidence({
     active: false, unresolvedExternalEffects: true, preservedRecoveryAdmitted: false,
     target: safeTarget(target), reasonCode, revalidationRequired: false,
+    projectionFailureReasonCode: diagnostics.projectionFailureReasonCode,
+    projectionFailureClass: diagnostics.projectionFailureClass,
   });
+}
+
+export function projectionFailureClass(reasonCode) {
+  const reason = String(reasonCode || "");
+  if (reason === "terminal_projection_authoritative_read_unavailable") return "authoritative_artifact_read";
+  if (reason.includes("summary")) return "summary_authentication";
+  if (reason.includes("spec")) return "supervisor_spec_authentication";
+  if (reason.includes("supervisor")) return "supervisor_state_heartbeat_authentication";
+  if (reason.includes("chronology")) return "chronology";
+  if (reason.includes("predecessor")) return "predecessor_evidence_binding";
+  if (reason.includes("state_missing") || reason.includes("superseded")) return "latest_state_selection";
+  if (reason.includes("state") || reason.includes("iteration")) return "iteration_shape_or_filename_identity";
+  return "target_association";
 }
 
 function evidence(value) {
@@ -1085,6 +1106,10 @@ function evidence(value) {
     preservedRecoveryAdmitted: value.preservedRecoveryAdmitted === true,
     targetIdentityDigest: target ? createHash("sha256").update(canonical(target)).digest("hex") : null,
     reasonCode: String(value.reasonCode || "deployment_quiescence_unclassified").slice(0, 160),
+    projectionFailureReasonCode: value.projectionFailureReasonCode
+      ? String(value.projectionFailureReasonCode).slice(0, 160) : null,
+    projectionFailureClass: value.projectionFailureClass
+      ? String(value.projectionFailureClass).slice(0, 80) : null,
     revalidationRequired: value.revalidationRequired === true,
     recoveryProjection: projection ? Object.freeze({
       projectionApplied: projection.projectionApplied === true,
