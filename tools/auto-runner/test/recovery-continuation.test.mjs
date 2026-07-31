@@ -60,12 +60,45 @@ test("deployment projection diagnostics use a finite failure taxonomy", () => {
   assert.equal(projectionFailureClass("terminal_projection_failed_continuation_supervisor_mismatch"), "supervisor_state_heartbeat_authentication");
   assert.equal(projectionFailureClass("terminal_projection_failed_continuation_chronology_mismatch"), "chronology");
   assert.equal(projectionFailureClass("terminal_projection_failed_continuation_predecessor_identity_mismatch"), "predecessor_evidence_binding");
-  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_state_corrupt"), "terminal_projection_authoritative_read_unavailable");
-  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_recovery_artifact_untrusted"), "terminal_projection_authoritative_read_unavailable");
-  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_checkpoint_digest_mismatch"), "terminal_projection_authoritative_read_unavailable");
-  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_identity_incomplete"), "terminal_projection_authoritative_read_unavailable");
-  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_version_unsupported"), "terminal_projection_authoritative_read_unavailable");
-  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_identity_mismatch"), "terminal_projection_lifecycle_mismatch");
+  const authoritativeReadFailures = [
+    "session_lifecycle_state_missing",
+    "session_lifecycle_state_ambiguous",
+    "session_lifecycle_state_corrupt",
+    "session_lifecycle_recovery_root_untrusted",
+    "session_lifecycle_recovery_artifact_untrusted",
+    "session_lifecycle_version_unsupported",
+    "session_lifecycle_identity_incomplete",
+    "session_lifecycle_session_identity_invalid",
+    "session_lifecycle_retirement_contradictory",
+    "session_lifecycle_authority_contradictory",
+    "session_lifecycle_authority_status_invalid",
+    "session_lifecycle_terminal_state_contradictory",
+    "session_lifecycle_counter_invalid",
+    "session_lifecycle_policy_invalid",
+    "session_lifecycle_report_correlation_mismatch",
+    "session_lifecycle_checkpoint_digest_mismatch",
+    "session_lifecycle_future_reason",
+    "",
+  ];
+  for (const reason of authoritativeReadFailures) {
+    assert.equal(
+      lifecycleProjectionFailureReason(reason),
+      "terminal_projection_authoritative_read_unavailable",
+      reason || "empty reason",
+    );
+  }
+  const targetAssociationFailures = [
+    "session_lifecycle_repository_mismatch",
+    "session_lifecycle_taskKey_mismatch",
+    "session_lifecycle_runId_mismatch",
+    "session_lifecycle_supervisorRunId_mismatch",
+    "session_lifecycle_claimIdentity_mismatch",
+    "session_lifecycle_sessionId_mismatch",
+    "session_lifecycle_legacy_supervisor_backfill_head_mismatch",
+  ];
+  for (const reason of targetAssociationFailures) {
+    assert.equal(lifecycleProjectionFailureReason(reason), "terminal_projection_lifecycle_mismatch", reason);
+  }
 });
 
 test("authoritative terminal projection uses the separately reloaded checkpoint path", () => {

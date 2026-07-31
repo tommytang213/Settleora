@@ -1098,12 +1098,20 @@ export function projectionFailureClass(reasonCode) {
 }
 
 export function lifecycleProjectionFailureReason(reasonCode) {
-  const reason = String(reasonCode || "");
-  return !/(?:digest|incomplete|unsupported|invalid|corrupt|untrusted|unavailable|missing|ambiguous)/.test(reason)
-    && /(?:mismatch|contradictory)$/.test(reason)
+  return lifecycleTargetAssociationFailureReasons.has(String(reasonCode || ""))
     ? "terminal_projection_lifecycle_mismatch"
     : "terminal_projection_authoritative_read_unavailable";
 }
+
+const lifecycleTargetAssociationFailureReasons = new Set([
+  "session_lifecycle_repository_mismatch",
+  "session_lifecycle_taskKey_mismatch",
+  "session_lifecycle_runId_mismatch",
+  "session_lifecycle_supervisorRunId_mismatch",
+  "session_lifecycle_claimIdentity_mismatch",
+  "session_lifecycle_sessionId_mismatch",
+  "session_lifecycle_legacy_supervisor_backfill_head_mismatch",
+]);
 
 function evidence(value) {
   const target = safeTarget(value.target);
