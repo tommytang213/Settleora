@@ -456,7 +456,12 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
   const summaryJsonPath = `${logsRoot}/summaries/${iteration.runId}.json`;
   const summaryMarkdownPath = `${logsRoot}/summaries/${iteration.runId}.md`;
   const reportResolution = {
-    diagnostics: [],
+    diagnostics: [{
+      file: `${iteration.runId}.json`,
+      reason: null,
+      runnerRunId: iteration.runId,
+      status: "matched",
+    }],
     ok: true,
     status: "matched",
     reason: null,
@@ -655,6 +660,29 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
       ...heartbeat,
       reportResolution: { ...reportResolution, unexpected: null },
     },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  for (const diagnostics of [
+    [],
+    [{ ...reportResolution.diagnostics[0], unexpected: null }],
+    [{ ...reportResolution.diagnostics[0], runnerRunId: "run-foreign" }],
+  ]) {
+    const changedResolution = { ...reportResolution, diagnostics };
+    assert.equal(exactFailedContinuationSupervisorState(
+      { ...state, reportResolution: changedResolution },
+      { ...heartbeat, reportResolution: changedResolution },
+      iteration,
+      summary,
+      specArtifact,
+      logsRoot,
+    ), false);
+  }
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, heartbeatGeneration: 2 },
+    { ...heartbeat, heartbeatGeneration: 2 },
     iteration,
     summary,
     specArtifact,

@@ -37,6 +37,9 @@ const FAILED_CONTINUATION_REPORT_RESOLUTION_FIELDS = Object.freeze([
   "diagnostics", "ok", "reason", "reportPath", "runnerRunId",
   "runnerSummaryJsonPath", "runnerSummaryMarkdownPath", "status",
 ]);
+const FAILED_CONTINUATION_DIAGNOSTIC_FIELDS = Object.freeze([
+  "file", "reason", "runnerRunId", "status",
+]);
 const EXACT_TERMINAL_ITERATION_FIELDS = Object.freeze([
   "autoMerge",
   "baseOriginMainSha",
@@ -1055,6 +1058,10 @@ export function exactFailedContinuationSupervisorState(
   );
   const expectedUnitName = `settleora-auto-runner@${summary.supervisorRunId}.service`;
   const expectedArgv = historicalRunnerArgvForSpec(specArtifact.value, iteration.runId);
+  const diagnostics = heartbeat?.reportResolution?.diagnostics;
+  const matchingDiagnostic = Array.isArray(diagnostics)
+    ? diagnostics[diagnostics.length - 1]
+    : null;
   const exactState = state?.state === "blocked"
     && canonical(Object.keys(state || {}).sort())
       === canonical(FAILED_CONTINUATION_SUPERVISOR_STATE_FIELDS)
@@ -1093,7 +1100,7 @@ export function exactFailedContinuationSupervisorState(
     && Date.parse(summary?.finishedAt) <= Date.parse(state?.finishedAt)
     && Date.parse(state?.finishedAt) <= Date.parse(state?.updatedAt)
     && Number.isSafeInteger(state?.heartbeatGeneration)
-    && state.heartbeatGeneration >= 1;
+    && state.heartbeatGeneration === 3;
   return exactState
     && heartbeat?.schemaVersion === 2
     && heartbeat?.runId === state.runId
@@ -1116,6 +1123,17 @@ export function exactFailedContinuationSupervisorState(
       === canonical(FAILED_CONTINUATION_COUNT_FIELDS)
     && canonical(Object.keys(heartbeat?.reportResolution || {}).sort())
       === canonical(FAILED_CONTINUATION_REPORT_RESOLUTION_FIELDS)
+    && Array.isArray(diagnostics)
+    && diagnostics.length >= 1
+    && diagnostics.every((diagnostic) =>
+      canonical(Object.keys(diagnostic || {}).sort())
+        === canonical(FAILED_CONTINUATION_DIAGNOSTIC_FIELDS))
+    && canonical(matchingDiagnostic) === canonical({
+      file: `${iteration.runId}.json`,
+      reason: null,
+      runnerRunId: iteration.runId,
+      status: "matched",
+    })
     && heartbeat?.counts?.attempted === 0
     && heartbeat?.counts?.processed === 0
     && heartbeat?.counts?.completed === 0
