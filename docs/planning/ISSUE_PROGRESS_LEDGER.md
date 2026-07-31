@@ -1,5 +1,44 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#999 and PR #1025 — authoritative reload identity repair merged (2026-07-31)
+
+- PR #1025 merged normally with expected-head protection from exact authorized
+  source head `a07faa54e491ad7126fa8e5663e21e27999f5fc0`, source tree
+  `9ccf7acd5b65a0b53d0d59132435fbf9a7639ccd`, and base
+  `3b2dec4997e8ffc8205e210fa6e017cab6da231d` as merge/current `main`
+  `298a6ff0087d9217e29c87109a4ca05725e6d0c6`. The ordered merge parents are
+  the exact base and source head, and the merge tree equals the authorized
+  source tree.
+- The focused three-file auto-runner repair preserves authoritative
+  `statePath` across reload routing so unchanged root checkpoint bytes can be
+  reauthenticated. It changed only recovery continuation code and focused
+  recovery/production-wiring tests, with 71 additions and 7 deletions.
+- Exact-candidate validation passed focused tests `111/111`, the complete
+  auto-runner suite `1300/1300`, `npm ci`, doctor, changed-module
+  syntax/import, docs, scaffold, diff, exact-scope, and clean-worktree guards.
+  Gemini `strong_independent` and local Codex passed with no material findings.
+  All 12 exact-head CodeQL/language-analysis, Semgrep CE/OSS, Trivy, and
+  Scaffold Validation checks passed. Open code-scanning, secret-scanning, and
+  Dependabot alerts were `0/0/0`; unresolved review threads were `0`; GitHub
+  Codex found no major issues.
+- Immutable original and failed-continuation Issue #959 artifacts remained
+  byte-identical. Issue #959 remains `OPEN` with exactly six labels and 13
+  comments, without `auto-claimed` or `auto-running`, and without a remote
+  preserved branch or PR. Issue #999 remains separate, `OPEN`, with three
+  labels and zero comments. Neither issue was mutated.
+- Keep Issue #1012 `OPEN` with `manual-gate`. This repository repair is merged.
+  Remaining gates require separate explicit authorization: deploy and verify
+  the merged repair, then perform exactly one trusted preserved Issue #959
+  continuation proving no duplicate effect. Decide whether to close Issue
+  #1012 only after both gates succeed.
+- This source merge and ledger hygiene performed no deployment, rollback,
+  runtime/profile/approval/launcher/service/timer/health mutation, runner or
+  supervisor submission, queue activation, Issue #959 continuation, Issue
+  #999 work, or product/API/OpenAPI/generated-client/auth/storage/money/schema
+  effect.
+- Issue #1012 merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5140442463`.
+
 ### Issues #1012/#959/#999 and PR #1023 — terminal recovery projection repair merged (2026-07-31)
 
 - PR #1023 merged normally with expected-head protection from exact authorized
