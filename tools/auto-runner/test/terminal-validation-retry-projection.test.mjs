@@ -228,18 +228,26 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
     autoMergeCanaryApprovalMode: "not_approved",
     baseOriginMainSha: "3".repeat(40),
     configPath: "/workspace/auto-runner/config/settleora.json",
-    logPath: "/trusted/run.log",
+    logPath: `/trusted/run-logs/${iteration.runId}.log`,
     mode: "run",
   };
-  assert.equal(exactFailedContinuationSummary(summary, iteration, target), true);
+  assert.equal(exactFailedContinuationSummary(summary, iteration, target, "/trusted"), true);
   assert.equal(exactFailedContinuationSummary({
     ...summary,
     stopReason: "other",
-  }, iteration, target), false);
+  }, iteration, target, "/trusted"), false);
   assert.equal(exactFailedContinuationSummary({
     ...summary,
     startedAt: "2026-07-31T06:03:19.778Z",
-  }, iteration, target), false);
+  }, iteration, target, "/trusted"), false);
+  assert.equal(exactFailedContinuationSummary({
+    ...summary,
+    autoMergeCanaryApprovalMode: "approved",
+  }, iteration, target, "/trusted"), false);
+  assert.equal(exactFailedContinuationSummary({
+    ...summary,
+    logPath: "/trusted/run-logs/foreign.log",
+  }, iteration, target, "/trusted"), false);
   const spec = {
     createdAt: "2026-07-31T06:03:11.209Z",
     initialOriginMainSha: "3".repeat(40),
@@ -435,6 +443,7 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
   const summaryJsonPath = `${logsRoot}/summaries/${iteration.runId}.json`;
   const summaryMarkdownPath = `${logsRoot}/summaries/${iteration.runId}.md`;
   const reportResolution = {
+    diagnostics: [],
     ok: true,
     status: "matched",
     reason: null,
@@ -517,7 +526,7 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     maxTasks: state.maxTasks,
     maxRuntime: state.maxRuntime,
     monitoringDelivery: null,
-    ownerPid: 1234,
+    ownerPid: 2744812,
     currentIssue: null,
     currentPr: null,
     counts: {
@@ -549,6 +558,7 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     ["unitName", "settleora-auto-runner@foreign.service"],
     ["heartbeatIntervalSeconds", 30],
     ["heartbeatLeaseSeconds", 600],
+    ["ownerPid", 2744813],
     ["leaseExpiresAt", "2026-07-31T06:09:19.789Z"],
     ["reportPath", `${logsRoot}/summaries/foreign.md`],
   ]) {
@@ -613,6 +623,25 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
   assert.equal(exactFailedContinuationSupervisorState(
     state,
     { ...heartbeat, reportResolution: { ...reportResolution, status: "foreign" } },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    state,
+    { ...heartbeat, counts: { ...heartbeat.counts, unexpected: 0 } },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    state,
+    {
+      ...heartbeat,
+      reportResolution: { ...reportResolution, unexpected: null },
+    },
     iteration,
     summary,
     specArtifact,

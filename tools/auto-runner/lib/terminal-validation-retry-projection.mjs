@@ -25,6 +25,14 @@ const FAILED_CONTINUATION_STOP = "recoverable-work-blocked:terminal_projection_r
 const FAILED_CONTINUATION_RUNNER_CONFIG_SHA256 = "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7";
 const FAILED_CONTINUATION_HEARTBEAT_INTERVAL_SECONDS = 60;
 const FAILED_CONTINUATION_HEARTBEAT_LEASE_SECONDS = 300;
+const FAILED_CONTINUATION_OWNER_PID = 2744812;
+const FAILED_CONTINUATION_COUNT_FIELDS = Object.freeze([
+  "attempted", "blocked", "completed", "failed", "merged", "processed", "skipped",
+]);
+const FAILED_CONTINUATION_REPORT_RESOLUTION_FIELDS = Object.freeze([
+  "diagnostics", "ok", "reason", "reportPath", "runnerRunId",
+  "runnerSummaryJsonPath", "runnerSummaryMarkdownPath", "status",
+]);
 const EXACT_TERMINAL_ITERATION_FIELDS = Object.freeze([
   "autoMerge",
   "baseOriginMainSha",
@@ -424,7 +432,7 @@ function authenticateFailedContinuationOverlay({
     summaryRoot,
     path.join(summaryRoot, `${iteration.runId}.md`),
   );
-  if (!exactFailedContinuationSummary(summaryArtifact.value, iteration, target)) {
+  if (!exactFailedContinuationSummary(summaryArtifact.value, iteration, target, root)) {
     return fail("terminal_projection_failed_continuation_summary_mismatch");
   }
   const supervisorRunId = summaryArtifact.value.supervisorRunId;
@@ -957,7 +965,7 @@ function exactFailedContinuationRecoveryTarget(recoveryTarget, target) {
     && recoveryTarget.outageFingerprint === null;
 }
 
-export function exactFailedContinuationSummary(summary, iteration, target) {
+export function exactFailedContinuationSummary(summary, iteration, target, logsRoot) {
   return canonical(Object.keys(summary || {}).sort()) === canonical(FAILED_CONTINUATION_SUMMARY_FIELDS)
     && Array.isArray(summary?.iterations)
     && summary.iterations.length === 1
@@ -971,6 +979,8 @@ export function exactFailedContinuationSummary(summary, iteration, target) {
     && summary?.processedIssueCount === 1
     && canonical(summary?.processedIssueNumbers) === canonical([target.issueNumber])
     && summary?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
+    && summary?.autoMergeCanaryApprovalMode === "not_approved"
+    && summary?.logPath === path.join(logsRoot, "run-logs", `${iteration.runId}.log`)
     && summary?.maxIterations === 1
     && summary?.maxRuntimeMs === SUCCESSOR_MAX_RUNTIME_MS
     && Date.parse(summary?.startedAt) <= Date.parse(summary?.finishedAt)
@@ -1090,8 +1100,13 @@ export function exactFailedContinuationSupervisorState(
     && heartbeat?.heartbeatLeaseSeconds
       === FAILED_CONTINUATION_HEARTBEAT_LEASE_SECONDS
     && heartbeat?.monitoringDelivery === null
+    && heartbeat?.ownerPid === FAILED_CONTINUATION_OWNER_PID
     && heartbeat?.currentIssue === null
     && heartbeat?.currentPr === null
+    && canonical(Object.keys(heartbeat?.counts || {}).sort())
+      === canonical(FAILED_CONTINUATION_COUNT_FIELDS)
+    && canonical(Object.keys(heartbeat?.reportResolution || {}).sort())
+      === canonical(FAILED_CONTINUATION_REPORT_RESOLUTION_FIELDS)
     && heartbeat?.counts?.attempted === 0
     && heartbeat?.counts?.processed === 0
     && heartbeat?.counts?.completed === 0
