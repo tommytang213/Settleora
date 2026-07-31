@@ -442,14 +442,15 @@ function authenticateFailedContinuationOverlay({
   const fail = (reasonCode) => ({ ok: false, reasonCode });
   const iteration = stateArtifact.value;
   const summaryRoot = path.join(root, "summaries");
-  const allSummaries = trustedRunnerSummaryJsonFiles(summaryRoot);
-  const expectedSummaryPath = path.join(summaryRoot, `${iteration.runId}.json`);
-  const selectedSummaries = allSummaries
-    .filter(({ path: artifactPath }) => artifactPath === expectedSummaryPath);
-  if (selectedSummaries.length !== 1) {
+  const summaryScan = trustedRunnerSummaryScan(
+    summaryRoot,
+    `${iteration.runId}.json`,
+  );
+  const allSummaries = summaryScan.summaries;
+  if (!summaryScan.selectedArtifact) {
     return fail("terminal_projection_failed_continuation_summary_mismatch");
   }
-  const summaryArtifact = selectedSummaries[0];
+  const summaryArtifact = summaryScan.selectedArtifact;
   const summaryMarkdownArtifact = trustedFileArtifact(
     summaryRoot,
     path.join(summaryRoot, `${iteration.runId}.md`),
@@ -1278,20 +1279,29 @@ function trustedJsonFiles(root) {
     .map((name) => trustedJsonArtifact(root, path.join(root, name)));
 }
 
-function trustedRunnerSummaryJsonFiles(root) {
+function trustedRunnerSummaryScan(root, selectedName) {
   const names = readdirSync(root)
     .filter((name) => RUNNER_SUMMARY_FILENAME_PATTERN.test(name))
     .sort();
   if (names.length > MAX_RUNNER_SUMMARY_FILES) {
     throw new Error("runner summary scan limit exceeded");
   }
-  return names
-    .map((name) => trustedJsonArtifact(
+  const summaries = [];
+  let selectedArtifact = null;
+  for (const name of names) {
+    const artifact = trustedJsonArtifact(
       root,
       path.join(root, name),
       null,
       MAX_RUNNER_SUMMARY_BYTES,
-    ));
+    );
+    if (name === selectedName) selectedArtifact = artifact;
+    summaries.push({
+      path: artifact.path,
+      value: { supervisorRunId: artifact.value?.supervisorRunId },
+    });
+  }
+  return { selectedArtifact, summaries };
 }
 
 export function failedContinuationTruncatedDiagnostics(
