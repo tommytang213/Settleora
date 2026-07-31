@@ -10,7 +10,6 @@ import {
   specPathForRunId,
   validateRunSpecShape,
 } from "../supervisor/run-spec.mjs";
-import { runnerArgvForSpec } from "../supervisor/systemd-client.mjs";
 import { validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
@@ -83,6 +82,65 @@ const FAILED_CONTINUATION_HEARTBEAT_FIELDS = Object.freeze([
   "reportResolution", "runId", "runnerRunId", "schemaVersion", "startedAt",
   "state", "terminal", "unitName", "updatedAt",
 ]);
+
+function historicalRunnerArgvForSpec(spec, runnerRunId) {
+  const argv = [
+    process.execPath,
+    path.join(SUCCESSOR_RUNTIME_ROOT, "settleora-auto-runner.mjs"),
+    "--run",
+    "--supervisor-run-id",
+    spec.runId,
+    "--runner-run-id",
+    runnerRunId,
+    "--config",
+    "[config-path]",
+    "--expected-config-sha256",
+    spec.runnerConfigSha256,
+    "--max-iterations",
+    String(spec.maxTasks),
+    "--max-runtime",
+    spec.maxRuntime,
+  ];
+  if (spec.recoveryOnlyTarget) {
+    const recoveryTarget = spec.recoveryOnlyTarget;
+    argv.push(
+      "--outage-recovery-only",
+      "--outage-target-task-key",
+      recoveryTarget.taskKey,
+      "--outage-target-issue",
+      String(recoveryTarget.issueNumber),
+      "--outage-target-branch",
+      recoveryTarget.branchName,
+      "--outage-target-base-sha",
+      recoveryTarget.baseSha,
+      "--outage-target-head-sha",
+      recoveryTarget.currentHeadSha,
+      "--outage-target-runner-run-id",
+      recoveryTarget.runnerRunId,
+      "--outage-target-supervisor-run-id",
+      recoveryTarget.supervisorRunId,
+    );
+    if (recoveryTarget.terminalValidationRetryDerivativeNoPr === true) {
+      argv.push("--outage-target-terminal-validation-retry-derivative");
+    } else {
+      argv.push(
+        "--outage-target-original-spec-digest",
+        recoveryTarget.originalSupervisorSpecDigest,
+        "--outage-target-marker-key",
+        recoveryTarget.markerKey,
+        "--outage-target-fingerprint",
+        recoveryTarget.outageFingerprint,
+        "--outage-target-attempt",
+        String(recoveryTarget.attemptNumber),
+        "--outage-target-pr",
+        String(recoveryTarget.prNumber),
+        "--outage-target-pr-head-sha",
+        recoveryTarget.prHeadSha,
+      );
+    }
+  }
+  return argv;
+}
 
 export function projectAuthenticatedTerminalValidationRetryDerivative({
   logsRoot,
@@ -951,16 +1009,7 @@ export function exactFailedContinuationSupervisorState(
     digest(summary.supervisorRunId),
   );
   const expectedUnitName = `settleora-auto-runner@${summary.supervisorRunId}.service`;
-  let expectedArgv;
-  try {
-    expectedArgv = runnerArgvForSpec(specArtifact.value, {
-      runnerRunId: iteration.runId,
-      runtimeRoot: SUCCESSOR_RUNTIME_ROOT,
-      logsRoot,
-    }).map((part, index, argv) => argv[index - 1] === "--config" ? "[config-path]" : part);
-  } catch {
-    return false;
-  }
+  const expectedArgv = historicalRunnerArgvForSpec(specArtifact.value, iteration.runId);
   const exactState = state?.state === "blocked"
     && canonical(Object.keys(state || {}).sort())
       === canonical(FAILED_CONTINUATION_SUPERVISOR_STATE_FIELDS)
@@ -1034,16 +1083,10 @@ export function exactFailedContinuationSupervisorState(
 export function exactSuccessorSupervisorState(state, iteration, summary, specArtifact, logsRoot) {
   const summaryJsonPath = path.join(logsRoot, "summaries", `${iteration?.runId}.json`);
   const summaryMarkdownPath = path.join(logsRoot, "summaries", `${iteration?.runId}.md`);
-  let expectedRunnerArgv;
-  try {
-    expectedRunnerArgv = runnerArgvForSpec(specArtifact?.value, {
-      runnerRunId: iteration?.runId,
-      runtimeRoot: SUCCESSOR_RUNTIME_ROOT,
-      logsRoot,
-    }).map((part, index, argv) => argv[index - 1] === "--config" ? "[config-path]" : part);
-  } catch {
-    return false;
-  }
+  const expectedRunnerArgv = historicalRunnerArgvForSpec(
+    specArtifact?.value,
+    iteration?.runId,
+  );
   return state?.state === "blocked"
     && state?.runId === summary?.supervisorRunId
     && state?.runnerRunId === iteration?.runId
