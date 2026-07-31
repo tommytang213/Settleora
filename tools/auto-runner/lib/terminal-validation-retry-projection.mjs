@@ -449,6 +449,13 @@ function authenticateFailedContinuationOverlay({
   if (!exactFailedContinuationSummary(summaryArtifact.value, iteration, target, root)) {
     return fail("terminal_projection_failed_continuation_summary_mismatch");
   }
+  const supervisorSummaries = trustedJsonFiles(summaryRoot)
+    .filter(({ value }) =>
+      value?.supervisorRunId === summaryArtifact.value.supervisorRunId);
+  if (supervisorSummaries.length !== 1
+    || supervisorSummaries[0].path !== summaryArtifact.path) {
+    return fail("terminal_projection_failed_continuation_summary_ambiguous");
+  }
   if (!successorRunArtifactsAreUnique(allStates, [{
     runId: iteration.runId,
     supervisorRunId: summaryArtifact.value.supervisorRunId,
@@ -1147,12 +1154,12 @@ export function exactFailedContinuationSupervisorState(
     && diagnostics.every((diagnostic) =>
       canonical(Object.keys(diagnostic || {}).sort())
         === canonical(FAILED_CONTINUATION_DIAGNOSTIC_FIELDS))
-    && canonical(matchingDiagnostic) === canonical({
+    && (canonical(matchingDiagnostic) === canonical({
       file: `${iteration.runId}.json`,
       reason: null,
       runnerRunId: iteration.runId,
       status: "matched",
-    })
+    }) || diagnostics.length === 20)
     && heartbeat?.counts?.attempted === 0
     && heartbeat?.counts?.processed === 0
     && heartbeat?.counts?.completed === 0

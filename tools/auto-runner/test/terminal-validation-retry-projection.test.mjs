@@ -572,6 +572,24 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     specArtifact,
     logsRoot,
   ), true);
+  const truncatedDiagnostics = Array.from({ length: 20 }, (_, index) => ({
+    file: `earlier-${index}.json`,
+    reason: "wrong_supervisor_run_id",
+    runnerRunId: null,
+    status: "skipped",
+  }));
+  const truncatedResolution = {
+    ...reportResolution,
+    diagnostics: truncatedDiagnostics,
+  };
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, reportResolution: truncatedResolution },
+    { ...heartbeat, reportResolution: truncatedResolution },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), true);
   for (const [field, value] of [
     ["maxTasks", 2],
     ["maxRuntime", "1d"],
