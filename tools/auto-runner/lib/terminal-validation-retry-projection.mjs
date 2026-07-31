@@ -462,8 +462,8 @@ function authenticateFailedContinuationOverlay({
     return fail("terminal_projection_failed_continuation_summary_ambiguous");
   }
   const supervisorSummaries = allSummaries
-    .filter(({ value }) =>
-      value?.supervisorRunId === summaryArtifact.value.supervisorRunId);
+    .filter(({ supervisorRunIdDigest }) =>
+      supervisorRunIdDigest === digest(summaryArtifact.value.supervisorRunId));
   if (supervisorSummaries.length !== 1
     || supervisorSummaries[0].path !== summaryArtifact.path) {
     return fail("terminal_projection_failed_continuation_summary_ambiguous");
@@ -1296,9 +1296,13 @@ function trustedRunnerSummaryScan(root, selectedName) {
       MAX_RUNNER_SUMMARY_BYTES,
     );
     if (name === selectedName) selectedArtifact = artifact;
+    const supervisorRunId = artifact.value?.supervisorRunId;
     summaries.push({
       path: artifact.path,
-      value: { supervisorRunId: artifact.value?.supervisorRunId },
+      value: { supervisorRunId: Boolean(supervisorRunId) },
+      supervisorRunIdDigest: typeof supervisorRunId === "string"
+        ? digest(supervisorRunId)
+        : null,
     });
   }
   return { selectedArtifact, summaries };
