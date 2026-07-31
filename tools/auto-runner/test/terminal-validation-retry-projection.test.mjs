@@ -19,6 +19,7 @@ import {
   exactLifecycle,
   exactFailedContinuationIteration,
   failedContinuationTruncatedDiagnostics,
+  runnerSummaryCandidateCountWithinResolverLimit,
   exactFailedContinuationSpec,
   exactFailedContinuationSummary,
   exactFailedContinuationSupervisorState,
@@ -104,6 +105,21 @@ test("failed-continuation truncated diagnostics use resolver candidate order", (
       .map(({ file }) => file),
     sameTimestampArtifacts.map(({ path: artifactPath }) =>
       path.basename(artifactPath)).sort(),
+  );
+  assert.equal(
+    failedContinuationTruncatedDiagnostics([{
+      path: "/logs/summaries/run-2026-07-31T060319Z.json",
+      value: { supervisorRunId: 123 },
+    }])[0].reason,
+    "wrong_supervisor_run_id",
+  );
+  assert.equal(
+    runnerSummaryCandidateCountWithinResolverLimit(Array.from({ length: 2000 })),
+    true,
+  );
+  assert.equal(
+    runnerSummaryCandidateCountWithinResolverLimit(Array.from({ length: 2001 })),
+    false,
   );
 });
 

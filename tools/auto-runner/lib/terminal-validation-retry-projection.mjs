@@ -23,6 +23,7 @@ const SUCCESSOR_NODE_EXECUTABLE = "/usr/bin/node";
 const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 const RUNNER_SUMMARY_FILENAME_PATTERN =
   /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?\.json$/;
+const MAX_RUNNER_SUMMARY_FILES = 2000;
 const FAILED_CONTINUATION_STOP = "recoverable-work-blocked:terminal_projection_reloaded_checkpoint_mismatch";
 const FAILED_CONTINUATION_RUNNER_CONFIG_SHA256 = "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7";
 const FAILED_CONTINUATION_HEARTBEAT_INTERVAL_SECONDS = 60;
@@ -452,6 +453,9 @@ function authenticateFailedContinuationOverlay({
     return fail("terminal_projection_failed_continuation_summary_mismatch");
   }
   const allSummaries = trustedRunnerSummaryJsonFiles(summaryRoot);
+  if (!runnerSummaryCandidateCountWithinResolverLimit(allSummaries)) {
+    return fail("terminal_projection_failed_continuation_summary_ambiguous");
+  }
   const supervisorSummaries = allSummaries
     .filter(({ value }) =>
       value?.supervisorRunId === summaryArtifact.value.supervisorRunId);
@@ -1300,12 +1304,17 @@ export function failedContinuationTruncatedDiagnostics(
         }
         : {
           file: path.basename(artifactPath),
-          reason: typeof value?.supervisorRunId === "string"
+          reason: value?.supervisorRunId
             ? "wrong_supervisor_run_id"
             : "missing_supervisor_run_id",
           runnerRunId: null,
           status: "skipped",
         });
+}
+
+export function runnerSummaryCandidateCountWithinResolverLimit(summaryArtifacts) {
+  return Array.isArray(summaryArtifacts)
+    && summaryArtifacts.length <= MAX_RUNNER_SUMMARY_FILES;
 }
 
 function trustedNestedJsonFiles(root, basename) {
