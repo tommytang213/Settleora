@@ -449,7 +449,8 @@ function authenticateFailedContinuationOverlay({
   if (!exactFailedContinuationSummary(summaryArtifact.value, iteration, target, root)) {
     return fail("terminal_projection_failed_continuation_summary_mismatch");
   }
-  const supervisorSummaries = trustedJsonFiles(summaryRoot)
+  const allSummaries = trustedJsonFiles(summaryRoot);
+  const supervisorSummaries = allSummaries
     .filter(({ value }) =>
       value?.supervisorRunId === summaryArtifact.value.supervisorRunId);
   if (supervisorSummaries.length !== 1
@@ -490,6 +491,14 @@ function authenticateFailedContinuationOverlay({
     summaryArtifact.value,
     specArtifact,
     root,
+    allSummaries.slice(0, 20).map(({ path: artifactPath, value }) => ({
+      file: path.basename(artifactPath),
+      reason: typeof value?.supervisorRunId === "string"
+        ? "wrong_supervisor_run_id"
+        : "missing_supervisor_run_id",
+      runnerRunId: null,
+      status: "skipped",
+    })),
   )) return fail("terminal_projection_failed_continuation_supervisor_mismatch");
   if (Date.parse(predecessorStateArtifact.value.finishedAt) > Date.parse(specArtifact.value.createdAt)
     || Date.parse(predecessorSummaryArtifact.value.finishedAt) > Date.parse(specArtifact.value.createdAt)) {
@@ -1073,6 +1082,7 @@ export function exactFailedContinuationSupervisorState(
   summary,
   specArtifact,
   logsRoot,
+  expectedTruncatedDiagnostics = [],
 ) {
   const summaryJsonPath = path.join(logsRoot, "summaries", `${iteration.runId}.json`);
   const summaryMarkdownPath = path.join(logsRoot, "summaries", `${iteration.runId}.md`);
@@ -1160,13 +1170,9 @@ export function exactFailedContinuationSupervisorState(
       runnerRunId: iteration.runId,
       status: "matched",
     }) || (diagnostics.length === 20
-      && diagnostics.every((diagnostic) =>
-        diagnostic.status === "skipped"
-        && diagnostic.runnerRunId === null
-        && ["missing_supervisor_run_id", "wrong_supervisor_run_id"]
-          .includes(diagnostic.reason)
-        && typeof diagnostic.file === "string"
-        && diagnostic.file.endsWith(".json"))))
+      && canonical(diagnostics) === canonical(expectedTruncatedDiagnostics)
+      && !expectedTruncatedDiagnostics.some((diagnostic) =>
+        diagnostic.file === `${iteration.runId}.json`)))
     && heartbeat?.counts?.attempted === 0
     && heartbeat?.counts?.processed === 0
     && heartbeat?.counts?.completed === 0

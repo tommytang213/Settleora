@@ -589,6 +589,7 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     summary,
     specArtifact,
     logsRoot,
+    truncatedDiagnostics,
   ), true);
   for (const changedDiagnostic of [
     { ...truncatedDiagnostics[0], status: "pending" },
