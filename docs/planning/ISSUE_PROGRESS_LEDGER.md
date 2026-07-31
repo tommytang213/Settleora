@@ -1,5 +1,53 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#999 and PR #1023 — terminal recovery projection repair merged (2026-07-31)
+
+- PR #1023 merged normally with expected-head protection from exact authorized
+  source head `93c3d5d77128f4073f58333c2103d686513ae86f`, source tree
+  `36d11cb9701a4b423342ee04f93e64ee28e62039`, and base
+  `e4eb25c9b1eebfd6a364cfb76abc8fa4fbf4da3a` as merge/current `main`
+  `9433679d2a12cc1ac75ed6a9e04114c0ad49168f`. The ordered merge parents are
+  the exact base and source head, and the merge tree equals the authorized
+  source tree.
+- The 20-file auto-runner workflow/docs/test repair completes the repository
+  side of the preserved terminal validation-retry projection. It binds the
+  raw recovery, lifecycle, successor state and summaries, supervisor spec and
+  state, task/claim/charge/branch/candidate identities, and no-effect posture
+  while keeping effective recovery in-memory and fail-closed. It does not
+  deploy the corrected runtime or continue Issue #959.
+- Exact-head validation passed the complete auto-runner suite `1297/1297`,
+  focused suites `202/202`, docs, scaffold (19 paths), changed-module syntax
+  and imports, live read-only projection, diff/scope, and clean-worktree
+  guards. Final Gemini `strong_independent` passed with no findings; final
+  local Codex returned `PASS_NO_BLOCKING_FINDINGS`; final GitHub Codex found
+  no major issues. All 12 CodeQL/language-analysis, Semgrep CE/OSS, Trivy,
+  and Scaffold Validation checks passed. Open code-scanning,
+  secret-scanning, and Dependabot alerts were `0/0/0`; unresolved review
+  threads were `0`.
+- Immutable Issue #959 recovery, lifecycle, logical-task budget, successor
+  state and JSON/Markdown summaries, supervisor spec, and supervisor state
+  hashes remained byte-identical. Issue #959 remains `OPEN` with exactly six
+  labels and 13 comments, without `auto-claimed` or `auto-running`; no remote
+  preserved branch or PR exists. Issue #999 remains separate, `OPEN`, with
+  zero comments and unchanged labels. Neither issue was mutated.
+- Keep Issue #1012 `OPEN` with `manual-gate`. Repository repair and this
+  post-merge ledger hygiene are complete. Remaining gates require separate
+  explicit owner authorization: deploy and verify the corrected current-main
+  runtime, then perform exactly one trusted preserved Issue #959 continuation
+  proving no duplicate claim, charge, task, branch, candidate, or product
+  effect. Decide whether to close Issue #1012 only after both gates succeed.
+- This source merge and ledger hygiene performed no deployment, rollback,
+  runtime/profile/approval/launcher/service/timer/health mutation, runner or
+  supervisor submission, queue activation, Issue #959 continuation, Issue
+  #999 work, or product/API/OpenAPI/generated-client/auth/storage/money/schema
+  effect.
+- Issue #1012 merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5139185211`.
+  Source report:
+  `/workspace/logs/settleora-codex-report-20260730-2111-issue-1012-terminal-projection-review-pr-gate.md`.
+  Merge/hygiene report:
+  `/workspace/logs/settleora-codex-report-20260731-1206-pr1023-exact-head-merge-post-merge-hygiene.md`.
+
 ### Issues #1012/#959/#999 and PR #1021 — historical task-workspace authority repair merged (2026-07-30)
 
 - PR #1021 merged normally from exact source head
