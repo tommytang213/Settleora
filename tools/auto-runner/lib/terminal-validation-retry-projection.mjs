@@ -1282,12 +1282,14 @@ export function failedContinuationTruncatedDiagnostics(
   selectedSummaryArtifact,
   selectedRunnerRunId,
 ) {
-  return summaryArtifacts
+  const artifactsByName = new Map(summaryArtifacts
     .filter(({ path: artifactPath }) =>
       RUNNER_SUMMARY_FILENAME_PATTERN.test(path.basename(artifactPath)))
-    .toSorted((left, right) =>
-      path.basename(left.path).localeCompare(path.basename(right.path)))
+    .map((artifact) => [path.basename(artifact.path), artifact]));
+  return Array.from(artifactsByName.keys())
+    .sort()
     .slice(0, 20)
+    .map((name) => artifactsByName.get(name))
     .map(({ path: artifactPath, value }) =>
       artifactPath === selectedSummaryArtifact?.path
         ? {

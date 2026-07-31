@@ -84,6 +84,27 @@ test("failed-continuation truncated diagnostics use resolver candidate order", (
     runnerRunId: path.basename(selected.path, ".json"),
     status: "matched",
   });
+
+  const sameTimestampArtifacts = [
+    {
+      path: "/logs/summaries/run-2026-07-31T060319Z-ffffffffffff.json",
+      value: { supervisorRunId: "supervised-suffixed" },
+    },
+    {
+      path: "/logs/summaries/run-2026-07-31T060319Z.json",
+      value: { supervisorRunId: "supervised-unsuffixed" },
+    },
+    {
+      path: "/logs/summaries/run-2026-07-31T060319Z-000000000000.json",
+      value: {},
+    },
+  ];
+  assert.deepEqual(
+    failedContinuationTruncatedDiagnostics(sameTimestampArtifacts)
+      .map(({ file }) => file),
+    sameTimestampArtifacts.map(({ path: artifactPath }) =>
+      path.basename(artifactPath)).sort(),
+  );
 });
 
 test("failed-continuation overlay binds the exact no-effect target and predecessor projection", () => {
