@@ -771,7 +771,7 @@ export function exactTerminalIteration(value, target) {
     && target?.acceptedLogicalTasks === 1
     && value?.index === 1
     && value?.outcome === "blocked_recovery_state"
-    && value?.issue?.number === target.issueNumber
+    && canonical(value?.issue) === canonical({ number: target.issueNumber })
     && value?.issueSource === "startup_recovery"
     && value?.phase === "startup_recovery"
     && value?.laneDecision === null

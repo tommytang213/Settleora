@@ -184,6 +184,7 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
   assert.equal(exactFailedContinuationIteration(iteration, target, durableBudgetState), true);
   for (const mutate of [
     (value) => { value.systemicStop = "recoverable-work-blocked:other"; },
+    (value) => { value.issue.unexpected = true; },
     (value) => { value.validation = { ok: true }; },
     (value) => { value.review = { status: "passed" }; },
     (value) => { value.pr = { number: 1 }; },
