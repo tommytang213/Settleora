@@ -257,6 +257,11 @@ export function exactRawCheckpoint(state, target) {
     && state?.branch?.currentHeadSha === target.headSha
     && state?.branch?.expectedRemoteHeadSha === null
     && state?.pr?.number === null && state?.pr?.url === null && state?.pr?.headSha === null
+    && state?.ordinaryContinuation?.phase === "local_validation"
+    && state.ordinaryContinuation.effects
+    && typeof state.ordinaryContinuation.effects === "object"
+    && !Array.isArray(state.ordinaryContinuation.effects)
+    && Object.keys(state.ordinaryContinuation.effects).length === 0
     && exactTerminalFailureFindings(failureBatch?.findings, candidate, target)
     && identity?.baseSha === target.baseSha && identity?.headSha === target.headSha
     && identity?.treeSha === target.treeSha && identity?.changedFilesDigest === target.changedFilesDigest

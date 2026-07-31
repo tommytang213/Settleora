@@ -833,6 +833,8 @@ test("terminal retry projection binds raw continuation repository identity", () 
     },
     pr: { number: null, url: null, headSha: null },
     ordinaryContinuation: {
+      phase: "local_validation",
+      effects: {},
       identity: candidate,
       sourceFailureBatch: {
         candidate,
@@ -895,6 +897,19 @@ test("terminal retry projection binds raw continuation repository identity", () 
     },
   };
   assert.equal(exactRawCheckpoint(state, target), true);
+  assert.equal(exactRawCheckpoint({
+    ...state,
+    ordinaryContinuation: {
+      ...state.ordinaryContinuation,
+      phase: "push",
+      effects: {
+        local_validation: {
+          targetDigest: "6".repeat(64),
+          completedAt: "2026-07-30T09:33:00.000Z",
+        },
+      },
+    },
+  }, target), false);
   assert.equal(exactRawCheckpoint({
     ...state,
     ordinaryContinuation: {
