@@ -209,7 +209,11 @@ export function discoverTargetedStartupRecovery(config) {
   return discovered;
 }
 
-function projectTargetedTerminalDerivative(config, rawState) {
+export function projectTargetedTerminalDerivative(
+  config,
+  rawState,
+  rawStatePath = rawState?.statePath,
+) {
   const identity = rawState?.ordinaryContinuation?.identity;
   const counters = rawState?.ordinaryContinuation?.counters;
   const chargeIds = Object.keys(rawState?.mutationMarkers?.logical_task_charge || {});
@@ -263,11 +267,25 @@ function projectTargetedTerminalDerivative(config, rawState) {
   return projectAuthenticatedTerminalValidationRetryDerivative({
     logsRoot: config.logsRoot,
     rawRecovery: rawState,
-    rawRecoveryPath: rawState.statePath,
+    rawRecoveryPath: rawStatePath,
     lifecycle: lifecycle.state,
     lifecyclePath: lifecycle.statePath,
     target,
   });
+}
+
+export function projectAuthoritativeLoadedTerminalDerivative(
+  config,
+  loaded,
+) {
+  if (loaded?.ok !== true || !loaded.state || typeof loaded.statePath !== "string") {
+    return {
+      ok: false,
+      projectionApplied: false,
+      projectionReasonCode: "terminal_projection_authoritative_checkpoint_missing",
+    };
+  }
+  return projectTargetedTerminalDerivative(config, loaded.state, loaded.statePath);
 }
 
 function boundedProjectionEvidence(projection) {
@@ -305,7 +323,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }
   let reloadedProjection = null;
   if (recovery.terminalDerivativeProjection?.ok) {
-    reloadedProjection = projectTargetedTerminalDerivative(config, loaded.state);
+    reloadedProjection = projectAuthoritativeLoadedTerminalDerivative(config, loaded);
     if (!reloadedProjection.ok
       || reloadedProjection.evidenceDigest !== recovery.terminalDerivativeProjection.evidenceDigest) {
       return {
@@ -350,7 +368,7 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   if (reloadedProjection) {
     const preReopenLoaded = loadRecoveryState(config, loaded.state);
     const preReopenProjection = preReopenLoaded.ok
-      ? projectTargetedTerminalDerivative(config, preReopenLoaded.state)
+      ? projectAuthoritativeLoadedTerminalDerivative(config, preReopenLoaded)
       : { ok: false };
     if (!preReopenProjection.ok
       || preReopenProjection.evidenceDigest !== reloadedProjection.evidenceDigest) {
@@ -382,7 +400,11 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }, preparation?.evidenceAdapters || {}, {
     revalidateValidationRetryDerivative: reloadedProjection
       ? () => {
-        const projection = projectTargetedTerminalDerivative(config, loaded.state);
+        const projection = projectTargetedTerminalDerivative(
+          config,
+          loaded.state,
+          loaded.statePath,
+        );
         return {
           ok: projection.ok && projection.evidenceDigest === reloadedProjection.evidenceDigest,
           reasonCode: "terminal_projection_at_reopen_mismatch",
