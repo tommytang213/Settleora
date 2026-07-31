@@ -501,7 +501,7 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     heartbeatGeneration: state.heartbeatGeneration,
     heartbeatIntervalSeconds: 60,
     heartbeatLeaseSeconds: 300,
-    leaseExpiresAt: "2026-07-31T06:08:19.788Z",
+    leaseExpiresAt: "2026-07-31T06:08:19.789Z",
     maxTasks: state.maxTasks,
     maxRuntime: state.maxRuntime,
     monitoringDelivery: null,
@@ -520,7 +520,7 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     reportPath: summaryMarkdownPath,
     reportResolution,
     startedAt: state.startedAt,
-    updatedAt: state.updatedAt,
+    updatedAt: "2026-07-31T06:03:19.789Z",
     unitName,
   };
   assert.equal(exactFailedContinuationSupervisorState(
@@ -537,12 +537,25 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     ["unitName", "settleora-auto-runner@foreign.service"],
     ["heartbeatIntervalSeconds", 30],
     ["heartbeatLeaseSeconds", 600],
-    ["leaseExpiresAt", "2026-07-31T06:09:19.788Z"],
+    ["leaseExpiresAt", "2026-07-31T06:09:19.789Z"],
     ["reportPath", `${logsRoot}/summaries/foreign.md`],
   ]) {
     assert.equal(exactFailedContinuationSupervisorState(
       state,
       { ...heartbeat, [field]: value },
+      iteration,
+      summary,
+      specArtifact,
+      logsRoot,
+    ), false);
+  }
+  for (const [updatedAt, leaseExpiresAt] of [
+    ["2026-07-31T06:03:19.787Z", "2026-07-31T06:08:19.787Z"],
+    ["2026-07-31T06:04:19.789Z", "2026-07-31T06:09:19.789Z"],
+  ]) {
+    assert.equal(exactFailedContinuationSupervisorState(
+      state,
+      { ...heartbeat, updatedAt, leaseExpiresAt },
       iteration,
       summary,
       specArtifact,

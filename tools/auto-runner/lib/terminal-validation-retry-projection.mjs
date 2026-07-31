@@ -1081,7 +1081,10 @@ export function exactFailedContinuationSupervisorState(
     && heartbeat?.reportPath === summaryMarkdownPath
     && canonical(heartbeat?.reportResolution) === canonical(state.reportResolution)
     && Date.parse(heartbeat?.startedAt) === Date.parse(state?.startedAt)
-    && Date.parse(heartbeat?.updatedAt) === Date.parse(state?.updatedAt)
+    && Date.parse(heartbeat?.updatedAt) >= Date.parse(state?.updatedAt)
+    && Date.parse(heartbeat?.updatedAt)
+      <= Date.parse(state?.updatedAt)
+        + (FAILED_CONTINUATION_HEARTBEAT_INTERVAL_SECONDS * 1000)
     && Date.parse(heartbeat?.leaseExpiresAt)
       === Date.parse(heartbeat?.updatedAt)
         + (FAILED_CONTINUATION_HEARTBEAT_LEASE_SECONDS * 1000);
