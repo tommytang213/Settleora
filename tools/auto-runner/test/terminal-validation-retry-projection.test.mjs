@@ -20,6 +20,7 @@ import {
   exactFailedContinuationIteration,
   failedContinuationTruncatedDiagnostics,
   runnerSummaryCandidateCountWithinResolverLimit,
+  runnerSummaryCandidateSizeWithinResolverLimit,
   exactFailedContinuationSpec,
   exactFailedContinuationSummary,
   exactFailedContinuationSupervisorState,
@@ -121,6 +122,8 @@ test("failed-continuation truncated diagnostics use resolver candidate order", (
     runnerSummaryCandidateCountWithinResolverLimit(Array.from({ length: 2001 })),
     false,
   );
+  assert.equal(runnerSummaryCandidateSizeWithinResolverLimit(512 * 1024), true);
+  assert.equal(runnerSummaryCandidateSizeWithinResolverLimit((512 * 1024) + 1), false);
 });
 
 test("failed-continuation overlay binds the exact no-effect target and predecessor projection", () => {

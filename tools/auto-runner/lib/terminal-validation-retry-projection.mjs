@@ -13,6 +13,7 @@ import {
 import { validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
+const MAX_RUNNER_SUMMARY_BYTES = 512 * 1024;
 const TERMINAL_REASON_CODE = "checkpoint_validation_recovery_failed_closed";
 const TERMINAL_DETAIL = "initial_validation_failure_commit_reconstruction_ambiguous";
 const SUCCESSOR_SYSTEMIC_STOP = "recoverable-work-blocked:historical_candidate_task_workspace_untrusted";
@@ -1278,7 +1279,11 @@ function trustedRunnerSummaryJsonFiles(root) {
   return readdirSync(root)
     .filter((name) => RUNNER_SUMMARY_FILENAME_PATTERN.test(name))
     .sort()
-    .map((name) => trustedJsonArtifact(root, path.join(root, name)));
+    .map((name) => trustedJsonArtifact(
+      root,
+      path.join(root, name),
+      MAX_RUNNER_SUMMARY_BYTES,
+    ));
 }
 
 export function failedContinuationTruncatedDiagnostics(
@@ -1317,22 +1322,28 @@ export function runnerSummaryCandidateCountWithinResolverLimit(summaryArtifacts)
     && summaryArtifacts.length <= MAX_RUNNER_SUMMARY_FILES;
 }
 
+export function runnerSummaryCandidateSizeWithinResolverLimit(size) {
+  return Number.isSafeInteger(size)
+    && size > 0
+    && size <= MAX_RUNNER_SUMMARY_BYTES;
+}
+
 function trustedNestedJsonFiles(root, basename) {
   return readdirSync(root).map((name) => path.join(root, name, basename))
     .map((artifactPath) => trustedJsonArtifact(root, artifactPath));
 }
 
-function trustedJsonArtifact(root, artifactPath) {
-  const artifact = trustedFileArtifact(root, artifactPath);
+function trustedJsonArtifact(root, artifactPath, maxBytes = MAX_ARTIFACT_BYTES) {
+  const artifact = trustedFileArtifact(root, artifactPath, maxBytes);
   return { ...artifact, value: JSON.parse(artifact.bytes.toString("utf8")) };
 }
 
-function trustedFileArtifact(root, artifactPath) {
+function trustedFileArtifact(root, artifactPath, maxBytes = MAX_ARTIFACT_BYTES) {
   const resolved = realpathSync(path.resolve(artifactPath));
   if (resolved !== path.resolve(artifactPath) || !resolved.startsWith(`${root}${path.sep}`)) throw new Error("untrusted path");
   const info = lstatSync(resolved);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || (info.mode & 0o077) !== 0
-    || info.size <= 0 || info.size > MAX_ARTIFACT_BYTES
+    || info.size <= 0 || info.size > maxBytes
     || (typeof process.getuid === "function" && info.uid !== process.getuid())) throw new Error("untrusted artifact");
   const bytes = readFileSync(resolved);
   return { path: resolved, sha256: digest(bytes), size: info.size, bytes };
