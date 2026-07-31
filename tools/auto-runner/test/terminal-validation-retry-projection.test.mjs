@@ -818,6 +818,7 @@ test("terminal retry projection binds raw continuation repository identity", () 
     changedFiles: ["tools/auto-runner/example.mjs"],
   };
   const state = {
+    featureBundle: null,
     phase: "checkpoint_validation_commit",
     stopReason: null,
     firstIncompleteAction: "run_validation_and_commit",
@@ -897,6 +898,10 @@ test("terminal retry projection binds raw continuation repository identity", () 
     },
   };
   assert.equal(exactRawCheckpoint(state, target), true);
+  assert.equal(exactRawCheckpoint({
+    ...state,
+    featureBundle: { bundleId: "forged" },
+  }, target), false);
   assert.equal(exactRawCheckpoint({
     ...state,
     ordinaryContinuation: {

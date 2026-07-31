@@ -3057,6 +3057,7 @@ test("terminal derivative continuation admission survives later head and PR phas
     admissionDigest: createHash("sha256").update(JSON.stringify(evidence)).digest("hex"),
   };
   const recovery = {
+    featureBundle: null,
     terminalDerivativeContinuationAdmission: admission,
     issue: { number: target.issueNumber },
     taskKey: target.taskKey,
@@ -3107,6 +3108,10 @@ test("terminal derivative continuation admission survives later head and PR phas
   assert.equal(validate(recovery).ok, true);
   assert.equal(validate({
     ...recovery,
+    featureBundle: { bundleId: "forged" },
+  }).ok, false);
+  assert.equal(validate({
+    ...recovery,
     pr: { ...recovery.pr, headSha: "b".repeat(40) },
   }).ok, false);
   assert.equal(validate({
@@ -3140,6 +3145,7 @@ test("terminal derivative continuation admission survives later head and PR phas
   };
   assert.equal(validate(forgedCompletedGates).ok, true);
   const replaySafe = replaySafeTerminalDerivativeContinuation(forgedCompletedGates);
+  assert.equal(replaySafe.featureBundle, null);
   assert.equal(replaySafe.ordinaryContinuation.phase, "local_validation");
   assert.deepEqual(replaySafe.ordinaryContinuation.effects, {});
   assert.equal(forgedCompletedGates.ordinaryContinuation.phase, "push");

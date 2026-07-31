@@ -1129,6 +1129,7 @@ export function validateTerminalDerivativeContinuationAdmission(config, state, t
     || state.run?.supervisorRunId !== admission.supervisorRunId
     || state.branch?.name !== admission.branchName
     || state.branch?.baseSha !== admission.baseSha
+    || state.featureBundle !== null
     || current?.headSha !== state.branch?.currentHeadSha
     || !/^[a-f0-9]{40}$/.test(String(current?.treeSha || ""))
     || !/^[a-f0-9]{64}$/.test(String(current?.changedFilesDigest || ""))
@@ -1149,6 +1150,7 @@ function boundedTerminalDerivativeContinuationAdmission(config, state, target) {
 export function replaySafeTerminalDerivativeContinuation(state) {
   return Object.freeze({
     ...state,
+    featureBundle: null,
     ordinaryContinuation: Object.freeze({
       ...state.ordinaryContinuation,
       phase: "local_validation",

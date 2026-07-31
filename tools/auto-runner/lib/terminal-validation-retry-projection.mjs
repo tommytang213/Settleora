@@ -256,6 +256,7 @@ export function exactRawCheckpoint(state, target) {
     && state?.branch?.baseSha === target.baseSha
     && state?.branch?.currentHeadSha === target.headSha
     && state?.branch?.expectedRemoteHeadSha === null
+    && state?.featureBundle === null
     && state?.pr?.number === null && state?.pr?.url === null && state?.pr?.headSha === null
     && state?.ordinaryContinuation?.phase === "local_validation"
     && state.ordinaryContinuation.effects
