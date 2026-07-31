@@ -13,6 +13,7 @@ import { loadSessionLifecycleForRecovery, recoverySuccessorSessionId } from "./s
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { findPreEffectIntents, intentIssueAuthorityMatches, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
 import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
+import { projectAuthenticatedTerminalValidationRetryDerivative } from "./terminal-validation-retry-projection.mjs";
 
 const shaPattern = /^[a-f0-9]{40}$/u;
 const digestPattern = /^[a-f0-9]{64}$/u;
@@ -149,7 +150,31 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     }
     if (matching.length !== 1) return denied(matching.length ? "preserved_recovery_ambiguous" : "preserved_recovery_not_found", target);
     if (states.some((state) => state.statePath !== matching[0].statePath)) return denied("other_unresolved_recovery_present", target);
-    const state = matching[0];
+    const rawState = matching[0];
+    const chargeProof = validateCharge(config, rawState, target);
+    if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
+    const projectionTarget = {
+      ...target,
+      durableBudgetExact: true,
+      durableChargeMarker: chargeProof.marker,
+      chargeMarkerRef: chargeProof.statePath,
+    };
+    const rawLifecycle = loadSessionLifecycleForRecovery(config, {
+      repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
+      runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
+      baseSha: target.baseSha, headSha: target.headSha,
+    }, { allowLegacySupervisorBackfill: false });
+    const projection = rawLifecycle.ok
+      ? projectAuthenticatedTerminalValidationRetryDerivative({
+        logsRoot: config.logsRoot,
+        rawRecovery: rawState,
+        rawRecoveryPath: rawState.statePath,
+        lifecycle: rawLifecycle.state,
+        lifecyclePath: rawLifecycle.statePath,
+        target: projectionTarget,
+      })
+      : { ok: false };
+    const state = projection.ok ? projection.effectiveRecovery : rawState;
     if (state.phase !== "stopped" || !isEligibleValidationRetryCheckpoint(state)) {
       return denied("preserved_recovery_checkpoint_not_eligible", target);
     }
@@ -160,8 +185,6 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
     }
     const markerProof = validateMarkers(state, target);
     if (!markerProof.ok) return denied(markerProof.reasonCode, target);
-    const chargeProof = validateCharge(config, state, target);
-    if (!chargeProof.ok) return denied(chargeProof.reasonCode, target);
     const lifecycleProof = validateLifecycle(config, state, target, chargeProof.statePath, derivativeTerminalPhase);
     if (!lifecycleProof.ok) return denied(lifecycleProof.reasonCode, target);
     const intentProof = validateIntents(
@@ -186,6 +209,12 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
         ? "exact_preserved_recovery_admitted"
         : "exact_preserved_recovery_legacy_repository_omission_admitted",
       revalidationRequired: true,
+      recoveryProjection: projection.ok ? {
+        projectionApplied: true,
+        projectionReasonCode: projection.projectionReasonCode,
+        evidenceDigest: projection.evidenceDigest,
+        boundArtifacts: projection.boundArtifacts,
+      } : null,
     });
   } catch {
     return denied("preserved_recovery_authoritative_read_unavailable", target);
@@ -250,7 +279,7 @@ function validateCharge(config, state, target) {
       || marker?.identity?.claimIdentity !== target.claimIdentity) {
     return { ok: false, reasonCode: "preserved_recovery_charge_mismatch" };
   }
-  return { ok: true, statePath: loaded.statePath };
+  return { ok: true, statePath: loaded.statePath, marker };
 }
 
 function validateLifecycle(config, state, target, chargeMarkerRef, derivativeTerminalPhase) {
@@ -258,7 +287,7 @@ function validateLifecycle(config, state, target, chargeMarkerRef, derivativeTer
     repository: target.repository, issueNumber: target.issueNumber, taskKey: target.taskKey,
     runId: target.runnerRunId, supervisorRunId: target.supervisorRunId, branchName: target.branch,
     baseSha: target.baseSha, headSha: target.headSha,
-  });
+  }, { allowLegacySupervisorBackfill: false });
   if (!loaded.ok) return { ok: false, reasonCode: "preserved_recovery_lifecycle_untrusted" };
   const lifecycle = loaded.state;
   const counters = lifecycle.controller;
@@ -1049,6 +1078,7 @@ function denied(reasonCode, target) {
 
 function evidence(value) {
   const target = safeTarget(value.target);
+  const projection = value.recoveryProjection;
   return Object.freeze({
     active: value.active === true,
     unresolvedExternalEffects: value.unresolvedExternalEffects === true,
@@ -1056,6 +1086,15 @@ function evidence(value) {
     targetIdentityDigest: target ? createHash("sha256").update(canonical(target)).digest("hex") : null,
     reasonCode: String(value.reasonCode || "deployment_quiescence_unclassified").slice(0, 160),
     revalidationRequired: value.revalidationRequired === true,
+    recoveryProjection: projection ? Object.freeze({
+      projectionApplied: projection.projectionApplied === true,
+      projectionReasonCode: String(projection.projectionReasonCode || "").slice(0, 160),
+      evidenceDigest: digestPattern.test(projection.evidenceDigest || "") ? projection.evidenceDigest : null,
+      boundArtifacts: Object.freeze((projection.boundArtifacts || []).map((artifact) => Object.freeze({
+        role: String(artifact.role || "").slice(0, 40),
+        sha256: digestPattern.test(artifact.sha256 || "") ? artifact.sha256 : null,
+      }))),
+    }) : null,
   });
 }
 

@@ -652,6 +652,10 @@ function assertSameQuiescenceProof(initial, current) {
   for (const key of ["active", "unresolvedExternalEffects", "preservedRecoveryAdmitted", "targetIdentityDigest", "reasonCode"]) {
     if ((initial?.[key] ?? null) !== (current?.[key] ?? null)) throw new Error("runtime deployment quiescence proof changed");
   }
+  if ((initial?.recoveryProjection?.evidenceDigest ?? null)
+    !== (current?.recoveryProjection?.evidenceDigest ?? null)) {
+    throw new Error("runtime deployment quiescence proof changed");
+  }
 }
 
 function regularJsonFiles(root, depth) {

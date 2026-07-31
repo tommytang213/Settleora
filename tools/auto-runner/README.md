@@ -1,5 +1,26 @@
 # Settleora Auto-Runner Tooling
 
+## Authenticated terminal validation-retry projection
+
+Deployment admission and targeted startup recovery share one read-only
+projection for the narrow crash window where the immutable root recovery
+remains at `checkpoint_validation_commit`, while the lifecycle controller,
+report, and mutation authority plus the successor iteration state and runner
+summary have already stopped fail-closed. The projection authenticates the
+root recovery, lifecycle, latest successor state, exact runner summary, and
+supervisor spec; binds their task, claim, charge, branch, candidate, and
+no-effect identities in one digest; and changes only the in-memory effective
+phase, stop reason, and next action.
+
+The raw recovery file is never normalized or rewritten. A lifecycle recovery
+operation with `status=pending` is intentional for the exact validation-retry
+derivative reopen contract and is not treated as incomplete mutation authority
+when the controller/report/authority posture and all successor evidence are
+terminal. Missing, conflicting, later, unsafe, or mismatched evidence fails
+closed. Normal terminalization writes the lifecycle before the root recovery;
+a crash between those crash-safe writes is recovered by this projection,
+while a completed sequence persists the terminal root normally.
+
 ## Production capability and canary lane admission
 
 An owner-only external production profile may enable bounded follow-up issue
@@ -589,7 +610,15 @@ must include an exact target derived from validated recovery/source evidence,
 the worker launches fixed scalar recovery-only arguments, and the runner exits
 fail-closed instead of polling eligible issues when the exact target is
 missing, mismatched, completed, unsafe, ambiguous, stale, or capability
-disabled. Attempt and wall-clock exhaustion persist a terminal `exhausted`
+disabled. The owner CLI can also produce the exceptional no-PR terminal
+validation-retry derivative spec by passing
+`--terminal-validation-retry-derivative` together with every exact
+`--target-*` task, issue, branch, base, head, runner-run, and supervisor-run
+identity. That form stores no PR or outage-resubmission identity, forces one
+task, requires trusted mode, and is independently reauthenticated by targeted
+startup discovery before work can resume. Use `submit --dry-run --json` to
+inspect this exact spec and fixed runner argv without writing supervisor
+artifacts or starting a unit. Attempt and wall-clock exhaustion persist a terminal `exhausted`
 marker when operator controls allow evaluation, so status and health stop
 reporting an active source run and repeated controller passes become stable
 terminal no-ops. A profile config digest mismatch blocks child planning before

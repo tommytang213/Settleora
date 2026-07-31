@@ -205,6 +205,7 @@ test("startup continuation blocks corrupt or unsafe state without polling fallba
 
 test("production runner is wired past discovery-only recovery and legacy PR classifier", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  const continuationSource = readFileSync(new URL("../lib/recovery-continuation.mjs", import.meta.url), "utf8");
   const workspaceSource = readFileSync(new URL("../lib/git-workspace.mjs", import.meta.url), "utf8");
   const collector = readFileSync(new URL("../lib/authoritative-recovery-evidence.mjs", import.meta.url), "utf8");
   const lineage = readFileSync(
@@ -213,6 +214,18 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.equal(source.includes("recovery_resume_pending"), false);
   assert.match(source, /executeStartupContinuation/);
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
+  assert.match(
+    continuationSource,
+    /await prepareAuthoritativeRecovery[\s\S]*loadRecoveryState\(config, loaded\.state\)[\s\S]*projectTargetedTerminalDerivative\(config, preReopenLoaded\.state\)[\s\S]*terminal_projection_pre_reopen_mismatch[\s\S]*consumeStartupInterruptionPlanner/,
+  );
+  assert.match(
+    continuationSource,
+    /consumeStartupInterruptionPlanner[\s\S]*revalidateValidationRetryDerivative:[\s\S]*projectTargetedTerminalDerivative\(config, loaded\.state\)[\s\S]*collectAuthoritativeRecoveryEvidence[\s\S]*revalidateValidationRetryDerivative\(\)[\s\S]*reopenKnownValidationRetryDerivative/,
+  );
+  assert.match(
+    source,
+    /prepareAuthoritativeRecovery: async \(\{ state, terminalDerivativeProjection \}\)[\s\S]*if \(!terminalDerivativeProjection\?\.ok\) \{[\s\S]*writeRecoveryState\(config, state\)[\s\S]*state = reconciledReload\.state;/,
+  );
   assert.match(
     source,
     /function reconstructInitialValidationFailureCheckpoint[\s\S]*allowTerminalValidationRetryPreparation: true,[\s\S]*verifyHistoricalInitialCandidateLineage/,
@@ -223,7 +236,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.doesNotMatch(
     source,
-    /prepareAuthoritativeRecovery:\s*async \(\{ state \}\) => \{\s*if \(state\.phase !== "checkpoint_validation_commit"\) return/,
+    /prepareAuthoritativeRecovery:\s*async \(\{ state, terminalDerivativeProjection \}\) => \{\s*if \(state\.phase !== "checkpoint_validation_commit"\) return/,
   );
   assert.match(
     source,
@@ -325,7 +338,7 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   );
   assert.match(
     source,
-    /prepareAuthoritativeRecovery: async \(\{ state \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,
+    /prepareAuthoritativeRecovery: async \(\{ state, terminalDerivativeProjection \}\) => \{[\s\S]*reconcilePendingRecoveredSourceHeadTransition\(config, state\)[\s\S]*validateRecoveryOnlyStartupEvidence/,
   );
   assert.match(
     source,
@@ -817,9 +830,33 @@ test("startup push, PR-create, and CI-wait recovery use ordinary continuation be
   assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*state = recordIdempotentMutation\(\{[\s\S]*pr: \{[\s\S]*number: context\.pr\.number,[\s\S]*headSha: continuation\.identity\.headSha,[\s\S]*state: context\.pr\.state,[\s\S]*await writeRecoveryState\(config, state\)/);
   assert.match(runner, /pr_create_or_update: async \(continuation\)[\s\S]*recordIdempotentMutation\(\{[\s\S]*recoveryReconciliation: null,[\s\S]*pr: \{/);
   assert.match(runner, /push: async \(continuation\)[\s\S]*expectedRemoteHeadSha: candidate\.headSha[\s\S]*await writeRecoveryState\(config, state\)[\s\S]*headSha: candidate\.headSha/);
-  assert.match(runner, /outageTargetHeadIsAuthenticatedAncestor[\s\S]*sourceFailureHistory\?\.[\s\S]*config\.outageRecoveryTarget\?\.prHeadSha[\s\S]*outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor[\s\S]*prHeadSha: candidate\.headSha[\s\S]*const recoveryConfig = \{[\s\S]*outageRecoveryTarget/);
+  assert.match(runner, /terminalDerivativeCreatedPrIsAuthenticated = config\.outageRecoveryOnly === true[\s\S]*terminalValidationRetryDerivativeNoPr === true[\s\S]*state\.pr\?\.number === prNumber[\s\S]*state\.pr\?\.headSha === candidate\.headSha[\s\S]*state\.pr\?\.headRefName === state\.branch\.name[\s\S]*state\.pr\?\.baseRefName === "main"[\s\S]*prEvidence\.number === prNumber/);
+  assert.match(runner, /outageRecoveryTarget = terminalDerivativeCreatedPrIsAuthenticated[\s\S]*terminalValidationRetryDerivativeNoPr: false,[\s\S]*prNumber,[\s\S]*prHeadSha: candidate\.headSha,[\s\S]*: outageTargetHeadIsAuthenticatedAncestor/);
+  assert.match(runner, /outageTargetHeadIsAuthenticatedAncestor[\s\S]*sourceFailureHistory\?\.[\s\S]*config\.outageRecoveryTarget\?\.prHeadSha[\s\S]*: outageTargetHeadIsAuthenticatedAncestor[\s\S]*prHeadSha: candidate\.headSha[\s\S]*const recoveryConfig = \{[\s\S]*outageRecoveryTarget/);
   assert.match(runner, /const regenerationRequired = shouldGenerateExistingPrRecoveryEvidence\(laneDecision, exactHeadEvidence\)[\s\S]*allowRebuild: regenerationRequired[\s\S]*if \(regenerationRequired\)/);
   assert.match(runner, /exactHeadEvidence: \{[\s\S]*changedFilesDigest: digestChangedFiles\(candidate\.changedFiles\)[\s\S]*recoveryStateRebuildable: true/);
+});
+
+test("terminal derivative execution reconstructs replay-safe review gates after recovery reload", () => {
+  const recoverySource = readFileSync(
+    new URL("../lib/recovery-continuation.mjs", import.meta.url),
+    "utf8",
+  );
+  const execution = recoverySource.indexOf("export async function executeStartupContinuation");
+  const admission = recoverySource.indexOf(
+    "validateTerminalDerivativeContinuationAdmission(",
+    execution,
+  );
+  const replay = recoverySource.indexOf(
+    "replaySafeTerminalDerivativeContinuation(loaded.state)",
+    admission,
+  );
+  const normalization = recoverySource.indexOf(
+    "normalizeValidationFailureContinuation(loadedState)",
+    replay,
+  );
+  assert.ok(execution >= 0 && admission > execution && replay > admission);
+  assert.ok(normalization > replay);
 });
 
 test("projection checkpoints retain recovery, implementation, convergence, split, and stack authority", () => {

@@ -351,7 +351,9 @@ export function loadSessionLifecycleState(config, identity) {
   return validation.ok ? { ok: true, state, statePath } : { ...validation, statePath };
 }
 
-export function loadSessionLifecycleForRecovery(config, identity) {
+export function loadSessionLifecycleForRecovery(config, identity, {
+  allowLegacySupervisorBackfill = true,
+} = {}) {
   const root = path.join(config.logsRoot, "session-lifecycle");
   if (!existsSync(root)) return fail("session_lifecycle_state_missing", null, { statePath: root });
   const rootInfo = lstatSync(root);
@@ -375,7 +377,8 @@ export function loadSessionLifecycleForRecovery(config, identity) {
   }
   if (matches.length !== 1) return fail(matches.length === 0 ? "session_lifecycle_state_missing" : "session_lifecycle_state_ambiguous");
   let match = matches[0];
-  if (config.sessionLifecycle?.enabled === true
+  if (allowLegacySupervisorBackfill
+    && config.sessionLifecycle?.enabled === true
     && identity.supervisorRunId
     && !Object.hasOwn(match.state.logicalTask || {}, "supervisorRunId")) {
     if (match.state.branch.headSha !== identity.headSha) {
@@ -564,6 +567,8 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
     || effects.comment !== false) {
     return fail("session_lifecycle_validation_retry_derivative_mismatch");
   }
+  const predecessor = persistValidationRetryPredecessor(config, state);
+  if (!predecessor.ok) return predecessor;
   const next = structuredClone(state);
   next.controller.phase = "checkpoint_validation_commit";
   next.controller.nextExactAction = "run_validation_and_commit";
@@ -586,6 +591,31 @@ export function reopenKnownValidationRetryDerivative(config, state, liveEffects 
   if (!next.sessions.retired.includes(next.sessions.current)) next.sessions.retired.push(next.sessions.current);
   refreshDigest(next);
   return persistSessionLifecycleState(config, next);
+}
+
+function persistValidationRetryPredecessor(config, state) {
+  const root = path.join(config.logsRoot, "session-lifecycle-predecessors");
+  const rootValidation = ensureTrustedLifecycleRoot(root);
+  if (!rootValidation.ok) return rootValidation;
+  const statePath = path.join(root, `${state.checkpoint.digest}.json`);
+  const bytes = `${JSON.stringify(state, null, 2)}\n`;
+  try {
+    if (existsSync(statePath)) {
+      const info = lstatSync(statePath);
+      if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || (info.mode & 0o077) !== 0
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())
+        || readFileSync(statePath, "utf8") !== bytes) {
+        return fail("session_lifecycle_validation_retry_predecessor_mismatch");
+      }
+      return { ok: true, statePath, duplicate: true };
+    }
+    writeFileSync(statePath, bytes, { flag: "wx", mode: 0o600 });
+    fsyncPath(statePath);
+    fsyncPath(root);
+    return { ok: true, statePath, duplicate: false };
+  } catch {
+    return fail("session_lifecycle_validation_retry_predecessor_unavailable");
+  }
 }
 
 export function transitionSessionLifecycleHead(config, state, { branchName, headSha, prNumber } = {}) {

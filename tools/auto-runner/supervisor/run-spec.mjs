@@ -6,7 +6,8 @@ import {
   realpathSync,
 } from "node:fs";
 import path from "node:path";
-import { defaultLogsRoot, parseDuration, validateExternalProfilePath } from "../lib/config.mjs";
+import { parseDuration, validateExternalProfilePath } from "../lib/config.mjs";
+import { defaultLogsRoot } from "../lib/runtime-path-defaults.mjs";
 import { validateSupervisorRunId } from "../lib/run-correlation.mjs";
 import {
   configPathForProfile,
@@ -385,6 +386,7 @@ function normalizeOptionalRecoveryOnlyTarget(value) {
     "markerKey",
     "outageFingerprint",
     "attemptNumber",
+    "terminalValidationRetryDerivativeNoPr",
   ]);
   for (const key of Object.keys(value || {})) {
     if (!allowedKeys.has(key)) throw new Error(`Unknown recoveryOnlyTarget field: ${key}`);
@@ -403,6 +405,7 @@ function normalizeOptionalRecoveryOnlyTarget(value) {
   if (!/^[a-f0-9]{40}$/.test(currentHeadSha)) throw new Error("recoveryOnlyTarget.currentHeadSha is invalid");
   const prNumber = value.prNumber === null || value.prNumber === undefined ? null : value.prNumber;
   const prHeadSha = value.prHeadSha === null || value.prHeadSha === undefined ? null : String(value.prHeadSha || "").trim();
+  const terminalValidationRetryDerivativeNoPr = value.terminalValidationRetryDerivativeNoPr === true;
   if (prNumber !== null && (!Number.isSafeInteger(prNumber) || prNumber < 1 || prNumber > 9999999)) {
     throw new Error("recoveryOnlyTarget.prNumber is invalid");
   }
@@ -414,11 +417,20 @@ function normalizeOptionalRecoveryOnlyTarget(value) {
   if (runnerRunId === null) throw new Error("recoveryOnlyTarget.runnerRunId is invalid");
   const supervisorRunId = normalizeOptionalSupervisorRunId(value.supervisorRunId);
   if (supervisorRunId === null) throw new Error("recoveryOnlyTarget.supervisorRunId is invalid");
-  if (!Number.isSafeInteger(value.attemptNumber) || value.attemptNumber < 1 || value.attemptNumber > 20) {
-    throw new Error("recoveryOnlyTarget.attemptNumber is invalid");
-  }
-  for (const key of ["markerKey", "outageFingerprint", "originalSupervisorSpecDigest"]) {
-    if (!/^[a-f0-9]{64}$/.test(String(value[key] || ""))) throw new Error(`recoveryOnlyTarget.${key} is invalid`);
+  if (terminalValidationRetryDerivativeNoPr) {
+    if (prNumber !== null || prHeadSha !== null) throw new Error("terminal derivative recoveryOnlyTarget must not include PR identity");
+    if (value.attemptNumber !== null && value.attemptNumber !== undefined) throw new Error("recoveryOnlyTarget.attemptNumber is invalid");
+    for (const key of ["markerKey", "outageFingerprint", "originalSupervisorSpecDigest"]) {
+      if (value[key] !== null && value[key] !== undefined) throw new Error(`recoveryOnlyTarget.${key} is invalid`);
+    }
+  } else {
+    if (prNumber === null || prHeadSha === null) throw new Error("recovery-only target requires PR number/head SHA");
+    if (!Number.isSafeInteger(value.attemptNumber) || value.attemptNumber < 1 || value.attemptNumber > 20) {
+      throw new Error("recoveryOnlyTarget.attemptNumber is invalid");
+    }
+    for (const key of ["markerKey", "outageFingerprint", "originalSupervisorSpecDigest"]) {
+      if (!/^[a-f0-9]{64}$/.test(String(value[key] || ""))) throw new Error(`recoveryOnlyTarget.${key} is invalid`);
+    }
   }
   return {
     taskKey,
@@ -434,29 +446,31 @@ function normalizeOptionalRecoveryOnlyTarget(value) {
     markerKey: value.markerKey,
     outageFingerprint: value.outageFingerprint,
     attemptNumber: value.attemptNumber,
+    ...(terminalValidationRetryDerivativeNoPr ? { terminalValidationRetryDerivativeNoPr: true } : {}),
   };
 }
 
 function validateRecoveryOnlyContract(spec) {
   const hasOutage = spec.outageResubmission !== null && spec.outageResubmission !== undefined;
   const hasTarget = spec.recoveryOnlyTarget !== null && spec.recoveryOnlyTarget !== undefined;
-  if (hasOutage !== hasTarget) {
+  const terminalDerivative = spec.recoveryOnlyTarget?.terminalValidationRetryDerivativeNoPr === true;
+  if (hasOutage !== hasTarget && !(hasTarget && terminalDerivative && !hasOutage)) {
     throw new Error("outage resubmission specs require paired recoveryOnlyTarget");
   }
   if (!hasTarget) return;
   const target = spec.recoveryOnlyTarget;
   const outage = spec.outageResubmission;
-  if (target.prNumber === null || target.prHeadSha === null || outage.prNumber === null || outage.prHeadSha === null) {
-    throw new Error("recovery-only target requires PR number/head SHA");
-  }
   if (spec.maxTasks !== 1) {
     throw new Error("recovery-only run specs must store maxTasks 1");
   }
-  const duplicateChecks = [
+  const commonTargetChecks = [
     ["parentSupervisorRunId", spec.parentSupervisorRunId, target.supervisorRunId],
     ["parentRunnerRunId", spec.parentRunnerRunId, target.runnerRunId],
     ["sourceIssueNumber", spec.sourceIssueNumber, target.issueNumber],
     ["sourceBranchName", spec.sourceBranchName, target.branchName],
+  ];
+  const duplicateChecks = terminalDerivative ? commonTargetChecks : [
+    ...commonTargetChecks,
     ["baseSha", spec.initialOriginMainSha, target.baseSha],
     ["taskKey", outage.taskKey, target.taskKey],
     ["currentHeadSha", outage.currentHeadSha, target.currentHeadSha],

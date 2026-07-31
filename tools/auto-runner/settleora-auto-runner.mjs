@@ -114,7 +114,7 @@ import {
   writeControlCommand,
 } from "./lib/control-plane.mjs";
 import { runFeatureBundleIteration } from "./lib/feature-bundle-orchestrator.mjs";
-import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor } from "./lib/recovery-continuation.mjs";
+import { discoverStartupRecovery, discoverTargetedStartupRecovery, executeStartupContinuation, evaluateControlAtRecoveryBoundary, projectStartupRecoveryIssueIdentity, shouldAdvanceFixtureIssueCursor, validateTerminalDerivativeContinuationAdmission } from "./lib/recovery-continuation.mjs";
 import { collectControlPlaneRecoveryAdmission } from "./lib/authoritative-recovery-evidence.mjs";
 import { autoMergeEffectsConfirmed } from "./lib/terminal-effects.mjs";
 import {
@@ -269,7 +269,12 @@ export async function main() {
   const logger = createLogger(config.logsRoot, runId);
   const recoveryOnlyStartupDiscovery = config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : null;
   const recoveryOnlyStartupEvidenceCheck = recoveryOnlyStartupDiscovery?.found && recoveryOnlyStartupDiscovery.allowed
-    ? validateRecoveryOnlyStartupEvidence(config, { issue: { number: config.outageRecoveryTarget?.issueNumber } })
+    ? validateRecoveryOnlyStartupEvidence(
+      config,
+      { issue: { number: config.outageRecoveryTarget?.issueNumber } },
+      recoveryOnlyStartupDiscovery.terminalDerivativeProjection,
+      recoveryOnlyStartupDiscovery.terminalDerivativeContinuationAdmission,
+    )
     : { ok: true };
   let lockPath = null;
   const summary = {
@@ -953,7 +958,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
     const batch = freezeSourceFailureBatch(failures, initialIdentity);
     const decision = evaluateSourceFailureBatch(batch, iteration.sourceFailureHistory || []);
     iteration.sourceFailureBatch = batch;
-    iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate }];
+    iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: batch.batchIdentity, findingSetSignature: batch.findingSetSignature, candidate: batch.candidate, repository: batch.findings[0]?.repository }];
     if (recoveryRecorder) {
       const continuation = createOrdinaryContinuationState({
         logicalTaskKey: config.taskKey || `issue-${issue.number}`,
@@ -1018,7 +1023,7 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
       const replacementBatch = freezeSourceFailureBatch(replacementFailures, replacementIdentity);
       const replacementDecision = evaluateSourceFailureBatch(replacementBatch, iteration.sourceFailureHistory || []);
       iteration.sourceFailureBatch = replacementBatch;
-      iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: replacementBatch.batchIdentity, findingSetSignature: replacementBatch.findingSetSignature, candidate: replacementBatch.candidate }].slice(-100);
+      iteration.sourceFailureHistory = [...(iteration.sourceFailureHistory || []), { batchIdentity: replacementBatch.batchIdentity, findingSetSignature: replacementBatch.findingSetSignature, candidate: replacementBatch.candidate, repository: replacementBatch.findings[0]?.repository }].slice(-100);
       iteration.validation = postFix.validation;
       iteration.runnerCreatedCommitSha = postFix.runnerCreatedCommitSha;
       iteration.changedFiles = postFix.changedFiles;
@@ -2052,13 +2057,17 @@ function createProductionRecoveryRecorder(config, input) {
 async function resumeStartupRecovery(config, logger, runId, index, startupRecovery, operationalCheckpoint = null, authoritativeLoadedRecovery = null) {
   return executeStartupContinuation(config, startupRecovery, {
     authoritativeLoadedRecovery,
-    prepareAuthoritativeRecovery: async ({ state }) => {
+    prepareAuthoritativeRecovery: async ({ state, terminalDerivativeProjection }) => {
       const reconciledHead = reconcilePendingRecoveredSourceHeadTransition(config, state);
       if (!reconciledHead.ok) {
         return { ok: false, reasonCode: reconciledHead.reasonCode, state };
       }
       state = reconciledHead.state;
-      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(
+        config,
+        state,
+        terminalDerivativeProjection,
+      );
       if (!startupEvidenceCheck.ok) {
         return { ok: false, reasonCode: startupEvidenceCheck.reason, state };
       }
@@ -2194,20 +2203,22 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
           } : state.pr,
         } : {}),
       };
-      const reconciledWrite = writeRecoveryState(config, state);
-      const reconciledReload = loadRecoveryState(config, reconciledWrite.state);
-      if (!reconciledReload.ok
-        || reconciledReload.state.recoveryReconciliation?.evidenceDigest !== reconciledRecovery?.evidenceDigest
-        || (reconciledRecovery
-          && (reconciledReload.state.pr?.number !== (reconciledPr?.number ?? null)
-            || reconciledReload.state.pr?.headSha !== (reconciledPr?.headSha ?? null)))) {
-        return rejectHistoricalWorkspacePreparation(
-          config,
-          state,
-          "startup_recovery_reconciliation_persistence_failed",
-        );
+      if (!terminalDerivativeProjection?.ok) {
+        const reconciledWrite = writeRecoveryState(config, state);
+        const reconciledReload = loadRecoveryState(config, reconciledWrite.state);
+        if (!reconciledReload.ok
+          || reconciledReload.state.recoveryReconciliation?.evidenceDigest !== reconciledRecovery?.evidenceDigest
+          || (reconciledRecovery
+            && (reconciledReload.state.pr?.number !== (reconciledPr?.number ?? null)
+              || reconciledReload.state.pr?.headSha !== (reconciledPr?.headSha ?? null)))) {
+          return rejectHistoricalWorkspacePreparation(
+            config,
+            state,
+            "startup_recovery_reconciliation_persistence_failed",
+          );
+        }
+        state = reconciledReload.state;
       }
-      state = reconciledReload.state;
       return {
         ok: true,
         state,
@@ -2227,7 +2238,11 @@ async function resumeStartupRecovery(config, logger, runId, index, startupRecove
     },
     controlCheck: (state) => evaluateControlAtRecoveryBoundary(state, applyControlAtSafeBoundary(config, { runId, iterations: [], stopReason: null })),
     default: async ({ state, boundary, preparation }) => {
-      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(config, state);
+      const startupEvidenceCheck = validateRecoveryOnlyStartupEvidence(
+        config,
+        state,
+        startupRecovery.terminalDerivativeProjection,
+      );
       if (!startupEvidenceCheck.ok) {
         return {
           ok: false,
@@ -2989,7 +3004,21 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
       const outageTargetHeadIsAuthenticatedAncestor = config.outageRecoveryOnly === true
         && continuation.sourceFailureHistory?.some((entry) =>
           entry?.candidate?.headSha === config.outageRecoveryTarget?.prHeadSha);
-      const outageRecoveryTarget = outageTargetHeadIsAuthenticatedAncestor
+      const terminalDerivativeCreatedPrIsAuthenticated = config.outageRecoveryOnly === true
+        && config.outageRecoveryTarget?.terminalValidationRetryDerivativeNoPr === true
+        && state.pr?.number === prNumber
+        && state.pr?.headSha === candidate.headSha
+        && state.pr?.headRefName === state.branch.name
+        && state.pr?.baseRefName === "main"
+        && prEvidence.number === prNumber;
+      const outageRecoveryTarget = terminalDerivativeCreatedPrIsAuthenticated
+        ? {
+            ...config.outageRecoveryTarget,
+            terminalValidationRetryDerivativeNoPr: false,
+            prNumber,
+            prHeadSha: candidate.headSha,
+          }
+        : outageTargetHeadIsAuthenticatedAncestor
         ? {
             ...config.outageRecoveryTarget,
             currentHeadSha: candidate.headSha,
@@ -3656,8 +3685,21 @@ function recoveredReviewerManualVerdict(evidence) {
   return verdict === "danger_gate" ? "danger_gate" : verdict === "needs_tommy" ? "blocked_needs_tommy" : null;
 }
 
-function validateRecoveryOnlyStartupEvidence(config, state) {
+function validateRecoveryOnlyStartupEvidence(
+  config,
+  state,
+  terminalDerivativeProjection = null,
+  terminalDerivativeContinuationAdmission = null,
+) {
   if (!config.outageRecoveryOnly) return { ok: true };
+  if (config.outageRecoveryTarget?.terminalValidationRetryDerivativeNoPr === true) {
+    if (terminalDerivativeProjection?.ok === true
+      || terminalDerivativeContinuationAdmission?.ok === true
+      || validateTerminalDerivativeContinuationAdmission(config, state, config.outageRecoveryTarget).ok) {
+      return { ok: true };
+    }
+    return { ok: false, reason: "terminal_validation_retry_derivative_projection_missing" };
+  }
   const issueNumber = state?.issue?.number;
   const recoveryConfig = config.existingPrRecovery?.[issueNumber] || config.existingPrRecovery?.[String(issueNumber)] || null;
   if (!recoveryConfig) {

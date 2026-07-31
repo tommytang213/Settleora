@@ -250,7 +250,26 @@ async function submit(cli, config) {
   const profile = resolveProfile(cli.profile, config.logsRoot);
   const admittedConfigPath = config.configPath || profile.runnerConfigPath;
   const runId = generateRunId();
-  const initialOriginMainSha = getRefSha("origin/main", { cwd: config.repoRoot });
+  const observedOriginMainSha = getRefSha("origin/main", { cwd: config.repoRoot });
+  const recoveryOnlyTarget = cli.terminalValidationRetryDerivative
+    ? {
+        taskKey: cli.targetTaskKey,
+        issueNumber: cli.targetIssueNumber,
+        branchName: cli.targetBranchName,
+        baseSha: cli.targetBaseSha,
+        currentHeadSha: cli.targetHeadSha,
+        prNumber: null,
+        prHeadSha: null,
+        runnerRunId: cli.targetRunnerRunId,
+        supervisorRunId: cli.targetSupervisorRunId,
+        originalSupervisorSpecDigest: null,
+        markerKey: null,
+        outageFingerprint: null,
+        attemptNumber: null,
+        terminalValidationRetryDerivativeNoPr: true,
+      }
+    : null;
+  const initialOriginMainSha = observedOriginMainSha;
   const specResult = buildRunSpec({
     runId,
     maxTasks: cli.maxTasks,
@@ -259,6 +278,11 @@ async function submit(cli, config) {
     profile: profile.profile,
     initialOriginMainSha,
     requestedBy: "operator",
+    parentSupervisorRunId: recoveryOnlyTarget?.supervisorRunId,
+    parentRunnerRunId: recoveryOnlyTarget?.runnerRunId,
+    sourceIssueNumber: recoveryOnlyTarget?.issueNumber,
+    sourceBranchName: recoveryOnlyTarget?.branchName,
+    recoveryOnlyTarget,
     allowMissingConfig: cli.dryRun,
     logsRoot: config.logsRoot,
     runnerConfigPath: admittedConfigPath,
@@ -291,6 +315,7 @@ async function submit(cli, config) {
     maxTasks: specResult.spec.maxTasks,
     maxRuntime: specResult.spec.maxRuntime,
     initialOriginMainSha,
+    observedOriginMainSha,
     spec: specResult.spec,
     specPath: specPathForRunId(runId, config.logsRoot),
     specSha256,
@@ -369,6 +394,14 @@ function parseCtlArgs(argv) {
     maxRuntimeDeltaMs: null,
     markdown: false,
     configPath: null,
+    terminalValidationRetryDerivative: false,
+    targetTaskKey: null,
+    targetIssueNumber: null,
+    targetBranchName: null,
+    targetBaseSha: null,
+    targetHeadSha: null,
+    targetRunnerRunId: null,
+    targetSupervisorRunId: null,
   };
   if (!cli.command) throw new Error("Missing command");
   for (let index = 1; index < argv.length; index += 1) {
@@ -380,6 +413,21 @@ function parseCtlArgs(argv) {
     else if (arg === "--run") cli.runId = readValue(argv, ++index, arg);
     else if (arg === "--profile") cli.profile = readValue(argv, ++index, arg);
     else if (arg === "--config") cli.configPath = readValue(argv, ++index, arg);
+    else if (arg === "--terminal-validation-retry-derivative") cli.terminalValidationRetryDerivative = true;
+    else if (arg === "--target-task-key") cli.targetTaskKey = readValue(argv, ++index, arg);
+    else if (arg === "--target-issue") {
+      const raw = readValue(argv, ++index, arg);
+      if (!/^[1-9]\d*$/.test(raw)) throw new Error("--target-issue must be a positive decimal integer");
+      cli.targetIssueNumber = Number(raw);
+      if (!Number.isSafeInteger(cli.targetIssueNumber)) {
+        throw new Error("--target-issue must be a safe positive integer");
+      }
+    }
+    else if (arg === "--target-branch") cli.targetBranchName = readValue(argv, ++index, arg);
+    else if (arg === "--target-base") cli.targetBaseSha = readValue(argv, ++index, arg);
+    else if (arg === "--target-head") cli.targetHeadSha = readValue(argv, ++index, arg);
+    else if (arg === "--target-runner-run") cli.targetRunnerRunId = readValue(argv, ++index, arg);
+    else if (arg === "--target-supervisor-run") cli.targetSupervisorRunId = readValue(argv, ++index, arg);
     else if (arg === "--mode") cli.mode = readValue(argv, ++index, arg);
     else if (arg === "--max-tasks") {
       const raw = readValue(argv, ++index, arg);
@@ -412,6 +460,24 @@ function parseCtlArgs(argv) {
   }
   if (["status", "report"].includes(cli.command) && !cli.runId && !cli.latest) cli.latest = true;
   if (["health", "pause", "stop-after-current", "extend"].includes(cli.command) && !cli.runId) throw new Error(`${cli.command} requires --run <run-id>`);
+  if (cli.terminalValidationRetryDerivative && cli.command !== "submit") {
+    throw new Error("--terminal-validation-retry-derivative is supported only by submit");
+  }
+  const targetFields = [
+    cli.targetTaskKey,
+    cli.targetIssueNumber,
+    cli.targetBranchName,
+    cli.targetBaseSha,
+    cli.targetHeadSha,
+    cli.targetRunnerRunId,
+    cli.targetSupervisorRunId,
+  ];
+  if (cli.terminalValidationRetryDerivative && targetFields.some((value) => value === null)) {
+    throw new Error("terminal validation-retry derivative submit requires every --target-* identity");
+  }
+  if (!cli.terminalValidationRetryDerivative && targetFields.some((value) => value !== null)) {
+    throw new Error("--target-* identities require --terminal-validation-retry-derivative");
+  }
   return cli;
 }
 

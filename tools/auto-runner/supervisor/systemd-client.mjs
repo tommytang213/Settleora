@@ -200,7 +200,9 @@ export function runnerArgvForSpec(spec, { runnerRunId = null, runtimeRoot = modu
   ];
   if (runnerRunId) argv.splice(argv.indexOf("--config"), 0, "--runner-run-id", runnerRunId);
   if (spec.recoveryOnlyTarget) {
-    if (spec.recoveryOnlyTarget.prNumber === null || spec.recoveryOnlyTarget.prHeadSha === null) {
+    const terminalDerivative = spec.recoveryOnlyTarget.terminalValidationRetryDerivativeNoPr === true;
+    if (!terminalDerivative
+      && (spec.recoveryOnlyTarget.prNumber === null || spec.recoveryOnlyTarget.prHeadSha === null)) {
       throw new Error("recovery-only target requires PR number/head SHA");
     }
     argv.push(
@@ -219,21 +221,25 @@ export function runnerArgvForSpec(spec, { runnerRunId = null, runtimeRoot = modu
       spec.recoveryOnlyTarget.runnerRunId,
       "--outage-target-supervisor-run-id",
       spec.recoveryOnlyTarget.supervisorRunId,
-      "--outage-target-original-spec-digest",
-      spec.recoveryOnlyTarget.originalSupervisorSpecDigest,
-      "--outage-target-marker-key",
-      spec.recoveryOnlyTarget.markerKey,
-      "--outage-target-fingerprint",
-      spec.recoveryOnlyTarget.outageFingerprint,
-      "--outage-target-attempt",
-      String(spec.recoveryOnlyTarget.attemptNumber),
     );
-    argv.push(
-      "--outage-target-pr",
-      String(spec.recoveryOnlyTarget.prNumber),
-      "--outage-target-pr-head-sha",
-      spec.recoveryOnlyTarget.prHeadSha,
-    );
+    if (terminalDerivative) {
+      argv.push("--outage-target-terminal-validation-retry-derivative");
+    } else {
+      argv.push(
+        "--outage-target-original-spec-digest",
+        spec.recoveryOnlyTarget.originalSupervisorSpecDigest,
+        "--outage-target-marker-key",
+        spec.recoveryOnlyTarget.markerKey,
+        "--outage-target-fingerprint",
+        spec.recoveryOnlyTarget.outageFingerprint,
+        "--outage-target-attempt",
+        String(spec.recoveryOnlyTarget.attemptNumber),
+        "--outage-target-pr",
+        String(spec.recoveryOnlyTarget.prNumber),
+        "--outage-target-pr-head-sha",
+        spec.recoveryOnlyTarget.prHeadSha,
+      );
+    }
   }
   if (spec.mode === "canary") argv.splice(3, 0, "--canary");
   return argv;

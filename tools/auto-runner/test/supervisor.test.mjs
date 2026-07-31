@@ -344,6 +344,27 @@ test("outage recovery-only run-spec maps to fixed target argv", () => {
     () => runnerArgvForSpec({ ...spec, recoveryOnlyTarget: { ...recoveryOnlyTarget, prNumber: null, prHeadSha: null } }),
     /requires PR number\/head SHA/,
   );
+  const derivativeTarget = {
+    ...recoveryOnlyTarget,
+    prNumber: null,
+    prHeadSha: null,
+    originalSupervisorSpecDigest: null,
+    markerKey: null,
+    outageFingerprint: null,
+    attemptNumber: null,
+    terminalValidationRetryDerivativeNoPr: true,
+  };
+  const derivativeSpec = {
+    ...spec,
+    requestedBy: "terminal-validation-retry-owner",
+    outageResubmission: null,
+    recoveryOnlyTarget: derivativeTarget,
+  };
+  validateRunSpecShape(derivativeSpec);
+  const derivativeArgv = runnerArgvForSpec(derivativeSpec);
+  assert.equal(derivativeArgv.includes("--outage-target-terminal-validation-retry-derivative"), true);
+  assert.equal(derivativeArgv.includes("--outage-target-pr"), false);
+  assert.equal(derivativeArgv.includes("--outage-target-original-spec-digest"), false);
 });
 
 test("trusted summary resolver maps exactly one correlated JSON and Markdown pair", () => {
@@ -971,6 +992,67 @@ test("operator CLI dry-run has no durable supervisor side effects and renders ex
   assert.equal(parsed.specPath.includes(parsed.runId), false);
   assert.equal(parsed.statePath.includes(parsed.runId), false);
   assert.equal(parsed.unitName, `settleora-auto-runner@${parsed.runId}.service`);
+  assert.deepEqual(snapshotSupervisorFiles(), before);
+});
+
+test("operator CLI dry-run produces an exact no-PR terminal validation-retry derivative spec", () => {
+  const before = snapshotSupervisorFiles();
+  const result = spawnSync(process.execPath, [
+    "tools/auto-runner/settleora-auto-runnerctl.mjs",
+    "submit",
+    "--dry-run",
+    "--profile",
+    "default",
+    "--mode",
+    "trusted",
+    "--terminal-validation-retry-derivative",
+    "--target-task-key",
+    "20260724T075849",
+    "--target-issue",
+    "959",
+    "--target-branch",
+    "feature/auto-959-recovery",
+    "--target-base",
+    fakeSha,
+    "--target-head",
+    "b".repeat(40),
+    "--target-runner-run",
+    "run-2026-07-24T075849Z-066b80f4fc16",
+    "--target-supervisor-run",
+    "supervised-20260724T075849Z-066b80f4fc16",
+    "--json",
+  ], { cwd: path.resolve("."), encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.dryRun, true);
+  assert.equal(parsed.spec.recoveryOnlyTarget.terminalValidationRetryDerivativeNoPr, true);
+  assert.equal(parsed.spec.recoveryOnlyTarget.prNumber, null);
+  assert.equal(parsed.spec.outageResubmission, null);
+  assert.equal(parsed.spec.recoveryOnlyTarget.baseSha, fakeSha);
+  assert.equal(parsed.spec.initialOriginMainSha, parsed.observedOriginMainSha);
+  assert.notEqual(parsed.spec.initialOriginMainSha, parsed.spec.recoveryOnlyTarget.baseSha);
+  assert.equal(parsed.spec.parentRunnerRunId, parsed.spec.recoveryOnlyTarget.runnerRunId);
+  assert.equal(parsed.spec.parentSupervisorRunId, parsed.spec.recoveryOnlyTarget.supervisorRunId);
+  assert.equal(parsed.runnerArgv.includes("--outage-target-terminal-validation-retry-derivative"), true);
+  assert.equal(parsed.runnerArgv.includes("--outage-resubmission"), false);
+  assert.equal(parsed.runnerArgv.includes("--outage-pr-number"), false);
+  assert.deepEqual(snapshotSupervisorFiles(), before);
+  const malformedIssue = spawnSync(process.execPath, [
+    "tools/auto-runner/settleora-auto-runnerctl.mjs",
+    "submit",
+    "--dry-run",
+    "--profile",
+    "default",
+    "--mode",
+    "trusted",
+    "--terminal-validation-retry-derivative",
+    "--target-task-key",
+    "20260724T075849",
+    "--target-issue",
+    "959junk",
+  ], { cwd: path.resolve("."), encoding: "utf8" });
+  assert.notEqual(malformedIssue.status, 0);
+  assert.match(malformedIssue.stderr, /positive decimal integer/);
   assert.deepEqual(snapshotSupervisorFiles(), before);
 });
 

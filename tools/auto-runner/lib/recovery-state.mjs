@@ -693,6 +693,29 @@ function validateRecoveryStateShape(state) {
   if (!state.branch || typeof state.branch !== "object") return invalid("invalid branch");
   if (!state.branch.name) return invalid("missing branch name");
   if (!isShaOrNull(state.branch.baseSha) || !isShaOrNull(state.branch.currentHeadSha)) return invalid("invalid branch sha");
+  if (state.terminalDerivativeContinuationAdmission != null) {
+    const admission = state.terminalDerivativeContinuationAdmission;
+    const { admissionDigest, ...evidence } = admission;
+    if (admission.version !== 1
+      || typeof admission.repository !== "string"
+      || admission.issueNumber !== state.issue.number
+      || admission.taskKey !== state.taskKey
+      || admission.runnerRunId !== state.run?.runId
+      || admission.supervisorRunId !== state.run?.supervisorRunId
+      || admission.branchName !== state.branch.name
+      || admission.baseSha !== state.branch.baseSha
+      || !isSha(admission.originalHeadSha)
+      || !isSha(admission.originalTreeSha)
+      || !isDigest(admission.originalChangedFilesDigest)
+      || !isDigest(admission.originalDiffDigest)
+      || !isDigest(admission.projectionEvidenceDigest)
+      || !isDigest(admission.lifecycleRequestId)
+      || !isDigest(admission.lifecyclePredecessorDigest)
+      || !isDigest(admissionDigest)
+      || admissionDigest !== createHash("sha256").update(JSON.stringify(evidence)).digest("hex")) {
+      return invalid("invalid terminal derivative continuation admission");
+    }
+  }
   if (state.recoveryReconciliation != null) {
     const projection = state.recoveryReconciliation;
     const { evidenceDigest, ...evidence } = projection;

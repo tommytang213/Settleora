@@ -1,5 +1,25 @@
 # Autonomous Codex Runner
 
+## Terminal derivative projection boundary
+
+The preserved-recovery authority layer may project one exact legacy split
+checkpoint in memory when all independent machine-readable evidence agrees:
+the root is still the safe validation/commit checkpoint; the lifecycle
+controller, report, and mutation authority are terminal with the deliberately
+pending validation-retry recovery operation; and one successor supervisor
+spec, per-iteration state, and runner summary independently record the exact
+failed-closed validation-reconstruction result with no later effect. The
+projection is shared by deployment admission and targeted startup recovery,
+retains the raw recovery separately, and binds every artifact and logical
+candidate identity in a stable evidence digest.
+
+This is not a general terminal-state inference. Either state or summary alone,
+prose reports, non-terminal authority, changed task/charge/candidate identity,
+unsafe artifact metadata, duplicates, later evidence, active ownership, or
+external effects reject the projection. Startup resumes at validation and
+candidate reconstruction; it does not replay issue claiming, logical-task
+charging, branch creation, implementation, or the candidate commit.
+
 ## External controller runtime boundary
 
 The trusted controller program is a verified bundle outside the managed Git

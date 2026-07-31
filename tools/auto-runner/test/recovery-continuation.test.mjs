@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { beginSessionRotation, completeSessionRotation, createSessionLifecycleState, loadSessionLifecycleForRecovery, persistSessionLifecycleState, planInterruptionRecovery, recoverySuccessorSessionId, reopenKnownValidationRetryDerivative, sessionLifecyclePath, transitionSessionLifecyclePhase, validateSessionLifecycleState } from "../lib/session-lifecycle.mjs";
@@ -41,10 +41,12 @@ import {
   recoveryStatusSummary,
   reconcileAuthoritativeLifecycleHead,
   reconstructMissingSessionLifecycle,
+  replaySafeTerminalDerivativeContinuation,
   projectStartupRecoveryIssueIdentity,
   shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
   consumeStartupInterruptionPlanner,
+  validateTerminalDerivativeContinuationAdmission,
 } from "../lib/recovery-continuation.mjs";
 
 test("startup recovery intent identity is effect-type-aware and fail-closed", () => {
@@ -2503,6 +2505,7 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
       phase: "stopped",
       nextExactAction: "checkpoint_validation_recovery_failed_closed",
     }).state;
+    const terminalPredecessor = structuredClone(lifecycle);
     const liveEffects = { commitPresent: true, pushPresent: false, mergePresent: false, commentPresent: true };
     const reopened = reopenKnownValidationRetryDerivative(config, lifecycle, liveEffects);
     assert.equal(reopened.ok, true);
@@ -2512,6 +2515,28 @@ test("known validation derivative reopens only its exact terminal lifecycle chec
     assert.equal(reopened.state.mutationAuthority.status, "recovery_pending");
     assert.equal(reopened.state.recovery.phaseAfter, "checkpoint_validation_commit");
     assert.equal(reopened.state.recovery.effectsAlreadyPresent.comment, true);
+    const predecessorPath = path.join(
+      config.logsRoot,
+      "session-lifecycle-predecessors",
+      `${terminalPredecessor.checkpoint.digest}.json`,
+    );
+    const predecessorInfo = lstatSync(predecessorPath);
+    assert.equal(predecessorInfo.isFile(), true);
+    assert.equal(predecessorInfo.isSymbolicLink(), false);
+    assert.equal(predecessorInfo.nlink, 1);
+    assert.equal(predecessorInfo.mode & 0o077, 0);
+    assert.deepEqual(JSON.parse(readFileSync(predecessorPath, "utf8")), terminalPredecessor);
+    assert.equal(
+      reopened.state.mutationAuthority.handoff.checkpointDigest,
+      terminalPredecessor.checkpoint.digest,
+    );
+    const tamperedPredecessor = structuredClone(terminalPredecessor);
+    tamperedPredecessor.checkpoint.tamperProbe = true;
+    writeFileSync(predecessorPath, `${JSON.stringify(tamperedPredecessor, null, 2)}\n`, { mode: 0o600 });
+    assert.equal(validateSessionLifecycleState(
+      JSON.parse(readFileSync(predecessorPath, "utf8")),
+    ).ok, false, "a semantically compatible predecessor with an invalid checkpoint digest must fail closed");
+    writeFileSync(predecessorPath, `${JSON.stringify(terminalPredecessor, null, 2)}\n`, { mode: 0o600 });
     const reconciled = planInterruptionRecovery(
       reopened.state,
       liveEffects,
@@ -2979,4 +3004,179 @@ test("status summary remains bounded and sanitized", () => {
   assert.equal(Object.hasOwn(summary, "rawPrompt"), false);
   assert.equal(Object.hasOwn(summary, "providerResponse"), false);
   assert.equal(summary.branchName.includes("20260713-1927"), true);
+});
+
+test("terminal derivative continuation admission survives later head and PR phases only with exact lineage", () => {
+  const target = {
+    terminalValidationRetryDerivativeNoPr: true,
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    runnerRunId: "run-original",
+    supervisorRunId: "supervised-original",
+    branchName: "feature/auto-959-preserved",
+    baseSha: "1".repeat(40),
+    currentHeadSha: "2".repeat(40),
+  };
+  const original = {
+    headSha: target.currentHeadSha,
+    treeSha: "3".repeat(40),
+    changedFilesDigest: "4".repeat(64),
+    diffDigest: "5".repeat(64),
+  };
+  const current = {
+    baseSha: target.baseSha,
+    headSha: "6".repeat(40),
+    treeSha: "7".repeat(40),
+    changedFilesDigest: "8".repeat(64),
+    diffDigest: "9".repeat(64),
+    changedFiles: ["tools/auto-runner/lib/recovery-continuation.mjs"],
+  };
+  const evidence = {
+    version: 1,
+    repository: "tommytang213/Settleora",
+    issueNumber: target.issueNumber,
+    taskKey: target.taskKey,
+    runnerRunId: target.runnerRunId,
+    supervisorRunId: target.supervisorRunId,
+    branchName: target.branchName,
+    baseSha: target.baseSha,
+    originalHeadSha: original.headSha,
+    originalTreeSha: original.treeSha,
+    originalChangedFilesDigest: original.changedFilesDigest,
+    originalDiffDigest: original.diffDigest,
+    projectionEvidenceDigest: "a".repeat(64),
+    lifecycleRequestId: "b".repeat(64),
+    lifecyclePredecessorDigest: "c".repeat(64),
+    originalContinuationPhase: "local_validation",
+    originalContinuationEffectsDigest: createHash("sha256")
+      .update(JSON.stringify({}))
+      .digest("hex"),
+  };
+  const admission = {
+    ...evidence,
+    admissionDigest: createHash("sha256").update(JSON.stringify(evidence)).digest("hex"),
+  };
+  const recovery = {
+    featureBundle: null,
+    terminalDerivativeContinuationAdmission: admission,
+    issue: { number: target.issueNumber },
+    taskKey: target.taskKey,
+    run: { runId: target.runnerRunId, supervisorRunId: target.supervisorRunId },
+    branch: { name: target.branchName, baseSha: target.baseSha, currentHeadSha: current.headSha },
+    pr: {
+      number: 1023,
+      headSha: current.headSha,
+      headRefName: target.branchName,
+      baseRefName: "main",
+    },
+    claimAuthority: { authority: { candidateIdentity: original } },
+    ordinaryContinuation: {
+      version: 1,
+      logicalTaskKey: target.taskKey,
+      executionKey: target.runnerRunId,
+      issueNumber: target.issueNumber,
+      branchName: target.branchName,
+      identity: current,
+      expectedOriginMainSha: target.baseSha,
+      phase: "local_validation",
+      effects: {},
+      sourceFailureHistory: [{
+        candidate: original,
+        repository: evidence.repository,
+      }],
+    },
+  };
+  const lifecycleLoader = () => ({
+    ok: true,
+    state: {
+      mutationAuthority: {
+        handoff: {
+          reason: "validation_retry_derivative_reopened",
+          requestId: evidence.lifecycleRequestId,
+          checkpointDigest: evidence.lifecyclePredecessorDigest,
+        },
+      },
+    },
+  });
+  const validate = (value, loadLifecycle = lifecycleLoader) =>
+    validateTerminalDerivativeContinuationAdmission(
+      { repositorySlug: evidence.repository },
+      value,
+      target,
+      { loadLifecycle },
+    );
+  assert.equal(validate(recovery).ok, true);
+  assert.equal(validate({
+    ...recovery,
+    featureBundle: { bundleId: "forged" },
+  }).ok, false);
+  assert.equal(validate({
+    ...recovery,
+    pr: { ...recovery.pr, headSha: "b".repeat(40) },
+  }).ok, false);
+  assert.equal(validate({
+    ...recovery,
+    ordinaryContinuation: {
+      ...recovery.ordinaryContinuation,
+      sourceFailureHistory: [{
+        candidate: original,
+        repository: "other/repository",
+      }],
+    },
+  }).ok, false);
+  const forgedCompletedGates = {
+    ...recovery,
+    ordinaryContinuation: {
+      ...recovery.ordinaryContinuation,
+      phase: "push",
+      effects: {
+        local_validation: {
+          targetDigest: "d".repeat(64),
+          completedAt: new Date().toISOString(),
+          evidence: { passed: true },
+        },
+        external_review: {
+          targetDigest: "e".repeat(64),
+          completedAt: new Date().toISOString(),
+          evidence: { passed: true },
+        },
+      },
+    },
+  };
+  assert.equal(validate(forgedCompletedGates).ok, true);
+  const replaySafe = replaySafeTerminalDerivativeContinuation(forgedCompletedGates);
+  assert.equal(replaySafe.featureBundle, null);
+  assert.equal(replaySafe.ordinaryContinuation.phase, "local_validation");
+  assert.deepEqual(replaySafe.ordinaryContinuation.effects, {});
+  assert.equal(forgedCompletedGates.ordinaryContinuation.phase, "push");
+  assert.equal(Object.keys(forgedCompletedGates.ordinaryContinuation.effects).length, 2);
+  assert.equal(validate({
+    ...recovery,
+    ordinaryContinuation: {
+      ...recovery.ordinaryContinuation,
+      sourceFailureHistory: [{ candidate: original }],
+    },
+  }).ok, false);
+  assert.equal(validate({
+    ...recovery,
+    terminalDerivativeContinuationAdmission: { ...admission, projectionEvidenceDigest: "c".repeat(64) },
+  }).ok, false);
+  assert.equal(validate(recovery, () => ({
+    ok: true,
+    state: {
+      mutationAuthority: {
+        handoff: {
+          reason: "validation_retry_derivative_reopened",
+          requestId: "d".repeat(64),
+          checkpointDigest: evidence.lifecyclePredecessorDigest,
+        },
+      },
+    },
+  })).ok, false);
+  assert.equal(validateTerminalDerivativeContinuationAdmission(
+    { repositorySlug: "other/repository" },
+    recovery,
+    target,
+    { loadLifecycle: lifecycleLoader },
+  ).ok, false);
 });
