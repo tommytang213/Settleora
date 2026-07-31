@@ -209,6 +209,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     const failedContinuationStateArtifact = exactFailedContinuationIteration(
       latestDirectArtifacts[0].value,
       target,
+      durableBudgetArtifact.value,
     ) && exactStateArtifactFilenameIdentity(latestDirectArtifacts[0])
       ? latestDirectArtifacts[0]
       : null;
@@ -850,7 +851,7 @@ export function exactTerminalSummary(summary, iteration, target) {
     && Date.parse(summary?.finishedAt) >= Date.parse(iteration?.finishedAt);
 }
 
-export function exactFailedContinuationIteration(value, target) {
+export function exactFailedContinuationIteration(value, target, durableBudgetState) {
   const projected = value?.recovery?.terminalDerivativeProjection;
   const state = value?.recovery?.state;
   const states = value?.recovery?.states;
@@ -896,6 +897,7 @@ export function exactFailedContinuationIteration(value, target) {
     && budget?.state?.budgetScopeId === target.supervisorRunId
     && budget?.state?.acceptedLogicalTaskCount === 1
     && Object.keys(budget?.state?.charges || {}).length === 1
+    && canonical(budget?.state) === canonical(durableBudgetState)
     && value?.recovery?.found === true
     && value?.recovery?.allowed === true
     && value?.recovery?.action === "resume_recoverable_work"

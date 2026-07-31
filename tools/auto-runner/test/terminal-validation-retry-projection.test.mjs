@@ -108,9 +108,12 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
       acceptedLogicalTaskCount: 1,
       statePath: target.chargeMarkerRef,
       state: {
+        stateVersion: 1,
         repository: target.repository,
         budgetScopeId: target.supervisorRunId,
         acceptedLogicalTaskCount: 1,
+        createdAt: "2026-07-24T07:58:49.249Z",
+        updatedAt: "2026-07-24T07:58:49.249Z",
         charges: { [target.chargeId]: target.durableChargeMarker },
       },
     },
@@ -176,13 +179,18 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
     review: null,
     externalReview: null,
   };
-  assert.equal(exactFailedContinuationIteration(iteration, target), true);
+  const durableBudgetState = structuredClone(iteration.logicalTaskBudget.state);
+  assert.equal(exactFailedContinuationIteration(iteration, target, durableBudgetState), true);
   for (const mutate of [
     (value) => { value.systemicStop = "recoverable-work-blocked:other"; },
     (value) => { value.validation = { ok: true }; },
     (value) => { value.review = { status: "passed" }; },
     (value) => { value.pr = { number: 1 }; },
     (value) => { value.logicalTaskBudget.charged = true; },
+    (value) => { value.logicalTaskBudget.state.stateVersion = 2; },
+    (value) => { value.logicalTaskBudget.state.createdAt = "2026-07-24T07:58:49.250Z"; },
+    (value) => { value.logicalTaskBudget.state.updatedAt = "2026-07-24T07:58:49.250Z"; },
+    (value) => { value.logicalTaskBudget.state.unexpected = null; },
     (value) => { value.recovery.terminalDerivativeContinuationAdmission = {}; },
     (value) => { value.recovery.state.nextSafeAction = "continue"; },
     (value) => { value.recovery.state.active = false; },
@@ -209,7 +217,7 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
   ]) {
     const changed = structuredClone(iteration);
     mutate(changed);
-    assert.equal(exactFailedContinuationIteration(changed, target), false);
+    assert.equal(exactFailedContinuationIteration(changed, target, durableBudgetState), false);
   }
   const summary = {
     runId: iteration.runId,
