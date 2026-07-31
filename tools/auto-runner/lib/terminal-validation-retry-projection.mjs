@@ -19,6 +19,7 @@ const SUCCESSOR_SYSTEMIC_STOP = "recoverable-work-blocked:historical_candidate_t
 const SUCCESSOR_RUNNER_CONFIG_PATH = "/workspace/auto-runner/config/settleora.json";
 const SUCCESSOR_RUNNER_CONFIG_SHA256 = "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d";
 const SUCCESSOR_RUNTIME_ROOT = "/workspace/auto-runner/runtime";
+const SUCCESSOR_NODE_EXECUTABLE = "/usr/bin/node";
 const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 const FAILED_CONTINUATION_STOP = "recoverable-work-blocked:terminal_projection_reloaded_checkpoint_mismatch";
 const FAILED_CONTINUATION_RUNNER_CONFIG_SHA256 = "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7";
@@ -85,7 +86,7 @@ const FAILED_CONTINUATION_HEARTBEAT_FIELDS = Object.freeze([
 
 function historicalRunnerArgvForSpec(spec, runnerRunId) {
   const argv = [
-    process.execPath,
+    SUCCESSOR_NODE_EXECUTABLE,
     path.join(SUCCESSOR_RUNTIME_ROOT, "settleora-auto-runner.mjs"),
     "--run",
     "--supervisor-run-id",

@@ -308,7 +308,7 @@ test("terminal retry projection binds the canonical supervisor state to the sele
     maxRuntime: "14d",
     initialOriginMainSha: specArtifact.value.initialOriginMainSha,
     runnerArgv: [
-      process.execPath,
+      "/usr/bin/node",
       "/workspace/auto-runner/runtime/settleora-auto-runner.mjs",
       "--run",
       "--supervisor-run-id",
@@ -435,7 +435,7 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     maxRuntime: "14d",
     initialOriginMainSha: specArtifact.value.initialOriginMainSha,
     runnerArgv: [
-      process.execPath,
+      "/usr/bin/node",
       "/workspace/auto-runner/runtime/settleora-auto-runner.mjs",
       "--run",
       "--supervisor-run-id",
