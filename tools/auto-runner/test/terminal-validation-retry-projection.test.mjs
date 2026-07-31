@@ -213,6 +213,7 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
     (value) => { value.recovery.outcome.unexpected = true; },
     (value) => { value.recovery.states.push(structuredClone(value.recovery.state)); },
     (value) => { value.recovery.terminalDerivativeProjection.evidenceDigest = "wrong"; },
+    (value) => { value.recovery.terminalDerivativeProjection.unexpected = null; },
     (value) => { value.recovery.target.issueNumber = 999; },
     (value) => { value.recovery.target.branchName = "feature/foreign"; },
     (value) => { value.recovery.target.currentHeadSha = "4".repeat(40); },

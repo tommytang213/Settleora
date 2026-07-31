@@ -98,6 +98,10 @@ const FAILED_CONTINUATION_HEARTBEAT_FIELDS = Object.freeze([
   "reportResolution", "runId", "runnerRunId", "schemaVersion", "startedAt",
   "state", "terminal", "unitName", "updatedAt",
 ]);
+const FAILED_CONTINUATION_PROJECTION_FIELDS = Object.freeze([
+  "boundArtifacts", "evidenceDigest", "ok", "projectionApplied",
+  "projectionReasonCode",
+]);
 
 function historicalRunnerArgvForSpec(spec, runnerRunId) {
   const argv = [
@@ -377,6 +381,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     const failedContinuationOverlay = failedContinuationStateArtifact
       ? authenticateFailedContinuationOverlay({
         root,
+        allStates,
         stateArtifact: failedContinuationStateArtifact,
         target,
         predecessorStateArtifact: stateArtifact,
@@ -422,6 +427,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
 
 function authenticateFailedContinuationOverlay({
   root,
+  allStates,
   stateArtifact,
   target,
   predecessorStateArtifact,
@@ -442,6 +448,12 @@ function authenticateFailedContinuationOverlay({
   );
   if (!exactFailedContinuationSummary(summaryArtifact.value, iteration, target, root)) {
     return fail("terminal_projection_failed_continuation_summary_mismatch");
+  }
+  if (!successorRunArtifactsAreUnique(allStates, [{
+    runId: iteration.runId,
+    supervisorRunId: summaryArtifact.value.supervisorRunId,
+  }])) {
+    return fail("terminal_projection_state_missing_ambiguous_or_superseded");
   }
   const supervisorRunId = summaryArtifact.value.supervisorRunId;
   const specRoot = path.join(root, "supervisor", "run-specs");
@@ -927,6 +939,8 @@ export function exactFailedContinuationIteration(value, target, durableBudgetSta
     })
     && exactFailedContinuationRecoveryTarget(value?.recovery?.target, target)
     && value?.recovery?.terminalDerivativeContinuationAdmission === null
+    && canonical(Object.keys(projected || {}).sort())
+      === canonical(FAILED_CONTINUATION_PROJECTION_FIELDS)
     && projected?.ok === true
     && projected?.projectionApplied === true
     && projected?.projectionReasonCode
