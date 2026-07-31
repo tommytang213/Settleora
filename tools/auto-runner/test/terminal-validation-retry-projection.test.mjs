@@ -17,6 +17,13 @@ import {
   exactRawCheckpoint,
   exactRawValidationEvidence,
   exactLifecycle,
+  exactFailedContinuationIteration,
+  failedContinuationTruncatedDiagnostics,
+  runnerSummaryCandidateCountWithinResolverLimit,
+  runnerSummaryCandidateSizeWithinResolverLimit,
+  exactFailedContinuationSpec,
+  exactFailedContinuationSummary,
+  exactFailedContinuationSupervisorState,
   exactReopenedHandoffCheckpointOrdering,
   exactStateArtifactFilenameIdentity,
   exactSuccessorSpecArtifact,
@@ -32,6 +39,366 @@ import {
   stateMayBelongToTarget,
   stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
+
+test("failed-continuation truncated diagnostics use resolver candidate order", () => {
+  const artifacts = [
+    {
+      path: "/logs/summaries/run-2026-07-31T060319Z-ffffffffffff.json",
+      value: { supervisorRunId: "supervised-foreign" },
+    },
+    {
+      path: "/logs/summaries/notes.json",
+      value: { supervisorRunId: "supervised-noncandidate" },
+    },
+    ...Array.from({ length: 20 }, (_, index) => ({
+      path: `/logs/summaries/run-2026-07-30T${String(index).padStart(6, "0")}Z.json`,
+      value: index === 0 ? {} : { supervisorRunId: `supervised-${index}` },
+    })).reverse(),
+  ];
+
+  const diagnostics = failedContinuationTruncatedDiagnostics(
+    artifacts,
+    artifacts[0],
+    "run-2026-07-31T060319Z-ffffffffffff",
+  );
+  assert.equal(diagnostics.length, 20);
+  assert.deepEqual(diagnostics.map(({ file }) => file), Array.from(
+    { length: 20 },
+    (_, index) => `run-2026-07-30T${String(index).padStart(6, "0")}Z.json`,
+  ));
+  assert.equal(diagnostics[0].reason, "missing_supervisor_run_id");
+  assert.equal(diagnostics[1].reason, "wrong_supervisor_run_id");
+  assert.equal(
+    diagnostics.some(({ file }) => file === "notes.json"
+      || file === "run-2026-07-31T060319Z-ffffffffffff.json"),
+    false,
+  );
+
+  const selected = artifacts.at(-1);
+  const retainedWithMatch = failedContinuationTruncatedDiagnostics(
+    artifacts.slice(-3),
+    selected,
+    path.basename(selected.path, ".json"),
+  );
+  assert.deepEqual(retainedWithMatch.find(({ status }) => status === "matched"), {
+    file: path.basename(selected.path),
+    reason: null,
+    runnerRunId: path.basename(selected.path, ".json"),
+    status: "matched",
+  });
+
+  const sameTimestampArtifacts = [
+    {
+      path: "/logs/summaries/run-2026-07-31T060319Z-ffffffffffff.json",
+      value: { supervisorRunId: "supervised-suffixed" },
+    },
+    {
+      path: "/logs/summaries/run-2026-07-31T060319Z.json",
+      value: { supervisorRunId: "supervised-unsuffixed" },
+    },
+    {
+      path: "/logs/summaries/run-2026-07-31T060319Z-000000000000.json",
+      value: {},
+    },
+  ];
+  assert.deepEqual(
+    failedContinuationTruncatedDiagnostics(sameTimestampArtifacts)
+      .map(({ file }) => file),
+    sameTimestampArtifacts.map(({ path: artifactPath }) =>
+      path.basename(artifactPath)).sort(),
+  );
+  assert.equal(
+    failedContinuationTruncatedDiagnostics([{
+      path: "/logs/summaries/run-2026-07-31T060319Z.json",
+      value: { supervisorRunId: 123 },
+    }])[0].reason,
+    "wrong_supervisor_run_id",
+  );
+  assert.equal(
+    runnerSummaryCandidateCountWithinResolverLimit(Array.from({ length: 2000 })),
+    true,
+  );
+  assert.equal(
+    runnerSummaryCandidateCountWithinResolverLimit(Array.from({ length: 2001 })),
+    false,
+  );
+  assert.equal(runnerSummaryCandidateSizeWithinResolverLimit(512 * 1024), true);
+  assert.equal(runnerSummaryCandidateSizeWithinResolverLimit((512 * 1024) + 1), false);
+});
+
+test("failed-continuation overlay binds the exact no-effect target and predecessor projection", () => {
+  const target = {
+    repository: "owner/repo",
+    issueNumber: 959,
+    taskKey: "20260724T075849",
+    runnerRunId: "run-2026-07-24T075839Z-f6ba2d20a4df",
+    supervisorRunId: "supervised-20260724T075831Z-f6ba2d20a4df",
+    claimIdentity: "owner/repo#959",
+    chargeId: "a".repeat(64),
+    branch: "feature/auto-959-preserved",
+    baseSha: "1".repeat(40),
+    headSha: "2".repeat(40),
+    acceptedLogicalTasks: 1,
+    chargeMarkerRef: "/trusted/logical-task-budget/original.json",
+  };
+  target.durableChargeMarker = {
+    chargeId: target.chargeId,
+    identity: {
+      repository: target.repository,
+      issueNumber: target.issueNumber,
+      taskLineageId: "issue-959",
+      claimIdentity: target.claimIdentity,
+      acceptedAt: "2026-07-24T07:58:49.248Z",
+    },
+    identityClass: "accepted_issue_claim",
+    reason: "authoritative_claim_reread_passed",
+    acceptedAt: "2026-07-24T07:58:49.248Z",
+    chargedAt: "2026-07-24T07:58:49.249Z",
+  };
+  const projectedState = {
+    active: true,
+    taskKey: target.taskKey,
+    issueNumber: target.issueNumber,
+    branchName: target.branch,
+    baseSha: target.baseSha,
+    currentHeadSha: target.headSha,
+    prNumber: null,
+    prUrl: null,
+    phase: "checkpoint_validation_commit",
+    firstIncompleteAction: "run_validation_and_commit",
+    nextSafeAction: "run_validation_and_commit",
+    stopReason: null,
+    attemptClass: null,
+    blocker: null,
+    runId: target.runnerRunId,
+    supervisorRunId: target.supervisorRunId,
+  };
+  const iteration = {
+    runId: "run-2026-07-31T060319Z-c382043104fa",
+    index: 1,
+    startedAt: "2026-07-31T06:03:19.766Z",
+    finishedAt: "2026-07-31T06:03:19.776Z",
+    issue: { number: target.issueNumber },
+    laneDecision: null,
+    outcome: "blocked_recovery_state",
+    systemicStop: "recoverable-work-blocked:terminal_projection_reloaded_checkpoint_mismatch",
+    runIssueState: {
+      attemptedIssueNumbers: [],
+      attemptedIssueCount: 0,
+      processedIssueNumbers: [target.issueNumber],
+      processedIssueCount: 1,
+    },
+    logicalTaskBudget: {
+      ok: true,
+      duplicate: true,
+      charged: false,
+      reasonCode: "startup_recovery_existing_charge_reused",
+      chargeId: target.chargeId,
+      marker: target.durableChargeMarker,
+      acceptedLogicalTaskCount: 1,
+      statePath: target.chargeMarkerRef,
+      state: {
+        stateVersion: 1,
+        repository: target.repository,
+        budgetScopeId: target.supervisorRunId,
+        acceptedLogicalTaskCount: 1,
+        createdAt: "2026-07-24T07:58:49.249Z",
+        updatedAt: "2026-07-24T07:58:49.249Z",
+        charges: { [target.chargeId]: target.durableChargeMarker },
+      },
+    },
+    recovery: {
+      found: true,
+      allowed: true,
+      action: "resume_recoverable_work",
+      reasonCode: "outage_recovery_target_discovered",
+      outcome: {
+        ok: true,
+        outcomeClass: "pending",
+        reasonCode: "outage_recovery_target_discovered",
+        nextAction: "wait",
+        retryable: true,
+        mutationAllowed: false,
+      },
+      state: projectedState,
+      states: [projectedState],
+      stateCounts: {
+        totalRecoverableCount: 1,
+        exactMatchingCount: 1,
+        ignoredNonmatchingCount: 0,
+      },
+      target: {
+        attemptNumber: null,
+        baseSha: target.baseSha,
+        branchName: target.branch,
+        currentHeadSha: target.headSha,
+        issueNumber: target.issueNumber,
+        markerKey: null,
+        originalSupervisorSpecDigest: null,
+        outageFingerprint: null,
+        prHeadSha: null,
+        prNumber: null,
+        runnerRunId: target.runnerRunId,
+        supervisorRunId: target.supervisorRunId,
+        taskKey: target.taskKey,
+        terminalValidationRetryDerivativeNoPr: true,
+      },
+      terminalDerivativeProjection: {
+        ok: true,
+        projectionApplied: true,
+        projectionReasonCode: "authenticated_terminal_validation_retry_derivative_projected",
+        evidenceDigest: "b".repeat(64),
+        boundArtifacts: Array.from({ length: 8 }, (_, index) => ({
+          role: `role-${index}`,
+          sha256: String(index).repeat(64),
+        })),
+      },
+      terminalDerivativeContinuationAdmission: null,
+    },
+    issueSource: "startup_recovery",
+    branchName: target.branch,
+    baseOriginMainSha: target.baseSha,
+    runnerCreatedCommitSha: target.headSha,
+    pr: null,
+    phase: "startup_recovery",
+    existingPrRecovery: null,
+    bundle: null,
+    autoMerge: null,
+    changedFiles: [],
+    validation: null,
+    review: null,
+    externalReview: null,
+  };
+  const durableBudgetState = structuredClone(iteration.logicalTaskBudget.state);
+  assert.equal(exactFailedContinuationIteration(iteration, target, durableBudgetState), true);
+  for (const mutate of [
+    (value) => { value.systemicStop = "recoverable-work-blocked:other"; },
+    (value) => { value.issue.unexpected = true; },
+    (value) => { value.validation = { ok: true }; },
+    (value) => { value.review = { status: "passed" }; },
+    (value) => { value.pr = { number: 1 }; },
+    (value) => { value.logicalTaskBudget.charged = true; },
+    (value) => { value.logicalTaskBudget.reasonCode = "different"; },
+    (value) => { delete value.logicalTaskBudget.reasonCode; },
+    (value) => { value.logicalTaskBudget.preview = true; },
+    (value) => { value.logicalTaskBudget.skipped = true; },
+    (value) => { value.logicalTaskBudget.state.stateVersion = 2; },
+    (value) => { value.logicalTaskBudget.state.createdAt = "2026-07-24T07:58:49.250Z"; },
+    (value) => { value.logicalTaskBudget.state.updatedAt = "2026-07-24T07:58:49.250Z"; },
+    (value) => { value.logicalTaskBudget.state.unexpected = null; },
+    (value) => { value.recovery.terminalDerivativeContinuationAdmission = {}; },
+    (value) => { value.recovery.state.nextSafeAction = "continue"; },
+    (value) => { value.recovery.state.active = false; },
+    (value) => { value.recovery.state.attemptClass = "retry"; },
+    (value) => { value.recovery.state.blocker = "blocked"; },
+    (value) => { value.recovery.stateCounts.totalRecoverableCount = 2; },
+    (value) => { value.recovery.stateCounts.exactMatchingCount = 0; },
+    (value) => { value.recovery.stateCounts.ignoredNonmatchingCount = 1; },
+    (value) => { value.recovery.stateCounts.unexpected = 0; },
+    (value) => { value.recovery.outcome.outcomeClass = "unsafe_or_ambiguous"; },
+    (value) => { value.recovery.outcome.reasonCode = "recovery_state_invalid"; },
+    (value) => { value.recovery.outcome.nextAction = "stop"; },
+    (value) => { value.recovery.outcome.retryable = false; },
+    (value) => { value.recovery.outcome.unexpected = true; },
+    (value) => { value.recovery.states.push(structuredClone(value.recovery.state)); },
+    (value) => { value.recovery.terminalDerivativeProjection.evidenceDigest = "wrong"; },
+    (value) => { value.recovery.terminalDerivativeProjection.unexpected = null; },
+    (value) => { value.recovery.target.issueNumber = 999; },
+    (value) => { value.recovery.target.branchName = "feature/foreign"; },
+    (value) => { value.recovery.target.currentHeadSha = "4".repeat(40); },
+    (value) => { value.recovery.target.runnerRunId = "run-foreign"; },
+    (value) => { value.recovery.target.attemptNumber = 2; },
+    (value) => { value.recovery.target.unexpected = true; },
+    (value) => { value.startedAt = "2026-07-31T06:03:19.777Z"; },
+  ]) {
+    const changed = structuredClone(iteration);
+    mutate(changed);
+    assert.equal(exactFailedContinuationIteration(changed, target, durableBudgetState), false);
+  }
+  const summary = {
+    runId: iteration.runId,
+    supervisorRunId: "supervised-20260731T060311Z-c382043104fa",
+    startedAt: "2026-07-31T06:03:19.700Z",
+    finishedAt: "2026-07-31T06:03:19.777Z",
+    iterations: [iteration],
+    stopReason: iteration.systemicStop,
+    attemptedIssueCount: 0,
+    attemptedIssueNumbers: [],
+    processedIssueCount: 1,
+    processedIssueNumbers: [target.issueNumber],
+    acceptedLogicalTaskCount: 1,
+    maxIterations: 1,
+    maxRuntimeMs: 14 * 24 * 60 * 60 * 1000,
+    autoMergeCanaryApprovalMode: "not_approved",
+    baseOriginMainSha: "3".repeat(40),
+    configPath: "/workspace/auto-runner/config/settleora.json",
+    logPath: `/trusted/run-logs/${iteration.runId}.log`,
+    mode: "run",
+  };
+  assert.equal(exactFailedContinuationSummary(summary, iteration, target, "/trusted"), true);
+  assert.equal(exactFailedContinuationSummary({
+    ...summary,
+    stopReason: "other",
+  }, iteration, target, "/trusted"), false);
+  assert.equal(exactFailedContinuationSummary({
+    ...summary,
+    startedAt: "2026-07-31T06:03:19.778Z",
+  }, iteration, target, "/trusted"), false);
+  assert.equal(exactFailedContinuationSummary({
+    ...summary,
+    autoMergeCanaryApprovalMode: "approved",
+  }, iteration, target, "/trusted"), false);
+  assert.equal(exactFailedContinuationSummary({
+    ...summary,
+    logPath: "/trusted/run-logs/foreign.log",
+  }, iteration, target, "/trusted"), false);
+  const spec = {
+    createdAt: "2026-07-31T06:03:11.209Z",
+    initialOriginMainSha: "3".repeat(40),
+    maxRuntime: "14d",
+    maxTasks: 1,
+    mode: "trusted",
+    outageResubmission: null,
+    parentRunnerRunId: target.runnerRunId,
+    parentSupervisorRunId: target.supervisorRunId,
+    profile: "default",
+    recoveryOnlyTarget: {
+      attemptNumber: null,
+      baseSha: target.baseSha,
+      branchName: target.branch,
+      currentHeadSha: target.headSha,
+      issueNumber: target.issueNumber,
+      markerKey: null,
+      originalSupervisorSpecDigest: null,
+      outageFingerprint: null,
+      prHeadSha: null,
+      prNumber: null,
+      runnerRunId: target.runnerRunId,
+      supervisorRunId: target.supervisorRunId,
+      taskKey: target.taskKey,
+      terminalValidationRetryDerivativeNoPr: true,
+    },
+    requestedBy: "operator",
+    runId: summary.supervisorRunId,
+    runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
+    runnerConfigSha256: "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7",
+    sourceBranchName: target.branch,
+    sourceIssueNumber: target.issueNumber,
+    specVersion: 1,
+  };
+  assert.equal(exactFailedContinuationSpec(spec, summary, target), true);
+  for (const mutation of [
+    { parentRunnerRunId: "run-foreign" },
+    { parentSupervisorRunId: "supervised-foreign" },
+    { sourceIssueNumber: 999 },
+    { sourceBranchName: "feature/foreign" },
+    { maxTasks: 2 },
+    { runnerConfigPath: "/different/config.json" },
+    { runnerConfigSha256: "c".repeat(64) },
+  ]) {
+    assert.equal(exactFailedContinuationSpec({ ...spec, ...mutation }, summary, target), false);
+  }
+});
 
 test("terminal retry projection binds the canonical supervisor state to the selected runner", () => {
   const logsRoot = "/trusted/logs";
@@ -77,7 +444,7 @@ test("terminal retry projection binds the canonical supervisor state to the sele
     maxRuntime: "14d",
     initialOriginMainSha: specArtifact.value.initialOriginMainSha,
     runnerArgv: [
-      process.execPath,
+      "/usr/bin/node",
       "/workspace/auto-runner/runtime/settleora-auto-runner.mjs",
       "--run",
       "--supervisor-run-id",
@@ -128,6 +495,375 @@ test("terminal retry projection binds the canonical supervisor state to the sele
       logsRoot,
     ), false);
   }
+});
+
+test("failed-continuation overlay binds canonical config and heartbeat identity", () => {
+  const logsRoot = "/workspace/logs/auto-runner/Settleora";
+  const iteration = {
+    runId: "run-2026-07-31T060319Z-c382043104fa",
+    startedAt: "2026-07-31T06:03:19.766Z",
+    finishedAt: "2026-07-31T06:03:19.776Z",
+  };
+  const summary = {
+    supervisorRunId: "supervised-20260731T060311Z-c382043104fa",
+    startedAt: "2026-07-31T06:03:19.700Z",
+    finishedAt: "2026-07-31T06:03:19.777Z",
+  };
+  const runnerConfigSha256 = "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7";
+  const recoveryOnlyTarget = {
+    attemptNumber: null,
+    baseSha: "1".repeat(40),
+    branchName: "feature/auto-959-preserved",
+    currentHeadSha: "2".repeat(40),
+    issueNumber: 959,
+    markerKey: null,
+    originalSupervisorSpecDigest: null,
+    outageFingerprint: null,
+    prHeadSha: null,
+    prNumber: null,
+    runnerRunId: "run-original",
+    supervisorRunId: "supervised-original",
+    taskKey: "20260724T075849",
+    terminalValidationRetryDerivativeNoPr: true,
+  };
+  const specArtifact = {
+    path: `${logsRoot}/supervisor/run-specs/spec-key/spec.json`,
+    sha256: "a".repeat(64),
+    value: {
+      runId: summary.supervisorRunId,
+      mode: "trusted",
+      maxTasks: 1,
+      maxRuntime: "14d",
+      runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
+      runnerConfigSha256,
+      initialOriginMainSha: "b".repeat(40),
+      recoveryOnlyTarget,
+      createdAt: "2026-07-31T06:03:11.209Z",
+    },
+  };
+  const supervisorRunRoot = `${logsRoot}/supervisor/runs/${
+    createHash("sha256").update(summary.supervisorRunId).digest("hex")
+  }`;
+  const summaryJsonPath = `${logsRoot}/summaries/${iteration.runId}.json`;
+  const summaryMarkdownPath = `${logsRoot}/summaries/${iteration.runId}.md`;
+  const reportResolution = {
+    diagnostics: [{
+      file: `${iteration.runId}.json`,
+      reason: null,
+      runnerRunId: iteration.runId,
+      status: "matched",
+    }],
+    ok: true,
+    status: "matched",
+    reason: null,
+    runnerRunId: iteration.runId,
+    runnerSummaryJsonPath: summaryJsonPath,
+    runnerSummaryMarkdownPath: summaryMarkdownPath,
+    reportPath: summaryMarkdownPath,
+  };
+  const unitName = `settleora-auto-runner@${summary.supervisorRunId}.service`;
+  const state = {
+    state: "blocked",
+    runId: summary.supervisorRunId,
+    runnerRunId: iteration.runId,
+    childTerminalState: "blocked",
+    childStatus: 2,
+    childSignal: null,
+    terminalReason: "child_exit_mapped",
+    specPath: specArtifact.path,
+    specSha256: specArtifact.sha256,
+    runnerConfigSha256,
+    maxTasks: 1,
+    maxRuntime: "14d",
+    initialOriginMainSha: specArtifact.value.initialOriginMainSha,
+    runnerArgv: [
+      "/usr/bin/node",
+      "/workspace/auto-runner/runtime/settleora-auto-runner.mjs",
+      "--run",
+      "--supervisor-run-id",
+      summary.supervisorRunId,
+      "--runner-run-id",
+      iteration.runId,
+      "--config",
+      "[config-path]",
+      "--expected-config-sha256",
+      runnerConfigSha256,
+      "--max-iterations",
+      "1",
+      "--max-runtime",
+      "14d",
+      "--outage-recovery-only",
+      "--outage-target-task-key",
+      recoveryOnlyTarget.taskKey,
+      "--outage-target-issue",
+      String(recoveryOnlyTarget.issueNumber),
+      "--outage-target-branch",
+      recoveryOnlyTarget.branchName,
+      "--outage-target-base-sha",
+      recoveryOnlyTarget.baseSha,
+      "--outage-target-head-sha",
+      recoveryOnlyTarget.currentHeadSha,
+      "--outage-target-runner-run-id",
+      recoveryOnlyTarget.runnerRunId,
+      "--outage-target-supervisor-run-id",
+      recoveryOnlyTarget.supervisorRunId,
+      "--outage-target-terminal-validation-retry-derivative",
+    ],
+    runnerSummaryJsonPath: summaryJsonPath,
+    runnerSummaryMarkdownPath: summaryMarkdownPath,
+    reportPath: summaryMarkdownPath,
+    reportResolution,
+    startedAt: "2026-07-31T06:03:19.519Z",
+    finishedAt: "2026-07-31T06:03:19.788Z",
+    createdAt: "2026-07-31T06:03:11.209Z",
+    updatedAt: "2026-07-31T06:03:19.788Z",
+    heartbeatGeneration: 3,
+    stdoutPath: `${supervisorRunRoot}/stdout.log`,
+    stderrPath: `${supervisorRunRoot}/stderr.log`,
+    unitName,
+  };
+  const heartbeat = {
+    schemaVersion: 2,
+    runId: state.runId,
+    runnerRunId: state.runnerRunId,
+    state: "blocked",
+    terminal: true,
+    heartbeatGeneration: state.heartbeatGeneration,
+    heartbeatIntervalSeconds: 60,
+    heartbeatLeaseSeconds: 300,
+    leaseExpiresAt: "2026-07-31T06:08:19.789Z",
+    maxTasks: state.maxTasks,
+    maxRuntime: state.maxRuntime,
+    monitoringDelivery: null,
+    ownerPid: 2744812,
+    currentIssue: null,
+    currentPr: null,
+    counts: {
+      attempted: 0,
+      processed: 0,
+      completed: 0,
+      failed: 0,
+      blocked: 0,
+      merged: 0,
+      skipped: 0,
+    },
+    reportPath: summaryMarkdownPath,
+    reportResolution,
+    startedAt: state.startedAt,
+    updatedAt: "2026-07-31T06:03:19.789Z",
+    unitName,
+  };
+  assert.equal(exactFailedContinuationSupervisorState(
+    state,
+    heartbeat,
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+    reportResolution.diagnostics,
+  ), true);
+  const retainedMatchingDiagnostics = [
+    {
+      file: "run-2026-07-31T060318Z-aaaaaaaaaaaa.json",
+      reason: "wrong_supervisor_run_id",
+      runnerRunId: null,
+      status: "skipped",
+    },
+    ...reportResolution.diagnostics,
+  ];
+  const retainedMatchingResolution = {
+    ...reportResolution,
+    diagnostics: retainedMatchingDiagnostics,
+  };
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, reportResolution: retainedMatchingResolution },
+    { ...heartbeat, reportResolution: retainedMatchingResolution },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+    retainedMatchingDiagnostics,
+  ), true);
+  const rewrittenMatchingDiagnostics = [
+    { ...retainedMatchingDiagnostics[0], file: "run-2026-07-31T060317Z-aaaaaaaaaaaa.json" },
+    ...retainedMatchingDiagnostics.slice(1),
+  ];
+  assert.equal(exactFailedContinuationSupervisorState(
+    {
+      ...state,
+      reportResolution: {
+        ...reportResolution,
+        diagnostics: rewrittenMatchingDiagnostics,
+      },
+    },
+    {
+      ...heartbeat,
+      reportResolution: {
+        ...reportResolution,
+        diagnostics: rewrittenMatchingDiagnostics,
+      },
+    },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+    retainedMatchingDiagnostics,
+  ), false);
+  const truncatedDiagnostics = Array.from({ length: 20 }, (_, index) => ({
+    file: `earlier-${index}.json`,
+    reason: "wrong_supervisor_run_id",
+    runnerRunId: null,
+    status: "skipped",
+  }));
+  const truncatedResolution = {
+    ...reportResolution,
+    diagnostics: truncatedDiagnostics,
+  };
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, reportResolution: truncatedResolution },
+    { ...heartbeat, reportResolution: truncatedResolution },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+    truncatedDiagnostics,
+  ), true);
+  for (const changedDiagnostic of [
+    { ...truncatedDiagnostics[0], status: "pending" },
+    { ...truncatedDiagnostics[0], status: "matched", runnerRunId: "run-foreign", reason: null },
+    { ...truncatedDiagnostics[0], runnerRunId: iteration.runId },
+    { ...truncatedDiagnostics[0], reason: "other" },
+    { ...truncatedDiagnostics[0], file: "not-json.txt" },
+  ]) {
+    const diagnostics = [changedDiagnostic, ...truncatedDiagnostics.slice(1)];
+    const changedResolution = { ...reportResolution, diagnostics };
+    assert.equal(exactFailedContinuationSupervisorState(
+      { ...state, reportResolution: changedResolution },
+      { ...heartbeat, reportResolution: changedResolution },
+      iteration,
+      summary,
+      specArtifact,
+      logsRoot,
+    ), false);
+  }
+  for (const [field, value] of [
+    ["maxTasks", 2],
+    ["maxRuntime", "1d"],
+    ["unitName", "settleora-auto-runner@foreign.service"],
+    ["heartbeatIntervalSeconds", 30],
+    ["heartbeatLeaseSeconds", 600],
+    ["ownerPid", 2744813],
+    ["leaseExpiresAt", "2026-07-31T06:09:19.789Z"],
+    ["reportPath", `${logsRoot}/summaries/foreign.md`],
+  ]) {
+    assert.equal(exactFailedContinuationSupervisorState(
+      state,
+      { ...heartbeat, [field]: value },
+      iteration,
+      summary,
+      specArtifact,
+      logsRoot,
+    ), false);
+  }
+  for (const [updatedAt, leaseExpiresAt] of [
+    ["2026-07-31T06:03:19.787Z", "2026-07-31T06:08:19.787Z"],
+    ["2026-07-31T06:04:19.789Z", "2026-07-31T06:09:19.789Z"],
+  ]) {
+    assert.equal(exactFailedContinuationSupervisorState(
+      state,
+      { ...heartbeat, updatedAt, leaseExpiresAt },
+      iteration,
+      summary,
+      specArtifact,
+      logsRoot,
+    ), false);
+  }
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, runnerConfigSha256: "c".repeat(64) },
+    heartbeat,
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, createdAt: "2026-07-31T06:03:11.210Z" },
+    heartbeat,
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, stdoutPath: `${supervisorRunRoot}/foreign.log` },
+    heartbeat,
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, updatedAt: "2026-07-31T06:03:19.787Z" },
+    {
+      ...heartbeat,
+      updatedAt: "2026-07-31T06:03:19.787Z",
+      leaseExpiresAt: "2026-07-31T06:08:19.787Z",
+    },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    state,
+    { ...heartbeat, reportResolution: { ...reportResolution, status: "foreign" } },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    state,
+    { ...heartbeat, counts: { ...heartbeat.counts, unexpected: 0 } },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    state,
+    {
+      ...heartbeat,
+      reportResolution: { ...reportResolution, unexpected: null },
+    },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  for (const diagnostics of [
+    [],
+    [{ ...reportResolution.diagnostics[0], unexpected: null }],
+    [{ ...reportResolution.diagnostics[0], runnerRunId: "run-foreign" }],
+  ]) {
+    const changedResolution = { ...reportResolution, diagnostics };
+    assert.equal(exactFailedContinuationSupervisorState(
+      { ...state, reportResolution: changedResolution },
+      { ...heartbeat, reportResolution: changedResolution },
+      iteration,
+      summary,
+      specArtifact,
+      logsRoot,
+    ), false);
+  }
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, heartbeatGeneration: 2 },
+    { ...heartbeat, heartbeatGeneration: 2 },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
 });
 
 test("terminal retry projection binds the successor budget marker charge and task lineage", () => {
@@ -301,6 +1037,14 @@ test("terminal retry projection binds the successor budget marker charge and tas
     ...iteration,
     systemicStop: "recoverable-work-blocked:different_reason",
   }, target), false);
+  assert.equal(exactTerminalIteration({
+    ...iteration,
+    startedAt: "2026-07-30T09:32:51.859Z",
+  }, target), false);
+  assert.equal(exactTerminalIteration({
+    ...iteration,
+    startedAt: "not-a-date",
+  }, target), false);
   for (const changedFiles of ["", { length: 0 }, null]) {
     assert.equal(exactTerminalIteration({ ...iteration, changedFiles }, target), false);
   }
@@ -338,6 +1082,14 @@ test("terminal retry projection binds the runner summary to the iteration system
   }, iteration, target), false);
   assert.equal(exactTerminalSummary({ ...summary, maxRuntimeMs: 60_000 }, iteration, target), false);
   assert.equal(exactTerminalSummary({ ...summary, configPath: "/different/config.json" }, iteration, target), false);
+  assert.equal(exactTerminalSummary({
+    ...summary,
+    startedAt: "2026-07-30T09:32:51.860Z",
+  }, iteration, target), false);
+  assert.equal(exactTerminalSummary({
+    ...summary,
+    finishedAt: "not-a-date",
+  }, iteration, target), false);
   assert.equal(exactTerminalSummary({
     ...summary,
     iterations: { 0: iteration, length: 1 },
@@ -732,7 +1484,7 @@ test("terminal retry projection treats a successor-run filename as superseding e
   ), true);
 });
 
-test("terminal retry projection rejects every additional successor-run artifact regardless of timestamp", () => {
+test("terminal retry projection rejects every additional predecessor or overlay-run artifact", () => {
   const runId = "run-2026-07-30T100000Z-deadbeefcafe";
   const anchor = { runId };
   const first = {
@@ -758,6 +1510,34 @@ test("terminal retry projection rejects every additional successor-run artifact 
     },
   ], [anchor]), false);
   assert.equal(successorRunArtifactsAreUnique([first], [anchor, { runId: "run-other" }]), false);
+  const overlayRunId = "run-2026-07-31T060319Z-c382043104fa";
+  const overlay = {
+    path: `/trusted/state/${overlayRunId}-1-issue-959.json`,
+    value: {
+      runId: overlayRunId,
+      index: 1,
+      issue: { number: 959 },
+      finishedAt: "2026-07-31T06:03:19.776Z",
+      supervisorRunId: "supervised-overlay",
+    },
+  };
+  assert.equal(successorRunArtifactsAreUnique([
+    overlay,
+    {
+      path: `/trusted/state/${overlayRunId}-2-issue-999.json`,
+      value: { finishedAt: "2026-07-31T06:03:20.000Z" },
+    },
+  ], [overlay.value]), false);
+  assert.equal(successorRunArtifactsAreUnique([
+    overlay,
+    {
+      path: "/trusted/state/run-other-1-issue-999.json",
+      value: {
+        runId: "run-other",
+        supervisorRunId: overlay.value.supervisorRunId,
+      },
+    },
+  ], [overlay.value]), false);
 });
 
 test("terminal retry projection binds successor spec base and compatible runner mode", () => {
