@@ -1159,7 +1159,14 @@ export function exactFailedContinuationSupervisorState(
       reason: null,
       runnerRunId: iteration.runId,
       status: "matched",
-    }) || diagnostics.length === 20)
+    }) || (diagnostics.length === 20
+      && diagnostics.every((diagnostic) =>
+        diagnostic.status === "skipped"
+        && diagnostic.runnerRunId === null
+        && ["missing_supervisor_run_id", "wrong_supervisor_run_id"]
+          .includes(diagnostic.reason)
+        && typeof diagnostic.file === "string"
+        && diagnostic.file.endsWith(".json"))))
     && heartbeat?.counts?.attempted === 0
     && heartbeat?.counts?.processed === 0
     && heartbeat?.counts?.completed === 0
