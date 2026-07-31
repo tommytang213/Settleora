@@ -18,6 +18,7 @@ import {
   exactRawValidationEvidence,
   exactLifecycle,
   exactFailedContinuationIteration,
+  failedContinuationTruncatedDiagnostics,
   exactFailedContinuationSpec,
   exactFailedContinuationSummary,
   exactFailedContinuationSupervisorState,
@@ -36,6 +37,37 @@ import {
   stateMayBelongToTarget,
   stateMayBelongToTargetOrSuccessorRun,
 } from "../lib/terminal-validation-retry-projection.mjs";
+
+test("failed-continuation truncated diagnostics use resolver candidate order", () => {
+  const artifacts = [
+    {
+      path: "/logs/summaries/run-2026-07-31T060319Z-ffffffffffff.json",
+      value: { supervisorRunId: "supervised-foreign" },
+    },
+    {
+      path: "/logs/summaries/notes.json",
+      value: { supervisorRunId: "supervised-noncandidate" },
+    },
+    ...Array.from({ length: 20 }, (_, index) => ({
+      path: `/logs/summaries/run-2026-07-30T${String(index).padStart(6, "0")}Z.json`,
+      value: index === 0 ? {} : { supervisorRunId: `supervised-${index}` },
+    })).reverse(),
+  ];
+
+  const diagnostics = failedContinuationTruncatedDiagnostics(artifacts);
+  assert.equal(diagnostics.length, 20);
+  assert.deepEqual(diagnostics.map(({ file }) => file), Array.from(
+    { length: 20 },
+    (_, index) => `run-2026-07-30T${String(index).padStart(6, "0")}Z.json`,
+  ));
+  assert.equal(diagnostics[0].reason, "missing_supervisor_run_id");
+  assert.equal(diagnostics[1].reason, "wrong_supervisor_run_id");
+  assert.equal(
+    diagnostics.some(({ file }) => file === "notes.json"
+      || file === "run-2026-07-31T060319Z-ffffffffffff.json"),
+    false,
+  );
+});
 
 test("failed-continuation overlay binds the exact no-effect target and predecessor projection", () => {
   const target = {
