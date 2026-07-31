@@ -493,7 +493,11 @@ function authenticateFailedContinuationOverlay({
     summaryArtifact.value,
     specArtifact,
     root,
-    failedContinuationTruncatedDiagnostics(allSummaries),
+    failedContinuationTruncatedDiagnostics(
+      allSummaries,
+      summaryArtifact,
+      iteration.runId,
+    ),
   )) return fail("terminal_projection_failed_continuation_supervisor_mismatch");
   if (Date.parse(predecessorStateArtifact.value.finishedAt) > Date.parse(specArtifact.value.createdAt)
     || Date.parse(predecessorSummaryArtifact.value.finishedAt) > Date.parse(specArtifact.value.createdAt)) {
@@ -1077,7 +1081,7 @@ export function exactFailedContinuationSupervisorState(
   summary,
   specArtifact,
   logsRoot,
-  expectedTruncatedDiagnostics = [],
+  expectedRetainedDiagnostics = [],
 ) {
   const summaryJsonPath = path.join(logsRoot, "summaries", `${iteration.runId}.json`);
   const summaryMarkdownPath = path.join(logsRoot, "summaries", `${iteration.runId}.md`);
@@ -1090,9 +1094,6 @@ export function exactFailedContinuationSupervisorState(
   const expectedUnitName = `settleora-auto-runner@${summary.supervisorRunId}.service`;
   const expectedArgv = historicalRunnerArgvForSpec(specArtifact.value, iteration.runId);
   const diagnostics = heartbeat?.reportResolution?.diagnostics;
-  const matchingDiagnostic = Array.isArray(diagnostics)
-    ? diagnostics[diagnostics.length - 1]
-    : null;
   const exactState = state?.state === "blocked"
     && canonical(Object.keys(state || {}).sort())
       === canonical(FAILED_CONTINUATION_SUPERVISOR_STATE_FIELDS)
@@ -1159,14 +1160,15 @@ export function exactFailedContinuationSupervisorState(
     && diagnostics.every((diagnostic) =>
       canonical(Object.keys(diagnostic || {}).sort())
         === canonical(FAILED_CONTINUATION_DIAGNOSTIC_FIELDS))
-    && (canonical(matchingDiagnostic) === canonical({
-      file: `${iteration.runId}.json`,
-      reason: null,
-      runnerRunId: iteration.runId,
-      status: "matched",
-    }) || (diagnostics.length === 20
-      && canonical(diagnostics) === canonical(expectedTruncatedDiagnostics)
-      && !expectedTruncatedDiagnostics.some((diagnostic) =>
+    && canonical(diagnostics) === canonical(expectedRetainedDiagnostics)
+    && (expectedRetainedDiagnostics.some((diagnostic) =>
+      canonical(diagnostic) === canonical({
+        file: `${iteration.runId}.json`,
+        reason: null,
+        runnerRunId: iteration.runId,
+        status: "matched",
+      })) || (expectedRetainedDiagnostics.length === 20
+      && !expectedRetainedDiagnostics.some((diagnostic) =>
         diagnostic.file === `${iteration.runId}.json`)))
     && heartbeat?.counts?.attempted === 0
     && heartbeat?.counts?.processed === 0
@@ -1275,21 +1277,33 @@ function trustedRunnerSummaryJsonFiles(root) {
     .map((name) => trustedJsonArtifact(root, path.join(root, name)));
 }
 
-export function failedContinuationTruncatedDiagnostics(summaryArtifacts) {
+export function failedContinuationTruncatedDiagnostics(
+  summaryArtifacts,
+  selectedSummaryArtifact,
+  selectedRunnerRunId,
+) {
   return summaryArtifacts
     .filter(({ path: artifactPath }) =>
       RUNNER_SUMMARY_FILENAME_PATTERN.test(path.basename(artifactPath)))
     .toSorted((left, right) =>
       path.basename(left.path).localeCompare(path.basename(right.path)))
     .slice(0, 20)
-    .map(({ path: artifactPath, value }) => ({
-      file: path.basename(artifactPath),
-      reason: typeof value?.supervisorRunId === "string"
-        ? "wrong_supervisor_run_id"
-        : "missing_supervisor_run_id",
-      runnerRunId: null,
-      status: "skipped",
-    }));
+    .map(({ path: artifactPath, value }) =>
+      artifactPath === selectedSummaryArtifact?.path
+        ? {
+          file: path.basename(artifactPath),
+          reason: null,
+          runnerRunId: selectedRunnerRunId,
+          status: "matched",
+        }
+        : {
+          file: path.basename(artifactPath),
+          reason: typeof value?.supervisorRunId === "string"
+            ? "wrong_supervisor_run_id"
+            : "missing_supervisor_run_id",
+          runnerRunId: null,
+          status: "skipped",
+        });
 }
 
 function trustedNestedJsonFiles(root, basename) {

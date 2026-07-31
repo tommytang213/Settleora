@@ -54,7 +54,11 @@ test("failed-continuation truncated diagnostics use resolver candidate order", (
     })).reverse(),
   ];
 
-  const diagnostics = failedContinuationTruncatedDiagnostics(artifacts);
+  const diagnostics = failedContinuationTruncatedDiagnostics(
+    artifacts,
+    artifacts[0],
+    "run-2026-07-31T060319Z-ffffffffffff",
+  );
   assert.equal(diagnostics.length, 20);
   assert.deepEqual(diagnostics.map(({ file }) => file), Array.from(
     { length: 20 },
@@ -67,6 +71,19 @@ test("failed-continuation truncated diagnostics use resolver candidate order", (
       || file === "run-2026-07-31T060319Z-ffffffffffff.json"),
     false,
   );
+
+  const selected = artifacts.at(-1);
+  const retainedWithMatch = failedContinuationTruncatedDiagnostics(
+    artifacts.slice(-3),
+    selected,
+    path.basename(selected.path, ".json"),
+  );
+  assert.deepEqual(retainedWithMatch.find(({ status }) => status === "matched"), {
+    file: path.basename(selected.path),
+    reason: null,
+    runnerRunId: path.basename(selected.path, ".json"),
+    status: "matched",
+  });
 });
 
 test("failed-continuation overlay binds the exact no-effect target and predecessor projection", () => {
@@ -603,7 +620,55 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
     summary,
     specArtifact,
     logsRoot,
+    reportResolution.diagnostics,
   ), true);
+  const retainedMatchingDiagnostics = [
+    {
+      file: "run-2026-07-31T060318Z-aaaaaaaaaaaa.json",
+      reason: "wrong_supervisor_run_id",
+      runnerRunId: null,
+      status: "skipped",
+    },
+    ...reportResolution.diagnostics,
+  ];
+  const retainedMatchingResolution = {
+    ...reportResolution,
+    diagnostics: retainedMatchingDiagnostics,
+  };
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, reportResolution: retainedMatchingResolution },
+    { ...heartbeat, reportResolution: retainedMatchingResolution },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+    retainedMatchingDiagnostics,
+  ), true);
+  const rewrittenMatchingDiagnostics = [
+    { ...retainedMatchingDiagnostics[0], file: "run-2026-07-31T060317Z-aaaaaaaaaaaa.json" },
+    ...retainedMatchingDiagnostics.slice(1),
+  ];
+  assert.equal(exactFailedContinuationSupervisorState(
+    {
+      ...state,
+      reportResolution: {
+        ...reportResolution,
+        diagnostics: rewrittenMatchingDiagnostics,
+      },
+    },
+    {
+      ...heartbeat,
+      reportResolution: {
+        ...reportResolution,
+        diagnostics: rewrittenMatchingDiagnostics,
+      },
+    },
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+    retainedMatchingDiagnostics,
+  ), false);
   const truncatedDiagnostics = Array.from({ length: 20 }, (_, index) => ({
     file: `earlier-${index}.json`,
     reason: "wrong_supervisor_run_id",
