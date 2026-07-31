@@ -38,6 +38,7 @@ import {
   intentMatchesRecoveryAuthority,
   nextBundleSliceFromCheckpoint,
   planIdempotentGithubMutation,
+  projectAuthoritativeLoadedTerminalDerivative,
   recoveryStatusSummary,
   reconcileAuthoritativeLifecycleHead,
   reconstructMissingSessionLifecycle,
@@ -48,6 +49,40 @@ import {
   consumeStartupInterruptionPlanner,
   validateTerminalDerivativeContinuationAdmission,
 } from "../lib/recovery-continuation.mjs";
+
+test("authoritative terminal projection uses the separately reloaded checkpoint path", () => {
+  const state = Object.freeze({ taskKey: "20260724T075849" });
+  const loaded = Object.freeze({
+    ok: true,
+    state,
+    statePath: "/trusted/recovery/checkpoint.json",
+  });
+  const projection = projectAuthoritativeLoadedTerminalDerivative(
+    { logsRoot: "/trusted" },
+    loaded,
+  );
+  assert.equal(projection.ok, false);
+  assert.equal(projection.projectionReasonCode, undefined);
+  assert.equal(Object.hasOwn(state, "statePath"), false);
+});
+
+test("authoritative terminal projection rejects missing reload identity before projection", () => {
+  for (const loaded of [
+    null,
+    { ok: false, state: {}, statePath: "/trusted/recovery/checkpoint.json" },
+    { ok: true, state: null, statePath: "/trusted/recovery/checkpoint.json" },
+    { ok: true, state: {}, statePath: null },
+  ]) {
+    assert.deepEqual(
+      projectAuthoritativeLoadedTerminalDerivative({}, loaded),
+      {
+        ok: false,
+        projectionApplied: false,
+        projectionReasonCode: "terminal_projection_authoritative_checkpoint_missing",
+      },
+    );
+  }
+});
 
 test("startup recovery intent identity is effect-type-aware and fail-closed", () => {
   const expected = {

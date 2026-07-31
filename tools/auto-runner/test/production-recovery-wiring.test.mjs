@@ -216,11 +216,11 @@ test("production runner is wired past discovery-only recovery and legacy PR clas
   assert.match(source, /prepareAuthoritativeRecovery:[\s\S]*verifyHistoricalInitialCandidateLineage/);
   assert.match(
     continuationSource,
-    /await prepareAuthoritativeRecovery[\s\S]*loadRecoveryState\(config, loaded\.state\)[\s\S]*projectTargetedTerminalDerivative\(config, preReopenLoaded\.state\)[\s\S]*terminal_projection_pre_reopen_mismatch[\s\S]*consumeStartupInterruptionPlanner/,
+    /await prepareAuthoritativeRecovery[\s\S]*loadRecoveryState\(config, loaded\.state\)[\s\S]*projectAuthoritativeLoadedTerminalDerivative\(config, preReopenLoaded\)[\s\S]*terminal_projection_pre_reopen_mismatch[\s\S]*consumeStartupInterruptionPlanner/,
   );
   assert.match(
     continuationSource,
-    /consumeStartupInterruptionPlanner[\s\S]*revalidateValidationRetryDerivative:[\s\S]*projectTargetedTerminalDerivative\(config, loaded\.state\)[\s\S]*collectAuthoritativeRecoveryEvidence[\s\S]*revalidateValidationRetryDerivative\(\)[\s\S]*reopenKnownValidationRetryDerivative/,
+    /consumeStartupInterruptionPlanner[\s\S]*revalidateValidationRetryDerivative:[\s\S]*projectTargetedTerminalDerivative\([\s\S]*config,[\s\S]*loaded\.state,[\s\S]*loaded\.statePath,[\s\S]*collectAuthoritativeRecoveryEvidence[\s\S]*revalidateValidationRetryDerivative\(\)[\s\S]*reopenKnownValidationRetryDerivative/,
   );
   assert.match(
     source,
@@ -903,4 +903,11 @@ test("post-merge cleanup explicitly hands authority to the exact successor runne
   assert.match(runner, /lock\?\.runId === state\.run\?\.runId \|\| lockRunOwnsRecovery/);
   assert.match(runner, /processInventory = run\("ps", \["-eo", "pid=,args="\]\)/);
   assert.match(runner, /reportEvidenceComplete[\s\S]*?activeReferences\.lease = runnerLockAuthority \? 0 : 1/);
+});
+
+test("production terminal derivative reload preserves the authoritative checkpoint locator", () => {
+  const source = readFileSync(new URL("../lib/recovery-continuation.mjs", import.meta.url), "utf8");
+  assert.match(source, /projectAuthoritativeLoadedTerminalDerivative\(config, loaded\)/);
+  assert.match(source, /return projectTargetedTerminalDerivative\(config, loaded\.state, loaded\.statePath\)/);
+  assert.doesNotMatch(source, /projectTargetedTerminalDerivative\(config, loaded\.state\)/);
 });
