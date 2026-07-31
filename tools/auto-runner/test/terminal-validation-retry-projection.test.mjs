@@ -1343,6 +1343,7 @@ test("terminal retry projection rejects every additional predecessor or overlay-
       index: 1,
       issue: { number: 959 },
       finishedAt: "2026-07-31T06:03:19.776Z",
+      supervisorRunId: "supervised-overlay",
     },
   };
   assert.equal(successorRunArtifactsAreUnique([
@@ -1350,6 +1351,16 @@ test("terminal retry projection rejects every additional predecessor or overlay-
     {
       path: `/trusted/state/${overlayRunId}-2-issue-999.json`,
       value: { finishedAt: "2026-07-31T06:03:20.000Z" },
+    },
+  ], [overlay.value]), false);
+  assert.equal(successorRunArtifactsAreUnique([
+    overlay,
+    {
+      path: "/trusted/state/run-other-1-issue-999.json",
+      value: {
+        runId: "run-other",
+        supervisorRunId: overlay.value.supervisorRunId,
+      },
     },
   ], [overlay.value]), false);
 });

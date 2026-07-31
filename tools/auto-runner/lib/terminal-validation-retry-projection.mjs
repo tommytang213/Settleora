@@ -658,9 +658,14 @@ export function successorRunArtifactsAreUnique(artifacts, directlyAssociatedStat
     .map((state) => state?.runId)
     .filter((runId) => typeof runId === "string" && runId.length > 0));
   if (successorRunIds.size !== 1) return false;
+  const successorSupervisorRunIds = new Set(directlyAssociatedStates
+    .map((state) => state?.supervisorRunId)
+    .filter((runId) => typeof runId === "string" && runId.length > 0));
+  if (successorSupervisorRunIds.size > 1) return false;
   const matching = artifacts.filter((artifact) =>
     successorRunIds.has(iterationStateFilenameIdentity(artifact)?.runId)
-    || successorRunIds.has(artifact?.value?.runId));
+    || successorRunIds.has(artifact?.value?.runId)
+    || successorSupervisorRunIds.has(artifact?.value?.supervisorRunId));
   return matching.length === 1;
 }
 
