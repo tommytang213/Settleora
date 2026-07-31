@@ -415,7 +415,14 @@ function parseCtlArgs(argv) {
     else if (arg === "--config") cli.configPath = readValue(argv, ++index, arg);
     else if (arg === "--terminal-validation-retry-derivative") cli.terminalValidationRetryDerivative = true;
     else if (arg === "--target-task-key") cli.targetTaskKey = readValue(argv, ++index, arg);
-    else if (arg === "--target-issue") cli.targetIssueNumber = Number.parseInt(readValue(argv, ++index, arg), 10);
+    else if (arg === "--target-issue") {
+      const raw = readValue(argv, ++index, arg);
+      if (!/^[1-9]\d*$/.test(raw)) throw new Error("--target-issue must be a positive decimal integer");
+      cli.targetIssueNumber = Number(raw);
+      if (!Number.isSafeInteger(cli.targetIssueNumber)) {
+        throw new Error("--target-issue must be a safe positive integer");
+      }
+    }
     else if (arg === "--target-branch") cli.targetBranchName = readValue(argv, ++index, arg);
     else if (arg === "--target-base") cli.targetBaseSha = readValue(argv, ++index, arg);
     else if (arg === "--target-head") cli.targetHeadSha = readValue(argv, ++index, arg);

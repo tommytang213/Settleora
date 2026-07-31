@@ -639,8 +639,9 @@ export function exactSuccessorSupervisorState(state, iteration, summary, specArt
     && state?.reportResolution?.runnerSummaryJsonPath === summaryJsonPath
     && state?.reportResolution?.runnerSummaryMarkdownPath === summaryMarkdownPath
     && state?.reportResolution?.reportPath === summaryMarkdownPath
-    && Date.parse(state?.startedAt) <= Date.parse(iteration?.startedAt)
-    && Date.parse(state?.finishedAt) >= Date.parse(iteration?.finishedAt)
+    && Date.parse(specArtifact?.value?.createdAt) <= Date.parse(state?.startedAt)
+    && Date.parse(state?.startedAt) <= Date.parse(summary?.startedAt)
+    && Date.parse(summary?.finishedAt) <= Date.parse(state?.finishedAt)
     && Number.isSafeInteger(state?.heartbeatGeneration) && state.heartbeatGeneration >= 1;
 }
 

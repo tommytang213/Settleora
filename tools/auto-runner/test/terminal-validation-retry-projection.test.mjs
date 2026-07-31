@@ -40,7 +40,11 @@ test("terminal retry projection binds the canonical supervisor state to the sele
     startedAt: "2026-07-30T09:32:43.249Z",
     finishedAt: "2026-07-30T09:32:51.858Z",
   };
-  const summary = { supervisorRunId: "supervised-successor" };
+  const summary = {
+    supervisorRunId: "supervised-successor",
+    startedAt: "2026-07-30T09:32:43.100Z",
+    finishedAt: "2026-07-30T09:32:51.860Z",
+  };
   const specArtifact = {
     path: `${logsRoot}/supervisor/run-specs/spec-key/spec.json`,
     sha256: "a".repeat(64),
@@ -53,6 +57,7 @@ test("terminal retry projection binds the canonical supervisor state to the sele
       runnerConfigSha256: "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d",
       initialOriginMainSha: "b".repeat(40),
       recoveryOnlyTarget: null,
+      createdAt: "2026-07-30T09:32:42.000Z",
     },
   };
   const summaryJsonPath = `${logsRoot}/summaries/${iteration.runId}.json`;
@@ -111,6 +116,9 @@ test("terminal retry projection binds the canonical supervisor state to the sele
     { childTerminalState: "failed" },
     { runnerArgv: [...state.runnerArgv, "--unexpected"] },
     { runnerSummaryJsonPath: `${logsRoot}/summaries/run-later.json` },
+    { startedAt: "2026-07-30T09:32:33.000Z" },
+    { startedAt: "2026-07-30T09:32:44.000Z" },
+    { finishedAt: "2026-07-30T09:32:50.000Z" },
   ]) {
     assert.equal(exactSuccessorSupervisorState(
       { ...state, ...mutation },

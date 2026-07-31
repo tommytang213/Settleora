@@ -1037,6 +1037,23 @@ test("operator CLI dry-run produces an exact no-PR terminal validation-retry der
   assert.equal(parsed.runnerArgv.includes("--outage-resubmission"), false);
   assert.equal(parsed.runnerArgv.includes("--outage-pr-number"), false);
   assert.deepEqual(snapshotSupervisorFiles(), before);
+  const malformedIssue = spawnSync(process.execPath, [
+    "tools/auto-runner/settleora-auto-runnerctl.mjs",
+    "submit",
+    "--dry-run",
+    "--profile",
+    "default",
+    "--mode",
+    "trusted",
+    "--terminal-validation-retry-derivative",
+    "--target-task-key",
+    "20260724T075849",
+    "--target-issue",
+    "959junk",
+  ], { cwd: path.resolve("."), encoding: "utf8" });
+  assert.notEqual(malformedIssue.status, 0);
+  assert.match(malformedIssue.stderr, /positive decimal integer/);
+  assert.deepEqual(snapshotSupervisorFiles(), before);
 });
 
 test("operator CLI bounds extensions and refuses unknown supervisor run control", () => {
