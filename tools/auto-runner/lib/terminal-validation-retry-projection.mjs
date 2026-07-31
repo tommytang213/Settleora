@@ -856,6 +856,7 @@ export function exactFailedContinuationIteration(value, target) {
     && value?.phase === "startup_recovery"
     && value?.laneDecision === null
     && value?.systemicStop === FAILED_CONTINUATION_STOP
+    && Date.parse(value?.startedAt) <= Date.parse(value?.finishedAt)
     && value?.branchName === target.branch
     && value?.baseOriginMainSha === target.baseSha
     && value?.runnerCreatedCommitSha === target.headSha
@@ -962,6 +963,7 @@ export function exactFailedContinuationSummary(summary, iteration, target) {
     && summary?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
     && summary?.maxIterations === 1
     && summary?.maxRuntimeMs === SUCCESSOR_MAX_RUNTIME_MS
+    && Date.parse(summary?.startedAt) <= Date.parse(summary?.finishedAt)
     && Date.parse(summary?.startedAt) <= Date.parse(iteration?.startedAt)
     && Date.parse(summary?.finishedAt) >= Date.parse(iteration?.finishedAt);
 }
@@ -1043,6 +1045,7 @@ export function exactFailedContinuationSupervisorState(
     && state?.maxRuntime === specArtifact.value.maxRuntime
     && state?.initialOriginMainSha === specArtifact.value.initialOriginMainSha
     && canonical(state?.runnerArgv) === canonical(expectedArgv)
+    && state?.createdAt === specArtifact.value.createdAt
     && state?.unitName === expectedUnitName
     && state?.stdoutPath === path.join(supervisorRunRoot, "stdout.log")
     && state?.stderrPath === path.join(supervisorRunRoot, "stderr.log")

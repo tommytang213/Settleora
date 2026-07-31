@@ -198,6 +198,7 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
     (value) => { value.recovery.target.runnerRunId = "run-foreign"; },
     (value) => { value.recovery.target.attemptNumber = 2; },
     (value) => { value.recovery.target.unexpected = true; },
+    (value) => { value.startedAt = "2026-07-31T06:03:19.777Z"; },
   ]) {
     const changed = structuredClone(iteration);
     mutate(changed);
@@ -227,6 +228,10 @@ test("failed-continuation overlay binds the exact no-effect target and predecess
   assert.equal(exactFailedContinuationSummary({
     ...summary,
     stopReason: "other",
+  }, iteration, target), false);
+  assert.equal(exactFailedContinuationSummary({
+    ...summary,
+    startedAt: "2026-07-31T06:03:19.778Z",
   }, iteration, target), false);
   const spec = {
     createdAt: "2026-07-31T06:03:11.209Z",
@@ -564,6 +569,14 @@ test("failed-continuation overlay binds canonical config and heartbeat identity"
   }
   assert.equal(exactFailedContinuationSupervisorState(
     { ...state, runnerConfigSha256: "c".repeat(64) },
+    heartbeat,
+    iteration,
+    summary,
+    specArtifact,
+    logsRoot,
+  ), false);
+  assert.equal(exactFailedContinuationSupervisorState(
+    { ...state, createdAt: "2026-07-31T06:03:11.210Z" },
     heartbeat,
     iteration,
     summary,
