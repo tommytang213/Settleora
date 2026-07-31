@@ -174,7 +174,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
         lifecyclePath: rawLifecycle.statePath,
         target: projectionTarget,
       })
-      : { ok: false, projectionReasonCode: "terminal_projection_lifecycle_mismatch" };
+      : { ok: false, projectionReasonCode: lifecycleProjectionFailureReason(rawLifecycle.reasonCode) };
     projectionDiagnostics = projection.ok ? null : {
       projectionFailureReasonCode: projection.projectionReasonCode,
       projectionFailureClass: projectionFailureClass(projection.projectionReasonCode),
@@ -1095,6 +1095,12 @@ export function projectionFailureClass(reasonCode) {
   if (reason.includes("state_missing") || reason.includes("superseded")) return "latest_state_selection";
   if (reason.includes("state") || reason.includes("iteration")) return "iteration_shape_or_filename_identity";
   return "target_association";
+}
+
+export function lifecycleProjectionFailureReason(reasonCode) {
+  return /(?:corrupt|untrusted|read|unavailable)/.test(String(reasonCode || ""))
+    ? "terminal_projection_authoritative_read_unavailable"
+    : "terminal_projection_lifecycle_mismatch";
 }
 
 function evidence(value) {

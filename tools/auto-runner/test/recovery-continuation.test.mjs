@@ -11,6 +11,7 @@ import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-ef
 import {
   defaultGitAttributeFilesAreAbsent,
   inspectPreservedRecoveryForDeployment,
+  lifecycleProjectionFailureReason,
   normalizePreservedRecoveryDeploymentTarget,
   projectionFailureClass,
   resumedGitConfigIsTrusted,
@@ -59,6 +60,9 @@ test("deployment projection diagnostics use a finite failure taxonomy", () => {
   assert.equal(projectionFailureClass("terminal_projection_failed_continuation_supervisor_mismatch"), "supervisor_state_heartbeat_authentication");
   assert.equal(projectionFailureClass("terminal_projection_failed_continuation_chronology_mismatch"), "chronology");
   assert.equal(projectionFailureClass("terminal_projection_failed_continuation_predecessor_identity_mismatch"), "predecessor_evidence_binding");
+  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_state_corrupt"), "terminal_projection_authoritative_read_unavailable");
+  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_recovery_artifact_untrusted"), "terminal_projection_authoritative_read_unavailable");
+  assert.equal(lifecycleProjectionFailureReason("session_lifecycle_identity_mismatch"), "terminal_projection_lifecycle_mismatch");
 });
 
 test("authoritative terminal projection uses the separately reloaded checkpoint path", () => {
