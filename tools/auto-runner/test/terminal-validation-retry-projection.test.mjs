@@ -43,7 +43,16 @@ test("terminal retry projection binds the canonical supervisor state to the sele
   const specArtifact = {
     path: `${logsRoot}/supervisor/run-specs/spec-key/spec.json`,
     sha256: "a".repeat(64),
-    value: { initialOriginMainSha: "b".repeat(40) },
+    value: {
+      runId: summary.supervisorRunId,
+      mode: "trusted",
+      maxTasks: 1,
+      maxRuntime: "14d",
+      runnerConfigPath: "/workspace/auto-runner/config/settleora.json",
+      runnerConfigSha256: "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d",
+      initialOriginMainSha: "b".repeat(40),
+      recoveryOnlyTarget: null,
+    },
   };
   const summaryJsonPath = `${logsRoot}/summaries/${iteration.runId}.json`;
   const summaryMarkdownPath = `${logsRoot}/summaries/${iteration.runId}.md`;
@@ -61,6 +70,23 @@ test("terminal retry projection binds the canonical supervisor state to the sele
     maxTasks: 1,
     maxRuntime: "14d",
     initialOriginMainSha: specArtifact.value.initialOriginMainSha,
+    runnerArgv: [
+      process.execPath,
+      "/workspace/auto-runner/runtime/settleora-auto-runner.mjs",
+      "--run",
+      "--supervisor-run-id",
+      summary.supervisorRunId,
+      "--runner-run-id",
+      iteration.runId,
+      "--config",
+      "[config-path]",
+      "--expected-config-sha256",
+      specArtifact.value.runnerConfigSha256,
+      "--max-iterations",
+      "1",
+      "--max-runtime",
+      "14d",
+    ],
     runnerSummaryJsonPath: summaryJsonPath,
     runnerSummaryMarkdownPath: summaryMarkdownPath,
     reportPath: summaryMarkdownPath,
@@ -82,6 +108,7 @@ test("terminal retry projection binds the canonical supervisor state to the sele
     { runnerRunId: "run-later" },
     { state: "running" },
     { childTerminalState: "failed" },
+    { runnerArgv: [...state.runnerArgv, "--unexpected"] },
     { runnerSummaryJsonPath: `${logsRoot}/summaries/run-later.json` },
   ]) {
     assert.equal(exactSuccessorSupervisorState(

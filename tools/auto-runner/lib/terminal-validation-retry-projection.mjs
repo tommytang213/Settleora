@@ -10,6 +10,7 @@ import {
   specPathForRunId,
   validateRunSpecShape,
 } from "../supervisor/run-spec.mjs";
+import { runnerArgvForSpec } from "../supervisor/systemd-client.mjs";
 import { validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
@@ -18,6 +19,7 @@ const TERMINAL_DETAIL = "initial_validation_failure_commit_reconstruction_ambigu
 const SUCCESSOR_SYSTEMIC_STOP = "recoverable-work-blocked:historical_candidate_task_workspace_untrusted";
 const SUCCESSOR_RUNNER_CONFIG_PATH = "/workspace/auto-runner/config/settleora.json";
 const SUCCESSOR_RUNNER_CONFIG_SHA256 = "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d";
+const SUCCESSOR_RUNTIME_ROOT = "/workspace/auto-runner/runtime";
 const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 const EXACT_TERMINAL_ITERATION_FIELDS = Object.freeze([
   "autoMerge",
@@ -571,6 +573,16 @@ export function exactTerminalSummary(summary, iteration, target) {
 export function exactSuccessorSupervisorState(state, iteration, summary, specArtifact, logsRoot) {
   const summaryJsonPath = path.join(logsRoot, "summaries", `${iteration?.runId}.json`);
   const summaryMarkdownPath = path.join(logsRoot, "summaries", `${iteration?.runId}.md`);
+  let expectedRunnerArgv;
+  try {
+    expectedRunnerArgv = runnerArgvForSpec(specArtifact?.value, {
+      runnerRunId: iteration?.runId,
+      runtimeRoot: SUCCESSOR_RUNTIME_ROOT,
+      logsRoot,
+    }).map((part, index, argv) => argv[index - 1] === "--config" ? "[config-path]" : part);
+  } catch {
+    return false;
+  }
   return state?.state === "blocked"
     && state?.runId === summary?.supervisorRunId
     && state?.runnerRunId === iteration?.runId
@@ -584,6 +596,7 @@ export function exactSuccessorSupervisorState(state, iteration, summary, specArt
     && state?.maxTasks === 1
     && state?.maxRuntime === "14d"
     && state?.initialOriginMainSha === specArtifact?.value?.initialOriginMainSha
+    && canonical(state?.runnerArgv) === canonical(expectedRunnerArgv)
     && state?.runnerSummaryJsonPath === summaryJsonPath
     && state?.runnerSummaryMarkdownPath === summaryMarkdownPath
     && state?.reportPath === summaryMarkdownPath
