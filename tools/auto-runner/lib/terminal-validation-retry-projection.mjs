@@ -882,8 +882,14 @@ export function exactFailedContinuationIteration(value, target) {
     && value?.recovery?.allowed === true
     && value?.recovery?.action === "resume_recoverable_work"
     && value?.recovery?.reasonCode === "outage_recovery_target_discovered"
-    && value?.recovery?.outcome?.ok === true
-    && value?.recovery?.outcome?.mutationAllowed === false
+    && canonical(value?.recovery?.outcome) === canonical({
+      ok: true,
+      outcomeClass: "pending",
+      reasonCode: "outage_recovery_target_discovered",
+      nextAction: "wait",
+      retryable: true,
+      mutationAllowed: false,
+    })
     && exactFailedContinuationRecoveryTarget(value?.recovery?.target, target)
     && value?.recovery?.terminalDerivativeContinuationAdmission === null
     && projected?.ok === true
