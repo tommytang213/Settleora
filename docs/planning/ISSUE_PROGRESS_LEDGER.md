@@ -1,5 +1,47 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#999 and PR #1028 — failed-continuation overlay admission repair merged (2026-07-31)
+
+- PR #1028 merged normally with expected-head protection from exact authorized
+  source head `8b22d7187b3d387467b693327d6f292896dd6bb6`, source tree
+  `d2ad925829af4a664327ed0927b8f4d6253f2336`, and base
+  `291e774cc1d9d800d917c5b844ebedc3815b3d5c` as merge
+  `79efc42941ac222147dc8e1c5d9a81cd12054836`. The ordered merge parents are
+  the exact base and source head, and the merge tree equals the source tree.
+- The repair changed only
+  `tools/auto-runner/lib/terminal-validation-retry-projection.mjs` and
+  `tools/auto-runner/test/terminal-validation-retry-projection.test.mjs`.
+  It reauthenticates the unchanged terminal predecessor plus at most one exact
+  no-effect failed-continuation overlay, binds the overlay evidence and
+  chronology, grants it no mutation authority, and fails closed on ambiguity
+  or contradiction.
+- Exact-head validation passed focused projection/recovery tests `42/42`, the
+  complete auto-runner suite `1303/1303`, `npm ci` with zero vulnerabilities,
+  doctor, syntax, docs, scaffold (19 paths), diff, exact-scope, and clean
+  guards. Gemini `strong_independent`, local Codex, and exact-head GitHub
+  Codex passed with no material or major finding. All required CodeQL,
+  Semgrep CE/OSS, Trivy, Scaffold Validation, branch, and ruleset checks
+  passed; all `26/26` review threads were resolved with zero unresolved; open
+  code-scanning, secret-scanning, and Dependabot alerts were `0/0/0`.
+- All 13 preserved original and failed-continuation artifacts remained
+  byte-identical. Issue #959 remains `OPEN` with exactly six labels and 13
+  comments, without `auto-claimed` or `auto-running`, and without its
+  preserved remote branch or PR. Issue #999 remains separate, `OPEN`, with
+  exactly three labels and zero comments. Neither issue was mutated.
+- Keep Issue #1012 `OPEN` with `manual-gate`; close recommendation remains
+  keep-open. The bounded deployment requires separate authorization, followed
+  by separate authorization for exactly one preserved Issue #959 continuation.
+  Reconcile the close rule only after that continuation safely advances.
+- This merge and ledger hygiene performed no deployment, rollback,
+  runtime/profile/approval/launcher/service/health mutation, runner or
+  supervisor submission, queue activation, Issue #959 continuation, Issue
+  #999 work, product change, cleanup, force-like history operation, or
+  direct-main push.
+- Issue #1012 source-merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5144010578`.
+  Source review/final-gate report:
+  `/workspace/logs/settleora-codex-report-20260731-2159-pr1028-exact-head-review-thread-checkpoint-final-gate.md`.
+
 ### Issues #1012/#959/#999 and PR #1025 — authoritative reload identity repair merged (2026-07-31)
 
 - PR #1025 merged normally with expected-head protection from exact authorized
