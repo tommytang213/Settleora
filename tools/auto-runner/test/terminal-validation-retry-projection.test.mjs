@@ -1190,7 +1190,7 @@ test("terminal retry projection treats a successor-run filename as superseding e
   ), true);
 });
 
-test("terminal retry projection rejects every additional successor-run artifact regardless of timestamp", () => {
+test("terminal retry projection rejects every additional predecessor or overlay-run artifact", () => {
   const runId = "run-2026-07-30T100000Z-deadbeefcafe";
   const anchor = { runId };
   const first = {
@@ -1216,6 +1216,23 @@ test("terminal retry projection rejects every additional successor-run artifact 
     },
   ], [anchor]), false);
   assert.equal(successorRunArtifactsAreUnique([first], [anchor, { runId: "run-other" }]), false);
+  const overlayRunId = "run-2026-07-31T060319Z-c382043104fa";
+  const overlay = {
+    path: `/trusted/state/${overlayRunId}-1-issue-959.json`,
+    value: {
+      runId: overlayRunId,
+      index: 1,
+      issue: { number: 959 },
+      finishedAt: "2026-07-31T06:03:19.776Z",
+    },
+  };
+  assert.equal(successorRunArtifactsAreUnique([
+    overlay,
+    {
+      path: `/trusted/state/${overlayRunId}-2-issue-999.json`,
+      value: { finishedAt: "2026-07-31T06:03:20.000Z" },
+    },
+  ], [overlay.value]), false);
 });
 
 test("terminal retry projection binds successor spec base and compatible runner mode", () => {

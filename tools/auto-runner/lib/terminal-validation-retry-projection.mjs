@@ -204,6 +204,13 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     ) && exactStateArtifactFilenameIdentity(latestDirectArtifacts[0])
       ? latestDirectArtifacts[0]
       : null;
+    if (failedContinuationStateArtifact
+      && !successorRunArtifactsAreUnique(
+        allStates,
+        [failedContinuationStateArtifact.value],
+      )) {
+      return denied("terminal_projection_state_missing_ambiguous_or_superseded");
+    }
     const predecessorDirectStates = failedContinuationStateArtifact
       ? directlyAssociatedStates.filter(({ path: artifactPath }) =>
         artifactPath !== failedContinuationStateArtifact.path)
