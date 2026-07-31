@@ -128,6 +128,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
   intentEvidenceCollector = collectAuthoritativeCommentIntentEvidence,
 } = {}) {
   let target;
+  let projectionDiagnostics = null;
   try {
     target = normalizePreservedRecoveryDeploymentTarget(input);
     assertTrustedOperationalRoot(logsRoot);
@@ -174,12 +175,13 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
         target: projectionTarget,
       })
       : { ok: false, projectionReasonCode: "terminal_projection_lifecycle_mismatch" };
+    projectionDiagnostics = projection.ok ? null : {
+      projectionFailureReasonCode: projection.projectionReasonCode,
+      projectionFailureClass: projectionFailureClass(projection.projectionReasonCode),
+    };
     const state = projection.ok ? projection.effectiveRecovery : rawState;
     if (state.phase !== "stopped" || !isEligibleValidationRetryCheckpoint(state)) {
-      return denied("preserved_recovery_checkpoint_not_eligible", target, projection.ok ? {} : {
-        projectionFailureReasonCode: projection.projectionReasonCode,
-        projectionFailureClass: projectionFailureClass(projection.projectionReasonCode),
-      });
+      return denied("preserved_recovery_checkpoint_not_eligible", target, projectionDiagnostics || {});
     }
     const derivative = isKnownValidationRetryDerivative(state);
     const derivativeTerminalPhase = derivative ? validationRetryDerivativeTerminalPhase(state) : null;
@@ -220,10 +222,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
       } : null,
     });
   } catch {
-    return denied("preserved_recovery_authoritative_read_unavailable", target, {
-      projectionFailureReasonCode: "terminal_projection_authoritative_read_unavailable",
-      projectionFailureClass: "authoritative_artifact_read",
-    });
+    return denied("preserved_recovery_authoritative_read_unavailable", target, projectionDiagnostics || {});
   }
 }
 
