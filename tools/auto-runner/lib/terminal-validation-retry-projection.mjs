@@ -442,10 +442,14 @@ function authenticateFailedContinuationOverlay({
   const fail = (reasonCode) => ({ ok: false, reasonCode });
   const iteration = stateArtifact.value;
   const summaryRoot = path.join(root, "summaries");
-  const summaryArtifact = trustedJsonArtifact(
-    summaryRoot,
-    path.join(summaryRoot, `${iteration.runId}.json`),
-  );
+  const allSummaries = trustedRunnerSummaryJsonFiles(summaryRoot);
+  const expectedSummaryPath = path.join(summaryRoot, `${iteration.runId}.json`);
+  const selectedSummaries = allSummaries
+    .filter(({ path: artifactPath }) => artifactPath === expectedSummaryPath);
+  if (selectedSummaries.length !== 1) {
+    return fail("terminal_projection_failed_continuation_summary_mismatch");
+  }
+  const summaryArtifact = selectedSummaries[0];
   const summaryMarkdownArtifact = trustedFileArtifact(
     summaryRoot,
     path.join(summaryRoot, `${iteration.runId}.md`),
@@ -453,7 +457,6 @@ function authenticateFailedContinuationOverlay({
   if (!exactFailedContinuationSummary(summaryArtifact.value, iteration, target, root)) {
     return fail("terminal_projection_failed_continuation_summary_mismatch");
   }
-  const allSummaries = trustedRunnerSummaryJsonFiles(summaryRoot);
   if (!runnerSummaryCandidateCountWithinResolverLimit(allSummaries)) {
     return fail("terminal_projection_failed_continuation_summary_ambiguous");
   }
