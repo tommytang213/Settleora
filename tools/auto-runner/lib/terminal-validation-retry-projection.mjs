@@ -21,6 +21,7 @@ const SUCCESSOR_RUNNER_CONFIG_PATH = "/workspace/auto-runner/config/settleora.js
 const SUCCESSOR_RUNNER_CONFIG_SHA256 = "644f69637cb69911f85bed367cfda13b2db889a36e11844226a5c188977dea1d";
 const SUCCESSOR_RUNTIME_ROOT = "/workspace/auto-runner/runtime";
 const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
+const FAILED_CONTINUATION_STOP = "recoverable-work-blocked:terminal_projection_reloaded_checkpoint_mismatch";
 const EXACT_TERMINAL_ITERATION_FIELDS = Object.freeze([
   "autoMerge",
   "baseOriginMainSha",
@@ -46,6 +47,38 @@ const EXACT_TERMINAL_ITERATION_FIELDS = Object.freeze([
   "startedAt",
   "systemicStop",
   "validation",
+]);
+const FAILED_CONTINUATION_RECOVERY_FIELDS = Object.freeze([
+  "action", "allowed", "found", "outcome", "reasonCode", "state", "stateCounts",
+  "states", "target", "terminalDerivativeContinuationAdmission",
+  "terminalDerivativeProjection",
+]);
+const FAILED_CONTINUATION_STATE_FIELDS = Object.freeze([
+  "active", "attemptClass", "baseSha", "blocker", "branchName", "currentHeadSha",
+  "firstIncompleteAction", "issueNumber", "nextSafeAction", "phase", "prNumber",
+  "prUrl", "runId", "stopReason", "supervisorRunId", "taskKey",
+]);
+const FAILED_CONTINUATION_SUMMARY_FIELDS = Object.freeze([
+  "acceptedLogicalTaskCount", "attemptedIssueCount", "attemptedIssueNumbers",
+  "autoMergeCanaryApprovalMode", "baseOriginMainSha", "configPath", "finishedAt",
+  "iterations", "logPath", "maxIterations", "maxRuntimeMs", "mode",
+  "processedIssueCount", "processedIssueNumbers", "runId", "startedAt",
+  "stopReason", "supervisorRunId",
+]);
+const FAILED_CONTINUATION_SUPERVISOR_STATE_FIELDS = Object.freeze([
+  "childSignal", "childStatus", "childTerminalState", "createdAt", "finishedAt",
+  "heartbeatGeneration", "initialOriginMainSha", "maxRuntime", "maxTasks",
+  "reportPath", "reportResolution", "runId", "runnerArgv", "runnerConfigSha256",
+  "runnerRunId", "runnerSummaryJsonPath", "runnerSummaryMarkdownPath", "specPath",
+  "specSha256", "startedAt", "state", "stderrPath", "stdoutPath",
+  "terminalReason", "unitName", "updatedAt",
+]);
+const FAILED_CONTINUATION_HEARTBEAT_FIELDS = Object.freeze([
+  "counts", "currentIssue", "currentPr", "heartbeatGeneration",
+  "heartbeatIntervalSeconds", "heartbeatLeaseSeconds", "leaseExpiresAt",
+  "maxRuntime", "maxTasks", "monitoringDelivery", "ownerPid", "reportPath",
+  "reportResolution", "runId", "runnerRunId", "schemaVersion", "startedAt",
+  "state", "terminal", "unitName", "updatedAt",
 ]);
 
 export function projectAuthenticatedTerminalValidationRetryDerivative({
@@ -98,8 +131,29 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
       directlyAssociatedStates.map(({ value }) => value),
     );
     if (!latestDirectState.ok) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
-    const successorRunAnchors = directlyAssociatedStates
-      .filter(({ value }) => value.finishedAt === latestDirectState.finishedAt)
+    const latestDirectArtifacts = directlyAssociatedStates
+      .filter(({ value }) => value.finishedAt === latestDirectState.finishedAt);
+    if (latestDirectArtifacts.length !== 1) {
+      return denied("terminal_projection_state_missing_ambiguous_or_superseded");
+    }
+    const failedContinuationStateArtifact = exactFailedContinuationIteration(
+      latestDirectArtifacts[0].value,
+      target,
+    ) && exactStateArtifactFilenameIdentity(latestDirectArtifacts[0])
+      ? latestDirectArtifacts[0]
+      : null;
+    const predecessorDirectStates = failedContinuationStateArtifact
+      ? directlyAssociatedStates.filter(({ path: artifactPath }) =>
+        artifactPath !== failedContinuationStateArtifact.path)
+      : directlyAssociatedStates;
+    const predecessorDirectState = selectLatestIssueStateTimestamp(
+      predecessorDirectStates.map(({ value }) => value),
+    );
+    if (!predecessorDirectState.ok) {
+      return denied("terminal_projection_state_missing_ambiguous_or_superseded");
+    }
+    const successorRunAnchors = predecessorDirectStates
+      .filter(({ value }) => value.finishedAt === predecessorDirectState.finishedAt)
       .map((artifact) => artifact.value);
     const issueStates = allStates.filter((artifact) =>
       stateArtifactMayBelongToTargetOrSuccessorRun(
@@ -110,7 +164,11 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     if (!successorRunArtifactsAreUnique(allStates, successorRunAnchors)) {
       return denied("terminal_projection_state_missing_ambiguous_or_superseded");
     }
-    const latestState = selectLatestIssueStateTimestamp(issueStates.map(({ value }) => value));
+    const originalIssueStates = failedContinuationStateArtifact
+      ? issueStates.filter(({ path: artifactPath }) =>
+        artifactPath !== failedContinuationStateArtifact.path)
+      : issueStates;
+    const latestState = selectLatestIssueStateTimestamp(originalIssueStates.map(({ value }) => value));
     if (!latestState.ok) return denied("terminal_projection_state_missing_ambiguous_or_superseded");
     const latestFinishedAt = latestState.finishedAt;
     const terminalStates = issueStates.filter(({ value }) =>
@@ -197,7 +255,7 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
     effectiveRecovery.firstIncompleteAction = "run_validation_and_commit";
     effectiveRecovery.nextSafeAction = "stop_fail_closed";
 
-    const boundArtifacts = Object.freeze([
+    const predecessorBoundArtifacts = Object.freeze([
       publicArtifact(recoveryArtifact, "rawRecovery"),
       publicArtifact(lifecycleArtifact, "lifecycle"),
       publicArtifact(durableBudgetArtifact, "logicalTaskBudget"),
@@ -210,24 +268,55 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
       publicArtifact(specArtifact, "supervisorSpec"),
       publicArtifact(supervisorStateArtifact, "supervisorState"),
     ]);
+    const predecessorIdentity = {
+      repository: target.repository,
+      issueNumber: target.issueNumber,
+      taskKey: target.taskKey,
+      claimIdentity: target.claimIdentity,
+      chargeId: target.chargeId,
+      originalRunnerRunId: target.runnerRunId,
+      originalSupervisorRunId: target.supervisorRunId,
+      successorRunnerRunId: stateArtifact.value.runId,
+      successorSupervisorRunId: summaryArtifact.value.supervisorRunId,
+      branch: target.branch,
+      baseSha: target.baseSha,
+      headSha: target.headSha,
+      treeSha: target.treeSha,
+      changedFilesDigest: target.changedFilesDigest,
+      diffDigest: target.diffDigest,
+    };
+    const predecessorEvidenceDigest = digest(canonical({
+      artifacts: predecessorBoundArtifacts.map(({ role, sha256 }) => ({ role, sha256 })),
+      identity: predecessorIdentity,
+    }));
+    const failedContinuationOverlay = failedContinuationStateArtifact
+      ? authenticateFailedContinuationOverlay({
+        root,
+        stateArtifact: failedContinuationStateArtifact,
+        target,
+        predecessorStateArtifact: stateArtifact,
+        predecessorSummaryArtifact: summaryArtifact,
+        predecessorBoundArtifacts,
+        predecessorEvidenceDigest,
+      })
+      : null;
+    if (failedContinuationStateArtifact && !failedContinuationOverlay?.ok) {
+      return denied(failedContinuationOverlay?.reasonCode
+        || "terminal_projection_failed_continuation_overlay_mismatch");
+    }
+    const boundArtifacts = Object.freeze([
+      ...predecessorBoundArtifacts,
+      ...(failedContinuationOverlay?.artifacts || []),
+    ]);
     const evidenceDigest = digest(canonical({
       artifacts: boundArtifacts.map(({ role, sha256 }) => ({ role, sha256 })),
       identity: {
-        repository: target.repository,
-        issueNumber: target.issueNumber,
-        taskKey: target.taskKey,
-        claimIdentity: target.claimIdentity,
-        chargeId: target.chargeId,
-        originalRunnerRunId: target.runnerRunId,
-        originalSupervisorRunId: target.supervisorRunId,
-        successorRunnerRunId: stateArtifact.value.runId,
-        successorSupervisorRunId: summaryArtifact.value.supervisorRunId,
-        branch: target.branch,
-        baseSha: target.baseSha,
-        headSha: target.headSha,
-        treeSha: target.treeSha,
-        changedFilesDigest: target.changedFilesDigest,
-        diffDigest: target.diffDigest,
+        ...predecessorIdentity,
+        failedContinuationOverlay: failedContinuationOverlay ? {
+          runnerRunId: failedContinuationOverlay.runnerRunId,
+          supervisorRunId: failedContinuationOverlay.supervisorRunId,
+          predecessorEvidenceDigest: failedContinuationOverlay.predecessorEvidenceDigest,
+        } : null,
       },
     }));
     return {
@@ -242,6 +331,84 @@ export function projectAuthenticatedTerminalValidationRetryDerivative({
   } catch {
     return denied("terminal_projection_authoritative_read_unavailable");
   }
+}
+
+function authenticateFailedContinuationOverlay({
+  root,
+  stateArtifact,
+  target,
+  predecessorStateArtifact,
+  predecessorSummaryArtifact,
+  predecessorBoundArtifacts,
+  predecessorEvidenceDigest,
+}) {
+  const fail = (reasonCode) => ({ ok: false, reasonCode });
+  const iteration = stateArtifact.value;
+  const summaryRoot = path.join(root, "summaries");
+  const summaryArtifact = trustedJsonArtifact(
+    summaryRoot,
+    path.join(summaryRoot, `${iteration.runId}.json`),
+  );
+  const summaryMarkdownArtifact = trustedFileArtifact(
+    summaryRoot,
+    path.join(summaryRoot, `${iteration.runId}.md`),
+  );
+  if (!exactFailedContinuationSummary(summaryArtifact.value, iteration, target)) {
+    return fail("terminal_projection_failed_continuation_summary_mismatch");
+  }
+  const supervisorRunId = summaryArtifact.value.supervisorRunId;
+  const specRoot = path.join(root, "supervisor", "run-specs");
+  const specs = trustedNestedJsonFiles(specRoot, "spec.json")
+    .filter(({ value }) => value?.runId === supervisorRunId)
+    .filter((artifact) => exactFailedContinuationSpecArtifact(
+      artifact,
+      summaryArtifact.value,
+      target,
+      root,
+    ));
+  if (specs.length !== 1) return fail("terminal_projection_failed_continuation_spec_mismatch");
+  const specArtifact = specs[0];
+  const supervisorRoot = path.join(root, "supervisor", "runs", digest(supervisorRunId));
+  const supervisorStateArtifact = trustedJsonArtifact(
+    supervisorRoot,
+    path.join(supervisorRoot, "state.json"),
+  );
+  const heartbeatArtifact = trustedJsonArtifact(
+    supervisorRoot,
+    path.join(supervisorRoot, "heartbeat.json"),
+  );
+  if (!exactFailedContinuationSupervisorState(
+    supervisorStateArtifact.value,
+    heartbeatArtifact.value,
+    iteration,
+    summaryArtifact.value,
+    specArtifact,
+    root,
+  )) return fail("terminal_projection_failed_continuation_supervisor_mismatch");
+  if (Date.parse(predecessorStateArtifact.value.finishedAt) > Date.parse(specArtifact.value.createdAt)
+    || Date.parse(predecessorSummaryArtifact.value.finishedAt) > Date.parse(specArtifact.value.createdAt)) {
+    return fail("terminal_projection_failed_continuation_chronology_mismatch");
+  }
+  const embeddedProjection = iteration.recovery?.terminalDerivativeProjection;
+  if (embeddedProjection?.evidenceDigest !== predecessorEvidenceDigest
+    || canonical(embeddedProjection?.boundArtifacts)
+      !== canonical(predecessorBoundArtifacts.map(({ role, sha256 }) => ({ role, sha256 })))) {
+    return fail("terminal_projection_failed_continuation_predecessor_identity_mismatch");
+  }
+  return {
+    ok: true,
+    runnerRunId: iteration.runId,
+    supervisorRunId,
+    predecessorEvidenceDigest,
+    artifacts: [
+      publicArtifact(stateArtifact, "failedContinuationIterationState"),
+      publicArtifact(summaryArtifact, "failedContinuationRunnerSummary"),
+      publicArtifact(summaryMarkdownArtifact, "failedContinuationRunnerSummaryMarkdown"),
+      publicArtifact(specArtifact, "failedContinuationSupervisorSpec"),
+      publicArtifact(supervisorStateArtifact, "failedContinuationSupervisorState"),
+      publicArtifact(heartbeatArtifact, "failedContinuationSupervisorHeartbeat"),
+    ],
+  };
 }
 
 export function exactRawCheckpoint(state, target) {
@@ -600,6 +767,227 @@ export function exactTerminalSummary(summary, iteration, target) {
     && summary?.acceptedLogicalTaskCount === 1 && summary?.maxIterations === 1
     && Date.parse(summary?.startedAt) <= Date.parse(iteration?.startedAt)
     && Date.parse(summary?.finishedAt) >= Date.parse(iteration?.finishedAt);
+}
+
+export function exactFailedContinuationIteration(value, target) {
+  const projected = value?.recovery?.terminalDerivativeProjection;
+  const state = value?.recovery?.state;
+  const states = value?.recovery?.states;
+  const budget = value?.logicalTaskBudget;
+  return canonical(Object.keys(value || {}).sort()) === canonical(EXACT_TERMINAL_ITERATION_FIELDS)
+    && canonical(Object.keys(value?.recovery || {}).sort())
+      === canonical(FAILED_CONTINUATION_RECOVERY_FIELDS)
+    && canonical(Object.keys(state || {}).sort()) === canonical(FAILED_CONTINUATION_STATE_FIELDS)
+    && value?.index === 1
+    && value?.outcome === "blocked_recovery_state"
+    && value?.issue?.number === target.issueNumber
+    && value?.issueSource === "startup_recovery"
+    && value?.phase === "startup_recovery"
+    && value?.laneDecision === null
+    && value?.systemicStop === FAILED_CONTINUATION_STOP
+    && value?.branchName === target.branch
+    && value?.baseOriginMainSha === target.baseSha
+    && value?.runnerCreatedCommitSha === target.headSha
+    && value?.pr === null
+    && value?.existingPrRecovery === null
+    && value?.bundle === null
+    && value?.autoMerge === null
+    && Array.isArray(value?.changedFiles) && value.changedFiles.length === 0
+    && value?.validation === null
+    && value?.review === null
+    && value?.externalReview === null
+    && canonical(value?.runIssueState) === canonical({
+      attemptedIssueNumbers: [],
+      attemptedIssueCount: 0,
+      processedIssueNumbers: [target.issueNumber],
+      processedIssueCount: 1,
+    })
+    && budget?.ok === true
+    && budget?.duplicate === true
+    && budget?.charged === false
+    && budget?.chargeId === target.chargeId
+    && budget?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
+    && budget?.statePath === target.chargeMarkerRef
+    && canonical(budget?.marker) === canonical(target.durableChargeMarker)
+    && canonical(budget?.state?.charges?.[target.chargeId]) === canonical(target.durableChargeMarker)
+    && budget?.state?.repository === target.repository
+    && budget?.state?.budgetScopeId === target.supervisorRunId
+    && budget?.state?.acceptedLogicalTaskCount === 1
+    && Object.keys(budget?.state?.charges || {}).length === 1
+    && value?.recovery?.found === true
+    && value?.recovery?.allowed === true
+    && value?.recovery?.action === "resume_recoverable_work"
+    && value?.recovery?.reasonCode === "outage_recovery_target_discovered"
+    && value?.recovery?.outcome?.ok === true
+    && value?.recovery?.outcome?.mutationAllowed === false
+    && value?.recovery?.terminalDerivativeContinuationAdmission === null
+    && projected?.ok === true
+    && projected?.projectionApplied === true
+    && projected?.projectionReasonCode
+      === "authenticated_terminal_validation_retry_derivative_projected"
+    && /^[a-f0-9]{64}$/u.test(String(projected?.evidenceDigest || ""))
+    && Array.isArray(projected?.boundArtifacts)
+    && projected.boundArtifacts.length >= 8
+    && state?.taskKey === target.taskKey
+    && state?.issueNumber === target.issueNumber
+    && state?.branchName === target.branch
+    && state?.baseSha === target.baseSha
+    && state?.currentHeadSha === target.headSha
+    && state?.prNumber === null
+    && state?.prUrl === null
+    && state?.phase === "checkpoint_validation_commit"
+    && state?.firstIncompleteAction === "run_validation_and_commit"
+    && state?.nextSafeAction === "run_validation_and_commit"
+    && state?.stopReason === null
+    && state?.runId === target.runnerRunId
+    && state?.supervisorRunId === target.supervisorRunId
+    && Array.isArray(states) && states.length === 1
+    && canonical(states[0]) === canonical(state);
+}
+
+export function exactFailedContinuationSummary(summary, iteration, target) {
+  return canonical(Object.keys(summary || {}).sort()) === canonical(FAILED_CONTINUATION_SUMMARY_FIELDS)
+    && Array.isArray(summary?.iterations)
+    && summary.iterations.length === 1
+    && canonical(summary.iterations[0]) === canonical(iteration)
+    && summary?.runId === iteration.runId
+    && typeof summary?.supervisorRunId === "string"
+    && summary?.stopReason === FAILED_CONTINUATION_STOP
+    && summary?.attemptedIssueCount === 0
+    && Array.isArray(summary?.attemptedIssueNumbers)
+    && summary.attemptedIssueNumbers.length === 0
+    && summary?.processedIssueCount === 1
+    && canonical(summary?.processedIssueNumbers) === canonical([target.issueNumber])
+    && summary?.acceptedLogicalTaskCount === target.acceptedLogicalTasks
+    && summary?.maxIterations === 1
+    && summary?.maxRuntimeMs === SUCCESSOR_MAX_RUNTIME_MS
+    && Date.parse(summary?.startedAt) <= Date.parse(iteration?.startedAt)
+    && Date.parse(summary?.finishedAt) >= Date.parse(iteration?.finishedAt);
+}
+
+export function exactFailedContinuationSpec(spec, summary, target) {
+  try {
+    validateRunSpecShape(spec);
+  } catch {
+    return false;
+  }
+  const recoveryTarget = spec?.recoveryOnlyTarget;
+  return Object.keys(spec).length === allowedSpecFields.size
+    && Object.keys(spec).every((field) => allowedSpecFields.has(field))
+    && spec?.specVersion === 1
+    && spec?.runId === summary.supervisorRunId
+    && spec?.mode === "trusted"
+    && spec?.maxTasks === 1
+    && spec?.maxRuntime === "14d"
+    && spec?.profile === "default"
+    && spec?.requestedBy === "operator"
+    && spec?.outageResubmission === null
+    && spec?.initialOriginMainSha === summary?.baseOriginMainSha
+    && spec?.runnerConfigPath === summary?.configPath
+    && supervisorModeToRunnerMode(spec?.mode) === summary?.mode
+    && spec?.sourceIssueNumber === target.issueNumber
+    && spec?.sourceBranchName === target.branch
+    && spec?.parentRunnerRunId === target.runnerRunId
+    && spec?.parentSupervisorRunId === target.supervisorRunId
+    && recoveryTarget?.taskKey === target.taskKey
+    && recoveryTarget?.issueNumber === target.issueNumber
+    && recoveryTarget?.branchName === target.branch
+    && recoveryTarget?.baseSha === target.baseSha
+    && recoveryTarget?.currentHeadSha === target.headSha
+    && recoveryTarget?.runnerRunId === target.runnerRunId
+    && recoveryTarget?.supervisorRunId === target.supervisorRunId
+    && recoveryTarget?.terminalValidationRetryDerivativeNoPr === true
+    && recoveryTarget?.prNumber === null
+    && recoveryTarget?.prHeadSha === null
+    && recoveryTarget?.attemptNumber === null
+    && recoveryTarget?.markerKey === null
+    && recoveryTarget?.originalSupervisorSpecDigest === null
+    && recoveryTarget?.outageFingerprint === null
+    && Date.parse(spec?.createdAt) <= Date.parse(summary?.startedAt);
+}
+
+export function exactFailedContinuationSpecArtifact(artifact, summary, target, logsRoot) {
+  try {
+    return realpathSync(artifact?.path)
+      === realpathSync(specPathForRunId(summary?.supervisorRunId, logsRoot))
+      && exactFailedContinuationSpec(artifact?.value, summary, target);
+  } catch {
+    return false;
+  }
+}
+
+export function exactFailedContinuationSupervisorState(
+  state,
+  heartbeat,
+  iteration,
+  summary,
+  specArtifact,
+  logsRoot,
+) {
+  const summaryJsonPath = path.join(logsRoot, "summaries", `${iteration.runId}.json`);
+  const summaryMarkdownPath = path.join(logsRoot, "summaries", `${iteration.runId}.md`);
+  let expectedArgv;
+  try {
+    expectedArgv = runnerArgvForSpec(specArtifact.value, {
+      runnerRunId: iteration.runId,
+      runtimeRoot: SUCCESSOR_RUNTIME_ROOT,
+      logsRoot,
+    }).map((part, index, argv) => argv[index - 1] === "--config" ? "[config-path]" : part);
+  } catch {
+    return false;
+  }
+  const exactState = state?.state === "blocked"
+    && canonical(Object.keys(state || {}).sort())
+      === canonical(FAILED_CONTINUATION_SUPERVISOR_STATE_FIELDS)
+    && canonical(Object.keys(heartbeat || {}).sort())
+      === canonical(FAILED_CONTINUATION_HEARTBEAT_FIELDS)
+    && state?.runId === summary.supervisorRunId
+    && state?.runnerRunId === iteration.runId
+    && state?.childTerminalState === "blocked"
+    && state?.childStatus === 2
+    && state?.childSignal === null
+    && state?.terminalReason === "child_exit_mapped"
+    && state?.specPath === specArtifact.path
+    && state?.specSha256 === specArtifact.sha256
+    && state?.runnerConfigSha256 === specArtifact.value.runnerConfigSha256
+    && state?.maxTasks === 1
+    && state?.maxRuntime === "14d"
+    && state?.initialOriginMainSha === specArtifact.value.initialOriginMainSha
+    && canonical(state?.runnerArgv) === canonical(expectedArgv)
+    && state?.runnerSummaryJsonPath === summaryJsonPath
+    && state?.runnerSummaryMarkdownPath === summaryMarkdownPath
+    && state?.reportPath === summaryMarkdownPath
+    && state?.reportResolution?.ok === true
+    && state?.reportResolution?.status === "matched"
+    && state?.reportResolution?.reason === null
+    && state?.reportResolution?.runnerRunId === iteration.runId
+    && state?.reportResolution?.runnerSummaryJsonPath === summaryJsonPath
+    && state?.reportResolution?.runnerSummaryMarkdownPath === summaryMarkdownPath
+    && state?.reportResolution?.reportPath === summaryMarkdownPath
+    && Date.parse(specArtifact.value.createdAt) <= Date.parse(state?.startedAt)
+    && Date.parse(state?.startedAt) <= Date.parse(summary?.startedAt)
+    && Date.parse(summary?.finishedAt) <= Date.parse(state?.finishedAt)
+    && Number.isSafeInteger(state?.heartbeatGeneration)
+    && state.heartbeatGeneration >= 1;
+  return exactState
+    && heartbeat?.schemaVersion === 2
+    && heartbeat?.runId === state.runId
+    && heartbeat?.runnerRunId === state.runnerRunId
+    && heartbeat?.state === "blocked"
+    && heartbeat?.terminal === true
+    && heartbeat?.heartbeatGeneration === state.heartbeatGeneration
+    && heartbeat?.currentIssue === null
+    && heartbeat?.currentPr === null
+    && heartbeat?.counts?.attempted === 0
+    && heartbeat?.counts?.processed === 0
+    && heartbeat?.counts?.completed === 0
+    && heartbeat?.counts?.failed === 0
+    && heartbeat?.counts?.blocked === 0
+    && heartbeat?.counts?.merged === 0
+    && heartbeat?.counts?.skipped === 0
+    && heartbeat?.reportPath === summaryMarkdownPath
+    && Date.parse(heartbeat?.startedAt) === Date.parse(state?.startedAt)
+    && Date.parse(heartbeat?.updatedAt) === Date.parse(state?.updatedAt);
 }
 
 export function exactSuccessorSupervisorState(state, iteration, summary, specArtifact, logsRoot) {
