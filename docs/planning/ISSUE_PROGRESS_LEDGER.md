@@ -38,6 +38,10 @@
   effect.
 - Issue #1012 merge checkpoint:
   `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5140442463`.
+  Source report:
+  `/workspace/logs/settleora-codex-report-20260731-1507-pr1025-failed-run-report-recovery-final-gate.md`.
+  Merge/hygiene report:
+  `/workspace/logs/settleora-codex-report-20260731-1523-pr1025-exact-head-merge-post-merge-hygiene.md`.
 
 ### Issues #1012/#959/#999 and PR #1023 — terminal recovery projection repair merged (2026-07-31)
 
