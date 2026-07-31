@@ -179,6 +179,7 @@ export function discoverTargetedStartupRecovery(config) {
       terminalDerivativeProjection: boundedProjectionEvidence(projection),
     };
   }
+  const continuationAdmission = boundedTerminalDerivativeContinuationAdmission(config, state, target);
   const discovered = {
     found: true,
     allowed: true,
@@ -190,11 +191,16 @@ export function discoverTargetedStartupRecovery(config) {
     stateCounts: partition.counts,
     target,
     terminalDerivativeProjection: boundedProjectionEvidence(projection),
-    terminalDerivativeContinuationAdmission: boundedTerminalDerivativeContinuationAdmission(config, state, target),
+    terminalDerivativeContinuationAdmission: continuationAdmission,
   };
-  if (projection.ok) {
+  const effectiveRecovery = projection.ok
+    ? projection.effectiveRecovery
+    : continuationAdmission?.ok
+      ? replaySafeTerminalDerivativeContinuation(state)
+      : null;
+  if (effectiveRecovery) {
     Object.defineProperty(discovered, "projectedRecoveryState", {
-      value: projection.effectiveRecovery,
+      value: effectiveRecovery,
       enumerable: false,
       writable: false,
       configurable: false,
@@ -1114,7 +1120,6 @@ export function validateTerminalDerivativeContinuationAdmission(config, state, t
     || state.branch?.name !== admission.branchName
     || state.branch?.baseSha !== admission.baseSha
     || current?.headSha !== state.branch?.currentHeadSha
-    || !validateOrdinaryContinuationPhaseEffects(state.ordinaryContinuation)
     || !/^[a-f0-9]{40}$/.test(String(current?.treeSha || ""))
     || !/^[a-f0-9]{64}$/.test(String(current?.changedFilesDigest || ""))
     || !/^[a-f0-9]{64}$/.test(String(current?.diffDigest || ""))
@@ -1126,5 +1131,18 @@ export function validateTerminalDerivativeContinuationAdmission(config, state, t
 
 function boundedTerminalDerivativeContinuationAdmission(config, state, target) {
   const validated = validateTerminalDerivativeContinuationAdmission(config, state, target);
-  return validated.ok ? Object.freeze(validated) : null;
+  return validated.ok
+    ? Object.freeze({ ...validated, reviewGatesRequireReplay: true })
+    : null;
+}
+
+export function replaySafeTerminalDerivativeContinuation(state) {
+  return Object.freeze({
+    ...state,
+    ordinaryContinuation: Object.freeze({
+      ...state.ordinaryContinuation,
+      phase: "local_validation",
+      effects: Object.freeze({}),
+    }),
+  });
 }

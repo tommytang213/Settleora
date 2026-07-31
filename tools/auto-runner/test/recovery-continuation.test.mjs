@@ -41,6 +41,7 @@ import {
   recoveryStatusSummary,
   reconcileAuthoritativeLifecycleHead,
   reconstructMissingSessionLifecycle,
+  replaySafeTerminalDerivativeContinuation,
   projectStartupRecoveryIssueIdentity,
   shouldAdvanceFixtureIssueCursor,
   shouldSkipCompletedBundleSlice,
@@ -3118,27 +3119,31 @@ test("terminal derivative continuation admission survives later head and PR phas
       }],
     },
   }).ok, false);
-  assert.equal(validate({
+  const forgedCompletedGates = {
     ...recovery,
     ordinaryContinuation: {
       ...recovery.ordinaryContinuation,
       phase: "push",
-      effects: {},
-    },
-  }).ok, false);
-  assert.equal(validate({
-    ...recovery,
-    ordinaryContinuation: {
-      ...recovery.ordinaryContinuation,
-      phase: "external_review",
       effects: {
         local_validation: {
           targetDigest: "d".repeat(64),
           completedAt: new Date().toISOString(),
+          evidence: { passed: true },
+        },
+        external_review: {
+          targetDigest: "e".repeat(64),
+          completedAt: new Date().toISOString(),
+          evidence: { passed: true },
         },
       },
     },
-  }).ok, false);
+  };
+  assert.equal(validate(forgedCompletedGates).ok, true);
+  const replaySafe = replaySafeTerminalDerivativeContinuation(forgedCompletedGates);
+  assert.equal(replaySafe.ordinaryContinuation.phase, "local_validation");
+  assert.deepEqual(replaySafe.ordinaryContinuation.effects, {});
+  assert.equal(forgedCompletedGates.ordinaryContinuation.phase, "push");
+  assert.equal(Object.keys(forgedCompletedGates.ordinaryContinuation.effects).length, 2);
   assert.equal(validate({
     ...recovery,
     ordinaryContinuation: {
