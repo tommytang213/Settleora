@@ -256,6 +256,11 @@ export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authent
   if (pathMatch && !identityMatch) {
     return { quarantined: true, readOnly: true, reasonCode: "incident_identity_contradiction", allowedAction: "none" };
   }
+  if (pathMatch && (authenticatedProvenance.incidentSha256 !== authenticatedIncident.sha256
+    || authenticatedProvenance.predecessorSha256 === authenticatedIncident.sha256
+    || authenticatedProvenance.bytesAvailable !== false)) {
+    return { quarantined: true, readOnly: true, reasonCode: "incident_provenance_contradiction", allowedAction: "none" };
+  }
   const overwrite = pathMatch
     && authenticatedProvenance.incidentSha256 === authenticatedIncident.sha256
     && authenticatedProvenance.predecessorSha256 !== authenticatedIncident.sha256

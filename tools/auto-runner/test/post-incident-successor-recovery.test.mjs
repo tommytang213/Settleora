@@ -196,6 +196,8 @@ test("overwrite quarantine authenticates incident bytes and does not block unrel
     const altered = structuredClone(provenance); altered.incidentArtifact.sha256 = incidentHash;
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: altered }).reasonCode, "incident_provenance_authentication_failed");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "altered", issue: { number: 999 } }, authenticatedProvenance: provenance }).reasonCode, "incident_identity_contradiction");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: { ...provenance, incidentSha256: incidentHash } }).reasonCode, "incident_provenance_contradiction");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: { ...provenance, predecessorSha256: actual } }).reasonCode, "incident_provenance_contradiction");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: "/other.json", state: { taskKey: "other", issue: { number: 8 } }, authenticatedProvenance: provenance }).quarantined, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
