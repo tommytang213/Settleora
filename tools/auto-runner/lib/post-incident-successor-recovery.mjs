@@ -65,10 +65,10 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
       return { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount };
     }).sort(compareArtifact);
   } catch { return failed("semantic_bound_artifact_authentication_failed"); }
-  if ([...sources.map((source) => source.artifact), ...artifacts].reduce((total, artifact) => total + artifact.byteCount, 0) > maximumAggregateArtifactBytes) return failed("semantic_bound_artifact_bytes_exceeded");
+  if ([...sources.flatMap((source) => [source.artifact, source.provenanceArtifact]), ...artifacts].reduce((total, artifact) => total + artifact.byteCount, 0) > maximumAggregateArtifactBytes) return failed("semantic_bound_artifact_bytes_exceeded");
   const classes = new Set(sources.map((source) => source.authorityClass));
   if (classes.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_authority_class"]);
-  const underlyingArtifacts = new Set(sources.map((source) => source.underlyingIdentity));
+  const underlyingArtifacts = new Set(sources.map((source) => source.provenanceIdentity));
   if (underlyingArtifacts.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_underlying_artifact"]);
   const missingClasses = mandatorySemanticEvidenceClasses.filter((name) => !classes.has(name));
   if (missingClasses.length) return failed("semantic_evidence_class_missing", missingClasses);
@@ -357,7 +357,9 @@ function validatePacketShape(packet) {
     || !Number.isSafeInteger(packet?.lifecycleSuccessorGeneration) || packet.lifecycleSuccessorGeneration < 1
     || !bounded(packet?.operationId) || !bounded(packet?.requestId)) diagnostics.push("operation_identity");
   if (Array.isArray(packet?.sources) && packet.sources.some((source) => !bounded(source?.artifact?.role)
-    || !bounded(source?.artifact?.path) || !digest64(source?.artifact?.sha256))) diagnostics.push("source_binding");
+    || !bounded(source?.artifact?.path) || !digest64(source?.artifact?.sha256)
+    || !bounded(source?.provenanceArtifact?.role) || !bounded(source?.provenanceArtifact?.path)
+    || !digest64(source?.provenanceArtifact?.sha256))) diagnostics.push("source_binding");
   return diagnostics;
 }
 function validateSecurityPosture(packet, claims) {
@@ -392,8 +394,9 @@ function normalizeSource(source, authenticateArtifact) {
   const authenticated = authenticateArtifact(normalizeArtifact(source.artifact), source);
   if (!mandatorySemanticEvidenceClasses.includes(authenticated.authorityClass)
     || !authenticated.claims || typeof authenticated.claims !== "object" || Array.isArray(authenticated.claims)) throw new Error("invalid evidence document");
-  const normalized = { authorityClass: String(authenticated.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount }, claims: sortObject(authenticated.claims) };
-  Object.defineProperty(normalized, "underlyingIdentity", { value: authenticated.underlyingIdentity, enumerable: false });
+  if (!digest64(authenticated.provenanceIdentity) || authenticated.provenanceArtifact?.authenticated !== true) throw new Error("invalid source provenance");
+  const normalized = { authorityClass: String(authenticated.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount }, provenanceArtifact: authenticated.provenanceArtifact, claims: sortObject(authenticated.claims) };
+  Object.defineProperty(normalized, "provenanceIdentity", { value: authenticated.provenanceIdentity, enumerable: false });
   return normalized;
 }
 function normalizeArtifact(artifact) { return { role: String(artifact?.role || ""), path: String(artifact?.path || ""), sha256: String(artifact?.sha256 || "") }; }
@@ -494,11 +497,12 @@ function validatePersistenceDirectory(logsRoot, directory) {
     return { ok: true, path: real };
   } catch { return failed("post_incident_successor_root_unsafe"); }
 }
-function authenticateSourceArtifact(artifact) {
+function authenticateSourceArtifact(artifact, source) {
   const authenticated = authenticateOpaqueArtifact(artifact);
+  const provenanceArtifact = authenticateOpaqueArtifact(normalizeArtifact(source?.provenanceArtifact));
   const document = JSON.parse(authenticated.authenticatedBytes.toString("utf8"));
   if (document?.contract !== "semantic_recovery_evidence_source" || document?.version !== 1) throw new Error("invalid evidence document");
-  return { ...authenticated, authorityClass: document.authorityClass, claims: document.claims };
+  return { ...authenticated, authorityClass: document.authorityClass, claims: document.claims, provenanceIdentity: provenanceArtifact.sha256, provenanceArtifact: { role: provenanceArtifact.role, path: provenanceArtifact.path, sha256: provenanceArtifact.sha256, authenticated: true, byteCount: provenanceArtifact.byteCount } };
 }
 function authenticateOpaqueArtifact(artifact) {
   const canonicalPath = realpathSync(artifact.path);
