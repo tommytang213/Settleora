@@ -129,7 +129,6 @@ export function adoptHistoricalTaskWorkspace(config, {
         ),
         execute: () => {
           const creationResult = runFixedTrustedGit(controlRoot, [
-            "-c", "core.hooksPath=/dev/null",
             "worktree", "add", "--", intendedTaskRoot, branchName,
           ]);
           assertGitSuccess(creationResult, "Unable to materialize historical task worktree");
@@ -254,19 +253,19 @@ export function runGit(args, options = {}) {
   const cwd = options.cwd || trustedRepositoryContext?.root || process.cwd();
   const context = sourceOwnedGitContext(cwd);
   assertSourceOwnedGitMetadata(context);
-  const transportCommand = externalTransportCommand(args);
-  if (transportCommand === "unsupported_git_global_option") {
+  const command = classifySourceOwnedGitCommand(args);
+  if (command.kind === "unsupported") {
     return {
       command: `git ${args.join(" ")}`,
       status: 128,
       stdout: "",
-      stderr: "Unsupported Git global option before source-owned command",
+      stderr: "Git invocation is outside the source-owned command grammar",
       error: null,
       signal: null,
       reasonCode: "source_owned_git_argv_unrecognized",
     };
   }
-  if (transportCommand && options.allowLocalFileTransport !== true) {
+  if (command.kind === "transport" && options.allowLocalFileTransport !== true) {
     return {
       command: `git ${args.join(" ")}`,
       status: 128,
@@ -309,18 +308,54 @@ export function runGit(args, options = {}) {
   };
 }
 
-function externalTransportCommand(args) {
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "-c" || arg === "--config-env") {
-      if (typeof args[index + 1] !== "string" || !args[index + 1].length) return "unsupported_git_global_option";
-      index += 1;
-      continue;
-    }
-    if (arg.startsWith("-")) return "unsupported_git_global_option";
-    return ["fetch", "ls-remote", "push"].includes(arg) ? arg : null;
+const sourceOwnedLocalGitCommands = new Set([
+  "add", "apply", "branch", "cat-file", "cherry-pick", "commit", "commit-tree",
+  "config", "diff", "diff-index", "diff-tree", "for-each-ref", "hash-object", "log", "ls-files",
+  "ls-tree", "merge-base", "merge-tree", "patch-id", "read-tree", "rev-list",
+  "rev-parse", "show", "show-ref", "status", "switch", "symbolic-ref", "update-index",
+  "update-ref", "worktree", "write-tree",
+]);
+const sourceOwnedTransportGitCommands = new Set(["fetch", "ls-remote", "push"]);
+
+function classifySourceOwnedGitCommand(args) {
+  if (!Array.isArray(args) || args.length === 0 || args.some((arg) => typeof arg !== "string")) {
+    return { kind: "unsupported", command: null };
   }
-  return null;
+  const command = args[0];
+  // Global options, config injection, aliases, and unlisted porcelain/plumbing
+  // never reach Git. Only this source-owned first-token grammar may dispatch.
+  if (!command || command.startsWith("-")) return { kind: "unsupported", command };
+  if (sourceOwnedTransportGitCommands.has(command)) {
+    return sourceOwnedTransportArguments(command, args.slice(1))
+      ? { kind: "transport", command }
+      : { kind: "unsupported", command };
+  }
+  if (sourceOwnedLocalGitCommands.has(command)) {
+    if (command === "config" && !sourceOwnedConfigReadArguments(args.slice(1))) return { kind: "unsupported", command };
+    return { kind: "local", command };
+  }
+  return { kind: "unsupported", command };
+}
+
+function sourceOwnedTransportArguments(command, args) {
+  const options = command === "fetch" ? new Set(["--no-tags"])
+    : command === "push" ? new Set(["--no-verify"])
+      : new Set(["--heads", "--exit-code"]);
+  let index = 0;
+  if (options.has(args[index])) index += 1;
+  // One authenticated remote and one exact ref/refspec are mandatory. This
+  // excludes helper, pack-program, recurse, alias, and arbitrary option forms.
+  return args.length - index === 2
+    && args.slice(index).every((value) => value.length > 0 && !value.startsWith("-"));
+}
+
+function sourceOwnedConfigReadArguments(args) {
+  const signature = args.join("\0");
+  return new Set([
+    ["--local", "--name-only", "--list"].join("\0"),
+    ["--local", "--get", "extensions.worktreeConfig"].join("\0"),
+    ["--worktree", "--name-only", "--list"].join("\0"),
+  ]).has(signature);
 }
 
 export function assertGitSuccess(result, message) {
@@ -405,6 +440,9 @@ function runLaunchWorkspaceGuardGit(args, { cwd, environment = process.env } = {
   void environment;
   const context = sourceOwnedGitContext(cwd);
   assertSourceOwnedGitMetadata(context);
+  if (classifySourceOwnedGitCommand(args).kind !== "local") {
+    return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Git invocation is outside the source-owned command grammar", error: null };
+  }
   const fixedArgs = fixedRepositoryGitArgs(cwd, args);
   const result = spawnSync("/usr/bin/git", fixedArgs, {
     cwd,
@@ -566,7 +604,7 @@ function validateGithubApiRepositoryBinding(args, repositorySlug) {
   }
 }
 
-export const gitWorkspaceTestInternals = Object.freeze({ bindGithubRepository, externalTransportCommand });
+export const gitWorkspaceTestInternals = Object.freeze({ bindGithubRepository, classifySourceOwnedGitCommand });
 
 function trustedGithubAuthenticationEnvironment() {
   const environment = fixedUserEnvironment();
@@ -897,31 +935,12 @@ export function runTrustedProspectiveMergeTree(config, baseSha, headSha) {
   if (!/^[a-f0-9]{40}$/u.test(baseSha || "") || !/^[a-f0-9]{40}$/u.test(headSha || "")) {
     return { command: "/usr/bin/git merge-tree", status: 128, stdout: "", stderr: "invalid merge identity", error: null };
   }
-  const args = [
-    "-c", "credential.helper=",
-    "-c", "core.hooksPath=/dev/null",
-    "-c", "core.fsmonitor=false",
-    "-c", "core.attributesFile=/dev/null",
-    "-c", "diff.external=",
-    "-c", "protocol.ext.allow=never",
-    "-c", "protocol.file.allow=never",
-    "merge-tree", "--write-tree", baseSha, headSha,
-  ];
+  const args = ["merge-tree", "--write-tree", baseSha, headSha];
   return runFixedTrustedGit(config.repoRoot, args);
 }
 
 function runTrustedHistoricalFetch(cwd, remote, refspec, allowLocalFileTransport) {
-  const args = [
-    "-c", "credential.helper=",
-    "-c", "core.hooksPath=/dev/null",
-    "-c", "core.sshCommand=",
-    "-c", "core.fsmonitor=false",
-    "-c", "core.attributesFile=/dev/null",
-    "-c", "diff.external=",
-    "-c", "protocol.ext.allow=never",
-    "-c", "protocol.file.allow=never",
-    "fetch", "--no-tags", remote, refspec,
-  ];
+  const args = ["fetch", "--no-tags", remote, refspec];
   return runGit(args, { cwd, allowLocalFileTransport });
 }
 

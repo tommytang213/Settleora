@@ -173,7 +173,25 @@ export function authenticateSemanticRecoverySources(sourceDescriptors, registry)
     verified.push(registry.verify(authorityClass, descriptor));
   }
   if (semanticRecoveryAuthorityClasses.some((authorityClass) => !seen.has(authorityClass))) throw new Error("semantic source class missing");
+  assertIndependentSemanticRecoverySources(verified);
   return deepFreeze(verified.sort((left, right) => left.authorityClass.localeCompare(right.authorityClass)));
+}
+
+function assertIndependentSemanticRecoverySources(verified) {
+  const provenanceIdentities = new Set();
+  const canonicalStoreOrigins = new Set();
+  for (const source of verified) {
+    if (provenanceIdentities.has(source.provenanceIdentity)) {
+      throw new Error("semantic source provenance is not independent");
+    }
+    provenanceIdentities.add(source.provenanceIdentity);
+    // Store kind is class-specific and therefore cannot manufacture
+    // independence. The authenticated canonical origin itself must differ.
+    if (canonicalStoreOrigins.has(source.store.path)) {
+      throw new Error("semantic source store origin is not independent");
+    }
+    canonicalStoreOrigins.add(source.store.path);
+  }
 }
 
 export function applySemanticRecoveryClaimOwnerMatrix(verifiedSources) {

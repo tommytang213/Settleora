@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -122,9 +122,10 @@ test("production external Git transport fails before a same-UID config race can 
   }
 });
 
-test("value-taking Git global options cannot hide an external transport command", () => {
+test("only the closed source-owned Git command grammar reaches Git", () => {
   const repo = tempRepo();
   try {
+    const aliasMarker = path.join(repo.cwd, "alias-executed");
     for (const args of [
       ["-C", repo.cwd, "ls-remote", "https://github.com/example/repo.git"],
       [`-C${repo.cwd}`, "ls-remote", "https://github.com/example/repo.git"],
@@ -132,12 +133,22 @@ test("value-taking Git global options cannot hide an external transport command"
       [`--git-dir=${path.join(repo.cwd, ".git")}`, "fetch", "https://github.com/example/repo.git"],
       ["--work-tree", repo.cwd, "push", "https://github.com/example/repo.git", "HEAD"],
       [`--work-tree=${repo.cwd}`, "push", "https://github.com/example/repo.git", "HEAD"],
+      ["-c", "alias.x=fetch", "x", "https://github.com/example/repo.git"],
+      ["-c", `alias.x=!touch ${aliasMarker}`, "x"],
+      ["config", "alias.x", `!touch ${aliasMarker}`],
+      ["remote", "update"],
+      ["fetch-pack", "https://github.com/example/repo.git"],
+      ["send-pack", "https://github.com/example/repo.git"],
+      ["pull", "https://github.com/example/repo.git"],
+      ["fetch", "--upload-pack=/bin/sh", "https://github.com/example/repo.git", "refs/heads/main"],
+      ["push", "--receive-pack=/bin/sh", "https://github.com/example/repo.git", "HEAD"],
     ]) {
       const result = runGit(args, { cwd: repo.cwd });
       assert.equal(result.status, 128, args.join(" "));
       assert.equal(result.reasonCode, "source_owned_git_argv_unrecognized", args.join(" "));
-      assert.match(result.stderr, /Unsupported Git global option/u);
+      assert.match(result.stderr, /source-owned command grammar/u);
     }
+    assert.equal(existsSync(aliasMarker), false);
   } finally {
     repo.cleanup();
   }

@@ -15,6 +15,7 @@ import {
 } from "../lib/post-incident-successor-recovery.mjs";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
+  authenticateSemanticRecoverySources,
   createDeterministicSemanticRecoveryVerifierRegistry,
   createProductionSemanticRecoveryVerifierRegistry,
   expectedSemanticRecoveryGrantDocument,
@@ -189,6 +190,24 @@ test("arbitrary two-class agreement cannot replace a missing domain owner", () =
   setOwnerClaim(value, "pushEffect", "repository_git", false);
   setOwnerClaim(value, "pushEffect", "lifecycle", false);
   assert.equal(build(value).reasonCode, "semantic_claim_required_owner_missing");
+});
+
+test("authority classes require independent provenance and canonical store origins", () => {
+  const duplicateProvenance = fixture();
+  duplicateProvenance.records.lifecycle.record.provenanceIdentity = duplicateProvenance.records.repository_git.record.provenanceIdentity;
+  assert.throws(
+    () => authenticateSemanticRecoverySources(duplicateProvenance.packet.sources,
+      createDeterministicSemanticRecoveryVerifierRegistry(duplicateProvenance.records)),
+    /provenance is not independent/u,
+  );
+
+  const duplicateOrigin = fixture();
+  duplicateOrigin.records.lifecycle.record.store.path = duplicateOrigin.records.repository_git.record.store.path;
+  assert.throws(
+    () => authenticateSemanticRecoverySources(duplicateOrigin.packet.sources,
+      createDeterministicSemanticRecoveryVerifierRegistry(duplicateOrigin.records)),
+    /store origin is not independent/u,
+  );
 });
 
 test("required-owner and present-corrobator disagreement fail closed", () => {
