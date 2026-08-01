@@ -4,6 +4,9 @@ import path from "node:path";
 
 export const semanticRecoveryContract = "post_incident_semantic_successor";
 export const semanticRecoveryVersion = 1;
+const maximumBoundArtifacts = 64;
+const maximumArtifactBytes = 256 * 1024;
+const maximumAggregateArtifactBytes = 4 * 1024 * 1024;
 
 export const mandatorySemanticEvidenceClasses = Object.freeze([
   "repository_git",
@@ -50,13 +53,15 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
     return failed("semantic_evidence_source_authentication_failed");
   }
   if (sources.some((source) => source.artifact.authenticated !== true)) return failed("semantic_evidence_source_authentication_failed");
+  if (packet.artifacts.length < 1 || packet.artifacts.length > maximumBoundArtifacts) return failed("semantic_bound_artifact_count_invalid");
   let artifacts;
   try {
     artifacts = [...packet.artifacts].map((artifact) => {
       const authenticated = authenticateBoundArtifact(normalizeArtifact(artifact));
-      return { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true };
+      return { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount };
     }).sort(compareArtifact);
   } catch { return failed("semantic_bound_artifact_authentication_failed"); }
+  if (artifacts.reduce((total, artifact) => total + artifact.byteCount, 0) > maximumAggregateArtifactBytes) return failed("semantic_bound_artifact_bytes_exceeded");
   const classes = new Set(sources.map((source) => source.authorityClass));
   if (classes.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_authority_class"]);
   const underlyingArtifacts = new Set(sources.map((source) => source.underlyingIdentity));
@@ -443,11 +448,12 @@ function authenticateSourceArtifact(artifact) {
 function authenticateOpaqueArtifact(artifact) {
   const canonicalPath = realpathSync(artifact.path);
   const stat = lstatSync(canonicalPath);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink < 1 || (stat.mode & 0o077) !== 0) throw new Error("untrusted artifact");
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink < 1 || stat.size < 1 || stat.size > maximumArtifactBytes
+    || (stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())) throw new Error("untrusted artifact");
   const bytes = readFileSync(canonicalPath);
   const actualSha256 = digest(bytes);
   if (actualSha256 !== artifact.sha256) throw new Error("artifact digest mismatch");
-  const authenticated = { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: actualSha256 };
+  const authenticated = { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: actualSha256, byteCount: stat.size };
   Object.defineProperty(authenticated, "authenticatedBytes", { value: bytes, enumerable: false });
   return authenticated;
 }

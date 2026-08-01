@@ -19,7 +19,7 @@ const oldHash = "6".repeat(64);
 const incidentHash = "5".repeat(64);
 const rootPath = "/sanitized/recovery/root.json";
 const authenticateArtifact = (artifact, source) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, authorityClass: source.authorityClass, claims: source.claims });
-const authenticateBoundArtifact = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256 });
+const authenticateBoundArtifact = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, byteCount: 1 });
 const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact, authenticateBoundArtifact });
 const claims = {
   repository: "example/repo", issueNumber: 7, taskKey: "task-1", claimIdentity: "example/repo#7", chargeId: "c".repeat(64),
@@ -192,6 +192,19 @@ test("authenticated artifact set must bind the exact incident path and digest", 
   const wrongDigest = packet(); wrongDigest.artifacts[0].sha256 = "9".repeat(64);
   assert.equal(buildSemanticRecoveryManifest(wrongDigest).reasonCode, "semantic_incident_artifact_binding_missing");
   assert.equal(buildSemanticRecoveryManifest(packet({ incidentIdentity: "unbound" })).reasonCode, "semantic_incident_identity_binding_invalid");
+});
+
+test("bound artifact count is finite", () => {
+  const value = packet(); value.artifacts = Array.from({ length: 65 }, (_, index) => ({ role: `extra_${index}`, path: `/sanitized/${index}.json`, sha256: "a".repeat(64) }));
+  assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_bound_artifact_count_invalid");
+});
+
+test("bound artifact aggregate bytes are finite", () => {
+  const result = buildSemanticRecoveryManifestProduction(packet(), {
+    authenticateArtifact,
+    authenticateBoundArtifact: (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, byteCount: 300 * 1024 }),
+  });
+  assert.equal(result.reasonCode, "semantic_bound_artifact_bytes_exceeded");
 });
 
 test("distinct successor binds provenance and stays non-executable", () => {
