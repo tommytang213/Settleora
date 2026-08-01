@@ -1,5 +1,54 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#999 and PR #1030 — live projection diagnostics replay repair merged (2026-08-01)
+
+- PR #1030 merged normally with expected-head protection from exact authorized
+  base `c19837b0da9ec6112351439fff3c3244825ffd13`, source head
+  `d17f1621e377475a109a3a6ab2e775f06390a5d8`, and source tree
+  `a2ee4475db029b1c17e09619090bcb29aabdaf04` as merge
+  `2bb808fd7154227249ef839b687dd6dc27c33318`. Its ordered history is exactly
+  nine commits across the six authorized auto-runner implementation,
+  documentation, and test paths; the merge parents are the exact base and
+  source head, and the merge tree equals the source tree.
+- The root cause was unrelated unsuffixed legacy summary reauthentication plus
+  collapsed projection diagnostics. The repair separates diagnostic
+  observation from canonical selected-overlay authority: unsuffixed candidates
+  retain producer-identical bounded diagnostics but cannot supply overlay
+  authority, and loaded-artifact plus lifecycle/projector failures use a finite
+  fail-closed taxonomy.
+- Exact-head validation passed focused tests `86/86`, the complete auto-runner
+  suite `1306/1306`, `npm ci` with zero vulnerabilities, doctor, changed-file
+  syntax, docs, scaffold, diff, exact-scope, and clean guards. Gemini
+  `strong_independent` passed at high confidence with no findings; local Codex
+  returned `VERDICT: PASS`; exact-head GitHub Codex reported no major issues.
+  All required CodeQL, Semgrep CE/OSS, Trivy, Scaffold Validation, branch, and
+  ruleset checks passed; all `5/5` review threads were resolved with zero
+  unresolved; open code-scanning, secret-scanning, and Dependabot alerts were
+  `0/0/0`.
+- Exact-live read-only replay of all 14 preserved artifacts remained bound to
+  evidence digest
+  `9f318627ae40ef8862e726c79f2bfdc12b35cd8504f1a462f2f6e551a8304bc3`,
+  and every artifact remained byte-identical. Issue #959 remained `OPEN` with
+  exactly six labels and 13 comments, without `auto-claimed` or `auto-running`
+  and without its preserved remote branch or PR. Issue #999 remained separate,
+  `OPEN`, with exactly three labels and zero comments. Neither issue was
+  mutated.
+- Keep Issue #1012 `OPEN` with `manual-gate`; the close recommendation remains
+  keep-open. A bounded deployment of the merged repair remains pending separate
+  authorization, followed by separate authorization for exactly one preserved
+  Issue #959 continuation. Reconcile the close rule only after that continuation
+  safely advances.
+- This source merge and ledger hygiene performed no deployment, rollback,
+  runtime/profile/approval/launcher/service/health mutation, runner or
+  supervisor submission, queue activation, Issue #959 continuation, Issue #999
+  work, product/API/OpenAPI/generated-client/auth/storage/privacy/money/schema/
+  Docker/CI/secret change, cleanup, force-like history operation, or direct-main
+  push.
+- Issue #1012 source-merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5148855448`.
+  Source review/final-gate report:
+  `/workspace/logs/settleora-codex-report-20260801-0852-pr1030-late-exact-head-review-checkpoint-final-gate.md`.
+
 ### Issues #1012/#959/#999 and PR #1028 — failed-continuation overlay admission repair merged (2026-07-31)
 
 - PR #1028 merged normally with expected-head protection from exact authorized
