@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { readIssueCommentDigest } from "./github-issues.mjs";
@@ -16,7 +15,7 @@ import {
 } from "./preserved-recovery-deployment.mjs";
 import { canonicalApprovedGitHubRepository } from "./runtime-identity.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
-import { runTrustedGithub } from "./git-workspace.mjs";
+import { runGit as runSourceOwnedGit, runTrustedGithub } from "./git-workspace.mjs";
 
 const sha = /^[a-f0-9]{40}$/u;
 const digest = /^[a-f0-9]{64}$/u;
@@ -95,11 +94,11 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     }
 
     const git = options.git || ((args) => runGit(repoRoot, args));
+    if (unsafeObjectMechanism(repoRoot, git)) return fail("historical_candidate_git_object_environment_untrusted");
     if (!trustedRepository(git, repository, repoRoot)) return fail("historical_candidate_git_environment_untrusted");
     if (git(["rev-parse", "--is-shallow-repository"]).stdout.trim() !== "false") {
       return fail("historical_candidate_history_shallow");
     }
-    if (unsafeObjectMechanism(repoRoot, git)) return fail("historical_candidate_git_object_environment_untrusted");
     const initialHeadSha = candidate.headSha;
     if (!objectIs(git, baseSha, "commit") || !objectIs(git, initialHeadSha, "commit")
       || !objectIs(git, headSha, "commit")) {
@@ -726,34 +725,11 @@ function validPreparedSourceFixCheckout(git, continuation, candidateHead, checko
 }
 
 function runGit(cwd, args) {
-  return spawnSync("/usr/bin/git", args, {
-    cwd,
-    encoding: "utf8",
-    env: {
-      PATH: "/usr/bin:/bin",
-      LANG: "C",
-      LC_ALL: "C",
-      GIT_ATTR_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-      GIT_CONFIG_COUNT: "3",
-      GIT_CONFIG_KEY_0: "core.hooksPath",
-      GIT_CONFIG_VALUE_0: "/dev/null",
-      GIT_CONFIG_KEY_1: "core.fsmonitor",
-      GIT_CONFIG_VALUE_1: "false",
-      GIT_CONFIG_KEY_2: "protocol.ext.allow",
-      GIT_CONFIG_VALUE_2: "never",
-      GIT_NO_LAZY_FETCH: "1",
-      GIT_NO_REPLACE_OBJECTS: "1",
-      GIT_OPTIONAL_LOCKS: "0",
-      GIT_TERMINAL_PROMPT: "0",
-    },
-    maxBuffer: 16 * 1024 * 1024,
-    shell: false,
-    timeout: 15_000,
-    windowsHide: true,
-  });
+  try {
+    return runSourceOwnedGit(args, { cwd, maxBuffer: 16 * 1024 * 1024, timeoutMs: 15_000 });
+  } catch {
+    return { command: `/usr/bin/git ${args.join(" ")}`, status: 128, stdout: "", stderr: "source-owned Git admission failed", error: null };
+  }
 }
 
 function authenticatedOriginUrl(git, repository) {
@@ -798,6 +774,13 @@ function trustedRepository(git, repository, repoRoot) {
           || (worktreeConfigs?.status === 0 && !unsafeConfig(worktreeConfigs.stdout)))));
 }
 function unsafeObjectMechanism(repoRoot, git) {
+  const directGitDir = path.join(repoRoot, ".git");
+  if (existsSync(directGitDir) && lstatSync(directGitDir).isDirectory()
+    && (existsSync(path.join(directGitDir, "info", "grafts"))
+      || existsSync(path.join(directGitDir, "objects", "info", "alternates"))
+      || existsSync(path.join(directGitDir, "objects", "info", "http-alternates"))
+      || (existsSync(path.join(directGitDir, "refs", "replace"))
+        && readdirSync(path.join(directGitDir, "refs", "replace")).length > 0))) return true;
   const common = git(["rev-parse", "--git-common-dir"]).stdout.trim();
   const gitDir = path.resolve(repoRoot, common);
   const replaceRoot = path.join(gitDir, "refs", "replace");

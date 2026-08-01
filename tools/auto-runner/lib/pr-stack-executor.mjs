@@ -2095,7 +2095,8 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
         candidateCommitChainDigest: candidate.commitChainDigest,
       });
       const baseRemote = assertRepositoryRemoteIdentity(config);
-      const baseFetch = runner("git", ["fetch", baseRemote?.originUrl || "origin", pr?.baseRefName || pr?.base || "main"], { cwd });
+      const baseBranch = pr?.baseRefName || pr?.base || "main";
+      const baseFetch = runner("git", ["fetch", baseRemote?.originUrl || "origin", `refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}`], { cwd });
       if (baseFetch.status !== 0 || baseFetch.error) return fail("existing_pr_batch_fix_base_fetch_failed", boundedText(baseFetch.stderr || baseFetch.error || baseFetch.stdout));
       const live = readLivePrProof({ config, pr, expectedHead: exactHead, runner });
       if (!live.ok) return live;
@@ -3945,7 +3946,7 @@ function proveTargetBatchFixWorktree({ config, pr, runner, recoveryState = null 
     && recoveryState?.sourceBranch === branch;
   if (clean.clean !== true && !dirtyRecoveryAuthorized) return fail("existing_pr_batch_fix_worktree_dirty", "target worktree/index must be clean before checkout or Codex", clean);
   const verifiedRemote = assertRepositoryRemoteIdentity(config);
-  const fetch = runner("git", ["fetch", verifiedRemote?.originUrl || "origin", branch], { cwd });
+  const fetch = runner("git", ["fetch", verifiedRemote?.originUrl || "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("existing_pr_batch_fix_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "existing_pr_batch_fix_remote_head_unreadable" });
   if (!remote.ok) return remote;
@@ -4037,7 +4038,7 @@ function prepareExactHeadFinalGateWorktree({ config, pr, expectedHead, runner, r
   let remote = { ok: true, sha: null };
   if (beforeBranchName !== branch || head.sha !== expectedHead) {
     const verifiedRemote = assertRepositoryRemoteIdentity(config);
-    const fetch = runner("git", ["fetch", verifiedRemote?.originUrl || "origin", branch], { cwd });
+    const fetch = runner("git", ["fetch", verifiedRemote?.originUrl || "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`], { cwd });
     if (fetch.status !== 0 || fetch.error) return fail("exact_head_gate_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
     remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "exact_head_gate_remote_head_unreadable" });
     if (!remote.ok) return remote;
@@ -4520,10 +4521,10 @@ function reconcilePushIntent({ config, pr, intent, runner, requireCandidate = fa
   const branch = intent.sourceBranch;
   const cwd = config.repoRoot;
   const branchRemote = assertRepositoryRemoteIdentity(config);
-  const fetch = runner("git", ["fetch", branchRemote?.originUrl || "origin", branch], { cwd });
+  const fetch = runner("git", ["fetch", branchRemote?.originUrl || "origin", `refs/heads/${branch}:refs/remotes/origin/${branch}`], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("push_intent_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const baseRemote = assertRepositoryRemoteIdentity(config);
-  const baseFetch = runner("git", ["fetch", baseRemote?.originUrl || "origin", "main"], { cwd });
+  const baseFetch = runner("git", ["fetch", baseRemote?.originUrl || "origin", "refs/heads/main:refs/remotes/origin/main"], { cwd });
   if (baseFetch.status !== 0 || baseFetch.error) return fail("push_intent_base_fetch_failed", boundedText(baseFetch.stderr || baseFetch.error || baseFetch.stdout));
   const remote = readGitSha({ runner, cwd, ref: `origin/${branch}`, reasonCode: "push_intent_remote_unreadable" });
   const local = readGitSha({ runner, cwd, ref: "HEAD", reasonCode: "push_intent_local_head_unreadable" });
@@ -4891,7 +4892,7 @@ function validateCanonicalCommitChain(values = [], { oldHead, newHead, candidate
 function fetchAndReadOriginMain({ config, runner, reasonPrefix }) {
   const cwd = config.repoRoot;
   const verifiedRemote = assertRepositoryRemoteIdentity(config);
-  const fetch = runner("git", ["fetch", verifiedRemote?.originUrl || "origin", "main"], { cwd });
+  const fetch = runner("git", ["fetch", verifiedRemote?.originUrl || "origin", "refs/heads/main:refs/remotes/origin/main"], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail(`${reasonPrefix}_base_fetch_failed`, boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const base = readGitSha({ runner, cwd, ref: "origin/main", reasonCode: `${reasonPrefix}_base_unreadable` });
   if (!base.ok) return base;
@@ -4981,7 +4982,7 @@ function fetchCurrentMainProof({ config, state, pr, runner }) {
   const parentMergeSha = mergeProof.mergeSha || mergeProof.result?.mergeSha || null;
   if (!validSha(parentMergeSha)) return fail("current_main_parent_merge_sha_missing", "parent merge SHA is required before current-main proof");
   const verifiedRemote = assertRepositoryRemoteIdentity(config);
-  const fetch = runner("git", ["fetch", verifiedRemote?.originUrl || "origin", "main"], { cwd });
+  const fetch = runner("git", ["fetch", verifiedRemote?.originUrl || "origin", "refs/heads/main:refs/remotes/origin/main"], { cwd });
   if (fetch.status !== 0 || fetch.error) return fail("current_main_fetch_failed", boundedText(fetch.stderr || fetch.error || fetch.stdout));
   const current = runner("git", ["rev-parse", "origin/main"], { cwd });
   if (current.status !== 0 || current.error) return fail("current_main_read_failed", boundedText(current.stderr || current.error || current.stdout));

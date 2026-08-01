@@ -142,6 +142,10 @@ test("only the closed source-owned Git command grammar reaches Git", () => {
       ["pull", "https://github.com/example/repo.git"],
       ["fetch", "--upload-pack=/bin/sh", "https://github.com/example/repo.git", "refs/heads/main"],
       ["push", "--receive-pack=/bin/sh", "https://github.com/example/repo.git", "HEAD"],
+      ["apply", "--unsafe-paths", "-"],
+      ["branch", "--edit-description", "main"],
+      ["worktree", "add", "/tmp/outside", "HEAD"],
+      ["push", "--no-verify", `--force-with-lease=refs/heads/a:${"a".repeat(40)}`, "/tmp/remote.git", ":refs/heads/b"],
     ]) {
       const result = runGit(args, { cwd: repo.cwd });
       assert.equal(result.status, 128, args.join(" "));
@@ -149,9 +153,54 @@ test("only the closed source-owned Git command grammar reaches Git", () => {
       assert.match(result.stderr, /source-owned command grammar/u);
     }
     assert.equal(existsSync(aliasMarker), false);
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand(["merge", "--ff-only", "origin/topic"]).kind, "local");
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
+      "push", "--no-verify", `--force-with-lease=refs/heads/topic:${"a".repeat(40)}`,
+      "/tmp/remote.git", ":refs/heads/topic",
+    ]).kind, "transport");
   } finally {
     repo.cleanup();
   }
+});
+
+test("literal fetch updates the exact remote-tracking ref and only the exact fast-forward form advances HEAD", () => {
+  const repo = tempRepo();
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-explicit-fetch-"));
+  const bare = path.join(root, "remote.git");
+  try {
+    execFileSync("/usr/bin/git", ["init", "--bare", bare], { encoding: "utf8" });
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "remote", "add", "origin", bare], { encoding: "utf8" });
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "push", bare, `${repo.base}:refs/heads/main`], { encoding: "utf8" });
+    writeFileSync(path.join(repo.cwd, "topic.txt"), "topic\n");
+    repo.git("add", "topic.txt");
+    repo.git("commit", "-m", "topic");
+    const topic = repo.git("rev-parse", "HEAD");
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "push", bare, `${topic}:refs/heads/topic`], { encoding: "utf8" });
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "reset", "--hard", repo.base], { encoding: "utf8" });
+
+    const fetched = runGit(["fetch", bare, "refs/heads/topic:refs/remotes/origin/topic"], {
+      cwd: repo.cwd, allowLocalFileTransport: true,
+    });
+    assert.equal(fetched.status, 0, fetched.stderr);
+    assert.equal(repo.git("rev-parse", "origin/topic"), topic);
+    const merged = runGit(["merge", "--ff-only", "origin/topic"], { cwd: repo.cwd });
+    assert.equal(merged.status, 0, merged.stderr);
+    assert.equal(repo.git("rev-parse", "HEAD"), topic);
+  } finally {
+    repo.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("fixed Git arguments neutralize helper-bearing config before every admitted spawn", () => {
+  const args = gitWorkspaceTestInternals.fixedRepositoryGitArgs(process.cwd(), ["commit", "-m", "bounded"]);
+  for (const binding of [
+    "core.hooksPath=/dev/null", "core.editor=/usr/bin/false", "sequence.editor=/usr/bin/false",
+    "commit.gpgSign=false", "tag.gpgSign=false", "gpg.program=/usr/bin/false",
+    "gpg.openpgp.program=/usr/bin/false", "gpg.ssh.program=/usr/bin/false",
+  ]) assert.ok(args.includes(binding), binding);
+  const diff = gitWorkspaceTestInternals.fixedRepositoryGitArgs(process.cwd(), ["diff", "--binary"]);
+  assert.deepEqual(diff.slice(-4), ["diff", "--no-ext-diff", "--no-textconv", "--binary"]);
 });
 
 test("trusted GitHub execution requires an explicit canonical repository context", () => {

@@ -253,7 +253,7 @@ export function runGit(args, options = {}) {
   const cwd = options.cwd || trustedRepositoryContext?.root || process.cwd();
   const context = sourceOwnedGitContext(cwd);
   assertSourceOwnedGitMetadata(context);
-  const command = classifySourceOwnedGitCommand(args);
+  const command = classifySourceOwnedGitCommand(args, { cwd: context.root, options });
   if (command.kind === "unsupported") {
     return {
       command: `git ${args.join(" ")}`,
@@ -277,6 +277,15 @@ export function runGit(args, options = {}) {
     };
   }
   const hasHead = repositoryHasHead(context);
+  try {
+    if (hasHead) assertSourceOwnedTreeAttributes(context);
+  } catch {
+    return {
+      command: `git ${args.join(" ")}`, status: 128, stdout: "",
+      stderr: "Repository attributes may select executable Git drivers", error: null,
+      signal: null, reasonCode: "source_owned_git_attributes_unsafe",
+    };
+  }
   const fixedArgs = fixedRepositoryGitArgs(cwd, args, {
     allowLocalFileTransport: options.allowLocalFileTransport === true,
   });
@@ -308,16 +317,9 @@ export function runGit(args, options = {}) {
   };
 }
 
-const sourceOwnedLocalGitCommands = new Set([
-  "add", "apply", "branch", "cat-file", "cherry-pick", "commit", "commit-tree",
-  "config", "diff", "diff-index", "diff-tree", "for-each-ref", "hash-object", "log", "ls-files",
-  "ls-tree", "merge-base", "merge-tree", "patch-id", "read-tree", "remote", "rev-list",
-  "rev-parse", "show", "show-ref", "status", "switch", "symbolic-ref", "update-index",
-  "update-ref", "worktree", "write-tree",
-]);
 const sourceOwnedTransportGitCommands = new Set(["fetch", "ls-remote", "push"]);
 
-function classifySourceOwnedGitCommand(args) {
+function classifySourceOwnedGitCommand(args, context = {}) {
   if (!Array.isArray(args) || args.length === 0 || args.some((arg) => typeof arg !== "string")) {
     return { kind: "unsupported", command: null };
   }
@@ -330,39 +332,231 @@ function classifySourceOwnedGitCommand(args) {
       ? { kind: "transport", command }
       : { kind: "unsupported", command };
   }
-  if (sourceOwnedLocalGitCommands.has(command)) {
-    if (command === "config" && !sourceOwnedConfigReadArguments(args.slice(1))) return { kind: "unsupported", command };
-    if (command === "remote" && !sourceOwnedRemoteReadArguments(args.slice(1))) return { kind: "unsupported", command };
-    return { kind: "local", command };
-  }
-  return { kind: "unsupported", command };
+  return sourceOwnedLocalArguments(command, args.slice(1), context)
+    ? { kind: "local", command }
+    : { kind: "unsupported", command };
 }
 
 function sourceOwnedTransportArguments(command, args) {
   let index = 0;
   if (command === "fetch" && args[index] === "--no-tags") index += 1;
   if (command === "ls-remote" && ["--heads", "--exit-code"].includes(args[index])) index += 1;
+  let lease = null;
   if (command === "push" && args[index] === "--no-verify") {
     index += 1;
-    if (/^--force-with-lease=refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}:[a-f0-9]{40}$/u.test(args[index] || "")) index += 1;
+    const match = String(args[index] || "").match(/^--force-with-lease=(refs\/heads\/([A-Za-z0-9][A-Za-z0-9._/-]{0,239})):[a-f0-9]{40}$/u);
+    if (match) { lease = match[1]; index += 1; }
   }
-  // One authenticated remote and one exact ref/refspec are mandatory. This
-  // excludes helper, pack-program, recurse, alias, and arbitrary option forms.
-  return args.length - index === 2
-    && args.slice(index).every((value) => value.length > 0 && !value.startsWith("-"));
+  if (args.length - index !== 2) return false;
+  const [remote, refspec] = args.slice(index);
+  if (!sourceOwnedRemote(remote)) return false;
+  if (command === "ls-remote") return /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(refspec);
+  if (command === "fetch") return /^(?:\+)?refs\/heads\/([A-Za-z0-9][A-Za-z0-9._/-]{0,239})(?::refs\/remotes\/origin\/\1)?$/u.test(refspec);
+  const deletion = refspec.match(/^:(refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239})$/u);
+  if (deletion) return lease !== null && deletion[1] === lease;
+  if (lease !== null) return false;
+  return /^(?:[a-f0-9]{40}|HEAD|refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}):refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(refspec);
 }
+
+function sourceOwnedRemote(value) {
+  return value === "origin"
+    || /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/u.test(value)
+    || (path.isAbsolute(value) && path.resolve(value) === value && !value.includes("\0"));
+}
+
+function sourceOwnedLocalArguments(command, args, context) {
+  const exact = (...values) => args.length === values.length && args.every((value, index) => value === values[index]);
+  const refs = (...values) => values.every(sourceOwnedRevision);
+  switch (command) {
+    case "add": {
+      const paths = args[0] === "--" ? args.slice(1) : args;
+      return paths.length > 0 && paths.every(sourceOwnedRepositoryPath);
+    }
+    case "apply": return (exact("--check", "-") || exact("--check", "--reverse", "-"));
+    case "branch": return exact("--show-current");
+    case "cat-file": return args.length === 2 && ["-e", "-t"].includes(args[0]) && refs(args[1]);
+    case "cherry-pick": return exact("--abort") || (args.length > 0 && refs(...args));
+    case "commit": return (args.length === 2 && args[0] === "-m" && sourceOwnedMessage(args[1]))
+      || (args.length === 3 && args[0] === "--allow-empty" && args[1] === "-m" && sourceOwnedMessage(args[2]));
+    case "commit-tree": return sourceOwnedCommitTreeArguments(args);
+    case "config": return sourceOwnedConfigReadArguments(args);
+    case "diff": return sourceOwnedDiffArguments(args);
+    case "diff-index": return sourceOwnedDiffIndexArguments(args);
+    case "diff-tree": return args.length === 5 && args.slice(0, 3).join("\0") === ["--no-commit-id", "--name-only", "-r"].join("\0") && refs(args[3], args[4]);
+    case "for-each-ref": return sourceOwnedForEachRefArguments(args);
+    case "hash-object": return exact("--stdin") || (args.length === 2 && args[0] === "--" && sourceOwnedRepositoryPath(args[1]));
+    case "log": return sourceOwnedLogArguments(args);
+    case "ls-files": return sourceOwnedLsFilesArguments(args);
+    case "ls-tree": return sourceOwnedLsTreeArguments(args);
+    case "merge": return args.length === 2 && args[0] === "--ff-only" && /^origin\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(args[1]);
+    case "merge-base": return (args.length === 2 || (args.length === 3 && args[0] === "--is-ancestor")) && refs(...args.filter((value) => value !== "--is-ancestor"));
+    case "merge-tree": return args.length === 3 && args[0] === "--write-tree" && refs(args[1], args[2]);
+    case "patch-id": return exact("--stable");
+    case "read-tree": return args.length === 1 && refs(args[0]);
+    case "remote": return sourceOwnedRemoteReadArguments(args);
+    case "rev-list": return sourceOwnedRevListArguments(args);
+    case "rev-parse": return sourceOwnedRevParseArguments(args);
+    case "show": return sourceOwnedShowArguments(args);
+    case "show-ref": return args.length === 0
+      || (args.length >= 2 && args[0] === "--verify" && (args.length === 2 || (args.length === 3 && args[1] === "--quiet")) && sourceOwnedFullRef(args.at(-1)));
+    case "status": return [
+      "--short", "--porcelain", "--porcelain=v1", "--porcelain=v1\0--untracked-files=all",
+      "--porcelain=v1\0--untracked-files=normal",
+    ].includes(args.join("\0"));
+    case "switch": return (args.length === 1 && sourceOwnedBranch(args[0]))
+      || (args.length === 2 && args[0] === "-c" && sourceOwnedBranch(args[1]))
+      || (args.length === 2 && args[0] === "--detach" && sourceOwnedRevision(args[1]))
+      || (args.length === 4 && args[0] === "--no-track" && args[1] === "-C" && sourceOwnedBranch(args[2]) && sourceOwnedRevision(args[3]));
+    case "symbolic-ref": return exact("--quiet", "--short", "HEAD");
+    case "update-index": return sourceOwnedUpdateIndexArguments(args);
+    case "update-ref": return args.length === 3 && args[0] === "-d" && /^refs\/heads\//u.test(args[1]) && sourceOwnedFullRef(args[1]) && /^[a-f0-9]{40}$/u.test(args[2]);
+    case "worktree": return sourceOwnedWorktreeArguments(args, context);
+    case "write-tree": return args.length === 0;
+    default: return false;
+  }
+}
+
+function sourceOwnedDiffArguments(args) {
+  if (args.length === 5 && args[0] === "--no-index" && args[1] === "--binary" && args[2] === "--"
+    && args[3] === "/dev/null" && sourceOwnedRepositoryPath(args[4])) return true;
+  const flags = new Set(["--binary", "--cached", "--name-only", "--name-status", "--no-renames", "--numstat", "--stat"]);
+  let index = 0;
+  while (flags.has(args[index])) index += 1;
+  if (args[index] === "--no-index") {
+    return args.slice(index).length === 4 && args[index + 1] === "--" && args[index + 2] === "/dev/null" && sourceOwnedRepositoryPath(args[index + 3]);
+  }
+  const operands = args.slice(index);
+  if (operands[0] === "--") return operands.slice(1).length > 0 && operands.slice(1).every(sourceOwnedRepositoryPath);
+  return operands.length <= 2 && operands.every(sourceOwnedRevision);
+}
+
+function sourceOwnedDiffIndexArguments(args) {
+  return args.length >= 2 && args[0] === "--cached" && ["--quiet", "--name-only"].includes(args[1])
+    && args.slice(2).filter((value) => value !== "--").every(sourceOwnedRevision);
+}
+
+function sourceOwnedForEachRefArguments(args) {
+  return args.length >= 1 && args.length <= 3
+    && args.filter((value) => value.startsWith("--")).every((value) => /^--format=%\([A-Za-z0-9:*._-]+\)(?:%00%\([A-Za-z0-9:*._-]+\))*$/u.test(value) || value === "--sort=refname")
+    && args.filter((value) => !value.startsWith("--")).every(sourceOwnedFullRefPrefix);
+}
+
+function sourceOwnedLsFilesArguments(args) {
+  const signatures = new Set([
+    ["--others", "--exclude-standard"].join("\0"), ["--others", "--exclude-standard", "-z"].join("\0"),
+    ["-v", "-z"].join("\0"), ["--stage", "-z"].join("\0"), ["--error-unmatch"].join("\0"),
+  ]);
+  if (signatures.has(args.join("\0"))) return true;
+  return args.length === 2 && args[0] === "--error-unmatch" && sourceOwnedRepositoryPath(args[1]);
+}
+
+function sourceOwnedLsTreeArguments(args) {
+  const copy = [...args];
+  while (["-r", "-z", "--name-only"].includes(copy[0])) copy.shift();
+  if (copy.length === 0 || !sourceOwnedRevision(copy.shift())) return false;
+  if (copy[0] === "--") copy.shift();
+  return copy.every(sourceOwnedRepositoryPath);
+}
+
+function sourceOwnedRevListArguments(args) {
+  const copy = [...args];
+  while (["--count", "--first-parent", "--reverse", "--parents"].includes(copy[0])) copy.shift();
+  if (copy[0] === "-n" && /^[1-9][0-9]{0,3}$/u.test(copy[1] || "")) copy.splice(0, 2);
+  return copy.length > 0 && copy.every(sourceOwnedRevision);
+}
+
+function sourceOwnedRevParseArguments(args) {
+  const exactSignatures = new Set([
+    ["--show-toplevel"].join("\0"), ["--show-object-format"].join("\0"), ["--git-common-dir"].join("\0"),
+    ["--path-format=absolute", "--git-common-dir"].join("\0"), ["--is-shallow-repository"].join("\0"),
+  ]);
+  if (exactSignatures.has(args.join("\0"))) return true;
+  if (args.length === 2 && args[0] === "--git-path") return ["config.worktree", "info/attributes", "info/exclude"].includes(args[1]);
+  const copy = [...args];
+  if (copy[0] === "--verify") copy.shift();
+  if (copy[0] === "-q") copy.shift();
+  return copy.length === 1 && sourceOwnedRevision(copy[0]);
+}
+
+function sourceOwnedShowArguments(args) {
+  if (args.length === 0) return false;
+  const copy = [...args];
+  if (copy[0] === "-s") copy.shift();
+  if (copy[0]?.startsWith("--format=")) {
+    if (!/^--format=%[A-Za-z%n ]{1,30}$/u.test(copy[0])) return false;
+    copy.shift();
+  }
+  return copy.length === 1 && sourceOwnedRevision(copy[0]);
+}
+
+function sourceOwnedLogArguments(args) {
+  return args.length === 3 && args[0] === "-1" && /^--format=%[sHPTB]$/u.test(args[1]) && sourceOwnedRevision(args[2]);
+}
+
+function sourceOwnedCommitTreeArguments(args) {
+  if (args.length < 1 || !/^[a-f0-9]{40}$/u.test(args[0])) return false;
+  for (let index = 1; index < args.length; index += 2) {
+    if (args[index] !== "-p" || !/^[a-f0-9]{40}$/u.test(args[index + 1] || "")) return false;
+  }
+  return true;
+}
+
+function sourceOwnedUpdateIndexArguments(args) {
+  if (args.length < 1) return false;
+  if (args[0] === "--add" || args[0] === "--remove") return args.slice(1).every(sourceOwnedRepositoryPath);
+  if (args[0] === "--cacheinfo") return args.length === 4 && /^(?:100644|100755|120000)$/u.test(args[1]) && /^[a-f0-9]{40,64}$/u.test(args[2]) && sourceOwnedRepositoryPath(args[3]);
+  return false;
+}
+
+function sourceOwnedWorktreeArguments(args, context) {
+  if (args.join("\0") === ["list", "--porcelain"].join("\0")) return true;
+  if (args[0] === "remove") {
+    const target = args[1] === "--" ? args[2] : args[1];
+    return args.length === (args[1] === "--" ? 3 : 2) && sourceOwnedWorktreePath(target, context);
+  }
+  if (args[0] !== "add") return false;
+  const copy = args.slice(1);
+  if (copy[0] === "--") copy.shift();
+  if (copy[0] === "--detach") return copy.length === 3 && sourceOwnedWorktreePath(copy[1], context) && sourceOwnedRevision(copy[2]);
+  if (copy[0] === "-b") return copy.length === 4 && sourceOwnedBranch(copy[1]) && sourceOwnedWorktreePath(copy[2], context) && sourceOwnedRevision(copy[3]);
+  return copy.length === 2 && sourceOwnedWorktreePath(copy[0], context) && sourceOwnedBranch(copy[1]);
+}
+
+function sourceOwnedWorktreePath(value, context) {
+  if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value || value === "/") return false;
+  if (Array.isArray(context?.options?.authorizedWorktreePaths)
+    && context.options.authorizedWorktreePaths.some((entry) => entry === value)) return true;
+  const basename = path.basename(value);
+  if (!/^(?:recovery-|settleora-)[A-Za-z0-9._-]+$/u.test(basename)) return false;
+  const root = path.resolve(context?.cwd || "");
+  return !root || (value !== root && !value.startsWith(`${root}${path.sep}`));
+}
+
+function sourceOwnedRevision(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 1000
+    && !value.startsWith("-") && !/[\0-\x20\x7f\\]/u.test(value) && !value.includes("@{");
+}
+function sourceOwnedFullRef(value) { return /^refs\/(?:heads|remotes\/origin)\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(value); }
+function sourceOwnedFullRefPrefix(value) { return /^refs\/(?:heads|remotes\/origin)(?:\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239})?\/?$/u.test(value); }
+function sourceOwnedBranch(value) { return typeof value === "string" && /^(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.$)[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(value) && !value.endsWith("/") && !value.split("/").some((part) => part.startsWith(".") || part.endsWith(".lock")); }
+function sourceOwnedRepositoryPath(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000 && !path.isAbsolute(value) && path.normalize(value) === value && value !== "." && !value.startsWith(`..${path.sep}`) && !/[\0\r\n]/u.test(value); }
+function sourceOwnedMessage(value) { return typeof value === "string" && value.length > 0 && value.length <= 10_000 && !value.includes("\0"); }
 
 function sourceOwnedConfigReadArguments(args) {
   const signature = args.join("\0");
   return new Set([
     ["--local", "--name-only", "--list"].join("\0"),
     ["--local", "--get", "extensions.worktreeConfig"].join("\0"),
+    ["--local", "--get", "remote.origin.url"].join("\0"),
+    ["--local", "--list", "--show-origin", "--null"].join("\0"),
     ["--worktree", "--name-only", "--list"].join("\0"),
+    ["--worktree", "--list", "--show-origin", "--null"].join("\0"),
   ]).has(signature);
 }
 
 function sourceOwnedRemoteReadArguments(args) {
   return args.join("\0") === ["get-url", "origin"].join("\0")
+    || args.join("\0") === ["get-url", "--push", "origin"].join("\0")
     || args.join("\0") === ["get-url", "--push", "--all", "origin"].join("\0");
 }
 
@@ -468,6 +662,7 @@ function runLaunchWorkspaceGuardGit(args, { cwd, environment = process.env } = {
 }
 
 function fixedRepositoryGitArgs(cwd, args, { allowLocalFileTransport = false } = {}) {
+  const commandArgs = args[0] === "diff" ? ["diff", "--no-ext-diff", "--no-textconv", ...args.slice(1)] : args;
   return [
     "--no-replace-objects",
     "-c", "credential.helper=",
@@ -476,10 +671,17 @@ function fixedRepositoryGitArgs(cwd, args, { allowLocalFileTransport = false } =
     "-c", "core.excludesFile=/dev/null",
     "-c", "core.fsmonitor=false",
     "-c", "core.hooksPath=/dev/null",
+    "-c", "core.editor=/usr/bin/false",
+    "-c", "sequence.editor=/usr/bin/false",
+    "-c", "commit.gpgSign=false",
+    "-c", "tag.gpgSign=false",
+    "-c", "gpg.program=/usr/bin/false",
+    "-c", "gpg.openpgp.program=/usr/bin/false",
+    "-c", "gpg.ssh.program=/usr/bin/false",
     "-c", `core.worktree=${path.resolve(cwd)}`,
     "-c", "protocol.ext.allow=never",
     "-c", `protocol.file.allow=${allowLocalFileTransport ? "user" : "never"}`,
-    ...args,
+    ...commandArgs,
   ];
 }
 
@@ -501,6 +703,10 @@ function fixedRepositoryGitEnvironment(context, {
     GIT_NO_LAZY_FETCH: "1",
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_OPTIONAL_LOCKS: "0",
+    GIT_ASKPASS: "/usr/bin/false",
+    GIT_EDITOR: "/usr/bin/false",
+    GIT_PAGER: "cat",
+    GIT_SEQUENCE_EDITOR: "/usr/bin/false",
     GIT_SSH_COMMAND: "/usr/bin/ssh -F /dev/null -o BatchMode=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no",
     GIT_TERMINAL_PROMPT: "0",
     GIT_WORK_TREE: context.root,
@@ -612,7 +818,11 @@ function validateGithubApiRepositoryBinding(args, repositorySlug) {
   }
 }
 
-export const gitWorkspaceTestInternals = Object.freeze({ bindGithubRepository, classifySourceOwnedGitCommand });
+export const gitWorkspaceTestInternals = Object.freeze({
+  bindGithubRepository,
+  classifySourceOwnedGitCommand,
+  fixedRepositoryGitArgs,
+});
 
 function trustedGithubAuthenticationEnvironment() {
   const environment = fixedUserEnvironment();
@@ -673,17 +883,48 @@ function assertSourceOwnedGitMetadata(context) {
   const worktreeEnabled = git(["config", "--local", "--get", "extensions.worktreeConfig"]);
   if (worktreeEnabled.status === 0) {
     if (worktreeEnabled.stdout.trim().toLowerCase() !== "true") throw new Error("Repository worktree Git configuration is unsafe");
-    const worktree = git(["config", "--worktree", "--name-only", "--list"]);
-    const unsupportedWorktree = unsupportedRepositoryGitConfigKeys(worktree.stdout);
-    if (worktree.status !== 0 || unsupportedWorktree.length) throw new Error("Repository worktree Git configuration is unsafe");
+    const worktreePathRead = git(["rev-parse", "--git-path", "config.worktree"]);
+    if (worktreePathRead.status !== 0) throw new Error("Repository worktree Git configuration is unsafe");
+    const worktreePath = path.resolve(context.root, worktreePathRead.stdout.trim());
+    if (existsSync(worktreePath)) {
+      const worktree = git(["config", "--worktree", "--name-only", "--list"]);
+      const unsupportedWorktree = unsupportedRepositoryGitConfigKeys(worktree.stdout);
+      if (worktree.status !== 0 || unsupportedWorktree.length) throw new Error("Repository worktree Git configuration is unsafe");
+    }
   } else if (worktreeEnabled.status !== 1) throw new Error("Repository Git configuration is unreadable");
   const attributes = git(["rev-parse", "--git-path", "info/attributes"]);
   const excludes = git(["rev-parse", "--git-path", "info/exclude"]);
   if (attributes.status !== 0 || excludes.status !== 0) throw new Error("Repository Git metadata is unreadable");
   if (existsSync(path.resolve(context.root, attributes.stdout.trim()))) throw new Error("Repository Git attributes are unsafe");
   const excludePath = path.resolve(context.root, excludes.stdout.trim());
-  if (existsSync(excludePath) && readFileSync(excludePath, "utf8").split(/\r?\n/u).some((line) => line.trim() && !line.trim().startsWith("#"))) {
+  if (existsSync(excludePath) && readFileSync(excludePath, "utf8").split(/\r?\n/u)
+    .some((line) => line.trim() && !line.trim().startsWith("#") && line.trim() !== ".codex/")) {
     throw new Error("Repository Git excludes are unsafe");
+  }
+}
+
+function assertSourceOwnedTreeAttributes(context) {
+  const run = (args) => spawnSync("/usr/bin/git", fixedRepositoryGitArgs(context.root, args), {
+    cwd: context.root,
+    env: fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+  });
+  const listed = run(["ls-tree", "-r", "--name-only", "HEAD"]);
+  if (listed.status !== 0 || listed.error) throw new Error("Repository attribute inventory is unreadable");
+  const attributePaths = listed.stdout.split(/\r?\n/u).filter((entry) => entry === ".gitattributes" || entry.endsWith("/.gitattributes"));
+  for (const attributePath of attributePaths) {
+    if (!sourceOwnedRepositoryPath(attributePath)) throw new Error("Repository attribute path is unsafe");
+    const shown = run(["show", `HEAD:${attributePath}`]);
+    if (shown.status !== 0 || shown.error || shown.stdout.length > 256 * 1024) throw new Error("Repository attributes are unreadable");
+    for (const line of shown.stdout.split(/\r?\n/u)) {
+      const body = line.trim();
+      if (!body || body.startsWith("#")) continue;
+      if (/(?:^|\s)(?:!?-?(?:filter|diff|merge)|working-tree-encoding)(?:[=\s]|$)/u.test(body)) {
+        throw new Error("Repository attributes may not select executable Git drivers");
+      }
+    }
   }
 }
 

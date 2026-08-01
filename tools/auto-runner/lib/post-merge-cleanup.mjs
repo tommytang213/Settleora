@@ -168,12 +168,13 @@ export function createPostMergeCleanupGitAdapter({ config = null, repoRoot, auth
   const root = realpathSync(repoRoot);
   let primaryHandoffIgnoredPids = [];
   const localTransportFixture = config?.runtimeMode !== "external";
-  const run = (args, cwd = root) => runGit(args, {
+  const run = (args, cwd = root, authorizedWorktreePaths = []) => runGit(args, {
     cwd,
     allowLocalFileTransport: localTransportFixture,
     manageWorktrees: args[0] === "worktree",
     timeoutMs: 30_000,
     maxBuffer: 4 * 1024 * 1024,
+    authorizedWorktreePaths,
   });
   const remoteIdentity = () => {
     const verified = assertRepositoryRemoteIdentity(config);
@@ -244,7 +245,7 @@ export function createPostMergeCleanupGitAdapter({ config = null, repoRoot, auth
       const status = run(["status", "--porcelain=v1", "--untracked-files=normal"], candidate);
       const identity = local.status === 0 ? digest({ repository: owner.repository, branchName: owner.branchName, headSha: String(local.stdout || "").trim(), realPath: candidate }) : null;
       if (candidate === root || local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha || identity !== owner.worktree.identity || status.status !== 0 || String(status.stdout || "").trim() || processOwnsPath(candidate)) return fail("worktree_remove_target_drift");
-      return commandResult(run(["worktree", "remove", "--", candidate]), "worktree_remove_failed");
+      return commandResult(run(["worktree", "remove", "--", candidate], root, [candidate]), "worktree_remove_failed");
     },
     deleteLocalBranch: async (owner) => {
       try { assertCleanupRepository(owner, config); } catch { return fail("local_branch_delete_authority_failed"); }

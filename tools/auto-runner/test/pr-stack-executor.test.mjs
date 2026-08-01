@@ -660,7 +660,7 @@ test("target PR worktree proof fetches fixed argv and proves branch head and liv
     "gh pr view 919 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository",
     "git remote get-url --push origin",
     "git status --porcelain=v1 --untracked-files=all",
-    "git fetch origin feature/auto-913-parent",
+    "git fetch origin refs/heads/feature/auto-913-parent:refs/remotes/origin/feature/auto-913-parent",
     "git rev-parse origin/feature/auto-913-parent",
     "git branch --show-current",
     "git rev-parse HEAD",
@@ -2277,7 +2277,7 @@ test("current-main proof fetches origin main and verifies parent merge ancestry"
   const proof = await adapter.fetchCurrentMain({ config: fixture.config, state, pr: fixture.plan.orderedPrs[0] });
   assert.equal(proof.ok, true);
   assert.equal(proof.currentMain, sha("e"));
-  assert.ok(calls.includes("git fetch origin main"));
+  assert.ok(calls.includes("git fetch origin refs/heads/main:refs/remotes/origin/main"));
   assert.ok(calls.includes(`git merge-base --is-ancestor ${sha("e")} origin/main`));
 });
 
