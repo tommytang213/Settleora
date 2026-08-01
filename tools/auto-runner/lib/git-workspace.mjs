@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, readdirSync,
-  realpathSync, rmSync, symlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, readdirSync,
+  realpathSync, rmSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -254,6 +254,18 @@ export function runGit(args, options = {}) {
   const cwd = options.cwd || trustedRepositoryContext?.root || process.cwd();
   const context = sourceOwnedGitContext(cwd);
   assertSourceOwnedGitMetadata(context);
+  const transportCommand = externalTransportCommand(args);
+  if (transportCommand && options.allowLocalFileTransport !== true) {
+    return {
+      command: `git ${args.join(" ")}`,
+      status: 128,
+      stdout: "",
+      stderr: "Protected external Git transport producer is not installed",
+      error: null,
+      signal: null,
+      reasonCode: "protected_external_git_transport_unavailable",
+    };
+  }
   const hasHead = repositoryHasHead(context);
   const fixedArgs = fixedRepositoryGitArgs(cwd, args, {
     allowLocalFileTransport: options.allowLocalFileTransport === true,
@@ -263,27 +275,16 @@ export function runGit(args, options = {}) {
     internalIndexFile: options.internalIndexFile,
     manageWorktrees: options.manageWorktrees === true,
   });
-  const transport = options.allowLocalFileTransport !== true && externalTransportCommand(args)
-    ? createSanitizedExternalTransportContext(context, repositoryEnvironment)
-    : null;
-  let result;
-  try {
-    result = spawnSync("/usr/bin/git", fixedArgs, {
-      cwd,
-      input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
-      env: transport?.environment || repositoryEnvironment,
-      encoding: "utf8",
-      windowsHide: true,
-      shell: false,
-      timeout: boundedCommandTimeout(options.timeoutMs),
-      maxBuffer: boundedCommandOutput(options.maxBuffer),
-    });
-    if (transport && !sanitizedExternalTransportContextStable(transport)) {
-      return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Sanitized Git transport context changed during operation", error: null };
-    }
-  } finally {
-    destroySanitizedExternalTransportContext(transport);
-  }
+  const result = spawnSync("/usr/bin/git", fixedArgs, {
+    cwd,
+    input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
+    env: repositoryEnvironment,
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+    timeout: boundedCommandTimeout(options.timeoutMs),
+    maxBuffer: boundedCommandOutput(options.maxBuffer),
+  });
   if (!sourceOwnedGitContextStable(context)) {
     return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
   }
@@ -308,72 +309,6 @@ function externalTransportCommand(args) {
     return ["fetch", "ls-remote", "push"].includes(arg) ? arg : null;
   }
   return null;
-}
-
-function createSanitizedExternalTransportContext(context, repositoryEnvironment) {
-  const transportRoot = mkdtempSync(path.join(realpathSync(os.tmpdir()), "settleora-git-transport-"));
-  try {
-    chmodSync(transportRoot, 0o700);
-    writeFileSync(path.join(transportRoot, "HEAD"), "ref: refs/heads/__settleora_transport__\n", {
-      encoding: "utf8", mode: 0o444, flag: "wx",
-    });
-    const links = [
-      ["/dev/null", path.join(transportRoot, "config")],
-      [path.join(context.gitDir, "FETCH_HEAD"), path.join(transportRoot, "FETCH_HEAD")],
-      [path.join(context.commonDir, "objects"), path.join(transportRoot, "objects")],
-      [path.join(context.commonDir, "refs"), path.join(transportRoot, "refs")],
-    ];
-    if (existsSync(path.join(context.commonDir, "packed-refs"))) {
-      links.push([path.join(context.commonDir, "packed-refs"), path.join(transportRoot, "packed-refs")]);
-    }
-    for (const [target, link] of links) symlinkSync(target, link);
-    chmodSync(transportRoot, 0o500);
-    const identity = sanitizedExternalTransportIdentity(transportRoot, links);
-    const transportEnvironment = { ...repositoryEnvironment };
-    delete transportEnvironment.GIT_COMMON_DIR;
-    return {
-      root: transportRoot,
-      links,
-      identity,
-      environment: {
-        ...transportEnvironment,
-        GIT_DIR: transportRoot,
-      },
-    };
-  } catch (error) {
-    try { chmodSync(transportRoot, 0o700); } catch {}
-    rmSync(transportRoot, { recursive: true, force: true });
-    throw error;
-  }
-}
-
-function sanitizedExternalTransportIdentity(root, links) {
-  const rootInfo = lstatSync(root);
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o777) !== 0o500
-    || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())) {
-    throw new Error("Sanitized Git transport context is unsafe");
-  }
-  return [directoryIdentity(rootInfo), ...links.map(([target, link]) => {
-    const info = lstatSync(link);
-    if (!info.isSymbolicLink() || readlinkSync(link) !== target) {
-      throw new Error("Sanitized Git transport binding is unsafe");
-    }
-    return `${link}:${fileIdentity(info)}:${target}`;
-  })].join("\n");
-}
-
-function sanitizedExternalTransportContextStable(transport) {
-  try {
-    return sanitizedExternalTransportIdentity(transport.root, transport.links) === transport.identity;
-  } catch {
-    return false;
-  }
-}
-
-function destroySanitizedExternalTransportContext(transport) {
-  if (!transport) return;
-  try { chmodSync(transport.root, 0o700); } catch {}
-  rmSync(transport.root, { recursive: true, force: true });
 }
 
 export function assertGitSuccess(result, message) {
@@ -619,18 +554,7 @@ function validateGithubApiRepositoryBinding(args, repositorySlug) {
   }
 }
 
-export const gitWorkspaceTestInternals = Object.freeze({
-  bindGithubRepository,
-  createExternalTransportEnvironment(repoRoot) {
-    const context = sourceOwnedGitContext(repoRoot);
-    assertSourceOwnedGitMetadata(context);
-    return createSanitizedExternalTransportContext(
-      context,
-      fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
-    );
-  },
-  destroyExternalTransportEnvironment: destroySanitizedExternalTransportContext,
-});
+export const gitWorkspaceTestInternals = Object.freeze({ bindGithubRepository, externalTransportCommand });
 
 function trustedGithubAuthenticationEnvironment() {
   const environment = fixedUserEnvironment();

@@ -1516,6 +1516,23 @@ test("readiness preflight succeeds with safe defaults and reports manual gates",
   }
 });
 
+test("readiness preflight passes a source-derived literal repository URL instead of symbolic origin", () => {
+  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-literal-origin-"));
+  try {
+    const runner = createReadinessRunner();
+    const result = runPreflight(readinessConfig(tempRoot), { runner });
+    assert.equal(result.checks.find((check) => check.name === "origin-main-fetchable").status, "pass");
+    const remoteRead = runner.commands.find((command) => command.startsWith("git ls-remote"));
+    assert.equal(
+      remoteRead,
+      "git ls-remote --exit-code https://github.com/tommytang213/Settleora.git refs/heads/main",
+    );
+    assert.doesNotMatch(remoteRead, /\sorigin\s/u);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("readiness preflight uses durable foundation completion and ignores later tracker closure", () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-foundation-"));
   try {

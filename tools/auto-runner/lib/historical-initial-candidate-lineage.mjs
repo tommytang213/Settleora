@@ -16,7 +16,7 @@ import {
 } from "./preserved-recovery-deployment.mjs";
 import { canonicalApprovedGitHubRepository } from "./runtime-identity.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
-import { runGit as runWorkspaceGit, runTrustedGithub } from "./git-workspace.mjs";
+import { runTrustedGithub } from "./git-workspace.mjs";
 
 const sha = /^[a-f0-9]{40}$/u;
 const digest = /^[a-f0-9]{64}$/u;
@@ -237,8 +237,7 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     } else {
       const originUrl = authenticatedOriginUrl(git, repository);
       if (!originUrl) return fail("historical_candidate_remote_identity_untrusted");
-      const externalGit = (args) => runWorkspaceGit(args, { cwd: repoRoot });
-      remoteTaskBranchRead = readRemoteTaskBranch(externalGit, branch, originUrl);
+      remoteTaskBranchRead = readRemoteTaskBranchFromGithub(config, branch);
     }
     const liveTaskPrRead = options.allowAuthenticatedExistingPrEffects === true
       ? (options.readLiveTaskPrs || readLiveTaskPrs)(config, branch)
@@ -410,6 +409,27 @@ export function readRemoteTaskBranch(git, branch, authenticatedRemoteUrl) {
   return sha.test(headSha || "") && ref === expectedRef && extra.length === 0
     ? { complete: true, absent: false, headSha }
     : { complete: false, absent: false };
+}
+
+export function readRemoteTaskBranchFromGithub(config, branch) {
+  if (typeof branch !== "string" || !/^(?!.*\.\.)(?!.*\.$)[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(branch)
+    || branch.includes("//") || branch.includes("@{") || branch.endsWith("/")) {
+    return { complete: false, absent: false };
+  }
+  const expectedRef = `refs/heads/${branch}`;
+  const endpoint = `repos/${config.repositorySlug}/git/matching-refs/heads/${encodeURIComponent(branch)}`;
+  const result = runTrustedGithub(config, ["api", endpoint], { timeoutMs: 20_000 });
+  if (result.status !== 0 || result.error) return { complete: false, absent: false };
+  try {
+    const matches = JSON.parse(result.stdout || "[]").filter((entry) => entry?.ref === expectedRef);
+    if (matches.length === 0) return { complete: true, absent: true };
+    if (matches.length !== 1 || !sha.test(matches[0]?.object?.sha || "")) {
+      return { complete: false, absent: false };
+    }
+    return { complete: true, absent: false, headSha: matches[0].object.sha };
+  } catch {
+    return { complete: false, absent: false };
+  }
 }
 
 export function readLiveTaskPrs(config, branch) {

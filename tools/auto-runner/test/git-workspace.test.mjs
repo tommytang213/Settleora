@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
-import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -78,12 +78,11 @@ test("source-owned Git forwards bounded stdin and ignores inherited Git executio
   }
 });
 
-test("external Git transport ignores a repository URL rewrite raced after admission", () => {
+test("production external Git transport fails before a same-UID config race can contact either endpoint", () => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-transport-race-"));
   const repo = tempRepo();
   const good = path.join(root, "good.git");
   const alternate = path.join(root, "alternate.git");
-  let transport;
   try {
     execFileSync("/usr/bin/git", ["init", "--bare", good], { encoding: "utf8" });
     execFileSync("/usr/bin/git", ["init", "--bare", alternate], { encoding: "utf8" });
@@ -95,30 +94,29 @@ test("external Git transport ignores a repository URL rewrite raced after admiss
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "push", alternate, `${alternateHead}:refs/heads/main`], { encoding: "utf8" });
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "remote", "add", "origin", good], { encoding: "utf8" });
 
-    transport = gitWorkspaceTestInternals.createExternalTransportEnvironment(repo.cwd);
+    const before = readdirSync(tmpdir()).filter((name) => name.startsWith("settleora-git-transport-")).sort();
+    const read = runGit(["ls-remote", good, "refs/heads/main"], { cwd: repo.cwd });
+    const pushed = runGit(["push", good, `${alternateHead}:refs/heads/race-proof`], { cwd: repo.cwd });
+    const after = readdirSync(tmpdir()).filter((name) => name.startsWith("settleora-git-transport-")).sort();
+    assert.equal(read.status, 128);
+    assert.equal(read.reasonCode, "protected_external_git_transport_unavailable");
+    assert.equal(pushed.status, 128);
+    assert.equal(pushed.reasonCode, "protected_external_git_transport_unavailable");
+    assert.deepEqual(after, before, "production must not create a runner-owned transport directory that same UID can chmod or replace");
+    assert.equal(gitWorkspaceTestInternals.createExternalTransportEnvironment, undefined);
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "config", `url.${alternate}.insteadOf`, good], { encoding: "utf8" });
-    const read = spawnSync("/usr/bin/git", ["-c", "protocol.file.allow=always", "ls-remote", good, "refs/heads/main"], {
-      cwd: repo.cwd,
-      env: transport.environment,
-      encoding: "utf8",
-    });
-    assert.equal(read.status, 0, read.stderr);
-    assert.equal(read.stdout.trim().split(/\s+/u)[0], repo.base);
-    assert.notEqual(read.stdout.trim().split(/\s+/u)[0], alternateHead);
-
-    const pushed = spawnSync("/usr/bin/git", [
-      "-c", "protocol.file.allow=always", "push", good, `${alternateHead}:refs/heads/race-proof`,
-    ], { cwd: repo.cwd, env: transport.environment, encoding: "utf8" });
-    assert.equal(pushed.status, 0, pushed.stderr);
-    assert.match(execFileSync("/usr/bin/git", ["--git-dir", good, "rev-parse", "refs/heads/race-proof"], {
-      encoding: "utf8",
-    }), new RegExp(`^${alternateHead}`, "u"));
-    const alternateRead = spawnSync("/usr/bin/git", [
-      "--git-dir", alternate, "show-ref", "--verify", "refs/heads/race-proof",
-    ], { encoding: "utf8" });
-    assert.notEqual(alternateRead.status, 0);
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "config", `url.${alternate}.pushInsteadOf`, good], { encoding: "utf8" });
+    assert.throws(
+      () => runGit(["push", good, `${alternateHead}:refs/heads/race-proof`], { cwd: repo.cwd }),
+      /Repository Git configuration is unsafe/u,
+    );
+    for (const bare of [good, alternate]) {
+      const branch = spawnSync("/usr/bin/git", [
+        "--git-dir", bare, "show-ref", "--verify", "refs/heads/race-proof",
+      ], { encoding: "utf8" });
+      assert.notEqual(branch.status, 0);
+    }
   } finally {
-    gitWorkspaceTestInternals.destroyExternalTransportEnvironment(transport);
     repo.cleanup();
     rmSync(root, { recursive: true, force: true });
   }

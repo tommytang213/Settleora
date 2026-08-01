@@ -270,12 +270,8 @@ function defaultGitRead(config, identity, repoRoot = config.repoRoot) {
   const commit = /^[a-f0-9]{40}$/u.test(exactHead)
     ? run(["show", "-s", "--format=%P%n%T%n%B", exactHead])
     : { status: 128, stdout: "", stderr: "invalid head", error: null };
-  const verifiedRemote = assertRepositoryRemoteIdentity({ ...config, repoRoot });
-  const remoteTarget = verifiedRemote?.originUrl || "origin";
-  const remote = runGit(["ls-remote", "--exit-code", remoteTarget, `refs/heads/${identity.branchName}`], {
-    cwd: repoRoot,
-    allowLocalFileTransport: config.runtimeMode !== "external",
-  });
+  assertRepositoryRemoteIdentity({ ...config, repoRoot });
+  const remote = readGithubBranchHead(config, identity.branchName);
   const staged = run(["diff", "--cached", "--name-only"]);
   const unstaged = run(["diff", "--name-only"]);
   const untracked = run(["ls-files", "--others", "--exclude-standard"]);
@@ -297,14 +293,33 @@ function defaultGitRead(config, identity, repoRoot = config.repoRoot) {
   const allLocalReads = [status, branch, head, commit, staged, unstaged, untracked, stagedTree,
     finalHead, finalBranch, finalStatus, finalStaged, finalUnstaged, finalUntracked, finalStagedTree];
   if (allLocalReads.some((entry) => entry.status !== 0 || entry.error)
-    || !stableSnapshot || !sha40(exactHead) || ![0, 2].includes(remote.status)) {
+    || !stableSnapshot || !sha40(exactHead) || remote.complete !== true) {
     return { complete: false, source: "git_cli" };
   }
   try { assertRepositoryRemoteIdentity({ ...config, repoRoot }); } catch { return { complete: false, source: "git_cli" }; }
   const lines = status.stdout.split("\n").filter(Boolean);
-  const remoteHead = remote.status === 0 ? remote.stdout.trim().split(/\s+/)[0] : null;
+  const remoteHead = remote.headSha;
   const [parents = "", treeSha = "", ...messageLines] = commit.stdout.replace(/\r\n/g, "\n").split("\n");
   return { complete: true, source: "git_cli", repoRoot: path.resolve(repoRoot), branchName: branch.stdout.trim(), baseSha: sha40(identity.baseSha), headSha: exactHead, remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), untrackedPaths: paths(untracked.stdout), stagedTreeSha: sha40(stagedTree.stdout.trim()), stagedPaths: paths(staged.stdout), unstagedPaths: paths(unstaged.stdout), commit: { sha: exactHead, parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
+}
+
+function readGithubBranchHead(config, branchName) {
+  if (typeof branchName !== "string" || !/^(?!.*\.\.)(?!.*\.$)[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(branchName)
+    || branchName.includes("//") || branchName.includes("@{") || branchName.endsWith("/")) {
+    return { complete: false, headSha: null };
+  }
+  const expectedRef = `refs/heads/${branchName}`;
+  const endpoint = `repos/${config.repositorySlug}/git/matching-refs/heads/${encodeURIComponent(branchName)}`;
+  const result = runTrustedGithub(config, ["api", endpoint], { timeout: 20_000 });
+  if (result.status !== 0 || result.error) return { complete: false, headSha: null };
+  try {
+    const matches = JSON.parse(result.stdout || "[]").filter((entry) => entry?.ref === expectedRef);
+    if (matches.length === 0) return { complete: true, headSha: null };
+    if (matches.length !== 1 || !sha40(matches[0]?.object?.sha)) return { complete: false, headSha: null };
+    return { complete: true, headSha: matches[0].object.sha };
+  } catch {
+    return { complete: false, headSha: null };
+  }
 }
 
 function defaultGithubRead(config, identity) {

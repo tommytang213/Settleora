@@ -1773,7 +1773,13 @@ task-budget attestation, remain deliberately unavailable
 to production until separately deployed native producers exist; runner-owned
 class-tagged JSON is rejected. The unavailable GitHub no-effect producer must
 also hold a root-grant-bound generation/CAS fence across its complete native
-operation. A missing producer or grant, missing domain
+operation. External Git `fetch`, `push`, and `ls-remote` likewise require a
+separately deployed protected transport producer: a runner-owned temporary Git
+directory cannot stop a same-UID configuration race, so production rejects the
+operation before spawning Git. Repository-bound GitHub API reads provide the
+read-only recovery branch evidence that does not require Git transport. Local
+file Git transport is a deterministic test adapter only and establishes no
+production authority. A missing producer or grant, missing domain
 owner, later effect, drift, ambiguity, or predecessor/incident write attempt
 fails closed. Repository source does not install these producers, the
 protected root, or a live grant; installation, deployment, successor creation/
