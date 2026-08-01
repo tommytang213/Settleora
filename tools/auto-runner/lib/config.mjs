@@ -24,6 +24,21 @@ const liveStackCorrelationPattern = /^[0-9]{8}-[0-9]{4}(?:-[a-z0-9][a-z0-9-]{0,4
 const maxTrustedConfigBytes = 1024 * 1024;
 const externalProfileRoot = "/workspace/auto-runner/config";
 const defaultApprovedPrimaryRepoRoot = "/workspace/repos/Settleora";
+const developmentGitTransportAdmission = Symbol("settleora.source-owned-development-git-transport");
+
+export function assertInstalledRuntimeMode(runtimeMode, installedBundle) {
+  if (installedBundle === true && runtimeMode !== "external") {
+    throw new Error("external_runtime_requires_external_profile: Installed runtime requires runtimeMode external.");
+  }
+}
+
+export function hasSourceOwnedDevelopmentGitTransportAdmission(config) {
+  return config?.runtimeMode !== "external" && config?.[developmentGitTransportAdmission] === true;
+}
+
+function installedRuntimeBundlePresent() {
+  return existsSync(path.join(moduleRuntimeRoot(), "runtime-bundle-manifest.json"));
+}
 
 export const defaultConfig = Object.freeze({
   runtimeMode: "development",
@@ -473,6 +488,14 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     outageRecoveryOnly: Boolean(cliArgs.outageRecoveryOnly),
     outageRecoveryTarget: cliArgs.outageRecoveryTarget || null,
   };
+  const installedRuntime = installedRuntimeBundlePresent();
+  assertInstalledRuntimeMode(config.runtimeMode, installedRuntime);
+  Object.defineProperty(config, developmentGitTransportAdmission, {
+    value: !installedRuntime && config.runtimeMode !== "external",
+    enumerable: true,
+    configurable: false,
+    writable: false,
+  });
   if (cliArgs.preflight) {
     config.mode = cliArgs.readiness ? "readiness" : "preflight";
     config.dryRun = true;
@@ -922,13 +945,11 @@ function readTrustedConfigFile(configPath, {
   trustHooks = null,
 } = {}) {
   const resolved = path.resolve(configPath);
+  const installedBundle = installedRuntimeBundlePresent();
   if (!runPrStack) {
-    const installedBundle = existsSync(path.join(moduleRuntimeRoot(), "runtime-bundle-manifest.json"));
     if (installedBundle) {
       const loaded = readExternalProfileConfig(resolved, trustHooks);
-      if (loaded.config.runtimeMode !== "external") {
-        throw new Error("external_runtime_requires_external_profile: Installed runtime requires runtimeMode external.");
-      }
+      assertInstalledRuntimeMode(loaded.config.runtimeMode, installedBundle);
       return loaded;
     }
     const bytes = readFileSync(resolved);
@@ -985,6 +1006,7 @@ function readTrustedConfigFile(configPath, {
   if (runPrStack) {
     validateParsedPrStackConfigIdentity(parsed, trustedRootProof, approvedPrimaryRepoRoot);
   }
+  assertInstalledRuntimeMode(parsed.runtimeMode, installedBundle);
   return {
     config: parsed,
     evidence: {

@@ -7729,7 +7729,7 @@ test("stack CLI constructs and injects one live fixed-argv runner", () => {
   assert.match(source, /shell_execution_refused/);
   assert.match(source, /command === "git"[\s\S]*runGit\(args,[\s\S]*command === "gh"[\s\S]*runTrustedGithub\(\{ \.\.\.config, repoRoot: cwd \}, args/);
   const liveRunnerBody = source.slice(runnerIndex, source.indexOf("function createLivePrStackReviewAdapters", runnerIndex));
-  assert.match(liveRunnerBody, /runGit\(args, \{[\s\S]*allowLocalFileTransport: config\.runtimeMode !== "external"[\s\S]*?\}\)/);
+  assert.match(liveRunnerBody, /runGit\(args, \{[\s\S]*allowLocalFileTransport: hasSourceOwnedDevelopmentGitTransportAdmission\(config\)[\s\S]*?\}\)/);
   const gitWorkspace = readFileSync("tools/auto-runner/lib/git-workspace.mjs", "utf8");
   assert.match(gitWorkspace, /spawnSync\("\/usr\/bin\/gh", boundArgs,[\s\S]*shell: false/);
   assert.doesNotMatch(source, /spawnSync\("(?:git|gh)"/);

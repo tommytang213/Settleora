@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import {
   canonicalizeChangedFiles,
   digestChangedFiles,
+  hasSourceOwnedDevelopmentGitTransportAdmission,
   parseCliArgs,
   loadConfig,
   validateRecoveryOnlyExistingPrTarget,
@@ -4325,7 +4326,7 @@ function createLiveFixedArgvRunner(config = {}) {
         input: options.input,
         timeoutMs: options.timeoutMs || timeoutMs,
         maxBuffer: maxOutputBytes,
-        allowLocalFileTransport: config.runtimeMode !== "external",
+        allowLocalFileTransport: hasSourceOwnedDevelopmentGitTransportAdmission(config),
       })
       : command === "gh"
         ? runTrustedGithub({ ...config, repoRoot: cwd }, args, { ...options, timeoutMs: options.timeoutMs || timeoutMs, maxBuffer: maxOutputBytes })
