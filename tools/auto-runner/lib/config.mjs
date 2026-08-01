@@ -606,6 +606,12 @@ function normalizePostIncidentRecoveryConfig(value) {
   if (!value.authenticatedProvenance || typeof value.authenticatedProvenance !== "object") {
     throw new Error("postIncidentRecovery requires authenticated provenance");
   }
+  const incidentArtifact = value.authenticatedProvenance.incidentArtifact;
+  if (!incidentArtifact || typeof incidentArtifact !== "object"
+      || typeof incidentArtifact.path !== "string"
+      || !/^[a-f0-9]{64}$/.test(String(incidentArtifact.sha256 || ""))) {
+    throw new Error("postIncidentRecovery requires an incident artifact binding");
+  }
   return {
     authenticatedProvenance: structuredClone(value.authenticatedProvenance),
     semanticEvidencePacket: value.semanticEvidencePacket && typeof value.semanticEvidencePacket === "object"

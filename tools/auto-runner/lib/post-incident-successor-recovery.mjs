@@ -24,6 +24,7 @@ export const semanticRecoveryRequiredClaims = Object.freeze([
   "localSourceChangingRounds", "githubTriggeredFixEpochs",
   "lifetimeLocalSourceChangingRounds", "formerRootPath", "formerRootSha256",
   "formerEffectivePhase", "incidentPath", "incidentSha256", "lifecycleLineage",
+  "lifecycleSessionId", "lifecycleMutationGeneration",
   "intentPosture", "validationEffect", "reviewEffect", "sourceEffect",
   "pushEffect", "prEffect", "commentEffect", "mergeEffect", "issueEffect",
   "productEffect", "submissionCount", "submissionExhausted", "successorEligible",
@@ -91,6 +92,11 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
     oneShotExhaustion: { submissionCount: claims.submissionCount, exhausted: claims.submissionExhausted },
     noEffectProof: Object.fromEntries(zeroEffectClaims.map((claim) => [claim, claims[claim]])),
     operation: { operationId: packet.operationId, requestId: packet.requestId },
+    lifecycleSuccessor: {
+      previousSessionId: claims.lifecycleSessionId,
+      sessionId: packet.lifecycleSuccessorSession,
+      mutationGeneration: packet.lifecycleSuccessorGeneration,
+    },
     allowedNextAction: "separately_authorized_successor_create_or_adopt",
     forbiddenActions: ["write_predecessor", "write_incident", "restore_predecessor", "submit_again", "claim_again", "charge_again", "replay_implementation", "execute_without_operational_authorization"],
     diagnostics: { contradictions: [], omissions: [] },
@@ -151,8 +157,14 @@ export function constructPostIncidentSuccessor({ manifest, recoveryState, mutati
   };
   if (canonicalJson(stateIdentity) !== canonicalJson(expectedIdentity)) return failed("post_incident_recovery_identity_mismatch");
   if (!Number.isSafeInteger(mutationGeneration) || mutationGeneration < 1
-    || recoveryState?.sessionLifecycle?.mutationAuthority?.generation !== mutationGeneration) {
+    || mutationGeneration !== manifest.lifecycleSuccessor?.mutationGeneration
+    || recoveryState?.sessionLifecycle?.mutationAuthority?.generation + 1 !== mutationGeneration) {
     return failed("post_incident_mutation_generation_mismatch");
+  }
+  if (recoveryState?.sessionLifecycle?.sessionId !== manifest.lifecycleSuccessor?.previousSessionId
+    || manifest.lifecycleSuccessor?.sessionId !== manifest.intendedSuccessor.lifecycleSuccessorSession
+    || manifest.lifecycleSuccessor?.sessionId === manifest.lifecycleSuccessor?.previousSessionId) {
+    return failed("post_incident_lifecycle_rotation_mismatch");
   }
   const successor = {
     ...structuredClone(recoveryState),
@@ -167,6 +179,15 @@ export function constructPostIncidentSuccessor({ manifest, recoveryState, mutati
       executable: false,
     },
     run: { ...recoveryState.run, runId: manifest.intendedSuccessor.lifecycleSuccessorSession },
+    sessionLifecycle: {
+      ...structuredClone(recoveryState.sessionLifecycle),
+      sessionId: manifest.lifecycleSuccessor.sessionId,
+      previousSessionId: manifest.lifecycleSuccessor.previousSessionId,
+      mutationAuthority: {
+        ...structuredClone(recoveryState.sessionLifecycle.mutationAuthority),
+        generation: mutationGeneration,
+      },
+    },
     phase: manifest.claims.earliestSafePhase,
     firstIncompleteAction: "reconstruct_and_validate_preserved_candidate",
     nextSafeAction: "await_separate_execution_authorization",
@@ -221,9 +242,21 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
 
 export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authenticatedProvenance }) {
   if (!authenticatedProvenance?.ok) return { quarantined: false, reasonCode: "ordinary_recovery" };
-  const pathMatch = path.resolve(recoveryPath) === path.resolve(authenticatedProvenance.incidentPath);
   const identityMatch = state?.taskKey === authenticatedProvenance.taskKey && state?.issue?.number === authenticatedProvenance.issueNumber;
-  const overwrite = pathMatch && identityMatch && authenticatedProvenance.predecessorSha256 !== authenticatedProvenance.incidentSha256 && authenticatedProvenance.bytesAvailable === false;
+  let authenticatedIncident;
+  try {
+    authenticatedIncident = authenticateSourceArtifact(normalizeArtifact(authenticatedProvenance.incidentArtifact));
+  } catch {
+    return identityMatch
+      ? { quarantined: true, readOnly: true, reasonCode: "incident_provenance_authentication_failed", allowedAction: "none" }
+      : { quarantined: false, reasonCode: "ordinary_recovery" };
+  }
+  const pathMatch = canonicalExistingPath(recoveryPath) === authenticatedIncident.path
+    && canonicalExistingPath(authenticatedProvenance.incidentPath) === authenticatedIncident.path;
+  const overwrite = pathMatch && identityMatch
+    && authenticatedProvenance.incidentSha256 === authenticatedIncident.sha256
+    && authenticatedProvenance.predecessorSha256 !== authenticatedIncident.sha256
+    && authenticatedProvenance.bytesAvailable === false;
   return overwrite
     ? { quarantined: true, readOnly: true, reasonCode: "authenticated_recovery_overwrite_incident", allowedAction: "semantic_corroboration_only" }
     : { quarantined: false, reasonCode: "ordinary_recovery" };
@@ -239,7 +272,9 @@ export function assertRecoveryWritePathAllowed(targetPath, { predecessorPath, in
 function validatePacketShape(packet) {
   const diagnostics = [];
   if (!packet || !Array.isArray(packet.sources) || !Array.isArray(packet.artifacts)) diagnostics.push("packet_shape");
-  if (!bounded(packet?.incidentIdentity) || !bounded(packet?.lifecycleSuccessorSession) || !bounded(packet?.operationId) || !bounded(packet?.requestId)) diagnostics.push("operation_identity");
+  if (!bounded(packet?.incidentIdentity) || !bounded(packet?.lifecycleSuccessorSession)
+    || !Number.isSafeInteger(packet?.lifecycleSuccessorGeneration) || packet.lifecycleSuccessorGeneration < 1
+    || !bounded(packet?.operationId) || !bounded(packet?.requestId)) diagnostics.push("operation_identity");
   if (Array.isArray(packet?.sources) && packet.sources.some((source) => !mandatorySemanticEvidenceClasses.includes(source?.authorityClass)
     || !bounded(source?.artifact?.role) || !bounded(source?.artifact?.path) || !digest64(source?.artifact?.sha256)
     || !source.claims || typeof source.claims !== "object" || Array.isArray(source.claims))) diagnostics.push("source_binding");
@@ -250,6 +285,9 @@ function validateSecurityPosture(packet, claims) {
   if (path.resolve(claims.formerRootPath) !== path.resolve(claims.incidentPath)) return failed("semantic_incident_path_lineage_invalid");
   if (packet.formerBytesAvailable !== false) return failed("semantic_predecessor_bytes_posture_invalid");
   if (claims.acceptedLogicalTasks !== 1 || claims.submissionCount !== 1 || claims.submissionExhausted !== true || claims.successorEligible !== true) return failed("semantic_one_shot_posture_invalid");
+  if (!Number.isSafeInteger(claims.lifecycleMutationGeneration) || claims.lifecycleMutationGeneration < 1
+    || packet.lifecycleSuccessorGeneration !== claims.lifecycleMutationGeneration + 1
+    || packet.lifecycleSuccessorSession === claims.lifecycleSessionId) return failed("semantic_lifecycle_successor_invalid");
   if (zeroEffectClaims.some((claim) => claims[claim] !== false)) return failed("semantic_no_effect_posture_invalid");
   if (!["checkpoint_validation_commit", "aggregate_validation"].includes(claims.earliestSafePhase)) return failed("semantic_earliest_safe_phase_invalid");
   if (!packet.artifacts.every((artifact) => bounded(artifact.role) && bounded(artifact.path) && digest64(artifact.sha256))) return failed("semantic_artifact_binding_invalid");
