@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -219,8 +219,9 @@ export function writeRecoveryState(config, state) {
     config.postIncidentRecovery?.authenticatedProvenance?.incidentPath,
     config.postIncidentRecovery?.authenticatedProvenance?.incidentArtifact?.path,
     config.postIncidentRecovery?.authenticatedProvenance?.predecessorPath,
-  ].filter((value) => typeof value === "string" && path.isAbsolute(value)).map((value) => path.resolve(value));
-  if (protectedRecoveryPaths.includes(path.resolve(statePath))) {
+  ].filter((value) => typeof value === "string" && path.isAbsolute(value)).map(canonicalRecoveryWriteGuardPath);
+  const canonicalStatePath = canonicalRecoveryWriteGuardPath(statePath);
+  if (protectedRecoveryPaths.includes(canonicalStatePath)) {
     throw new Error("protected_post_incident_recovery_state_write_blocked");
   }
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
@@ -232,6 +233,16 @@ export function writeRecoveryState(config, state) {
   writeFileSync(tmpPath, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmpPath, statePath);
   return { statePath, state: sanitized };
+}
+
+function canonicalRecoveryWriteGuardPath(value) {
+  const lexical = path.resolve(value);
+  if (!existsSync(lexical)) return lexical;
+  try {
+    return realpathSync(lexical);
+  } catch {
+    throw new Error("protected_post_incident_recovery_path_invalid");
+  }
 }
 
 export function bindOutageResubmissionToRecoveryState(state, binding) {

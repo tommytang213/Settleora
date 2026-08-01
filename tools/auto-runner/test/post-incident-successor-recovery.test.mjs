@@ -383,6 +383,23 @@ test("startup quarantines configured incident before recoverability filtering wi
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
+test("recovery writer blocks a quarantined incident selected through a symlink alias", () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-quarantine-alias-"));
+  try {
+    const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-consumed", supervisorRunId: "supervisor-consumed", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40), phase: "completed" });
+    writeRecoveryState({ logsRoot }, state);
+    const incidentPath = recoveryStatePath({ logsRoot }, state);
+    const incidentAlias = path.join(logsRoot, "incident-alias.json");
+    symlinkSync(incidentPath, incidentAlias);
+    const incidentSha256 = hash(readFileSync(incidentPath));
+    const authenticatedProvenance = { ok: true, repository: "example/repo", incidentPath: incidentAlias, incidentArtifact: { role: "incident", path: incidentAlias, sha256: incidentSha256 }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256, bytesAvailable: false, originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed" };
+    assert.throws(
+      () => writeRecoveryState({ logsRoot, postIncidentRecovery: { authenticatedProvenance } }, state),
+      /protected_post_incident_recovery_state_write_blocked/u,
+    );
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
 test("locked semantic execution remains fail-closed without native producers and grant", async () => {
   const result = await executeStartupContinuation(
     { repositorySlug: "example/repo", postIncidentRecovery: { semanticEvidencePacket: null, operationId: null } },
