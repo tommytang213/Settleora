@@ -36,6 +36,7 @@ const zeroEffectClaims = Object.freeze([
   "commentEffect", "mergeEffect", "issueEffect", "productEffect",
 ]);
 const validatedConstructions = new WeakSet();
+const validatedManifests = new WeakSet();
 
 export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const diagnostics = validatePacketShape(packet);
@@ -87,6 +88,9 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const claims = Object.fromEntries(semanticRecoveryRequiredClaims.map((claim) => [claim, JSON.parse(claimValues.get(claim))]));
   const posture = validateSecurityPosture(packet, claims);
   if (!posture.ok) return posture;
+  if (!artifacts.some((artifact) => canonicalExistingPath(artifact.path) === canonicalExistingPath(claims.incidentPath)
+    && artifact.sha256 === claims.incidentSha256)) return failed("semantic_incident_artifact_binding_missing");
+  if (packet.incidentIdentity !== digest(canonicalJson({ path: claims.incidentPath, sha256: claims.incidentSha256 }))) return failed("semantic_incident_identity_binding_invalid");
   const manifestCore = {
     contract: semanticRecoveryContract,
     version: semanticRecoveryVersion,
@@ -118,7 +122,9 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
     operationId: packet.operationId,
     manifestDigest,
   });
-  return { ok: true, reasonCode: "semantic_evidence_corroborated", manifest: { ...manifestCore, intendedSuccessor: successorIdentity, manifestDigest }, manifestDigest };
+  const manifest = deepFreeze({ ...manifestCore, intendedSuccessor: successorIdentity, manifestDigest });
+  validatedManifests.add(manifest);
+  return { ok: true, reasonCode: "semantic_evidence_corroborated", manifest, manifestDigest };
 }
 
 export function deriveSuccessorIdentity({ incidentIdentity, taskIdentity, lifecycleSuccessorSession, operationId, manifestDigest }) {
@@ -127,6 +133,7 @@ export function deriveSuccessorIdentity({ incidentIdentity, taskIdentity, lifecy
 }
 
 export function constructPostIncidentSuccessor({ manifest, mutationGeneration, operationalAuthorization }) {
+  if (!validatedManifests.has(manifest)) return failed("semantic_manifest_authority_invalid");
   if (!manifest?.manifestDigest || digest(canonicalJson(manifestCoreFromManifest(manifest))) !== manifest.manifestDigest) return failed("semantic_manifest_digest_mismatch");
   const expectedSuccessor = deriveSuccessorIdentity({
     incidentIdentity: manifest.incidentIdentity,

@@ -39,7 +39,19 @@ function packet(overrides = {}) {
     claims: structuredClone(claims),
   }));
   const artifacts = Array.from({ length: 16 }, (_, index) => ({ role: `artifact_${String(index).padStart(2, "0")}`, path: `/sanitized/artifact-${index}.json`, sha256: (index.toString(16) || "0").repeat(64).slice(0, 64) }));
-  return { sources, artifacts, incidentIdentity: "incident-1", lifecycleSuccessorSession: "session-successor", lifecycleSuccessorGeneration: 3, operationId: "operation-1", requestId: "request-1", formerBytesAvailable: false, ...overrides };
+  artifacts[0] = { role: "current_incident_root", path: rootPath, sha256: incidentHash };
+  const incidentIdentity = createHash("sha256").update(JSON.stringify({ path: rootPath, sha256: incidentHash })).digest("hex");
+  return { sources, artifacts, incidentIdentity, lifecycleSuccessorSession: "session-successor", lifecycleSuccessorGeneration: 3, operationId: "operation-1", requestId: "request-1", formerBytesAvailable: false, ...overrides };
+}
+
+function bindPacketIncidentToFirstArtifact(value) {
+  const incident = value.artifacts[0];
+  for (const source of value.sources) {
+    source.claims.formerRootPath = incident.path;
+    source.claims.incidentPath = incident.path;
+    source.claims.incidentSha256 = incident.sha256;
+  }
+  value.incidentIdentity = createHash("sha256").update(JSON.stringify({ path: incident.path, sha256: incident.sha256 })).digest("hex");
 }
 
 function recoveryState(overrides = {}) {
@@ -81,16 +93,17 @@ test("production source claims and authority class come from authenticated bytes
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-evidence-bytes-"));
   try {
     const value = packet();
+    for (const artifact of value.artifacts) {
+      artifact.path = path.join(root, `bound-${artifact.role}.json`); writeFileSync(artifact.path, artifact.role, { mode: 0o600 });
+      artifact.sha256 = createHash("sha256").update(readFileSync(artifact.path)).digest("hex");
+    }
+    bindPacketIncidentToFirstArtifact(value);
     value.sources = value.sources.map((source, index) => {
       const artifactPath = path.join(root, `${index}.json`);
       const document = { contract: "semantic_recovery_evidence_source", version: 1, authorityClass: source.authorityClass, claims: source.claims };
       writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
       return { authorityClass: "caller_label_is_ignored", artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") }, claims: { repository: "forged" } };
     });
-    for (const artifact of value.artifacts) {
-      artifact.path = path.join(root, `bound-${artifact.role}.json`); writeFileSync(artifact.path, artifact.role, { mode: 0o600 });
-      artifact.sha256 = createHash("sha256").update(readFileSync(artifact.path)).digest("hex");
-    }
     const result = buildSemanticRecoveryManifestProduction(value);
     assert.equal(result.ok, true);
     assert.equal(result.manifest.claims.repository, claims.repository);
@@ -106,16 +119,17 @@ test("production source parses the exact bytes that passed digest authentication
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-evidence-single-read-"));
   try {
     const value = packet();
+    for (const artifact of value.artifacts) {
+      artifact.path = path.join(root, `bound-${artifact.role}.json`); writeFileSync(artifact.path, artifact.role, { mode: 0o600 });
+      artifact.sha256 = createHash("sha256").update(readFileSync(artifact.path)).digest("hex");
+    }
+    bindPacketIncidentToFirstArtifact(value);
     value.sources = value.sources.map((source, index) => {
       const artifactPath = path.join(root, `${index}.json`);
       const document = { contract: "semantic_recovery_evidence_source", version: 1, authorityClass: source.authorityClass, claims: source.claims };
       writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
       return { artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") } };
     });
-    for (const artifact of value.artifacts) {
-      artifact.path = path.join(root, `bound-${artifact.role}.json`); writeFileSync(artifact.path, artifact.role, { mode: 0o600 });
-      artifact.sha256 = createHash("sha256").update(readFileSync(artifact.path)).digest("hex");
-    }
     assert.equal(buildSemanticRecoveryManifestProduction(value).ok, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -172,6 +186,14 @@ test("altered historical or child artifact and identity/counter/effect disagreem
   assert.equal(buildSemanticRecoveryManifest(artifact).reasonCode, "semantic_artifact_binding_invalid");
 });
 
+test("authenticated artifact set must bind the exact incident path and digest", () => {
+  const wrongPath = packet(); wrongPath.artifacts[0].path = "/sanitized/unrelated.json";
+  assert.equal(buildSemanticRecoveryManifest(wrongPath).reasonCode, "semantic_incident_artifact_binding_missing");
+  const wrongDigest = packet(); wrongDigest.artifacts[0].sha256 = "9".repeat(64);
+  assert.equal(buildSemanticRecoveryManifest(wrongDigest).reasonCode, "semantic_incident_artifact_binding_missing");
+  assert.equal(buildSemanticRecoveryManifest(packet({ incidentIdentity: "unbound" })).reasonCode, "semantic_incident_identity_binding_invalid");
+});
+
 test("distinct successor binds provenance and stays non-executable", () => {
   const built = buildSemanticRecoveryManifest(packet());
   const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { stopReason: { reasonCode: "untrusted_incident_field" } }, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
@@ -190,10 +212,10 @@ test("successor construction requires a separate exact operation authorization",
   const built = buildSemanticRecoveryManifest(packet());
   assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: {}, mutationGeneration: 1 }).reasonCode, "post_incident_operational_authorization_required");
   const altered = structuredClone(built.manifest); altered.claims.branch = "altered";
-  assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_digest_mismatch");
+  assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_authority_invalid");
   assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "post_incident_mutation_generation_mismatch");
   const wrongLifecycle = structuredClone(built.manifest); wrongLifecycle.lifecycleSuccessor.previousSessionId = "wrong";
-  assert.equal(constructPostIncidentSuccessor({ manifest: wrongLifecycle, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_digest_mismatch");
+  assert.equal(constructPostIncidentSuccessor({ manifest: wrongLifecycle, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_authority_invalid");
 });
 
 test("successor persistence is idempotent and conflicting adoption fails closed", () => {
