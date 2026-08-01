@@ -383,7 +383,7 @@ function validatePersistenceDirectory(logsRoot, directory) {
 }
 function authenticateSourceArtifact(artifact) {
   const authenticated = authenticateOpaqueArtifact(artifact);
-  const document = JSON.parse(readFileSync(authenticated.path, "utf8"));
+  const document = JSON.parse(authenticated.authenticatedBytes.toString("utf8"));
   if (document?.contract !== "semantic_recovery_evidence_source" || document?.version !== 1) throw new Error("invalid evidence document");
   return { ...authenticated, authorityClass: document.authorityClass, claims: document.claims };
 }
@@ -394,7 +394,9 @@ function authenticateOpaqueArtifact(artifact) {
   const bytes = readFileSync(canonicalPath);
   const actualSha256 = digest(bytes);
   if (actualSha256 !== artifact.sha256) throw new Error("artifact digest mismatch");
-  return { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: actualSha256 };
+  const authenticated = { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: actualSha256 };
+  Object.defineProperty(authenticated, "authenticatedBytes", { value: bytes, enumerable: false });
+  return authenticated;
 }
 function safeCanonicalMatch(left, right) {
   if (typeof left !== "string" || typeof right !== "string") return false;

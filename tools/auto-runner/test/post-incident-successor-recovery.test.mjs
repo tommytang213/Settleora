@@ -94,6 +94,20 @@ test("production source claims and authority class come from authenticated bytes
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("production source parses the exact bytes that passed digest authentication", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-evidence-single-read-"));
+  try {
+    const value = packet();
+    value.sources = value.sources.map((source, index) => {
+      const artifactPath = path.join(root, `${index}.json`);
+      const document = { contract: "semantic_recovery_evidence_source", version: 1, authorityClass: source.authorityClass, claims: source.claims };
+      writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
+      return { artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") } };
+    });
+    assert.equal(buildSemanticRecoveryManifestProduction(value).ok, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("missing class and missing claim fail closed", () => {
   const missingClass = packet(); missingClass.sources.pop();
   assert.equal(buildSemanticRecoveryManifest(missingClass).reasonCode, "semantic_evidence_class_missing");
