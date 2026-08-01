@@ -1760,9 +1760,13 @@ operation selectors. The sole operation grant is the exact root-owned `0444`
 direct child beneath
 `/etc/settleora-auto-runner/semantic-recovery-authority/grants/`, and its
 64-hex identity is derived from the validated manifest request. Startup
-reauthenticates the exact source stores, evidence, runtime identities, matrix,
+reauthenticates the exact captured source-store bytes, evidence, runtime identities, matrix,
 verifier set, manifest, and grant immediately before distinct-successor
-persistence. Five domain producer interfaces remain deliberately unavailable
+persistence. Semantic recovery bypasses ordinary charge reconciliation and the
+recovery write primitive independently rejects its protected incident path.
+The private fenced persistence boundary uses fixed grant-bound paths and a final
+commit marker over prepared provenance/successor digests, so no torn pair is
+accepted. Five domain producer interfaces remain deliberately unavailable
 to production until separately deployed native producers exist; runner-owned
 class-tagged JSON is rejected. The unavailable GitHub no-effect producer must
 also hold a root-grant-bound generation/CAS fence across the complete future

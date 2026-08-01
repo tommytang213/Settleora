@@ -1837,8 +1837,11 @@ owned verifier authenticates its canonical bounded store and derives the
 normalized result. Its provenance identity is derived from the authenticated
 producer/store/path/digest identity rather than copied from an evidence
 envelope. Repository/Git verification reads canonical Git objects through the
-fixed sanitized Git executable; lifecycle and logical-task-budget verification
-use their existing production loaders without legacy mutation/backfill. Other
+fixed sanitized Git executable, rejects every non-allowlisted local/worktree
+configuration key, and fixes diff rendering. Lifecycle and logical-task-budget
+verification authenticates one stable descriptor read and parses and validates
+claims from those exact captured bytes, without legacy mutation/backfill or a
+second path read. Other
 closed registry slots require separately deployed native domain producers.
 Until those producers exist, their production verifiers reject even canonical,
 owner-only, correctly class-tagged JSON: runner-owned envelopes are not
@@ -1886,15 +1889,20 @@ The root-owned grant exactly binds the manifest, matrix and verifier digests,
 every evidence source path/role/digest/provenance identity, bound artifact and
 run identity, predecessor and incident, PR evidence, runtime identities,
 counters, one-shot/no-effect posture, lifecycle generation, forbidden writes,
-request/action, and successor key. Startup discovery and authoritative reload
+request/action, and the successor key plus exact successor, prepared-provenance,
+and final-commit paths under the canonical operational logs root. Startup discovery and authoritative reload
 use the same registry. Immediately before persistence, production
 reauthenticates all sources, bound artifacts, runtime claims, manifest, and the
 same exact grant. Persistence additionally requires a source-owned GitHub no-
 effect generation/CAS producer to hold its root-grant-bound fence for the
 complete persistence callback; that producer is currently unavailable. Any
 later effect or drift therefore fails closed. The successor cannot
-alias the predecessor/incident key. Its provenance ledger and successor record
-are exact-repeat adoptable after a crash and reject conflicts, and the created
+alias the predecessor/incident key. Persistence is module-private and callable
+only inside the producer-held fence; configuration cannot redirect its fixed
+`recovery-successors` destination. Prepared provenance and successor files
+become accepted only through a final immutable commit marker binding both
+digests. Every pre-commit crash point is inert and exact-repeat resumable, while
+a commit without both exact prepared records is rejected as torn. The created
 successor remains non-executable pending its later separately authorized
 handoff.
 

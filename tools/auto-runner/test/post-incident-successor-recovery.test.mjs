@@ -11,8 +11,8 @@ import {
   buildSemanticRecoveryManifest,
   classifyRecoveryOverwriteIncident,
   constructPostIncidentSuccessor,
+  evaluateSemanticRecoveryPersistenceSet,
   mandatorySemanticEvidenceClasses,
-  persistOrAdoptPostIncidentSuccessor,
 } from "../lib/post-incident-successor-recovery.mjs";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
@@ -137,6 +137,10 @@ test("matrix and verifier set are deterministic source-owned contracts", () => {
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.headSha.required, ["projection_deployment", "repository_git"]);
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.originalRunnerRunId.required, ["lifecycle", "supervisor_child_run"]);
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.successorEligible.required, ["lifecycle", "projection_deployment"]);
+  const authoritySource = readFileSync(new URL("../lib/semantic-recovery-authority.mjs", import.meta.url), "utf8");
+  assert.match(authoritySource, /authenticateOwnerControlledCanonicalFile\(descriptor\.store\.path[\s\S]*?JSON\.parse\(authenticated\.bytes\.toString\("utf8"\)\)[\s\S]*?validateSessionLifecycleState/u);
+  assert.match(authoritySource, /authenticateOwnerControlledCanonicalFile\(expectedPath[\s\S]*?JSON\.parse\(authenticated\.bytes\.toString\("utf8"\)\)[\s\S]*?validateLogicalTaskBudgetState/u);
+  assert.doesNotMatch(authoritySource, /loadSessionLifecycleForRecovery|loadLogicalTaskBudget/u);
 });
 
 test("all required domain owners build one deterministic manifest and derived operation", () => {
@@ -171,7 +175,7 @@ test("production repository verifier derives candidate claims from canonical Git
     const verified = registry.verify("repository_git", descriptor);
     assert.deepEqual(verified.claims, { repository: "example/repo", branch: "feature/issue-7", baseSha, headSha, treeSha, changedFilesDigest, diffDigest });
     assert.throws(() => registry.verify("repository_git", { ...descriptor, store: { ...descriptor.store, sha256: "0".repeat(64) } }));
-    assert.equal(spawnSync("git", ["config", "--local", "diff.untrusted.command", "/bin/false"], { cwd: root }).status, 0);
+    assert.equal(spawnSync("git", ["config", "--local", "diff.noprefix", "true"], { cwd: root }).status, 0);
     assert.throws(() => registry.verify("repository_git", descriptor), /repository Git config unsafe/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -304,6 +308,7 @@ test("grant binds manifest, matrix, verifier, runtime, evidence and successor id
     (doc) => { doc.noEffectPosture.pushEffect = true; },
     (doc) => { doc.lifecycle.successorSession = "other"; },
     (doc) => { doc.successor.storageKey = "0".repeat(64); },
+    (doc) => { doc.successor.storagePath = "/alternate/successor.json"; },
     (doc) => { doc.allowedAction = "write_incident"; },
   ]) {
     const document = structuredClone(expectedSemanticRecoveryGrantDocument(built.manifest)); mutate(document);
@@ -320,20 +325,32 @@ test("selector alone and caller-created grant-shaped objects grant no authority"
 
 test("synthetic verifier and filesystem adapters cannot construct or persist a successor", () => {
   const built = build(fixture());
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-successor-"));
-  try {
-    const grant = authorize(built);
-    assert.equal(grant.synthetic, true);
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: grant });
-    assert.equal(construction.reasonCode, "post_incident_operational_authorization_required");
-    const config = { logsRoot: root, postIncidentSuccessorRoot: path.join(root, "successors") };
-    mkdirSync(config.postIncidentSuccessorRoot, { mode: 0o700 });
-    mkdirSync(path.join(config.postIncidentSuccessorRoot, "provenance"), { mode: 0o700 });
-    assert.equal(persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest).reasonCode, "post_incident_operational_authorization_required");
-    const persistenceSource = readFileSync(new URL("../lib/post-incident-successor-recovery.mjs", import.meta.url), "utf8");
-    assert.ok((persistenceSource.match(/fsyncFile\(/g) || []).length >= 3);
-    assert.ok((persistenceSource.match(/fsyncDirectory\(/g) || []).length >= 5);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  const grant = authorize(built);
+  assert.equal(grant.synthetic, true);
+  const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: grant });
+  assert.equal(construction.reasonCode, "post_incident_operational_authorization_required");
+  const persistenceSource = readFileSync(new URL("../lib/post-incident-successor-recovery.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(persistenceSource, /export function persistOrAdoptPostIncidentSuccessor/u);
+  assert.match(persistenceSource, /executeWithinSemanticRecoveryPersistenceFence\([\s\S]*?\(\) => persistOrAdoptPostIncidentSuccessor/u);
+  assert.doesNotMatch(persistenceSource, /postIncidentSuccessorRoot/u);
+});
+
+test("prepared pair requires a final exact commit marker and recovers every crash point", () => {
+  const prepared = { result: "prepared", digest: "a".repeat(64) };
+  const successor = { storageKey: "b".repeat(64) };
+  const commit = { result: "accepted", provenanceDigest: "c".repeat(64), successorDigest: "d".repeat(64) };
+  const decide = (state) => evaluateSemanticRecoveryPersistenceSet({
+    ...state,
+    expectedPrepared: prepared,
+    expectedSuccessor: successor,
+    expectedCommit: commit,
+  });
+  assert.equal(decide({}).action, "write_prepared");
+  assert.equal(decide({ prepared }).action, "write_successor");
+  assert.equal(decide({ prepared, successor }).action, "write_commit");
+  assert.equal(decide({ prepared, successor, commit }).action, "adopt");
+  assert.equal(decide({ commit }).reasonCode, "post_incident_successor_commit_torn");
+  assert.equal(decide({ prepared: { result: "accepted" } }).reasonCode, "post_incident_provenance_conflict");
 });
 
 test("protected predecessor and incident write paths remain blocked", () => {
@@ -362,6 +379,7 @@ test("startup quarantines configured incident before recoverability filtering wi
     const config = { logsRoot, repositorySlug: "example/repo", allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, repository: "example/repo", incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false, originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed" }, semanticEvidencePacket: null, operationId: null } };
     const discovery = discoverStartupRecovery(config);
     assert.equal(discovery.found, true); assert.equal(discovery.allowed, false); assert.equal(discovery.reasonCode, "semantic_evidence_packet_missing");
+    assert.throws(() => writeRecoveryState(config, state), /protected_post_incident_recovery_state_write_blocked/u);
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
@@ -380,6 +398,8 @@ test("production persistence retains canonical symlink rejection and durable no-
   assert.match(source, /lexicalStat\.isSymbolicLink\(\) \|\| !lexicalStat\.isDirectory\(\)/u);
   assert.match(source, /writeFileSync\(temp,[\s\S]*?flag: "wx"/u);
   assert.match(source, /fsyncFile\(temp\);[\s\S]*?linkSync\(temp, file\);[\s\S]*?fsyncDirectory\(path\.dirname\(file\)\)/u);
+  assert.match(source, /result: "prepared"[\s\S]*?result: "accepted"/u);
+  assert.match(source, /decision\.action === "write_prepared"[\s\S]*?decision\.action === "write_successor"[\s\S]*?commitPath/u);
 });
 
 test("the test suite never creates or mutates the real protected-control root", () => {

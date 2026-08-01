@@ -13,8 +13,8 @@ import {
   realpathSync,
 } from "node:fs";
 import path from "node:path";
-import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
-import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
+import { logicalTaskBudgetPath, validateLogicalTaskBudgetState } from "./logical-task-budget.mjs";
+import { sessionLifecyclePath, validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const semanticRecoveryProtectedControlRoot = "/etc/settleora-auto-runner/semantic-recovery-authority";
 export const semanticRecoveryGrantContract = "settleora_semantic_recovery_operation_grant";
@@ -317,6 +317,9 @@ export function expectedSemanticRecoveryGrantDocument(manifest) {
     },
     successor: {
       storageKey: manifest.intendedSuccessor.storageKey,
+      storagePath: manifest.intendedSuccessor.storagePath,
+      provenancePath: manifest.intendedSuccessor.provenancePath,
+      commitPath: manifest.intendedSuccessor.commitPath,
       action: semanticRecoveryAllowedAction,
       operationId: manifest.operation.operationId,
       requestId: manifest.operation.requestId,
@@ -431,10 +434,13 @@ function verifyLifecycleSource(config, descriptor) {
   const definition = verifierDefinitions.lifecycle;
   if (descriptor.store.kind !== definition.storeKind || descriptor.store.role !== "session_lifecycle_authority"
     || descriptor.selection.repository !== config.repositorySlug) throw new Error("lifecycle store selector invalid");
-  const loaded = loadSessionLifecycleForRecovery(config, descriptor.selection, { allowLegacySupervisorBackfill: false });
-  if (!loaded.ok || path.resolve(loaded.statePath) !== path.resolve(descriptor.store.path)) throw new Error("lifecycle store read failed");
-  const authenticated = authenticateOwnerControlledCanonicalFile(loaded.statePath, descriptor.store.sha256, maximumSourceBytes, config.logsRoot);
-  const state = loaded.state;
+  const authenticated = authenticateOwnerControlledCanonicalFile(descriptor.store.path, descriptor.store.sha256, maximumSourceBytes, config.logsRoot);
+  let state;
+  try { state = JSON.parse(authenticated.bytes.toString("utf8")); } catch { throw new Error("lifecycle store parse failed"); }
+  const validation = validateSessionLifecycleState(state, descriptor.selection);
+  if (!validation.ok || path.resolve(sessionLifecyclePath(config, state)) !== authenticated.path
+    || state.branch?.name !== descriptor.selection.branchName || state.branch?.baseSha !== descriptor.selection.baseSha
+    || state.branch?.headSha !== descriptor.selection.headSha) throw new Error("lifecycle store read failed");
   const record = state.evidence?.semanticRecoveryAuthority;
   const allowedClaims = ownedClaimsFor("lifecycle");
   assertExactKeys(record, allowedClaims);
@@ -462,19 +468,23 @@ function verifyLogicalTaskBudgetSource(config, descriptor) {
   const definition = verifierDefinitions.logical_task_budget;
   if (descriptor.store.kind !== definition.storeKind || descriptor.store.role !== "logical_task_budget_authority"
     || !isDigest(descriptor.selection.chargeId)) throw new Error("logical-task budget selector invalid");
-  const loaded = loadLogicalTaskBudget(config, descriptor.selection.budgetScopeId);
-  if (!loaded.ok || path.resolve(loaded.statePath) !== path.resolve(descriptor.store.path)) throw new Error("logical-task budget store read failed");
-  const authenticated = authenticateOwnerControlledCanonicalFile(loaded.statePath, descriptor.store.sha256, maximumSourceBytes, config.logsRoot);
-  const marker = loaded.state.charges?.[descriptor.selection.chargeId];
+  const expectedPath = logicalTaskBudgetPath(config, descriptor.selection.budgetScopeId);
+  if (path.resolve(expectedPath) !== path.resolve(descriptor.store.path)) throw new Error("logical-task budget store selector mismatch");
+  const authenticated = authenticateOwnerControlledCanonicalFile(expectedPath, descriptor.store.sha256, maximumSourceBytes, config.logsRoot);
+  let state;
+  try { state = JSON.parse(authenticated.bytes.toString("utf8")); } catch { throw new Error("logical-task budget store parse failed"); }
+  const validation = validateLogicalTaskBudgetState(state, { repository: config.repositorySlug, budgetScopeId: descriptor.selection.budgetScopeId });
+  if (!validation.ok) throw new Error("logical-task budget store read failed");
+  const marker = state.charges?.[descriptor.selection.chargeId];
   const record = marker?.semanticRecoveryAuthority;
   const allowedClaims = ownedClaimsFor("logical_task_budget");
   assertExactKeys(record, allowedClaims);
-  if (record.repository !== loaded.state.repository || record.issueNumber !== marker.identity?.issueNumber
+  if (record.repository !== state.repository || record.issueNumber !== marker.identity?.issueNumber
     || record.claimIdentity !== marker.identity?.claimIdentity || record.chargeId !== marker.chargeId
-    || record.acceptedLogicalTasks !== loaded.state.acceptedLogicalTaskCount) throw new Error("logical-task budget authority record mismatch");
+    || record.acceptedLogicalTasks !== state.acceptedLogicalTaskCount) throw new Error("logical-task budget authority record mismatch");
   return {
     claims: Object.fromEntries(allowedClaims.map((claim) => [claim, record[claim]])),
-    provenanceIdentity: sha256(canonicalJson({ producer: { id: definition.id, version: definition.version }, budgetScopeId: loaded.state.budgetScopeId, chargeId: marker.chargeId, path: authenticated.path, sha256: descriptor.store.sha256 })),
+    provenanceIdentity: sha256(canonicalJson({ producer: { id: definition.id, version: definition.version }, budgetScopeId: state.budgetScopeId, chargeId: marker.chargeId, path: authenticated.path, sha256: descriptor.store.sha256 })),
     store: { ...descriptor.store, path: authenticated.path, byteCount: authenticated.byteCount },
   };
 }
@@ -497,7 +507,15 @@ function verifyRepositoryGitSource(config, descriptor) {
       "-c", "core.hooksPath=/dev/null",
       "-c", "core.fsmonitor=false",
       "-c", "core.attributesFile=/dev/null",
+      "-c", "core.quotePath=true",
       "-c", "diff.external=",
+      "-c", "diff.noprefix=false",
+      "-c", "diff.mnemonicPrefix=false",
+      "-c", "diff.renames=false",
+      "-c", "diff.algorithm=myers",
+      "-c", "diff.orderFile=/dev/null",
+      "-c", "diff.ignoreSubmodules=none",
+      "-c", "diff.submodule=short",
       "-c", "protocol.ext.allow=never",
       "-c", "protocol.file.allow=never",
       ...args,
@@ -547,12 +565,12 @@ function assertCanonicalRepositoryGitStore(repoRoot, git) {
   if (String(git(["rev-parse", "--is-shallow-repository"])).trim() !== "false") throw new Error("repository Git history shallow");
   const common = String(git(["rev-parse", "--git-common-dir"])).trim();
   const gitDirectory = path.resolve(repoRoot, common);
-  const localConfig = String(git(["config", "--local", "--list", "--show-origin", "--null"]));
+  const localConfig = String(git(["config", "--local", "--name-only", "--list"]));
   const worktreeConfigValue = spawnGitStatus(repoRoot, ["config", "--local", "--get", "extensions.worktreeConfig"]);
   let worktreeConfig = "";
   if (worktreeConfigValue.status === 0) {
     if (worktreeConfigValue.stdout.trim().toLowerCase() !== "true") throw new Error("repository Git worktree config invalid");
-    worktreeConfig = String(git(["config", "--worktree", "--list", "--show-origin", "--null"]));
+    worktreeConfig = String(git(["config", "--worktree", "--name-only", "--list"]));
   } else if (worktreeConfigValue.status !== 1) throw new Error("repository Git config unreadable");
   if (unsafeGitConfig(localConfig) || unsafeGitConfig(worktreeConfig)) throw new Error("repository Git config unsafe");
   const replaceRoot = path.join(gitDirectory, "refs", "replace");
@@ -573,7 +591,14 @@ function spawnGitStatus(repoRoot, args) {
 }
 
 function unsafeGitConfig(value) {
-  return /(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|credential\.|http\.[^\n\0]*proxy|remote\.[^\n\0]+\.(?:proxy|uploadpack|receivepack)|protocol\.[^\n\0]+\.allow|ssh\.variant|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|merge\.[^\n\0]+\.driver(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(value);
+  const allowed = [
+    /^core\.(?:repositoryformatversion|filemode|bare|logallrefupdates)$/u,
+    /^extensions\.worktreeconfig$/u,
+    /^remote\.origin\.(?:url|pushurl|fetch)$/u,
+    /^branch\..+\.(?:remote|merge)$/u,
+    /^user\.(?:name|email)$/u,
+  ];
+  return String(value || "").split("\n").filter(Boolean).some((key) => !allowed.some((pattern) => pattern.test(key)));
 }
 
 function normalizeVerifiedRecord(authorityClass, record, definition) {

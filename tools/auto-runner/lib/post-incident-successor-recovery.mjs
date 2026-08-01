@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
 import { closeSync, constants as fsConstants, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -125,21 +126,37 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   } catch { return failed("semantic_operation_request_identity_invalid"); }
   if ((packet.operationId && packet.operationId !== operation.operationId)
     || (packet.requestId && packet.requestId !== operation.requestId)) return failed("semantic_operation_request_selector_mismatch");
+  let successorRoot;
+  try {
+    successorRoot = verifierRegistry.authority === "production"
+      ? canonicalConfiguredSuccessorRoot(adapters.config)
+      : "/synthetic/semantic-recovery-successors";
+  } catch { return failed("semantic_successor_root_invalid"); }
   const successorIdentity = deriveSuccessorIdentity({
     incidentIdentity: packet.incidentIdentity,
     taskIdentity: pickTaskIdentity(claims),
     lifecycleSuccessorSession: packet.lifecycleSuccessorSession,
     operationId: operation.operationId,
     manifestDigest,
+    successorRoot,
   });
   const manifest = deepFreeze({ ...manifestCore, operation: { operationId: operation.operationId, requestId: operation.requestId, action: operation.action }, intendedSuccessor: successorIdentity, manifestDigest });
   validatedManifests.add(manifest);
   return { ok: true, reasonCode: "semantic_evidence_corroborated", manifest, manifestDigest };
 }
 
-export function deriveSuccessorIdentity({ incidentIdentity, taskIdentity, lifecycleSuccessorSession, operationId, manifestDigest }) {
+export function deriveSuccessorIdentity({ incidentIdentity, taskIdentity, lifecycleSuccessorSession, operationId, manifestDigest, successorRoot }) {
+  if (!path.isAbsolute(successorRoot || "")) throw new Error("semantic successor root invalid");
   const storageKey = digest(canonicalJson({ contract: semanticRecoveryContract, incidentIdentity, taskIdentity, lifecycleSuccessorSession, operationId, manifestDigest }));
-  return { storageKey, lifecycleSuccessorSession, operationId };
+  const provenanceKey = digest(canonicalJson({ contract: semanticRecoveryContract, incidentIdentity }));
+  return {
+    storageKey,
+    storagePath: path.join(successorRoot, `${storageKey}.json`),
+    provenancePath: path.join(successorRoot, "provenance", `${provenanceKey}.json`),
+    commitPath: path.join(successorRoot, "commits", `${storageKey}.json`),
+    lifecycleSuccessorSession,
+    operationId,
+  };
 }
 
 export function authenticateConfiguredSemanticRecoveryAuthority(config, packet, operationSelector) {
@@ -196,6 +213,7 @@ export function constructPostIncidentSuccessor({ manifest, mutationGeneration, o
     lifecycleSuccessorSession: manifest.intendedSuccessor?.lifecycleSuccessorSession,
     operationId: manifest.operation?.operationId,
     manifestDigest: manifest.manifestDigest,
+    successorRoot: path.dirname(manifest.intendedSuccessor?.storagePath || ""),
   });
   if (expectedSuccessor.storageKey !== manifest.intendedSuccessor?.storageKey) return failed("semantic_successor_identity_mismatch");
   if (!isValidatedSemanticRecoveryGrant(operationGrant)
@@ -259,7 +277,7 @@ export function authenticatePostIncidentOperationalAuthorization(input) {
   return authenticateRootOwnedSemanticRecoveryGrant(input);
 }
 
-export function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {
+function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {
   if (!construction?.ok) return construction;
   const expectedSuccessor = manifest && deriveSuccessorIdentity({
     incidentIdentity: manifest.incidentIdentity,
@@ -267,6 +285,7 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
     manifestDigest: manifest.manifestDigest,
     lifecycleSuccessorSession: manifest.intendedSuccessor?.lifecycleSuccessorSession,
     operationId: manifest.operation?.operationId,
+    successorRoot: path.dirname(manifest.intendedSuccessor?.storagePath || ""),
   });
   if (!validatedConstructions.has(construction)
     || !validatedManifests.has(manifest)
@@ -276,15 +295,21 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
     || digest(canonicalJson(manifestCoreFromManifest(manifest))) !== manifest?.manifestDigest) {
     return failed("post_incident_persistence_binding_invalid");
   }
-  const root = path.resolve(config.postIncidentSuccessorRoot || path.join(config.logsRoot, "recovery-successors"));
+  let root;
+  try { root = canonicalConfiguredSuccessorRoot(config); }
+  catch { return failed("post_incident_successor_root_unsafe"); }
   const predecessor = canonicalExistingPath(manifest.historicalPredecessor.path);
   const incident = canonicalExistingPath(manifest.currentIncident.path);
-  const successorPath = path.join(root, `${construction.storageKey}.json`);
+  const successorPath = manifest.intendedSuccessor.storagePath;
+  const ledgerPath = manifest.intendedSuccessor.provenancePath;
+  const commitPath = manifest.intendedSuccessor.commitPath;
+  if (path.dirname(successorPath) !== root
+    || path.dirname(path.dirname(ledgerPath)) !== root
+    || path.dirname(path.dirname(commitPath)) !== root) return failed("post_incident_successor_destination_binding_invalid");
   const safeRoot = validatePersistenceDirectory(config.logsRoot, root);
   if (!safeRoot.ok) return safeRoot;
   const canonicalSuccessor = path.join(safeRoot.path, path.basename(successorPath));
   if ([predecessor, incident].includes(canonicalSuccessor)) return failed("post_incident_successor_aliases_protected_path");
-  const ledgerPath = path.join(safeRoot.path, "provenance", `${digest(canonicalJson({ incident }))}.json`);
   const record = {
     contract: semanticRecoveryContract,
     version: semanticRecoveryVersion,
@@ -296,24 +321,60 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
     mutationGeneration: construction.successor.mutationGeneration,
     oneShotExhaustion: manifest.oneShotExhaustion,
     artifactDigests: manifest.artifacts,
-    result: "accepted",
+    result: "prepared",
     mutationAuthority: "unavailable_until_exact_successor_handoff",
   };
-  const existingRecord = readSafeJsonIfExists(ledgerPath);
-  const existingSuccessor = readSafeJsonIfExists(successorPath);
-  if (existingRecord?.unsafe || existingSuccessor?.unsafe) return failed("post_incident_successor_destination_unsafe");
-  if (existingRecord?.value && canonicalJson(existingRecord.value) !== canonicalJson(record)) return failed("post_incident_provenance_conflict");
-  if (existingSuccessor?.value && canonicalJson(existingSuccessor.value) !== canonicalJson(construction.successor)) return failed("post_incident_successor_collision");
-  if (existingRecord?.value && existingSuccessor?.value) return { ok: true, adopted: true, reasonCode: "post_incident_successor_adopted", successorPath, ledgerPath };
   const safeLedgerRoot = validatePersistenceDirectory(config.logsRoot, path.dirname(ledgerPath));
   if (!safeLedgerRoot.ok) return safeLedgerRoot;
-  const claimed = claimImmutableJson(ledgerPath, record);
-  if (!claimed.ok) return claimed;
-  if (!existingSuccessor?.value) {
-    const persisted = atomicJsonNoReplace(successorPath, construction.successor);
-    if (!persisted.ok) return persisted;
+  const safeCommitRoot = validatePersistenceDirectory(config.logsRoot, path.dirname(commitPath));
+  if (!safeCommitRoot.ok) return safeCommitRoot;
+  const commit = {
+    contract: "settleora_semantic_recovery_successor_commit",
+    version: 1,
+    result: "accepted",
+    manifestDigest: manifest.manifestDigest,
+    operationId: manifest.operation.operationId,
+    storageKey: construction.storageKey,
+    provenanceDigest: digest(canonicalJson(record)),
+    successorDigest: digest(canonicalJson(construction.successor)),
+  };
+  let created = false;
+  for (let step = 0; step < 4; step += 1) {
+    const reads = [ledgerPath, successorPath, commitPath].map(readSafeJsonIfExists);
+    if (reads.some((entry) => entry?.unsafe)) return failed("post_incident_successor_destination_unsafe");
+    const decision = evaluateSemanticRecoveryPersistenceSet({
+      prepared: reads[0]?.value,
+      successor: reads[1]?.value,
+      commit: reads[2]?.value,
+      expectedPrepared: record,
+      expectedSuccessor: construction.successor,
+      expectedCommit: commit,
+    });
+    if (!decision.ok) return decision;
+    if (decision.action === "adopt") {
+      return { ok: true, adopted: !created, reasonCode: created ? "post_incident_successor_created" : "post_incident_successor_adopted", successorPath, ledgerPath, commitPath };
+    }
+    const [targetPath, value] = decision.action === "write_prepared" ? [ledgerPath, record]
+      : decision.action === "write_successor" ? [successorPath, construction.successor]
+        : [commitPath, commit];
+    const written = atomicJsonNoReplace(targetPath, value);
+    if (!written.ok) return written;
+    created = true;
   }
-  return { ok: true, adopted: false, reasonCode: "post_incident_successor_created", successorPath, ledgerPath };
+  return failed("post_incident_successor_commit_incomplete");
+}
+
+export function evaluateSemanticRecoveryPersistenceSet({ prepared, successor, commit, expectedPrepared, expectedSuccessor, expectedCommit } = {}) {
+  for (const [actual, expected, reasonCode] of [
+    [prepared, expectedPrepared, "post_incident_provenance_conflict"],
+    [successor, expectedSuccessor, "post_incident_successor_collision"],
+    [commit, expectedCommit, "post_incident_successor_commit_conflict"],
+  ]) if (actual !== undefined && canonicalJson(actual) !== canonicalJson(expected)) return failed(reasonCode);
+  if (commit !== undefined && (prepared === undefined || successor === undefined)) return failed("post_incident_successor_commit_torn");
+  if (commit !== undefined) return { ok: true, action: "adopt" };
+  if (prepared === undefined) return { ok: true, action: "write_prepared" };
+  if (successor === undefined) return { ok: true, action: "write_successor" };
+  return { ok: true, action: "write_commit" };
 }
 
 export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authenticatedProvenance }) {
@@ -452,31 +513,19 @@ function deepFreeze(value) { if (value && typeof value === "object" && !Object.i
 function failed(reasonCode, diagnostics = []) { return { ok: false, reasonCode, diagnostics: unique(diagnostics) }; }
 function readSafeJsonIfExists(file) {
   if (!existsSync(file)) return null;
-  const stat = lstatSync(file);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0) return { unsafe: true };
-  try { return { value: JSON.parse(readFileSync(file, "utf8")) }; } catch { return { unsafe: true }; }
-}
-function claimImmutableJson(file, value) {
-  const existing = readSafeJsonIfExists(file);
-  if (existing?.unsafe) return failed("post_incident_successor_destination_unsafe");
-  if (existing?.value) return canonicalJson(existing.value) === canonicalJson(value)
-    ? { ok: true, adopted: true }
-    : failed("post_incident_provenance_conflict");
-  const temp = `${file}.${process.pid}.${Date.now()}.claim`;
-  writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-  fsyncFile(temp);
+  let fd;
   try {
-    linkSync(temp, file);
-    fsyncDirectory(path.dirname(file));
-    return { ok: true, adopted: false };
-  } catch (error) {
-    if (error?.code !== "EEXIST") return failed("post_incident_provenance_claim_failed");
-    const raced = readSafeJsonIfExists(file);
-    if (raced?.unsafe) return failed("post_incident_successor_destination_unsafe");
-    return raced?.value && canonicalJson(raced.value) === canonicalJson(value)
-      ? { ok: true, adopted: true }
-      : failed("post_incident_provenance_conflict");
-  } finally { try { unlinkSync(temp); fsyncDirectory(path.dirname(temp)); } catch {} }
+    fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+    const first = fstatSync(fd);
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (!first.isFile() || first.nlink !== 1 || first.size < 1 || first.size > maximumArtifactBytes
+      || (first.mode & 0o7777) !== 0o600 || (uid !== null && first.uid !== uid)) return { unsafe: true };
+    const bytes = readFileSync(fd);
+    const second = fstatSync(fd);
+    if (persistenceStatIdentity(first) !== persistenceStatIdentity(second) || bytes.length !== first.size || !isUtf8(bytes)) return { unsafe: true };
+    return { value: JSON.parse(bytes.toString("utf8")) };
+  } catch { return { unsafe: true }; }
+  finally { if (fd !== undefined) closeSync(fd); }
 }
 function atomicJsonNoReplace(file, value) {
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
@@ -499,6 +548,15 @@ function fsyncFile(file) {
 function fsyncDirectory(directory) {
   const fd = openSync(directory, fsConstants.O_RDONLY);
   try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+function persistenceStatIdentity(stat) {
+  return [stat.dev, stat.ino, stat.mode, stat.nlink, stat.uid, stat.gid, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+}
+function canonicalConfiguredSuccessorRoot(config) {
+  if (!config || typeof config.logsRoot !== "string" || !path.isAbsolute(config.logsRoot)) throw new Error("semantic successor logs root invalid");
+  const lexicalLogsRoot = path.resolve(config.logsRoot);
+  if (realpathSync(lexicalLogsRoot) !== lexicalLogsRoot) throw new Error("semantic successor logs root noncanonical");
+  return path.join(lexicalLogsRoot, "recovery-successors");
 }
 function canonicalExistingPath(value) {
   const resolved = path.resolve(value);

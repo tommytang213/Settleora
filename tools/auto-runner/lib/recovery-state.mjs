@@ -215,6 +215,14 @@ export function writeRecoveryState(config, state) {
   const validation = validateRecoveryStateShape(state);
   if (!validation.ok) throw new Error(`Invalid recovery state: ${validation.reason}`);
   const statePath = recoveryStatePath(config, state);
+  const protectedRecoveryPaths = [
+    config.postIncidentRecovery?.authenticatedProvenance?.incidentPath,
+    config.postIncidentRecovery?.authenticatedProvenance?.incidentArtifact?.path,
+    config.postIncidentRecovery?.authenticatedProvenance?.predecessorPath,
+  ].filter((value) => typeof value === "string" && path.isAbsolute(value)).map((value) => path.resolve(value));
+  if (protectedRecoveryPaths.includes(path.resolve(statePath))) {
+    throw new Error("protected_post_incident_recovery_state_write_blocked");
+  }
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
   const sanitized = sanitizeRecoveryState({
     ...state,
