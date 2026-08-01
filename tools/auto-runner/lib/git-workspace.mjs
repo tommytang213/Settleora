@@ -1004,6 +1004,7 @@ function sourceOwnedGitContextStable(context) {
 function guardedGitMetadataIdentity(gitDir, commonDir) {
   const paths = [...new Set([
     path.join(commonDir, "config"), path.join(gitDir, "config.worktree"),
+    path.join(commonDir, "packed-refs"),
     path.join(commonDir, "info", "attributes"), path.join(commonDir, "info", "exclude"),
     path.join(commonDir, "info", "grafts"), path.join(commonDir, "objects", "info", "alternates"),
     path.join(commonDir, "objects", "info", "http-alternates"),
@@ -1020,7 +1021,41 @@ function guardedGitMetadataIdentity(gitDir, commonDir) {
       graphNeutral: !isGraphRewritingMetadata(metadataPath),
     };
   });
-  return { entries, identity: entries.map((entry) => `${entry.path}:${entry.identity}`).join("\n") };
+  const referenceNamespaceIdentity = guardedReferenceNamespaceIdentity(commonDir);
+  return {
+    entries,
+    referenceNamespaceIdentity,
+    identity: [...entries.map((entry) => `${entry.path}:${entry.identity}`), referenceNamespaceIdentity].join("\n"),
+  };
+}
+
+function guardedReferenceNamespaceIdentity(commonDir) {
+  const root = path.join(commonDir, "refs");
+  const rootInfo = lstatSync(root);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()
+    || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())) {
+    throw new Error("Repository Git refs namespace is unsafe");
+  }
+  const pending = [root];
+  let inspected = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (++inspected > 4096) throw new Error("Repository Git refs namespace is unbounded");
+      const candidate = path.join(current, entry.name);
+      const info = lstatSync(candidate);
+      if (entry.isSymbolicLink() || info.isSymbolicLink()
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+        throw new Error("Repository Git refs namespace is unsafe");
+      }
+      if (info.isDirectory()) {
+        pending.push(candidate);
+      } else if (!info.isFile()) {
+        throw new Error("Repository Git refs namespace is unsafe");
+      }
+    }
+  }
+  return `${root}:${directoryIdentity(rootInfo)}`;
 }
 
 function assertGuardedGitMetadataPaths(snapshot) {

@@ -2353,7 +2353,7 @@ function createProductionBatchFixAdapters(config = {}, options = {}) {
       }
       if (!reconciledIntent.ok && !["push_intent_not_completed", "push_intent_unpushed_candidate"].includes(reconciledIntent.reasonCode)) return reconciledIntent;
       const pushRemote = assertRepositoryRemoteIdentity(config);
-      const push = runner("git", ["push", pushRemote?.pushUrl || "origin", `${newHead}:${branch}`], { cwd });
+      const push = runner("git", ["push", pushRemote?.pushUrl || "origin", `${newHead}:refs/heads/${branch}`], { cwd });
       if (push.status !== 0 || push.error) return fail("existing_pr_batch_fix_push_failed", boundedText(push.stderr || push.error || push.stdout));
       const confirmation = reconcilePushIntent({ config, pr, intent, runner, requireCandidate: true });
       if (!confirmation.ok) return confirmation;
@@ -6227,6 +6227,7 @@ function computeStablePatchId(patchText, cwd, runner) {
 function patchApplyCheck({ patchText, cwd, reverse, runner }) {
   const args = ["apply", "--check"];
   if (reverse) args.push("--reverse");
+  args.push("-");
   const result = runner("git", args, { cwd, input: patchText });
   return result.status === 0 && !result.error;
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import test from "node:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -165,9 +165,39 @@ test("only the closed source-owned Git command grammar reaches Git", () => {
       "show-ref", "--verify", "--hash", "refs/heads/topic",
     ]).kind, "local");
     assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
+      "apply", "--check", "-",
+    ]).kind, "local");
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
+      "push", "--no-verify", "/tmp/remote.git", `${"a".repeat(40)}:refs/heads/topic`,
+    ]).kind, "transport");
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
       "push", "--no-verify", `--force-with-lease=refs/heads/topic:${"a".repeat(40)}`,
       "/tmp/remote.git", ":refs/heads/topic",
     ]).kind, "transport");
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("source-owned Git and runtime identity reject an escaping refs namespace before ref reads or deletion", () => {
+  const repo = tempRepo();
+  try {
+    const branch = repo.git("branch", "--show-current");
+    const externalRefs = path.join(repo.cwd, "external-refs");
+    const refs = path.join(repo.cwd, ".git", "refs");
+    renameSync(refs, externalRefs);
+    symlinkSync(externalRefs, refs);
+    const externalBranch = path.join(externalRefs, "heads", branch);
+    assert.equal(existsSync(externalBranch), true);
+    assert.throws(
+      () => runGit(["show-ref", "--verify", "--hash", `refs/heads/${branch}`], { cwd: repo.cwd }),
+      /refs namespace is unsafe/u,
+    );
+    assert.throws(
+      () => verifyRepositoryIdentity(repo.cwd, "tommytang213/Settleora"),
+      /refs namespace is unsafe/u,
+    );
+    assert.equal(existsSync(externalBranch), true, "rejected metadata must not delete the external ref");
   } finally {
     repo.cleanup();
   }

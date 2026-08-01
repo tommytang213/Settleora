@@ -947,3 +947,12 @@ test("both startup discovery paths use the same source-owned semantic authority 
   assert.match(authority, /semanticRecoveryGrantPath\(operationId\)/);
   assert.doesNotMatch(source, /authenticateSourceProvenance/);
 });
+
+test("production Git callers use the admitted full-ref push and explicit stdin apply forms", () => {
+  const manager = readFileSync(new URL("../lib/pr-manager.mjs", import.meta.url), "utf8");
+  const stack = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
+  assert.match(manager, /const localSha = getRefSha\("HEAD"[\s\S]*?`\$\{localSha\}:refs\/heads\/\$\{branchName\}`/u);
+  assert.match(stack, /`\$\{newHead\}:refs\/heads\/\$\{branch\}`/u);
+  assert.match(stack, /function patchApplyCheck[\s\S]*?if \(reverse\) args\.push\("--reverse"\);[\s\S]*?args\.push\("-"\);/u);
+  assert.doesNotMatch(stack, /`\$\{newHead\}:\$\{branch\}`/u);
+});

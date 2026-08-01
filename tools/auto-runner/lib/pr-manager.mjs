@@ -9,7 +9,8 @@ function runGh(config, args) {
 export async function pushBranch(config, branchName, options = {}) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
   if (options.effectContext) return canonicalPush(config, branchName, options.effectContext);
-  const result = runRemoteGit(config, ["push", "--no-verify"], [branchName], { push: true });
+  const localSha = getRefSha("HEAD", { cwd: config.repoRoot });
+  const result = runRemoteGit(config, ["push", "--no-verify"], [`${localSha}:refs/heads/${branchName}`], { push: true });
   return {
     skipped: false,
     status: result.status,

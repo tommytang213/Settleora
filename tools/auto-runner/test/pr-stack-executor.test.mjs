@@ -1448,7 +1448,7 @@ test("production commitAndPush binds reservation to exact durable state and push
   assert.equal(pushed.ok, true, pushed.reasonCode);
   assert.equal(pushed.sourceCycleReservation.status, "source_cycle_finalized");
   assert.equal(pushed.sourceCycleReservation.consumedAfter, 1);
-  assert.equal(calls.filter((call) => call === `git push origin ${sha("c")}:feature/auto-913-parent`).length, 1);
+  assert.equal(calls.filter((call) => call === `git push origin ${sha("c")}:refs/heads/feature/auto-913-parent`).length, 1);
 });
 
 test("source-changing evidence separates narrow fix delta from full candidate PR delta", () => {

@@ -75,6 +75,17 @@ test("actual push consumer adopts a crash-window remote update without replay", 
   assert.equal(git(repo, "ls-remote", "--heads", "origin", "refs/heads/feature/test").split(/\s+/)[0], localSha);
 });
 
+test("default development push uses the exact full destination ref admitted by the source-owned grammar", async () => {
+  const { root, repo, config } = fixture();
+  const bare = path.join(root, "remote.git");
+  git(root, "init", "--bare", bare);
+  git(repo, "remote", "add", "origin", bare);
+  const localSha = git(repo, "rev-parse", "HEAD");
+  const result = await pushBranch(config, "feature/test");
+  assert.equal(result.status, 0, result.stderr || result.error);
+  assert.equal(git(repo, "ls-remote", "--heads", "origin", "refs/heads/feature/test").split(/\s+/)[0], localSha);
+});
+
 test("canonical effect context rejects a stale supplied lifecycle checkpoint", () => {
   const { state, config } = fixture();
   const advanced = transitionSessionLifecyclePhase(config, state, { phase: "validation", nextExactAction: "validate" });
