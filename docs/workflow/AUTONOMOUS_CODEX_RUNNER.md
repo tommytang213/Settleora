@@ -1767,8 +1767,9 @@ the ordinary recovery writer refuses every write while an authenticated
 overwrite incident is configured. The runner exposes no persistence callback
 or pathname writer for a semantic successor. A future protected native producer
 must own descriptor-relative storage plus the fixed grant-bound three-record
-commit protocol; the pure source evaluator accepts no torn pair. Five domain
-producer interfaces remain deliberately unavailable
+commit protocol; the pure source evaluator accepts no torn pair. Seven domain
+producer interfaces, including independently protected lifecycle and logical-
+task-budget attestation, remain deliberately unavailable
 to production until separately deployed native producers exist; runner-owned
 class-tagged JSON is rejected. The unavailable GitHub no-effect producer must
 also hold a root-grant-bound generation/CAS fence across its complete native

@@ -13,8 +13,6 @@ import {
   realpathSync,
 } from "node:fs";
 import path from "node:path";
-import { logicalTaskBudgetPath, validateLogicalTaskBudgetState } from "./logical-task-budget.mjs";
-import { sessionLifecyclePath, validateSessionLifecycleState } from "./session-lifecycle.mjs";
 
 export const semanticRecoveryProtectedControlRoot = "/etc/settleora-auto-runner/semantic-recovery-authority";
 export const semanticRecoveryGrantContract = "settleora_semantic_recovery_operation_grant";
@@ -402,8 +400,6 @@ function createRegistry(authority, reader, persistExactSemanticSuccessor = null)
 
 function verifyProductionSource(config, authorityClass, descriptor) {
   if (authorityClass === "repository_git") return verifyRepositoryGitSource(config, descriptor);
-  if (authorityClass === "lifecycle") return verifyLifecycleSource(config, descriptor);
-  if (authorityClass === "logical_task_budget") return verifyLogicalTaskBudgetSource(config, descriptor);
   return rejectUnavailableProductionProducer(authorityClass, descriptor);
 }
 
@@ -423,69 +419,6 @@ function rejectUnavailableProductionProducer(authorityClass, descriptor) {
     || !path.isAbsolute(descriptor.store.path) || typeof descriptor.store.role !== "string"
     || !descriptor.store.role.length || !isDigest(descriptor.store.sha256)) throw new Error("semantic source store mismatch");
   throw new Error(`semantic source producer unavailable: ${authorityClass}`);
-}
-
-function verifyLifecycleSource(config, descriptor) {
-  assertExactKeys(descriptor, ["authorityClass", "selection", "store"]);
-  if (descriptor.authorityClass !== "lifecycle") throw new Error("lifecycle source class mismatch");
-  assertExactKeys(descriptor.store, ["kind", "path", "role", "sha256"]);
-  assertExactKeys(descriptor.selection, ["baseSha", "branchName", "headSha", "issueNumber", "repository", "runId", "supervisorRunId", "taskKey"]);
-  const definition = verifierDefinitions.lifecycle;
-  if (descriptor.store.kind !== definition.storeKind || descriptor.store.role !== "session_lifecycle_authority"
-    || descriptor.selection.repository !== config.repositorySlug) throw new Error("lifecycle store selector invalid");
-  const authenticated = authenticateOwnerControlledCanonicalFile(descriptor.store.path, descriptor.store.sha256, maximumSourceBytes, config.logsRoot);
-  let state;
-  try { state = JSON.parse(authenticated.bytes.toString("utf8")); } catch { throw new Error("lifecycle store parse failed"); }
-  const validation = validateSessionLifecycleState(state, descriptor.selection);
-  if (!validation.ok || path.resolve(sessionLifecyclePath(config, state)) !== authenticated.path
-    || state.branch?.name !== descriptor.selection.branchName || state.branch?.baseSha !== descriptor.selection.baseSha
-    || state.branch?.headSha !== descriptor.selection.headSha) throw new Error("lifecycle store read failed");
-  const record = state.evidence?.semanticRecoveryAuthority;
-  const allowedClaims = ownedClaimsFor("lifecycle");
-  assertExactKeys(record, allowedClaims);
-  if (record.repository !== state.repository || record.issueNumber !== state.logicalTask.issueNumber
-    || record.taskKey !== state.logicalTask.taskKey || record.claimIdentity !== state.logicalTask.claimIdentity
-    || record.originalRunnerRunId !== state.logicalTask.runId || record.originalSupervisorRunId !== state.logicalTask.supervisorRunId
-    || record.localSourceChangingRounds !== state.controller.localSourceChangingRoundsPerEpoch
-    || record.githubTriggeredFixEpochs !== state.controller.githubTriggeredFixEpochsPerPr
-    || record.lifetimeLocalSourceChangingRounds !== state.controller.lifetimeLocalSourceChangingRounds
-    || record.lifecycleSessionId !== state.sessions.current || record.lifecycleMutationGeneration !== state.sessions.generation) {
-    throw new Error("lifecycle authority record mismatch");
-  }
-  return {
-    claims: Object.fromEntries(allowedClaims.map((claim) => [claim, record[claim]])),
-    provenanceIdentity: sha256(canonicalJson({ producer: { id: definition.id, version: definition.version }, checkpointDigest: state.checkpoint.digest, path: authenticated.path, sha256: descriptor.store.sha256 })),
-    store: { ...descriptor.store, path: authenticated.path, byteCount: authenticated.byteCount },
-  };
-}
-
-function verifyLogicalTaskBudgetSource(config, descriptor) {
-  assertExactKeys(descriptor, ["authorityClass", "selection", "store"]);
-  if (descriptor.authorityClass !== "logical_task_budget") throw new Error("logical-task budget source class mismatch");
-  assertExactKeys(descriptor.store, ["kind", "path", "role", "sha256"]);
-  assertExactKeys(descriptor.selection, ["budgetScopeId", "chargeId"]);
-  const definition = verifierDefinitions.logical_task_budget;
-  if (descriptor.store.kind !== definition.storeKind || descriptor.store.role !== "logical_task_budget_authority"
-    || !isDigest(descriptor.selection.chargeId)) throw new Error("logical-task budget selector invalid");
-  const expectedPath = logicalTaskBudgetPath(config, descriptor.selection.budgetScopeId);
-  if (path.resolve(expectedPath) !== path.resolve(descriptor.store.path)) throw new Error("logical-task budget store selector mismatch");
-  const authenticated = authenticateOwnerControlledCanonicalFile(expectedPath, descriptor.store.sha256, maximumSourceBytes, config.logsRoot);
-  let state;
-  try { state = JSON.parse(authenticated.bytes.toString("utf8")); } catch { throw new Error("logical-task budget store parse failed"); }
-  const validation = validateLogicalTaskBudgetState(state, { repository: config.repositorySlug, budgetScopeId: descriptor.selection.budgetScopeId });
-  if (!validation.ok) throw new Error("logical-task budget store read failed");
-  const marker = state.charges?.[descriptor.selection.chargeId];
-  const record = marker?.semanticRecoveryAuthority;
-  const allowedClaims = ownedClaimsFor("logical_task_budget");
-  assertExactKeys(record, allowedClaims);
-  if (record.repository !== state.repository || record.issueNumber !== marker.identity?.issueNumber
-    || record.claimIdentity !== marker.identity?.claimIdentity || record.chargeId !== marker.chargeId
-    || record.acceptedLogicalTasks !== state.acceptedLogicalTaskCount) throw new Error("logical-task budget authority record mismatch");
-  return {
-    claims: Object.fromEntries(allowedClaims.map((claim) => [claim, record[claim]])),
-    provenanceIdentity: sha256(canonicalJson({ producer: { id: definition.id, version: definition.version }, budgetScopeId: state.budgetScopeId, chargeId: marker.chargeId, path: authenticated.path, sha256: descriptor.store.sha256 })),
-    store: { ...descriptor.store, path: authenticated.path, byteCount: authenticated.byteCount },
-  };
 }
 
 function verifyRepositoryGitSource(config, descriptor) {
@@ -661,34 +594,6 @@ function authenticateRootReadOnlyCanonicalFile(file) {
     const second = fstatSync(fd);
     if (statIdentity(first) !== statIdentity(second) || bytes.length !== first.size || !isUtf8(bytes)) throw new Error("semantic grant file changed");
     return { path: file, bytes, byteCount: bytes.length, sha256: sha256(bytes) };
-  } finally { closeSync(fd); }
-}
-
-function authenticateOwnerControlledCanonicalFile(file, expectedDigest, maximumBytes, trustedRoot) {
-  const lexical = path.resolve(file);
-  const lexicalRoot = path.resolve(trustedRoot);
-  const relative = path.relative(lexicalRoot, lexical);
-  if (relative.startsWith("..") || path.isAbsolute(relative) || realpathSync(lexicalRoot) !== lexicalRoot) throw new Error("semantic source outside trusted store");
-  if (realpathSync(lexical) !== lexical) throw new Error("semantic source path noncanonical");
-  const uid = typeof process.getuid === "function" ? process.getuid() : null;
-  let cursor = path.dirname(lexical);
-  while (true) {
-    const info = lstatSync(cursor);
-    if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o022) !== 0 || (uid !== null && info.uid !== uid)) throw new Error("semantic source ancestor unsafe");
-    if (cursor === lexicalRoot) break;
-    const parent = path.dirname(cursor);
-    if (parent === cursor) throw new Error("semantic source root mismatch");
-    cursor = parent;
-  }
-  const fd = openSync(lexical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
-  try {
-    const first = fstatSync(fd);
-    if (!first.isFile() || first.isSymbolicLink?.() || first.nlink !== 1 || first.size < 1 || first.size > maximumBytes
-      || (first.mode & 0o077) !== 0 || (uid !== null && first.uid !== uid)) throw new Error("semantic source file unsafe");
-    const bytes = readFileSync(fd);
-    const second = fstatSync(fd);
-    if (statIdentity(first) !== statIdentity(second) || bytes.length !== first.size || !isUtf8(bytes) || sha256(bytes) !== expectedDigest) throw new Error("semantic source file changed");
-    return { path: lexical, bytes, byteCount: bytes.length };
   } finally { closeSync(fd); }
 }
 

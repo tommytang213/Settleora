@@ -7439,6 +7439,52 @@ test("launch workspace guard ignores caller Git environment and cannot execute i
   }
 });
 
+test("launch workspace guard rejects repository filters, info attributes, active excludes, and hidden index flags", () => {
+  const cases = [
+    (repo) => git(repo, ["config", "filter.cloak.clean", "/bin/false"]),
+    (repo) => writeFileSync(path.join(repo, ".git", "info", "attributes"), "* filter=cloak\n"),
+    (repo) => writeFileSync(path.join(repo, ".git", "info", "exclude"), "hidden-*\n"),
+    (repo) => {
+      git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/README.md"]);
+      writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "hidden tracked mutation\n");
+    },
+  ];
+  for (const arrange of cases) {
+    const repo = createTempGitRepo();
+    try {
+      arrange(repo);
+      assert.throws(
+        () => ensureLaunchWorkspace({ run: true, dryRun: false, repoRoot: repo }, { warn() {} }),
+      );
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  }
+});
+
+test("task branch creation and mutation guard ignore caller Git repository selectors", () => {
+  const repo = createTempGitRepo();
+  const alternate = createTempGitRepo();
+  const previousGitDir = process.env.GIT_DIR;
+  const previousGitWorkTree = process.env.GIT_WORK_TREE;
+  const baseSha = git(repo, ["rev-parse", "origin/main"]).stdout.trim();
+  try {
+    process.env.GIT_DIR = path.join(alternate, ".git");
+    process.env.GIT_WORK_TREE = alternate;
+    createTaskBranch({ run: true, dryRun: false, repoRoot: repo }, "feature/fixed-git-boundary");
+    const guarded = ensureTaskMutationWorkspace(
+      { run: true, dryRun: false, repoRoot: repo },
+      { branchName: "feature/fixed-git-boundary", expectedOriginMainSha: baseSha },
+      { cwd: repo },
+    );
+    assert.equal(guarded.branch, "feature/fixed-git-boundary");
+    assert.equal(git(alternate, ["branch", "--show-current"]).stdout.trim(), "main");
+  } finally {
+    if (previousGitDir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = previousGitDir;
+    if (previousGitWorkTree === undefined) delete process.env.GIT_WORK_TREE; else process.env.GIT_WORK_TREE = previousGitWorkTree;
+    rmSync(alternate, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("task mutation workspace accepts only the exact clean generated task branch", () => {
   const repo = createTempGitRepo();
   const config = { run: true, dryRun: false, repoRoot: repo };

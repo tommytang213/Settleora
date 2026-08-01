@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync,
+  existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, rmSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -236,9 +236,16 @@ function parseWorktrees(value) {
 
 export function runGit(args, options = {}) {
   const cwd = options.cwd || trustedRepositoryContext || process.cwd();
-  const result = spawnSync("git", args, {
+  const initializesMissingRepository =
+    args[0] === "init" && !existsSync(path.join(cwd, ".git"));
+  const hasHead = !initializesMissingRepository && repositoryHasHead(cwd);
+  if (!initializesMissingRepository) {
+    assertSourceOwnedGitMetadata(cwd);
+  }
+  const fixedArgs = fixedRepositoryGitArgs(cwd, args);
+  const result = spawnSync("/usr/bin/git", fixedArgs, {
     cwd,
-    env: options.env ? { ...process.env, ...options.env } : process.env,
+    env: fixedRepositoryGitEnvironment(options.env, { bindAttributesToHead: hasHead }),
     encoding: "utf8",
     windowsHide: true,
   });
@@ -307,12 +314,10 @@ export function getStatusShort(options = {}) {
 
 export function ensureLaunchWorkspace(config, logger, options = {}) {
   const cwd = options.cwd || config.repoRoot;
-  const statusResult = runLaunchWorkspaceGuardGit(["status", "--porcelain=v1", "--untracked-files=all"], { cwd, environment: options.environment });
-  assertGitSuccess(statusResult, "Unable to read launch workspace status");
+  const status = inspectRawLaunchWorkspace(cwd, options.environment);
   const branchResult = runLaunchWorkspaceGuardGit(["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd, environment: options.environment });
   const refResult = runLaunchWorkspaceGuardGit(["rev-parse", "--verify", "origin/main^{commit}"], { cwd, environment: options.environment });
   assertGitSuccess(refResult, "Unable to resolve launch origin/main");
-  const status = statusResult.stdout.trim();
   const branch = branchResult.status === 0 ? branchResult.stdout.trim() : "";
   const originMainSha = refResult.stdout.trim();
   if (status && config.run) {
@@ -332,33 +337,11 @@ function runLaunchWorkspaceGuardGit(args, { cwd, environment = process.env } = {
   // The unused environment parameter makes hostile-environment behavior
   // directly testable without mutating process-global state.
   void environment;
-  const fixedArgs = [
-    "--no-replace-objects",
-    "-c", "credential.helper=",
-    "-c", "core.attributesFile=/dev/null",
-    "-c", "core.fsmonitor=false",
-    "-c", "core.hooksPath=/dev/null",
-    "-c", `core.worktree=${cwd}`,
-    "-c", "diff.external=",
-    "-c", "protocol.ext.allow=never",
-    "-c", "protocol.file.allow=never",
-    "-c", "status.showUntrackedFiles=all",
-    ...args,
-  ];
+  assertSourceOwnedGitMetadata(cwd);
+  const fixedArgs = fixedRepositoryGitArgs(cwd, args);
   const result = spawnSync("/usr/bin/git", fixedArgs, {
     cwd,
-    env: {
-      PATH: "/usr/bin:/bin",
-      GIT_ATTR_SOURCE: "HEAD",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-      GIT_NO_LAZY_FETCH: "1",
-      GIT_NO_REPLACE_OBJECTS: "1",
-      GIT_OPTIONAL_LOCKS: "0",
-      LANG: "C",
-      LC_ALL: "C",
-    },
+    env: fixedRepositoryGitEnvironment(),
     encoding: "utf8",
     windowsHide: true,
   });
@@ -369,6 +352,133 @@ function runLaunchWorkspaceGuardGit(args, { cwd, environment = process.env } = {
     stderr: result.stderr || "",
     error: result.error ? result.error.message : null,
   };
+}
+
+function fixedRepositoryGitArgs(cwd, args) {
+  return [
+    "--no-replace-objects",
+    "-c", "core.attributesFile=/dev/null",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", `core.worktree=${path.resolve(cwd)}`,
+    "-c", "protocol.ext.allow=never",
+    "-c", "protocol.file.allow=never",
+    ...args,
+  ];
+}
+
+function fixedRepositoryGitEnvironment(overrides = {}, { bindAttributesToHead = true } = {}) {
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  const permittedOverrides = Object.fromEntries(Object.entries(overrides || {}).filter(([key]) => !key.startsWith("GIT_")));
+  const environment = {
+    ...inherited,
+    ...permittedOverrides,
+    PATH: "/usr/bin:/bin",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_OPTIONAL_LOCKS: "0",
+    LANG: "C",
+    LC_ALL: "C",
+  };
+  if (bindAttributesToHead) environment.GIT_ATTR_SOURCE = "HEAD";
+  return environment;
+}
+
+function repositoryHasHead(cwd) {
+  const root = path.resolve(cwd);
+  if (!existsSync(path.join(root, ".git"))) return false;
+  const result = spawnSync("/usr/bin/git", fixedRepositoryGitArgs(root, ["rev-parse", "--verify", "HEAD^{commit}"]), {
+    cwd: root,
+    env: fixedRepositoryGitEnvironment({}, { bindAttributesToHead: false }),
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return result.status === 0 && !result.error;
+}
+
+function assertSourceOwnedGitMetadata(cwd) {
+  const root = path.resolve(cwd);
+  const git = (args) => spawnSync("/usr/bin/git", fixedRepositoryGitArgs(root, args), {
+    cwd: root,
+    env: fixedRepositoryGitEnvironment({}, { bindAttributesToHead: false }),
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  const local = git(["config", "--local", "--name-only", "--list"]);
+  const unsupportedLocal = unsupportedRepositoryGitConfigKeys(local.stdout);
+  if (local.status !== 0 || unsupportedLocal.length) throw new Error("Repository Git configuration is unsafe");
+  const worktreeEnabled = git(["config", "--local", "--get", "extensions.worktreeConfig"]);
+  if (worktreeEnabled.status === 0) {
+    if (worktreeEnabled.stdout.trim().toLowerCase() !== "true") throw new Error("Repository worktree Git configuration is unsafe");
+    const worktree = git(["config", "--worktree", "--name-only", "--list"]);
+    const unsupportedWorktree = unsupportedRepositoryGitConfigKeys(worktree.stdout);
+    if (worktree.status !== 0 || unsupportedWorktree.length) throw new Error("Repository worktree Git configuration is unsafe");
+  } else if (worktreeEnabled.status !== 1) throw new Error("Repository Git configuration is unreadable");
+  const attributes = git(["rev-parse", "--git-path", "info/attributes"]);
+  const excludes = git(["rev-parse", "--git-path", "info/exclude"]);
+  if (attributes.status !== 0 || excludes.status !== 0) throw new Error("Repository Git metadata is unreadable");
+  if (existsSync(path.resolve(root, attributes.stdout.trim()))) throw new Error("Repository Git attributes are unsafe");
+  const excludePath = path.resolve(root, excludes.stdout.trim());
+  if (existsSync(excludePath) && readFileSync(excludePath, "utf8").split(/\r?\n/u).some((line) => line.trim() && !line.trim().startsWith("#"))) {
+    throw new Error("Repository Git excludes are unsafe");
+  }
+}
+
+function unsupportedRepositoryGitConfigKeys(value) {
+  const allowed = [
+    /^core\.(?:repositoryformatversion|filemode|bare|logallrefupdates|worktree)$/u,
+    /^extensions\.worktreeconfig$/u,
+    /^remote\.origin\.(?:url|pushurl|fetch)$/u,
+    /^branch\..+\.(?:remote|merge)$/u,
+    /^user\.(?:name|email)$/u,
+  ];
+  return String(value || "").split("\n").filter(Boolean).filter((key) => !allowed.some((pattern) => pattern.test(key)));
+}
+
+function inspectRawLaunchWorkspace(cwd, environment) {
+  const run = (args) => runLaunchWorkspaceGuardGit(args, { cwd, environment });
+  const indexFlags = run(["ls-files", "-v", "-z"]);
+  assertGitSuccess(indexFlags, "Unable to inspect launch index flags");
+  if (indexFlags.stdout.split("\0").filter(Boolean).some((entry) => !entry.startsWith("H "))) return "unsafe-index-flags";
+  const staged = run(["diff-index", "--cached", "--quiet", "HEAD", "--"]);
+  if (![0, 1].includes(staged.status) || staged.error) assertGitSuccess(staged, "Unable to inspect launch index");
+  if (staged.status === 1) return "staged-index-differs-from-head";
+  const untracked = run(["ls-files", "--others", "--exclude-standard", "-z"]);
+  assertGitSuccess(untracked, "Unable to inspect launch untracked files");
+  if (untracked.stdout.split("\0").some(Boolean)) return "untracked-files-present";
+  const format = run(["rev-parse", "--show-object-format"]);
+  assertGitSuccess(format, "Unable to inspect repository object format");
+  const algorithm = format.stdout.trim();
+  if (!["sha1", "sha256"].includes(algorithm)) throw new Error("Unsupported repository object format");
+  const index = run(["ls-files", "--stage", "-z"]);
+  assertGitSuccess(index, "Unable to inspect launch index entries");
+  for (const entry of index.stdout.split("\0").filter(Boolean)) {
+    const match = entry.match(/^(100644|100755|120000) ([a-f0-9]+) 0\t([\s\S]+)$/u);
+    if (!match) return "unsupported-or-unmerged-index-entry";
+    const [, mode, expected, relative] = match;
+    const file = path.resolve(cwd, relative);
+    const boundary = path.relative(path.resolve(cwd), file);
+    if (boundary.startsWith("..") || path.isAbsolute(boundary)) return "index-path-escaped-worktree";
+    let bytes;
+    try {
+      const stat = lstatSync(file);
+      if (mode === "120000") {
+        if (!stat.isSymbolicLink()) return "tracked-file-type-drift";
+        bytes = readlinkSync(file, { encoding: "buffer" });
+      } else {
+        if (!stat.isFile() || stat.isSymbolicLink()) return "tracked-file-type-drift";
+        const executable = (stat.mode & 0o111) !== 0;
+        if (executable !== (mode === "100755")) return "tracked-file-mode-drift";
+        bytes = readFileSync(file);
+      }
+    } catch { return "tracked-file-missing"; }
+    const actual = createHash(algorithm).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+    if (actual !== expected) return "tracked-file-bytes-differ-from-index";
+  }
+  return "";
 }
 
 export function ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha }, options = {}) {

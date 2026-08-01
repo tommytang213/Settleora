@@ -1838,11 +1838,14 @@ normalized result. Its provenance identity is derived from the authenticated
 producer/store/path/digest identity rather than copied from an evidence
 envelope. Repository/Git verification reads canonical Git objects through the
 fixed sanitized Git executable, rejects every non-allowlisted local/worktree
-configuration key, and fixes diff rendering. Lifecycle and logical-task-budget
-verification authenticates one stable descriptor read and parses and validates
-claims from those exact captured bytes, without legacy mutation/backfill or a
-second path read. Other
-closed registry slots require separately deployed native domain producers.
+configuration key, and fixes diff rendering. Launch and later safety-critical
+Git calls use the same fixed executable and closed Git environment. Launch
+cleanliness compares raw tracked bytes to index objects without invoking
+filters and rejects unsafe Git-dir attributes, active Git-dir excludes, non-
+allowlisted configuration, and hidden index flags. Lifecycle and logical-task-
+budget files remain inputs to future protected producers, but same-UID files
+are not independent authority. Those classes and the other closed registry
+slots require separately deployed native domain producers.
 Until those producers exist, their production verifiers reject even canonical,
 owner-only, correctly class-tagged JSON: runner-owned envelopes are not
 producer identity and cannot supply claims or provenance. Tests use explicit

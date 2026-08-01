@@ -138,9 +138,8 @@ test("matrix and verifier set are deterministic source-owned contracts", () => {
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.originalRunnerRunId.required, ["lifecycle", "supervisor_child_run"]);
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.successorEligible.required, ["lifecycle", "projection_deployment"]);
   const authoritySource = readFileSync(new URL("../lib/semantic-recovery-authority.mjs", import.meta.url), "utf8");
-  assert.match(authoritySource, /authenticateOwnerControlledCanonicalFile\(descriptor\.store\.path[\s\S]*?JSON\.parse\(authenticated\.bytes\.toString\("utf8"\)\)[\s\S]*?validateSessionLifecycleState/u);
-  assert.match(authoritySource, /authenticateOwnerControlledCanonicalFile\(expectedPath[\s\S]*?JSON\.parse\(authenticated\.bytes\.toString\("utf8"\)\)[\s\S]*?validateLogicalTaskBudgetState/u);
-  assert.doesNotMatch(authoritySource, /loadSessionLifecycleForRecovery|loadLogicalTaskBudget/u);
+  assert.match(authoritySource, /authorityClass === "repository_git"[\s\S]*?rejectUnavailableProductionProducer\(authorityClass, descriptor\)/u);
+  assert.doesNotMatch(authoritySource, /verifyLifecycleSource|verifyLogicalTaskBudgetSource|\.semanticRecoveryAuthority/u);
 });
 
 test("all required domain owners build one deterministic manifest and derived operation", () => {
