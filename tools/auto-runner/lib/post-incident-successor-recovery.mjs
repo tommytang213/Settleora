@@ -40,6 +40,7 @@ const zeroEffectClaims = Object.freeze([
 ]);
 const validatedConstructions = new WeakSet();
 const validatedManifests = new WeakSet();
+const validatedOperationalAuthorizations = new WeakSet();
 
 export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const diagnostics = validatePacketShape(packet);
@@ -148,7 +149,11 @@ export function constructPostIncidentSuccessor({ manifest, mutationGeneration, o
     manifestDigest: manifest.manifestDigest,
   });
   if (expectedSuccessor.storageKey !== manifest.intendedSuccessor?.storageKey) return failed("semantic_successor_identity_mismatch");
-  if (operationalAuthorization?.authorized !== true || operationalAuthorization?.manifestDigest !== manifest.manifestDigest || operationalAuthorization?.operationId !== manifest.operation.operationId) {
+  if (!validatedOperationalAuthorizations.has(operationalAuthorization)
+    || operationalAuthorization?.authorized !== true
+    || operationalAuthorization?.manifestDigest !== manifest.manifestDigest
+    || operationalAuthorization?.operationId !== manifest.operation.operationId
+    || operationalAuthorization?.requestId !== manifest.operation.requestId) {
     return failed("post_incident_operational_authorization_required");
   }
   if (manifest.claims.submissionCount !== 1 || manifest.claims.submissionExhausted !== true) return failed("post_incident_submission_posture_invalid");
@@ -196,6 +201,21 @@ export function constructPostIncidentSuccessor({ manifest, mutationGeneration, o
   const construction = deepFreeze({ ok: true, reasonCode: "post_incident_successor_constructed", storageKey: manifest.intendedSuccessor.storageKey, successor });
   validatedConstructions.add(construction);
   return construction;
+}
+
+export function authenticatePostIncidentOperationalAuthorization(artifact) {
+  let authenticated;
+  try { authenticated = authenticateOpaqueArtifact(normalizeArtifact(artifact)); }
+  catch { return failed("post_incident_operational_authorization_authentication_failed"); }
+  let document;
+  try { document = JSON.parse(authenticated.authenticatedBytes.toString("utf8")); }
+  catch { return failed("post_incident_operational_authorization_invalid"); }
+  if (document?.contract !== "post_incident_operational_authorization" || document?.version !== 1
+    || document?.authorized !== true || !digest64(document?.manifestDigest)
+    || !bounded(document?.operationId) || !bounded(document?.requestId)) return failed("post_incident_operational_authorization_invalid");
+  const authorization = deepFreeze({ authorized: true, manifestDigest: document.manifestDigest, operationId: document.operationId, requestId: document.requestId, artifact: { path: authenticated.path, sha256: authenticated.sha256 } });
+  validatedOperationalAuthorizations.add(authorization);
+  return authorization;
 }
 
 export function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {
@@ -249,6 +269,8 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
 export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authenticatedProvenance }) {
   if (!authenticatedProvenance?.ok) return { quarantined: false, reasonCode: "ordinary_recovery" };
   const identityMatch = state?.taskKey === authenticatedProvenance.taskKey && state?.issue?.number === authenticatedProvenance.issueNumber;
+  const consumedRunIdentityMatch = state?.run?.runId === authenticatedProvenance.consumedRunnerRunId
+    && state?.run?.supervisorRunId === authenticatedProvenance.consumedSupervisorRunId;
   const configuredPathMatch = safeCanonicalMatch(recoveryPath, authenticatedProvenance.incidentPath)
     || safeCanonicalMatch(recoveryPath, authenticatedProvenance.incidentArtifact?.path);
   let authenticatedIncident;
@@ -266,6 +288,9 @@ export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authent
   }
   if (pathMatch && !identityMatch) {
     return { quarantined: true, readOnly: true, reasonCode: "incident_identity_contradiction", allowedAction: "none" };
+  }
+  if (pathMatch && !consumedRunIdentityMatch) {
+    return { quarantined: true, readOnly: true, reasonCode: "incident_run_identity_contradiction", allowedAction: "none" };
   }
   if (pathMatch && (authenticatedProvenance.incidentSha256 !== authenticatedIncident.sha256
     || authenticatedProvenance.predecessorSha256 === authenticatedIncident.sha256
@@ -293,7 +318,16 @@ export function inspectConfiguredRecoveryOverwriteIncident(authenticatedProvenan
     ...classifyRecoveryOverwriteIncident({ recoveryPath: authenticated.path, state, authenticatedProvenance }),
     state,
     incident: { path: authenticated.path, sha256: authenticated.sha256 },
-    provenance: { taskKey: authenticatedProvenance.taskKey, issueNumber: authenticatedProvenance.issueNumber, predecessorSha256: authenticatedProvenance.predecessorSha256 },
+    provenance: {
+      repository: authenticatedProvenance.repository,
+      taskKey: authenticatedProvenance.taskKey,
+      issueNumber: authenticatedProvenance.issueNumber,
+      predecessorSha256: authenticatedProvenance.predecessorSha256,
+      originalRunnerRunId: authenticatedProvenance.originalRunnerRunId,
+      originalSupervisorRunId: authenticatedProvenance.originalSupervisorRunId,
+      consumedRunnerRunId: authenticatedProvenance.consumedRunnerRunId,
+      consumedSupervisorRunId: authenticatedProvenance.consumedSupervisorRunId,
+    },
   };
 }
 

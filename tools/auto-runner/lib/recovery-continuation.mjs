@@ -109,7 +109,7 @@ function detectConfiguredPostIncidentQuarantineBeforeFiltering(config) {
   const corroboration = contract.semanticEvidencePacket
     ? buildSemanticRecoveryManifest(contract.semanticEvidencePacket)
     : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
-  const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection);
+  const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection, config.repositorySlug);
   return {
     found: true, allowed: false, action: "stop_fail_closed",
     reasonCode: boundCorroboration.ok ? "post_incident_semantic_operation_authorization_required" : boundCorroboration.reasonCode,
@@ -120,14 +120,19 @@ function detectConfiguredPostIncidentQuarantineBeforeFiltering(config) {
   };
 }
 
-function bindCorroborationToConfiguredIncident(corroboration, inspection) {
+function bindCorroborationToConfiguredIncident(corroboration, inspection, repositorySlug) {
   if (!corroboration?.ok) return corroboration;
   const current = corroboration.manifest?.currentIncident;
   const claims = corroboration.manifest?.claims;
   const provenance = inspection?.provenance;
   if (!inspection?.incident || current?.path !== inspection.incident.path || current?.sha256 !== inspection.incident.sha256
     || claims?.taskKey !== provenance?.taskKey || claims?.issueNumber !== provenance?.issueNumber
-    || claims?.formerRootSha256 !== provenance?.predecessorSha256) {
+    || claims?.repository !== repositorySlug || claims?.repository !== provenance?.repository
+    || claims?.formerRootSha256 !== provenance?.predecessorSha256
+    || claims?.originalRunnerRunId !== provenance?.originalRunnerRunId
+    || claims?.originalSupervisorRunId !== provenance?.originalSupervisorRunId
+    || claims?.consumedRunnerRunId !== provenance?.consumedRunnerRunId
+    || claims?.consumedSupervisorRunId !== provenance?.consumedSupervisorRunId) {
     return { ok: false, reasonCode: "semantic_manifest_configured_incident_mismatch" };
   }
   return corroboration;
@@ -266,7 +271,7 @@ function detectConfiguredPostIncidentQuarantine(config, states) {
       ? buildSemanticRecoveryManifest(contract.semanticEvidencePacket)
       : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
     const inspection = inspectConfiguredRecoveryOverwriteIncident(contract.authenticatedProvenance);
-    const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection);
+    const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection, config.repositorySlug);
     return {
       found: true,
       allowed: false,

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   assertRecoveryWritePathAllowed,
+  authenticatePostIncidentOperationalAuthorization,
   buildSemanticRecoveryManifest as buildSemanticRecoveryManifestProduction,
   classifyRecoveryOverwriteIncident,
   constructPostIncidentSuccessor,
@@ -65,6 +66,16 @@ function recoveryState(overrides = {}) {
     sessionLifecycle: { sessionId: claims.lifecycleSessionId, mutationAuthority: { generation: 2 } },
     ...overrides,
   };
+}
+
+function authorize(built) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-operation-auth-"));
+  try {
+    const artifactPath = path.join(root, "authorization.json");
+    const document = { contract: "post_incident_operational_authorization", version: 1, authorized: true, manifestDigest: built.manifestDigest, operationId: built.manifest.operation.operationId, requestId: built.manifest.operation.requestId };
+    writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
+    return authenticatePostIncidentOperationalAuthorization({ role: "operational_authorization", path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") });
+  } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
 test("all mandatory independent classes agree and canonical manifest is ordering-stable", () => {
@@ -226,7 +237,7 @@ test("production artifact authentication derives byte count from the authenticat
 
 test("distinct successor binds provenance and stays non-executable", () => {
   const built = buildSemanticRecoveryManifest(packet());
-  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { stopReason: { reasonCode: "untrusted_incident_field" } }, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { stopReason: { reasonCode: "untrusted_incident_field" } }, mutationGeneration: 3, operationalAuthorization: authorize(built) });
   assert.equal(constructed.ok, true); assert.notEqual(constructed.storageKey, path.basename(rootPath, ".json"));
   assert.equal(constructed.successor.postIncidentSuccessor.executable, false);
   assert.equal(constructed.successor.phase, "checkpoint_validation_commit");
@@ -241,18 +252,19 @@ test("distinct successor binds provenance and stays non-executable", () => {
 test("successor construction requires a separate exact operation authorization", () => {
   const built = buildSemanticRecoveryManifest(packet());
   assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: {}, mutationGeneration: 1 }).reasonCode, "post_incident_operational_authorization_required");
+  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1", requestId: "request-1" } }).reasonCode, "post_incident_operational_authorization_required");
   const altered = structuredClone(built.manifest); altered.claims.branch = "altered";
-  assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_authority_invalid");
-  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "post_incident_mutation_generation_mismatch");
+  assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationalAuthorization: authorize(built) }).reasonCode, "semantic_manifest_authority_invalid");
+  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: authorize(built) }).reasonCode, "post_incident_mutation_generation_mismatch");
   const wrongLifecycle = structuredClone(built.manifest); wrongLifecycle.lifecycleSuccessor.previousSessionId = "wrong";
-  assert.equal(constructPostIncidentSuccessor({ manifest: wrongLifecycle, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_authority_invalid");
+  assert.equal(constructPostIncidentSuccessor({ manifest: wrongLifecycle, mutationGeneration: 3, operationalAuthorization: authorize(built) }).reasonCode, "semantic_manifest_authority_invalid");
 });
 
 test("successor persistence is idempotent and conflicting adoption fails closed", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-successor-"));
   try {
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: authorize(built) });
     const config = { logsRoot: root, postIncidentSuccessorRoot: path.join(root, "successors") };
     mkdirSync(config.postIncidentSuccessorRoot, { mode: 0o700 });
     mkdirSync(path.join(config.postIncidentSuccessorRoot, "provenance"), { mode: 0o700 });
@@ -263,7 +275,7 @@ test("successor persistence is idempotent and conflicting adoption fails closed"
     assert.equal(persistOrAdoptPostIncidentSuccessor(config, collision, built.manifest).reasonCode, "post_incident_persistence_binding_invalid");
     const competingPacket = packet({ operationId: "operation-2", requestId: "request-2" });
     const competingBuilt = buildSemanticRecoveryManifest(competingPacket);
-    const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: competingBuilt.manifestDigest, operationId: "operation-2" } });
+    const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: authorize(competingBuilt) });
     assert.equal(persistOrAdoptPostIncidentSuccessor(config, competing, competingBuilt.manifest).reasonCode, "post_incident_provenance_conflict");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -278,16 +290,18 @@ test("overwrite quarantine authenticates incident bytes and does not block unrel
   try {
     const incidentPath = path.join(root, "root.json"); writeFileSync(incidentPath, "incident\n", { mode: 0o600 });
     const actual = createHash("sha256").update(readFileSync(incidentPath)).digest("hex");
-    const provenance = { ok: true, incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false };
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: provenance }).quarantined, true);
+    const provenance = { ok: true, incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false, consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed" };
+    const incidentState = { taskKey: "task-1", issue: { number: 7 }, run: { runId: "run-consumed", supervisorRunId: "supervisor-consumed" } };
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: provenance }).quarantined, true);
     const altered = structuredClone(provenance); altered.incidentArtifact.sha256 = incidentHash;
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: altered }).reasonCode, "incident_provenance_authentication_failed");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: altered }).reasonCode, "incident_provenance_authentication_failed");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "altered", issue: { number: 999 } }, authenticatedProvenance: provenance }).reasonCode, "incident_identity_contradiction");
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: { ...provenance, incidentSha256: incidentHash } }).reasonCode, "incident_provenance_contradiction");
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: { ...provenance, predecessorSha256: actual } }).reasonCode, "incident_provenance_contradiction");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { ...incidentState, run: { runId: "other", supervisorRunId: "supervisor-consumed" } }, authenticatedProvenance: provenance }).reasonCode, "incident_run_identity_contradiction");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: { ...provenance, incidentSha256: incidentHash } }).reasonCode, "incident_provenance_contradiction");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: { ...provenance, predecessorSha256: actual } }).reasonCode, "incident_provenance_contradiction");
     const otherPath = path.join(root, "other.json"); writeFileSync(otherPath, "other\n", { mode: 0o600 });
     const otherSha = createHash("sha256").update(readFileSync(otherPath)).digest("hex");
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: { ...provenance, incidentArtifact: { role: "incident", path: otherPath, sha256: otherSha }, incidentSha256: otherSha } }).reasonCode, "incident_path_contradiction");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: { ...provenance, incidentArtifact: { role: "incident", path: otherPath, sha256: otherSha }, incidentSha256: otherSha } }).reasonCode, "incident_path_contradiction");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: "/other.json", state: { taskKey: "other", issue: { number: 8 } }, authenticatedProvenance: provenance }).quarantined, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -329,7 +343,7 @@ test("symlinked successor roots fail before persistence", () => {
   try {
     const root = path.join(logsRoot, "successors"); symlinkSync(target, root, "dir");
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: authorize(built) });
     assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
 });
@@ -340,7 +354,7 @@ test("in-root symlinked persistence directories fail before writes", () => {
     const target = path.join(logsRoot, "target"); mkdirSync(target, { mode: 0o700 }); mkdirSync(path.join(target, "provenance"), { mode: 0o700 });
     const root = path.join(logsRoot, "successors"); symlinkSync(target, root, "dir");
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationalAuthorization: authorize(built) });
     assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
@@ -349,7 +363,7 @@ test("symlinked successor destination cannot be adopted", () => {
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-destination-"));
   try {
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: authorize(built) });
     const root = path.join(logsRoot, "successors"); mkdirSync(root, { recursive: true, mode: 0o700 });
     const target = path.join(logsRoot, "external.json"); writeFileSync(target, `${JSON.stringify(construction.successor)}\n`, { mode: 0o600 });
     symlinkSync(target, path.join(root, `${construction.storageKey}.json`));

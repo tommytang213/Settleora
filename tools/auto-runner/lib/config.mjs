@@ -522,6 +522,10 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
   config.postIncidentRecovery = normalizePostIncidentRecoveryConfig(config.postIncidentRecovery);
+  if (config.postIncidentRecovery
+      && config.postIncidentRecovery.authenticatedProvenance.repository !== config.repositorySlug) {
+    throw new Error("postIncidentRecovery provenance repository must match repositorySlug");
+  }
   config.sessionLifecycle = {
     enabled: config.sessionLifecycle?.enabled === true,
     allowRecoveryTakeover: config.sessionLifecycle?.allowRecoveryTakeover === true,
@@ -614,6 +618,15 @@ function normalizePostIncidentRecoveryConfig(value) {
       || typeof incidentArtifact.path !== "string"
       || !/^[a-f0-9]{64}$/.test(String(incidentArtifact.sha256 || ""))) {
     throw new Error("postIncidentRecovery requires an incident artifact binding");
+  }
+  for (const field of ["repository", "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId", "consumedSupervisorRunId"]) {
+    if (typeof value.authenticatedProvenance[field] !== "string" || value.authenticatedProvenance[field].length < 1 || value.authenticatedProvenance[field].length > 1000) {
+      throw new Error(`postIncidentRecovery requires ${field} provenance`);
+    }
+  }
+  if (value.authenticatedProvenance.originalRunnerRunId === value.authenticatedProvenance.consumedRunnerRunId
+      || value.authenticatedProvenance.originalSupervisorRunId === value.authenticatedProvenance.consumedSupervisorRunId) {
+    throw new Error("postIncidentRecovery requires distinct original and consumed run identities");
   }
   return {
     authenticatedProvenance: structuredClone(value.authenticatedProvenance),
