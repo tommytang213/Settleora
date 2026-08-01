@@ -1817,3 +1817,32 @@ continuation targets. Fresh current main is stored separately only after
 proving original-base to effect-time-main to current-main ancestry. Downstream
 recovery consumes both values and never substitutes current main for the
 historical effect identity.
+
+# Post-incident semantic successor authority
+
+An authenticated recovery overwrite incident is quarantined read-only.
+Ordinary startup recovery may neither advance it nor write its storage key.
+When former bytes are unavailable, a future separately authorized operation
+may construct a distinct successor only through the versioned generic contract
+in `lib/post-incident-successor-recovery.mjs`.
+
+The contract requires repository/Git, lifecycle, logical-task budget,
+intent-lineage, projection/deployment, supervisor/child-run, incident-report,
+and GitHub no-effect authority classes. Repeated renderings of one underlying
+artifact are not independent evidence. Every required security claim needs at
+least two distinct class bindings. Any omission or contradiction fails closed;
+there is no majority rule or incident-specific digest exception.
+
+The canonical manifest binds the unavailable predecessor hash with
+`bytesAvailable=false`, immutable incident path/hash, task/candidate and
+one-shot identities, bounded artifact digests, source-to-claim bindings,
+no-effect proof, and deterministic successor/operation identity. The successor
+cannot alias the predecessor/incident key. Its provenance ledger and successor
+record are exact-repeat adoptable after a crash and reject conflicts. A
+constructed successor remains non-executable until a separate exact
+manifest/operation authorization is supplied.
+
+For an exact authenticated terminal-validation-retry projection, the reloaded
+projection digest directly authorizes bounded lifecycle reopen. The legacy raw
+retry predicate remains only for non-projected compatibility. An unexpected
+terminal planner result in projected posture blocks before any recovery write.

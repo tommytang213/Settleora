@@ -852,11 +852,14 @@ test("terminal derivative execution reconstructs replay-safe review gates after 
     admission,
   );
   const normalization = recoverySource.indexOf(
-    "normalizeValidationFailureContinuation(loadedState)",
+    "normalizeValidationFailureContinuation(loadedState, {",
     replay,
   );
   assert.ok(execution >= 0 && admission > execution && replay > admission);
   assert.ok(normalization > replay);
+  assert.match(recoverySource, /const validationRetryTerminal = reloadedProjection\?\.ok[\s\S]*isValidationFailureRetryAuthorized/);
+  assert.match(recoverySource, /validationRetryDerivativeAuthorized: reloadedProjection\?\.ok === true/);
+  assert.match(recoverySource, /if \(lifecycleRecovery\.terminal\) \{[\s\S]*if \(reloadedProjection\?\.ok === true\)[\s\S]*projected_recovery_unexpected_terminal_before_successor_rotation[\s\S]*writeRecoveryState/);
 });
 
 test("projection checkpoints retain recovery, implementation, convergence, split, and stack authority", () => {

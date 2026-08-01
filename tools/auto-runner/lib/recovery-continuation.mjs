@@ -345,8 +345,15 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     || (persistedContinuationAdmission.ok
       ? replaySafeTerminalDerivativeContinuation(loaded.state)
       : loaded.state);
-  const validationRetryTerminal = isValidationFailureRetryAuthorized(loadedState) ? loadedState : null;
-  let state = normalizeValidationFailureContinuation(loadedState);
+  // A matching authenticated reload projection is itself the bounded reopen
+  // authority. The legacy raw-state predicate remains only for ordinary
+  // non-projected compatibility and must not downgrade an exact projection.
+  const validationRetryTerminal = reloadedProjection?.ok
+    ? loadedState
+    : isValidationFailureRetryAuthorized(loadedState) ? loadedState : null;
+  let state = normalizeValidationFailureContinuation(loadedState, {
+    projectedAuthority: reloadedProjection?.ok === true,
+  });
   const prepareAuthoritativeRecovery = selectOwnCallableHandler(handlers, "prepareAuthoritativeRecovery");
   const preparation = prepareAuthoritativeRecovery
     ? await prepareAuthoritativeRecovery({
@@ -393,7 +400,8 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
     ...(recovery.interruption || {}),
-    validationRetryDerivativeAuthorized: validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
+    validationRetryDerivativeAuthorized: reloadedProjection?.ok === true
+      || validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
     validationRetryDerivativeTerminalPhase: validationRetryTerminal
       ? validationRetryDerivativeTerminalPhase(validationRetryTerminal)
       : null,
@@ -421,6 +429,14 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   if (lifecycleRecovery.terminal) {
+    if (reloadedProjection?.ok === true) {
+      return {
+        ok: false,
+        outcome: "blocked_recovery_state",
+        reasonCode: "projected_recovery_unexpected_terminal_before_successor_rotation",
+        recovery: { ...recovery, lifecycle: lifecycleRecovery },
+      };
+    }
     state = advanceRecoveryPhase(state, {
       phase: lifecycleRecovery.terminalPhase,
       firstIncompleteAction: `lifecycle_${lifecycleRecovery.terminalPhase}`,
@@ -675,8 +691,8 @@ export function consumeStartupInterruptionPlanner(
   return { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation, handedOffIntentIds: pendingIntents.map((intent) => intent.intentId) };
 }
 
-function normalizeValidationFailureContinuation(state) {
-  if (!isValidationFailureRetryAuthorized(state)) return state;
+function normalizeValidationFailureContinuation(state, { projectedAuthority = false } = {}) {
+  if (!projectedAuthority && !isValidationFailureRetryAuthorized(state)) return state;
   // This legacy stop shape is not authority to change source. It re-enters only
   // the validation checkpoint so the preserved candidate can be classified
   // under the now-available production toolchain; implementation stays skipped.
