@@ -311,7 +311,7 @@ export function runGit(args, options = {}) {
 const sourceOwnedLocalGitCommands = new Set([
   "add", "apply", "branch", "cat-file", "cherry-pick", "commit", "commit-tree",
   "config", "diff", "diff-index", "diff-tree", "for-each-ref", "hash-object", "log", "ls-files",
-  "ls-tree", "merge-base", "merge-tree", "patch-id", "read-tree", "rev-list",
+  "ls-tree", "merge-base", "merge-tree", "patch-id", "read-tree", "remote", "rev-list",
   "rev-parse", "show", "show-ref", "status", "switch", "symbolic-ref", "update-index",
   "update-ref", "worktree", "write-tree",
 ]);
@@ -332,17 +332,20 @@ function classifySourceOwnedGitCommand(args) {
   }
   if (sourceOwnedLocalGitCommands.has(command)) {
     if (command === "config" && !sourceOwnedConfigReadArguments(args.slice(1))) return { kind: "unsupported", command };
+    if (command === "remote" && !sourceOwnedRemoteReadArguments(args.slice(1))) return { kind: "unsupported", command };
     return { kind: "local", command };
   }
   return { kind: "unsupported", command };
 }
 
 function sourceOwnedTransportArguments(command, args) {
-  const options = command === "fetch" ? new Set(["--no-tags"])
-    : command === "push" ? new Set(["--no-verify"])
-      : new Set(["--heads", "--exit-code"]);
   let index = 0;
-  if (options.has(args[index])) index += 1;
+  if (command === "fetch" && args[index] === "--no-tags") index += 1;
+  if (command === "ls-remote" && ["--heads", "--exit-code"].includes(args[index])) index += 1;
+  if (command === "push" && args[index] === "--no-verify") {
+    index += 1;
+    if (/^--force-with-lease=refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}:[a-f0-9]{40}$/u.test(args[index] || "")) index += 1;
+  }
   // One authenticated remote and one exact ref/refspec are mandatory. This
   // excludes helper, pack-program, recurse, alias, and arbitrary option forms.
   return args.length - index === 2
@@ -356,6 +359,11 @@ function sourceOwnedConfigReadArguments(args) {
     ["--local", "--get", "extensions.worktreeConfig"].join("\0"),
     ["--worktree", "--name-only", "--list"].join("\0"),
   ]).has(signature);
+}
+
+function sourceOwnedRemoteReadArguments(args) {
+  return args.join("\0") === ["get-url", "origin"].join("\0")
+    || args.join("\0") === ["get-url", "--push", "--all", "origin"].join("\0");
 }
 
 export function assertGitSuccess(result, message) {
