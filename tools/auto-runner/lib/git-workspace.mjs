@@ -369,13 +369,14 @@ function sourceOwnedLocalArguments(command, args, context) {
   const refs = (...values) => values.every(sourceOwnedRevision);
   switch (command) {
     case "add": {
-      const paths = args[0] === "--" ? args.slice(1) : args;
-      return paths.length > 0 && paths.every(sourceOwnedRepositoryPath);
+      const paths = args.slice(1);
+      return args[0] === "--" && paths.length > 0 && paths.every(sourceOwnedRepositoryPath);
     }
     case "apply": return (exact("--check", "-") || exact("--check", "--reverse", "-"));
     case "branch": return exact("--show-current");
     case "cat-file": return args.length === 2 && ["-e", "-t"].includes(args[0]) && refs(args[1]);
     case "cherry-pick": return exact("--abort") || (args.length > 0 && refs(...args));
+    case "check-ref-format": return args.length === 2 && args[0] === "--branch" && sourceOwnedBranch(args[1]);
     case "commit": return (args.length === 2 && args[0] === "-m" && sourceOwnedMessage(args[1]))
       || (args.length === 3 && args[0] === "--allow-empty" && args[1] === "-m" && sourceOwnedMessage(args[2]));
     case "commit-tree": return sourceOwnedCommitTreeArguments(args);
@@ -398,9 +399,11 @@ function sourceOwnedLocalArguments(command, args, context) {
     case "rev-parse": return sourceOwnedRevParseArguments(args);
     case "show": return sourceOwnedShowArguments(args);
     case "show-ref": return args.length === 0
-      || (args.length >= 2 && args[0] === "--verify" && (args.length === 2 || (args.length === 3 && args[1] === "--quiet")) && sourceOwnedFullRef(args.at(-1)));
+      || (args.length >= 2 && args[0] === "--verify"
+        && (args.length === 2 || (args.length === 3 && ["--hash", "--quiet"].includes(args[1])))
+        && sourceOwnedFullRef(args.at(-1)));
     case "status": return [
-      "--short", "--porcelain", "--porcelain=v1", "--porcelain=v1\0--untracked-files=all",
+      "--short", "--porcelain", "--porcelain=v1", "--porcelain=v2", "--porcelain=v1\0--untracked-files=all",
       "--porcelain=v1\0--untracked-files=normal",
     ].includes(args.join("\0"));
     case "switch": return (args.length === 1 && sourceOwnedBranch(args[0]))
@@ -494,11 +497,10 @@ function sourceOwnedLogArguments(args) {
 }
 
 function sourceOwnedCommitTreeArguments(args) {
-  if (args.length < 1 || !/^[a-f0-9]{40}$/u.test(args[0])) return false;
-  for (let index = 1; index < args.length; index += 2) {
-    if (args[index] !== "-p" || !/^[a-f0-9]{40}$/u.test(args[index + 1] || "")) return false;
-  }
-  return true;
+  return args.length === 7
+    && [args[0], args[2], args[4]].every((value) => /^[a-f0-9]{40}$/u.test(value || ""))
+    && args[1] === "-p" && args[3] === "-p" && args[5] === "-m"
+    && args[6] === "Settleora prospective recovery validation";
 }
 
 function sourceOwnedUpdateIndexArguments(args) {
@@ -539,7 +541,7 @@ function sourceOwnedRevision(value) {
 function sourceOwnedFullRef(value) { return /^refs\/(?:heads|remotes\/origin)\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(value); }
 function sourceOwnedFullRefPrefix(value) { return /^refs\/(?:heads|remotes\/origin)(?:\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239})?\/?$/u.test(value); }
 function sourceOwnedBranch(value) { return typeof value === "string" && /^(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.$)[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(value) && !value.endsWith("/") && !value.split("/").some((part) => part.startsWith(".") || part.endsWith(".lock")); }
-function sourceOwnedRepositoryPath(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000 && !path.isAbsolute(value) && path.normalize(value) === value && value !== "." && !value.startsWith(`..${path.sep}`) && !/[\0\r\n]/u.test(value); }
+function sourceOwnedRepositoryPath(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000 && !value.startsWith("-") && !value.startsWith(":") && !path.isAbsolute(value) && path.normalize(value) === value && value !== "." && !value.startsWith(`..${path.sep}`) && !/[\0\r\n]/u.test(value); }
 function sourceOwnedMessage(value) { return typeof value === "string" && value.length > 0 && value.length <= 10_000 && !value.includes("\0"); }
 
 function sourceOwnedConfigReadArguments(args) {
@@ -705,6 +707,7 @@ function fixedRepositoryGitEnvironment(context, {
     GIT_OPTIONAL_LOCKS: "0",
     GIT_ASKPASS: "/usr/bin/false",
     GIT_EDITOR: "/usr/bin/false",
+    GIT_LITERAL_PATHSPECS: "1",
     GIT_PAGER: "cat",
     GIT_SEQUENCE_EDITOR: "/usr/bin/false",
     GIT_SSH_COMMAND: "/usr/bin/ssh -F /dev/null -o BatchMode=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no",
@@ -822,6 +825,7 @@ export const gitWorkspaceTestInternals = Object.freeze({
   bindGithubRepository,
   classifySourceOwnedGitCommand,
   fixedRepositoryGitArgs,
+  fixedRepositoryGitEnvironment,
 });
 
 function trustedGithubAuthenticationEnvironment() {

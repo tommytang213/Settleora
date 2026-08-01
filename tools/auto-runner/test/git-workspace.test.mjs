@@ -28,7 +28,7 @@ function tempRepo() {
   execFileSync("/usr/bin/git", ["config", "user.email", "codex@example.invalid"], { cwd, encoding: "utf8" });
   execFileSync("/usr/bin/git", ["config", "user.name", "Codex Test"], { cwd, encoding: "utf8" });
   writeFileSync(path.join(cwd, "base.txt"), "base\n");
-  git("add", "base.txt");
+  git("add", "--", "base.txt");
   git("commit", "-m", "base");
   const base = git("rev-parse", "HEAD");
   return { cwd, git, base, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
@@ -38,7 +38,7 @@ test("sourceStateIdentityForCommit returns exact head, tree, and stable patch ID
   const repo = tempRepo();
   try {
     writeFileSync(path.join(repo.cwd, "a.txt"), "alpha\n");
-    repo.git("add", "a.txt");
+    repo.git("add", "--", "a.txt");
     repo.git("commit", "-m", "add alpha");
     const firstHead = repo.git("rev-parse", "HEAD");
     const first = sourceStateIdentityForCommit({ cwd: repo.cwd, baseRef: repo.base, headRef: "HEAD" });
@@ -88,7 +88,7 @@ test("production external Git transport fails before a same-UID config race can 
     execFileSync("/usr/bin/git", ["init", "--bare", alternate], { encoding: "utf8" });
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "push", good, `${repo.base}:refs/heads/main`], { encoding: "utf8" });
     writeFileSync(path.join(repo.cwd, "alternate.txt"), "alternate\n");
-    repo.git("add", "alternate.txt");
+    repo.git("add", "--", "alternate.txt");
     repo.git("commit", "-m", "alternate endpoint");
     const alternateHead = repo.git("rev-parse", "HEAD");
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "push", alternate, `${alternateHead}:refs/heads/main`], { encoding: "utf8" });
@@ -143,6 +143,8 @@ test("only the closed source-owned Git command grammar reaches Git", () => {
       ["fetch", "--upload-pack=/bin/sh", "https://github.com/example/repo.git", "refs/heads/main"],
       ["push", "--receive-pack=/bin/sh", "https://github.com/example/repo.git", "HEAD"],
       ["apply", "--unsafe-paths", "-"],
+      ["add", "--all"],
+      ["add", "--", ":(top,glob)**"],
       ["branch", "--edit-description", "main"],
       ["worktree", "add", "/tmp/outside", "HEAD"],
       ["push", "--no-verify", `--force-with-lease=refs/heads/a:${"a".repeat(40)}`, "/tmp/remote.git", ":refs/heads/b"],
@@ -154,6 +156,14 @@ test("only the closed source-owned Git command grammar reaches Git", () => {
     }
     assert.equal(existsSync(aliasMarker), false);
     assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand(["merge", "--ff-only", "origin/topic"]).kind, "local");
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand(["status", "--porcelain=v2"]).kind, "local");
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
+      "commit-tree", "a".repeat(40), "-p", "b".repeat(40), "-p", "c".repeat(40),
+      "-m", "Settleora prospective recovery validation",
+    ]).kind, "local");
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
+      "show-ref", "--verify", "--hash", "refs/heads/topic",
+    ]).kind, "local");
     assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
       "push", "--no-verify", `--force-with-lease=refs/heads/topic:${"a".repeat(40)}`,
       "/tmp/remote.git", ":refs/heads/topic",
@@ -172,7 +182,7 @@ test("literal fetch updates the exact remote-tracking ref and only the exact fas
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "remote", "add", "origin", bare], { encoding: "utf8" });
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "push", bare, `${repo.base}:refs/heads/main`], { encoding: "utf8" });
     writeFileSync(path.join(repo.cwd, "topic.txt"), "topic\n");
-    repo.git("add", "topic.txt");
+    repo.git("add", "--", "topic.txt");
     repo.git("commit", "-m", "topic");
     const topic = repo.git("rev-parse", "HEAD");
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "push", bare, `${topic}:refs/heads/topic`], { encoding: "utf8" });
@@ -201,6 +211,11 @@ test("fixed Git arguments neutralize helper-bearing config before every admitted
   ]) assert.ok(args.includes(binding), binding);
   const diff = gitWorkspaceTestInternals.fixedRepositoryGitArgs(process.cwd(), ["diff", "--binary"]);
   assert.deepEqual(diff.slice(-4), ["diff", "--no-ext-diff", "--no-textconv", "--binary"]);
+  const context = {
+    root: process.cwd(), gitDir: path.join(process.cwd(), ".git"),
+    commonDir: path.join(process.cwd(), ".git"), indexFile: path.join(process.cwd(), ".git", "index"),
+  };
+  assert.equal(gitWorkspaceTestInternals.fixedRepositoryGitEnvironment(context).GIT_LITERAL_PATHSPECS, "1");
 });
 
 test("trusted GitHub execution requires an explicit canonical repository context", () => {
@@ -286,12 +301,12 @@ test("historical task workspace is materialized without moving canonical main", 
     execFileSync("/usr/bin/git", ["config", "user.name", "Codex Test"], { cwd: repoRoot, encoding: "utf8" });
     execFileSync("/usr/bin/git", ["remote", "add", "origin", "https://github.com/tommytang213/Settleora.git"], { cwd: repoRoot, encoding: "utf8" });
     writeFileSync(path.join(repoRoot, "base.txt"), "base\n");
-    git("add", "base.txt");
+    git("add", "--", "base.txt");
     git("commit", "-m", "base");
     const mainSha = git("rev-parse", "HEAD");
     git("switch", "-c", "feature/preserved");
     writeFileSync(path.join(repoRoot, "candidate.txt"), "candidate\n");
-    git("add", "candidate.txt");
+    git("add", "--", "candidate.txt");
     git("commit", "-m", "candidate");
     const candidateSha = git("rev-parse", "HEAD");
     git("switch", "main");
@@ -419,7 +434,7 @@ test("historical task workspace is materialized without moving canonical main", 
     assert.equal(repeated.taskRoot, adopted.taskRoot);
     assert.equal(repeated.created, false);
     writeFileSync(path.join(adopted.taskRoot, "repair.txt"), "repair\n");
-    const repairAdd = runGit(["add", "repair.txt"], { cwd: adopted.taskRoot });
+    const repairAdd = runGit(["add", "--", "repair.txt"], { cwd: adopted.taskRoot });
     assert.equal(repairAdd.status, 0, repairAdd.stderr);
     const repairCommit = runGit(["commit", "-m", "prepared repair"], { cwd: adopted.taskRoot });
     assert.equal(repairCommit.status, 0, repairCommit.stderr);
@@ -462,7 +477,7 @@ test("sourceStateIdentityForCommit keeps tree identity for binary changes and ne
   const repo = tempRepo();
   try {
     writeFileSync(path.join(repo.cwd, "blob.bin"), Buffer.from([0, 1, 2, 3, 255]));
-    repo.git("add", "blob.bin");
+    repo.git("add", "--", "blob.bin");
     repo.git("commit", "-m", "binary");
     const head = repo.git("rev-parse", "HEAD");
     const identity = sourceStateIdentityForCommit({ cwd: repo.cwd, baseRef: repo.base, headRef: "HEAD" });
@@ -478,19 +493,19 @@ test("sourceStateIdentityForCommit exposes repeated A/B tree states across metad
   const repo = tempRepo();
   try {
     writeFileSync(path.join(repo.cwd, "state.txt"), "A\n");
-    repo.git("add", "state.txt");
+    repo.git("add", "--", "state.txt");
     repo.git("commit", "-m", "state A");
     const a1 = sourceStateIdentityForCommit({ cwd: repo.cwd, baseRef: repo.base, headRef: "HEAD" });
     writeFileSync(path.join(repo.cwd, "state.txt"), "B\n");
-    repo.git("add", "state.txt");
+    repo.git("add", "--", "state.txt");
     repo.git("commit", "-m", "state B");
     const b1 = sourceStateIdentityForCommit({ cwd: repo.cwd, baseRef: repo.base, headRef: "HEAD" });
     writeFileSync(path.join(repo.cwd, "state.txt"), "A\n");
-    repo.git("add", "state.txt");
+    repo.git("add", "--", "state.txt");
     repo.git("commit", "-m", "state A again");
     const a2 = sourceStateIdentityForCommit({ cwd: repo.cwd, baseRef: repo.base, headRef: "HEAD" });
     writeFileSync(path.join(repo.cwd, "state.txt"), "B\n");
-    repo.git("add", "state.txt");
+    repo.git("add", "--", "state.txt");
     repo.git("commit", "-m", "state B again");
     const b2 = sourceStateIdentityForCommit({ cwd: repo.cwd, baseRef: repo.base, headRef: "HEAD" });
     assert.equal(a2.treeId, a1.treeId);
