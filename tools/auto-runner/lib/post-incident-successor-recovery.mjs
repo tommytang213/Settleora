@@ -341,7 +341,7 @@ function digest(value) { return createHash("sha256").update(value).digest("hex")
 function digest64(value) { return /^[a-f0-9]{64}$/.test(String(value || "")); }
 function gitObjectId(value) { return /^[a-f0-9]{40}$/.test(String(value || "")); }
 function validShortGitBranch(value) {
-  if (!bounded(value) || value.startsWith("-") || value.startsWith("refs/") || value === "@"
+  if (!bounded(value) || value.startsWith("-") || value.startsWith("refs/") || value === "@" || value === "HEAD"
     || value.startsWith("/") || value.endsWith("/") || value.endsWith(".")
     || value.includes("//") || value.includes("..") || value.includes("@{")
     || /[\x00-\x20\x7f~^:?*\\[]/.test(value)) return false;

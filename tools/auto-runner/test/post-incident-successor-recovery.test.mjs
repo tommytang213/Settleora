@@ -157,7 +157,7 @@ test("malformed corroborated claim types and counters fail closed", () => {
 });
 
 test("corroborated branch must be a valid short Git branch name", () => {
-  for (const branch of ["foo..bar", "refs/heads/topic", "-topic", "topic.lock", "topic@{one", "topic//child"]) {
+  for (const branch of ["foo..bar", "refs/heads/topic", "-topic", "HEAD", "topic.lock", "topic@{one", "topic//child"]) {
     const value = packet(); for (const source of value.sources) source.claims.branch = branch;
     assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_claim_shape_invalid", branch);
   }
