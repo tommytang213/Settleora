@@ -9,7 +9,10 @@
   `2bb808fd7154227249ef839b687dd6dc27c33318`. Its ordered history is exactly
   nine commits across the six authorized auto-runner implementation,
   documentation, and test paths; the merge parents are the exact base and
-  source head, and the merge tree equals the source tree.
+  source head, and the merge tree equals the source tree. Source branch
+  `fix/auto-1012-live-projection-diagnostics-replay-20260731-2315` was retained
+  without restoration, and its remote ref was read back after merge at the
+  exact source head.
 - The root cause was unrelated unsuffixed legacy summary reauthentication plus
   collapsed projection diagnostics. The repair separates diagnostic
   observation from canonical selected-overlay authority: unsuffixed candidates
