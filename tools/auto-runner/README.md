@@ -1889,7 +1889,10 @@ counters, one-shot/no-effect posture, lifecycle generation, forbidden writes,
 request/action, and successor key. Startup discovery and authoritative reload
 use the same registry. Immediately before persistence, production
 reauthenticates all sources, bound artifacts, runtime claims, manifest, and the
-same exact grant; any later effect or drift fails closed. The successor cannot
+same exact grant. Persistence additionally requires a source-owned GitHub no-
+effect generation/CAS producer to hold its root-grant-bound fence for the
+complete persistence callback; that producer is currently unavailable. Any
+later effect or drift therefore fails closed. The successor cannot
 alias the predecessor/incident key. Its provenance ledger and successor record
 are exact-repeat adoptable after a crash and reject conflicts, and the created
 successor remains non-executable pending its later separately authorized

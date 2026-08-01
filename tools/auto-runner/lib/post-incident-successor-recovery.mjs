@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { closeSync, constants as fsConstants, existsSync, fstatSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
+  executeWithinSemanticRecoveryPersistenceFence,
   authenticateRootOwnedSemanticRecoveryGrant,
   authenticateSemanticRecoverySources,
   createProductionSemanticRecoveryVerifierRegistry,
@@ -90,6 +91,7 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const manifestCore = {
     contract: semanticRecoveryContract,
     version: semanticRecoveryVersion,
+    sourceAuthority: verifierRegistry.authority,
     incidentIdentity: packet.incidentIdentity,
     identities: pickTaskIdentity(claims),
     claims,
@@ -141,7 +143,12 @@ export function deriveSuccessorIdentity({ incidentIdentity, taskIdentity, lifecy
 }
 
 export function authenticateConfiguredSemanticRecoveryAuthority(config, packet, operationSelector) {
-  const corroboration = buildSemanticRecoveryManifest(packet, { config });
+  const registry = createProductionSemanticRecoveryVerifierRegistry(config);
+  return authenticateConfiguredWithRegistry(config, packet, operationSelector, registry);
+}
+
+function authenticateConfiguredWithRegistry(config, packet, operationSelector, registry) {
+  const corroboration = buildSemanticRecoveryManifest(packet, { config, verifierRegistry: registry });
   if (!corroboration.ok) return corroboration;
   const operationId = operationSelector || corroboration.manifest.operation.operationId;
   const grant = authenticateRootOwnedSemanticRecoveryGrant({ manifest: corroboration.manifest, operationId });
@@ -150,11 +157,12 @@ export function authenticateConfiguredSemanticRecoveryAuthority(config, packet, 
 }
 
 export function executeConfiguredSemanticRecoverySuccessor(config, packet, operationSelector) {
-  const initial = authenticateConfiguredSemanticRecoveryAuthority(config, packet, operationSelector);
+  const registry = createProductionSemanticRecoveryVerifierRegistry(config);
+  const initial = authenticateConfiguredWithRegistry(config, packet, operationSelector, registry);
   if (!initial.ok || !initial.grant?.authorized) return initial;
   // Re-read every source store, bound artifact, runtime claim and the exact
   // root-owned grant immediately before the only persistence boundary.
-  const fresh = authenticateConfiguredSemanticRecoveryAuthority(config, packet, operationSelector);
+  const fresh = authenticateConfiguredWithRegistry(config, packet, operationSelector, registry);
   if (!fresh.ok || !fresh.grant?.authorized
     || fresh.manifestDigest !== initial.manifestDigest
     || fresh.grant.sha256 !== initial.grant.sha256
@@ -167,11 +175,20 @@ export function executeConfiguredSemanticRecoverySuccessor(config, packet, opera
     operationGrant: fresh.grant,
   });
   if (!construction.ok) return construction;
-  return persistOrAdoptPostIncidentSuccessor(config, construction, fresh.manifest);
+  // A future native producer must hold its no-effect generation/CAS fence for
+  // the complete callback. The current source-owned slot is deliberately
+  // unavailable, so production cannot persist until that producer is deployed.
+  return executeWithinSemanticRecoveryPersistenceFence(
+    registry,
+    fresh.manifest,
+    fresh.grant,
+    () => persistOrAdoptPostIncidentSuccessor(config, construction, fresh.manifest),
+  );
 }
 
 export function constructPostIncidentSuccessor({ manifest, mutationGeneration, operationGrant }) {
   if (!validatedManifests.has(manifest)) return failed("semantic_manifest_authority_invalid");
+  if (manifest?.sourceAuthority !== "production" || operationGrant?.synthetic === true) return failed("post_incident_operational_authorization_required");
   if (!manifest?.manifestDigest || digest(canonicalJson(manifestCoreFromManifest(manifest))) !== manifest.manifestDigest) return failed("semantic_manifest_digest_mismatch");
   const expectedSuccessor = deriveSuccessorIdentity({
     incidentIdentity: manifest.incidentIdentity,
@@ -447,8 +464,10 @@ function claimImmutableJson(file, value) {
     : failed("post_incident_provenance_conflict");
   const temp = `${file}.${process.pid}.${Date.now()}.claim`;
   writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  fsyncFile(temp);
   try {
     linkSync(temp, file);
+    fsyncDirectory(path.dirname(file));
     return { ok: true, adopted: false };
   } catch (error) {
     if (error?.code !== "EEXIST") return failed("post_incident_provenance_claim_failed");
@@ -457,12 +476,13 @@ function claimImmutableJson(file, value) {
     return raced?.value && canonicalJson(raced.value) === canonicalJson(value)
       ? { ok: true, adopted: true }
       : failed("post_incident_provenance_conflict");
-  } finally { try { unlinkSync(temp); } catch {} }
+  } finally { try { unlinkSync(temp); fsyncDirectory(path.dirname(temp)); } catch {} }
 }
 function atomicJsonNoReplace(file, value) {
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-  try { linkSync(temp, file); return { ok: true }; }
+  fsyncFile(temp);
+  try { linkSync(temp, file); fsyncDirectory(path.dirname(file)); return { ok: true }; }
   catch (error) {
     if (error?.code !== "EEXIST") return failed("post_incident_successor_persist_failed");
     const existing = readSafeJsonIfExists(file);
@@ -470,7 +490,15 @@ function atomicJsonNoReplace(file, value) {
     return canonicalJson(existing?.value) === canonicalJson(value)
       ? { ok: true }
       : failed("post_incident_successor_collision");
-  } finally { try { unlinkSync(temp); } catch {} }
+  } finally { try { unlinkSync(temp); fsyncDirectory(path.dirname(temp)); } catch {} }
+}
+function fsyncFile(file) {
+  const fd = openSync(file, fsConstants.O_RDONLY);
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+function fsyncDirectory(directory) {
+  const fd = openSync(directory, fsConstants.O_RDONLY);
+  try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 function canonicalExistingPath(value) {
   const resolved = path.resolve(value);

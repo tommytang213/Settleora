@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import {
   closeSync,
   constants as fsConstants,
+  existsSync,
   fstatSync,
   lstatSync,
   openSync,
@@ -137,7 +138,11 @@ export const semanticRecoveryVerifierSet = deepFreeze({
 export const semanticRecoveryVerifierSetDigest = sha256(canonicalJson(semanticRecoveryVerifierSet));
 
 export function createProductionSemanticRecoveryVerifierRegistry(config) {
-  const registry = createRegistry("production", (authorityClass, descriptor) => verifyProductionSource(config, authorityClass, descriptor));
+  const registry = createRegistry(
+    "production",
+    (authorityClass, descriptor) => verifyProductionSource(config, authorityClass, descriptor),
+    () => { throw new Error("semantic recovery persistence fence producer unavailable"); },
+  );
   validatedRegistries.add(registry);
   return registry;
 }
@@ -291,6 +296,8 @@ export function expectedSemanticRecoveryGrantDocument(manifest) {
     semanticManifestDigest: manifest.manifestDigest,
     claimOwnerMatrix: { version: semanticRecoveryClaimOwnerMatrixVersion, digest: semanticRecoveryClaimOwnerMatrixDigest },
     sourceVerifierSet: { version: semanticRecoveryVerifierSetVersion, digest: semanticRecoveryVerifierSetDigest },
+    sourceAuthority: manifest.sourceAuthority,
+    persistenceFence: { contract: "settleora_semantic_recovery_no_effect_generation_fence", version: 1, authorityClass: "github_no_effect", required: true },
     evidenceSources,
     boundArtifacts: manifest.artifacts,
     runBindings,
@@ -352,7 +359,7 @@ export function authenticateRootOwnedSemanticRecoveryGrant({ manifest, operation
     sha256: authenticated.sha256,
     synthetic: authenticated.synthetic === true,
   });
-  validatedGrants.add(grant);
+  if (grant.synthetic !== true) validatedGrants.add(grant);
   return grant;
 }
 
@@ -360,7 +367,21 @@ export function isValidatedSemanticRecoveryGrant(grant) {
   return validatedGrants.has(grant);
 }
 
-function createRegistry(authority, reader) {
+export function executeWithinSemanticRecoveryPersistenceFence(registry, manifest, grant, persist) {
+  if (!validatedRegistries.has(registry) || registry?.authority !== "production"
+    || !validatedGrants.has(grant) || grant?.synthetic === true
+    || manifest?.sourceAuthority !== "production" || manifest?.manifestDigest !== grant?.manifestDigest
+    || typeof persist !== "function") {
+    return failed("semantic_recovery_persistence_fence_authority_invalid");
+  }
+  try {
+    return registry.withPersistenceFence(manifest, grant, persist);
+  } catch {
+    return failed("semantic_recovery_persistence_fence_unavailable");
+  }
+}
+
+function createRegistry(authority, reader, withPersistenceFence = null) {
   return deepFreeze({
     authority,
     version: semanticRecoveryVerifierSetVersion,
@@ -369,6 +390,10 @@ function createRegistry(authority, reader) {
       if (!Object.hasOwn(verifierDefinitions, authorityClass)) throw new Error("semantic verifier missing");
       const result = reader(authorityClass, descriptor);
       return normalizeVerifiedRecord(authorityClass, result, verifierDefinitions[authorityClass]);
+    },
+    withPersistenceFence(manifest, grant, persist) {
+      if (typeof withPersistenceFence !== "function") throw new Error("semantic persistence fence unsupported");
+      return withPersistenceFence(manifest, grant, persist);
     },
   });
 }
@@ -466,7 +491,17 @@ function verifyRepositoryGitSource(config, descriptor) {
   const repoRoot = path.resolve(config.repoRoot);
   if (path.resolve(descriptor.store.path) !== repoRoot || realpathSync(repoRoot) !== repoRoot) throw new Error("repository Git root mismatch");
   const git = (args, encoding = "utf8") => {
-    const result = spawnSync("/usr/bin/git", ["--no-replace-objects", "-c", "core.fsmonitor=false", ...args], {
+    const result = spawnSync("/usr/bin/git", [
+      "--no-replace-objects",
+      "-c", "credential.helper=",
+      "-c", "core.hooksPath=/dev/null",
+      "-c", "core.fsmonitor=false",
+      "-c", "core.attributesFile=/dev/null",
+      "-c", "diff.external=",
+      "-c", "protocol.ext.allow=never",
+      "-c", "protocol.file.allow=never",
+      ...args,
+    ], {
       cwd: repoRoot,
       encoding,
       env: {
@@ -475,6 +510,7 @@ function verifyRepositoryGitSource(config, descriptor) {
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_CONFIG_SYSTEM: "/dev/null",
         GIT_NO_REPLACE_OBJECTS: "1",
+        GIT_NO_LAZY_FETCH: "1",
         GIT_OPTIONAL_LOCKS: "0",
         LANG: "C",
         LC_ALL: "C",
@@ -485,6 +521,7 @@ function verifyRepositoryGitSource(config, descriptor) {
     return result.stdout;
   };
   if (path.resolve(String(git(["rev-parse", "--show-toplevel"])).trim()) !== repoRoot) throw new Error("repository Git top-level mismatch");
+  assertCanonicalRepositoryGitStore(repoRoot, git);
   git(["check-ref-format", `refs/heads/${branch}`]);
   const remote = String(git(["remote", "get-url", "origin"])).trim().replace(/\.git$/u, "");
   const expectedRemote = `https://github.com/${config.repositorySlug}`.toLowerCase();
@@ -493,9 +530,9 @@ function verifyRepositoryGitSource(config, descriptor) {
     || String(git(["rev-parse", `${baseSha}^{commit}`])).trim() !== baseSha
     || String(git(["rev-parse", `${headSha}^{commit}`])).trim() !== headSha) throw new Error("repository Git object mismatch");
   const treeSha = String(git(["rev-parse", `${headSha}^{tree}`])).trim();
-  const changedFiles = Buffer.from(git(["diff", "--name-only", "-z", baseSha, headSha], null) || []).toString("utf8").split("\0").filter(Boolean).sort();
+  const changedFiles = Buffer.from(git(["diff", "--no-ext-diff", "--name-only", "-z", baseSha, headSha], null) || []).toString("utf8").split("\0").filter(Boolean).sort();
   const changedFilesDigest = sha256(JSON.stringify(changedFiles));
-  const diffBytes = Buffer.from(git(["diff", "--binary", baseSha, headSha], null) || []);
+  const diffBytes = Buffer.from(git(["diff", "--no-ext-diff", "--binary", baseSha, headSha], null) || []);
   const diffDigest = sha256(diffBytes);
   const provenanceIdentity = sha256(canonicalJson({ repository: config.repositorySlug, repoRoot, branch, baseSha, headSha, treeSha, changedFilesDigest, diffDigest }));
   if (descriptor.store.sha256 !== provenanceIdentity) throw new Error("repository Git provenance selector mismatch");
@@ -504,6 +541,39 @@ function verifyRepositoryGitSource(config, descriptor) {
     provenanceIdentity,
     store: { ...descriptor.store, path: repoRoot, byteCount: 1 },
   };
+}
+
+function assertCanonicalRepositoryGitStore(repoRoot, git) {
+  if (String(git(["rev-parse", "--is-shallow-repository"])).trim() !== "false") throw new Error("repository Git history shallow");
+  const common = String(git(["rev-parse", "--git-common-dir"])).trim();
+  const gitDirectory = path.resolve(repoRoot, common);
+  const localConfig = String(git(["config", "--local", "--list", "--show-origin", "--null"]));
+  const worktreeConfigValue = spawnGitStatus(repoRoot, ["config", "--local", "--get", "extensions.worktreeConfig"]);
+  let worktreeConfig = "";
+  if (worktreeConfigValue.status === 0) {
+    if (worktreeConfigValue.stdout.trim().toLowerCase() !== "true") throw new Error("repository Git worktree config invalid");
+    worktreeConfig = String(git(["config", "--worktree", "--list", "--show-origin", "--null"]));
+  } else if (worktreeConfigValue.status !== 1) throw new Error("repository Git config unreadable");
+  if (unsafeGitConfig(localConfig) || unsafeGitConfig(worktreeConfig)) throw new Error("repository Git config unsafe");
+  const replaceRoot = path.join(gitDirectory, "refs", "replace");
+  if (existsSync(path.join(gitDirectory, "info", "grafts"))
+    || existsSync(path.join(gitDirectory, "objects", "info", "alternates"))
+    || (existsSync(replaceRoot) && readdirSync(replaceRoot).length > 0)
+    || String(git(["show-ref"])).split("\n").some((line) => line.includes(" refs/replace/"))) {
+    throw new Error("repository Git object mechanism unsafe");
+  }
+}
+
+function spawnGitStatus(repoRoot, args) {
+  return spawnSync("/usr/bin/git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", ...args], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0" },
+  });
+}
+
+function unsafeGitConfig(value) {
+  return /(?:^|\0)(?:extensions\.(?!worktreeconfig(?:\n|\0))|objects\.|include(?:if)?\.|filter\.|credential\.|http\.[^\n\0]*proxy|remote\.[^\n\0]+\.(?:proxy|uploadpack|receivepack)|protocol\.[^\n\0]+\.allow|ssh\.variant|diff\.external(?:\n|\0)|diff\.[^\n\0]+\.(?:command|textconv)(?:\n|\0)|merge\.[^\n\0]+\.driver(?:\n|\0)|core\.worktree|core\.gitproxy|core\.fsmonitor|core\.sshcommand|core\.hookspath|core\.attributesfile|url\.)/iu.test(value);
 }
 
 function normalizeVerifiedRecord(authorityClass, record, definition) {

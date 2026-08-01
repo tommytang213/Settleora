@@ -110,12 +110,11 @@ function detectConfiguredPostIncidentQuarantineBeforeFiltering(config) {
     ? authenticateConfiguredSemanticRecoveryAuthority(config, contract.semanticEvidencePacket, contract.operationId)
     : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
   const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection, config.repositorySlug);
-  const operation = boundCorroboration.ok
-    ? executeConfiguredSemanticRecoverySuccessor(config, contract.semanticEvidencePacket, contract.operationId)
-    : boundCorroboration;
   return {
-    found: true, allowed: false, action: "stop_fail_closed",
-    reasonCode: operation.reasonCode,
+    found: true,
+    allowed: boundCorroboration.ok,
+    action: boundCorroboration.ok ? "create_or_adopt_semantic_recovery_successor" : "stop_fail_closed",
+    reasonCode: boundCorroboration.ok ? "semantic_recovery_ready_for_locked_execution" : boundCorroboration.reasonCode,
     quarantine: { ...inspection, state: undefined },
     semanticManifestDigest: boundCorroboration.ok ? boundCorroboration.manifestDigest : null,
     state: inspection.state ? summarizeRecoverableState(inspection.state) : null,
@@ -275,14 +274,11 @@ function detectConfiguredPostIncidentQuarantine(config, states) {
       : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
     const inspection = inspectConfiguredRecoveryOverwriteIncident(contract.authenticatedProvenance);
     const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection, config.repositorySlug);
-    const operation = boundCorroboration.ok
-      ? executeConfiguredSemanticRecoverySuccessor(config, contract.semanticEvidencePacket, contract.operationId)
-      : boundCorroboration;
     return {
       found: true,
-      allowed: false,
-      action: "stop_fail_closed",
-      reasonCode: operation.reasonCode,
+      allowed: boundCorroboration.ok,
+      action: boundCorroboration.ok ? "create_or_adopt_semantic_recovery_successor" : "stop_fail_closed",
+      reasonCode: boundCorroboration.ok ? "semantic_recovery_ready_for_locked_execution" : boundCorroboration.reasonCode,
       quarantine: classification,
       semanticManifestDigest: boundCorroboration.ok ? boundCorroboration.manifestDigest : null,
       state: summarizeRecoverableState(state),
@@ -385,6 +381,13 @@ function boundedProjectionEvidence(projection) {
 }
 
 export async function executeStartupContinuation(config, recovery, handlers = {}) {
+  if (recovery?.allowed && recovery?.action === "create_or_adopt_semantic_recovery_successor") {
+    const contract = config.postIncidentRecovery || {};
+    const operation = executeConfiguredSemanticRecoverySuccessor(config, contract.semanticEvidencePacket, contract.operationId);
+    return operation?.ok
+      ? { ...operation, outcome: operation.adopted ? "semantic_recovery_successor_adopted" : "semantic_recovery_successor_created" }
+      : { ok: false, outcome: "blocked_recovery_state", reasonCode: operation?.reasonCode || "semantic_recovery_execution_failed", recovery };
+  }
   if (!recovery?.allowed || !recovery.state) {
     return {
       ok: false,

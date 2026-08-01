@@ -1764,7 +1764,9 @@ reauthenticates the exact source stores, evidence, runtime identities, matrix,
 verifier set, manifest, and grant immediately before distinct-successor
 persistence. Five domain producer interfaces remain deliberately unavailable
 to production until separately deployed native producers exist; runner-owned
-class-tagged JSON is rejected. A missing producer or grant, missing domain
+class-tagged JSON is rejected. The unavailable GitHub no-effect producer must
+also hold a root-grant-bound generation/CAS fence across the complete future
+persistence callback. A missing producer or grant, missing domain
 owner, later effect, drift, ambiguity, or predecessor/incident write attempt
 fails closed. Repository source does not install these producers, the
 protected root, or a live grant; installation, deployment, successor creation/
