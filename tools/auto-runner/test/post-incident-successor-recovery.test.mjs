@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   assertRecoveryWritePathAllowed,
-  buildSemanticRecoveryManifest,
+  buildSemanticRecoveryManifest as buildSemanticRecoveryManifestProduction,
   classifyRecoveryOverwriteIncident,
   constructPostIncidentSuccessor,
   mandatorySemanticEvidenceClasses,
@@ -17,6 +17,8 @@ import { createInitialRecoveryState, recoveryStatePath, writeRecoveryState } fro
 const oldHash = "6".repeat(64);
 const incidentHash = "5".repeat(64);
 const rootPath = "/sanitized/recovery/root.json";
+const authenticateArtifact = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256 });
+const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact });
 const claims = {
   repository: "example/repo", issueNumber: 7, taskKey: "task-1", claimIdentity: "example/repo#7", chargeId: "c".repeat(64),
   originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed",
@@ -156,11 +158,11 @@ test("production discovery quarantines an authenticated incident before ordinary
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-quarantine-"));
   try {
     const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-original", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40) });
-    const config = { logsRoot, allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, incidentPath: recoveryStatePath({ logsRoot }, state), taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: incidentHash, bytesAvailable: false }, semanticEvidencePacket: packet() } };
+    const config = { logsRoot, allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, incidentPath: recoveryStatePath({ logsRoot }, state), taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: incidentHash, bytesAvailable: false } } };
     writeRecoveryState(config, state);
     const discovery = discoverStartupRecovery(config);
     assert.equal(discovery.allowed, false);
-    assert.equal(discovery.reasonCode, "post_incident_semantic_operation_authorization_required");
+    assert.equal(discovery.reasonCode, "semantic_evidence_packet_missing");
     assert.equal(discovery.quarantine.readOnly, true);
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });

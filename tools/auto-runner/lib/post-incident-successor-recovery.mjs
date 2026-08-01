@@ -35,13 +35,20 @@ const zeroEffectClaims = Object.freeze([
   "commentEffect", "mergeEffect", "issueEffect", "productEffect",
 ]);
 
-export function buildSemanticRecoveryManifest(packet) {
+export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const diagnostics = validatePacketShape(packet);
   if (diagnostics.length) return failed("semantic_evidence_packet_invalid", diagnostics);
-  const sources = [...packet.sources].map(normalizeSource).sort(compareSource);
+  const authenticateArtifact = adapters.authenticateArtifact || authenticateSourceArtifact;
+  let sources;
+  try {
+    sources = [...packet.sources].map((source) => normalizeSource(source, authenticateArtifact)).sort(compareSource);
+  } catch {
+    return failed("semantic_evidence_source_authentication_failed");
+  }
+  if (sources.some((source) => source.artifact.authenticated !== true)) return failed("semantic_evidence_source_authentication_failed");
   const classes = new Set(sources.map((source) => source.authorityClass));
   if (classes.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_authority_class"]);
-  const underlyingArtifacts = new Set(sources.map((source) => canonicalJson(source.artifact)));
+  const underlyingArtifacts = new Set(sources.map((source) => source.underlyingIdentity));
   if (underlyingArtifacts.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_underlying_artifact"]);
   const missingClasses = mandatorySemanticEvidenceClasses.filter((name) => !classes.has(name));
   if (missingClasses.length) return failed("semantic_evidence_class_missing", missingClasses);
@@ -248,7 +255,12 @@ function validateSecurityPosture(packet, claims) {
   if (!packet.artifacts.every((artifact) => bounded(artifact.role) && bounded(artifact.path) && digest64(artifact.sha256))) return failed("semantic_artifact_binding_invalid");
   return { ok: true };
 }
-function normalizeSource(source) { return { authorityClass: String(source.authorityClass), artifact: normalizeArtifact(source.artifact), claims: sortObject(source.claims) }; }
+function normalizeSource(source, authenticateArtifact) {
+  const authenticated = authenticateArtifact(normalizeArtifact(source.artifact));
+  const normalized = { authorityClass: String(source.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true }, claims: sortObject(source.claims) };
+  Object.defineProperty(normalized, "underlyingIdentity", { value: authenticated.underlyingIdentity, enumerable: false });
+  return normalized;
+}
 function normalizeArtifact(artifact) { return { role: String(artifact?.role || ""), path: String(artifact?.path || ""), sha256: String(artifact?.sha256 || "") }; }
 function compareSource(a, b) { return a.authorityClass.localeCompare(b.authorityClass); }
 function compareArtifact(a, b) { return a.role.localeCompare(b.role) || a.path.localeCompare(b.path); }
@@ -318,4 +330,12 @@ function validateDirectoryAncestry(directory) {
     cursor = parent;
   }
   return { ok: true, path: realpathSync(resolved) };
+}
+function authenticateSourceArtifact(artifact) {
+  const canonicalPath = realpathSync(artifact.path);
+  const stat = lstatSync(canonicalPath);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink < 1 || (stat.mode & 0o077) !== 0) throw new Error("untrusted artifact");
+  const actualSha256 = digest(readFileSync(canonicalPath));
+  if (actualSha256 !== artifact.sha256) throw new Error("artifact digest mismatch");
+  return { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: actualSha256 };
 }
