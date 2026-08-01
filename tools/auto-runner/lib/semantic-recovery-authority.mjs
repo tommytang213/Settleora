@@ -527,6 +527,7 @@ function verifyRepositoryGitSource(config, descriptor) {
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_CONFIG_SYSTEM: "/dev/null",
+        GIT_ATTR_SOURCE: headSha,
         GIT_NO_REPLACE_OBJECTS: "1",
         GIT_NO_LAZY_FETCH: "1",
         GIT_OPTIONAL_LOCKS: "0",
@@ -548,9 +549,9 @@ function verifyRepositoryGitSource(config, descriptor) {
     || String(git(["rev-parse", `${baseSha}^{commit}`])).trim() !== baseSha
     || String(git(["rev-parse", `${headSha}^{commit}`])).trim() !== headSha) throw new Error("repository Git object mismatch");
   const treeSha = String(git(["rev-parse", `${headSha}^{tree}`])).trim();
-  const changedFiles = Buffer.from(git(["diff", "--no-ext-diff", "--name-only", "-z", baseSha, headSha], null) || []).toString("utf8").split("\0").filter(Boolean).sort();
+  const changedFiles = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", baseSha, headSha], null) || []).toString("utf8").split("\0").filter(Boolean).sort();
   const changedFilesDigest = sha256(JSON.stringify(changedFiles));
-  const diffBytes = Buffer.from(git(["diff", "--no-ext-diff", "--binary", baseSha, headSha], null) || []);
+  const diffBytes = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--binary", baseSha, headSha], null) || []);
   const diffDigest = sha256(diffBytes);
   const provenanceIdentity = sha256(canonicalJson({ repository: config.repositorySlug, repoRoot, branch, baseSha, headSha, treeSha, changedFilesDigest, diffDigest }));
   if (descriptor.store.sha256 !== provenanceIdentity) throw new Error("repository Git provenance selector mismatch");
@@ -565,6 +566,7 @@ function assertCanonicalRepositoryGitStore(repoRoot, git) {
   if (String(git(["rev-parse", "--is-shallow-repository"])).trim() !== "false") throw new Error("repository Git history shallow");
   const common = String(git(["rev-parse", "--git-common-dir"])).trim();
   const gitDirectory = path.resolve(repoRoot, common);
+  const infoAttributes = path.resolve(repoRoot, String(git(["rev-parse", "--git-path", "info/attributes"])).trim());
   const localConfig = String(git(["config", "--local", "--name-only", "--list"]));
   const worktreeConfigValue = spawnGitStatus(repoRoot, ["config", "--local", "--get", "extensions.worktreeConfig"]);
   let worktreeConfig = "";
@@ -574,6 +576,7 @@ function assertCanonicalRepositoryGitStore(repoRoot, git) {
   } else if (worktreeConfigValue.status !== 1) throw new Error("repository Git config unreadable");
   if (unsafeGitConfig(localConfig) || unsafeGitConfig(worktreeConfig)) throw new Error("repository Git config unsafe");
   const replaceRoot = path.join(gitDirectory, "refs", "replace");
+  if (existsSync(infoAttributes)) throw new Error("repository Git attributes unsafe");
   if (existsSync(path.join(gitDirectory, "info", "grafts"))
     || existsSync(path.join(gitDirectory, "objects", "info", "alternates"))
     || (existsSync(replaceRoot) && readdirSync(replaceRoot).length > 0)

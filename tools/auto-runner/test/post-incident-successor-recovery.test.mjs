@@ -175,8 +175,31 @@ test("production repository verifier derives candidate claims from canonical Git
     const verified = registry.verify("repository_git", descriptor);
     assert.deepEqual(verified.claims, { repository: "example/repo", branch: "feature/issue-7", baseSha, headSha, treeSha, changedFilesDigest, diffDigest });
     assert.throws(() => registry.verify("repository_git", { ...descriptor, store: { ...descriptor.store, sha256: "0".repeat(64) } }));
+    writeFileSync(path.join(root, ".gitattributes"), "*.txt binary\n");
+    assert.deepEqual(registry.verify("repository_git", descriptor).claims, verified.claims);
     assert.equal(spawnSync("git", ["config", "--local", "diff.noprefix", "true"], { cwd: root }).status, 0);
     assert.throws(() => registry.verify("repository_git", descriptor), /repository Git config unsafe/u);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("production repository verifier rejects Git-dir attribute overrides", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-semantic-git-info-"));
+  const git = (...args) => {
+    const result = spawnSync("/usr/bin/git", args, { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  try {
+    git("init", "-b", "main"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid");
+    git("remote", "add", "origin", "https://github.com/example/repo.git");
+    writeFileSync(path.join(root, "fixture.txt"), "base\n"); git("add", "fixture.txt"); git("commit", "-m", "base");
+    const baseSha = git("rev-parse", "HEAD");
+    git("switch", "-c", "feature/issue-7"); writeFileSync(path.join(root, "fixture.txt"), "head\n"); git("add", "fixture.txt"); git("commit", "-m", "head");
+    const headSha = git("rev-parse", "HEAD");
+    writeFileSync(path.join(root, ".git", "info", "attributes"), "*.txt binary\n");
+    const registry = createProductionSemanticRecoveryVerifierRegistry({ repoRoot: root, logsRoot: root, repositorySlug: "example/repo" });
+    const descriptor = { authorityClass: "repository_git", selection: { baseSha, branch: "feature/issue-7", headSha }, store: { kind: "repository_git_store", path: root, role: "candidate_repository", sha256: "0".repeat(64) } };
+    assert.throws(() => registry.verify("repository_git", descriptor), /repository Git attributes unsafe/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
