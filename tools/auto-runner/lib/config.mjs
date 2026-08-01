@@ -606,6 +606,9 @@ function normalizePostIncidentRecoveryConfig(value) {
   if (!value.authenticatedProvenance || typeof value.authenticatedProvenance !== "object") {
     throw new Error("postIncidentRecovery requires authenticated provenance");
   }
+  if (value.authenticatedProvenance.ok !== true) {
+    throw new Error("postIncidentRecovery provenance must be authenticated");
+  }
   const incidentArtifact = value.authenticatedProvenance.incidentArtifact;
   if (!incidentArtifact || typeof incidentArtifact !== "object"
       || typeof incidentArtifact.path !== "string"

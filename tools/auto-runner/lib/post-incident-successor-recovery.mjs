@@ -35,11 +35,13 @@ const zeroEffectClaims = Object.freeze([
   "validationEffect", "reviewEffect", "sourceEffect", "pushEffect", "prEffect",
   "commentEffect", "mergeEffect", "issueEffect", "productEffect",
 ]);
+const validatedConstructions = new WeakSet();
 
 export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const diagnostics = validatePacketShape(packet);
   if (diagnostics.length) return failed("semantic_evidence_packet_invalid", diagnostics);
   const authenticateArtifact = adapters.authenticateArtifact || authenticateSourceArtifact;
+  const authenticateBoundArtifact = adapters.authenticateBoundArtifact || authenticateOpaqueArtifact;
   let sources;
   try {
     sources = [...packet.sources].map((source) => normalizeSource(source, authenticateArtifact)).sort(compareSource);
@@ -47,6 +49,13 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
     return failed("semantic_evidence_source_authentication_failed");
   }
   if (sources.some((source) => source.artifact.authenticated !== true)) return failed("semantic_evidence_source_authentication_failed");
+  let artifacts;
+  try {
+    artifacts = [...packet.artifacts].map((artifact) => {
+      const authenticated = authenticateBoundArtifact(normalizeArtifact(artifact));
+      return { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true };
+    }).sort(compareArtifact);
+  } catch { return failed("semantic_bound_artifact_authentication_failed"); }
   const classes = new Set(sources.map((source) => source.authorityClass));
   if (classes.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_authority_class"]);
   const underlyingArtifacts = new Set(sources.map((source) => source.underlyingIdentity));
@@ -88,7 +97,7 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
     sourceToClaimBindings: Object.fromEntries(semanticRecoveryRequiredClaims.map((claim) => [claim, [...new Set(bindings.get(claim))].sort()])),
     historicalPredecessor: { path: claims.formerRootPath, sha256: claims.formerRootSha256, bytesAvailable: false },
     currentIncident: { path: claims.incidentPath, sha256: claims.incidentSha256, authority: "immutable_incident_evidence_only" },
-    artifacts: [...packet.artifacts].map(normalizeArtifact).sort(compareArtifact),
+    artifacts,
     oneShotExhaustion: { submissionCount: claims.submissionCount, exhausted: claims.submissionExhausted },
     noEffectProof: Object.fromEntries(zeroEffectClaims.map((claim) => [claim, claims[claim]])),
     operation: { operationId: packet.operationId, requestId: packet.requestId },
@@ -193,11 +202,19 @@ export function constructPostIncidentSuccessor({ manifest, recoveryState, mutati
     nextSafeAction: "await_separate_execution_authorization",
     mutationGeneration,
   };
-  return { ok: true, reasonCode: "post_incident_successor_constructed", storageKey: manifest.intendedSuccessor.storageKey, successor };
+  const construction = deepFreeze({ ok: true, reasonCode: "post_incident_successor_constructed", storageKey: manifest.intendedSuccessor.storageKey, successor });
+  validatedConstructions.add(construction);
+  return construction;
 }
 
 export function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {
   if (!construction?.ok) return construction;
+  if (!validatedConstructions.has(construction)
+    || construction.storageKey !== manifest?.intendedSuccessor?.storageKey
+    || construction.successor?.postIncidentSuccessor?.manifestDigest !== manifest?.manifestDigest
+    || digest(canonicalJson(manifestCoreFromManifest(manifest))) !== manifest?.manifestDigest) {
+    return failed("post_incident_persistence_binding_invalid");
+  }
   const root = path.resolve(config.postIncidentSuccessorRoot || path.join(config.logsRoot, "recovery-successors"));
   const predecessor = canonicalExistingPath(manifest.historicalPredecessor.path);
   const incident = canonicalExistingPath(manifest.currentIncident.path);
@@ -326,6 +343,7 @@ function digest64(value) { return /^[a-f0-9]{64}$/.test(String(value || "")); }
 function gitObjectId(value) { return /^[a-f0-9]{40}$/.test(String(value || "")); }
 function bounded(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000; }
 function unique(values) { return [...new Set(values)].sort(); }
+function deepFreeze(value) { if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value)) deepFreeze(child); } return value; }
 function failed(reasonCode, diagnostics = []) { return { ok: false, reasonCode, diagnostics: unique(diagnostics) }; }
 function readSafeJsonIfExists(file) {
   if (!existsSync(file)) return null;

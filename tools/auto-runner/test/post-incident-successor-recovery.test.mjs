@@ -19,7 +19,8 @@ const oldHash = "6".repeat(64);
 const incidentHash = "5".repeat(64);
 const rootPath = "/sanitized/recovery/root.json";
 const authenticateArtifact = (artifact, source) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, authorityClass: source.authorityClass, claims: source.claims });
-const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact });
+const authenticateBoundArtifact = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256 });
+const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact, authenticateBoundArtifact });
 const claims = {
   repository: "example/repo", issueNumber: 7, taskKey: "task-1", claimIdentity: "example/repo#7", chargeId: "c".repeat(64),
   originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed",
@@ -86,9 +87,16 @@ test("production source claims and authority class come from authenticated bytes
       writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
       return { authorityClass: "caller_label_is_ignored", artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") }, claims: { repository: "forged" } };
     });
+    for (const artifact of value.artifacts) {
+      artifact.path = path.join(root, `bound-${artifact.role}.json`); writeFileSync(artifact.path, artifact.role, { mode: 0o600 });
+      artifact.sha256 = createHash("sha256").update(readFileSync(artifact.path)).digest("hex");
+    }
     const result = buildSemanticRecoveryManifestProduction(value);
     assert.equal(result.ok, true);
     assert.equal(result.manifest.claims.repository, claims.repository);
+    writeFileSync(value.artifacts[0].path, "altered", { mode: 0o600 });
+    assert.equal(buildSemanticRecoveryManifestProduction(value).reasonCode, "semantic_bound_artifact_authentication_failed");
+    writeFileSync(value.artifacts[0].path, value.artifacts[0].role, { mode: 0o600 });
     writeFileSync(value.sources[0].artifact.path, "{}", { mode: 0o600 });
     assert.equal(buildSemanticRecoveryManifestProduction(value).reasonCode, "semantic_evidence_source_authentication_failed");
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -104,6 +112,10 @@ test("production source parses the exact bytes that passed digest authentication
       writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
       return { artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") } };
     });
+    for (const artifact of value.artifacts) {
+      artifact.path = path.join(root, `bound-${artifact.role}.json`); writeFileSync(artifact.path, artifact.role, { mode: 0o600 });
+      artifact.sha256 = createHash("sha256").update(readFileSync(artifact.path)).digest("hex");
+    }
     assert.equal(buildSemanticRecoveryManifestProduction(value).ok, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -178,9 +190,8 @@ test("successor persistence is idempotent and conflicting adoption fails closed"
     const created = persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest);
     const adopted = persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest);
     assert.equal(created.adopted, false); assert.equal(adopted.adopted, true);
-    const parsed = JSON.parse(readFileSync(created.successorPath, "utf8")); parsed.taskKey = "collision";
-    const collision = { ...construction, successor: parsed };
-    assert.equal(persistOrAdoptPostIncidentSuccessor(config, collision, built.manifest).reasonCode, "post_incident_successor_collision");
+    const collision = { ...construction, successor: { ...construction.successor, taskKey: "collision" } };
+    assert.equal(persistOrAdoptPostIncidentSuccessor(config, collision, built.manifest).reasonCode, "post_incident_persistence_binding_invalid");
     const competingPacket = packet({ operationId: "operation-2", requestId: "request-2" });
     const competingBuilt = buildSemanticRecoveryManifest(competingPacket);
     const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: competingBuilt.manifestDigest, operationId: "operation-2" } });
