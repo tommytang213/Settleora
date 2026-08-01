@@ -61,7 +61,7 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
       return { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount };
     }).sort(compareArtifact);
   } catch { return failed("semantic_bound_artifact_authentication_failed"); }
-  if (artifacts.reduce((total, artifact) => total + artifact.byteCount, 0) > maximumAggregateArtifactBytes) return failed("semantic_bound_artifact_bytes_exceeded");
+  if ([...sources.map((source) => source.artifact), ...artifacts].reduce((total, artifact) => total + artifact.byteCount, 0) > maximumAggregateArtifactBytes) return failed("semantic_bound_artifact_bytes_exceeded");
   const classes = new Set(sources.map((source) => source.authorityClass));
   if (classes.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_authority_class"]);
   const underlyingArtifacts = new Set(sources.map((source) => source.underlyingIdentity));
@@ -93,7 +93,7 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const claims = Object.fromEntries(semanticRecoveryRequiredClaims.map((claim) => [claim, JSON.parse(claimValues.get(claim))]));
   const posture = validateSecurityPosture(packet, claims);
   if (!posture.ok) return posture;
-  if (!artifacts.some((artifact) => canonicalExistingPath(artifact.path) === canonicalExistingPath(claims.incidentPath)
+  if (!artifacts.some((artifact) => artifact.path === claims.incidentPath
     && artifact.sha256 === claims.incidentSha256)) return failed("semantic_incident_artifact_binding_missing");
   if (packet.incidentIdentity !== digest(canonicalJson({ path: claims.incidentPath, sha256: claims.incidentSha256 }))) return failed("semantic_incident_identity_binding_invalid");
   const manifestCore = {
@@ -289,7 +289,7 @@ export function inspectConfiguredRecoveryOverwriteIncident(authenticatedProvenan
   let state;
   try { state = JSON.parse(authenticated.authenticatedBytes.toString("utf8")); }
   catch { return { quarantined: true, readOnly: true, reasonCode: "incident_state_parse_failed", allowedAction: "none", state: null }; }
-  return { ...classifyRecoveryOverwriteIncident({ recoveryPath: authenticated.path, state, authenticatedProvenance }), state };
+  return { ...classifyRecoveryOverwriteIncident({ recoveryPath: authenticated.path, state, authenticatedProvenance }), state, incident: { path: authenticated.path, sha256: authenticated.sha256 } };
 }
 
 export function assertRecoveryWritePathAllowed(targetPath, { predecessorPath, incidentPath, successorPath } = {}) {
@@ -337,7 +337,7 @@ function normalizeSource(source, authenticateArtifact) {
   const authenticated = authenticateArtifact(normalizeArtifact(source.artifact), source);
   if (!mandatorySemanticEvidenceClasses.includes(authenticated.authorityClass)
     || !authenticated.claims || typeof authenticated.claims !== "object" || Array.isArray(authenticated.claims)) throw new Error("invalid evidence document");
-  const normalized = { authorityClass: String(authenticated.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true }, claims: sortObject(authenticated.claims) };
+  const normalized = { authorityClass: String(authenticated.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount }, claims: sortObject(authenticated.claims) };
   Object.defineProperty(normalized, "underlyingIdentity", { value: authenticated.underlyingIdentity, enumerable: false });
   return normalized;
 }

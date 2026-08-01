@@ -109,14 +109,24 @@ function detectConfiguredPostIncidentQuarantineBeforeFiltering(config) {
   const corroboration = contract.semanticEvidencePacket
     ? buildSemanticRecoveryManifest(contract.semanticEvidencePacket)
     : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
+  const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection);
   return {
     found: true, allowed: false, action: "stop_fail_closed",
-    reasonCode: corroboration.ok ? "post_incident_semantic_operation_authorization_required" : corroboration.reasonCode,
+    reasonCode: boundCorroboration.ok ? "post_incident_semantic_operation_authorization_required" : boundCorroboration.reasonCode,
     quarantine: { ...inspection, state: undefined },
-    semanticManifestDigest: corroboration.ok ? corroboration.manifestDigest : null,
+    semanticManifestDigest: boundCorroboration.ok ? boundCorroboration.manifestDigest : null,
     state: inspection.state ? summarizeRecoverableState(inspection.state) : null,
     states: inspection.state ? [summarizeRecoverableState(inspection.state)] : [],
   };
+}
+
+function bindCorroborationToConfiguredIncident(corroboration, inspection) {
+  if (!corroboration?.ok) return corroboration;
+  const current = corroboration.manifest?.currentIncident;
+  if (!inspection?.incident || current?.path !== inspection.incident.path || current?.sha256 !== inspection.incident.sha256) {
+    return { ok: false, reasonCode: "semantic_manifest_configured_incident_mismatch" };
+  }
+  return corroboration;
 }
 
 export function discoverTargetedStartupRecovery(config) {
@@ -251,15 +261,17 @@ function detectConfiguredPostIncidentQuarantine(config, states) {
     const corroboration = contract.semanticEvidencePacket
       ? buildSemanticRecoveryManifest(contract.semanticEvidencePacket)
       : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
+    const inspection = inspectConfiguredRecoveryOverwriteIncident(contract.authenticatedProvenance);
+    const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection);
     return {
       found: true,
       allowed: false,
       action: "stop_fail_closed",
-      reasonCode: corroboration.ok
+      reasonCode: boundCorroboration.ok
         ? "post_incident_semantic_operation_authorization_required"
-        : corroboration.reasonCode,
+        : boundCorroboration.reasonCode,
       quarantine: classification,
-      semanticManifestDigest: corroboration.ok ? corroboration.manifestDigest : null,
+      semanticManifestDigest: boundCorroboration.ok ? boundCorroboration.manifestDigest : null,
       state: summarizeRecoverableState(state),
       states: states.map(summarizeRecoverableState),
     };

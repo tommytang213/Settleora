@@ -18,7 +18,7 @@ import { createInitialRecoveryState, recoveryStatePath, writeRecoveryState } fro
 const oldHash = "6".repeat(64);
 const incidentHash = "5".repeat(64);
 const rootPath = "/sanitized/recovery/root.json";
-const authenticateArtifact = (artifact, source) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, authorityClass: source.authorityClass, claims: source.claims });
+const authenticateArtifact = (artifact, source) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, authorityClass: source.authorityClass, claims: source.claims, byteCount: 1 });
 const authenticateBoundArtifact = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, byteCount: 1 });
 const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact, authenticateBoundArtifact });
 const claims = {
