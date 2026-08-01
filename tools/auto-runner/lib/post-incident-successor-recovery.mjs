@@ -60,9 +60,11 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   }
   const authenticateArtifact = adapters.authenticateArtifact || authenticateSourceArtifact;
   const authenticateBoundArtifact = adapters.authenticateBoundArtifact || authenticateOpaqueArtifact;
+  const authenticateSourceProvenance = adapters.authenticateSourceProvenance;
+  if (typeof authenticateSourceProvenance !== "function") return failed("semantic_evidence_provenance_verifier_missing");
   let sources;
   try {
-    sources = [...packet.sources].map((source) => normalizeSource(source, authenticateArtifact)).sort(compareSource);
+    sources = [...packet.sources].map((source) => normalizeSource(source, authenticateArtifact, authenticateSourceProvenance)).sort(compareSource);
   } catch {
     return failed("semantic_evidence_source_authentication_failed");
   }
@@ -400,12 +402,15 @@ function validateSecurityPosture(packet, claims) {
   if (!packet.artifacts.every((artifact) => bounded(artifact.role) && bounded(artifact.path) && digest64(artifact.sha256))) return failed("semantic_artifact_binding_invalid");
   return { ok: true };
 }
-function normalizeSource(source, authenticateArtifact) {
+function normalizeSource(source, authenticateArtifact, authenticateSourceProvenance) {
   const authenticated = authenticateArtifact(normalizeArtifact(source.artifact), source);
   if (!mandatorySemanticEvidenceClasses.includes(authenticated.authorityClass)
     || !authenticated.claims || typeof authenticated.claims !== "object" || Array.isArray(authenticated.claims)) throw new Error("invalid evidence document");
-  if (!digest64(authenticated.provenance?.originIdentity) || authenticated.provenanceArtifact?.authenticated !== true) throw new Error("invalid source provenance");
-  const normalized = { authorityClass: String(authenticated.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount }, provenanceArtifact: authenticated.provenanceArtifact, provenance: authenticated.provenance, claims: sortObject(authenticated.claims) };
+  const verifiedProvenance = authenticateSourceProvenance({ source: authenticated, provenance: authenticated.provenance });
+  if (verifiedProvenance?.authenticated !== true || !digest64(verifiedProvenance.originIdentity)
+    || verifiedProvenance.originKind !== semanticEvidenceOriginKinds[authenticated.authorityClass]
+    || authenticated.provenanceArtifact?.authenticated !== true) throw new Error("invalid source provenance");
+  const normalized = { authorityClass: String(authenticated.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount }, provenanceArtifact: authenticated.provenanceArtifact, provenance: { originKind: verifiedProvenance.originKind, originIdentity: verifiedProvenance.originIdentity }, claims: sortObject(authenticated.claims) };
   return normalized;
 }
 function normalizeArtifact(artifact) { return { role: String(artifact?.role || ""), path: String(artifact?.path || ""), sha256: String(artifact?.sha256 || "") }; }

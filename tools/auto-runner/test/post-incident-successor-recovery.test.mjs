@@ -21,7 +21,10 @@ const incidentHash = "5".repeat(64);
 const rootPath = "/sanitized/recovery/root.json";
 const authenticateArtifact = (artifact, source) => ({ ...artifact, authenticated: true, provenance: source.provenance, provenanceArtifact: { ...source.provenanceArtifact, authenticated: true, byteCount: 1 }, authorityClass: source.authorityClass, claims: source.claims, byteCount: 1 });
 const authenticateBoundArtifact = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, byteCount: 1 });
-const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact, authenticateBoundArtifact });
+const originKinds = ["git_object_store", "session_lifecycle_store", "logical_task_budget_store", "pre_effect_intent_store", "projection_deployment_store", "supervisor_child_run_store", "incident_report_store", "github_readback"];
+const authenticateSourceProvenance = ({ source, provenance }) => ({ authenticated: true, originKind: originKinds[mandatorySemanticEvidenceClasses.indexOf(source.authorityClass)], originIdentity: provenance.originIdentity });
+const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact, authenticateBoundArtifact, authenticateSourceProvenance });
+const trustedProductionAdapters = { authenticateSourceProvenance: ({ provenance }) => ({ authenticated: true, originKind: provenance.originKind, originIdentity: provenance.originIdentity }) };
 const claims = {
   repository: "example/repo", issueNumber: 7, taskKey: "task-1", claimIdentity: "example/repo#7", chargeId: "c".repeat(64),
   originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed",
@@ -107,6 +110,10 @@ test("source count is rejected before authenticating any descriptor", () => {
   assert.equal(authenticationCalls, 0);
 });
 
+test("production manifest construction fails closed without trusted store-specific provenance verifiers", () => {
+  assert.equal(buildSemanticRecoveryManifestProduction(packet()).reasonCode, "semantic_evidence_provenance_verifier_missing");
+});
+
 test("different class labels over one underlying artifact are not independent", () => {
   const value = packet(); value.sources[1].provenance.originIdentity = value.sources[0].provenance.originIdentity;
   const result = buildSemanticRecoveryManifest(value);
@@ -128,18 +135,17 @@ test("production source claims and authority class come from authenticated bytes
       const provenancePath = path.join(root, `${index}-provenance.json`);
       const document = { contract: "semantic_recovery_evidence_source", version: 1, authorityClass: source.authorityClass, claims: source.claims };
       writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
-      const originKinds = ["git_object_store", "session_lifecycle_store", "logical_task_budget_store", "pre_effect_intent_store", "projection_deployment_store", "supervisor_child_run_store", "incident_report_store", "github_readback"];
       writeFileSync(provenancePath, JSON.stringify({ contract: "semantic_recovery_source_provenance", version: 1, authorityClass: source.authorityClass, originKind: originKinds[index], originIdentity: source.provenance.originIdentity, evidenceSha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex"), repository: source.claims.repository, issueNumber: source.claims.issueNumber, taskKey: source.claims.taskKey }), { mode: 0o600 });
       return { authorityClass: "caller_label_is_ignored", artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") }, provenanceArtifact: { role: source.provenanceArtifact.role, path: provenancePath, sha256: createHash("sha256").update(readFileSync(provenancePath)).digest("hex") }, claims: { repository: "forged" } };
     });
-    const result = buildSemanticRecoveryManifestProduction(value);
+    const result = buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters);
     assert.equal(result.ok, true);
     assert.equal(result.manifest.claims.repository, claims.repository);
     writeFileSync(value.artifacts[0].path, "altered", { mode: 0o600 });
-    assert.equal(buildSemanticRecoveryManifestProduction(value).reasonCode, "semantic_bound_artifact_authentication_failed");
+    assert.equal(buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters).reasonCode, "semantic_bound_artifact_authentication_failed");
     writeFileSync(value.artifacts[0].path, value.artifacts[0].role, { mode: 0o600 });
     writeFileSync(value.sources[0].artifact.path, "{}", { mode: 0o600 });
-    assert.equal(buildSemanticRecoveryManifestProduction(value).reasonCode, "semantic_evidence_source_authentication_failed");
+    assert.equal(buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters).reasonCode, "semantic_evidence_source_authentication_failed");
     const forgedProvenance = JSON.parse(readFileSync(value.sources[0].provenanceArtifact.path, "utf8"));
     writeFileSync(value.sources[0].artifact.path, JSON.stringify({ contract: "semantic_recovery_evidence_source", version: 1, authorityClass: forgedProvenance.authorityClass, claims }), { mode: 0o600 });
     value.sources[0].artifact.sha256 = createHash("sha256").update(readFileSync(value.sources[0].artifact.path)).digest("hex");
@@ -147,7 +153,7 @@ test("production source claims and authority class come from authenticated bytes
     forgedProvenance.evidenceSha256 = value.sources[0].artifact.sha256;
     writeFileSync(value.sources[0].provenanceArtifact.path, JSON.stringify(forgedProvenance), { mode: 0o600 });
     value.sources[0].provenanceArtifact.sha256 = createHash("sha256").update(readFileSync(value.sources[0].provenanceArtifact.path)).digest("hex");
-    assert.equal(buildSemanticRecoveryManifestProduction(value).reasonCode, "semantic_evidence_source_authentication_failed");
+    assert.equal(buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters).reasonCode, "semantic_evidence_source_authentication_failed");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -165,11 +171,10 @@ test("production source parses the exact bytes that passed digest authentication
       const provenancePath = path.join(root, `${index}-provenance.json`);
       const document = { contract: "semantic_recovery_evidence_source", version: 1, authorityClass: source.authorityClass, claims: source.claims };
       writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
-      const originKinds = ["git_object_store", "session_lifecycle_store", "logical_task_budget_store", "pre_effect_intent_store", "projection_deployment_store", "supervisor_child_run_store", "incident_report_store", "github_readback"];
       writeFileSync(provenancePath, JSON.stringify({ contract: "semantic_recovery_source_provenance", version: 1, authorityClass: source.authorityClass, originKind: originKinds[index], originIdentity: source.provenance.originIdentity, evidenceSha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex"), repository: source.claims.repository, issueNumber: source.claims.issueNumber, taskKey: source.claims.taskKey }), { mode: 0o600 });
       return { artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") }, provenanceArtifact: { role: source.provenanceArtifact.role, path: provenancePath, sha256: createHash("sha256").update(readFileSync(provenancePath)).digest("hex") } };
     });
-    assert.equal(buildSemanticRecoveryManifestProduction(value).ok, true);
+    assert.equal(buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters).ok, true);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -254,6 +259,7 @@ test("bound artifact count is finite", () => {
 test("bound artifact aggregate bytes are finite", () => {
   const result = buildSemanticRecoveryManifestProduction(packet(), {
     authenticateArtifact,
+    authenticateSourceProvenance,
     authenticateBoundArtifact: (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, byteCount: 300 * 1024 }),
   });
   assert.equal(result.reasonCode, "semantic_bound_artifact_bytes_exceeded");
@@ -265,7 +271,7 @@ test("production artifact authentication derives byte count from the authenticat
     const artifactPath = path.join(root, "oversized.json"); writeFileSync(artifactPath, "x".repeat(256 * 1024 + 1), { mode: 0o600 });
     const value = packet(); value.artifacts[0] = { role: "current_incident_root", path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") };
     bindPacketIncidentToFirstArtifact(value);
-    assert.equal(buildSemanticRecoveryManifestProduction(value, { authenticateArtifact }).reasonCode, "semantic_bound_artifact_authentication_failed");
+    assert.equal(buildSemanticRecoveryManifestProduction(value, { authenticateArtifact, authenticateSourceProvenance }).reasonCode, "semantic_bound_artifact_authentication_failed");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
