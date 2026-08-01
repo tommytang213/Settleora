@@ -321,6 +321,9 @@ function validateSecurityPosture(packet, claims) {
   const boundedClaims = ["repository", "taskKey", "claimIdentity", "chargeId", "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId", "consumedSupervisorRunId", "branch", "formerRootPath", "formerEffectivePhase", "incidentPath", "lifecycleLineage", "lifecycleSessionId", "intentPosture", "earliestSafePhase"];
   if (!boundedClaims.every((claim) => bounded(claims[claim]))
     || !/^[^/\s]+\/[^/\s]+$/.test(claims.repository)
+    || claims.claimIdentity !== `${claims.repository}#${claims.issueNumber}`
+    || claims.consumedRunnerRunId === claims.originalRunnerRunId
+    || claims.consumedSupervisorRunId === claims.originalSupervisorRunId
     || !validShortGitBranch(claims.branch)
     || !path.isAbsolute(claims.formerRootPath) || !path.isAbsolute(claims.incidentPath)
     || !Number.isSafeInteger(claims.issueNumber) || claims.issueNumber < 1) return failed("semantic_claim_shape_invalid");

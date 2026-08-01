@@ -170,6 +170,13 @@ test("malformed corroborated claim types and counters fail closed", () => {
   }
 });
 
+test("task ownership and consumed run identities must be internally consistent", () => {
+  for (const [field, value] of [["claimIdentity", "other/repo#7"], ["consumedRunnerRunId", claims.originalRunnerRunId], ["consumedSupervisorRunId", claims.originalSupervisorRunId]]) {
+    const candidate = packet(); for (const source of candidate.sources) source.claims[field] = value;
+    assert.equal(buildSemanticRecoveryManifest(candidate).reasonCode, "semantic_claim_shape_invalid", field);
+  }
+});
+
 test("corroborated branch must be a valid short Git branch name", () => {
   for (const branch of ["foo..bar", "refs/heads/topic", "-topic", "HEAD", "topic.lock", "topic@{one", "topic//child"]) {
     const value = packet(); for (const source of value.sources) source.claims.branch = branch;
