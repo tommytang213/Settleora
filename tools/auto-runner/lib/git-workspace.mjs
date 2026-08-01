@@ -263,7 +263,7 @@ export function runGit(args, options = {}) {
     internalIndexFile: options.internalIndexFile,
     manageWorktrees: options.manageWorktrees === true,
   });
-  const transport = externalTransportCommand(args)
+  const transport = options.allowLocalFileTransport !== true && externalTransportCommand(args)
     ? createSanitizedExternalTransportContext(context, repositoryEnvironment)
     : null;
   let result;
