@@ -75,14 +75,18 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
     readBranch: async (branchName) => {
       const local = git(cwd, ["show-ref", "--verify", "--hash", `refs/heads/${branchName}`]);
       const verified = assertRepositoryRemoteIdentity(config);
-      const remote = git(cwd, ["ls-remote", "--heads", verified.originUrl, `refs/heads/${branchName}`]);
+      const remote = git(cwd, ["ls-remote", "--heads", verified?.originUrl || "origin", `refs/heads/${branchName}`], {
+        allowLocalFileTransport: config.runtimeMode !== "external",
+      });
       if (remote.status !== 0 || remote.error) return { complete: false, exists: false, unavailable: true };
       const remoteHead = remote.status === 0 && remote.stdout.trim() ? remote.stdout.trim().split(/\s+/)[0] : null;
       const localHead = local.status === 0 ? local.stdout.trim() : null;
       if (localHead && remoteHead && localHead !== remoteHead) return { complete: true, exists: true, conflict: true, headSha: localHead, remoteHead };
       if (localHead) return { complete: true, exists: true, headSha: localHead, treeSha: git(cwd, ["rev-parse", `${localHead}^{tree}`]).stdout.trim(), remoteExists: Boolean(remoteHead), source: remoteHead ? "local+remote" : "local" };
       if (!remoteHead) return { complete: true, exists: false, headSha: null, remoteExists: false };
-      const fetched = git(cwd, ["fetch", verified.originUrl, `refs/heads/${branchName}`]);
+      const fetched = git(cwd, ["fetch", verified?.originUrl || "origin", `refs/heads/${branchName}`], {
+        allowLocalFileTransport: config.runtimeMode !== "external",
+      });
       return fetched.status === 0 ? { complete: true, exists: true, headSha: remoteHead, treeSha: git(cwd, ["rev-parse", `${remoteHead}^{tree}`]).stdout.trim(), remoteExists: true, source: "remote" } : { complete: false, exists: true, headSha: remoteHead, unavailable: true };
     },
     materializeBranch: async (expected) => {
@@ -121,7 +125,9 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
     },
     pushBranch: async (expected) => {
       const verified = assertRepositoryRemoteIdentity(config);
-      const result = git(cwd, ["push", verified.pushUrl, `${expected.headSha}:refs/heads/${expected.branchName}`]);
+      const result = git(cwd, ["push", verified?.pushUrl || "origin", `${expected.headSha}:refs/heads/${expected.branchName}`], {
+        allowLocalFileTransport: config.runtimeMode !== "external",
+      });
       return { ok: result.status === 0, reasonCode: result.status === 0 ? null : "split_materialization_push_failed" };
     },
     readPr: async (branchName) => {
@@ -190,4 +196,4 @@ function splitPatchApplies(cwd, ref, patchText, reverse) { const temporary = mkd
 function digest(value) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function bounded(value) { const text = JSON.stringify(value); return text.length <= 32_768 ? JSON.parse(text) : { truncated: true, sha256: createHash("sha256").update(text).digest("hex") }; }
 function fail(reasonCode, evidence = {}) { return { ok: false, outcome: "blocked", reasonCode, evidence }; }
-function git(cwd, args, options = {}) { return runGit(args, { cwd, input: options.input, bindAttributesToHead: options.bindAttributesToHead, manageWorktrees: args.includes("worktree") }); }
+function git(cwd, args, options = {}) { return runGit(args, { cwd, input: options.input, bindAttributesToHead: options.bindAttributesToHead, manageWorktrees: args.includes("worktree"), allowLocalFileTransport: options.allowLocalFileTransport === true }); }
