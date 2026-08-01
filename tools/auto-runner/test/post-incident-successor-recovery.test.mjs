@@ -93,6 +93,18 @@ test("duplicate authority class does not count as independent", () => {
   assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_evidence_class_not_independent");
 });
 
+test("source count is rejected before authenticating any descriptor", () => {
+  const value = packet();
+  value.sources.push(structuredClone(value.sources[0]));
+  let authenticationCalls = 0;
+  const result = buildSemanticRecoveryManifestProduction(value, {
+    authenticateArtifact: () => { authenticationCalls += 1; throw new Error("must not authenticate"); },
+    authenticateBoundArtifact,
+  });
+  assert.equal(result.reasonCode, "semantic_evidence_source_count_invalid");
+  assert.equal(authenticationCalls, 0);
+});
+
 test("different class labels over one underlying artifact are not independent", () => {
   const value = packet(); value.sources[1].artifact = structuredClone(value.sources[0].artifact);
   const result = buildSemanticRecoveryManifest(value);
@@ -147,7 +159,7 @@ test("production source parses the exact bytes that passed digest authentication
 
 test("missing class and missing claim fail closed", () => {
   const missingClass = packet(); missingClass.sources.pop();
-  assert.equal(buildSemanticRecoveryManifest(missingClass).reasonCode, "semantic_evidence_class_missing");
+  assert.equal(buildSemanticRecoveryManifest(missingClass).reasonCode, "semantic_evidence_source_count_invalid");
   const missingClaim = packet(); for (const source of missingClaim.sources) delete source.claims.treeSha;
   assert.equal(buildSemanticRecoveryManifest(missingClaim).reasonCode, "semantic_evidence_claim_missing");
 });
@@ -273,6 +285,9 @@ test("successor persistence is idempotent and conflicting adoption fails closed"
     assert.equal(created.adopted, false); assert.equal(adopted.adopted, true);
     const collision = { ...construction, successor: { ...construction.successor, taskKey: "collision" } };
     assert.equal(persistOrAdoptPostIncidentSuccessor(config, collision, built.manifest).reasonCode, "post_incident_persistence_binding_invalid");
+    const alteredManifest = structuredClone(built.manifest);
+    alteredManifest.intendedSuccessor.lifecycleSuccessorSession = "competing-session";
+    assert.equal(persistOrAdoptPostIncidentSuccessor(config, construction, alteredManifest).reasonCode, "post_incident_persistence_binding_invalid");
     const competingPacket = packet({ operationId: "operation-2", requestId: "request-2" });
     const competingBuilt = buildSemanticRecoveryManifest(competingPacket);
     const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(competingBuilt) });

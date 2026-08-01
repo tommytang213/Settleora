@@ -45,6 +45,9 @@ const validatedOperationalAuthorizations = new WeakSet();
 export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const diagnostics = validatePacketShape(packet);
   if (diagnostics.length) return failed("semantic_evidence_packet_invalid", diagnostics);
+  if (packet.sources.length !== mandatorySemanticEvidenceClasses.length) {
+    return failed("semantic_evidence_source_count_invalid");
+  }
   const authenticateArtifact = adapters.authenticateArtifact || authenticateSourceArtifact;
   const authenticateBoundArtifact = adapters.authenticateBoundArtifact || authenticateOpaqueArtifact;
   let sources;
@@ -220,8 +223,17 @@ export function authenticatePostIncidentOperationalAuthorization(artifact) {
 
 export function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {
   if (!construction?.ok) return construction;
+  const expectedSuccessor = manifest && deriveSuccessorIdentity({
+    incidentIdentity: manifest.incidentIdentity,
+    taskIdentity: manifest.identities,
+    manifestDigest: manifest.manifestDigest,
+    lifecycleSuccessorSession: manifest.intendedSuccessor?.lifecycleSuccessorSession,
+    operationId: manifest.operation?.operationId,
+  });
   if (!validatedConstructions.has(construction)
+    || !validatedManifests.has(manifest)
     || construction.storageKey !== manifest?.intendedSuccessor?.storageKey
+    || canonicalJson(expectedSuccessor) !== canonicalJson(manifest?.intendedSuccessor)
     || construction.successor?.postIncidentSuccessor?.manifestDigest !== manifest?.manifestDigest
     || digest(canonicalJson(manifestCoreFromManifest(manifest))) !== manifest?.manifestDigest) {
     return failed("post_incident_persistence_binding_invalid");
