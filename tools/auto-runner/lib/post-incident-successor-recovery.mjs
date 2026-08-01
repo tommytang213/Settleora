@@ -41,6 +41,8 @@ export function buildSemanticRecoveryManifest(packet) {
   const sources = [...packet.sources].map(normalizeSource).sort(compareSource);
   const classes = new Set(sources.map((source) => source.authorityClass));
   if (classes.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_authority_class"]);
+  const underlyingArtifacts = new Set(sources.map((source) => canonicalJson(source.artifact)));
+  if (underlyingArtifacts.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_underlying_artifact"]);
   const missingClasses = mandatorySemanticEvidenceClasses.filter((name) => !classes.has(name));
   if (missingClasses.length) return failed("semantic_evidence_class_missing", missingClasses);
 

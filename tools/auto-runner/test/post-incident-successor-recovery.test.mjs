@@ -66,6 +66,13 @@ test("duplicate authority class does not count as independent", () => {
   assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_evidence_class_not_independent");
 });
 
+test("different class labels over one underlying artifact are not independent", () => {
+  const value = packet(); value.sources[1].artifact = structuredClone(value.sources[0].artifact);
+  const result = buildSemanticRecoveryManifest(value);
+  assert.equal(result.reasonCode, "semantic_evidence_class_not_independent");
+  assert.deepEqual(result.diagnostics, ["duplicate_underlying_artifact"]);
+});
+
 test("missing class and missing claim fail closed", () => {
   const missingClass = packet(); missingClass.sources.pop();
   assert.equal(buildSemanticRecoveryManifest(missingClass).reasonCode, "semantic_evidence_class_missing");
