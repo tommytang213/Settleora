@@ -290,24 +290,43 @@ test("exact ref deletion honors Git's per-ref lock and cannot delete a concurren
   }
 });
 
-test("hash-object authenticates symlink identity and hashes the link target bytes", () => {
+test("hash-object fails closed for a symlink whose target bytes cannot be descriptor-bound", () => {
   const repo = tempRepo();
   try {
     const outside = path.join(tmpdir(), `settleora-hash-target-${process.pid}`);
     writeFileSync(outside, "outside secret bytes\n");
     symlinkSync(outside, path.join(repo.cwd, "linked.txt"));
-    const hashed = runGit(["hash-object", "--", "linked.txt"], { cwd: repo.cwd });
-    assert.equal(hashed.status, 0, hashed.stderr);
-    const expected = execFileSync("/usr/bin/git", ["hash-object", "--stdin"], {
-      cwd: repo.cwd, input: outside, encoding: "utf8",
-    }).trim();
-    const followed = execFileSync("/usr/bin/git", ["hash-object", "--stdin"], {
-      cwd: repo.cwd, input: "outside secret bytes\n", encoding: "utf8",
-    }).trim();
-    assert.equal(hashed.stdout.trim(), expected);
-    assert.notEqual(hashed.stdout.trim(), followed);
+    assert.throws(() => runGit(["hash-object", "--", "linked.txt"], { cwd: repo.cwd }),
+      /symlink blob hashing is unsupported/u);
     rmSync(outside, { force: true });
   } finally { repo.cleanup(); }
+});
+
+test("source-owned ref grammar rejects traversal and every Git-invalid component", () => {
+  const malformed = [
+    "refs/heads/feature/auto-x/../../../remotes/origin/topic",
+    "refs/heads/feature//topic",
+    "refs/heads/feature/.hidden",
+    "refs/heads/feature/topic.lock",
+    "refs/heads/feature/topic.",
+    "refs/heads/feature/to pic",
+    "refs/heads/feature/to~pic",
+    "refs/heads/feature/to^pic",
+    "refs/heads/feature/to:pic",
+    "refs/heads/feature/to?pic",
+    "refs/heads/feature/to*pic",
+    "refs/heads/feature/to[pic",
+    "refs/heads/feature/to\\pic",
+    "refs/heads/feature/topic@{one}",
+  ];
+  for (const ref of malformed) {
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
+      "show-ref", "--verify", "--hash", ref,
+    ]).kind, "unsupported", ref);
+    assert.equal(gitWorkspaceTestInternals.classifySourceOwnedGitCommand([
+      "update-ref", "-d", ref, "a".repeat(40),
+    ]).kind, "unsupported", ref);
+  }
 });
 
 test("literal fetch updates the exact remote-tracking ref and only the exact fast-forward form advances HEAD", () => {

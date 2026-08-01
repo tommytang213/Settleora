@@ -35,6 +35,15 @@ test("dirty, primary, active, shared, symlinked, ambiguous and unexported worktr
   assert.equal(evaluateCleanupGate(o, live(o, { worktree: { ...live(o).worktree, identity: d("8") } })).ok, false);
 });
 
+test("cleanup ownership rejects traversal and Git-invalid ephemeral branch names", () => {
+  for (const branchName of [
+    "fix/auto-x/../../../remotes/origin/topic", "fix/auto-x//topic",
+    "fix/auto-x/.hidden", "fix/auto-x/topic.lock", "fix/auto-x/topic@{one}",
+  ]) {
+    assert.throws(() => createCleanupOwnershipRecord(owner({ branchName })), /cleanup_branch_not_ephemeral/u);
+  }
+});
+
 test("exact remote/worktree/local effects execute in order and final absence is confirmed", async () => {
   const o = owner(); let state = live(o); const calls = []; const checkpoints = [];
   const planned = planPostMergeCleanup(o, state).state;

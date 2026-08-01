@@ -2,8 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdtempSync, mkdirSync,
-  fsyncSync, openSync, readFileSync, readlinkSync, readdirSync, realpathSync, renameSync, rmSync,
-  unlinkSync, writeFileSync,
+  openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -277,12 +276,6 @@ export function runGit(args, options = {}) {
       reasonCode: "protected_external_git_transport_unavailable",
     };
   }
-  if (args[0] === "show-ref" && args.includes("--verify")) {
-    return readExactSourceOwnedRef(context, args);
-  }
-  if (args[0] === "update-ref" && args[1] === "-d") {
-    return deleteExactSourceOwnedRef(context, args[2], args[3]);
-  }
   const hasHead = repositoryHasHead(context);
   try {
     if (hasHead) assertSourceOwnedTreeAttributes(context);
@@ -313,6 +306,13 @@ export function runGit(args, options = {}) {
   });
   if (!sourceOwnedGitContextStable(context)) {
     return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
+  }
+  // Native `show-ref --verify` reports an absent, syntactically valid ref as
+  // status 128. Preserve the wrapper's established missing-ref contract while
+  // keeping parsing and ref-store access inside the descriptor-pinned Git process.
+  if (args[0] === "show-ref" && args.includes("--verify") && result.status === 128
+    && /^fatal: '[^']+' - not a valid ref\s*$/u.test(result.stderr || "")) {
+    return { command: `git ${args.join(" ")}`, status: 1, stdout: "", stderr: "", error: null, signal: null };
   }
   return {
     command: `git ${args.join(" ")}`,
@@ -351,18 +351,25 @@ function sourceOwnedTransportArguments(command, args) {
   let lease = null;
   if (command === "push" && args[index] === "--no-verify") {
     index += 1;
-    const match = String(args[index] || "").match(/^--force-with-lease=(refs\/heads\/([A-Za-z0-9][A-Za-z0-9._/-]{0,239})):[a-f0-9]{40}$/u);
-    if (match) { lease = match[1]; index += 1; }
+    const match = String(args[index] || "").match(/^--force-with-lease=([^:]+):([a-f0-9]{40})$/u);
+    if (match && sourceOwnedHeadsRef(match[1])) { lease = match[1]; index += 1; }
   }
   if (args.length - index !== 2) return false;
   const [remote, refspec] = args.slice(index);
   if (!sourceOwnedRemote(remote)) return false;
-  if (command === "ls-remote") return /^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(refspec);
-  if (command === "fetch") return /^(?:\+)?refs\/heads\/([A-Za-z0-9][A-Za-z0-9._/-]{0,239})(?::refs\/remotes\/origin\/\1)?$/u.test(refspec);
-  const deletion = refspec.match(/^:(refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239})$/u);
+  if (command === "ls-remote") return sourceOwnedHeadsRef(refspec);
+  if (command === "fetch") {
+    const fetch = refspec.match(/^\+?([^:]+)(?::([^:]+))?$/u);
+    if (!fetch || !sourceOwnedHeadsRef(fetch[1])) return false;
+    const branch = fetch[1].slice("refs/heads/".length);
+    return fetch[2] === undefined || fetch[2] === `refs/remotes/origin/${branch}`;
+  }
+  const deletion = refspec.match(/^:(.+)$/u);
   if (deletion) return lease !== null && deletion[1] === lease;
   if (lease !== null) return false;
-  return /^(?:[a-f0-9]{40}|HEAD|refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}):refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(refspec);
+  const update = refspec.match(/^([^:]+):([^:]+)$/u);
+  return Boolean(update && (/^[a-f0-9]{40}$/u.test(update[1]) || update[1] === "HEAD" || sourceOwnedHeadsRef(update[1]))
+    && sourceOwnedHeadsRef(update[2]));
 }
 
 function sourceOwnedRemote(value) {
@@ -396,7 +403,8 @@ function sourceOwnedLocalArguments(command, args, context) {
     case "log": return sourceOwnedLogArguments(args);
     case "ls-files": return sourceOwnedLsFilesArguments(args);
     case "ls-tree": return sourceOwnedLsTreeArguments(args);
-    case "merge": return args.length === 2 && args[0] === "--ff-only" && /^origin\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(args[1]);
+    case "merge": return args.length === 2 && args[0] === "--ff-only"
+      && args[1].startsWith("origin/") && isSourceOwnedBranchName(args[1].slice("origin/".length));
     case "merge-base": return (args.length === 2 || (args.length === 3 && args[0] === "--is-ancestor")) && refs(...args.filter((value) => value !== "--is-ancestor"));
     case "merge-tree": return args.length === 3 && args[0] === "--write-tree" && refs(args[1], args[2]);
     case "patch-id": return exact("--stable");
@@ -545,9 +553,40 @@ function sourceOwnedRevision(value) {
   return typeof value === "string" && value.length > 0 && value.length <= 1000
     && !value.startsWith("-") && !/[\0-\x20\x7f\\]/u.test(value) && !value.includes("@{");
 }
-function sourceOwnedFullRef(value) { return /^refs\/(?:heads|remotes\/origin)\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(value); }
-function sourceOwnedFullRefPrefix(value) { return /^refs\/(?:heads|remotes\/origin)(?:\/[A-Za-z0-9][A-Za-z0-9._/-]{0,239})?\/?$/u.test(value); }
-function sourceOwnedBranch(value) { return typeof value === "string" && /^(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.$)[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(value) && !value.endsWith("/") && !value.split("/").some((part) => part.startsWith(".") || part.endsWith(".lock")); }
+function sourceOwnedHeadsRef(value) {
+  return typeof value === "string" && value.startsWith("refs/heads/")
+    && isSourceOwnedBranchName(value.slice("refs/heads/".length));
+}
+
+function sourceOwnedFullRef(value) {
+  if (sourceOwnedHeadsRef(value)) return true;
+  return typeof value === "string" && value.startsWith("refs/remotes/origin/")
+    && isSourceOwnedBranchName(value.slice("refs/remotes/origin/".length));
+}
+
+function sourceOwnedFullRefPrefix(value) {
+  if (typeof value !== "string") return false;
+  for (const root of ["refs/heads", "refs/remotes/origin"]) {
+    if (value === root || value === `${root}/`) return true;
+    if (value.startsWith(`${root}/`)) {
+      const suffix = value.slice(root.length + 1).replace(/\/$/u, "");
+      return isSourceOwnedBranchName(suffix);
+    }
+  }
+  return false;
+}
+
+export function isSourceOwnedBranchName(value) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 240
+    || value.startsWith("-") || value.endsWith("/") || value.endsWith(".")
+    || value.includes("..") || value.includes("//") || value.includes("@{")
+    || /[\0-\x20\x7f~^:?*\\\[]/u.test(value)) return false;
+  return value.split("/").every((component) => component.length > 0
+    && component !== "." && component !== ".." && !component.startsWith(".")
+    && !component.endsWith(".") && !component.endsWith(".lock"));
+}
+
+function sourceOwnedBranch(value) { return isSourceOwnedBranchName(value); }
 function sourceOwnedRepositoryPath(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000 && !value.startsWith("-") && !value.startsWith(":") && !path.isAbsolute(value) && path.normalize(value) === value && value !== "." && !value.startsWith(`..${path.sep}`) && !/[\0\r\n]/u.test(value); }
 function sourceOwnedMessage(value) { return typeof value === "string" && value.length > 0 && value.length <= 10_000 && !value.includes("\0"); }
 
@@ -744,12 +783,16 @@ function spawnPinnedRepositoryGit(context, fixedArgs, {
   const descriptors = [];
   try {
     descriptors.push(openPinnedDirectory(context.objectDir, context.objectDirIdentity, "Git object directory"));
+    descriptors.push(openPinnedDirectory(context.commonDir, context.commonDirIdentity, "Git common directory"));
+    descriptors.push(openPinnedDirectory(context.gitDir, context.gitDirIdentity, "Git directory"));
     return spawnSync("/usr/bin/git", fixedArgs, {
       cwd,
       input,
       env: {
         ...environment,
         GIT_OBJECT_DIRECTORY: "/proc/self/fd/3",
+        GIT_COMMON_DIR: "/proc/self/fd/4",
+        GIT_DIR: "/proc/self/fd/5",
       },
       stdio: ["pipe", "pipe", "pipe", ...descriptors],
       encoding: "utf8",
@@ -783,13 +826,7 @@ function readSourceOwnedWorktreeBlob(context, relativePath) {
     }
     const terminal = `/proc/self/fd/${directoryFd}/${components.at(-1)}`;
     const before = lstatSync(terminal);
-    if (before.isSymbolicLink()) {
-      const target = readlinkSync(terminal, "buffer");
-      if (target.length > 4096 || pathIdentity(lstatSync(terminal)) !== pathIdentity(before)) {
-        throw new Error("Repository symlink blob changed during read");
-      }
-      return target;
-    }
+    if (before.isSymbolicLink()) throw new Error("Repository symlink blob hashing is unsupported");
     if (!before.isFile() || before.size > 16 * 1024 * 1024
       || (typeof process.getuid === "function" && before.uid !== process.getuid())) {
       throw new Error("Repository blob is unsafe or oversized");
@@ -806,228 +843,6 @@ function readSourceOwnedWorktreeBlob(context, relativePath) {
     return bytes;
   } finally {
     for (const fd of descriptors.reverse()) closeSync(fd);
-  }
-}
-
-function readExactSourceOwnedRef(context, args) {
-  const ref = args.at(-1);
-  try {
-    const value = readSourceOwnedRefValue(context, ref);
-    if (!value) return gitResult(args, 1, "", "");
-    const quiet = args.includes("--quiet");
-    const hashOnly = args.includes("--hash");
-    return gitResult(args, 0, quiet ? "" : `${hashOnly ? value : `${value} ${ref}`}\n`, "");
-  } catch (error) {
-    return gitResult(args, 128, "", error.message);
-  }
-}
-
-function deleteExactSourceOwnedRef(context, ref, expected) {
-  const args = ["update-ref", "-d", ref, expected];
-  let refLock;
-  try {
-    const commonFd = openPinnedDirectory(context.commonDir, context.commonDirIdentity, "Git common directory");
-    try {
-      // Use Git's per-ref lock convention so an ordinary update-ref cannot
-      // advance the ref after the expected-old comparison and before unlink.
-      refLock = acquireLooseRefLock(commonFd, ref);
-      const current = readSourceOwnedRefValueFromCommon(commonFd, ref);
-      if (current !== expected) {
-        return gitResult(args, 128, "", "Reference does not match the expected object identity");
-      }
-      rewritePackedRefWithout(commonFd, ref);
-      unlinkLooseRef(commonFd, ref, expected);
-      if (readSourceOwnedRefValueFromCommon(commonFd, ref) !== null) {
-        return gitResult(args, 128, "", "Reference deletion did not reach the exact absent state");
-      }
-      return gitResult(args, 0, "", "");
-    } finally {
-      try { releaseLooseRefLock(refLock); }
-      finally { closeSync(commonFd); }
-    }
-  } catch (error) {
-    return gitResult(args, 128, "", error.message);
-  }
-}
-
-function gitResult(args, status, stdout, stderr) {
-  return { command: `git ${args.join(" ")}`, status, stdout, stderr, error: null, signal: null };
-}
-
-function readSourceOwnedRefValue(context, ref) {
-  const commonFd = openPinnedDirectory(context.commonDir, context.commonDirIdentity, "Git common directory");
-  try {
-    return readSourceOwnedRefValueFromCommon(commonFd, ref);
-  } finally { closeSync(commonFd); }
-}
-
-function readSourceOwnedRefValueFromCommon(commonFd, ref) {
-  const loose = readLooseRef(commonFd, ref);
-  if (loose) return loose;
-  const packed = readPackedRefs(commonFd);
-  const matches = packed.records.filter((record) => record.ref === ref);
-  if (matches.length > 1) throw new Error("Repository packed refs are ambiguous");
-  return matches[0]?.oid || null;
-}
-
-function openRefParent(commonFd, ref, { createMissing = false } = {}) {
-  const components = ref.split("/");
-  let current = commonFd;
-  const opened = [];
-  for (const component of components.slice(0, -1)) {
-    const child = `/proc/self/fd/${current}/${component}`;
-    let next;
-    try {
-      next = openSync(child, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
-    } catch (error) {
-      if (!createMissing || error?.code !== "ENOENT") throw error;
-      try { mkdirSync(child, { mode: 0o700 }); }
-      catch (mkdirError) { if (mkdirError?.code !== "EEXIST") throw mkdirError; }
-      next = openSync(child, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
-    }
-    const info = fstatSync(next);
-    if (!info.isDirectory() || info.isSymbolicLink()
-      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-      closeSync(next);
-      throw new Error("Repository ref parent is unsafe");
-    }
-    opened.push(next);
-    current = next;
-  }
-  return { fd: current, name: components.at(-1), opened };
-}
-
-function readLooseRef(commonFd, ref) {
-  let parent;
-  try {
-    parent = openRefParent(commonFd, ref);
-    const terminal = `/proc/self/fd/${parent.fd}/${parent.name}`;
-    const before = lstatOptional(terminal);
-    if (!before) return null;
-    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size > 256
-      || (typeof process.getuid === "function" && before.uid !== process.getuid())) {
-      throw new Error("Repository loose ref is unsafe");
-    }
-    const fd = openSync(terminal, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-    try {
-      if (fileIdentity(fstatSync(fd)) !== fileIdentity(before)) throw new Error("Repository loose ref changed before read");
-      const value = readFileSync(fd, "utf8").trim();
-      if (!/^[a-f0-9]{40,64}$/u.test(value) || fileIdentity(fstatSync(fd)) !== fileIdentity(before)) {
-        throw new Error("Repository loose ref is malformed or unstable");
-      }
-      return value;
-    } finally { closeSync(fd); }
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  } finally {
-    for (const fd of parent?.opened?.reverse() || []) closeSync(fd);
-  }
-}
-
-function readPackedRefs(commonFd) {
-  const target = `/proc/self/fd/${commonFd}/packed-refs`;
-  const before = lstatOptional(target);
-  if (!before) return { bytes: Buffer.alloc(0), info: null, records: [] };
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size > 8 * 1024 * 1024
-    || (typeof process.getuid === "function" && before.uid !== process.getuid())) {
-    throw new Error("Repository packed refs are unsafe");
-  }
-  const fd = openSync(target, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  try {
-    const opened = fstatSync(fd);
-    if (fileIdentity(opened) !== fileIdentity(before)) throw new Error("Repository packed refs changed before read");
-    const bytes = readFileSync(fd);
-    if (bytes.length !== opened.size || fileIdentity(fstatSync(fd)) !== fileIdentity(opened)) {
-      throw new Error("Repository packed refs changed during read");
-    }
-    const records = [];
-    for (const line of bytes.toString("utf8").split("\n")) {
-      if (!line || line.startsWith("#") || line.startsWith("^")) continue;
-      const match = line.match(/^([a-f0-9]{40,64}) (refs\/[A-Za-z0-9._/-]+)$/u);
-      if (!match) throw new Error("Repository packed refs are malformed");
-      records.push({ oid: match[1], ref: match[2], line });
-    }
-    return { bytes, info: opened, records };
-  } finally { closeSync(fd); }
-}
-
-function rewritePackedRefWithout(commonFd, ref) {
-  const packed = readPackedRefs(commonFd);
-  if (!packed.info || !packed.records.some((record) => record.ref === ref)) return;
-  const lines = packed.bytes.toString("utf8").split("\n");
-  const kept = lines.filter((line) => !line.endsWith(` ${ref}`));
-  const bytes = Buffer.from(kept.join("\n"), "utf8");
-  const lock = `/proc/self/fd/${commonFd}/packed-refs.lock`;
-  const target = `/proc/self/fd/${commonFd}/packed-refs`;
-  const fd = openSync(lock, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
-    packed.info.mode & 0o777);
-  try {
-    writeFileSync(fd, bytes);
-    fsyncSync(fd);
-  } catch (error) {
-    closeSync(fd);
-    try { unlinkSync(lock); } catch {}
-    throw error;
-  }
-  closeSync(fd);
-  const current = readPackedRefs(commonFd);
-  if (!current.info || fileIdentity(current.info) !== fileIdentity(packed.info)
-    || !current.bytes.equals(packed.bytes)) {
-    unlinkSync(lock);
-    throw new Error("Repository packed refs changed before replacement");
-  }
-  renameSync(lock, target);
-}
-
-function acquireLooseRefLock(commonFd, ref) {
-  // A packed-only nested ref may no longer have a loose parent directory.
-  // Git creates that directory before taking the standard `<ref>.lock`.
-  const parent = openRefParent(commonFd, ref, { createMissing: true });
-  const lockPath = `/proc/self/fd/${parent.fd}/${parent.name}.lock`;
-  try {
-    const fd = openSync(lockPath,
-      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
-    const info = fstatSync(fd);
-    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1
-      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-      closeSync(fd);
-      throw new Error("Repository ref lock is unsafe");
-    }
-    return { fd, lockPath, identity: fileIdentity(info), opened: parent.opened };
-  } catch (error) {
-    for (const opened of parent.opened.reverse()) closeSync(opened);
-    throw error;
-  }
-}
-
-function releaseLooseRefLock(lock) {
-  if (!lock) return;
-  try {
-    const opened = fstatSync(lock.fd);
-    const lexical = lstatOptional(lock.lockPath);
-    if (!lexical || fileIdentity(opened) !== lock.identity || fileIdentity(lexical) !== lock.identity) {
-      throw new Error("Repository ref lock changed before release");
-    }
-    closeSync(lock.fd);
-    lock.fd = null;
-    unlinkSync(lock.lockPath);
-  } finally {
-    if (lock.fd !== null) closeSync(lock.fd);
-    for (const opened of lock.opened.reverse()) closeSync(opened);
-  }
-}
-
-function unlinkLooseRef(commonFd, ref, expected) {
-  const parent = openRefParent(commonFd, ref);
-  try {
-    const target = `/proc/self/fd/${parent.fd}/${parent.name}`;
-    const info = lstatOptional(target);
-    if (!info) return;
-    if (readLooseRef(commonFd, ref) !== expected) throw new Error("Repository loose ref changed before deletion");
-    unlinkSync(target);
-  } finally {
-    for (const fd of parent.opened.reverse()) closeSync(fd);
   }
 }
 
@@ -1458,8 +1273,7 @@ function inspectRawLaunchWorkspace(cwd, environment) {
     try {
       const stat = lstatSync(file);
       if (mode === "120000") {
-        if (!stat.isSymbolicLink()) return "tracked-file-type-drift";
-        bytes = readlinkSync(file, { encoding: "buffer" });
+        return stat.isSymbolicLink() ? "tracked-symlink-authentication-unsupported" : "tracked-file-type-drift";
       } else {
         if (!stat.isFile() || stat.isSymbolicLink()) return "tracked-file-type-drift";
         const executable = (stat.mode & 0o111) !== 0;

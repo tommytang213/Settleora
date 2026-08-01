@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { closeSync, constants as fsConstants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
-import { runGit } from "./git-workspace.mjs";
+import { isSourceOwnedBranchName, runGit } from "./git-workspace.mjs";
 
 export const postMergeCleanupSchemaVersion = 1;
 export const postMergeCleanupPolicyVersion = "ephemeral_cleanup_v1";
@@ -17,7 +17,7 @@ const cleanupRoot = "post-merge-cleanup";
 const ownershipRoot = "post-merge-cleanup-ownership";
 
 const sha = /^[0-9a-f]{40}$/;
-const safeRef = /^(?:feature|focused|fix|docs|feature-bundle)\/auto-[a-z0-9][a-z0-9._/-]{0,180}$/;
+const safeRefPrefix = /^(?:feature|focused|fix|docs|feature-bundle)\/auto-/;
 const forbiddenRefs = /^(?:main|master|release(?:\/|$))/;
 const activeCategories = Object.freeze(["runner", "supervisor", "recovery", "outage", "review", "source_failure", "session", "bundle", "stack", "report", "pending_effect", "generated_work", "lease"]);
 
@@ -42,7 +42,8 @@ export function validateCleanupOwnership(record = {}) {
   if (record.schemaVersion !== 1 || record.policyVersion !== postMergeCleanupPolicyVersion || record.owner !== "settleora_auto_runner") return fail("cleanup_ownership_schema_invalid");
   if (!/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(record.repository || "")) return fail("cleanup_repository_invalid");
   if (!record.rootTaskKey || !record.executionLineage || !Number.isSafeInteger(record.issueNumber)) return fail("cleanup_task_identity_incomplete");
-  if (!safeRef.test(record.branchName || "") || forbiddenRefs.test(record.branchName || "")) return fail("cleanup_branch_not_ephemeral");
+  if (!safeRefPrefix.test(record.branchName || "") || !isSourceOwnedBranchName(record.branchName)
+    || record.branchName.length > 181 || forbiddenRefs.test(record.branchName || "")) return fail("cleanup_branch_not_ephemeral");
   if (!record.branchKind || !record.baseBranch || !sha.test(record.baseSha || "") || !sha.test(record.reviewedHeadSha || "")) return fail("cleanup_source_identity_incomplete");
   if (!Number.isSafeInteger(record.prNumber) || !/^https:\/\/github\.com\/[a-z0-9_.-]+\/[a-z0-9_.-]+\/pull\/[1-9][0-9]*$/i.test(record.prUrl || "")) return fail("cleanup_pr_identity_invalid");
   if (!sha.test(record.mergeSha || "") || !record.targetBranch || forbiddenRefs.test(record.targetBranch) && record.targetBranch !== "main") return fail("cleanup_merge_target_invalid");
