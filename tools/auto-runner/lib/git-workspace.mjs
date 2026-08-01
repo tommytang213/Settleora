@@ -824,18 +824,27 @@ function readExactSourceOwnedRef(context, args) {
 
 function deleteExactSourceOwnedRef(context, ref, expected) {
   const args = ["update-ref", "-d", ref, expected];
+  let refLock;
   try {
-    const current = readSourceOwnedRefValue(context, ref);
-    if (current !== expected) return gitResult(args, 128, "", "Reference does not match the expected object identity");
     const commonFd = openPinnedDirectory(context.commonDir, context.commonDirIdentity, "Git common directory");
     try {
+      // Use Git's per-ref lock convention so an ordinary update-ref cannot
+      // advance the ref after the expected-old comparison and before unlink.
+      refLock = acquireLooseRefLock(commonFd, ref);
+      const current = readSourceOwnedRefValueFromCommon(commonFd, ref);
+      if (current !== expected) {
+        return gitResult(args, 128, "", "Reference does not match the expected object identity");
+      }
       rewritePackedRefWithout(commonFd, ref);
       unlinkLooseRef(commonFd, ref, expected);
-    } finally { closeSync(commonFd); }
-    if (readSourceOwnedRefValue(context, ref) !== null) {
-      return gitResult(args, 128, "", "Reference deletion did not reach the exact absent state");
+      if (readSourceOwnedRefValueFromCommon(commonFd, ref) !== null) {
+        return gitResult(args, 128, "", "Reference deletion did not reach the exact absent state");
+      }
+      return gitResult(args, 0, "", "");
+    } finally {
+      try { releaseLooseRefLock(refLock); }
+      finally { closeSync(commonFd); }
     }
-    return gitResult(args, 0, "", "");
   } catch (error) {
     return gitResult(args, 128, "", error.message);
   }
@@ -848,22 +857,34 @@ function gitResult(args, status, stdout, stderr) {
 function readSourceOwnedRefValue(context, ref) {
   const commonFd = openPinnedDirectory(context.commonDir, context.commonDirIdentity, "Git common directory");
   try {
-    const loose = readLooseRef(commonFd, ref);
-    if (loose) return loose;
-    const packed = readPackedRefs(commonFd);
-    const matches = packed.records.filter((record) => record.ref === ref);
-    if (matches.length > 1) throw new Error("Repository packed refs are ambiguous");
-    return matches[0]?.oid || null;
+    return readSourceOwnedRefValueFromCommon(commonFd, ref);
   } finally { closeSync(commonFd); }
 }
 
-function openRefParent(commonFd, ref) {
+function readSourceOwnedRefValueFromCommon(commonFd, ref) {
+  const loose = readLooseRef(commonFd, ref);
+  if (loose) return loose;
+  const packed = readPackedRefs(commonFd);
+  const matches = packed.records.filter((record) => record.ref === ref);
+  if (matches.length > 1) throw new Error("Repository packed refs are ambiguous");
+  return matches[0]?.oid || null;
+}
+
+function openRefParent(commonFd, ref, { createMissing = false } = {}) {
   const components = ref.split("/");
   let current = commonFd;
   const opened = [];
   for (const component of components.slice(0, -1)) {
-    const next = openSync(`/proc/self/fd/${current}/${component}`,
-      fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+    const child = `/proc/self/fd/${current}/${component}`;
+    let next;
+    try {
+      next = openSync(child, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+    } catch (error) {
+      if (!createMissing || error?.code !== "ENOENT") throw error;
+      try { mkdirSync(child, { mode: 0o700 }); }
+      catch (mkdirError) { if (mkdirError?.code !== "EEXIST") throw mkdirError; }
+      next = openSync(child, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+    }
     const info = fstatSync(next);
     if (!info.isDirectory() || info.isSymbolicLink()
       || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
@@ -957,6 +978,44 @@ function rewritePackedRefWithout(commonFd, ref) {
     throw new Error("Repository packed refs changed before replacement");
   }
   renameSync(lock, target);
+}
+
+function acquireLooseRefLock(commonFd, ref) {
+  // A packed-only nested ref may no longer have a loose parent directory.
+  // Git creates that directory before taking the standard `<ref>.lock`.
+  const parent = openRefParent(commonFd, ref, { createMissing: true });
+  const lockPath = `/proc/self/fd/${parent.fd}/${parent.name}.lock`;
+  try {
+    const fd = openSync(lockPath,
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+      closeSync(fd);
+      throw new Error("Repository ref lock is unsafe");
+    }
+    return { fd, lockPath, identity: fileIdentity(info), opened: parent.opened };
+  } catch (error) {
+    for (const opened of parent.opened.reverse()) closeSync(opened);
+    throw error;
+  }
+}
+
+function releaseLooseRefLock(lock) {
+  if (!lock) return;
+  try {
+    const opened = fstatSync(lock.fd);
+    const lexical = lstatOptional(lock.lockPath);
+    if (!lexical || fileIdentity(opened) !== lock.identity || fileIdentity(lexical) !== lock.identity) {
+      throw new Error("Repository ref lock changed before release");
+    }
+    closeSync(lock.fd);
+    lock.fd = null;
+    unlinkSync(lock.lockPath);
+  } finally {
+    if (lock.fd !== null) closeSync(lock.fd);
+    for (const opened of lock.opened.reverse()) closeSync(opened);
+  }
 }
 
 function unlinkLooseRef(commonFd, ref, expected) {

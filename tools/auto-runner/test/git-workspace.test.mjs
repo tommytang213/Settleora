@@ -248,6 +248,48 @@ test("exact packed ref deletion is successful, stable, and repeat-safe", () => {
   } finally { repo.cleanup(); }
 });
 
+test("exact deletion recreates a missing loose parent for a packed-only nested ref", () => {
+  const repo = tempRepo();
+  try {
+    const ref = "refs/heads/feature/packed-topic";
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "branch", "feature/packed-topic", repo.base]);
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "pack-refs", "--all"]);
+    rmSync(path.join(repo.cwd, ".git", "refs", "heads", "feature"), { recursive: true, force: true });
+    const removed = runGit(["update-ref", "-d", ref, repo.base], { cwd: repo.cwd });
+    assert.equal(removed.status, 0, removed.stderr);
+    assert.equal(runGit(["show-ref", "--verify", "--hash", ref], { cwd: repo.cwd }).status, 1);
+  } finally { repo.cleanup(); }
+});
+
+test("exact ref deletion honors Git's per-ref lock and cannot delete a concurrent advance", () => {
+  const repo = tempRepo();
+  const ref = "refs/heads/locked-topic";
+  const lock = path.join(repo.cwd, ".git", `${ref}.lock`);
+  try {
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "branch", "locked-topic", repo.base]);
+    writeFileSync(lock, "", { flag: "wx", mode: 0o600 });
+    const blocked = runGit(["update-ref", "-d", ref, repo.base], { cwd: repo.cwd });
+    assert.notEqual(blocked.status, 0);
+    assert.match(blocked.stderr, /EEXIST|exist/u);
+    assert.equal(repo.git("rev-parse", ref), repo.base,
+      "a contended Git-compatible ref lock must leave the exact old ref intact");
+
+    rmSync(lock);
+    writeFileSync(path.join(repo.cwd, "advanced.txt"), "advanced\n");
+    repo.git("add", "--", "advanced.txt");
+    repo.git("commit", "-m", "advanced");
+    const advanced = repo.git("rev-parse", "HEAD");
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "update-ref", ref, advanced, repo.base]);
+    const staleDelete = runGit(["update-ref", "-d", ref, repo.base], { cwd: repo.cwd });
+    assert.notEqual(staleDelete.status, 0);
+    assert.equal(repo.git("rev-parse", ref), advanced,
+      "an ordinary update that wins before lock acquisition must survive a stale deletion request");
+  } finally {
+    rmSync(lock, { force: true });
+    repo.cleanup();
+  }
+});
+
 test("hash-object authenticates symlink identity and hashes the link target bytes", () => {
   const repo = tempRepo();
   try {
