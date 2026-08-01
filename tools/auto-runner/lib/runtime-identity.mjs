@@ -6,6 +6,10 @@ import { spawnSync } from "node:child_process";
 
 export const runtimeIdentityVersion = 1;
 export const projectIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+// Admission is bound to the frozen runtime identity created by production
+// startup, not to a mutable config envelope. Approved recovery code makes
+// shallow config copies; those copies retain this source-owned identity while
+// caller-created envelopes cannot mint a matching WeakMap key.
 const admittedRepositoryWorktrees = new WeakMap();
 
 export function moduleRuntimeRoot(metaUrl = import.meta.url) {
@@ -234,7 +238,7 @@ export function assertRepositoryRemoteIdentity(config) {
     throw new Error("verified repository remote identity is required before a remote Git operation");
   }
   const current = verifyRepositoryIdentity(config.repoRoot, config.repositorySlug);
-  const admitted = admittedRepositoryWorktrees.get(config);
+  const admitted = admittedRepositoryWorktrees.get(expected)?.get(current.topLevel);
   const exactExpected = current.topLevel === expected.repoRoot ? {
     topLevel: expected.repoRoot,
     commonDir: expected.repositoryCommonDir,
@@ -277,12 +281,21 @@ export function admitRepositoryWorktreeRemoteIdentity(config, repoRoot) {
     throw new Error("historical task worktree does not share the admitted repository authority");
   }
   const admitted = Object.freeze({ ...current });
-  admittedRepositoryWorktrees.set(config, admitted);
+  let admissions = admittedRepositoryWorktrees.get(expected);
+  if (!admissions) {
+    admissions = new Map();
+    admittedRepositoryWorktrees.set(expected, admissions);
+  }
+  admissions.set(current.topLevel, admitted);
   return admitted;
 }
 
 export function restoreControlPlaneRepositoryRemoteIdentity(config) {
-  admittedRepositoryWorktrees.delete(config);
+  const expected = config?.runtimeIdentity;
+  const admissions = expected && admittedRepositoryWorktrees.get(expected);
+  if (!admissions) return;
+  admissions.delete(path.resolve(config?.repoRoot || ""));
+  if (admissions.size === 0) admittedRepositoryWorktrees.delete(expected);
 }
 
 function sameRepositoryIdentity(current, expected) {

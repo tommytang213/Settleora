@@ -7,6 +7,7 @@ import test from "node:test";
 import { defaultLogsRoot, loadConfig, parseCliArgs } from "../lib/config.mjs";
 import { sanitizePersistedEvidence } from "../lib/evidence-sanitizer.mjs";
 import { buildReadOnlyLiveStackFixturePlan, createDependentPrStackPlan, nextStackAction } from "../lib/pr-stack-controller.mjs";
+import { verifyRepositoryIdentity } from "../lib/runtime-identity.mjs";
 import {
   createInitialPrStackState,
   createProductionPrStackAdapter,
@@ -593,22 +594,44 @@ test("batch-fix source target rejects protected base remote tag sha option and p
   );
 });
 
-test("stack source branch restoration rejects suffix-matching remote refs", () => {
+test("stack source branch restoration binds the verified literal remote across the spawn boundary", () => {
   const calls = [];
   let pushed = false;
   const branchName = "feature/auto-913-child";
   const headSha = sha("b");
+  const repoRoot = process.cwd();
+  const repositoryIdentity = verifyRepositoryIdentity(repoRoot, "tommytang213/Settleora");
+  const config = {
+    repoRoot,
+    repositorySlug: "tommytang213/Settleora",
+    runtimeMode: "external",
+    runtimeIdentity: Object.freeze({
+      repoRoot,
+      repositoryCommonDir: repositoryIdentity.commonDir,
+      repositoryGitDir: repositoryIdentity.gitDir,
+      repositoryIndexFile: repositoryIdentity.indexFile,
+      repositoryEntryPath: repositoryIdentity.entryPath,
+      repositoryEntryIdentity: repositoryIdentity.entryIdentity,
+      repositoryGitDirIdentity: repositoryIdentity.gitDirIdentity,
+      repositoryCommonDirIdentity: repositoryIdentity.commonDirIdentity,
+      repositoryMetadataIdentity: repositoryIdentity.guardedMetadataIdentity,
+      originUrl: repositoryIdentity.originUrl,
+      pushUrl: repositoryIdentity.pushUrl,
+    }),
+  };
   const result = prStackExecutorTestInternals.restoreStackSourceBranchIfDeleted({
-    config: { repoRoot: process.cwd() },
+    config,
     pr: { baseRefName: "main", headRefName: branchName, headRefOid: headSha },
     expectedHead: headSha,
     runner: (command, args) => {
       calls.push(`${command} ${args.join(" ")}`);
       if (command === "git" && args[0] === "ls-remote") {
+        assert.equal(args[2], repositoryIdentity.originUrl);
         assert.equal(args[3], `refs/heads/${branchName}`);
         return pushed ? { status: 0, stdout: `${headSha}\trefs/heads/x/${branchName}\n`, stderr: "", error: null } : { status: 0, stdout: "", stderr: "", error: null };
       }
       if (command === "git" && args[0] === "push") {
+        assert.equal(args[1], repositoryIdentity.pushUrl);
         pushed = true;
         return { status: 0, stdout: "", stderr: "", error: null };
       }
@@ -617,7 +640,7 @@ test("stack source branch restoration rejects suffix-matching remote refs", () =
   });
   assert.equal(result.ok, false);
   assert.equal(result.reasonCode, "merge_source_branch_restore_unconfirmed");
-  assert.ok(calls.includes(`git push origin ${headSha}:refs/heads/${branchName}`));
+  assert.ok(calls.includes(`git push ${repositoryIdentity.pushUrl} ${headSha}:refs/heads/${branchName}`));
 });
 
 test("target PR worktree proof fetches fixed argv and proves branch head and live PR identity before Codex", () => {

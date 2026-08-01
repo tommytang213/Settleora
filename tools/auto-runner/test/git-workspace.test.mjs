@@ -237,6 +237,10 @@ test("historical task workspace is materialized without moving canonical main", 
       originUrl: "https://github.com/tommytang213/Settleora.git",
       pushUrl: "https://github.com/tommytang213/Settleora.git",
     }));
+    assert.deepEqual(assertRepositoryRemoteIdentity({ ...config }), Object.freeze({
+      originUrl: "https://github.com/tommytang213/Settleora.git",
+      pushUrl: "https://github.com/tommytang213/Settleora.git",
+    }));
     const crashWindowRecovery = adoptHistoricalTaskWorkspace(config, {
       branchName: "feature/preserved",
       headSha: candidateSha,
