@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const semanticRecoveryContract = "post_incident_semantic_successor";
@@ -192,16 +192,21 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
     result: "accepted",
     mutationAuthority: "unavailable_until_exact_successor_handoff",
   };
-  const existingRecord = readJsonIfExists(ledgerPath);
-  const existingSuccessor = readJsonIfExists(successorPath);
-  if (existingRecord && canonicalJson(existingRecord) !== canonicalJson(record)) return failed("post_incident_provenance_conflict");
-  if (existingSuccessor && canonicalJson(existingSuccessor) !== canonicalJson(construction.successor)) return failed("post_incident_successor_collision");
-  if (existingRecord && existingSuccessor) return { ok: true, adopted: true, reasonCode: "post_incident_successor_adopted", successorPath, ledgerPath };
+  const existingRecord = readSafeJsonIfExists(ledgerPath);
+  const existingSuccessor = readSafeJsonIfExists(successorPath);
+  if (existingRecord?.unsafe || existingSuccessor?.unsafe) return failed("post_incident_successor_destination_unsafe");
+  if (existingRecord?.value && canonicalJson(existingRecord.value) !== canonicalJson(record)) return failed("post_incident_provenance_conflict");
+  if (existingSuccessor?.value && canonicalJson(existingSuccessor.value) !== canonicalJson(construction.successor)) return failed("post_incident_successor_collision");
+  if (existingRecord?.value && existingSuccessor?.value) return { ok: true, adopted: true, reasonCode: "post_incident_successor_adopted", successorPath, ledgerPath };
   mkdirSync(path.dirname(ledgerPath), { recursive: true, mode: 0o700 });
   const safeLedgerRoot = validateDirectoryAncestry(path.dirname(ledgerPath));
   if (!safeLedgerRoot.ok) return safeLedgerRoot;
-  if (!existingSuccessor) atomicJson(successorPath, construction.successor);
-  if (!existingRecord) atomicJson(ledgerPath, record);
+  const claimed = claimImmutableJson(ledgerPath, record);
+  if (!claimed.ok) return claimed;
+  if (!existingSuccessor?.value) {
+    const persisted = atomicJsonNoReplace(successorPath, construction.successor);
+    if (!persisted.ok) return persisted;
+  }
   return { ok: true, adopted: false, reasonCode: "post_incident_successor_created", successorPath, ledgerPath };
 }
 
@@ -255,8 +260,45 @@ function digest64(value) { return /^[a-f0-9]{64}$/.test(String(value || "")); }
 function bounded(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000; }
 function unique(values) { return [...new Set(values)].sort(); }
 function failed(reasonCode, diagnostics = []) { return { ok: false, reasonCode, diagnostics: unique(diagnostics) }; }
-function readJsonIfExists(file) { return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null; }
-function atomicJson(file, value) { const temp = `${file}.${process.pid}.${Date.now()}.tmp`; writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" }); renameSync(temp, file); }
+function readSafeJsonIfExists(file) {
+  if (!existsSync(file)) return null;
+  const stat = lstatSync(file);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0) return { unsafe: true };
+  try { return { value: JSON.parse(readFileSync(file, "utf8")) }; } catch { return { unsafe: true }; }
+}
+function claimImmutableJson(file, value) {
+  const existing = readSafeJsonIfExists(file);
+  if (existing?.unsafe) return failed("post_incident_successor_destination_unsafe");
+  if (existing?.value) return canonicalJson(existing.value) === canonicalJson(value)
+    ? { ok: true, adopted: true }
+    : failed("post_incident_provenance_conflict");
+  const temp = `${file}.${process.pid}.${Date.now()}.claim`;
+  writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  try {
+    linkSync(temp, file);
+    return { ok: true, adopted: false };
+  } catch (error) {
+    if (error?.code !== "EEXIST") return failed("post_incident_provenance_claim_failed");
+    const raced = readSafeJsonIfExists(file);
+    if (raced?.unsafe) return failed("post_incident_successor_destination_unsafe");
+    return raced?.value && canonicalJson(raced.value) === canonicalJson(value)
+      ? { ok: true, adopted: true }
+      : failed("post_incident_provenance_conflict");
+  } finally { try { unlinkSync(temp); } catch {} }
+}
+function atomicJsonNoReplace(file, value) {
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  try { linkSync(temp, file); return { ok: true }; }
+  catch (error) {
+    if (error?.code !== "EEXIST") return failed("post_incident_successor_persist_failed");
+    const existing = readSafeJsonIfExists(file);
+    if (existing?.unsafe) return failed("post_incident_successor_destination_unsafe");
+    return canonicalJson(existing?.value) === canonicalJson(value)
+      ? { ok: true }
+      : failed("post_incident_successor_collision");
+  } finally { try { unlinkSync(temp); } catch {} }
+}
 function canonicalExistingPath(value) {
   const resolved = path.resolve(value);
   if (existsSync(resolved)) return realpathSync(resolved);

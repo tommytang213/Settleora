@@ -66,6 +66,10 @@ export const defaultConfig = Object.freeze({
     allowedNeutralChecks: [],
   },
   allowExistingPrRecovery: false,
+  // Default-off read-only incident quarantine. A trusted external config may
+  // supply authenticated provenance and a bounded semantic evidence packet;
+  // operational successor authorization is deliberately not consumed here.
+  postIncidentRecovery: null,
   outageResubmission: defaultOutageResubmissionConfig,
   sessionLifecycle: {
     enabled: false,
@@ -517,6 +521,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
+  config.postIncidentRecovery = normalizePostIncidentRecoveryConfig(config.postIncidentRecovery);
   config.sessionLifecycle = {
     enabled: config.sessionLifecycle?.enabled === true,
     allowRecoveryTakeover: config.sessionLifecycle?.allowRecoveryTakeover === true,
@@ -591,6 +596,22 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+function normalizePostIncidentRecoveryConfig(value) {
+  if (value == null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("postIncidentRecovery config must be an object");
+  }
+  if (!value.authenticatedProvenance || typeof value.authenticatedProvenance !== "object") {
+    throw new Error("postIncidentRecovery requires authenticated provenance");
+  }
+  return {
+    authenticatedProvenance: structuredClone(value.authenticatedProvenance),
+    semanticEvidencePacket: value.semanticEvidencePacket && typeof value.semanticEvidencePacket === "object"
+      ? structuredClone(value.semanticEvidencePacket)
+      : null,
+  };
 }
 
 export function ensureOperationalDirectory(directory, logsRoot) {

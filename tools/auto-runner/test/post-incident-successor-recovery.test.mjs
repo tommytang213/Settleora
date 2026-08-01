@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -167,4 +167,16 @@ test("symlinked successor roots fail before persistence", () => {
     const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
     assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
+});
+
+test("symlinked successor destination cannot be adopted", () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-destination-"));
+  try {
+    const built = buildSemanticRecoveryManifest(packet());
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+    const root = path.join(logsRoot, "successors"); mkdirSync(root, { recursive: true });
+    const target = path.join(logsRoot, "external.json"); writeFileSync(target, `${JSON.stringify(construction.successor)}\n`, { mode: 0o600 });
+    symlinkSync(target, path.join(root, `${construction.storageKey}.json`));
+    assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_destination_unsafe");
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
