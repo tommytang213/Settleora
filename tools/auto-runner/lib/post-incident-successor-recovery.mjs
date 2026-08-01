@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const semanticRecoveryContract = "post_incident_semantic_successor";
@@ -117,6 +117,34 @@ export function constructPostIncidentSuccessor({ manifest, recoveryState, mutati
   }
   if (manifest.claims.submissionCount !== 1 || manifest.claims.submissionExhausted !== true) return failed("post_incident_submission_posture_invalid");
   if (zeroEffectClaims.some((claim) => manifest.claims[claim] !== false)) return failed("post_incident_later_effect_detected");
+  const stateIdentity = {
+    issueNumber: recoveryState?.issue?.number,
+    taskKey: recoveryState?.taskKey,
+    runnerRunId: recoveryState?.run?.runId,
+    supervisorRunId: recoveryState?.run?.supervisorRunId,
+    branch: recoveryState?.branch?.name,
+    baseSha: recoveryState?.branch?.baseSha,
+    headSha: recoveryState?.branch?.currentHeadSha,
+    claimIdentity: recoveryState?.ordinaryContinuation?.identity?.claimIdentity
+      || recoveryState?.sessionLifecycle?.logicalTask?.claimIdentity,
+    chargeId: Object.keys(recoveryState?.mutationMarkers?.logical_task_charge || {})[0],
+  };
+  const expectedIdentity = {
+    issueNumber: manifest.claims.issueNumber,
+    taskKey: manifest.claims.taskKey,
+    runnerRunId: manifest.claims.originalRunnerRunId,
+    supervisorRunId: manifest.claims.originalSupervisorRunId,
+    branch: manifest.claims.branch,
+    baseSha: manifest.claims.baseSha,
+    headSha: manifest.claims.headSha,
+    claimIdentity: manifest.claims.claimIdentity,
+    chargeId: manifest.claims.chargeId,
+  };
+  if (canonicalJson(stateIdentity) !== canonicalJson(expectedIdentity)) return failed("post_incident_recovery_identity_mismatch");
+  if (!Number.isSafeInteger(mutationGeneration) || mutationGeneration < 1
+    || recoveryState?.sessionLifecycle?.mutationAuthority?.generation !== mutationGeneration) {
+    return failed("post_incident_mutation_generation_mismatch");
+  }
   const successor = {
     ...structuredClone(recoveryState),
     postIncidentSuccessor: {
@@ -141,10 +169,14 @@ export function constructPostIncidentSuccessor({ manifest, recoveryState, mutati
 export function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {
   if (!construction?.ok) return construction;
   const root = path.resolve(config.postIncidentSuccessorRoot || path.join(config.logsRoot, "recovery-successors"));
-  const predecessor = path.resolve(manifest.historicalPredecessor.path);
-  const incident = path.resolve(manifest.currentIncident.path);
+  const predecessor = canonicalExistingPath(manifest.historicalPredecessor.path);
+  const incident = canonicalExistingPath(manifest.currentIncident.path);
   const successorPath = path.join(root, `${construction.storageKey}.json`);
-  if ([predecessor, incident].includes(path.resolve(successorPath))) return failed("post_incident_successor_aliases_protected_path");
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const safeRoot = validateDirectoryAncestry(root);
+  if (!safeRoot.ok) return safeRoot;
+  const canonicalSuccessor = path.join(safeRoot.path, path.basename(successorPath));
+  if ([predecessor, incident].includes(canonicalSuccessor)) return failed("post_incident_successor_aliases_protected_path");
   const ledgerPath = path.join(root, "provenance", `${digest(canonicalJson({ incident }))}.json`);
   const record = {
     contract: semanticRecoveryContract,
@@ -165,8 +197,9 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
   if (existingRecord && canonicalJson(existingRecord) !== canonicalJson(record)) return failed("post_incident_provenance_conflict");
   if (existingSuccessor && canonicalJson(existingSuccessor) !== canonicalJson(construction.successor)) return failed("post_incident_successor_collision");
   if (existingRecord && existingSuccessor) return { ok: true, adopted: true, reasonCode: "post_incident_successor_adopted", successorPath, ledgerPath };
-  mkdirSync(path.dirname(successorPath), { recursive: true, mode: 0o700 });
   mkdirSync(path.dirname(ledgerPath), { recursive: true, mode: 0o700 });
+  const safeLedgerRoot = validateDirectoryAncestry(path.dirname(ledgerPath));
+  if (!safeLedgerRoot.ok) return safeLedgerRoot;
   if (!existingSuccessor) atomicJson(successorPath, construction.successor);
   if (!existingRecord) atomicJson(ledgerPath, record);
   return { ok: true, adopted: false, reasonCode: "post_incident_successor_created", successorPath, ledgerPath };
@@ -183,9 +216,9 @@ export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authent
 }
 
 export function assertRecoveryWritePathAllowed(targetPath, { predecessorPath, incidentPath, successorPath } = {}) {
-  const target = path.resolve(targetPath);
-  if ([predecessorPath, incidentPath].filter(Boolean).map((value) => path.resolve(value)).includes(target)) return failed("protected_recovery_path_write_blocked");
-  if (successorPath && target !== path.resolve(successorPath)) return failed("unexpected_successor_write_path");
+  const target = canonicalExistingPath(targetPath);
+  if ([predecessorPath, incidentPath].filter(Boolean).map(canonicalExistingPath).includes(target)) return failed("protected_recovery_path_write_blocked");
+  if (successorPath && target !== canonicalExistingPath(successorPath)) return failed("unexpected_successor_write_path");
   return { ok: true };
 }
 
@@ -224,3 +257,21 @@ function unique(values) { return [...new Set(values)].sort(); }
 function failed(reasonCode, diagnostics = []) { return { ok: false, reasonCode, diagnostics: unique(diagnostics) }; }
 function readJsonIfExists(file) { return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null; }
 function atomicJson(file, value) { const temp = `${file}.${process.pid}.${Date.now()}.tmp`; writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" }); renameSync(temp, file); }
+function canonicalExistingPath(value) {
+  const resolved = path.resolve(value);
+  if (existsSync(resolved)) return realpathSync(resolved);
+  const parent = path.dirname(resolved);
+  return existsSync(parent) ? path.join(realpathSync(parent), path.basename(resolved)) : resolved;
+}
+function validateDirectoryAncestry(directory) {
+  const resolved = path.resolve(directory);
+  let cursor = resolved;
+  while (true) {
+    const stat = lstatSync(cursor);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) return failed("post_incident_successor_root_unsafe");
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  return { ok: true, path: realpathSync(resolved) };
+}

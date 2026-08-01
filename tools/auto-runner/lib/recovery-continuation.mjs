@@ -8,6 +8,7 @@ import {
   listRecoverableRecoveryStates,
   recoveryRequiresExactHeadEvidenceRegeneration,
   recoveryHasMutationMarker,
+  recoveryStatePath,
   validationRetryDerivativeTerminalPhase,
   writeRecoveryState,
 } from "./recovery-state.mjs";
@@ -17,6 +18,7 @@ import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAutho
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { projectAuthenticatedTerminalValidationRetryDerivative } from "./terminal-validation-retry-projection.mjs";
 import { validateOrdinaryContinuationPhaseEffects } from "./ordinary-candidate-continuation.mjs";
+import { buildSemanticRecoveryManifest, classifyRecoveryOverwriteIncident } from "./post-incident-successor-recovery.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -60,6 +62,8 @@ export function discoverStartupRecovery(config) {
   if (states.length === 0) {
     return { found: false, action: "poll_eligible_issues", states: [] };
   }
+  const quarantine = detectConfiguredPostIncidentQuarantine(config, states);
+  if (quarantine) return quarantine;
   const active = states[0];
   if (states.length > 1) {
     return {
@@ -138,6 +142,8 @@ export function discoverTargetedStartupRecovery(config) {
     };
   }
   const rawState = partition.exactMatches[0];
+  const quarantine = detectConfiguredPostIncidentQuarantine(config, [rawState]);
+  if (quarantine) return { ...quarantine, stateCounts: partition.counts };
   const state = rawState;
   if (!config.allowExistingPrRecovery) {
     return {
@@ -208,6 +214,37 @@ export function discoverTargetedStartupRecovery(config) {
   }
   return discovered;
 }
+
+function detectConfiguredPostIncidentQuarantine(config, states) {
+  const contract = config.postIncidentRecovery || null;
+  if (!contract?.authenticatedProvenance) return null;
+  for (const state of states) {
+    const statePath = state.statePath || recoveryStatePath(config, state);
+    const classification = classifyRecoveryOverwriteIncident({
+      recoveryPath: statePath,
+      state,
+      authenticatedProvenance: contract.authenticatedProvenance,
+    });
+    if (!classification.quarantined) continue;
+    const corroboration = contract.semanticEvidencePacket
+      ? buildSemanticRecoveryManifest(contract.semanticEvidencePacket)
+      : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: corroboration.ok
+        ? "post_incident_semantic_operation_authorization_required"
+        : corroboration.reasonCode,
+      quarantine: classification,
+      semanticManifestDigest: corroboration.ok ? corroboration.manifestDigest : null,
+      state: summarizeRecoverableState(state),
+      states: states.map(summarizeRecoverableState),
+    };
+  }
+  return null;
+}
+
 
 export function projectTargetedTerminalDerivative(
   config,

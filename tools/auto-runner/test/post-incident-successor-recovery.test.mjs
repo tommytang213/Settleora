@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,8 @@ import {
   mandatorySemanticEvidenceClasses,
   persistOrAdoptPostIncidentSuccessor,
 } from "../lib/post-incident-successor-recovery.mjs";
+import { discoverStartupRecovery } from "../lib/recovery-continuation.mjs";
+import { createInitialRecoveryState, recoveryStatePath, writeRecoveryState } from "../lib/recovery-state.mjs";
 
 const oldHash = "6".repeat(64);
 const incidentHash = "5".repeat(64);
@@ -34,6 +36,19 @@ function packet(overrides = {}) {
   }));
   const artifacts = Array.from({ length: 16 }, (_, index) => ({ role: `artifact_${String(index).padStart(2, "0")}`, path: `/sanitized/artifact-${index}.json`, sha256: (index.toString(16) || "0").repeat(64).slice(0, 64) }));
   return { sources, artifacts, incidentIdentity: "incident-1", lifecycleSuccessorSession: "session-successor", operationId: "operation-1", requestId: "request-1", formerBytesAvailable: false, ...overrides };
+}
+
+function recoveryState(overrides = {}) {
+  return {
+    taskKey: claims.taskKey,
+    issue: { number: claims.issueNumber },
+    run: { runId: claims.originalRunnerRunId, supervisorRunId: claims.originalSupervisorRunId },
+    branch: { name: claims.branch, baseSha: claims.baseSha, currentHeadSha: claims.headSha },
+    ordinaryContinuation: { identity: { claimIdentity: claims.claimIdentity } },
+    mutationMarkers: { logical_task_charge: { [claims.chargeId]: { status: "completed" } } },
+    sessionLifecycle: { mutationAuthority: { generation: 2 } },
+    ...overrides,
+  };
 }
 
 test("all mandatory independent classes agree and canonical manifest is ordering-stable", () => {
@@ -84,7 +99,7 @@ test("altered historical or child artifact and identity/counter/effect disagreem
 
 test("distinct successor binds provenance and stays non-executable", () => {
   const built = buildSemanticRecoveryManifest(packet());
-  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { run: {}, issue: { number: 7 }, taskKey: "task-1" }, mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
   assert.equal(constructed.ok, true); assert.notEqual(constructed.storageKey, path.basename(rootPath, ".json"));
   assert.equal(constructed.successor.postIncidentSuccessor.executable, false);
   assert.equal(constructed.successor.phase, "checkpoint_validation_commit");
@@ -96,13 +111,15 @@ test("successor construction requires a separate exact operation authorization",
   assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: {}, mutationGeneration: 1 }).reasonCode, "post_incident_operational_authorization_required");
   const altered = structuredClone(built.manifest); altered.claims.branch = "altered";
   assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_digest_mismatch");
+  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState({ taskKey: "other" }), mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "post_incident_recovery_identity_mismatch");
+  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "post_incident_mutation_generation_mismatch");
 });
 
 test("successor persistence is idempotent and conflicting adoption fails closed", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-successor-"));
   try {
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { run: {}, issue: { number: 7 }, taskKey: "task-1" }, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState({ sessionLifecycle: { mutationAuthority: { generation: 3 } } }), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
     const config = { logsRoot: root, postIncidentSuccessorRoot: path.join(root, "successors") };
     const created = persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest);
     const adopted = persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest);
@@ -112,7 +129,7 @@ test("successor persistence is idempotent and conflicting adoption fails closed"
     assert.equal(persistOrAdoptPostIncidentSuccessor(config, collision, built.manifest).reasonCode, "post_incident_successor_collision");
     const competingPacket = packet({ operationId: "operation-2", requestId: "request-2" });
     const competingBuilt = buildSemanticRecoveryManifest(competingPacket);
-    const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: { run: {}, issue: { number: 7 }, taskKey: "task-1" }, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: competingBuilt.manifestDigest, operationId: "operation-2" } });
+    const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: recoveryState({ sessionLifecycle: { mutationAuthority: { generation: 3 } } }), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: competingBuilt.manifestDigest, operationId: "operation-2" } });
     assert.equal(persistOrAdoptPostIncidentSuccessor(config, competing, competingBuilt.manifest).reasonCode, "post_incident_provenance_conflict");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -126,4 +143,28 @@ test("overwrite quarantine is provenance-driven and does not block unrelated rec
   const provenance = { ok: true, incidentPath: rootPath, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: incidentHash, bytesAvailable: false };
   assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: rootPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: provenance }).quarantined, true);
   assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: "/other.json", state: { taskKey: "other", issue: { number: 8 } }, authenticatedProvenance: provenance }).quarantined, false);
+});
+
+test("production discovery quarantines an authenticated incident before ordinary recovery", () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-quarantine-"));
+  try {
+    const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-original", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40) });
+    const config = { logsRoot, allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, incidentPath: recoveryStatePath({ logsRoot }, state), taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: incidentHash, bytesAvailable: false }, semanticEvidencePacket: packet() } };
+    writeRecoveryState(config, state);
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.allowed, false);
+    assert.equal(discovery.reasonCode, "post_incident_semantic_operation_authorization_required");
+    assert.equal(discovery.quarantine.readOnly, true);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
+test("symlinked successor roots fail before persistence", () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-root-"));
+  const target = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-target-"));
+  try {
+    const root = path.join(logsRoot, "successors"); symlinkSync(target, root, "dir");
+    const built = buildSemanticRecoveryManifest(packet());
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+    assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
 });
