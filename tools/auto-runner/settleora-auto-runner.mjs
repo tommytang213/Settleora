@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -3300,13 +3301,21 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
 }
 
 function readOrdinaryCleanupAuthority(config, state, continuation, owner, currentRunId = null) {
+  if (!cleanupOwnershipMatchesRuntime(config, owner)) {
+    return { repository: config.repositorySlug, excluded: true };
+  }
   const runGh = (args) => runTrustedGithub(config, args);
   const runLocalGit = (args) => runGit(args, { cwd: config.repoRoot });
-  const prRead = runGh(["pr", "view", String(owner.prNumber), "--repo", owner.repository, "--json", "number,state,headRefName,headRefOid,baseRefName,mergeCommit"]);
-  const openHeadRead = runGh(["pr", "list", "--repo", owner.repository, "--state", "open", "--head", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
-  const openBaseRead = runGh(["pr", "list", "--repo", owner.repository, "--state", "open", "--base", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
-  const branchRead = runGh(["api", `repos/${owner.repository}/branches/${encodeURIComponent(owner.branchName)}`]);
-  const repositoryRead = runGh(["repo", "view", owner.repository, "--json", "defaultBranchRef"]);
+  const runCleanupCommand = (command, args, options = {}) => command === "git"
+    ? runGit(args, { cwd: options.cwd || config.repoRoot, input: options.input, timeoutMs: 30_000, maxBuffer: 4 * 1024 * 1024 })
+    : command === "gh"
+      ? runTrustedGithub({ ...config, repoRoot: options.cwd || config.repoRoot }, args, { ...options, timeoutMs: 30_000, maxBuffer: 4 * 1024 * 1024 })
+      : { status: 1, stdout: "", stderr: "trusted cleanup executable required", error: "trusted cleanup executable required" };
+  const prRead = runGh(["pr", "view", String(owner.prNumber), "--json", "number,state,headRefName,headRefOid,baseRefName,mergeCommit"]);
+  const openHeadRead = runGh(["pr", "list", "--state", "open", "--head", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
+  const openBaseRead = runGh(["pr", "list", "--state", "open", "--base", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
+  const branchRead = runGh(["api", `repos/${config.repositorySlug}/branches/${encodeURIComponent(owner.branchName)}`]);
+  const repositoryRead = runGh(["repo", "view", config.repositorySlug, "--json", "defaultBranchRef"]);
   const targetRef = `refs/remotes/origin/${owner.targetBranch}`;
   const fetch = fetchAuthenticatedRemoteRef(config, owner.targetBranch, targetRef);
   const targetRead = runLocalGit(["rev-parse", targetRef]);
@@ -3331,11 +3340,11 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
     sessionLifecycle: state.sessionLifecycle || null,
     parentIssue: persistedHygiene.parentIssue || state.parentIssue || null,
     ledgerEvidence: persistedHygiene.ledger?.result ? { results: [persistedHygiene.ledger.result] } : state.ledgerEvidence,
-  }, { runner: (command, args) => run(command, args) });
+  }, { runner: runCleanupCommand });
   const otherRecoveryReferences = listRecoverableRecoveryStates(config).filter((record) => record.branch?.name === owner.branchName && !sameCleanupExecutionLineage(record, owner)).length;
   const durableInventory = inspectDurableCleanupReferences(config, owner);
   const pendingBranchEffects = findPreEffectIntents(config, (intent) => intent.branchName === owner.branchName || intent.effect?.branchName === owner.branchName).filter((intent) => !["live_confirmed", "adopted_after_recovery"].includes(intent.status)).length;
-  const processInventory = run("ps", ["-eo", "pid=,args="]);
+  const processInventory = runBoundedCleanupProcessInventory();
   const correlatedProcesses = processInventory.status === 0
     ? String(processInventory.stdout || "").split("\n").filter((line) => {
         const pid = Number(line.trim().split(/\s+/, 1)[0]);
@@ -3391,6 +3400,30 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
     hygieneComplete: completionHygieneReady(hygiene), reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0 && durableInventory.complete, openPrReferences,
     protected: branchRead.status === 0 ? branch?.protected === true : false, defaultBranch: repository?.defaultBranchRef?.name, manualOwned: state.taskKey !== owner.rootTaskKey || state.issue?.number !== owner.issueNumber || state.branch?.name !== owner.branchName || state.branch?.currentHeadSha !== owner.reviewedHeadSha, excluded: prRead.status !== 0 || openHeadRead.status !== 0 || openBaseRead.status !== 0 || !openIdentityValid || repositoryRead.status !== 0 || (branchRead.status !== 0 && !branchAbsent) || targetRead.status !== 0,
     worktree: { active: false, shared: false, unexportedEvidence: false, primaryHandoffIgnoredPids: authorizedSupervisorProcessIds(state) },
+  };
+}
+
+function cleanupOwnershipMatchesRuntime(config, owner) {
+  const expected = String(config?.repositorySlug || "").toLowerCase();
+  if (!expected || String(owner?.repository || "").toLowerCase() !== expected) return false;
+  try {
+    const url = new URL(owner.prUrl);
+    const match = url.hostname === "github.com" ? url.pathname.match(/^\/([^/]+\/[^/]+)\/pull\/[1-9][0-9]*$/u) : null;
+    return match?.[1]?.toLowerCase() === expected;
+  } catch { return false; }
+}
+
+export function runBoundedCleanupProcessInventory() {
+  const result = spawnSync("/usr/bin/ps", ["-eo", "pid=,args="], {
+    encoding: "utf8", windowsHide: true, shell: false, timeout: 10_000, maxBuffer: 4 * 1024 * 1024,
+    env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
+  });
+  return {
+    command: "/usr/bin/ps -eo pid=,args=",
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error?.message || null,
   };
 }
 

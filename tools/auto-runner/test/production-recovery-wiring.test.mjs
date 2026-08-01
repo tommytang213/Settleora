@@ -523,7 +523,8 @@ test("stable-launched supervisor main persists startup failures before rethrow",
 
 test("post-merge cleanup uses the supported head filter and terminalizes its own recovery state", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
-  assert.match(source, /\["pr", "list", "--repo", owner\.repository, "--state", "open", "--head", owner\.branchName/);
+  assert.match(source, /cleanupOwnershipMatchesRuntime\(config, owner\)[\s\S]*\["pr", "list", "--state", "open", "--head", owner\.branchName/);
+  assert.doesNotMatch(source, /\["pr", "list", "--repo", owner\.repository/);
   assert.doesNotMatch(source, /--head", `\$\{repositoryOwner\}/);
   assert.match(source, /\(category === "recovery" \|\| category === "session"\) && exactOwner/);
   assert.match(source, /transitionSessionLifecyclePhase\(config, state\.sessionLifecycle, \{ phase: "completed", nextExactAction: "post_merge_cleanup_complete" \}\)/);
@@ -904,7 +905,8 @@ test("post-merge cleanup explicitly hands authority to the exact successor runne
   assert.match(runner, /currentRunId: runId/);
   assert.match(runner, /lockRunOwnsRecovery = typeof currentRunId === "string"[\s\S]*?lock\?\.runId === currentRunId/);
   assert.match(runner, /lock\?\.runId === state\.run\?\.runId \|\| lockRunOwnsRecovery/);
-  assert.match(runner, /processInventory = run\("ps", \["-eo", "pid=,args="\]\)/);
+  assert.match(runner, /processInventory = runBoundedCleanupProcessInventory\(\)/);
+  assert.match(runner, /spawnSync\("\/usr\/bin\/ps", \["-eo", "pid=,args="\]/);
   assert.match(runner, /reportEvidenceComplete[\s\S]*?activeReferences\.lease = runnerLockAuthority \? 0 : 1/);
 });
 

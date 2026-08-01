@@ -14,6 +14,7 @@ import {
   sourceStateIdentityForCommit,
 } from "../lib/git-workspace.mjs";
 import { canonicalGithubEvidenceDigest } from "../lib/github-evidence-digest.mjs";
+import { assertRepositoryRemoteIdentity, verifyRepositoryIdentity } from "../lib/runtime-identity.mjs";
 
 function tempRepo() {
   const cwd = mkdtempSync(path.join(tmpdir(), "settleora-git-identity-"));
@@ -100,6 +101,25 @@ test("trusted GitHub execution requires an explicit canonical repository context
     gitWorkspaceTestInternals.bindGithubRepository(["api", "repos/example/repo"], "example/repo"),
     ["api", "repos/example/repo"],
   );
+  assert.throws(
+    () => gitWorkspaceTestInternals.bindGithubRepository(["pr", "view", "1", "--repo", "attacker/repo"], "example/repo"),
+    /differs from the trusted repository/u,
+  );
+  assert.throws(
+    () => gitWorkspaceTestInternals.bindGithubRepository(["api", "repos/attacker/repo/issues/1"], "example/repo"),
+    /API endpoint differs/u,
+  );
+  assert.throws(
+    () => gitWorkspaceTestInternals.bindGithubRepository(["repo", "view", "attacker/repo"], "example/repo"),
+    /positional repository differs/u,
+  );
+  assert.throws(
+    () => gitWorkspaceTestInternals.bindGithubRepository([
+      "api", "graphql", "-f", "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){id}}",
+      "-f", "owner=attacker", "-f", "name=repo",
+    ], "example/repo"),
+    /GraphQL repository variables differ/u,
+  );
 });
 
 test("graph-rewriting graft, alternate and shallow metadata fail closed", () => {
@@ -151,10 +171,25 @@ test("historical task workspace is materialized without moving canonical main", 
     const candidateSha = git("rev-parse", "HEAD");
     git("switch", "main");
     bindTrustedRepositoryContext(repoRoot);
+    const repositoryIdentity = verifyRepositoryIdentity(repoRoot, "tommytang213/Settleora");
     const config = {
       repoRoot,
       logsRoot,
       repositorySlug: "tommytang213/Settleora",
+      runtimeMode: "external",
+      runtimeIdentity: Object.freeze({
+        repoRoot,
+        repositoryCommonDir: repositoryIdentity.commonDir,
+        repositoryGitDir: repositoryIdentity.gitDir,
+        repositoryIndexFile: repositoryIdentity.indexFile,
+        repositoryEntryPath: repositoryIdentity.entryPath,
+        repositoryEntryIdentity: repositoryIdentity.entryIdentity,
+        repositoryGitDirIdentity: repositoryIdentity.gitDirIdentity,
+        repositoryCommonDirIdentity: repositoryIdentity.commonDirIdentity,
+        repositoryMetadataIdentity: repositoryIdentity.guardedMetadataIdentity,
+        originUrl: repositoryIdentity.originUrl,
+        pushUrl: repositoryIdentity.pushUrl,
+      }),
     };
     const effectContext = {
       repository: config.repositorySlug,
@@ -198,6 +233,10 @@ test("historical task workspace is materialized without moving canonical main", 
     assert.equal(runGit(["branch", "--show-current"], { cwd: adopted.taskRoot }).stdout.trim(),
       "feature/preserved");
     assert.equal(adopted.created, true);
+    assert.deepEqual(assertRepositoryRemoteIdentity(config), Object.freeze({
+      originUrl: "https://github.com/tommytang213/Settleora.git",
+      pushUrl: "https://github.com/tommytang213/Settleora.git",
+    }));
     const crashWindowRecovery = adoptHistoricalTaskWorkspace(config, {
       branchName: "feature/preserved",
       headSha: candidateSha,
@@ -274,6 +313,8 @@ test("historical task workspace is materialized without moving canonical main", 
     assert.equal(restoreControlPlaneRepositoryContext(config), repoRoot);
     assert.equal(config.repoRoot, repoRoot);
     assert.equal(process.cwd(), repoRoot);
+    assert.equal(assertRepositoryRemoteIdentity(config).originUrl,
+      "https://github.com/tommytang213/Settleora.git");
 
     renameSync(path.join(repoRoot, ".git"), path.join(repoRoot, ".git-admitted"));
     execFileSync("/usr/bin/git", ["init", "-b", "main"], { cwd: repoRoot, encoding: "utf8" });

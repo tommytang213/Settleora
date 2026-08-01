@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { closeSync, constants as fsConstants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
+import { runGit } from "./git-workspace.mjs";
 
 export const postMergeCleanupSchemaVersion = 1;
 export const postMergeCleanupPolicyVersion = "ephemeral_cleanup_v1";
@@ -163,10 +164,27 @@ export function projectPostMergeCleanup(value = {}) {
 // Production Git effects are deliberately fixed here. The authority reader owns
 // GitHub, lease, report and recovery inventory; it must return the complete live
 // gate shape. No persisted command or path is ever executed.
-export function createPostMergeCleanupGitAdapter({ config = null, repoRoot, authorityReader, checkpoint, spawn = spawnSync } = {}) {
+export function createPostMergeCleanupGitAdapter({ config = null, repoRoot, authorityReader, checkpoint } = {}) {
   const root = realpathSync(repoRoot);
   let primaryHandoffIgnoredPids = [];
-  const run = (args, cwd = root) => spawn("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const localTransportFixture = config?.runtimeMode !== "external";
+  const run = (args, cwd = root) => runGit(args, {
+    cwd,
+    allowLocalFileTransport: localTransportFixture,
+    manageWorktrees: args[0] === "worktree",
+    timeoutMs: 30_000,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  const remoteIdentity = () => {
+    const verified = assertRepositoryRemoteIdentity(config);
+    if (verified) return verified;
+    const origin = run(["remote", "get-url", "origin"]);
+    const push = run(["remote", "get-url", "--push", "--all", "origin"]);
+    const pushUrls = String(push.stdout || "").split(/\r?\n/u).filter(Boolean);
+    if (origin.status !== 0 || push.status !== 0 || !String(origin.stdout || "").trim()
+      || pushUrls.length !== 1) throw new Error("cleanup remote identity is unavailable");
+    return { originUrl: String(origin.stdout).trim(), pushUrl: pushUrls[0] };
+  };
   const worktreeFor = (branchName) => {
     const result = run(["worktree", "list", "--porcelain"]); if (result.status !== 0) return { error: "worktree_inventory_failed" };
     const blocks = String(result.stdout || "").trim().split(/\n\n+/).map((block) => Object.fromEntries(block.split(/\n/).map((line) => { const at = line.indexOf(" "); return at < 0 ? [line, true] : [line.slice(0, at), line.slice(at + 1)]; })));
@@ -183,10 +201,12 @@ export function createPostMergeCleanupGitAdapter({ config = null, repoRoot, auth
   return {
     checkpoint,
     readLive: async (owner) => {
+      try { assertCleanupRepository(owner, config); } catch { return { excluded: true }; }
       const authority = await authorityReader(owner);
       primaryHandoffIgnoredPids = boundedPidList(authority.worktree?.primaryHandoffIgnoredPids);
-      assertRepositoryRemoteIdentity(config);
-      const remote = run(["ls-remote", "--heads", "origin", `refs/heads/${owner.branchName}`]);
+      let authenticatedRemote;
+      try { authenticatedRemote = remoteIdentity(); } catch { return { ...authority, excluded: true }; }
+      const remote = run(["ls-remote", "--heads", authenticatedRemote.originUrl, `refs/heads/${owner.branchName}`]);
       const local = localRef(owner.branchName);
       const wt = worktreeFor(owner.branchName);
       if (remote.status !== 0 || ![0, 1].includes(local.status) || wt?.error) return { ...authority, excluded: true };
@@ -203,16 +223,21 @@ export function createPostMergeCleanupGitAdapter({ config = null, repoRoot, auth
       return { ...authority, remoteHead, localHead, worktree };
     },
     deleteRemote: async (owner) => {
-      assertRepositoryRemoteIdentity(config);
-      return commandResult(run(["push", `--force-with-lease=refs/heads/${owner.branchName}:${owner.reviewedHeadSha}`, "origin", `:refs/heads/${owner.branchName}`]), "remote_branch_delete_failed");
+      try {
+        assertCleanupRepository(owner, config);
+        const authenticatedRemote = remoteIdentity();
+        return commandResult(run(["push", "--no-verify", `--force-with-lease=refs/heads/${owner.branchName}:${owner.reviewedHeadSha}`, authenticatedRemote.pushUrl, `:refs/heads/${owner.branchName}`]), "remote_branch_delete_failed");
+      } catch { return fail("remote_branch_delete_authority_failed"); }
     },
     handoffPrimaryCheckout: async (owner) => {
+      try { assertCleanupRepository(owner, config); } catch { return fail("checkout_handoff_authority_failed"); }
       const wt = worktreeFor(owner.branchName); if (!wt || wt.error) return fail(wt?.error || "checkout_handoff_target_missing");
       const candidate = realpathSync(wt.worktree); const status = run(["status", "--porcelain=v1", "--untracked-files=normal"], candidate); const local = localRef(owner.branchName);
       if (candidate !== root || status.status !== 0 || String(status.stdout || "").trim() || local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha || processOwnsPath(candidate, [process.pid, ...primaryHandoffIgnoredPids])) return fail("checkout_handoff_target_drift");
       return commandResult(run(["switch", "--detach", owner.acceptance.targetHeadSha], candidate), "checkout_handoff_failed");
     },
     removeWorktree: async (owner) => {
+      try { assertCleanupRepository(owner, config); } catch { return fail("worktree_remove_authority_failed"); }
       const wt = worktreeFor(owner.branchName); if (!wt) return { ok: true, adopted: true }; if (wt.error) return fail(wt.error);
       if (!owner.worktree?.identity || lstatSync(wt.worktree).isSymbolicLink()) return fail("worktree_remove_target_unsafe");
       const candidate = realpathSync(wt.worktree); const local = localRef(owner.branchName);
@@ -222,12 +247,29 @@ export function createPostMergeCleanupGitAdapter({ config = null, repoRoot, auth
       return commandResult(run(["worktree", "remove", "--", candidate]), "worktree_remove_failed");
     },
     deleteLocalBranch: async (owner) => {
+      try { assertCleanupRepository(owner, config); } catch { return fail("local_branch_delete_authority_failed"); }
       const local = localRef(owner.branchName); if (local.status === 1) return { ok: true, adopted: true };
       if (local.status !== 0 || String(local.stdout || "").trim() !== owner.reviewedHeadSha) return fail("local_branch_delete_target_drift");
-      const merged = run(["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]); if (merged.status !== 0) return fail("local_branch_unmerged");
+      const merged = run(["merge-base", "--is-ancestor", owner.reviewedHeadSha, owner.acceptance.targetHeadSha]); if (merged.status !== 0) return fail("local_branch_unmerged");
       return commandResult(run(["update-ref", "-d", `refs/heads/${owner.branchName}`, owner.reviewedHeadSha]), "local_branch_delete_failed");
     },
   };
+}
+
+function assertCleanupRepository(owner, config) {
+  if (!config) return;
+  const expected = String(config.repositorySlug || "").toLowerCase();
+  const ownerRepository = String(owner?.repository || "").toLowerCase();
+  let urlRepository = null;
+  try {
+    const url = new URL(owner?.prUrl || "");
+    const match = url.hostname === "github.com" ? url.pathname.match(/^\/([^/]+\/[^/]+)\/pull\/[1-9][0-9]*$/u) : null;
+    urlRepository = match?.[1]?.toLowerCase() || null;
+  } catch { /* rejected below */ }
+  if (!expected || ownerRepository !== expected || urlRepository !== expected
+    || path.resolve(config.repoRoot || "") !== path.resolve(config.controlPlaneRepoRoot || config.repoRoot || "")) {
+    throw new Error("cleanup ownership repository differs from runtime identity");
+  }
 }
 
 function normalizeState(value) { if (!value || value.schemaVersion !== 1 || value.policyVersion !== postMergeCleanupPolicyVersion || !postMergeCleanupPhases.includes(value.phase) || !validateCleanupOwnership(value.ownership).ok || !/^[0-9a-f]{64}$/.test(value.targetDigest || "")) return fail("cleanup_state_invalid"); return { ok: true, state: { ...value, effects: boundedObject(value.effects) } }; }
@@ -248,7 +290,10 @@ function writeOwnerOnlyAtomic(file, value, unsafeReason) { const dir = path.dirn
 function readOwnerOnlyJson(file, validator, prefix) { let fd; try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); const stat = fstatSync(fd); if (!stat.isFile() || stat.size < 2 || stat.size > 1024 * 1024 || (stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())) return fail(`${prefix}_state_unsafe`); const value = JSON.parse(readFileSync(fd, "utf8")); const valid = validator(value); return valid.ok ? { ok: true, value } : valid; } catch { return fail(`${prefix}_state_unavailable_or_corrupt`); } finally { if (fd !== undefined) closeSync(fd); } }
 function processOwnsPath(candidate, ignoredPids = []) {
   const ignored = new Set(boundedPidList(ignoredPids));
-  const lsof = spawnSync("lsof", ["-t", "+D", candidate], { encoding: "utf8", windowsHide: true });
+  const lsof = spawnSync("/usr/bin/lsof", ["-t", "+D", candidate], {
+    encoding: "utf8", windowsHide: true, shell: false, timeout: 10_000, maxBuffer: 1024 * 1024,
+    env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
+  });
   if (lsof.error && lsof.error.code !== "ENOENT") return true;
   if (!lsof.error && ![0, 1].includes(lsof.status)) return true;
   if (!lsof.error && lsof.status === 0) {

@@ -122,9 +122,24 @@ import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import {
   loadSummaryConfig,
   planOrdinaryRecoveryBranch,
+  runBoundedCleanupProcessInventory,
   selectPreservedTerminalCommentDigest,
   verifyProspectiveMergeValidation,
 } from "../settleora-auto-runner.mjs";
+
+test("ordinary cleanup process inventory uses one bounded absolute command", () => {
+  const result = runBoundedCleanupProcessInventory();
+  assert.equal(result.command, "/usr/bin/ps -eo pid=,args=");
+  assert.equal(result.status, 0, result.stderr || result.error);
+  assert.match(result.stdout, /[0-9]+/u);
+  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
+  const start = source.indexOf("function readOrdinaryCleanupAuthority");
+  const end = source.indexOf("function cleanupOwnershipMatchesRuntime", start);
+  const body = source.slice(start, end);
+  assert.match(body, /runner: runCleanupCommand/);
+  assert.match(body, /runBoundedCleanupProcessInventory\(\)/);
+  assert.doesNotMatch(body, /\brun\("ps"|runner: \(command, args\) => run\(/u);
+});
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";

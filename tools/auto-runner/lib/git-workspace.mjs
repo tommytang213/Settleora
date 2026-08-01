@@ -10,7 +10,11 @@ import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 import { executeCanonicalEffect, executeCanonicalEffectSync } from "./canonical-effect-executor.mjs";
 import { findPreEffectIntents, loadPreEffectIntent, preparePreEffectIntent } from "./pre-effect-intent.mjs";
 import { assertMutationAuthority, loadSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
-import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
+import {
+  admitRepositoryWorktreeRemoteIdentity,
+  assertRepositoryRemoteIdentity,
+  restoreControlPlaneRepositoryRemoteIdentity,
+} from "./runtime-identity.mjs";
 
 let trustedRepositoryContext = null;
 const admittedRepositoryContexts = new Map();
@@ -154,6 +158,7 @@ export function adoptHistoricalTaskWorkspace(config, {
     || taskBranch !== branchName || taskHead !== expectedTaskHead || taskStatus !== "") {
     throw new Error(`Historical task worktree failed exact authority checks: sameRoot=${canonicalTaskRoot === controlRoot}; commonDir=${taskCommonDir === controlCommonDir}; branch=${taskBranch === branchName}; head=${taskHead === expectedTaskHead}; clean=${taskStatus === ""}`);
   }
+  admitRepositoryWorktreeRemoteIdentity(config, canonicalTaskRoot);
   trustedRepositoryContext = admitSourceOwnedGitContext(canonicalTaskRoot);
   admittedRepositoryContexts.set(canonicalTaskRoot, trustedRepositoryContext);
   config.controlPlaneRepoRoot = controlRoot;
@@ -214,6 +219,7 @@ export function restoreControlPlaneRepositoryContext(config) {
   }
   trustedRepositoryContext = admitSourceOwnedGitContext(controlRoot);
   admittedRepositoryContexts.set(controlRoot, trustedRepositoryContext);
+  restoreControlPlaneRepositoryRemoteIdentity(config);
   config.repoRoot = controlRoot;
   process.chdir(controlRoot);
   return controlRoot;
@@ -436,7 +442,12 @@ export function runTrustedGithub(config, args, options = {}) {
   if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
     return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: "fixed GitHub argv is required", error: null };
   }
-  const boundArgs = bindGithubRepository(args, config.repositorySlug);
+  let boundArgs;
+  try {
+    boundArgs = bindGithubRepository(args, config.repositorySlug);
+  } catch (error) {
+    return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: error.message, error: null };
+  }
   let authenticationEnvironment;
   try {
     authenticationEnvironment = trustedGithubAuthenticationEnvironment();
@@ -463,9 +474,57 @@ export function runTrustedGithub(config, args, options = {}) {
 }
 
 function bindGithubRepository(args, repositorySlug) {
-  if (!["issue", "pr", "run", "workflow", "release", "label"].includes(args[0])
-    || args.includes("--repo") || args.includes("-R")) return [...args];
-  return [...args, "--repo", repositorySlug];
+  const expected = repositorySlug.toLowerCase();
+  const selectors = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--repo" || arg === "-R") {
+      if (index + 1 >= args.length) throw new Error("GitHub repository selector is incomplete");
+      selectors.push(args[index + 1]);
+      index += 1;
+    } else if (arg.startsWith("--repo=")) selectors.push(arg.slice("--repo=".length));
+    else if (/^-R.+/u.test(arg)) selectors.push(arg.slice(2));
+  }
+  if (selectors.length > 1 || selectors.some((value) => value.toLowerCase() !== expected)) {
+    throw new Error("GitHub repository selector differs from the trusted repository context");
+  }
+  if (["issue", "pr", "run", "workflow", "release", "label"].includes(args[0])) {
+    return selectors.length === 1 ? [...args] : [...args, "--repo", repositorySlug];
+  }
+  if (args[0] === "repo" && args[1] === "view") {
+    const positional = args[2] && !args[2].startsWith("-") ? args[2] : null;
+    if (positional && positional.toLowerCase() !== expected) {
+      throw new Error("GitHub positional repository differs from the trusted repository context");
+    }
+    return positional ? [...args] : [args[0], args[1], repositorySlug, ...args.slice(2)];
+  }
+  if (args[0] === "repo") throw new Error("GitHub repository command is not source-owned");
+  if (args[0] === "api") validateGithubApiRepositoryBinding(args, repositorySlug);
+  return [...args];
+}
+
+function validateGithubApiRepositoryBinding(args, repositorySlug) {
+  const expected = repositorySlug.toLowerCase();
+  const repositoryEndpoints = args.filter((arg) => /^\/?repos\//u.test(arg));
+  for (const endpoint of repositoryEndpoints) {
+    const match = endpoint.match(/^\/?repos\/([^/]+\/[^/?#]+)(?:[/?#]|$)/u);
+    if (!match || match[1].toLowerCase() !== expected) {
+      throw new Error("GitHub API endpoint differs from the trusted repository context");
+    }
+  }
+  if (!args.includes("graphql") && repositoryEndpoints.length !== 1) {
+    throw new Error("GitHub API endpoint is not bound to the trusted repository context");
+  }
+  if (args.includes("graphql") && args.some((arg) => /\brepository\s*\(/u.test(arg))) {
+    const [owner, name] = repositorySlug.split("/");
+    const ownerVariables = args.filter((arg) => arg.startsWith("owner=")).map((arg) => arg.slice(6));
+    const nameVariables = args.filter((arg) => arg.startsWith("name=")).map((arg) => arg.slice(5));
+    if (ownerVariables.length !== 1 || nameVariables.length !== 1
+      || ownerVariables[0].toLowerCase() !== owner.toLowerCase()
+      || nameVariables[0].toLowerCase() !== name.toLowerCase()) {
+      throw new Error("GitHub GraphQL repository variables differ from the trusted repository context");
+    }
+  }
 }
 
 export const gitWorkspaceTestInternals = Object.freeze({ bindGithubRepository });

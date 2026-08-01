@@ -155,3 +155,26 @@ test("production-shaped primary checkout hands off before exact local cleanup", 
   const initial = await adapter.readLive(o); assert.equal(initial.worktree.primary, true); assert.equal(initial.worktree.handoffEligible, true);
   const result = await continuePostMergeCleanup(planPostMergeCleanup(o, initial).state, adapter); assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(git(repo, "branch", "--show-current"), ""); assert.throws(() => git(repo, "show-ref", "--verify", "refs/heads/feature/auto-947-primary"));
 });
+
+test("production adapter rejects cleanup ownership from another repository before authority readback", async () => {
+  let authorityReads = 0;
+  const adapter = createPostMergeCleanupGitAdapter({
+    config: {
+      runtimeMode: "external",
+      repositorySlug: "owner/repo",
+      repoRoot: process.cwd(),
+    },
+    repoRoot: process.cwd(),
+    authorityReader: async () => { authorityReads += 1; return {}; },
+    checkpoint: async () => {},
+  });
+  const result = await adapter.readLive(owner({
+    repository: "attacker/repo",
+    prUrl: "https://github.com/attacker/repo/pull/1",
+  }));
+  assert.equal(result.excluded, true);
+  assert.equal(authorityReads, 0);
+  assert.equal(Object.hasOwn(createPostMergeCleanupGitAdapter({
+    repoRoot: process.cwd(), authorityReader: async () => ({}), checkpoint: async () => {},
+  }), "spawn"), false);
+});

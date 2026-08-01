@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 
 export const runtimeIdentityVersion = 1;
 export const projectIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const admittedRepositoryWorktrees = new WeakMap();
 
 export function moduleRuntimeRoot(metaUrl = import.meta.url) {
   return path.resolve(path.dirname(fileURLToPath(metaUrl)), "..");
@@ -225,7 +226,7 @@ export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
 export function assertRepositoryRemoteIdentity(config) {
   if (config?.runtimeMode !== "external") return null;
   const expected = config?.runtimeIdentity;
-  if (!expected?.originUrl || !expected?.pushUrl || !expected?.repositoryCommonDir
+  if (!expected?.repoRoot || !expected?.originUrl || !expected?.pushUrl || !expected?.repositoryCommonDir
     || !expected?.repositoryGitDir || !expected?.repositoryIndexFile
     || !expected?.repositoryEntryPath || !expected?.repositoryEntryIdentity
     || !expected?.repositoryGitDirIdentity || !expected?.repositoryCommonDirIdentity
@@ -233,18 +234,82 @@ export function assertRepositoryRemoteIdentity(config) {
     throw new Error("verified repository remote identity is required before a remote Git operation");
   }
   const current = verifyRepositoryIdentity(config.repoRoot, config.repositorySlug);
-  if (current.commonDir !== expected.repositoryCommonDir
-    || current.gitDir !== expected.repositoryGitDir
-    || current.indexFile !== expected.repositoryIndexFile
-    || current.entryPath !== expected.repositoryEntryPath
-    || current.entryIdentity !== expected.repositoryEntryIdentity
-    || current.gitDirIdentity !== expected.repositoryGitDirIdentity
+  const admitted = admittedRepositoryWorktrees.get(config);
+  const exactExpected = current.topLevel === expected.repoRoot ? {
+    topLevel: expected.repoRoot,
+    commonDir: expected.repositoryCommonDir,
+    gitDir: expected.repositoryGitDir,
+    indexFile: expected.repositoryIndexFile,
+    entryPath: expected.repositoryEntryPath,
+    entryIdentity: expected.repositoryEntryIdentity,
+    gitDirIdentity: expected.repositoryGitDirIdentity,
+    commonDirIdentity: expected.repositoryCommonDirIdentity,
+    guardedMetadataIdentity: expected.repositoryMetadataIdentity,
+    originUrl: expected.originUrl,
+    pushUrl: expected.pushUrl,
+  } : admitted;
+  if (!exactExpected || !sameRepositoryIdentity(current, exactExpected)
+    || current.commonDir !== expected.repositoryCommonDir
     || current.commonDirIdentity !== expected.repositoryCommonDirIdentity
-    || current.guardedMetadataIdentity !== expected.repositoryMetadataIdentity
+    || sharedCommonMetadataIdentity(current.guardedMetadataIdentity, current.commonDir)
+      !== sharedCommonMetadataIdentity(expected.repositoryMetadataIdentity, expected.repositoryCommonDir)
     || current.originUrl !== expected.originUrl || current.pushUrl !== expected.pushUrl) {
     throw new Error("repository remote identity changed after runtime admission");
   }
   return Object.freeze({ originUrl: current.originUrl, pushUrl: current.pushUrl });
+}
+
+export function admitRepositoryWorktreeRemoteIdentity(config, repoRoot) {
+  if (config?.runtimeMode !== "external") return null;
+  const expected = config?.runtimeIdentity;
+  if (!expected?.repoRoot || !expected?.repositoryCommonDir
+    || !expected?.repositoryCommonDirIdentity || !expected?.repositoryMetadataIdentity
+    || !expected?.originUrl || !expected?.pushUrl || !config?.repositorySlug) {
+    throw new Error("verified control-plane repository identity is required before worktree admission");
+  }
+  const current = verifyRepositoryIdentity(repoRoot, config.repositorySlug);
+  if (current.topLevel === expected.repoRoot
+    || current.commonDir !== expected.repositoryCommonDir
+    || current.commonDirIdentity !== expected.repositoryCommonDirIdentity
+    || sharedCommonMetadataIdentity(current.guardedMetadataIdentity, current.commonDir)
+      !== sharedCommonMetadataIdentity(expected.repositoryMetadataIdentity, expected.repositoryCommonDir)
+    || current.originUrl !== expected.originUrl || current.pushUrl !== expected.pushUrl) {
+    throw new Error("historical task worktree does not share the admitted repository authority");
+  }
+  const admitted = Object.freeze({ ...current });
+  admittedRepositoryWorktrees.set(config, admitted);
+  return admitted;
+}
+
+export function restoreControlPlaneRepositoryRemoteIdentity(config) {
+  admittedRepositoryWorktrees.delete(config);
+}
+
+function sameRepositoryIdentity(current, expected) {
+  return current.topLevel === expected.topLevel
+    && current.commonDir === expected.commonDir
+    && current.gitDir === expected.gitDir
+    && current.indexFile === expected.indexFile
+    && current.entryPath === expected.entryPath
+    && current.entryIdentity === expected.entryIdentity
+    && current.gitDirIdentity === expected.gitDirIdentity
+    && current.commonDirIdentity === expected.commonDirIdentity
+    && current.guardedMetadataIdentity === expected.guardedMetadataIdentity
+    && current.originUrl === expected.originUrl
+    && current.pushUrl === expected.pushUrl;
+}
+
+function sharedCommonMetadataIdentity(identity, commonDir) {
+  const shared = new Set([
+    path.join(commonDir, "config"), path.join(commonDir, "info", "attributes"),
+    path.join(commonDir, "info", "exclude"), path.join(commonDir, "info", "grafts"),
+    path.join(commonDir, "objects", "info", "alternates"),
+    path.join(commonDir, "objects", "info", "http-alternates"), path.join(commonDir, "shallow"),
+  ]);
+  return String(identity || "").split("\n").filter((record) => {
+    const separator = record.indexOf(":");
+    return separator > 0 && shared.has(record.slice(0, separator));
+  }).sort().join("\n");
 }
 
 function gitValue(context, args, label) {
