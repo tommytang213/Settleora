@@ -300,12 +300,24 @@ export function runGit(args, options = {}) {
     internalIndexFile: options.internalIndexFile,
     manageWorktrees: options.manageWorktrees === true,
   });
+  const readSnapshot = sourceOwnedGitCommandIsReadOnly(args)
+    ? strictGitReadSnapshot(context.gitDir, context.commonDir)
+    : null;
   const result = normalizePinnedGitMetadataResult(spawnPinnedRepositoryGit(context, fixedArgs, {
     cwd, input: effectiveInput, environment: repositoryEnvironment,
-    timeoutMs: options.timeoutMs, maxBuffer: options.maxBuffer,
+    timeoutMs: options.timeoutMs, maxBuffer: options.maxBuffer, sourceArgs: args,
   }), args, context);
   if (!sourceOwnedGitContextStable(context)) {
     return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
+  }
+  if (readSnapshot !== null) {
+    try {
+      if (strictGitReadSnapshot(context.gitDir, context.commonDir) !== readSnapshot) {
+        return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git read storage changed during operation", error: null };
+      }
+    } catch {
+      return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git read storage became unsafe", error: null };
+    }
   }
   // Native `show-ref --verify` reports an absent, syntactically valid ref as
   // status 128. Preserve the wrapper's established missing-ref contract while
@@ -325,6 +337,15 @@ export function runGit(args, options = {}) {
 }
 
 const sourceOwnedTransportGitCommands = new Set(["fetch", "ls-remote", "push"]);
+const sourceOwnedMutatingGitCommands = new Set([
+  "add", "cherry-pick", "commit", "commit-tree", "fetch", "merge", "merge-tree",
+  "read-tree", "reset", "switch", "update-index", "update-ref", "write-tree",
+]);
+
+function sourceOwnedGitCommandIsReadOnly(args) {
+  if (sourceOwnedMutatingGitCommands.has(args[0])) return false;
+  return args[0] !== "worktree" || args.slice(1).join("\0") === "list\0--porcelain";
+}
 
 function classifySourceOwnedGitCommand(args, context = {}) {
   if (!Array.isArray(args) || args.length === 0 || args.some((arg) => typeof arg !== "string")) {
@@ -778,19 +799,36 @@ function openPinnedDirectory(target, expectedIdentity, label) {
 }
 
 function spawnPinnedRepositoryGit(context, fixedArgs, {
-  cwd = context.root, input, environment, timeoutMs, maxBuffer,
+  cwd = context.root, input, environment, timeoutMs, maxBuffer, sourceArgs = [],
 } = {}) {
   const descriptors = [];
+  let refDeletionGuard = null;
   try {
     descriptors.push(openPinnedDirectory(context.objectDir, context.objectDirIdentity, "Git object directory"));
     descriptors.push(openPinnedDirectory(context.commonDir, context.commonDirIdentity, "Git common directory"));
-    return spawnSync("/usr/bin/git", fixedArgs, {
+    descriptors.push(openPinnedDirectory(context.gitDir, context.gitDirIdentity, "Git directory"));
+    if (sourceArgs[0] === "update-ref" && sourceArgs[1] === "-d") {
+      refDeletionGuard = openPinnedRefDeletionGuard(descriptors[1], sourceArgs[2]);
+    }
+    let pinnedIndexFile = null;
+    if (environment.GIT_INDEX_FILE === context.indexFile) {
+      pinnedIndexFile = "/proc/self/fd/5/index";
+    } else if (environment.GIT_INDEX_FILE) {
+      const indexParent = path.dirname(environment.GIT_INDEX_FILE);
+      const childFd = 3 + descriptors.length;
+      descriptors.push(openPinnedDirectory(indexParent,
+        directoryIdentity(lstatSync(indexParent)), "internal Git index directory"));
+      pinnedIndexFile = `/proc/self/fd/${childFd}/${path.basename(environment.GIT_INDEX_FILE)}`;
+    }
+    const result = spawnSync("/usr/bin/git", fixedArgs, {
       cwd,
       input,
       env: {
         ...environment,
         GIT_OBJECT_DIRECTORY: "/proc/self/fd/3",
         GIT_COMMON_DIR: "/proc/self/fd/4",
+        GIT_DIR: "/proc/self/fd/5",
+        ...(pinnedIndexFile ? { GIT_INDEX_FILE: pinnedIndexFile } : {}),
       },
       stdio: ["pipe", "pipe", "pipe", ...descriptors],
       encoding: "utf8",
@@ -799,9 +837,106 @@ function spawnPinnedRepositoryGit(context, fixedArgs, {
       timeout: boundedCommandTimeout(timeoutMs),
       maxBuffer: boundedCommandOutput(maxBuffer),
     });
+    if (result.status === 0 && refDeletionGuard) {
+      try {
+        assertPinnedRefDeletionComplete(descriptors[1], refDeletionGuard);
+      } catch (error) {
+        return { ...result, status: 128, stdout: "", stderr: error.message, error: null };
+      }
+    }
+    return result;
   } finally {
+    closePinnedRefDeletionGuard(refDeletionGuard);
     for (const fd of descriptors) closeSync(fd);
   }
+}
+
+function openPinnedRefDeletionGuard(commonFd, ref) {
+  const components = ref.split("/");
+  const opened = [];
+  let current = commonFd;
+  try {
+    for (const component of components.slice(0, -1)) {
+      let next;
+      try {
+        next = openSync(`/proc/self/fd/${current}/${component}`,
+          fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+      } catch (error) {
+        if (error?.code === "ENOENT") {
+          return { ref, name: components.at(-1), parentFd: null, opened };
+        }
+        throw error;
+      }
+      const info = fstatSync(next);
+      if (!info.isDirectory() || info.isSymbolicLink()
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+        closeSync(next);
+        throw new Error("Repository ref parent is unsafe");
+      }
+      opened.push(next);
+      current = next;
+    }
+    return { ref, name: components.at(-1), parentFd: current, opened };
+  } catch (error) {
+    for (const fd of opened.reverse()) closeSync(fd);
+    throw error;
+  }
+}
+
+function assertPinnedRefDeletionComplete(commonFd, guard) {
+  // The deepest admitted parent remains open across Git. If its pathname is
+  // displaced and restored around the child process, this descriptor still
+  // exposes the original loose ref and prevents a false-successful deletion.
+  if (guard.parentFd !== null
+    && lstatOptional(`/proc/self/fd/${guard.parentFd}/${guard.name}`)) {
+    throw new Error("Repository ref deletion did not remove the admitted loose ref");
+  }
+  const current = openPinnedRefDeletionGuard(commonFd, guard.ref);
+  try {
+    if (current.parentFd !== null
+      && lstatOptional(`/proc/self/fd/${current.parentFd}/${current.name}`)) {
+      throw new Error("Repository ref deletion did not reach the current loose-ref namespace");
+    }
+  } finally { closePinnedRefDeletionGuard(current); }
+  if (pinnedPackedRefValues(commonFd, guard.ref).length !== 0) {
+    throw new Error("Repository ref deletion did not remove the admitted packed ref");
+  }
+}
+
+function closePinnedRefDeletionGuard(guard) {
+  if (!guard) return;
+  for (const fd of guard.opened.reverse()) closeSync(fd);
+}
+
+function pinnedPackedRefValues(commonFd, ref) {
+  const target = `/proc/self/fd/${commonFd}/packed-refs`;
+  const before = lstatOptional(target);
+  if (!before) return [];
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1
+    || before.size > 8 * 1024 * 1024
+    || (typeof process.getuid === "function" && before.uid !== process.getuid())) {
+    throw new Error("Repository packed refs are unsafe");
+  }
+  const fd = openSync(target, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const opened = fstatSync(fd);
+    if (fileIdentity(opened) !== fileIdentity(before)) {
+      throw new Error("Repository packed refs changed before descriptor read");
+    }
+    const bytes = readFileSync(fd);
+    if (bytes.length !== opened.size || fileIdentity(fstatSync(fd)) !== fileIdentity(opened)
+      || fileIdentity(lstatSync(target)) !== fileIdentity(opened)) {
+      throw new Error("Repository packed refs changed during descriptor read");
+    }
+    const values = [];
+    for (const line of bytes.toString("utf8").split("\n")) {
+      if (!line || line.startsWith("#") || line.startsWith("^")) continue;
+      const match = line.match(/^([a-f0-9]{40,64}) (refs\/[A-Za-z0-9._/-]+)$/u);
+      if (!match) throw new Error("Repository packed refs are malformed");
+      if (match[2] === ref) values.push(match[1]);
+    }
+    return values;
+  } finally { closeSync(fd); }
 }
 
 function normalizePinnedGitMetadataResult(result, args, context) {
@@ -965,7 +1100,28 @@ export const gitWorkspaceTestInternals = Object.freeze({
   classifySourceOwnedGitCommand,
   fixedRepositoryGitArgs,
   fixedRepositoryGitEnvironment,
+  openPinnedRefDeletionTestGuard,
+  strictGitReadSnapshot,
 });
+
+function openPinnedRefDeletionTestGuard(commonDir, ref) {
+  const info = lstatSync(commonDir);
+  const commonFd = openPinnedDirectory(commonDir, directoryIdentity(info), "test Git common directory");
+  const guard = openPinnedRefDeletionGuard(commonFd, ref);
+  let closed = false;
+  return Object.freeze({
+    verify() {
+      if (closed) throw new Error("test ref deletion guard is closed");
+      assertPinnedRefDeletionComplete(commonFd, guard);
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      closePinnedRefDeletionGuard(guard);
+      closeSync(commonFd);
+    },
+  });
+}
 
 function trustedGithubAuthenticationEnvironment() {
   const environment = fixedUserEnvironment();
@@ -1203,6 +1359,63 @@ function guardedReferenceNamespaceIdentity(commonDir) {
     }
   }
   return `${root}:${directoryIdentity(rootInfo)}`;
+}
+
+function strictGitReadSnapshot(gitDir, commonDir) {
+  const records = [...new Set([gitDir, commonDir])].sort().map((target) => {
+    const info = lstatSync(target);
+    if (!info.isDirectory() || info.isSymbolicLink()
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+      throw new Error("Repository Git read directory is unsafe");
+    }
+    return `${target}:${strictPathIdentity(info)}`;
+  });
+  const metadata = [...new Set([
+    path.join(gitDir, "HEAD"), path.join(gitDir, "index"), path.join(gitDir, "config.worktree"),
+    path.join(commonDir, "config"), path.join(commonDir, "packed-refs"),
+    path.join(commonDir, "info", "attributes"), path.join(commonDir, "info", "exclude"),
+    path.join(commonDir, "info", "grafts"), path.join(commonDir, "objects", "info", "alternates"),
+    path.join(commonDir, "objects", "info", "http-alternates"),
+    path.join(commonDir, "shallow"), path.join(gitDir, "shallow"),
+  ])].sort();
+  for (const target of metadata) {
+    const info = lstatOptional(target);
+    if (!info) { records.push(`${target}:absent`); continue; }
+    if ((!info.isFile() && !info.isDirectory()) || info.isSymbolicLink()
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+      throw new Error("Repository Git read metadata is unsafe");
+    }
+    records.push(`${target}:${strictPathIdentity(info)}`);
+  }
+  const refsRoot = path.join(commonDir, "refs");
+  const pending = [refsRoot];
+  let inspected = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    const currentInfo = lstatSync(current);
+    if (!currentInfo.isDirectory() || currentInfo.isSymbolicLink()
+      || (typeof process.getuid === "function" && currentInfo.uid !== process.getuid())) {
+      throw new Error("Repository Git refs namespace is unsafe");
+    }
+    records.push(`${current}:${strictPathIdentity(currentInfo)}`);
+    for (const entry of readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      if (++inspected > 4096) throw new Error("Repository Git refs namespace is unbounded");
+      const candidate = path.join(current, entry.name);
+      const info = lstatSync(candidate);
+      if (entry.isSymbolicLink() || info.isSymbolicLink()
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+        throw new Error("Repository Git refs namespace is unsafe");
+      }
+      if (info.isDirectory()) pending.push(candidate);
+      else if (info.isFile() && info.size <= 4096) records.push(`${candidate}:${strictPathIdentity(info)}`);
+      else throw new Error("Repository Git ref storage is unsafe or unbounded");
+    }
+  }
+  return records.sort().join("\n");
+}
+
+function strictPathIdentity(info) {
+  return [info.dev, info.ino, info.mode, info.uid, info.size, info.mtimeMs, info.ctimeMs].join(":");
 }
 
 function lstatOptional(target) {

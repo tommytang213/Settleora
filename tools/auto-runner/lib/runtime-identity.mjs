@@ -369,6 +369,7 @@ function sourceOwnedIdentityGitContext(repoRoot) {
     objectDirIdentity: stableGitDirectoryIdentity(objectInfo),
     indexFile: path.join(gitDir, "index"),
     guardedMetadata: identityGitMetadataSnapshot(gitDir, commonDir),
+    readStorageIdentity: identityGitReadStorageSnapshot(gitDir, commonDir),
   };
   if (!identityGitContextStable(context)) throw new Error("repository Git context changed during admission");
   return context;
@@ -379,13 +380,21 @@ function runIdentityGit(context, args) {
   let result;
   try {
     descriptors.push(openIdentityDirectory(context.objectDir, context.objectDirIdentity));
-    result = spawnSync("/usr/bin/git", identityGitArgs(context.root, args), {
+    descriptors.push(openIdentityDirectory(context.commonDir, context.commonDirIdentity));
+    descriptors.push(openIdentityDirectory(context.gitDir, context.gitDirIdentity));
+    result = normalizeIdentityGitResult(spawnSync("/usr/bin/git", identityGitArgs(context.root, args), {
       cwd: context.root,
-      env: { ...identityGitEnvironment(context), GIT_OBJECT_DIRECTORY: "/proc/self/fd/3" },
+      env: {
+        ...identityGitEnvironment(context),
+        GIT_OBJECT_DIRECTORY: "/proc/self/fd/3",
+        GIT_COMMON_DIR: "/proc/self/fd/4",
+        GIT_DIR: "/proc/self/fd/5",
+        GIT_INDEX_FILE: "/proc/self/fd/5/index",
+      },
       stdio: ["pipe", "pipe", "pipe", ...descriptors],
       encoding: "utf8",
       windowsHide: true,
-    });
+    }), args, context);
   } finally {
     for (const fd of descriptors) closeSync(fd);
   }
@@ -393,6 +402,18 @@ function runIdentityGit(context, args) {
     return { status: 128, stdout: "", stderr: "repository Git context changed during read", error: null };
   }
   return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error || null };
+}
+
+function normalizeIdentityGitResult(result, args, context) {
+  if (result.status !== 0 || args[0] !== "rev-parse") return result;
+  const signature = args.slice(1).join("\0");
+  if (signature === "--git-common-dir" || signature === "--path-format=absolute\0--git-common-dir") {
+    return { ...result, stdout: `${context.commonDir}\n` };
+  }
+  if (signature === "--absolute-git-dir" || signature === "--path-format=absolute\0--absolute-git-dir") {
+    return { ...result, stdout: `${context.gitDir}\n` };
+  }
+  return result;
 }
 
 function openIdentityDirectory(target, identity) {
@@ -429,7 +450,8 @@ function identityGitContextStable(context) {
       && stableGitDirectoryIdentity(lstatSync(context.gitDir)) === context.gitDirIdentity
       && stableGitDirectoryIdentity(lstatSync(context.commonDir)) === context.commonDirIdentity
       && stableGitDirectoryIdentity(lstatSync(context.objectDir)) === context.objectDirIdentity
-      && identityGitMetadataSnapshot(context.gitDir, context.commonDir).identity === context.guardedMetadata.identity;
+      && identityGitMetadataSnapshot(context.gitDir, context.commonDir).identity === context.guardedMetadata.identity
+      && identityGitReadStorageSnapshot(context.gitDir, context.commonDir) === context.readStorageIdentity;
   } catch { return false; }
 }
 
@@ -485,6 +507,63 @@ function identityGitReferenceNamespace(commonDir) {
     }
   }
   return `${root}:${stableGitDirectoryIdentity(rootInfo)}`;
+}
+
+function identityGitReadStorageSnapshot(gitDir, commonDir) {
+  const records = [...new Set([gitDir, commonDir])].sort().map((target) => {
+    const info = lstatSync(target);
+    if (!info.isDirectory() || info.isSymbolicLink()
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+      throw new Error("repository Git read directory is unsafe");
+    }
+    return `${target}:${strictIdentityGitPath(info)}`;
+  });
+  const metadata = [...new Set([
+    path.join(gitDir, "HEAD"), path.join(gitDir, "index"), path.join(gitDir, "config.worktree"),
+    path.join(commonDir, "config"), path.join(commonDir, "packed-refs"),
+    path.join(commonDir, "info", "attributes"), path.join(commonDir, "info", "exclude"),
+    path.join(commonDir, "info", "grafts"),
+    path.join(commonDir, "objects", "info", "alternates"),
+    path.join(commonDir, "objects", "info", "http-alternates"),
+    path.join(commonDir, "shallow"), path.join(gitDir, "shallow"),
+  ])].sort();
+  for (const target of metadata) {
+    const info = identityLstatOptional(target);
+    if (!info) { records.push(`${target}:absent`); continue; }
+    if ((!info.isFile() && !info.isDirectory()) || info.isSymbolicLink()
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+      throw new Error("repository Git read metadata is unsafe");
+    }
+    records.push(`${target}:${strictIdentityGitPath(info)}`);
+  }
+  const pending = [path.join(commonDir, "refs")];
+  let inspected = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    const currentInfo = lstatSync(current);
+    if (!currentInfo.isDirectory() || currentInfo.isSymbolicLink()
+      || (typeof process.getuid === "function" && currentInfo.uid !== process.getuid())) {
+      throw new Error("repository Git refs namespace is unsafe");
+    }
+    records.push(`${current}:${strictIdentityGitPath(currentInfo)}`);
+    for (const entry of readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      if (++inspected > 4096) throw new Error("repository Git refs namespace is unbounded");
+      const candidate = path.join(current, entry.name);
+      const info = lstatSync(candidate);
+      if (entry.isSymbolicLink() || info.isSymbolicLink()
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+        throw new Error("repository Git refs namespace is unsafe");
+      }
+      if (info.isDirectory()) pending.push(candidate);
+      else if (info.isFile() && info.size <= 4096) records.push(`${candidate}:${strictIdentityGitPath(info)}`);
+      else throw new Error("repository Git ref storage is unsafe or unbounded");
+    }
+  }
+  return records.sort().join("\n");
+}
+
+function strictIdentityGitPath(info) {
+  return [info.dev, info.ino, info.mode, info.uid, info.size, info.mtimeMs, info.ctimeMs].join(":");
 }
 
 function identityLstatOptional(target) {

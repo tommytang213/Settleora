@@ -295,6 +295,53 @@ test("exact ref deletion honors Git's per-ref lock and cannot delete a concurren
   }
 });
 
+test("restored ref-parent substitution cannot satisfy the pinned deletion postcondition", () => {
+  const repo = tempRepo();
+  const ref = "refs/heads/nested/pinned-topic";
+  const parent = path.join(repo.cwd, ".git", "refs", "heads", "nested");
+  const displaced = path.join(repo.cwd, ".git", "refs", "heads", "nested-displaced");
+  const substitute = path.join(repo.cwd, ".git", "refs", "heads", "nested-substitute");
+  let guard;
+  try {
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "branch", "nested/pinned-topic", repo.base]);
+    guard = gitWorkspaceTestInternals.openPinnedRefDeletionTestGuard(path.join(repo.cwd, ".git"), ref);
+    renameSync(parent, displaced);
+    mkdirSync(parent, { mode: 0o700 });
+    renameSync(parent, substitute);
+    renameSync(displaced, parent);
+    assert.throws(() => guard.verify(), /admitted loose ref/u,
+      "restoring the original pathname must not hide that Git was redirected to a substitute parent");
+  } finally {
+    guard?.close();
+    rmSync(substitute, { recursive: true, force: true });
+    if (!existsSync(parent) && existsSync(displaced)) renameSync(displaced, parent);
+    repo.cleanup();
+  }
+});
+
+test("read snapshots detect a ref-directory swap even after its original inode is restored", () => {
+  const repo = tempRepo();
+  const heads = path.join(repo.cwd, ".git", "refs", "heads");
+  const displaced = path.join(repo.cwd, ".git", "refs", "heads-displaced");
+  const substitute = path.join(repo.cwd, ".git", "refs", "heads-substitute");
+  try {
+    const before = gitWorkspaceTestInternals.strictGitReadSnapshot(
+      path.join(repo.cwd, ".git"), path.join(repo.cwd, ".git"));
+    renameSync(heads, displaced);
+    mkdirSync(heads, { mode: 0o700 });
+    renameSync(heads, substitute);
+    renameSync(displaced, heads);
+    const after = gitWorkspaceTestInternals.strictGitReadSnapshot(
+      path.join(repo.cwd, ".git"), path.join(repo.cwd, ".git"));
+    assert.notEqual(after, before,
+      "directory ctime/mtime identity must preserve evidence of a swap-and-restore race");
+  } finally {
+    rmSync(substitute, { recursive: true, force: true });
+    if (!existsSync(heads) && existsSync(displaced)) renameSync(displaced, heads);
+    repo.cleanup();
+  }
+});
+
 test("hash-object fails closed for a symlink whose target bytes cannot be descriptor-bound", () => {
   const repo = tempRepo();
   try {
