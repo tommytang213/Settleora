@@ -339,7 +339,7 @@ export function runGit(args, options = {}) {
 const sourceOwnedTransportGitCommands = new Set(["fetch", "ls-remote", "push"]);
 const sourceOwnedMutatingGitCommands = new Set([
   "add", "cherry-pick", "commit", "commit-tree", "fetch", "merge", "merge-tree",
-  "read-tree", "reset", "switch", "update-index", "update-ref", "write-tree",
+  "push", "read-tree", "reset", "switch", "update-index", "update-ref", "write-tree",
 ]);
 
 function sourceOwnedGitCommandIsReadOnly(args) {
