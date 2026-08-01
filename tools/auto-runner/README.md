@@ -1847,7 +1847,13 @@ worktrees; replacement of any admitted Git entry or directory fails closed.
 Legacy grafts, object alternates, HTTP alternates, and shallow metadata are not
 accepted as neutral repository state. Remote operations use the authenticated
 literal URL rather than dereferencing a mutable remote name after verification,
-and recovery evidence double-reads the exact ref, index tree, status, and path
+and every fetch, push, or remote read executes through a source-created sealed
+transport Git directory whose local configuration is fixed to `/dev/null` and
+whose object, ref, and `FETCH_HEAD` bindings point to the already admitted
+repository. Repository and linked-worktree configuration therefore cannot add
+a raced URL rewrite between verification and the network child; the sealed
+bindings and admitted repository metadata are both rechecked afterward.
+Recovery evidence double-reads the exact ref, index tree, status, and path
 sets around an immutable-OID commit read before it can be marked complete.
 Launch
 cleanliness compares raw tracked bytes to index objects without invoking

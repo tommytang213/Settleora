@@ -16,7 +16,7 @@ import {
 } from "./preserved-recovery-deployment.mjs";
 import { canonicalApprovedGitHubRepository } from "./runtime-identity.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
-import { runTrustedGithub } from "./git-workspace.mjs";
+import { runGit as runWorkspaceGit, runTrustedGithub } from "./git-workspace.mjs";
 
 const sha = /^[a-f0-9]{40}$/u;
 const digest = /^[a-f0-9]{64}$/u;
@@ -237,7 +237,8 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     } else {
       const originUrl = authenticatedOriginUrl(git, repository);
       if (!originUrl) return fail("historical_candidate_remote_identity_untrusted");
-      remoteTaskBranchRead = readRemoteTaskBranch(git, branch, originUrl);
+      const externalGit = (args) => runWorkspaceGit(args, { cwd: repoRoot });
+      remoteTaskBranchRead = readRemoteTaskBranch(externalGit, branch, originUrl);
     }
     const liveTaskPrRead = options.allowAuthenticatedExistingPrEffects === true
       ? (options.readLiveTaskPrs || readLiveTaskPrs)(config, branch)
