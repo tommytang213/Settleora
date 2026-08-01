@@ -122,6 +122,27 @@ test("production external Git transport fails before a same-UID config race can 
   }
 });
 
+test("value-taking Git global options cannot hide an external transport command", () => {
+  const repo = tempRepo();
+  try {
+    for (const args of [
+      ["-C", repo.cwd, "ls-remote", "https://github.com/example/repo.git"],
+      [`-C${repo.cwd}`, "ls-remote", "https://github.com/example/repo.git"],
+      ["--git-dir", path.join(repo.cwd, ".git"), "fetch", "https://github.com/example/repo.git"],
+      [`--git-dir=${path.join(repo.cwd, ".git")}`, "fetch", "https://github.com/example/repo.git"],
+      ["--work-tree", repo.cwd, "push", "https://github.com/example/repo.git", "HEAD"],
+      [`--work-tree=${repo.cwd}`, "push", "https://github.com/example/repo.git", "HEAD"],
+    ]) {
+      const result = runGit(args, { cwd: repo.cwd });
+      assert.equal(result.status, 128, args.join(" "));
+      assert.equal(result.reasonCode, "source_owned_git_argv_unrecognized", args.join(" "));
+      assert.match(result.stderr, /Unsupported Git global option/u);
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test("trusted GitHub execution requires an explicit canonical repository context", () => {
   const absent = runTrustedGithub({ repoRoot: process.cwd() }, ["pr", "view", "1"]);
   assert.equal(absent.status, 1);

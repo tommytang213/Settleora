@@ -255,6 +255,17 @@ export function runGit(args, options = {}) {
   const context = sourceOwnedGitContext(cwd);
   assertSourceOwnedGitMetadata(context);
   const transportCommand = externalTransportCommand(args);
+  if (transportCommand === "unsupported_git_global_option") {
+    return {
+      command: `git ${args.join(" ")}`,
+      status: 128,
+      stdout: "",
+      stderr: "Unsupported Git global option before source-owned command",
+      error: null,
+      signal: null,
+      reasonCode: "source_owned_git_argv_unrecognized",
+    };
+  }
   if (transportCommand && options.allowLocalFileTransport !== true) {
     return {
       command: `git ${args.join(" ")}`,
@@ -302,10 +313,11 @@ function externalTransportCommand(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "-c" || arg === "--config-env") {
+      if (typeof args[index + 1] !== "string" || !args[index + 1].length) return "unsupported_git_global_option";
       index += 1;
       continue;
     }
-    if (arg.startsWith("-")) continue;
+    if (arg.startsWith("-")) return "unsupported_git_global_option";
     return ["fetch", "ls-remote", "push"].includes(arg) ? arg : null;
   }
   return null;
