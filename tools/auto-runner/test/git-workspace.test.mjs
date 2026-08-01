@@ -232,6 +232,11 @@ test("dangling packed-refs symlinks and redirected object stores fail closed", (
 test("exact packed ref deletion is successful, stable, and repeat-safe", () => {
   const repo = tempRepo();
   try {
+    const common = runGit(["rev-parse", "--git-common-dir"], { cwd: repo.cwd });
+    assert.equal(common.status, 0, common.stderr);
+    assert.equal(path.resolve(repo.cwd, common.stdout.trim()), path.join(repo.cwd, ".git"));
+    assert.doesNotMatch(common.stdout, /\/proc\/self\/fd\//u,
+      "descriptor pinning must not leak an ephemeral path identity to callers");
     const ref = "refs/heads/packed-topic";
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "branch", "packed-topic", repo.base]);
     execFileSync("/usr/bin/git", ["-C", repo.cwd, "pack-refs", "--all"]);

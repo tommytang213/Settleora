@@ -300,10 +300,10 @@ export function runGit(args, options = {}) {
     internalIndexFile: options.internalIndexFile,
     manageWorktrees: options.manageWorktrees === true,
   });
-  const result = spawnPinnedRepositoryGit(context, fixedArgs, {
+  const result = normalizePinnedGitMetadataResult(spawnPinnedRepositoryGit(context, fixedArgs, {
     cwd, input: effectiveInput, environment: repositoryEnvironment,
     timeoutMs: options.timeoutMs, maxBuffer: options.maxBuffer,
-  });
+  }), args, context);
   if (!sourceOwnedGitContextStable(context)) {
     return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
   }
@@ -784,7 +784,6 @@ function spawnPinnedRepositoryGit(context, fixedArgs, {
   try {
     descriptors.push(openPinnedDirectory(context.objectDir, context.objectDirIdentity, "Git object directory"));
     descriptors.push(openPinnedDirectory(context.commonDir, context.commonDirIdentity, "Git common directory"));
-    descriptors.push(openPinnedDirectory(context.gitDir, context.gitDirIdentity, "Git directory"));
     return spawnSync("/usr/bin/git", fixedArgs, {
       cwd,
       input,
@@ -792,7 +791,6 @@ function spawnPinnedRepositoryGit(context, fixedArgs, {
         ...environment,
         GIT_OBJECT_DIRECTORY: "/proc/self/fd/3",
         GIT_COMMON_DIR: "/proc/self/fd/4",
-        GIT_DIR: "/proc/self/fd/5",
       },
       stdio: ["pipe", "pipe", "pipe", ...descriptors],
       encoding: "utf8",
@@ -804,6 +802,22 @@ function spawnPinnedRepositoryGit(context, fixedArgs, {
   } finally {
     for (const fd of descriptors) closeSync(fd);
   }
+}
+
+function normalizePinnedGitMetadataResult(result, args, context) {
+  if (result.status !== 0 || args[0] !== "rev-parse") return result;
+  const signature = args.slice(1).join("\0");
+  let value = null;
+  if (signature === "--git-common-dir" || signature === "--path-format=absolute\0--git-common-dir") {
+    value = context.commonDir;
+  } else if (signature === "--git-path\0config.worktree") {
+    value = path.join(context.gitDir, "config.worktree");
+  } else if (signature === "--git-path\0info/attributes") {
+    value = path.join(context.commonDir, "info", "attributes");
+  } else if (signature === "--git-path\0info/exclude") {
+    value = path.join(context.commonDir, "info", "exclude");
+  }
+  return value === null ? result : { ...result, stdout: `${value}\n` };
 }
 
 function readSourceOwnedWorktreeBlob(context, relativePath) {
@@ -999,10 +1013,12 @@ function repositoryHasHead(context) {
 }
 
 function assertSourceOwnedGitMetadata(context) {
-  const git = (args) => spawnPinnedRepositoryGit(context, fixedRepositoryGitArgs(context.root, args), {
-    cwd: context.root,
-    environment: fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
-  });
+  const git = (args) => normalizePinnedGitMetadataResult(
+    spawnPinnedRepositoryGit(context, fixedRepositoryGitArgs(context.root, args), {
+      cwd: context.root,
+      environment: fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
+    }), args, context,
+  );
   const local = git(["config", "--local", "--name-only", "--list"]);
   const unsupportedLocal = unsupportedRepositoryGitConfigKeys(local.stdout);
   if (local.status !== 0 || unsupportedLocal.length) throw new Error("Repository Git configuration is unsafe");
