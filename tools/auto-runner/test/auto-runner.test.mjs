@@ -7407,6 +7407,38 @@ test("real-run launch workspace allows clean main and non-main but rejects dirty
   }
 });
 
+test("launch workspace guard ignores caller Git environment and cannot execute injected fsmonitor", () => {
+  const repo = createTempGitRepo();
+  const alternateWorktree = mkdtempSync(path.join(tmpdir(), "settleora-launch-alternate-"));
+  const sentinel = path.join(repo, "fsmonitor-ran");
+  const hook = path.join(repo, "hostile-fsmonitor");
+  const logger = { warn() {} };
+  try {
+    writeFileSync(hook, `#!/bin/sh\n: > '${sentinel}'\n`, { mode: 0o700 });
+    writeFileSync(path.join(repo, "dirty.txt"), "dirty\n");
+    assert.throws(
+      () => ensureLaunchWorkspace(
+        { run: true, dryRun: false, repoRoot: repo },
+        logger,
+        { environment: {
+          ...process.env,
+          GIT_CONFIG_COUNT: "2",
+          GIT_CONFIG_KEY_0: "core.fsmonitor",
+          GIT_CONFIG_VALUE_0: hook,
+          GIT_CONFIG_KEY_1: "status.showUntrackedFiles",
+          GIT_CONFIG_VALUE_1: "no",
+          GIT_WORK_TREE: alternateWorktree,
+        } },
+      ),
+      /Refusing real-run launch with a dirty worktree/,
+    );
+    assert.equal(existsSync(sentinel), false);
+  } finally {
+    rmSync(alternateWorktree, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("task mutation workspace accepts only the exact clean generated task branch", () => {
   const repo = createTempGitRepo();
   const config = { run: true, dryRun: false, repoRoot: repo };

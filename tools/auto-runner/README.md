@@ -1895,10 +1895,12 @@ use the same registry. Immediately before persistence, production
 reauthenticates all sources, bound artifacts, runtime claims, manifest, and the
 same exact grant. Persistence additionally requires a source-owned GitHub no-
 effect generation/CAS producer to hold its root-grant-bound fence for the
-complete persistence callback; that producer is currently unavailable. Any
+complete native operation; that producer is currently unavailable. Any
 later effect or drift therefore fails closed. The successor cannot
-alias the predecessor/incident key. Persistence is module-private and callable
-only inside the producer-held fence; configuration cannot redirect its fixed
+alias the predecessor/incident key. The runner accepts no persistence callback
+and contains no semantic-successor pathname writer; its ordinary recovery
+writer refuses every write while the incident contract is configured. A future
+protected producer must own descriptor-relative operations under the fixed
 `recovery-successors` destination. Prepared provenance and successor files
 become accepted only through a final immutable commit marker binding both
 digests. Every pre-commit crash point is inert and exact-repeat resumable, while

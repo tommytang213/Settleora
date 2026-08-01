@@ -214,16 +214,14 @@ export function createInitialRecoveryState({
 export function writeRecoveryState(config, state) {
   const validation = validateRecoveryStateShape(state);
   if (!validation.ok) throw new Error(`Invalid recovery state: ${validation.reason}`);
-  const statePath = recoveryStatePath(config, state);
-  const protectedRecoveryPaths = [
-    config.postIncidentRecovery?.authenticatedProvenance?.incidentPath,
-    config.postIncidentRecovery?.authenticatedProvenance?.incidentArtifact?.path,
-    config.postIncidentRecovery?.authenticatedProvenance?.predecessorPath,
-  ].filter((value) => typeof value === "string" && path.isAbsolute(value)).map(canonicalRecoveryWriteGuardPath);
-  const canonicalStatePath = canonicalRecoveryWriteGuardPath(statePath);
-  if (protectedRecoveryPaths.includes(canonicalStatePath)) {
+  // Once an authenticated overwrite incident is configured, this ordinary
+  // pathname writer has no authority at all. Semantic successor persistence is
+  // owned by a separately deployed protected producer, so refusing every write
+  // avoids any same-UID parent-swap window around the quarantined namespace.
+  if (config.postIncidentRecovery?.authenticatedProvenance) {
     throw new Error("protected_post_incident_recovery_state_write_blocked");
   }
+  const statePath = recoveryStatePath(config, state);
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
   const sanitized = sanitizeRecoveryState({
     ...state,
@@ -233,16 +231,6 @@ export function writeRecoveryState(config, state) {
   writeFileSync(tmpPath, `${JSON.stringify(sanitized, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmpPath, statePath);
   return { statePath, state: sanitized };
-}
-
-function canonicalRecoveryWriteGuardPath(value) {
-  const lexical = path.resolve(value);
-  if (!existsSync(lexical)) return lexical;
-  try {
-    return realpathSync(lexical);
-  } catch {
-    throw new Error("protected_post_incident_recovery_path_invalid");
-  }
 }
 
 export function bindOutageResubmissionToRecoveryState(state, binding) {

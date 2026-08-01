@@ -141,7 +141,7 @@ export function createProductionSemanticRecoveryVerifierRegistry(config) {
   const registry = createRegistry(
     "production",
     (authorityClass, descriptor) => verifyProductionSource(config, authorityClass, descriptor),
-    () => { throw new Error("semantic recovery persistence fence producer unavailable"); },
+    () => { throw new Error("semantic recovery protected persistence producer unavailable"); },
   );
   validatedRegistries.add(registry);
   return registry;
@@ -370,21 +370,20 @@ export function isValidatedSemanticRecoveryGrant(grant) {
   return validatedGrants.has(grant);
 }
 
-export function executeWithinSemanticRecoveryPersistenceFence(registry, manifest, grant, persist) {
+export function requestSourceOwnedSemanticRecoveryPersistence(registry, manifest, grant) {
   if (!validatedRegistries.has(registry) || registry?.authority !== "production"
     || !validatedGrants.has(grant) || grant?.synthetic === true
-    || manifest?.sourceAuthority !== "production" || manifest?.manifestDigest !== grant?.manifestDigest
-    || typeof persist !== "function") {
+    || manifest?.sourceAuthority !== "production" || manifest?.manifestDigest !== grant?.manifestDigest) {
     return failed("semantic_recovery_persistence_fence_authority_invalid");
   }
   try {
-    return registry.withPersistenceFence(manifest, grant, persist);
+    return registry.persistExactSemanticSuccessor(manifest, grant);
   } catch {
     return failed("semantic_recovery_persistence_fence_unavailable");
   }
 }
 
-function createRegistry(authority, reader, withPersistenceFence = null) {
+function createRegistry(authority, reader, persistExactSemanticSuccessor = null) {
   return deepFreeze({
     authority,
     version: semanticRecoveryVerifierSetVersion,
@@ -394,9 +393,9 @@ function createRegistry(authority, reader, withPersistenceFence = null) {
       const result = reader(authorityClass, descriptor);
       return normalizeVerifiedRecord(authorityClass, result, verifierDefinitions[authorityClass]);
     },
-    withPersistenceFence(manifest, grant, persist) {
-      if (typeof withPersistenceFence !== "function") throw new Error("semantic persistence fence unsupported");
-      return withPersistenceFence(manifest, grant, persist);
+    persistExactSemanticSuccessor(manifest, grant) {
+      if (typeof persistExactSemanticSuccessor !== "function") throw new Error("semantic protected persistence unsupported");
+      return persistExactSemanticSuccessor(manifest, grant);
     },
   });
 }

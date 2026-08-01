@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -353,8 +353,10 @@ test("synthetic verifier and filesystem adapters cannot construct or persist a s
   const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: grant });
   assert.equal(construction.reasonCode, "post_incident_operational_authorization_required");
   const persistenceSource = readFileSync(new URL("../lib/post-incident-successor-recovery.mjs", import.meta.url), "utf8");
-  assert.doesNotMatch(persistenceSource, /export function persistOrAdoptPostIncidentSuccessor/u);
-  assert.match(persistenceSource, /executeWithinSemanticRecoveryPersistenceFence\([\s\S]*?\(\) => persistOrAdoptPostIncidentSuccessor/u);
+  const authoritySource = readFileSync(new URL("../lib/semantic-recovery-authority.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(persistenceSource, /persistOrAdoptPostIncidentSuccessor|atomicJsonNoReplace|linkSync|renameSync/u);
+  assert.match(persistenceSource, /requestSourceOwnedSemanticRecoveryPersistence\(registry, fresh\.manifest, fresh\.grant\)/u);
+  assert.doesNotMatch(authoritySource, /persistExactSemanticSuccessor\(manifest, grant, persist\)|typeof persist(?:\s|[),;])/u);
   assert.doesNotMatch(persistenceSource, /postIncidentSuccessorRoot/u);
 });
 
@@ -389,6 +391,8 @@ test("overwrite incident quarantine remains byte-authenticated and ordinary reco
     const provenance = { ok: true, incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false, consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed" };
     const state = { taskKey: "task-1", issue: { number: 7 }, run: { runId: "run-consumed", supervisorRunId: "supervisor-consumed" } };
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state, authenticatedProvenance: provenance }).quarantined, true);
+    linkSync(incidentPath, path.join(root, "incident-hardlink.json"));
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state, authenticatedProvenance: provenance }).reasonCode, "incident_provenance_authentication_failed");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: "/other.json", state: { taskKey: "other", issue: { number: 8 } }, authenticatedProvenance: provenance }).quarantined, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -433,13 +437,11 @@ test("locked semantic execution remains fail-closed without native producers and
   assert.equal(result.reasonCode, "semantic_evidence_packet_invalid");
 });
 
-test("production persistence retains canonical symlink rejection and durable no-replace writes", () => {
+test("runner retains only the pure crash protocol and delegates every filesystem write to the protected producer", () => {
   const source = readFileSync(new URL("../lib/post-incident-successor-recovery.mjs", import.meta.url), "utf8");
-  assert.match(source, /lexicalStat\.isSymbolicLink\(\) \|\| !lexicalStat\.isDirectory\(\)/u);
-  assert.match(source, /writeFileSync\(temp,[\s\S]*?flag: "wx"/u);
-  assert.match(source, /fsyncFile\(temp\);[\s\S]*?linkSync\(temp, file\);[\s\S]*?fsyncDirectory\(path\.dirname\(file\)\)/u);
-  assert.match(source, /result: "prepared"[\s\S]*?result: "accepted"/u);
-  assert.match(source, /decision\.action === "write_prepared"[\s\S]*?decision\.action === "write_successor"[\s\S]*?commitPath/u);
+  assert.match(source, /prepared === undefined[\s\S]*?write_prepared[\s\S]*?successor === undefined[\s\S]*?write_successor[\s\S]*?write_commit/u);
+  assert.match(source, /commit !== undefined && \(prepared === undefined \|\| successor === undefined\)/u);
+  assert.doesNotMatch(source, /writeFileSync|renameSync|linkSync|unlinkSync|mkdirSync|persistOrAdoptPostIncidentSuccessor/u);
 });
 
 test("the test suite never creates or mutates the real protected-control root", () => {

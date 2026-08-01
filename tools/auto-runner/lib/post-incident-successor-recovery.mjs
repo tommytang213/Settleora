@@ -1,15 +1,15 @@
 import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
-import { closeSync, constants as fsConstants, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
-  executeWithinSemanticRecoveryPersistenceFence,
   authenticateRootOwnedSemanticRecoveryGrant,
   authenticateSemanticRecoverySources,
   createProductionSemanticRecoveryVerifierRegistry,
   deriveSemanticRecoveryOperationRequest,
   isValidatedSemanticRecoveryGrant,
+  requestSourceOwnedSemanticRecoveryPersistence,
   semanticRecoveryAuthorityClasses,
   semanticRecoveryClaimOwnerMatrixDigest,
   semanticRecoveryClaimOwnerMatrixVersion,
@@ -192,15 +192,12 @@ export function executeConfiguredSemanticRecoverySuccessor(config, packet, opera
     operationGrant: fresh.grant,
   });
   if (!construction.ok) return construction;
-  // A future native producer must hold its no-effect generation/CAS fence for
-  // the complete callback. The current source-owned slot is deliberately
-  // unavailable, so production cannot persist until that producer is deployed.
-  return executeWithinSemanticRecoveryPersistenceFence(
-    registry,
-    fresh.manifest,
-    fresh.grant,
-    () => persistOrAdoptPostIncidentSuccessor(config, construction, fresh.manifest),
-  );
+  // Only a future protected native producer may rederive and persist this
+  // exact successor while holding its no-effect generation/CAS fence and
+  // descriptor-relative storage authority. The runner supplies no callback,
+  // path operation, or mutation capability. The source-owned producer slot is
+  // deliberately unavailable in this runtime.
+  return requestSourceOwnedSemanticRecoveryPersistence(registry, fresh.manifest, fresh.grant);
 }
 
 export function constructPostIncidentSuccessor({ manifest, mutationGeneration, operationGrant }) {
@@ -275,93 +272,6 @@ export function constructPostIncidentSuccessor({ manifest, mutationGeneration, o
 
 export function authenticatePostIncidentOperationalAuthorization(input) {
   return authenticateRootOwnedSemanticRecoveryGrant(input);
-}
-
-function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {
-  if (!construction?.ok) return construction;
-  const expectedSuccessor = manifest && deriveSuccessorIdentity({
-    incidentIdentity: manifest.incidentIdentity,
-    taskIdentity: manifest.identities,
-    manifestDigest: manifest.manifestDigest,
-    lifecycleSuccessorSession: manifest.intendedSuccessor?.lifecycleSuccessorSession,
-    operationId: manifest.operation?.operationId,
-    successorRoot: path.dirname(manifest.intendedSuccessor?.storagePath || ""),
-  });
-  if (!validatedConstructions.has(construction)
-    || !validatedManifests.has(manifest)
-    || construction.storageKey !== manifest?.intendedSuccessor?.storageKey
-    || canonicalJson(expectedSuccessor) !== canonicalJson(manifest?.intendedSuccessor)
-    || construction.successor?.postIncidentSuccessor?.manifestDigest !== manifest?.manifestDigest
-    || digest(canonicalJson(manifestCoreFromManifest(manifest))) !== manifest?.manifestDigest) {
-    return failed("post_incident_persistence_binding_invalid");
-  }
-  let root;
-  try { root = canonicalConfiguredSuccessorRoot(config); }
-  catch { return failed("post_incident_successor_root_unsafe"); }
-  const predecessor = canonicalExistingPath(manifest.historicalPredecessor.path);
-  const incident = canonicalExistingPath(manifest.currentIncident.path);
-  const successorPath = manifest.intendedSuccessor.storagePath;
-  const ledgerPath = manifest.intendedSuccessor.provenancePath;
-  const commitPath = manifest.intendedSuccessor.commitPath;
-  if (path.dirname(successorPath) !== root
-    || path.dirname(path.dirname(ledgerPath)) !== root
-    || path.dirname(path.dirname(commitPath)) !== root) return failed("post_incident_successor_destination_binding_invalid");
-  const safeRoot = validatePersistenceDirectory(config.logsRoot, root);
-  if (!safeRoot.ok) return safeRoot;
-  const canonicalSuccessor = path.join(safeRoot.path, path.basename(successorPath));
-  if ([predecessor, incident].includes(canonicalSuccessor)) return failed("post_incident_successor_aliases_protected_path");
-  const record = {
-    contract: semanticRecoveryContract,
-    version: semanticRecoveryVersion,
-    incident: manifest.currentIncident,
-    manifestDigest: manifest.manifestDigest,
-    successorIdentity: manifest.intendedSuccessor,
-    operation: manifest.operation,
-    lifecycleSession: manifest.intendedSuccessor.lifecycleSuccessorSession,
-    mutationGeneration: construction.successor.mutationGeneration,
-    oneShotExhaustion: manifest.oneShotExhaustion,
-    artifactDigests: manifest.artifacts,
-    result: "prepared",
-    mutationAuthority: "unavailable_until_exact_successor_handoff",
-  };
-  const safeLedgerRoot = validatePersistenceDirectory(config.logsRoot, path.dirname(ledgerPath));
-  if (!safeLedgerRoot.ok) return safeLedgerRoot;
-  const safeCommitRoot = validatePersistenceDirectory(config.logsRoot, path.dirname(commitPath));
-  if (!safeCommitRoot.ok) return safeCommitRoot;
-  const commit = {
-    contract: "settleora_semantic_recovery_successor_commit",
-    version: 1,
-    result: "accepted",
-    manifestDigest: manifest.manifestDigest,
-    operationId: manifest.operation.operationId,
-    storageKey: construction.storageKey,
-    provenanceDigest: digest(canonicalJson(record)),
-    successorDigest: digest(canonicalJson(construction.successor)),
-  };
-  let created = false;
-  for (let step = 0; step < 4; step += 1) {
-    const reads = [ledgerPath, successorPath, commitPath].map(readSafeJsonIfExists);
-    if (reads.some((entry) => entry?.unsafe)) return failed("post_incident_successor_destination_unsafe");
-    const decision = evaluateSemanticRecoveryPersistenceSet({
-      prepared: reads[0]?.value,
-      successor: reads[1]?.value,
-      commit: reads[2]?.value,
-      expectedPrepared: record,
-      expectedSuccessor: construction.successor,
-      expectedCommit: commit,
-    });
-    if (!decision.ok) return decision;
-    if (decision.action === "adopt") {
-      return { ok: true, adopted: !created, reasonCode: created ? "post_incident_successor_created" : "post_incident_successor_adopted", successorPath, ledgerPath, commitPath };
-    }
-    const [targetPath, value] = decision.action === "write_prepared" ? [ledgerPath, record]
-      : decision.action === "write_successor" ? [successorPath, construction.successor]
-        : [commitPath, commit];
-    const written = atomicJsonNoReplace(targetPath, value);
-    if (!written.ok) return written;
-    created = true;
-  }
-  return failed("post_incident_successor_commit_incomplete");
 }
 
 export function evaluateSemanticRecoveryPersistenceSet({ prepared, successor, commit, expectedPrepared, expectedSuccessor, expectedCommit } = {}) {
@@ -511,47 +421,6 @@ function bounded(value) { return typeof value === "string" && value.length > 0 &
 function unique(values) { return [...new Set(values)].sort(); }
 function deepFreeze(value) { if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value)) deepFreeze(child); } return value; }
 function failed(reasonCode, diagnostics = []) { return { ok: false, reasonCode, diagnostics: unique(diagnostics) }; }
-function readSafeJsonIfExists(file) {
-  if (!existsSync(file)) return null;
-  let fd;
-  try {
-    fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
-    const first = fstatSync(fd);
-    const uid = typeof process.getuid === "function" ? process.getuid() : null;
-    if (!first.isFile() || first.nlink !== 1 || first.size < 1 || first.size > maximumArtifactBytes
-      || (first.mode & 0o7777) !== 0o600 || (uid !== null && first.uid !== uid)) return { unsafe: true };
-    const bytes = readFileSync(fd);
-    const second = fstatSync(fd);
-    if (persistenceStatIdentity(first) !== persistenceStatIdentity(second) || bytes.length !== first.size || !isUtf8(bytes)) return { unsafe: true };
-    return { value: JSON.parse(bytes.toString("utf8")) };
-  } catch { return { unsafe: true }; }
-  finally { if (fd !== undefined) closeSync(fd); }
-}
-function atomicJsonNoReplace(file, value) {
-  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-  fsyncFile(temp);
-  try { linkSync(temp, file); fsyncDirectory(path.dirname(file)); return { ok: true }; }
-  catch (error) {
-    if (error?.code !== "EEXIST") return failed("post_incident_successor_persist_failed");
-    const existing = readSafeJsonIfExists(file);
-    if (existing?.unsafe) return failed("post_incident_successor_destination_unsafe");
-    return canonicalJson(existing?.value) === canonicalJson(value)
-      ? { ok: true }
-      : failed("post_incident_successor_collision");
-  } finally { try { unlinkSync(temp); fsyncDirectory(path.dirname(temp)); } catch {} }
-}
-function fsyncFile(file) {
-  const fd = openSync(file, fsConstants.O_RDONLY);
-  try { fsyncSync(fd); } finally { closeSync(fd); }
-}
-function fsyncDirectory(directory) {
-  const fd = openSync(directory, fsConstants.O_RDONLY);
-  try { fsyncSync(fd); } finally { closeSync(fd); }
-}
-function persistenceStatIdentity(stat) {
-  return [stat.dev, stat.ino, stat.mode, stat.nlink, stat.uid, stat.gid, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
-}
 function canonicalConfiguredSuccessorRoot(config) {
   if (!config || typeof config.logsRoot !== "string" || !path.isAbsolute(config.logsRoot)) throw new Error("semantic successor logs root invalid");
   const lexicalLogsRoot = path.resolve(config.logsRoot);
@@ -564,54 +433,50 @@ function canonicalExistingPath(value) {
   const parent = path.dirname(resolved);
   return existsSync(parent) ? path.join(realpathSync(parent), path.basename(resolved)) : resolved;
 }
-function validatePersistenceDirectory(logsRoot, directory) {
-  try {
-    const lexicalRoot = path.resolve(logsRoot);
-    const trustedRoot = realpathSync(lexicalRoot);
-    if (trustedRoot !== lexicalRoot) return failed("post_incident_successor_root_unsafe");
-    const lexicalDirectory = path.resolve(directory);
-    const lexicalRelative = path.relative(lexicalRoot, lexicalDirectory);
-    if (lexicalRelative.startsWith("..") || path.isAbsolute(lexicalRelative)) return failed("post_incident_successor_root_unsafe");
-    let lexicalCursor = lexicalRoot;
-    for (const segment of lexicalRelative.split(path.sep).filter(Boolean)) {
-      lexicalCursor = path.join(lexicalCursor, segment);
-      const lexicalStat = lstatSync(lexicalCursor);
-      if (lexicalStat.isSymbolicLink() || !lexicalStat.isDirectory()) return failed("post_incident_successor_root_unsafe");
-    }
-    const real = realpathSync(lexicalDirectory);
-    const relative = path.relative(trustedRoot, real);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) return failed("post_incident_successor_root_unsafe");
-    let cursor = real;
-    while (true) {
-      const stat = lstatSync(cursor);
-      if (stat.isSymbolicLink() || !stat.isDirectory()
-        || (typeof process.getuid === "function" && stat.uid !== process.getuid())
-        || (stat.mode & 0o077) !== 0) return failed("post_incident_successor_root_unsafe");
-      if (cursor === trustedRoot) break;
-      const parent = path.dirname(cursor);
-      if (parent === cursor) return failed("post_incident_successor_root_unsafe");
-      cursor = parent;
-    }
-    return { ok: true, path: real };
-  } catch { return failed("post_incident_successor_root_unsafe"); }
-}
 function authenticateOpaqueArtifact(artifact) {
-  const canonicalPath = realpathSync(artifact.path);
+  const lexicalPath = path.resolve(artifact.path);
+  const canonicalPath = realpathSync(lexicalPath);
+  if (canonicalPath !== lexicalPath) throw new Error("artifact path noncanonical");
+  assertOwnerOnlyCanonicalArtifactAncestors(canonicalPath);
   const fd = openSync(canonicalPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
-  let stat;
+  let first;
   let bytes;
   try {
-    stat = fstatSync(fd);
-    if (!stat.isFile() || stat.nlink < 1 || stat.size < 1 || stat.size > maximumArtifactBytes
-      || (stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())) throw new Error("untrusted artifact");
+    first = fstatSync(fd);
+    if (!first.isFile() || first.nlink !== 1 || first.size < 1 || first.size > maximumArtifactBytes
+      || (first.mode & 0o077) !== 0 || (typeof process.getuid === "function" && first.uid !== process.getuid())) throw new Error("untrusted artifact");
     bytes = readFileSync(fd);
-    if (bytes.length !== stat.size || bytes.length > maximumArtifactBytes) throw new Error("artifact changed during authentication");
+    const second = fstatSync(fd);
+    const pathStat = lstatSync(canonicalPath);
+    if (artifactStatIdentity(first) !== artifactStatIdentity(second)
+      || artifactStatIdentity(first) !== artifactStatIdentity(pathStat)
+      || realpathSync(canonicalPath) !== canonicalPath
+      || bytes.length !== first.size || bytes.length > maximumArtifactBytes || !isUtf8(bytes)) {
+      throw new Error("artifact changed during authentication");
+    }
   } finally { closeSync(fd); }
   const actualSha256 = digest(bytes);
   if (actualSha256 !== artifact.sha256) throw new Error("artifact digest mismatch");
-  const authenticated = { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: actualSha256, byteCount: stat.size };
+  const authenticated = { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: digest(canonicalJson({ path: canonicalPath, stat: artifactStatIdentity(first), sha256: actualSha256 })), byteCount: first.size };
   Object.defineProperty(authenticated, "authenticatedBytes", { value: bytes, enumerable: false });
   return authenticated;
+}
+function assertOwnerOnlyCanonicalArtifactAncestors(file) {
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  let cursor = path.dirname(file);
+  while (true) {
+    const stat = lstatSync(cursor);
+    const rootOwnedStickyBoundary = stat.uid === 0 && (stat.mode & 0o1000) !== 0;
+    if (!stat.isDirectory() || stat.isSymbolicLink() || realpathSync(cursor) !== cursor
+      || ((stat.mode & 0o022) !== 0 && !rootOwnedStickyBoundary)
+      || (uid !== null && stat.uid !== uid && stat.uid !== 0)) throw new Error("artifact ancestor unsafe");
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+}
+function artifactStatIdentity(stat) {
+  return [stat.dev, stat.ino, stat.mode, stat.nlink, stat.uid, stat.gid, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
 }
 function safeCanonicalMatch(left, right) {
   if (typeof left !== "string" || typeof right !== "string") return false;

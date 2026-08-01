@@ -934,10 +934,13 @@ test("both startup discovery paths use the same source-owned semantic authority 
   assert.match(source, /recovery\?\.action === "create_or_adopt_semantic_recovery_successor"/u);
   assert.ok(runner.indexOf("acquireRunnerLock(config)") < runner.indexOf("await executeStartupContinuation(config, startupRecovery)"));
   assert.match(runner, /semanticSuccessorRecovery[\s\S]*?semantic_recovery_exact_existing_charge_unchanged[\s\S]*?chargeStartupRecoveryLogicalTask/u);
+  assert.match(runner, /\["semantic_recovery_successor_created", "semantic_recovery_successor_adopted"\]\.includes\(iteration\.outcome\)[\s\S]*?semantic-recovery-terminal/u);
   assert.match(recovery, /createProductionSemanticRecoveryVerifierRegistry\(adapters\.config\)/);
   assert.match(recovery, /const fresh = authenticateConfiguredWithRegistry/);
   assert.match(recovery, /fresh\.grant\.sha256 !== initial\.grant\.sha256/);
-  assert.match(recovery, /executeWithinSemanticRecoveryPersistenceFence\([\s\S]*?registry,[\s\S]*?fresh\.manifest,[\s\S]*?fresh\.grant,[\s\S]*?persistOrAdoptPostIncidentSuccessor/u);
+  assert.match(recovery, /requestSourceOwnedSemanticRecoveryPersistence\(registry, fresh\.manifest, fresh\.grant\)/u);
+  assert.doesNotMatch(recovery, /persistOrAdoptPostIncidentSuccessor|atomicJsonNoReplace/u);
+  assert.doesNotMatch(authority, /typeof persist|withPersistenceFence/u);
   assert.match(authority, /semanticRecoveryProtectedControlRoot = "\/etc\/settleora-auto-runner\/semantic-recovery-authority"/);
   assert.match(authority, /semanticRecoveryGrantPath\(operationId\)/);
   assert.doesNotMatch(source, /authenticateSourceProvenance/);

@@ -388,6 +388,10 @@ export async function main() {
         summary.stopReason = "no-eligible-work";
         break;
       }
+      if (["semantic_recovery_successor_created", "semantic_recovery_successor_adopted"].includes(iteration.outcome)) {
+        summary.stopReason = `semantic-recovery-terminal:${iteration.outcome}`;
+        break;
+      }
       writeActiveRunState(config, summary);
     }
     if (!summary.stopReason) {

@@ -307,9 +307,14 @@ export function getStatusShort(options = {}) {
 
 export function ensureLaunchWorkspace(config, logger, options = {}) {
   const cwd = options.cwd || config.repoRoot;
-  const status = getStatusShort({ cwd });
-  const branch = getCurrentBranch({ cwd });
-  const originMainSha = getRefSha("origin/main", { cwd });
+  const statusResult = runLaunchWorkspaceGuardGit(["status", "--porcelain=v1", "--untracked-files=all"], { cwd, environment: options.environment });
+  assertGitSuccess(statusResult, "Unable to read launch workspace status");
+  const branchResult = runLaunchWorkspaceGuardGit(["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd, environment: options.environment });
+  const refResult = runLaunchWorkspaceGuardGit(["rev-parse", "--verify", "origin/main^{commit}"], { cwd, environment: options.environment });
+  assertGitSuccess(refResult, "Unable to resolve launch origin/main");
+  const status = statusResult.stdout.trim();
+  const branch = branchResult.status === 0 ? branchResult.stdout.trim() : "";
+  const originMainSha = refResult.stdout.trim();
   if (status && config.run) {
     throw new Error("Refusing real-run launch with a dirty worktree");
   }
@@ -320,6 +325,50 @@ export function ensureLaunchWorkspace(config, logger, options = {}) {
     logger.warn("Dry-run observed a dirty worktree; real-run launch would refuse to proceed.", { status });
   }
   return { branch, originMainSha, dirty: Boolean(status), status };
+}
+
+function runLaunchWorkspaceGuardGit(args, { cwd, environment = process.env } = {}) {
+  // Deliberately do not inherit any caller GIT_* or HOME-scoped configuration.
+  // The unused environment parameter makes hostile-environment behavior
+  // directly testable without mutating process-global state.
+  void environment;
+  const fixedArgs = [
+    "--no-replace-objects",
+    "-c", "credential.helper=",
+    "-c", "core.attributesFile=/dev/null",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", `core.worktree=${cwd}`,
+    "-c", "diff.external=",
+    "-c", "protocol.ext.allow=never",
+    "-c", "protocol.file.allow=never",
+    "-c", "status.showUntrackedFiles=all",
+    ...args,
+  ];
+  const result = spawnSync("/usr/bin/git", fixedArgs, {
+    cwd,
+    env: {
+      PATH: "/usr/bin:/bin",
+      GIT_ATTR_SOURCE: "HEAD",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_NO_LAZY_FETCH: "1",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      LANG: "C",
+      LC_ALL: "C",
+    },
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return {
+    command: `/usr/bin/git ${fixedArgs.join(" ")}`,
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error ? result.error.message : null,
+  };
 }
 
 export function ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha }, options = {}) {
