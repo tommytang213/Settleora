@@ -7,8 +7,10 @@ import path from "node:path";
 import {
   adoptHistoricalTaskWorkspace,
   bindTrustedRepositoryContext,
+  gitWorkspaceTestInternals,
   restoreControlPlaneRepositoryContext,
   runGit,
+  runTrustedGithub,
   sourceStateIdentityForCommit,
 } from "../lib/git-workspace.mjs";
 import { canonicalGithubEvidenceDigest } from "../lib/github-evidence-digest.mjs";
@@ -53,6 +55,51 @@ test("sourceStateIdentityForCommit returns exact head, tree, and stable patch ID
   } finally {
     repo.cleanup();
   }
+});
+
+test("source-owned Git forwards bounded stdin and ignores inherited Git execution hooks", () => {
+  const repo = tempRepo();
+  const inherited = process.env.GIT_EXTERNAL_DIFF;
+  try {
+    const object = runGit(["hash-object", "--stdin"], { cwd: repo.cwd, input: "bounded input\n" });
+    assert.equal(object.status, 0, object.stderr);
+    assert.match(object.stdout.trim(), /^[0-9a-f]{40}$/u);
+
+    writeFileSync(path.join(repo.cwd, "base.txt"), "changed\n");
+    process.env.GIT_EXTERNAL_DIFF = "/definitely/not/an/executable";
+    const diff = runGit(["diff", "--", "base.txt"], { cwd: repo.cwd });
+    assert.equal(diff.status, 0, diff.stderr);
+    assert.match(diff.stdout, /^diff --git /u);
+  } finally {
+    if (inherited === undefined) delete process.env.GIT_EXTERNAL_DIFF;
+    else process.env.GIT_EXTERNAL_DIFF = inherited;
+    repo.cleanup();
+  }
+});
+
+test("trusted GitHub execution requires an explicit canonical repository context", () => {
+  const absent = runTrustedGithub({ repoRoot: process.cwd() }, ["pr", "view", "1"]);
+  assert.equal(absent.status, 1);
+  assert.match(absent.stderr, /explicit GitHub repository context/u);
+
+  const malformed = runTrustedGithub({
+    repoRoot: process.cwd(), repositorySlug: "https://github.com/example/repo",
+  }, ["issue", "view", "1"]);
+  assert.equal(malformed.status, 1);
+  assert.match(malformed.stderr, /explicit GitHub repository context/u);
+
+  assert.deepEqual(
+    gitWorkspaceTestInternals.bindGithubRepository(["pr", "view", "1"], "example/repo"),
+    ["pr", "view", "1", "--repo", "example/repo"],
+  );
+  assert.deepEqual(
+    gitWorkspaceTestInternals.bindGithubRepository(["run", "view", "2"], "example/repo"),
+    ["run", "view", "2", "--repo", "example/repo"],
+  );
+  assert.deepEqual(
+    gitWorkspaceTestInternals.bindGithubRepository(["api", "repos/example/repo"], "example/repo"),
+    ["api", "repos/example/repo"],
+  );
 });
 
 test("graph-rewriting graft, alternate and shallow metadata fail closed", () => {

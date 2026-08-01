@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
+import { runGit, runTrustedGithub } from "./git-workspace.mjs";
 
 export async function materializeFeatureBundleSplit(input, adapter) {
   const proof = validateSplitMaterializationInput(input);
@@ -74,16 +74,15 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
   return {
     readBranch: async (branchName) => {
       const local = git(cwd, ["show-ref", "--verify", "--hash", `refs/heads/${branchName}`]);
-      assertRepositoryRemoteIdentity(config);
-      const remote = git(cwd, ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`]);
+      const verified = assertRepositoryRemoteIdentity(config);
+      const remote = git(cwd, ["ls-remote", "--heads", verified.originUrl, `refs/heads/${branchName}`]);
       if (remote.status !== 0 || remote.error) return { complete: false, exists: false, unavailable: true };
       const remoteHead = remote.status === 0 && remote.stdout.trim() ? remote.stdout.trim().split(/\s+/)[0] : null;
       const localHead = local.status === 0 ? local.stdout.trim() : null;
       if (localHead && remoteHead && localHead !== remoteHead) return { complete: true, exists: true, conflict: true, headSha: localHead, remoteHead };
       if (localHead) return { complete: true, exists: true, headSha: localHead, treeSha: git(cwd, ["rev-parse", `${localHead}^{tree}`]).stdout.trim(), remoteExists: Boolean(remoteHead), source: remoteHead ? "local+remote" : "local" };
       if (!remoteHead) return { complete: true, exists: false, headSha: null, remoteExists: false };
-      assertRepositoryRemoteIdentity(config);
-      const fetched = git(cwd, ["fetch", "origin", `refs/heads/${branchName}`]);
+      const fetched = git(cwd, ["fetch", verified.originUrl, `refs/heads/${branchName}`]);
       return fetched.status === 0 ? { complete: true, exists: true, headSha: remoteHead, treeSha: git(cwd, ["rev-parse", `${remoteHead}^{tree}`]).stdout.trim(), remoteExists: true, source: "remote" } : { complete: false, exists: true, headSha: remoteHead, unavailable: true };
     },
     materializeBranch: async (expected) => {
@@ -121,12 +120,12 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
       return { ok, reasonCode: ok ? null : actualDigest !== expected.changedFilesDigest ? "split_materialization_changed_files_mismatch" : "split_materialization_semantic_mismatch", changedFilesDigest: actualDigest, semanticOwnDeltaProven: ok, ownDelta };
     },
     pushBranch: async (expected) => {
-      assertRepositoryRemoteIdentity(config);
-      const result = git(cwd, ["push", "origin", `${expected.headSha}:refs/heads/${expected.branchName}`]);
+      const verified = assertRepositoryRemoteIdentity(config);
+      const result = git(cwd, ["push", verified.pushUrl, `${expected.headSha}:refs/heads/${expected.branchName}`]);
       return { ok: result.status === 0, reasonCode: result.status === 0 ? null : "split_materialization_push_failed" };
     },
     readPr: async (branchName) => {
-      const result = gh(cwd, ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,baseRefName,headRefName,headRefOid"]);
+      const result = runTrustedGithub(config, ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,baseRefName,headRefName,headRefOid"]);
       if (result.status !== 0) return { complete: false, exists: false, unavailable: true };
       const prs = JSON.parse(result.stdout || "[]");
       if (prs.length > 1) return { exists: true, ambiguous: true };
@@ -134,7 +133,7 @@ export function createProductionSplitMaterializationAdapter(config, { checkpoint
       return pr ? { complete: true, exists: true, ok: true, number: pr.number, url: pr.url, state: pr.state, baseBranch: pr.baseRefName, headSha: pr.headRefOid } : { complete: true, exists: false };
     },
     createPr: async (expected) => {
-      const result = gh(cwd, ["pr", "create", "--base", expected.baseBranch, "--head", expected.branchName, "--title", `Auto-runner split: #${expected.issueNumber} ${expected.id}`, "--body", `Part of #${expected.issueNumber}. Deterministic split of logical task ${expected.logicalTaskKey}.`]);
+      const result = runTrustedGithub(config, ["pr", "create", "--base", expected.baseBranch, "--head", expected.branchName, "--title", `Auto-runner split: #${expected.issueNumber} ${expected.id}`, "--body", `Part of #${expected.issueNumber}. Deterministic split of logical task ${expected.logicalTaskKey}.`]);
       if (result.status !== 0) return fail("split_materialization_pr_failed");
       const url = result.stdout.trim();
       const number = Number(url.split("/").at(-1));
@@ -162,7 +161,7 @@ function put(state, id, value) { return { ...state, slices: { ...state.slices, [
 function topological(slices) { const pending = [...slices], result = [], done = new Set(); while (pending.length) { const index = pending.findIndex((slice) => slice.dependsOn.every((id) => done.has(id))); if (index < 0) return null; const [slice] = pending.splice(index, 1); result.push(slice); done.add(slice.id); } return result; }
 function buildSplitOwnDelta(cwd, expected, fileSet, patchText) {
   const numstatResult = git(cwd, ["diff", "--numstat", expected.baseHeadSha, expected.headSha]);
-  const patchIdResult = spawnSync("git", ["patch-id", "--stable"], { cwd, encoding: "utf8", input: patchText, windowsHide: true });
+  const patchIdResult = git(cwd, ["patch-id", "--stable"], { input: patchText });
   const stablePatchId = patchIdResult.status === 0 ? patchIdResult.stdout.trim().split(/\s+/)[0] : null;
   const stats = summarizeSplitPatch(patchText);
   const numstat = parseSplitNumstat(numstatResult.stdout);
@@ -187,9 +186,8 @@ function buildSplitOwnDelta(cwd, expected, fileSet, patchText) {
 }
 function summarizeSplitPatch(value) { let additions = 0, deletions = 0, current = false; for (const line of String(value).split(/\r?\n/)) { if (line.startsWith("diff --git ")) { current = true; continue; } if (!current || line.startsWith("+++") || line.startsWith("---")) continue; if (line.startsWith("+")) additions += 1; else if (line.startsWith("-")) deletions += 1; } return { additions, deletions }; }
 function parseSplitNumstat(value) { const entries = {}; for (const line of String(value || "").split(/\r?\n/)) { if (!line.trim()) continue; const [added, deleted, file] = line.split("\t"); if (file) entries[file] = { added: added === "-" ? null : Number(added), deleted: deleted === "-" ? null : Number(deleted) }; } return entries; }
-function splitPatchApplies(cwd, ref, patchText, reverse) { const temporary = mkdtempSync(path.join(tmpdir(), "settleora-split-proof-")); let added = false; try { const worktree = git(cwd, ["worktree", "add", "--detach", temporary, ref]); if (worktree.status !== 0) return false; added = true; const args = ["apply", "--check"]; if (reverse) args.push("--reverse"); const result = spawnSync("git", args, { cwd: temporary, encoding: "utf8", input: patchText, windowsHide: true }); return result.status === 0 && !result.error; } finally { if (added) git(cwd, ["worktree", "remove", temporary]); rmSync(temporary, { recursive: true, force: true }); } }
+function splitPatchApplies(cwd, ref, patchText, reverse) { const temporary = mkdtempSync(path.join(tmpdir(), "settleora-split-proof-")); let added = false; try { const worktree = git(cwd, ["worktree", "add", "--detach", temporary, ref]); if (worktree.status !== 0) return false; added = true; const args = ["apply", "--check"]; if (reverse) args.push("--reverse"); args.push("-"); const result = git(temporary, args, { input: patchText, bindAttributesToHead: false }); return result.status === 0 && !result.error; } finally { if (added) git(cwd, ["worktree", "remove", temporary]); rmSync(temporary, { recursive: true, force: true }); } }
 function digest(value) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function bounded(value) { const text = JSON.stringify(value); return text.length <= 32_768 ? JSON.parse(text) : { truncated: true, sha256: createHash("sha256").update(text).digest("hex") }; }
 function fail(reasonCode, evidence = {}) { return { ok: false, outcome: "blocked", reasonCode, evidence }; }
-function git(cwd, args) { return spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true }); }
-function gh(cwd, args) { return spawnSync("gh", args, { cwd, encoding: "utf8", windowsHide: true }); }
+function git(cwd, args, options = {}) { return runGit(args, { cwd, input: options.input, bindAttributesToHead: options.bindAttributesToHead, manageWorktrees: args.includes("worktree") }); }

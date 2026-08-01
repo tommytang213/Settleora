@@ -7695,8 +7695,9 @@ test("stack CLI constructs and injects one live fixed-argv runner", () => {
   assert.match(source, /settleoraFixedArgvRunner = true/);
   assert.match(source, /settleoraRunnerMode = "live"/);
   assert.match(source, /shell_execution_refused/);
-  assert.match(source, /command === "git"[\s\S]*runGit\(args,[\s\S]*command === "gh"[\s\S]*runTrustedGithub\(args/);
-  assert.match(source, /spawnSync\("\/usr\/bin\/gh", args,[\s\S]*shell: false/);
+  assert.match(source, /command === "git"[\s\S]*runGit\(args,[\s\S]*command === "gh"[\s\S]*runTrustedGithub\(\{ \.\.\.config, repoRoot: cwd \}, args/);
+  const gitWorkspace = readFileSync("tools/auto-runner/lib/git-workspace.mjs", "utf8");
+  assert.match(gitWorkspace, /spawnSync\("\/usr\/bin\/gh", boundArgs,[\s\S]*shell: false/);
   assert.doesNotMatch(source, /spawnSync\("(?:git|gh)"/);
   assert.match(source, /runStrongReview: async/);
   assert.match(source, /runCodexReview: async/);

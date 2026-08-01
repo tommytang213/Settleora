@@ -253,13 +253,17 @@ export function runGit(args, options = {}) {
   });
   const result = spawnSync("/usr/bin/git", fixedArgs, {
     cwd,
+    input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
     env: fixedRepositoryGitEnvironment(context, {
-      bindAttributesToHead: hasHead,
+      bindAttributesToHead: hasHead && options.bindAttributesToHead !== false,
       internalIndexFile: options.internalIndexFile,
       manageWorktrees: options.manageWorktrees === true,
     }),
     encoding: "utf8",
     windowsHide: true,
+    shell: false,
+    timeout: boundedCommandTimeout(options.timeoutMs),
+    maxBuffer: boundedCommandOutput(options.maxBuffer),
   });
   if (!sourceOwnedGitContextStable(context)) {
     return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
@@ -270,6 +274,7 @@ export function runGit(args, options = {}) {
     stdout: result.stdout || "",
     stderr: result.stderr || "",
     error: result.error ? result.error.message : null,
+    signal: result.signal || null,
   };
 }
 
@@ -390,12 +395,11 @@ function fixedRepositoryGitArgs(cwd, args, { allowLocalFileTransport = false } =
 function fixedRepositoryGitEnvironment(context, {
   bindAttributesToHead = true, internalIndexFile = null, manageWorktrees = false,
 } = {}) {
-  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
   const indexFile = internalIndexFile === null
     ? context.indexFile
     : validateInternalGitIndexFile(internalIndexFile);
   const environment = {
-    ...inherited,
+    ...fixedUserEnvironment(),
     PATH: "/usr/bin:/bin",
     GIT_ATTR_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: "/dev/null",
@@ -419,10 +423,87 @@ function fixedRepositoryGitEnvironment(context, {
 
 function fixedPureGitEnvironment() {
   return {
-    PATH: "/usr/bin:/bin", GIT_ATTR_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
+    ...fixedUserEnvironment(), PATH: "/usr/bin:/bin", GIT_ATTR_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_NO_LAZY_FETCH: "1",
     GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0", LANG: "C", LC_ALL: "C",
   };
+}
+
+export function runTrustedGithub(config, args, options = {}) {
+  if (!config?.repoRoot || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(String(config?.repositorySlug || ""))) {
+    return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: "explicit GitHub repository context is required", error: null };
+  }
+  if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
+    return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: "fixed GitHub argv is required", error: null };
+  }
+  const boundArgs = bindGithubRepository(args, config.repositorySlug);
+  let authenticationEnvironment;
+  try {
+    authenticationEnvironment = trustedGithubAuthenticationEnvironment();
+  } catch {
+    return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: "GitHub authentication path is untrusted", error: null };
+  }
+  const result = spawnSync("/usr/bin/gh", boundArgs, {
+    cwd: config.repoRoot,
+    input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
+    env: { ...authenticationEnvironment, GH_HOST: "github.com", GH_PROMPT_DISABLED: "1" },
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+    timeout: boundedCommandTimeout(options.timeoutMs ?? options.timeout),
+    maxBuffer: boundedCommandOutput(options.maxBuffer),
+  });
+  return {
+    command: `/usr/bin/gh ${boundArgs.join(" ")}`,
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error?.message || null,
+  };
+}
+
+function bindGithubRepository(args, repositorySlug) {
+  if (!["issue", "pr", "run", "workflow", "release", "label"].includes(args[0])
+    || args.includes("--repo") || args.includes("-R")) return [...args];
+  return [...args, "--repo", repositorySlug];
+}
+
+export const gitWorkspaceTestInternals = Object.freeze({ bindGithubRepository });
+
+function trustedGithubAuthenticationEnvironment() {
+  const environment = fixedUserEnvironment();
+  const home = environment.HOME;
+  const configRoot = environment.GH_CONFIG_DIR;
+  const hosts = path.join(configRoot, "hosts.yml");
+  for (const [target, type] of [[home, "directory"], [configRoot, "directory"], [hosts, "file"]]) {
+    const info = lstatSync(target);
+    const validType = type === "directory" ? info.isDirectory() : info.isFile();
+    if (!validType || info.isSymbolicLink() || realpathSync(target) !== target
+      || (info.mode & 0o022) !== 0
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+      throw new Error("GitHub authentication path is untrusted");
+    }
+  }
+  return environment;
+}
+
+function fixedUserEnvironment() {
+  const home = os.userInfo().homedir;
+  return {
+    HOME: home,
+    GH_CONFIG_DIR: path.join(home, ".config", "gh"),
+    PATH: "/usr/bin:/bin",
+    LANG: "C",
+    LC_ALL: "C",
+  };
+}
+
+function boundedCommandTimeout(value) {
+  return Number.isInteger(value) ? Math.max(1_000, Math.min(value, 120_000)) : 30_000;
+}
+
+function boundedCommandOutput(value) {
+  return Number.isInteger(value) ? Math.max(1_024, Math.min(value, 16 * 1024 * 1024)) : 16 * 1024 * 1024;
 }
 
 function repositoryHasHead(context) {

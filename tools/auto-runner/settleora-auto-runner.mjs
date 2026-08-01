@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -53,6 +52,7 @@ import {
   listWorkingTreeChangedFiles,
   runAuthenticatedRemoteGit,
   runGit,
+  runTrustedGithub,
   runTrustedProspectiveMergeTree,
   restoreControlPlaneRepositoryContext,
   sourceStateIdentityForCommit,
@@ -3270,7 +3270,7 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
     return head === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_push_live_mismatch" };
   }
   if (phase === "pr_create_or_update") {
-    const live = runTrustedGithub(["pr", "list", "--head", continuation.branchName, "--state", "open", "--json", "number,baseRefName,headRefOid"], config.repoRoot);
+    const live = runTrustedGithub(config, ["pr", "list", "--head", continuation.branchName, "--state", "open", "--json", "number,baseRefName,headRefOid"]);
     let prs = []; try { prs = JSON.parse(live.stdout || "[]"); } catch { return { ok: false, reasonCode: "ordinary_continuation_pr_live_unavailable" }; }
     return live.status === 0 && prs.length === 1 && prs[0].baseRefName === "main" && prs[0].headRefOid === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_pr_live_mismatch" };
   }
@@ -3300,7 +3300,7 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
 }
 
 function readOrdinaryCleanupAuthority(config, state, continuation, owner, currentRunId = null) {
-  const runGh = (args) => runTrustedGithub(args, config.repoRoot);
+  const runGh = (args) => runTrustedGithub(config, args);
   const runLocalGit = (args) => runGit(args, { cwd: config.repoRoot });
   const prRead = runGh(["pr", "view", String(owner.prNumber), "--repo", owner.repository, "--json", "number,state,headRefName,headRefOid,baseRefName,mergeCommit"]);
   const openHeadRead = runGh(["pr", "list", "--repo", owner.repository, "--state", "open", "--head", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
@@ -3590,17 +3590,11 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
   }
   fetchOriginMain(config, { trustedHistoricalRecovery: true });
   const reconstructedCurrentMainSha = getRefSha("origin/main");
-  const mainLineage = spawnSync(
-    "git", ["merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha],
-    { cwd: config.repoRoot, encoding: "utf8" },
-  );
+  const mainLineage = runGit(["merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha], { cwd: config.repoRoot });
   if (!/^[a-f0-9]{40}$/.test(reconstructedCurrentMainSha) || mainLineage.status !== 0) {
     return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
   }
-  const candidateAlreadyInMain = spawnSync(
-    "git", ["merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha],
-    { cwd: config.repoRoot, encoding: "utf8" },
-  );
+  const candidateAlreadyInMain = runGit(["merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha], { cwd: config.repoRoot });
   if (candidateAlreadyInMain.status === 0) {
     return { ok: false, reasonCode: "historical_candidate_already_in_main" };
   }
@@ -4253,38 +4247,21 @@ export function verifyProspectiveMergeValidation(config, evidence, expectedBaseS
 
 function readPrChangedFiles(config, prNumber) {
   if (!prNumber || config.dryRun) return [];
-  const result = spawnLike("gh", ["pr", "diff", String(prNumber), "--name-only"], config.repoRoot);
+  const result = runTrustedGithub(config, ["pr", "diff", String(prNumber), "--name-only"]);
   if (result.status !== 0 || result.error) return [];
   return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).sort();
 }
 
 function readPrDiff(config, prNumber) {
   if (!prNumber || config.dryRun) return "";
-  const result = spawnLike("gh", ["pr", "diff", String(prNumber)], config.repoRoot);
+  const result = runTrustedGithub(config, ["pr", "diff", String(prNumber)]);
   if (result.status !== 0 || result.error) return "";
   return result.stdout || "";
 }
 
 function spawnLike(command, args, cwd) {
   if (command === "git") return runGit(args, { cwd, manageWorktrees: args.includes("worktree") });
-  if (command === "gh") return runTrustedGithub(args, cwd);
   return { status: 1, stdout: "", stderr: "trusted executable required", error: "trusted executable required" };
-}
-
-function runTrustedGithub(args, cwd, options = {}) {
-  const inherited = Object.fromEntries(Object.entries(process.env)
-    .filter(([key]) => !key.startsWith("GIT_") && !key.startsWith("GH_")));
-  const result = spawnSync("/usr/bin/gh", args, {
-    cwd,
-    input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
-    env: { ...inherited, PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GH_PROMPT_DISABLED: "1" },
-    encoding: "utf8",
-    windowsHide: true,
-    shell: false,
-    timeout: options.timeoutMs,
-    maxBuffer: options.maxBuffer,
-  });
-  return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 
 function createLiveFixedArgvRunner(config = {}) {
@@ -4309,9 +4286,9 @@ function createLiveFixedArgvRunner(config = {}) {
     }
     const cwd = path.resolve(options.cwd || repoRoot);
 	    const result = command === "git"
-      ? runGit(args, { cwd, manageWorktrees: args.includes("worktree") })
+      ? runGit(args, { cwd, manageWorktrees: args.includes("worktree"), input: options.input, timeoutMs: options.timeoutMs || timeoutMs, maxBuffer: maxOutputBytes })
       : command === "gh"
-        ? runTrustedGithub(args, cwd, { ...options, timeoutMs: options.timeoutMs || timeoutMs, maxBuffer: maxOutputBytes })
+        ? runTrustedGithub({ ...config, repoRoot: cwd }, args, { ...options, timeoutMs: options.timeoutMs || timeoutMs, maxBuffer: maxOutputBytes })
         : { status: 1, stdout: "", stderr: "trusted executable required", error: "trusted executable required" };
 	    const stdout = boundRunnerOutput(result.stdout || "", maxOutputBytes);
 	    const stderr = boundRunnerOutput(result.stderr || "", maxOutputBytes);

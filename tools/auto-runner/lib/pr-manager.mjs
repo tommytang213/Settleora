@@ -1,25 +1,9 @@
-import { spawnSync } from "node:child_process";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
-import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha, runGit } from "./git-workspace.mjs";
+import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha, runGit, runTrustedGithub } from "./git-workspace.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
-function runGh(args, cwd) {
-  const inherited = Object.fromEntries(Object.entries(process.env)
-    .filter(([key]) => !key.startsWith("GIT_") && !key.startsWith("GH_")));
-  const result = spawnSync("/usr/bin/gh", args, {
-    cwd,
-    env: { ...inherited, PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GH_PROMPT_DISABLED: "1" },
-    encoding: "utf8",
-    windowsHide: true,
-    shell: false,
-  });
-  return {
-    command: `gh ${args.join(" ")}`,
-    status: result.status,
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    error: result.error ? result.error.message : null,
-  };
+function runGh(config, args) {
+  return runTrustedGithub(config, args);
 }
 
 export async function pushBranch(config, branchName, options = {}) {
@@ -83,9 +67,8 @@ export function inspectPreReviewPrOwnership(config, branchName) {
     };
   }
   const remote = runRemoteGit(config, ["ls-remote", "--heads"], [`refs/heads/${branchName}`]);
-  const prList = runGh(
+  const prList = runGh(config,
     ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,headRefName,headRefOid"],
-    config.repoRoot,
   );
   let prs = [];
   let prParseError = null;
@@ -135,11 +118,11 @@ export async function openOrUpdatePr(config, issue, branchName, summary, options
     "Auto-merge is disabled by default. Manual review is required.",
   ].join("\n");
   if (options.effectContext) return canonicalPrCreate(config, issue, branchName, body, options.effectContext);
-  const existing = runGh(["pr", "list", "--head", branchName, "--json", "number,url", "-q", ".[0].url"], config.repoRoot);
+  const existing = runGh(config, ["pr", "list", "--head", branchName, "--json", "number,url", "-q", ".[0].url"]);
   if (existing.status === 0 && existing.stdout.trim()) {
     return { skipped: false, action: "existing", url: existing.stdout.trim() };
   }
-  const result = runGh([
+  const result = runGh(config, [
     "pr",
     "create",
     "--base",
@@ -150,7 +133,7 @@ export async function openOrUpdatePr(config, issue, branchName, summary, options
     `Auto-runner: #${issue.number} ${issue.title}`,
     "--body",
     body,
-  ], config.repoRoot);
+  ]);
   return {
     skipped: false,
     action: "create",
@@ -188,7 +171,7 @@ async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
       return { complete: true, present: true, identity: stored.identity, effect };
     },
     execute: () => {
-      const create = runGh(["pr", "create", "--base", "main", "--head", branchName, "--title", title, "--body", body], config.repoRoot);
+      const create = runGh(config, ["pr", "create", "--base", "main", "--head", branchName, "--title", title, "--body", body]);
       if (create.error || create.status !== 0) throw new Error("Canonical PR create failed");
       return { ok: true, status: create.status };
     },
@@ -210,7 +193,7 @@ async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
 }
 
 function readBranchPrs(config, branchName) {
-  const result = runGh(["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,isDraft,baseRefName,headRefName,headRefOid,title,body"], config.repoRoot);
+  const result = runGh(config, ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,isDraft,baseRefName,headRefName,headRefOid,title,body"]);
   if (result.error || result.status !== 0) return { complete: false, prs: [] };
   try { const prs = JSON.parse(result.stdout || "[]"); return { complete: Array.isArray(prs), prs: Array.isArray(prs) ? prs : [] }; }
   catch { return { complete: false, prs: [] }; }
@@ -219,7 +202,7 @@ function readBranchPrs(config, branchName) {
 
 export function watchChecks(config, prUrlOrNumber) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
-  const result = runGh(["pr", "checks", String(prUrlOrNumber), "--watch", "--fail-fast"], config.repoRoot);
+  const result = runGh(config, ["pr", "checks", String(prUrlOrNumber), "--watch", "--fail-fast"]);
   return {
     skipped: false,
     status: result.status,

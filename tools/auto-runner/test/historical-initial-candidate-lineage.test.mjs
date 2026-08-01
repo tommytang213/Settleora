@@ -243,11 +243,11 @@ test("authoritative remote read detects an unfetched task branch in a real bare 
   });
   assert.equal(run(fixture.repoRoot,
     ["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`], true).status, 1);
-  assert.deepEqual(readRemoteTaskBranch(git, branch), {
+  assert.deepEqual(readRemoteTaskBranch(git, branch, bare), {
     complete: true, absent: false, headSha: fixture.headSha,
   });
   run(fixture.repoRoot, ["push", "origin", "--delete", branch]);
-  assert.deepEqual(readRemoteTaskBranch(git, branch), { complete: true, absent: true });
+  assert.deepEqual(readRemoteTaskBranch(git, branch, bare), { complete: true, absent: true });
 });
 
 test("historical initial candidate fail-closes on Git topology and history hazards", () => {

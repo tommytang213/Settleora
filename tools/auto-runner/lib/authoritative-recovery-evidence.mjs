@@ -2,14 +2,13 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { processAppearsActive } from "./state-store.mjs";
 import { readHeartbeat } from "../supervisor/heartbeat.mjs";
 import { loadPreEffectIntent, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
 import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 import { readGithubIssueState } from "./github-issue-readback.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
-import { runGit } from "./git-workspace.mjs";
+import { runGit, runTrustedGithub } from "./git-workspace.mjs";
 
 export const authoritativeRecoveryEvidenceVersion = 1;
 
@@ -183,7 +182,7 @@ function githubForIntent(config, intent, fallback) {
     return mergeIntentCommentReadback(result, fallback);
   }
   if (intent.effectType === "hygiene_component") {
-    const result = runTrustedGithub(["issue", "view", String(intent.effect.issueNumber), "--repo", config.repositorySlug, "--json", "number,labels"], config.repoRoot, { timeout: 20_000 });
+    const result = runTrustedGithub(config, ["issue", "view", String(intent.effect.issueNumber), "--repo", config.repositorySlug, "--json", "number,labels"], { timeout: 20_000 });
     if (result.error || result.status !== 0) return { ...fallback, complete: false };
     try {
       const issue = JSON.parse(result.stdout || "{}");
@@ -318,7 +317,7 @@ function defaultGithubRead(config, identity) {
   if (!discovered.complete) return { complete: false, source: discovered.source };
   if (!discovered.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
   const prNumber = discovered.prNumber;
-  const result = runTrustedGithub(["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], config.repoRoot, { timeout: 20_000 });
+  const result = runTrustedGithub(config, ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], { timeout: 20_000 });
   if (result.status !== 0) return { complete: false, source: "gh_cli" };
   const pr = JSON.parse(result.stdout);
   const prComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${prNumber}/comments?per_page=100`, { channel: "pr_conversation", targetNumber: prNumber });
@@ -327,7 +326,7 @@ function defaultGithubRead(config, identity) {
   const comments = [...issueComments.comments, ...prComments.comments, ...reviewComments.comments];
   let mergeParentShas = [];
   if (pr.mergeCommit?.oid) {
-    const mergeCommit = runTrustedGithub(["api", `repos/${config.repositorySlug}/commits/${pr.mergeCommit.oid}`], config.repoRoot, { timeout: 20_000 });
+    const mergeCommit = runTrustedGithub(config, ["api", `repos/${config.repositorySlug}/commits/${pr.mergeCommit.oid}`], { timeout: 20_000 });
     if (mergeCommit.error || mergeCommit.status !== 0) return { complete: false, source: "gh_cli_merge_commit_read_failed" };
     try { mergeParentShas = JSON.parse(mergeCommit.stdout || "{}").parents?.map((parent) => parent.sha).filter(sha40).slice(0, 2) || []; }
     catch { return { complete: false, source: "gh_cli_merge_commit_parse_failed" }; }
@@ -339,7 +338,7 @@ export function discoverExactRecoveryPr(config, identity, runner = null) {
   const args = ["pr", "list", "--repo", config.repositorySlug, "--head", identity.branchName, "--state", "all", "--limit", "100", "--json", "number,baseRefName,headRefName,headRefOid"];
   const result = runner
     ? runner("gh", args, { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 })
-    : runTrustedGithub(args, config.repoRoot, { timeout: 20_000 });
+    : runTrustedGithub(config, args, { timeout: 20_000 });
   if (result.error || result.status !== 0) return { complete: false, source: "gh_cli_pr_discovery_failed" };
   try {
     const matches = JSON.parse(result.stdout || "[]").filter((pr) => pr.headRefName === identity.branchName && pr.headRefOid === identity.headSha && pr.baseRefName === identity.baseBranch);
@@ -351,27 +350,12 @@ export function discoverExactRecoveryPr(config, identity, runner = null) {
 }
 
 function readAllGithubComments(config, endpoint, target = {}) {
-  const result = runTrustedGithub(["api", "--paginate", "--jq", ".[] | @json", endpoint], config.repoRoot, { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = runTrustedGithub(config, ["api", "--paginate", "--jq", ".[] | @json", endpoint], { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
   if (result.status !== 0) return { complete: false, comments: [] };
   try {
     const comments = result.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line));
     return { complete: true, comments: comments.map((comment) => commentIdentity(comment, target)) };
   } catch { return { complete: false, comments: [] }; }
-}
-
-function runTrustedGithub(args, cwd, options = {}) {
-  const inherited = Object.fromEntries(Object.entries(process.env)
-    .filter(([key]) => !key.startsWith("GIT_") && !key.startsWith("GH_")));
-  const result = spawnSync("/usr/bin/gh", args, {
-    cwd,
-    env: { ...inherited, PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GH_PROMPT_DISABLED: "1" },
-    encoding: "utf8",
-    windowsHide: true,
-    shell: false,
-    timeout: options.timeout,
-    maxBuffer: options.maxBuffer,
-  });
-  return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 
 function reconcileIdentity(identity, git, github, intents, contradictions, ambiguities) {

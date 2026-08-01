@@ -16,6 +16,7 @@ import {
 } from "./preserved-recovery-deployment.mjs";
 import { canonicalApprovedGitHubRepository } from "./runtime-identity.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
+import { runTrustedGithub } from "./git-workspace.mjs";
 
 const sha = /^[a-f0-9]{40}$/u;
 const digest = /^[a-f0-9]{64}$/u;
@@ -230,8 +231,14 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const intentFinder = options.findIntents || findPreEffectIntents;
     const intents = intentFinder(config, (intent) => intent.repository === repository
       && intent.sourceTaskKey === taskKey && intent.runId === runId);
-    const remoteTaskBranchRead = (options.readRemoteTaskBranch
-      || readRemoteTaskBranch)(git, branch);
+    let remoteTaskBranchRead;
+    if (options.readRemoteTaskBranch) {
+      remoteTaskBranchRead = options.readRemoteTaskBranch(git, branch);
+    } else {
+      const originUrl = authenticatedOriginUrl(git, repository);
+      if (!originUrl) return fail("historical_candidate_remote_identity_untrusted");
+      remoteTaskBranchRead = readRemoteTaskBranch(git, branch, originUrl);
+    }
     const liveTaskPrRead = options.allowAuthenticatedExistingPrEffects === true
       ? (options.readLiveTaskPrs || readLiveTaskPrs)(config, branch)
       : null;
@@ -382,10 +389,14 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
   }
 }
 
-export function readRemoteTaskBranch(git, branch) {
+export function readRemoteTaskBranch(git, branch, authenticatedRemoteUrl) {
+  if (canonicalApprovedGitHubRepository(authenticatedRemoteUrl) === null
+    && !path.isAbsolute(authenticatedRemoteUrl || "")) {
+    return { complete: false, absent: false };
+  }
   const result = git([
     "-c", "protocol.ext.allow=never",
-    "ls-remote", "--heads", "origin", `refs/heads/${branch}`,
+    "ls-remote", "--heads", authenticatedRemoteUrl, `refs/heads/${branch}`,
   ]);
   if (result.status !== 0 || result.stderr !== "") {
     return { complete: false, absent: false };
@@ -401,15 +412,11 @@ export function readRemoteTaskBranch(git, branch) {
 }
 
 export function readLiveTaskPrs(config, branch) {
-  const result = spawnSync("gh", [
+  const result = runTrustedGithub(config, [
     "pr", "list", "--repo", config.repositorySlug, "--head", branch,
     "--state", "all", "--limit", "100",
     "--json", "number,url,state,isDraft,baseRefName,headRefName,headRefOid",
-  ], {
-    cwd: config.repoRoot,
-    encoding: "utf8",
-    timeout: 20_000,
-  });
+  ], { timeoutMs: 20_000 });
   if (result.status !== 0 || result.stderr !== "") return { complete: false, prs: [] };
   try {
     const prs = JSON.parse(result.stdout || "[]");
@@ -699,14 +706,39 @@ function validPreparedSourceFixCheckout(git, continuation, candidateHead, checko
 
 function runGit(cwd, args) {
   return spawnSync("/usr/bin/git", args, {
-    cwd, encoding: "utf8", timeout: 15_000,
+    cwd,
+    encoding: "utf8",
     env: {
-      PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0",
-      GIT_NO_LAZY_FETCH: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null",
+      PATH: "/usr/bin:/bin",
+      LANG: "C",
+      LC_ALL: "C",
+      GIT_ATTR_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_COUNT: "3",
+      GIT_CONFIG_KEY_0: "core.hooksPath",
+      GIT_CONFIG_VALUE_0: "/dev/null",
+      GIT_CONFIG_KEY_1: "core.fsmonitor",
+      GIT_CONFIG_VALUE_1: "false",
+      GIT_CONFIG_KEY_2: "protocol.ext.allow",
+      GIT_CONFIG_VALUE_2: "never",
+      GIT_NO_LAZY_FETCH: "1",
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_OPTIONAL_LOCKS: "0",
       GIT_TERMINAL_PROMPT: "0",
     },
+    maxBuffer: 16 * 1024 * 1024,
+    shell: false,
+    timeout: 15_000,
+    windowsHide: true,
   });
+}
+
+function authenticatedOriginUrl(git, repository) {
+  const result = git(["config", "--local", "--get", "remote.origin.url"]);
+  const remote = result.status === 0 ? result.stdout.trim() : null;
+  return canonicalApprovedGitHubRepository(remote) === String(repository || "").toLowerCase() ? remote : null;
 }
 function trustedRepository(git, repository, repoRoot) {
   const rootInfo = lstatSync(repoRoot);

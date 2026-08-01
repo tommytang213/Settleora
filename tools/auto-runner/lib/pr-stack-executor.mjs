@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { isUtf8 } from "node:buffer";
 import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -27,7 +26,7 @@ import {
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
 import { runCodexPrompt } from "./codex-runner.mjs";
-import { runGit } from "./git-workspace.mjs";
+import { runGit, runTrustedGithub } from "./git-workspace.mjs";
 import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
@@ -6402,19 +6401,9 @@ function isSuccessfulOrIdempotentHygieneComponent(component = {}) {
 }
 
 function defaultRunner(command, args, options = {}) {
-  if (command === "git") return runGit(args, { cwd: options.cwd });
+  if (command === "git") return runGit(args, { cwd: options.cwd, input: options.input, timeoutMs: options.timeoutMs, maxBuffer: options.maxBuffer });
   if (command !== "gh") return { status: 1, stdout: "", stderr: "trusted executable required", error: "trusted executable required" };
-  const inherited = Object.fromEntries(Object.entries(process.env)
-    .filter(([key]) => !key.startsWith("GIT_") && !key.startsWith("GH_")));
-  const result = spawnSync("/usr/bin/gh", args, {
-    cwd: options.cwd,
-    input: options.input,
-    env: { ...inherited, PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GH_PROMPT_DISABLED: "1" },
-    encoding: "utf8",
-    windowsHide: true,
-    shell: false,
-  });
-  return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
+  return runTrustedGithub({ repoRoot: options.cwd, repositorySlug: options.repositorySlug }, args, options);
 }
 
 function fail(reasonCode, reason = reasonCode, extra = {}) {
