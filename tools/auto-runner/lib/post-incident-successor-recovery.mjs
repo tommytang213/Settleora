@@ -368,6 +368,7 @@ function validateSecurityPosture(packet, claims) {
   if (!boundedClaims.every((claim) => bounded(claims[claim]))
     || !/^[^/\s]+\/[^/\s]+$/.test(claims.repository)
     || claims.claimIdentity !== `${claims.repository}#${claims.issueNumber}`
+    || !digest64(claims.chargeId)
     || claims.consumedRunnerRunId === claims.originalRunnerRunId
     || claims.consumedSupervisorRunId === claims.originalSupervisorRunId
     || !validShortGitBranch(claims.branch)

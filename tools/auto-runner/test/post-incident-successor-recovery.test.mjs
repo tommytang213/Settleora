@@ -193,6 +193,12 @@ test("malformed corroborated claim types and counters fail closed", () => {
   }
 });
 
+test("logical-task charge identity must be a canonical digest", () => {
+  const value = packet();
+  for (const source of value.sources) source.claims.chargeId = "charge-7";
+  assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_claim_shape_invalid");
+});
+
 test("task ownership and consumed run identities must be internally consistent", () => {
   for (const [field, value] of [["claimIdentity", "other/repo#7"], ["consumedRunnerRunId", claims.originalRunnerRunId], ["consumedSupervisorRunId", claims.originalSupervisorRunId]]) {
     const candidate = packet(); for (const source of candidate.sources) source.claims[field] = value;
