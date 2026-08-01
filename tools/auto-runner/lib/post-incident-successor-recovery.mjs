@@ -126,7 +126,7 @@ export function deriveSuccessorIdentity({ incidentIdentity, taskIdentity, lifecy
   return { storageKey, lifecycleSuccessorSession, operationId };
 }
 
-export function constructPostIncidentSuccessor({ manifest, recoveryState, mutationGeneration, operationalAuthorization }) {
+export function constructPostIncidentSuccessor({ manifest, mutationGeneration, operationalAuthorization }) {
   if (!manifest?.manifestDigest || digest(canonicalJson(manifestCoreFromManifest(manifest))) !== manifest.manifestDigest) return failed("semantic_manifest_digest_mismatch");
   const expectedSuccessor = deriveSuccessorIdentity({
     incidentIdentity: manifest.incidentIdentity,
@@ -141,42 +141,25 @@ export function constructPostIncidentSuccessor({ manifest, recoveryState, mutati
   }
   if (manifest.claims.submissionCount !== 1 || manifest.claims.submissionExhausted !== true) return failed("post_incident_submission_posture_invalid");
   if (zeroEffectClaims.some((claim) => manifest.claims[claim] !== false)) return failed("post_incident_later_effect_detected");
-  const stateIdentity = {
-    issueNumber: recoveryState?.issue?.number,
-    taskKey: recoveryState?.taskKey,
-    runnerRunId: recoveryState?.run?.runId,
-    supervisorRunId: recoveryState?.run?.supervisorRunId,
-    branch: recoveryState?.branch?.name,
-    baseSha: recoveryState?.branch?.baseSha,
-    headSha: recoveryState?.branch?.currentHeadSha,
-    claimIdentity: recoveryState?.ordinaryContinuation?.identity?.claimIdentity
-      || recoveryState?.sessionLifecycle?.logicalTask?.claimIdentity,
-    chargeId: Object.keys(recoveryState?.mutationMarkers?.logical_task_charge || {})[0],
-  };
-  const expectedIdentity = {
-    issueNumber: manifest.claims.issueNumber,
-    taskKey: manifest.claims.taskKey,
-    runnerRunId: manifest.claims.originalRunnerRunId,
-    supervisorRunId: manifest.claims.originalSupervisorRunId,
-    branch: manifest.claims.branch,
-    baseSha: manifest.claims.baseSha,
-    headSha: manifest.claims.headSha,
-    claimIdentity: manifest.claims.claimIdentity,
-    chargeId: manifest.claims.chargeId,
-  };
-  if (canonicalJson(stateIdentity) !== canonicalJson(expectedIdentity)) return failed("post_incident_recovery_identity_mismatch");
   if (!Number.isSafeInteger(mutationGeneration) || mutationGeneration < 1
     || mutationGeneration !== manifest.lifecycleSuccessor?.mutationGeneration
-    || recoveryState?.sessionLifecycle?.mutationAuthority?.generation + 1 !== mutationGeneration) {
+    || manifest.claims.lifecycleMutationGeneration + 1 !== mutationGeneration) {
     return failed("post_incident_mutation_generation_mismatch");
   }
-  if (recoveryState?.sessionLifecycle?.sessionId !== manifest.lifecycleSuccessor?.previousSessionId
+  if (manifest.claims.lifecycleSessionId !== manifest.lifecycleSuccessor?.previousSessionId
     || manifest.lifecycleSuccessor?.sessionId !== manifest.intendedSuccessor.lifecycleSuccessorSession
     || manifest.lifecycleSuccessor?.sessionId === manifest.lifecycleSuccessor?.previousSessionId) {
     return failed("post_incident_lifecycle_rotation_mismatch");
   }
+  // Construct only from corroborated manifest authority. The incident recovery
+  // object is immutable evidence and is never cloned into successor authority.
   const successor = {
-    ...structuredClone(recoveryState),
+    taskKey: manifest.claims.taskKey,
+    issue: { number: manifest.claims.issueNumber },
+    run: { runId: manifest.claims.originalRunnerRunId, supervisorRunId: manifest.claims.originalSupervisorRunId },
+    branch: { name: manifest.claims.branch, baseSha: manifest.claims.baseSha, currentHeadSha: manifest.claims.headSha },
+    ordinaryContinuation: { identity: { claimIdentity: manifest.claims.claimIdentity } },
+    mutationMarkers: { logical_task_charge: { [manifest.claims.chargeId]: { status: "completed", charged: false, duplicate: true } } },
     postIncidentSuccessor: {
       contract: semanticRecoveryContract,
       version: semanticRecoveryVersion,
@@ -187,15 +170,11 @@ export function constructPostIncidentSuccessor({ manifest, recoveryState, mutati
       operation: manifest.operation,
       executable: false,
     },
-    run: { ...recoveryState.run, runId: manifest.intendedSuccessor.lifecycleSuccessorSession },
     sessionLifecycle: {
-      ...structuredClone(recoveryState.sessionLifecycle),
       sessionId: manifest.lifecycleSuccessor.sessionId,
       previousSessionId: manifest.lifecycleSuccessor.previousSessionId,
-      mutationAuthority: {
-        ...structuredClone(recoveryState.sessionLifecycle.mutationAuthority),
-        generation: mutationGeneration,
-      },
+      logicalTask: { runId: manifest.claims.originalRunnerRunId, claimIdentity: manifest.claims.claimIdentity, chargeId: manifest.claims.chargeId },
+      mutationAuthority: { generation: mutationGeneration },
     },
     phase: manifest.claims.earliestSafePhase,
     firstIncompleteAction: "reconstruct_and_validate_preserved_candidate",

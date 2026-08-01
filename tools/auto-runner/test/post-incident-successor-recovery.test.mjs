@@ -160,13 +160,16 @@ test("altered historical or child artifact and identity/counter/effect disagreem
 
 test("distinct successor binds provenance and stays non-executable", () => {
   const built = buildSemanticRecoveryManifest(packet());
-  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { stopReason: { reasonCode: "untrusted_incident_field" } }, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
   assert.equal(constructed.ok, true); assert.notEqual(constructed.storageKey, path.basename(rootPath, ".json"));
   assert.equal(constructed.successor.postIncidentSuccessor.executable, false);
   assert.equal(constructed.successor.phase, "checkpoint_validation_commit");
   assert.equal(constructed.successor.nextSafeAction, "await_separate_execution_authorization");
   assert.equal(constructed.successor.sessionLifecycle.sessionId, "session-successor");
   assert.equal(constructed.successor.sessionLifecycle.previousSessionId, "session-predecessor");
+  assert.equal(constructed.successor.run.runId, claims.originalRunnerRunId);
+  assert.equal(constructed.successor.sessionLifecycle.logicalTask.runId, claims.originalRunnerRunId);
+  assert.equal("stopReason" in constructed.successor, false);
 });
 
 test("successor construction requires a separate exact operation authorization", () => {
@@ -174,9 +177,9 @@ test("successor construction requires a separate exact operation authorization",
   assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: {}, mutationGeneration: 1 }).reasonCode, "post_incident_operational_authorization_required");
   const altered = structuredClone(built.manifest); altered.claims.branch = "altered";
   assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_digest_mismatch");
-  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState({ taskKey: "other" }), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "post_incident_recovery_identity_mismatch");
   assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "post_incident_mutation_generation_mismatch");
-  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState({ sessionLifecycle: { sessionId: "wrong", mutationAuthority: { generation: 2 } } }), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "post_incident_lifecycle_rotation_mismatch");
+  const wrongLifecycle = structuredClone(built.manifest); wrongLifecycle.lifecycleSuccessor.previousSessionId = "wrong";
+  assert.equal(constructPostIncidentSuccessor({ manifest: wrongLifecycle, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } }).reasonCode, "semantic_manifest_digest_mismatch");
 });
 
 test("successor persistence is idempotent and conflicting adoption fails closed", () => {
