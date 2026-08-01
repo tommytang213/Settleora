@@ -202,7 +202,7 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
   if (!safeRoot.ok) return safeRoot;
   const canonicalSuccessor = path.join(safeRoot.path, path.basename(successorPath));
   if ([predecessor, incident].includes(canonicalSuccessor)) return failed("post_incident_successor_aliases_protected_path");
-  const ledgerPath = path.join(root, "provenance", `${digest(canonicalJson({ incident }))}.json`);
+  const ledgerPath = path.join(safeRoot.path, "provenance", `${digest(canonicalJson({ incident }))}.json`);
   const record = {
     contract: semanticRecoveryContract,
     version: semanticRecoveryVersion,
@@ -269,6 +269,17 @@ export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authent
     : { quarantined: false, reasonCode: "ordinary_recovery" };
 }
 
+export function inspectConfiguredRecoveryOverwriteIncident(authenticatedProvenance) {
+  if (!authenticatedProvenance) return null;
+  let authenticated;
+  try { authenticated = authenticateOpaqueArtifact(normalizeArtifact(authenticatedProvenance.incidentArtifact)); }
+  catch { return { quarantined: true, readOnly: true, reasonCode: "incident_provenance_authentication_failed", allowedAction: "none", state: null }; }
+  let state;
+  try { state = JSON.parse(authenticated.authenticatedBytes.toString("utf8")); }
+  catch { return { quarantined: true, readOnly: true, reasonCode: "incident_state_parse_failed", allowedAction: "none", state: null }; }
+  return { ...classifyRecoveryOverwriteIncident({ recoveryPath: authenticated.path, state, authenticatedProvenance }), state };
+}
+
 export function assertRecoveryWritePathAllowed(targetPath, { predecessorPath, incidentPath, successorPath } = {}) {
   const target = canonicalExistingPath(targetPath);
   if ([predecessorPath, incidentPath].filter(Boolean).map(canonicalExistingPath).includes(target)) return failed("protected_recovery_path_write_blocked");
@@ -290,6 +301,15 @@ function validateSecurityPosture(packet, claims) {
   if (!digest64(claims.formerRootSha256) || !digest64(claims.incidentSha256) || claims.formerRootSha256 === claims.incidentSha256) return failed("semantic_root_identity_invalid");
   if (![claims.baseSha, claims.headSha, claims.treeSha].every(gitObjectId)
     || !digest64(claims.changedFilesDigest) || !digest64(claims.diffDigest)) return failed("semantic_git_identity_invalid");
+  const boundedClaims = ["repository", "taskKey", "claimIdentity", "chargeId", "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId", "consumedSupervisorRunId", "branch", "formerRootPath", "formerEffectivePhase", "incidentPath", "lifecycleLineage", "lifecycleSessionId", "intentPosture", "earliestSafePhase"];
+  if (!boundedClaims.every((claim) => bounded(claims[claim]))
+    || !/^[^/\s]+\/[^/\s]+$/.test(claims.repository)
+    || !/^refs\//.test(claims.branch) && !/^[A-Za-z0-9._/-]+$/.test(claims.branch)
+    || !path.isAbsolute(claims.formerRootPath) || !path.isAbsolute(claims.incidentPath)
+    || !Number.isSafeInteger(claims.issueNumber) || claims.issueNumber < 1) return failed("semantic_claim_shape_invalid");
+  const counters = ["acceptedLogicalTasks", "localSourceChangingRounds", "githubTriggeredFixEpochs", "lifetimeLocalSourceChangingRounds", "lifecycleMutationGeneration", "submissionCount"];
+  if (!counters.every((claim) => Number.isSafeInteger(claims[claim]) && claims[claim] >= 0)
+    || ![...zeroEffectClaims, "submissionExhausted", "successorEligible"].every((claim) => typeof claims[claim] === "boolean")) return failed("semantic_claim_shape_invalid");
   if (path.resolve(claims.formerRootPath) !== path.resolve(claims.incidentPath)) return failed("semantic_incident_path_lineage_invalid");
   if (packet.formerBytesAvailable !== false) return failed("semantic_predecessor_bytes_posture_invalid");
   if (claims.acceptedLogicalTasks !== 1 || claims.submissionCount !== 1 || claims.submissionExhausted !== true || claims.successorEligible !== true) return failed("semantic_one_shot_posture_invalid");
@@ -371,8 +391,19 @@ function canonicalExistingPath(value) {
 }
 function validatePersistenceDirectory(logsRoot, directory) {
   try {
-    const trustedRoot = realpathSync(logsRoot);
-    const real = realpathSync(path.resolve(directory));
+    const lexicalRoot = path.resolve(logsRoot);
+    const trustedRoot = realpathSync(lexicalRoot);
+    if (trustedRoot !== lexicalRoot) return failed("post_incident_successor_root_unsafe");
+    const lexicalDirectory = path.resolve(directory);
+    const lexicalRelative = path.relative(lexicalRoot, lexicalDirectory);
+    if (lexicalRelative.startsWith("..") || path.isAbsolute(lexicalRelative)) return failed("post_incident_successor_root_unsafe");
+    let lexicalCursor = lexicalRoot;
+    for (const segment of lexicalRelative.split(path.sep).filter(Boolean)) {
+      lexicalCursor = path.join(lexicalCursor, segment);
+      const lexicalStat = lstatSync(lexicalCursor);
+      if (lexicalStat.isSymbolicLink() || !lexicalStat.isDirectory()) return failed("post_incident_successor_root_unsafe");
+    }
+    const real = realpathSync(lexicalDirectory);
     const relative = path.relative(trustedRoot, real);
     if (relative.startsWith("..") || path.isAbsolute(relative)) return failed("post_incident_successor_root_unsafe");
     let cursor = real;

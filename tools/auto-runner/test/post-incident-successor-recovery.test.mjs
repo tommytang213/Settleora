@@ -149,6 +149,13 @@ test("malformed Git object and diff identities fail closed", () => {
   }
 });
 
+test("malformed corroborated claim types and counters fail closed", () => {
+  for (const [field, malformed] of [["issueNumber", "7"], ["taskKey", { bad: true }], ["branch", "bad branch"], ["localSourceChangingRounds", -1], ["submissionCount", 1.5]]) {
+    const value = packet(); for (const source of value.sources) source.claims[field] = malformed;
+    assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_claim_shape_invalid", field);
+  }
+});
+
 test("altered historical or child artifact and identity/counter/effect disagreements fail closed", () => {
   for (const field of ["chargeId", "acceptedLogicalTasks", "branch", "headSha", "lifecycleLineage", "intentPosture", "submissionCount", "sourceEffect"]) {
     const value = packet(); value.sources[0].claims[field] = field.endsWith("Effect") ? true : "altered";
@@ -244,6 +251,19 @@ test("production discovery quarantines an authenticated incident before ordinary
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
+test("production discovery quarantines configured completed incident before recoverability filtering", () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-quarantine-completed-"));
+  try {
+    const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-original", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40), phase: "completed" });
+    writeRecoveryState({ logsRoot }, state);
+    const incidentPath = recoveryStatePath({ logsRoot }, state);
+    const actual = createHash("sha256").update(readFileSync(incidentPath)).digest("hex");
+    const config = { logsRoot, allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false } } };
+    const discovery = discoverStartupRecovery(config);
+    assert.equal(discovery.found, true); assert.equal(discovery.allowed, false); assert.equal(discovery.quarantine.readOnly, true);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
 test("symlinked successor roots fail before persistence", () => {
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-root-"));
   const target = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-target-"));
@@ -253,6 +273,17 @@ test("symlinked successor roots fail before persistence", () => {
     const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
     assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
+});
+
+test("in-root symlinked persistence directories fail before writes", () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-in-root-symlink-"));
+  try {
+    const target = path.join(logsRoot, "target"); mkdirSync(target, { mode: 0o700 }); mkdirSync(path.join(target, "provenance"), { mode: 0o700 });
+    const root = path.join(logsRoot, "successors"); symlinkSync(target, root, "dir");
+    const built = buildSemanticRecoveryManifest(packet());
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
+    assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
 test("symlinked successor destination cannot be adopted", () => {

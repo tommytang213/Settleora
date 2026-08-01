@@ -18,7 +18,7 @@ import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAutho
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { projectAuthenticatedTerminalValidationRetryDerivative } from "./terminal-validation-retry-projection.mjs";
 import { validateOrdinaryContinuationPhaseEffects } from "./ordinary-candidate-continuation.mjs";
-import { buildSemanticRecoveryManifest, classifyRecoveryOverwriteIncident } from "./post-incident-successor-recovery.mjs";
+import { buildSemanticRecoveryManifest, classifyRecoveryOverwriteIncident, inspectConfiguredRecoveryOverwriteIncident } from "./post-incident-successor-recovery.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -58,6 +58,8 @@ const unsafeDynamicHandlerKeys = new Set([
 ]);
 
 export function discoverStartupRecovery(config) {
+  const configuredQuarantine = detectConfiguredPostIncidentQuarantineBeforeFiltering(config);
+  if (configuredQuarantine) return configuredQuarantine;
   const states = listRecoverableRecoveryStates(config);
   if (states.length === 0) {
     return { found: false, action: "poll_eligible_issues", states: [] };
@@ -99,6 +101,24 @@ export function discoverStartupRecovery(config) {
   };
 }
 
+function detectConfiguredPostIncidentQuarantineBeforeFiltering(config) {
+  const contract = config.postIncidentRecovery || null;
+  if (!contract?.authenticatedProvenance) return null;
+  const inspection = inspectConfiguredRecoveryOverwriteIncident(contract.authenticatedProvenance);
+  if (!inspection?.quarantined) return null;
+  const corroboration = contract.semanticEvidencePacket
+    ? buildSemanticRecoveryManifest(contract.semanticEvidencePacket)
+    : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
+  return {
+    found: true, allowed: false, action: "stop_fail_closed",
+    reasonCode: corroboration.ok ? "post_incident_semantic_operation_authorization_required" : corroboration.reasonCode,
+    quarantine: { ...inspection, state: undefined },
+    semanticManifestDigest: corroboration.ok ? corroboration.manifestDigest : null,
+    state: inspection.state ? summarizeRecoverableState(inspection.state) : null,
+    states: inspection.state ? [summarizeRecoverableState(inspection.state)] : [],
+  };
+}
+
 export function discoverTargetedStartupRecovery(config) {
   const target = config.outageRecoveryTarget || null;
   if (!config.outageRecoveryOnly || !target) {
@@ -110,6 +130,8 @@ export function discoverTargetedStartupRecovery(config) {
       states: [],
     };
   }
+  const configuredQuarantine = detectConfiguredPostIncidentQuarantineBeforeFiltering(config);
+  if (configuredQuarantine) return configuredQuarantine;
   const states = listRecoverableRecoveryStates(config);
   if (states.length === 0) {
     return {
