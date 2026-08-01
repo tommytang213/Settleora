@@ -253,6 +253,9 @@ export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authent
   }
   const pathMatch = canonicalExistingPath(recoveryPath) === authenticatedIncident.path
     && canonicalExistingPath(authenticatedProvenance.incidentPath) === authenticatedIncident.path;
+  if (configuredPathMatch && !pathMatch) {
+    return { quarantined: true, readOnly: true, reasonCode: "incident_path_contradiction", allowedAction: "none" };
+  }
   if (pathMatch && !identityMatch) {
     return { quarantined: true, readOnly: true, reasonCode: "incident_identity_contradiction", allowedAction: "none" };
   }
@@ -289,6 +292,8 @@ function validatePacketShape(packet) {
 }
 function validateSecurityPosture(packet, claims) {
   if (!digest64(claims.formerRootSha256) || !digest64(claims.incidentSha256) || claims.formerRootSha256 === claims.incidentSha256) return failed("semantic_root_identity_invalid");
+  if (![claims.baseSha, claims.headSha, claims.treeSha].every(gitObjectId)
+    || !digest64(claims.changedFilesDigest) || !digest64(claims.diffDigest)) return failed("semantic_git_identity_invalid");
   if (path.resolve(claims.formerRootPath) !== path.resolve(claims.incidentPath)) return failed("semantic_incident_path_lineage_invalid");
   if (packet.formerBytesAvailable !== false) return failed("semantic_predecessor_bytes_posture_invalid");
   if (claims.acceptedLogicalTasks !== 1 || claims.submissionCount !== 1 || claims.submissionExhausted !== true || claims.successorEligible !== true) return failed("semantic_one_shot_posture_invalid");
@@ -318,6 +323,7 @@ function canonicalize(value) { if (Array.isArray(value)) return value.map(canoni
 function manifestCoreFromManifest(manifest) { const clone = structuredClone(manifest); delete clone.manifestDigest; delete clone.intendedSuccessor; return clone; }
 function digest(value) { return createHash("sha256").update(value).digest("hex"); }
 function digest64(value) { return /^[a-f0-9]{64}$/.test(String(value || "")); }
+function gitObjectId(value) { return /^[a-f0-9]{40}$/.test(String(value || "")); }
 function bounded(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000; }
 function unique(values) { return [...new Set(values)].sort(); }
 function failed(reasonCode, diagnostics = []) { return { ok: false, reasonCode, diagnostics: unique(diagnostics) }; }

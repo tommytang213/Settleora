@@ -130,6 +130,13 @@ test("wrong roots and false predecessor-byte posture fail closed", () => {
   assert.equal(buildSemanticRecoveryManifest(wrongPath).reasonCode, "semantic_incident_path_lineage_invalid");
 });
 
+test("malformed Git object and diff identities fail closed", () => {
+  for (const field of ["baseSha", "headSha", "treeSha", "changedFilesDigest", "diffDigest"]) {
+    const value = packet(); for (const source of value.sources) source.claims[field] = "malformed";
+    assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_git_identity_invalid", field);
+  }
+});
+
 test("altered historical or child artifact and identity/counter/effect disagreements fail closed", () => {
   for (const field of ["chargeId", "acceptedLogicalTasks", "branch", "headSha", "lifecycleLineage", "intentPosture", "submissionCount", "sourceEffect"]) {
     const value = packet(); value.sources[0].claims[field] = field.endsWith("Effect") ? true : "altered";
@@ -198,6 +205,9 @@ test("overwrite quarantine authenticates incident bytes and does not block unrel
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "altered", issue: { number: 999 } }, authenticatedProvenance: provenance }).reasonCode, "incident_identity_contradiction");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: { ...provenance, incidentSha256: incidentHash } }).reasonCode, "incident_provenance_contradiction");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: { ...provenance, predecessorSha256: actual } }).reasonCode, "incident_provenance_contradiction");
+    const otherPath = path.join(root, "other.json"); writeFileSync(otherPath, "other\n", { mode: 0o600 });
+    const otherSha = createHash("sha256").update(readFileSync(otherPath)).digest("hex");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: { ...provenance, incidentArtifact: { role: "incident", path: otherPath, sha256: otherSha }, incidentSha256: otherSha } }).reasonCode, "incident_path_contradiction");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: "/other.json", state: { taskKey: "other", issue: { number: 8 } }, authenticatedProvenance: provenance }).quarantined, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
