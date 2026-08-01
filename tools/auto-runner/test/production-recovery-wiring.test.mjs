@@ -914,3 +914,11 @@ test("production terminal derivative reload preserves the authoritative checkpoi
   assert.match(source, /return projectTargetedTerminalDerivative\(config, loaded\.state, loaded\.statePath\)/);
   assert.doesNotMatch(source, /projectTargetedTerminalDerivative\(config, loaded\.state\)/);
 });
+
+test("configured semantic quarantine binds incident and predecessor task ownership", () => {
+  const source = readFileSync(new URL("../lib/recovery-continuation.mjs", import.meta.url), "utf8");
+  assert.match(source, /current\?\.path !== inspection\.incident\.path/);
+  assert.match(source, /claims\?\.taskKey !== provenance\?\.taskKey/);
+  assert.match(source, /claims\?\.issueNumber !== provenance\?\.issueNumber/);
+  assert.match(source, /claims\?\.formerRootSha256 !== provenance\?\.predecessorSha256/);
+});

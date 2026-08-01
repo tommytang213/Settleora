@@ -123,7 +123,11 @@ function detectConfiguredPostIncidentQuarantineBeforeFiltering(config) {
 function bindCorroborationToConfiguredIncident(corroboration, inspection) {
   if (!corroboration?.ok) return corroboration;
   const current = corroboration.manifest?.currentIncident;
-  if (!inspection?.incident || current?.path !== inspection.incident.path || current?.sha256 !== inspection.incident.sha256) {
+  const claims = corroboration.manifest?.claims;
+  const provenance = inspection?.provenance;
+  if (!inspection?.incident || current?.path !== inspection.incident.path || current?.sha256 !== inspection.incident.sha256
+    || claims?.taskKey !== provenance?.taskKey || claims?.issueNumber !== provenance?.issueNumber
+    || claims?.formerRootSha256 !== provenance?.predecessorSha256) {
     return { ok: false, reasonCode: "semantic_manifest_configured_incident_mismatch" };
   }
   return corroboration;

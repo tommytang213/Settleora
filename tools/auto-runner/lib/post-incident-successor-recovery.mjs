@@ -289,7 +289,12 @@ export function inspectConfiguredRecoveryOverwriteIncident(authenticatedProvenan
   let state;
   try { state = JSON.parse(authenticated.authenticatedBytes.toString("utf8")); }
   catch { return { quarantined: true, readOnly: true, reasonCode: "incident_state_parse_failed", allowedAction: "none", state: null }; }
-  return { ...classifyRecoveryOverwriteIncident({ recoveryPath: authenticated.path, state, authenticatedProvenance }), state, incident: { path: authenticated.path, sha256: authenticated.sha256 } };
+  return {
+    ...classifyRecoveryOverwriteIncident({ recoveryPath: authenticated.path, state, authenticatedProvenance }),
+    state,
+    incident: { path: authenticated.path, sha256: authenticated.sha256 },
+    provenance: { taskKey: authenticatedProvenance.taskKey, issueNumber: authenticatedProvenance.issueNumber, predecessorSha256: authenticatedProvenance.predecessorSha256 },
+  };
 }
 
 export function assertRecoveryWritePathAllowed(targetPath, { predecessorPath, incidentPath, successorPath } = {}) {
