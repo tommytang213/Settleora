@@ -4319,7 +4319,14 @@ function createLiveFixedArgvRunner(config = {}) {
     }
     const cwd = path.resolve(options.cwd || repoRoot);
 	    const result = command === "git"
-      ? runGit(args, { cwd, manageWorktrees: args.includes("worktree"), input: options.input, timeoutMs: options.timeoutMs || timeoutMs, maxBuffer: maxOutputBytes })
+      ? runGit(args, {
+        cwd,
+        manageWorktrees: args.includes("worktree"),
+        input: options.input,
+        timeoutMs: options.timeoutMs || timeoutMs,
+        maxBuffer: maxOutputBytes,
+        allowLocalFileTransport: config.runtimeMode !== "external",
+      })
       : command === "gh"
         ? runTrustedGithub({ ...config, repoRoot: cwd }, args, { ...options, timeoutMs: options.timeoutMs || timeoutMs, maxBuffer: maxOutputBytes })
         : { status: 1, stdout: "", stderr: "trusted executable required", error: "trusted executable required" };
