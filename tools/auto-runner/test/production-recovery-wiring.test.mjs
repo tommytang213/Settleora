@@ -523,8 +523,7 @@ test("stable-launched supervisor main persists startup failures before rethrow",
 
 test("post-merge cleanup uses the supported head filter and terminalizes its own recovery state", () => {
   const source = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
-  assert.match(source, /cleanupOwnershipMatchesRuntime\(config, owner\)[\s\S]*\["pr", "list", "--state", "open", "--head", owner\.branchName/);
-  assert.doesNotMatch(source, /\["pr", "list", "--repo", owner\.repository/);
+  assert.match(source, /\["pr", "list", "--repo", owner\.repository, "--state", "open", "--head", owner\.branchName/);
   assert.doesNotMatch(source, /--head", `\$\{repositoryOwner\}/);
   assert.match(source, /\(category === "recovery" \|\| category === "session"\) && exactOwner/);
   assert.match(source, /transitionSessionLifecyclePhase\(config, state\.sessionLifecycle, \{ phase: "completed", nextExactAction: "post_merge_cleanup_complete" \}\)/);
@@ -707,7 +706,7 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /prospectiveMergeValidationRequired: true/);
   assert.match(source, /runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);
   assert.match(source, /validateHistoricalRecoveryGitAuthority\(config\)[\s\S]*runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);
-  assert.match(source, /if \(pr\.headRefOid !== expectedHeadSha\)[\s\S]*recovery_evidence_generation_pr_head_mismatch[\s\S]*fetchAuthenticatedRemoteRef\(config, pr\.headRefName\)[\s\S]*getRefSha\("FETCH_HEAD"\) !== expectedHeadSha[\s\S]*recovery_evidence_generation_fetched_head_mismatch[\s\S]*runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);
+  assert.match(source, /if \(pr\.headRefOid !== expectedHeadSha\)[\s\S]*recovery_evidence_generation_pr_head_mismatch[\s\S]*"fetch", "origin", pr\.headRefName[\s\S]*getRefSha\("FETCH_HEAD"\) !== expectedHeadSha[\s\S]*recovery_evidence_generation_fetched_head_mismatch[\s\S]*runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);
   assert.match(source, /generatedRecoveryEvidence[\s\S]*fetchOriginMain\(config\)[\s\S]*const refreshedOriginMainSha = getRefSha\("origin\/main"\)[\s\S]*refreshedOriginMainSha !== validatedOriginMainSha[\s\S]*existing_pr_recovery_current_main_drift[\s\S]*const issueLinkageEvidence/);
   assert.doesNotMatch(source, /"merge-tree", "--write-tree", "--messages"/);
   assert.match(source, /"commit-tree", mergeTreeSha, "-p", expectedOriginMainSha, "-p", expectedHeadSha/);
@@ -905,8 +904,7 @@ test("post-merge cleanup explicitly hands authority to the exact successor runne
   assert.match(runner, /currentRunId: runId/);
   assert.match(runner, /lockRunOwnsRecovery = typeof currentRunId === "string"[\s\S]*?lock\?\.runId === currentRunId/);
   assert.match(runner, /lock\?\.runId === state\.run\?\.runId \|\| lockRunOwnsRecovery/);
-  assert.match(runner, /processInventory = runBoundedCleanupProcessInventory\(\)/);
-  assert.match(runner, /spawnSync\("\/usr\/bin\/ps", \["-eo", "pid=,args="\]/);
+  assert.match(runner, /processInventory = run\("ps", \["-eo", "pid=,args="\]\)/);
   assert.match(runner, /reportEvidenceComplete[\s\S]*?activeReferences\.lease = runnerLockAuthority \? 0 : 1/);
 });
 
@@ -946,13 +944,4 @@ test("both startup discovery paths use the same source-owned semantic authority 
   assert.match(authority, /semanticRecoveryProtectedControlRoot = "\/etc\/settleora-auto-runner\/semantic-recovery-authority"/);
   assert.match(authority, /semanticRecoveryGrantPath\(operationId\)/);
   assert.doesNotMatch(source, /authenticateSourceProvenance/);
-});
-
-test("production Git callers use the admitted full-ref push and explicit stdin apply forms", () => {
-  const manager = readFileSync(new URL("../lib/pr-manager.mjs", import.meta.url), "utf8");
-  const stack = readFileSync(new URL("../lib/pr-stack-executor.mjs", import.meta.url), "utf8");
-  assert.match(manager, /const localSha = getRefSha\("HEAD"[\s\S]*?`\$\{localSha\}:refs\/heads\/\$\{branchName\}`/u);
-  assert.match(stack, /`\$\{newHead\}:refs\/heads\/\$\{branch\}`/u);
-  assert.match(stack, /function patchApplyCheck[\s\S]*?if \(reverse\) args\.push\("--reverse"\);[\s\S]*?args\.push\("-"\);/u);
-  assert.doesNotMatch(stack, /`\$\{newHead\}:\$\{branch\}`/u);
 });

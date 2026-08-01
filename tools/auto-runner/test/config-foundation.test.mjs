@@ -6,32 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   canonicalizeChangedFiles,
-  assertInstalledRuntimeMode,
   defaultLogsRoot,
   digestChangedFiles,
-  installedRuntimeExecutionPosture,
   loadConfig,
   normalizePrStackExecutionConfig,
   parseCliArgs,
   validateRecoveryOnlyExistingPrTarget,
   validateRecoveryOnlyExactHeadEvidence,
 } from "../lib/config.mjs";
-
-test("installed runtimes require external mode for every config purpose", () => {
-  assert.doesNotThrow(() => assertInstalledRuntimeMode("external", true));
-  assert.throws(
-    () => assertInstalledRuntimeMode("development", true),
-    /external_runtime_requires_external_profile/,
-  );
-  assert.doesNotThrow(() => assertInstalledRuntimeMode("development", false));
-  const source = readFileSync(new URL("../lib/config.mjs", import.meta.url), "utf8");
-  const stackRead = source.slice(source.indexOf("function readTrustedConfigFile"), source.indexOf("function readExternalProfileConfig"));
-  assert.match(stackRead, /const installedBundle = installedRuntimeExecutionPosture\(\)/u);
-  assert.match(stackRead, /validateParsedPrStackConfigIdentity[\s\S]*assertInstalledRuntimeMode\(parsed\.runtimeMode, installedBundle\)/u);
-  assert.equal(installedRuntimeExecutionPosture("/workspace/auto-runner/runtime", () => false), true,
-    "the fixed installed execution root cannot be downgraded by racing manifest removal");
-  assert.equal(installedRuntimeExecutionPosture("/workspace/repos/Settleora/tools/auto-runner", () => false), false);
-});
 
 test("PR stack execution preserves bounded live-runner controls", () => {
   const normalized = normalizePrStackExecutionConfig({

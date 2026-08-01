@@ -1,11 +1,27 @@
+import { spawnSync } from "node:child_process";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
-import { runTrustedGithub } from "./git-workspace.mjs";
 
 function runGh(config, args, { mutation = false } = {}) {
   if (!config?.repoRoot || !config?.repositorySlug) throw new Error("explicit GitHub repository context is required");
   if (mutation) assertRepositoryRemoteIdentity(config);
-  return runTrustedGithub(config, args, { timeoutMs: 30_000, maxBuffer: 16 * 1024 * 1024 });
+  const boundArgs = args[0] === "issue" && !args.includes("--repo")
+    ? [...args, "--repo", config.repositorySlug]
+    : args;
+  const result = spawnSync("gh", boundArgs, {
+    cwd: config.repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 30_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return {
+    command: `gh ${boundArgs.join(" ")}`,
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error ? result.error.message : null,
+  };
 }
 
 function labelNames(issue) {

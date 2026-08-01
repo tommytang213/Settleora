@@ -7,7 +7,6 @@ import test from "node:test";
 import { defaultLogsRoot, loadConfig, parseCliArgs } from "../lib/config.mjs";
 import { sanitizePersistedEvidence } from "../lib/evidence-sanitizer.mjs";
 import { buildReadOnlyLiveStackFixturePlan, createDependentPrStackPlan, nextStackAction } from "../lib/pr-stack-controller.mjs";
-import { verifyRepositoryIdentity } from "../lib/runtime-identity.mjs";
 import {
   createInitialPrStackState,
   createProductionPrStackAdapter,
@@ -594,46 +593,22 @@ test("batch-fix source target rejects protected base remote tag sha option and p
   );
 });
 
-test("stack source branch restoration binds the verified literal remote across the spawn boundary", () => {
+test("stack source branch restoration rejects suffix-matching remote refs", () => {
   const calls = [];
   let pushed = false;
   const branchName = "feature/auto-913-child";
   const headSha = sha("b");
-  const repoRoot = process.cwd();
-  const repositoryIdentity = verifyRepositoryIdentity(repoRoot, "tommytang213/Settleora");
-  const config = {
-    repoRoot,
-    repositorySlug: "tommytang213/Settleora",
-    runtimeMode: "external",
-    runtimeIdentity: Object.freeze({
-      repoRoot,
-      repositoryCommonDir: repositoryIdentity.commonDir,
-      repositoryGitDir: repositoryIdentity.gitDir,
-      repositoryObjectDir: repositoryIdentity.objectDir,
-      repositoryIndexFile: repositoryIdentity.indexFile,
-      repositoryEntryPath: repositoryIdentity.entryPath,
-      repositoryEntryIdentity: repositoryIdentity.entryIdentity,
-      repositoryGitDirIdentity: repositoryIdentity.gitDirIdentity,
-      repositoryCommonDirIdentity: repositoryIdentity.commonDirIdentity,
-      repositoryObjectDirIdentity: repositoryIdentity.objectDirIdentity,
-      repositoryMetadataIdentity: repositoryIdentity.guardedMetadataIdentity,
-      originUrl: repositoryIdentity.originUrl,
-      pushUrl: repositoryIdentity.pushUrl,
-    }),
-  };
   const result = prStackExecutorTestInternals.restoreStackSourceBranchIfDeleted({
-    config,
+    config: { repoRoot: process.cwd() },
     pr: { baseRefName: "main", headRefName: branchName, headRefOid: headSha },
     expectedHead: headSha,
     runner: (command, args) => {
       calls.push(`${command} ${args.join(" ")}`);
       if (command === "git" && args[0] === "ls-remote") {
-        assert.equal(args[2], repositoryIdentity.originUrl);
         assert.equal(args[3], `refs/heads/${branchName}`);
         return pushed ? { status: 0, stdout: `${headSha}\trefs/heads/x/${branchName}\n`, stderr: "", error: null } : { status: 0, stdout: "", stderr: "", error: null };
       }
       if (command === "git" && args[0] === "push") {
-        assert.equal(args[1], repositoryIdentity.pushUrl);
         pushed = true;
         return { status: 0, stdout: "", stderr: "", error: null };
       }
@@ -642,7 +617,7 @@ test("stack source branch restoration binds the verified literal remote across t
   });
   assert.equal(result.ok, false);
   assert.equal(result.reasonCode, "merge_source_branch_restore_unconfirmed");
-  assert.ok(calls.includes(`git push ${repositoryIdentity.pushUrl} ${headSha}:refs/heads/${branchName}`));
+  assert.ok(calls.includes(`git push origin ${headSha}:refs/heads/${branchName}`));
 });
 
 test("target PR worktree proof fetches fixed argv and proves branch head and live PR identity before Codex", () => {
@@ -662,7 +637,7 @@ test("target PR worktree proof fetches fixed argv and proves branch head and liv
     "gh pr view 919 --repo tommytang213/Settleora --json number,state,isDraft,baseRefName,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository",
     "git remote get-url --push origin",
     "git status --porcelain=v1 --untracked-files=all",
-    "git fetch origin refs/heads/feature/auto-913-parent:refs/remotes/origin/feature/auto-913-parent",
+    "git fetch origin feature/auto-913-parent",
     "git rev-parse origin/feature/auto-913-parent",
     "git branch --show-current",
     "git rev-parse HEAD",
@@ -1450,7 +1425,7 @@ test("production commitAndPush binds reservation to exact durable state and push
   assert.equal(pushed.ok, true, pushed.reasonCode);
   assert.equal(pushed.sourceCycleReservation.status, "source_cycle_finalized");
   assert.equal(pushed.sourceCycleReservation.consumedAfter, 1);
-  assert.equal(calls.filter((call) => call === `git push origin ${sha("c")}:refs/heads/feature/auto-913-parent`).length, 1);
+  assert.equal(calls.filter((call) => call === `git push origin ${sha("c")}:feature/auto-913-parent`).length, 1);
 });
 
 test("source-changing evidence separates narrow fix delta from full candidate PR delta", () => {
@@ -2279,7 +2254,7 @@ test("current-main proof fetches origin main and verifies parent merge ancestry"
   const proof = await adapter.fetchCurrentMain({ config: fixture.config, state, pr: fixture.plan.orderedPrs[0] });
   assert.equal(proof.ok, true);
   assert.equal(proof.currentMain, sha("e"));
-  assert.ok(calls.includes("git fetch origin refs/heads/main:refs/remotes/origin/main"));
+  assert.ok(calls.includes("git fetch origin main"));
   assert.ok(calls.includes(`git merge-base --is-ancestor ${sha("e")} origin/main`));
 });
 

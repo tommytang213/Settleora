@@ -35,15 +35,6 @@ test("dirty, primary, active, shared, symlinked, ambiguous and unexported worktr
   assert.equal(evaluateCleanupGate(o, live(o, { worktree: { ...live(o).worktree, identity: d("8") } })).ok, false);
 });
 
-test("cleanup ownership rejects traversal and Git-invalid ephemeral branch names", () => {
-  for (const branchName of [
-    "fix/auto-x/../../../remotes/origin/topic", "fix/auto-x//topic",
-    "fix/auto-x/.hidden", "fix/auto-x/topic.lock", "fix/auto-x/topic@{one}",
-  ]) {
-    assert.throws(() => createCleanupOwnershipRecord(owner({ branchName })), /cleanup_branch_not_ephemeral/u);
-  }
-});
-
 test("exact remote/worktree/local effects execute in order and final absence is confirmed", async () => {
   const o = owner(); let state = live(o); const calls = []; const checkpoints = [];
   const planned = planPostMergeCleanup(o, state).state;
@@ -163,27 +154,4 @@ test("production-shaped primary checkout hands off before exact local cleanup", 
   const authority = { ...live(o), remoteHead: undefined, localHead: undefined, worktree: {} }; const adapter = createPostMergeCleanupGitAdapter({ repoRoot: repo, authorityReader: async () => authority, checkpoint: async () => {} });
   const initial = await adapter.readLive(o); assert.equal(initial.worktree.primary, true); assert.equal(initial.worktree.handoffEligible, true);
   const result = await continuePostMergeCleanup(planPostMergeCleanup(o, initial).state, adapter); assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(git(repo, "branch", "--show-current"), ""); assert.throws(() => git(repo, "show-ref", "--verify", "refs/heads/feature/auto-947-primary"));
-});
-
-test("production adapter rejects cleanup ownership from another repository before authority readback", async () => {
-  let authorityReads = 0;
-  const adapter = createPostMergeCleanupGitAdapter({
-    config: {
-      runtimeMode: "external",
-      repositorySlug: "owner/repo",
-      repoRoot: process.cwd(),
-    },
-    repoRoot: process.cwd(),
-    authorityReader: async () => { authorityReads += 1; return {}; },
-    checkpoint: async () => {},
-  });
-  const result = await adapter.readLive(owner({
-    repository: "attacker/repo",
-    prUrl: "https://github.com/attacker/repo/pull/1",
-  }));
-  assert.equal(result.excluded, true);
-  assert.equal(authorityReads, 0);
-  assert.equal(Object.hasOwn(createPostMergeCleanupGitAdapter({
-    repoRoot: process.cwd(), authorityReader: async () => ({}), checkpoint: async () => {},
-  }), "spawn"), false);
 });

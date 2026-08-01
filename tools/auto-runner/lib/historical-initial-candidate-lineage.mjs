@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { readIssueCommentDigest } from "./github-issues.mjs";
@@ -15,7 +16,6 @@ import {
 } from "./preserved-recovery-deployment.mjs";
 import { canonicalApprovedGitHubRepository } from "./runtime-identity.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
-import { runGit as runSourceOwnedGit, runTrustedGithub } from "./git-workspace.mjs";
 
 const sha = /^[a-f0-9]{40}$/u;
 const digest = /^[a-f0-9]{64}$/u;
@@ -94,11 +94,11 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     }
 
     const git = options.git || ((args) => runGit(repoRoot, args));
-    if (unsafeObjectMechanism(repoRoot, git)) return fail("historical_candidate_git_object_environment_untrusted");
     if (!trustedRepository(git, repository, repoRoot)) return fail("historical_candidate_git_environment_untrusted");
     if (git(["rev-parse", "--is-shallow-repository"]).stdout.trim() !== "false") {
       return fail("historical_candidate_history_shallow");
     }
+    if (unsafeObjectMechanism(repoRoot, git)) return fail("historical_candidate_git_object_environment_untrusted");
     const initialHeadSha = candidate.headSha;
     if (!objectIs(git, baseSha, "commit") || !objectIs(git, initialHeadSha, "commit")
       || !objectIs(git, headSha, "commit")) {
@@ -230,14 +230,8 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
     const intentFinder = options.findIntents || findPreEffectIntents;
     const intents = intentFinder(config, (intent) => intent.repository === repository
       && intent.sourceTaskKey === taskKey && intent.runId === runId);
-    let remoteTaskBranchRead;
-    if (options.readRemoteTaskBranch) {
-      remoteTaskBranchRead = options.readRemoteTaskBranch(git, branch);
-    } else {
-      const originUrl = authenticatedOriginUrl(git, repository);
-      if (!originUrl) return fail("historical_candidate_remote_identity_untrusted");
-      remoteTaskBranchRead = readRemoteTaskBranchFromGithub(config, branch);
-    }
+    const remoteTaskBranchRead = (options.readRemoteTaskBranch
+      || readRemoteTaskBranch)(git, branch);
     const liveTaskPrRead = options.allowAuthenticatedExistingPrEffects === true
       ? (options.readLiveTaskPrs || readLiveTaskPrs)(config, branch)
       : null;
@@ -388,14 +382,10 @@ export function verifyHistoricalInitialCandidateLineage(config, state, issue, op
   }
 }
 
-export function readRemoteTaskBranch(git, branch, authenticatedRemoteUrl) {
-  if (canonicalApprovedGitHubRepository(authenticatedRemoteUrl) === null
-    && !path.isAbsolute(authenticatedRemoteUrl || "")) {
-    return { complete: false, absent: false };
-  }
+export function readRemoteTaskBranch(git, branch) {
   const result = git([
     "-c", "protocol.ext.allow=never",
-    "ls-remote", "--heads", authenticatedRemoteUrl, `refs/heads/${branch}`,
+    "ls-remote", "--heads", "origin", `refs/heads/${branch}`,
   ]);
   if (result.status !== 0 || result.stderr !== "") {
     return { complete: false, absent: false };
@@ -410,33 +400,16 @@ export function readRemoteTaskBranch(git, branch, authenticatedRemoteUrl) {
     : { complete: false, absent: false };
 }
 
-export function readRemoteTaskBranchFromGithub(config, branch) {
-  if (typeof branch !== "string" || !/^(?!.*\.\.)(?!.*\.$)[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(branch)
-    || branch.includes("//") || branch.includes("@{") || branch.endsWith("/")) {
-    return { complete: false, absent: false };
-  }
-  const expectedRef = `refs/heads/${branch}`;
-  const endpoint = `repos/${config.repositorySlug}/git/matching-refs/heads/${encodeURIComponent(branch)}`;
-  const result = runTrustedGithub(config, ["api", endpoint], { timeoutMs: 20_000 });
-  if (result.status !== 0 || result.error) return { complete: false, absent: false };
-  try {
-    const matches = JSON.parse(result.stdout || "[]").filter((entry) => entry?.ref === expectedRef);
-    if (matches.length === 0) return { complete: true, absent: true };
-    if (matches.length !== 1 || !sha.test(matches[0]?.object?.sha || "")) {
-      return { complete: false, absent: false };
-    }
-    return { complete: true, absent: false, headSha: matches[0].object.sha };
-  } catch {
-    return { complete: false, absent: false };
-  }
-}
-
 export function readLiveTaskPrs(config, branch) {
-  const result = runTrustedGithub(config, [
+  const result = spawnSync("gh", [
     "pr", "list", "--repo", config.repositorySlug, "--head", branch,
     "--state", "all", "--limit", "100",
     "--json", "number,url,state,isDraft,baseRefName,headRefName,headRefOid",
-  ], { timeoutMs: 20_000 });
+  ], {
+    cwd: config.repoRoot,
+    encoding: "utf8",
+    timeout: 20_000,
+  });
   if (result.status !== 0 || result.stderr !== "") return { complete: false, prs: [] };
   try {
     const prs = JSON.parse(result.stdout || "[]");
@@ -725,17 +698,15 @@ function validPreparedSourceFixCheckout(git, continuation, candidateHead, checko
 }
 
 function runGit(cwd, args) {
-  try {
-    return runSourceOwnedGit(args, { cwd, maxBuffer: 16 * 1024 * 1024, timeoutMs: 15_000 });
-  } catch {
-    return { command: `/usr/bin/git ${args.join(" ")}`, status: 128, stdout: "", stderr: "source-owned Git admission failed", error: null };
-  }
-}
-
-function authenticatedOriginUrl(git, repository) {
-  const result = git(["config", "--local", "--get", "remote.origin.url"]);
-  const remote = result.status === 0 ? result.stdout.trim() : null;
-  return canonicalApprovedGitHubRepository(remote) === String(repository || "").toLowerCase() ? remote : null;
+  return spawnSync("/usr/bin/git", args, {
+    cwd, encoding: "utf8", timeout: 15_000,
+    env: {
+      PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_OPTIONAL_LOCKS: "0",
+      GIT_NO_LAZY_FETCH: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null",
+      GIT_TERMINAL_PROMPT: "0",
+    },
+  });
 }
 function trustedRepository(git, repository, repoRoot) {
   const rootInfo = lstatSync(repoRoot);
@@ -774,13 +745,6 @@ function trustedRepository(git, repository, repoRoot) {
           || (worktreeConfigs?.status === 0 && !unsafeConfig(worktreeConfigs.stdout)))));
 }
 function unsafeObjectMechanism(repoRoot, git) {
-  const directGitDir = path.join(repoRoot, ".git");
-  if (existsSync(directGitDir) && lstatSync(directGitDir).isDirectory()
-    && (existsSync(path.join(directGitDir, "info", "grafts"))
-      || existsSync(path.join(directGitDir, "objects", "info", "alternates"))
-      || existsSync(path.join(directGitDir, "objects", "info", "http-alternates"))
-      || (existsSync(path.join(directGitDir, "refs", "replace"))
-        && readdirSync(path.join(directGitDir, "refs", "replace")).length > 0))) return true;
   const common = git(["rev-parse", "--git-common-dir"]).stdout.trim();
   const gitDir = path.resolve(repoRoot, common);
   const replaceRoot = path.join(gitDir, "refs", "replace");

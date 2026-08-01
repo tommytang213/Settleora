@@ -9,7 +9,6 @@ import { pathToFileURL } from "node:url";
 import {
   canonicalizeChangedFiles,
   digestChangedFiles,
-  hasSourceOwnedDevelopmentGitTransportAdmission,
   parseCliArgs,
   loadConfig,
   validateRecoveryOnlyExistingPrTarget,
@@ -43,7 +42,6 @@ import {
   canonicalEffectContext,
   ensureLaunchWorkspace,
   ensureTaskMutationWorkspace,
-  fetchAuthenticatedRemoteRef,
   fetchOriginMain,
   getBoundedDiff,
   getBoundedWorkingTreeDiff,
@@ -52,9 +50,6 @@ import {
   getStatusShort,
   listChangedFiles,
   listWorkingTreeChangedFiles,
-  runAuthenticatedRemoteGit,
-  runGit,
-  runTrustedGithub,
   runTrustedProspectiveMergeTree,
   restoreControlPlaneRepositoryContext,
   sourceStateIdentityForCommit,
@@ -2474,7 +2469,9 @@ export function selectPreservedTerminalCommentDigest(intents, expected) {
 }
 
 function authenticatedTaskRefGitEvidence(config, candidate) {
-  const shown = runGit(["show", "-s", "--format=%P%n%T%n%B", candidate.headSha], { cwd: config.repoRoot });
+  const shown = spawnSync("git", ["show", "-s", "--format=%P%n%T%n%B", candidate.headSha], {
+    cwd: config.repoRoot, encoding: "utf8", timeout: 15_000,
+  });
   if (shown.error || shown.status !== 0) return { complete: false, source: "authenticated_task_ref" };
   const [parents = "", treeSha = "", ...messageLines] = shown.stdout.replace(/\r\n/g, "\n").split("\n");
   return {
@@ -2703,9 +2700,9 @@ async function continueOrdinaryCandidateRecovery(config, logger, { issue, laneDe
     initial.sourceFailureFixIntent?.status === "prepared"
     && initial.sourceFailureFixIntent?.candidateHead === initial.identity.headSha
     && liveHeadAtRecovery !== initial.identity.headSha
-    && runGit(["merge-base", "--is-ancestor", initial.identity.headSha, liveHeadAtRecovery], { cwd: config.repoRoot }).status === 0
-    && runGit(["rev-list", "--count", `${initial.identity.headSha}..${liveHeadAtRecovery}`], { cwd: config.repoRoot }).stdout.trim() === "1"
-    && runGit(["show", "-s", "--format=%s", liveHeadAtRecovery], { cwd: config.repoRoot }).stdout.trim() === `Auto-runner issue #${issue.number}: source-fix ${initial.sourceFailureFixIntent?.batchIdentity?.slice(0, 16)}`
+    && spawnSync("git", ["merge-base", "--is-ancestor", initial.identity.headSha, liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).status === 0
+    && spawnSync("git", ["rev-list", "--count", `${initial.identity.headSha}..${liveHeadAtRecovery}`], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === "1"
+    && spawnSync("git", ["show", "-s", "--format=%s", liveHeadAtRecovery], { cwd: config.repoRoot, encoding: "utf8" }).stdout.trim() === `Auto-runner issue #${issue.number}: source-fix ${initial.sourceFailureFixIntent?.batchIdentity?.slice(0, 16)}`
   );
   const cleanupOnlyRecovery = initial.phase === "post_merge_cleanup";
   if (!cleanupOnlyRecovery && (getCurrentBranch() !== initial.branchName || (!preparedFixCanBeAdopted && liveHeadAtRecovery !== initial.identity.headSha) || getRefSha("origin/main") !== currentMainSha || getStatusShort() !== "")) {
@@ -3267,23 +3264,24 @@ export function recoveredSourceHeadTransition({
 function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, adopted, sessionLifecycle) {
   const targetDigest = adopted.targetDigest;
   if (phase === "push") {
-    const live = runAuthenticatedRemoteGit(config, ["ls-remote", "--heads"], [`refs/heads/${continuation.branchName}`]);
+    assertRepositoryRemoteIdentity(config);
+    const live = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${continuation.branchName}`], { cwd: config.repoRoot, encoding: "utf8" });
     const head = live.status === 0 && live.stdout.trim() ? live.stdout.trim().split(/\s+/)[0] : null;
     return head === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_push_live_mismatch" };
   }
   if (phase === "pr_create_or_update") {
-    const live = runTrustedGithub(config, ["pr", "list", "--head", continuation.branchName, "--state", "open", "--json", "number,baseRefName,headRefOid"]);
+    const live = spawnSync("gh", ["pr", "list", "--head", continuation.branchName, "--state", "open", "--json", "number,baseRefName,headRefOid"], { cwd: config.repoRoot, encoding: "utf8" });
     let prs = []; try { prs = JSON.parse(live.stdout || "[]"); } catch { return { ok: false, reasonCode: "ordinary_continuation_pr_live_unavailable" }; }
     return live.status === 0 && prs.length === 1 && prs[0].baseRefName === "main" && prs[0].headRefOid === continuation.identity.headSha ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_pr_live_mismatch" };
   }
   if (phase === "merge") {
     fetchOriginMain(config);
-    const proof = runGit(["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot });
+    const proof = spawnSync("git", ["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot, encoding: "utf8" });
     return proof.status === 0 ? { ok: true, targetDigest } : { ok: false, reasonCode: "ordinary_continuation_merge_live_mismatch" };
   }
   if (phase === "github_convergence") {
     fetchOriginMain(config);
-    const proof = runGit(["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot });
+    const proof = spawnSync("git", ["merge-base", "--is-ancestor", continuation.identity.headSha, "origin/main"], { cwd: config.repoRoot, encoding: "utf8" });
     const autoMerge = ordinaryMergeEvidenceAsAutoMerge(adopted.evidence);
     return proof.status === 0 && autoMerge.result === "merged" && autoMergeEffectsConfirmed(config, sessionLifecycle, autoMerge)
       ? { ok: true, targetDigest }
@@ -3302,28 +3300,19 @@ function adoptOrdinaryContinuationEffect(config, issue, phase, continuation, ado
 }
 
 function readOrdinaryCleanupAuthority(config, state, continuation, owner, currentRunId = null) {
-  if (!cleanupOwnershipMatchesRuntime(config, owner)) {
-    return { repository: config.repositorySlug, excluded: true };
-  }
-  const runGh = (args) => runTrustedGithub(config, args);
-  const runLocalGit = (args) => runGit(args, { cwd: config.repoRoot });
-  const runCleanupCommand = (command, args, options = {}) => command === "git"
-    ? runGit(args, { cwd: options.cwd || config.repoRoot, input: options.input, timeoutMs: 30_000, maxBuffer: 4 * 1024 * 1024 })
-    : command === "gh"
-      ? runTrustedGithub({ ...config, repoRoot: options.cwd || config.repoRoot }, args, { ...options, timeoutMs: 30_000, maxBuffer: 4 * 1024 * 1024 })
-      : { status: 1, stdout: "", stderr: "trusted cleanup executable required", error: "trusted cleanup executable required" };
-  const prRead = runGh(["pr", "view", String(owner.prNumber), "--json", "number,state,headRefName,headRefOid,baseRefName,mergeCommit"]);
-  const openHeadRead = runGh(["pr", "list", "--state", "open", "--head", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
-  const openBaseRead = runGh(["pr", "list", "--state", "open", "--base", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
-  const branchRead = runGh(["api", `repos/${config.repositorySlug}/branches/${encodeURIComponent(owner.branchName)}`]);
-  const repositoryRead = runGh(["repo", "view", config.repositorySlug, "--json", "defaultBranchRef"]);
-  const targetRef = `refs/remotes/origin/${owner.targetBranch}`;
-  const fetch = fetchAuthenticatedRemoteRef(config, owner.targetBranch, targetRef);
-  const targetRead = runLocalGit(["rev-parse", targetRef]);
-  const sourceAncestor = runLocalGit(["merge-base", "--is-ancestor", owner.reviewedHeadSha, targetRef]);
-  const mergeAncestor = runLocalGit(["merge-base", "--is-ancestor", owner.mergeSha, targetRef]);
-  const acceptanceAncestor = runLocalGit(["merge-base", "--is-ancestor", owner.acceptance.targetHeadSha, targetRef]);
-  const sourceTree = runLocalGit(["rev-parse", `${owner.reviewedHeadSha}^{tree}`]);
+  const run = (command, args) => spawnSync(command, args, { cwd: config.repoRoot, encoding: "utf8" });
+  const prRead = run("gh", ["pr", "view", String(owner.prNumber), "--repo", owner.repository, "--json", "number,state,headRefName,headRefOid,baseRefName,mergeCommit"]);
+  const openHeadRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--head", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
+  const openBaseRead = run("gh", ["pr", "list", "--repo", owner.repository, "--state", "open", "--base", owner.branchName, "--limit", "1", "--json", "number,headRefName,baseRefName"]);
+  const branchRead = run("gh", ["api", `repos/${owner.repository}/branches/${encodeURIComponent(owner.branchName)}`]);
+  const repositoryRead = run("gh", ["repo", "view", owner.repository, "--json", "defaultBranchRef"]);
+  assertRepositoryRemoteIdentity(config);
+  const fetch = run("git", ["fetch", "origin", `refs/heads/${owner.targetBranch}:refs/remotes/origin/${owner.targetBranch}`]);
+  const targetRead = run("git", ["rev-parse", `refs/remotes/origin/${owner.targetBranch}`]);
+  const sourceAncestor = run("git", ["merge-base", "--is-ancestor", owner.reviewedHeadSha, `refs/remotes/origin/${owner.targetBranch}`]);
+  const mergeAncestor = run("git", ["merge-base", "--is-ancestor", owner.mergeSha, `refs/remotes/origin/${owner.targetBranch}`]);
+  const acceptanceAncestor = run("git", ["merge-base", "--is-ancestor", owner.acceptance.targetHeadSha, `refs/remotes/origin/${owner.targetBranch}`]);
+  const sourceTree = run("git", ["rev-parse", `${owner.reviewedHeadSha}^{tree}`]);
   let pr = null; let openHead = []; let openBase = []; let branch = null; let repository = null;
   const branchAbsent = branchRead.status !== 0 && /HTTP 404|not found/i.test(`${branchRead.stderr || ""} ${branchRead.stdout || ""}`);
   try { pr = JSON.parse(prRead.stdout || "null"); openHead = JSON.parse(openHeadRead.stdout || "[]"); openBase = JSON.parse(openBaseRead.stdout || "[]"); branch = branchRead.status === 0 ? JSON.parse(branchRead.stdout || "null") : null; repository = JSON.parse(repositoryRead.stdout || "null"); } catch { return { repository: owner.repository, excluded: true }; }
@@ -3341,11 +3330,11 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
     sessionLifecycle: state.sessionLifecycle || null,
     parentIssue: persistedHygiene.parentIssue || state.parentIssue || null,
     ledgerEvidence: persistedHygiene.ledger?.result ? { results: [persistedHygiene.ledger.result] } : state.ledgerEvidence,
-  }, { runner: runCleanupCommand });
+  }, { runner: (command, args) => run(command, args) });
   const otherRecoveryReferences = listRecoverableRecoveryStates(config).filter((record) => record.branch?.name === owner.branchName && !sameCleanupExecutionLineage(record, owner)).length;
   const durableInventory = inspectDurableCleanupReferences(config, owner);
   const pendingBranchEffects = findPreEffectIntents(config, (intent) => intent.branchName === owner.branchName || intent.effect?.branchName === owner.branchName).filter((intent) => !["live_confirmed", "adopted_after_recovery"].includes(intent.status)).length;
-  const processInventory = runBoundedCleanupProcessInventory();
+  const processInventory = run("ps", ["-eo", "pid=,args="]);
   const correlatedProcesses = processInventory.status === 0
     ? String(processInventory.stdout || "").split("\n").filter((line) => {
         const pid = Number(line.trim().split(/\s+/, 1)[0]);
@@ -3401,30 +3390,6 @@ function readOrdinaryCleanupAuthority(config, state, continuation, owner, curren
     hygieneComplete: completionHygieneReady(hygiene), reportsExported: Boolean(state.postMergeCleanupOwnership && state.postMergeCompletionHygiene && reportEvidenceComplete), dependenciesComplete: !Object.values(activeReferences).some((count) => count > 0), activeReferences, activeInventoryComplete: cleanupExecutorAuthority && runnerLockAuthority && sessionAuthority && processInventory.status === 0 && durableInventory.complete, openPrReferences,
     protected: branchRead.status === 0 ? branch?.protected === true : false, defaultBranch: repository?.defaultBranchRef?.name, manualOwned: state.taskKey !== owner.rootTaskKey || state.issue?.number !== owner.issueNumber || state.branch?.name !== owner.branchName || state.branch?.currentHeadSha !== owner.reviewedHeadSha, excluded: prRead.status !== 0 || openHeadRead.status !== 0 || openBaseRead.status !== 0 || !openIdentityValid || repositoryRead.status !== 0 || (branchRead.status !== 0 && !branchAbsent) || targetRead.status !== 0,
     worktree: { active: false, shared: false, unexportedEvidence: false, primaryHandoffIgnoredPids: authorizedSupervisorProcessIds(state) },
-  };
-}
-
-function cleanupOwnershipMatchesRuntime(config, owner) {
-  const expected = String(config?.repositorySlug || "").toLowerCase();
-  if (!expected || String(owner?.repository || "").toLowerCase() !== expected) return false;
-  try {
-    const url = new URL(owner.prUrl);
-    const match = url.hostname === "github.com" ? url.pathname.match(/^\/([^/]+\/[^/]+)\/pull\/[1-9][0-9]*$/u) : null;
-    return match?.[1]?.toLowerCase() === expected;
-  } catch { return false; }
-}
-
-export function runBoundedCleanupProcessInventory() {
-  const result = spawnSync("/usr/bin/ps", ["-eo", "pid=,args="], {
-    encoding: "utf8", windowsHide: true, shell: false, timeout: 10_000, maxBuffer: 4 * 1024 * 1024,
-    env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
-  });
-  return {
-    command: "/usr/bin/ps -eo pid=,args=",
-    status: result.status,
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    error: result.error?.message || null,
   };
 }
 
@@ -3497,7 +3462,7 @@ export function authorizedSupervisorProcessIds(state, {
 }
 
 export function primaryWorktreeRoot(repoRoot) {
-  const listed = runGit(["worktree", "list", "--porcelain"], { cwd: repoRoot, manageWorktrees: true });
+  const listed = spawnSync("git", ["worktree", "list", "--porcelain"], { cwd: repoRoot, encoding: "utf8" });
   if (listed.status !== 0) return null;
   const first = String(listed.stdout || "").split("\n").find((line) => line.startsWith("worktree "))?.slice("worktree ".length);
   if (!first) return null;
@@ -3505,8 +3470,8 @@ export function primaryWorktreeRoot(repoRoot) {
 }
 
 function recordTaskWorktreeOwnershipMarker(config, recoveryRecorder, branchName) {
-  const common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: config.repoRoot });
-  const top = runGit(["rev-parse", "--show-toplevel"], { cwd: config.repoRoot });
+  const common = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: config.repoRoot, encoding: "utf8" });
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: config.repoRoot, encoding: "utf8" });
   if (common.status !== 0 || top.status !== 0) return;
   try {
     const worktreePath = realpathSync(String(top.stdout || "").trim());
@@ -3624,11 +3589,17 @@ function loadNormalLargeCandidateRecoveryCheckpoint(config, state, issue, laneDe
   }
   fetchOriginMain(config, { trustedHistoricalRecovery: true });
   const reconstructedCurrentMainSha = getRefSha("origin/main");
-  const mainLineage = runGit(["merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha], { cwd: config.repoRoot });
+  const mainLineage = spawnSync(
+    "git", ["merge-base", "--is-ancestor", baseSha, reconstructedCurrentMainSha],
+    { cwd: config.repoRoot, encoding: "utf8" },
+  );
   if (!/^[a-f0-9]{40}$/.test(reconstructedCurrentMainSha) || mainLineage.status !== 0) {
     return { ok: false, reasonCode: "large_candidate_recovery_current_main_untrusted" };
   }
-  const candidateAlreadyInMain = runGit(["merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha], { cwd: config.repoRoot });
+  const candidateAlreadyInMain = spawnSync(
+    "git", ["merge-base", "--is-ancestor", headSha, reconstructedCurrentMainSha],
+    { cwd: config.repoRoot, encoding: "utf8" },
+  );
   if (candidateAlreadyInMain.status === 0) {
     return { ok: false, reasonCode: "historical_candidate_already_in_main" };
   }
@@ -4144,7 +4115,7 @@ async function generateExistingPrRecoveryEvidence(config, {
         review: null,
       };
     }
-    const fetch = fetchAuthenticatedRemoteRef(config, pr.headRefName);
+    const fetch = spawnLike("git", ["fetch", "origin", pr.headRefName], config.repoRoot);
     if (fetch.status !== 0 || fetch.error) {
       return {
         reason: "recovery_evidence_generation_fetch_failed",
@@ -4281,21 +4252,21 @@ export function verifyProspectiveMergeValidation(config, evidence, expectedBaseS
 
 function readPrChangedFiles(config, prNumber) {
   if (!prNumber || config.dryRun) return [];
-  const result = runTrustedGithub(config, ["pr", "diff", String(prNumber), "--name-only"]);
+  const result = spawnLike("gh", ["pr", "diff", String(prNumber), "--name-only"], config.repoRoot);
   if (result.status !== 0 || result.error) return [];
   return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).sort();
 }
 
 function readPrDiff(config, prNumber) {
   if (!prNumber || config.dryRun) return "";
-  const result = runTrustedGithub(config, ["pr", "diff", String(prNumber)]);
+  const result = spawnLike("gh", ["pr", "diff", String(prNumber)], config.repoRoot);
   if (result.status !== 0 || result.error) return "";
   return result.stdout || "";
 }
 
 function spawnLike(command, args, cwd) {
-  if (command === "git") return runGit(args, { cwd, manageWorktrees: args.includes("worktree") });
-  return { status: 1, stdout: "", stderr: "trusted executable required", error: "trusted executable required" };
+  const result = spawnSync(command, args, { cwd, encoding: "utf8", windowsHide: true });
+  return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 
 function createLiveFixedArgvRunner(config = {}) {
@@ -4319,22 +4290,18 @@ function createLiveFixedArgvRunner(config = {}) {
       return { status: 1, stdout: "", stderr: "shell_execution_refused", error: "shell_execution_refused" };
     }
     const cwd = path.resolve(options.cwd || repoRoot);
-	    const result = command === "git"
-      ? runGit(args, {
-        cwd,
-        manageWorktrees: args.includes("worktree"),
-        input: options.input,
-        timeoutMs: options.timeoutMs || timeoutMs,
-        maxBuffer: maxOutputBytes,
-        allowLocalFileTransport: hasSourceOwnedDevelopmentGitTransportAdmission(config),
-      })
-      : command === "gh"
-        ? runTrustedGithub({ ...config, repoRoot: cwd }, args, { ...options, timeoutMs: options.timeoutMs || timeoutMs, maxBuffer: maxOutputBytes })
-        : { status: 1, stdout: "", stderr: "trusted executable required", error: "trusted executable required" };
+	    const result = spawnSync(command, args, {
+      cwd,
+      input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
+      encoding: "utf8",
+      windowsHide: true,
+      shell: false,
+      timeout: options.timeoutMs || timeoutMs,
+	      maxBuffer: maxOutputBytes,
+	    });
 	    const stdout = boundRunnerOutput(result.stdout || "", maxOutputBytes);
 	    const stderr = boundRunnerOutput(result.stderr || "", maxOutputBytes);
-	    const rawError = typeof result.error === "string" ? result.error : result.error?.message;
-	    const error = rawError ? sanitizeRunnerOutputEvidence(rawError, 2000) : null;
+	    const error = result.error?.message ? sanitizeRunnerOutputEvidence(result.error.message, 2000) : null;
 	    const completedAt = new Date().toISOString();
 	    const stdoutEvidence = sanitizeRunnerOutputEvidence(stdout, 1000);
 	    const stderrEvidence = sanitizeRunnerOutputEvidence(stderr, 1000);

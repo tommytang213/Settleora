@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync, mkdirSync, statSync, unlinkSync, wri
 import { freemem } from "node:os";
 import path from "node:path";
 import { resolveCodexCommand } from "./codex-runner.mjs";
-import { getCurrentBranch, getRefSha, getStatusShort, runAuthenticatedRemoteGit, runGit } from "./git-workspace.mjs";
+import { getCurrentBranch, getRefSha, getStatusShort, runGit } from "./git-workspace.mjs";
 import {
   evaluateLowRiskAutoMergeCanaryApproval,
   evaluateProductionFollowupIssueApproval,
@@ -39,7 +39,7 @@ export function runPreflight(config, options = {}) {
   checks.push(checkRepoRoot(config));
   checks.push(checkRuntimeIdentity(config));
   checks.push(checkBranchAndStatus(config, runner));
-  checks.push(checkOriginMainFetchable(config, runner, options.runner === undefined));
+  checks.push(checkOriginMainFetchable(config, runner));
   checks.push(checkGhAvailable(runner));
   checks.push(checkGhAuthStatus(config, runner));
   checks.push(checkGhRepoView(config, runner));
@@ -205,12 +205,8 @@ function checkBranchAndStatus(config, runner) {
   }
 }
 
-function checkOriginMainFetchable(config, runner, useProductionTransport) {
-  const result = useProductionTransport
-    ? runAuthenticatedRemoteGit(config, ["ls-remote", "--exit-code"], ["refs/heads/main"])
-    : runner("git", [
-      "ls-remote", "--exit-code", `https://github.com/${config.repositorySlug}.git`, "refs/heads/main",
-    ], { cwd: config.repoRoot });
+function checkOriginMainFetchable(config, runner) {
+  const result = runner("git", ["ls-remote", "--exit-code", "origin", "refs/heads/main"], { cwd: config.repoRoot });
   return commandCheck("origin-main-fetchable", result, {
     passDetail: bounded(firstLine(result.stdout) || "origin main is reachable"),
   });

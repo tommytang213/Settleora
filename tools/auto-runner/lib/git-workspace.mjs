@@ -1,8 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdtempSync, mkdirSync,
-  openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync,
+  existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,30 +10,19 @@ import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 import { executeCanonicalEffect, executeCanonicalEffectSync } from "./canonical-effect-executor.mjs";
 import { findPreEffectIntents, loadPreEffectIntent, preparePreEffectIntent } from "./pre-effect-intent.mjs";
 import { assertMutationAuthority, loadSessionLifecycleState, persistSessionLifecycleState } from "./session-lifecycle.mjs";
-import {
-  admitRepositoryWorktreeRemoteIdentity,
-  assertRepositoryRemoteIdentity,
-  restoreControlPlaneRepositoryRemoteIdentity,
-} from "./runtime-identity.mjs";
+import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 let trustedRepositoryContext = null;
-const admittedRepositoryContexts = new Map();
 
 export function bindTrustedRepositoryContext(repoRoot) {
   const canonical = path.resolve(repoRoot || "");
   if (!path.isAbsolute(repoRoot || "") || canonical !== repoRoot) {
     throw new Error("trusted repository context requires an absolute normalized repoRoot");
   }
-  const admitted = admitSourceOwnedGitContext(canonical);
-  if (trustedRepositoryContext && trustedRepositoryContext.root !== canonical) {
+  if (trustedRepositoryContext && trustedRepositoryContext !== canonical) {
     throw new Error("trusted repository context cannot be rebound to another repository");
   }
-  const existing = admittedRepositoryContexts.get(canonical);
-  if (existing && !sameAdmittedGitTuple(existing, admitted)) {
-    throw new Error("trusted repository Git tuple changed after admission");
-  }
-  admittedRepositoryContexts.set(canonical, admitted);
-  trustedRepositoryContext = admitted;
+  trustedRepositoryContext = canonical;
   return canonical;
 }
 
@@ -46,7 +34,7 @@ export function adoptHistoricalTaskWorkspace(config, {
   if (!/^[a-f0-9]{40}$/u.test(headSha || "")
     || typeof branchName !== "string" || !branchName.length
     || !path.isAbsolute(controlRoot)
-    || ![controlRoot, path.resolve(config?.repoRoot || "")].includes(trustedRepositoryContext?.root)) {
+    || ![controlRoot, path.resolve(config?.repoRoot || "")].includes(trustedRepositoryContext)) {
     throw new Error("historical task workspace authority is incomplete");
   }
   const literalRef = `refs/heads/${branchName}`;
@@ -129,6 +117,7 @@ export function adoptHistoricalTaskWorkspace(config, {
         ),
         execute: () => {
           const creationResult = runFixedTrustedGit(controlRoot, [
+            "-c", "core.hooksPath=/dev/null",
             "worktree", "add", "--", intendedTaskRoot, branchName,
           ]);
           assertGitSuccess(creationResult, "Unable to materialize historical task worktree");
@@ -158,9 +147,7 @@ export function adoptHistoricalTaskWorkspace(config, {
     || taskBranch !== branchName || taskHead !== expectedTaskHead || taskStatus !== "") {
     throw new Error(`Historical task worktree failed exact authority checks: sameRoot=${canonicalTaskRoot === controlRoot}; commonDir=${taskCommonDir === controlCommonDir}; branch=${taskBranch === branchName}; head=${taskHead === expectedTaskHead}; clean=${taskStatus === ""}`);
   }
-  admitRepositoryWorktreeRemoteIdentity(config, canonicalTaskRoot);
-  trustedRepositoryContext = admitSourceOwnedGitContext(canonicalTaskRoot);
-  admittedRepositoryContexts.set(canonicalTaskRoot, trustedRepositoryContext);
+  trustedRepositoryContext = canonicalTaskRoot;
   config.controlPlaneRepoRoot = controlRoot;
   config.repoRoot = canonicalTaskRoot;
   process.chdir(canonicalTaskRoot);
@@ -217,9 +204,7 @@ export function restoreControlPlaneRepositoryContext(config) {
   if (!path.isAbsolute(controlRoot) || !existsSync(controlRoot) || getStatusShort({ cwd: controlRoot }) !== "") {
     throw new Error("Control-plane repository restoration authority is unavailable");
   }
-  trustedRepositoryContext = admitSourceOwnedGitContext(controlRoot);
-  admittedRepositoryContexts.set(controlRoot, trustedRepositoryContext);
-  restoreControlPlaneRepositoryRemoteIdentity(config);
+  trustedRepositoryContext = controlRoot;
   config.repoRoot = controlRoot;
   process.chdir(controlRoot);
   return controlRoot;
@@ -250,383 +235,20 @@ function parseWorktrees(value) {
 }
 
 export function runGit(args, options = {}) {
-  const cwd = options.cwd || trustedRepositoryContext?.root || process.cwd();
-  const context = sourceOwnedGitContext(cwd);
-  assertSourceOwnedGitMetadata(context);
-  const command = classifySourceOwnedGitCommand(args, { cwd: context.root, options });
-  if (command.kind === "unsupported") {
-    return {
-      command: `git ${args.join(" ")}`,
-      status: 128,
-      stdout: "",
-      stderr: "Git invocation is outside the source-owned command grammar",
-      error: null,
-      signal: null,
-      reasonCode: "source_owned_git_argv_unrecognized",
-    };
-  }
-  if (command.kind === "transport" && options.allowLocalFileTransport !== true) {
-    return {
-      command: `git ${args.join(" ")}`,
-      status: 128,
-      stdout: "",
-      stderr: "Protected external Git transport producer is not installed",
-      error: null,
-      signal: null,
-      reasonCode: "protected_external_git_transport_unavailable",
-    };
-  }
-  const hasHead = repositoryHasHead(context);
-  try {
-    if (hasHead) assertSourceOwnedTreeAttributes(context);
-  } catch {
-    return {
-      command: `git ${args.join(" ")}`, status: 128, stdout: "",
-      stderr: "Repository attributes may select executable Git drivers", error: null,
-      signal: null, reasonCode: "source_owned_git_attributes_unsafe",
-    };
-  }
-  let effectiveArgs = args;
-  let effectiveInput = typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined;
-  if (args[0] === "hash-object" && args[1] === "--") {
-    effectiveInput = readSourceOwnedWorktreeBlob(context, args[2]);
-    effectiveArgs = ["hash-object", "--stdin"];
-  }
-  const fixedArgs = fixedRepositoryGitArgs(cwd, effectiveArgs, {
-    allowLocalFileTransport: options.allowLocalFileTransport === true,
+  const cwd = options.cwd || trustedRepositoryContext || process.cwd();
+  const result = spawnSync("git", args, {
+    cwd,
+    env: options.env ? { ...process.env, ...options.env } : process.env,
+    encoding: "utf8",
+    windowsHide: true,
   });
-  const repositoryEnvironment = fixedRepositoryGitEnvironment(context, {
-    bindAttributesToHead: hasHead && options.bindAttributesToHead !== false,
-    internalIndexFile: options.internalIndexFile,
-    manageWorktrees: options.manageWorktrees === true,
-  });
-  const readSnapshot = sourceOwnedGitCommandIsReadOnly(args)
-    ? strictGitReadSnapshot(context.gitDir, context.commonDir)
-    : null;
-  const result = normalizePinnedGitMetadataResult(spawnPinnedRepositoryGit(context, fixedArgs, {
-    cwd, input: effectiveInput, environment: repositoryEnvironment,
-    timeoutMs: options.timeoutMs, maxBuffer: options.maxBuffer, sourceArgs: args,
-  }), args, context);
-  if (!sourceOwnedGitContextStable(context)) {
-    return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
-  }
-  if (readSnapshot !== null) {
-    try {
-      if (strictGitReadSnapshot(context.gitDir, context.commonDir) !== readSnapshot) {
-        return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git read storage changed during operation", error: null };
-      }
-    } catch {
-      return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git read storage became unsafe", error: null };
-    }
-  }
-  // Native `show-ref --verify` reports an absent, syntactically valid ref as
-  // status 128. Preserve the wrapper's established missing-ref contract while
-  // keeping parsing and ref-store access inside the descriptor-pinned Git process.
-  if (args[0] === "show-ref" && args.includes("--verify") && result.status === 128
-    && /^fatal: '[^']+' - not a valid ref\s*$/u.test(result.stderr || "")) {
-    return { command: `git ${args.join(" ")}`, status: 1, stdout: "", stderr: "", error: null, signal: null };
-  }
   return {
     command: `git ${args.join(" ")}`,
     status: result.status,
     stdout: result.stdout || "",
     stderr: result.stderr || "",
     error: result.error ? result.error.message : null,
-    signal: result.signal || null,
   };
-}
-
-const sourceOwnedTransportGitCommands = new Set(["fetch", "ls-remote", "push"]);
-const sourceOwnedMutatingGitCommands = new Set([
-  "add", "cherry-pick", "commit", "commit-tree", "fetch", "merge", "merge-tree",
-  "push", "read-tree", "reset", "switch", "update-index", "update-ref", "write-tree",
-]);
-
-function sourceOwnedGitCommandIsReadOnly(args) {
-  if (sourceOwnedMutatingGitCommands.has(args[0])) return false;
-  return args[0] !== "worktree" || args.slice(1).join("\0") === "list\0--porcelain";
-}
-
-function classifySourceOwnedGitCommand(args, context = {}) {
-  if (!Array.isArray(args) || args.length === 0 || args.some((arg) => typeof arg !== "string")) {
-    return { kind: "unsupported", command: null };
-  }
-  const command = args[0];
-  // Global options, config injection, aliases, and unlisted porcelain/plumbing
-  // never reach Git. Only this source-owned first-token grammar may dispatch.
-  if (!command || command.startsWith("-")) return { kind: "unsupported", command };
-  if (sourceOwnedTransportGitCommands.has(command)) {
-    return sourceOwnedTransportArguments(command, args.slice(1))
-      ? { kind: "transport", command }
-      : { kind: "unsupported", command };
-  }
-  return sourceOwnedLocalArguments(command, args.slice(1), context)
-    ? { kind: "local", command }
-    : { kind: "unsupported", command };
-}
-
-function sourceOwnedTransportArguments(command, args) {
-  let index = 0;
-  if (command === "fetch" && args[index] === "--no-tags") index += 1;
-  if (command === "ls-remote" && ["--heads", "--exit-code"].includes(args[index])) index += 1;
-  let lease = null;
-  if (command === "push" && args[index] === "--no-verify") {
-    index += 1;
-    const match = String(args[index] || "").match(/^--force-with-lease=([^:]+):([a-f0-9]{40})$/u);
-    if (match && sourceOwnedHeadsRef(match[1])) { lease = match[1]; index += 1; }
-  }
-  if (args.length - index !== 2) return false;
-  const [remote, refspec] = args.slice(index);
-  if (!sourceOwnedRemote(remote)) return false;
-  if (command === "ls-remote") return sourceOwnedHeadsRef(refspec);
-  if (command === "fetch") {
-    const fetch = refspec.match(/^\+?([^:]+)(?::([^:]+))?$/u);
-    if (!fetch || !sourceOwnedHeadsRef(fetch[1])) return false;
-    const branch = fetch[1].slice("refs/heads/".length);
-    return fetch[2] === undefined || fetch[2] === `refs/remotes/origin/${branch}`;
-  }
-  const deletion = refspec.match(/^:(.+)$/u);
-  if (deletion) return lease !== null && deletion[1] === lease;
-  if (lease !== null) return false;
-  const update = refspec.match(/^([^:]+):([^:]+)$/u);
-  return Boolean(update && (/^[a-f0-9]{40}$/u.test(update[1]) || update[1] === "HEAD" || sourceOwnedHeadsRef(update[1]))
-    && sourceOwnedHeadsRef(update[2]));
-}
-
-function sourceOwnedRemote(value) {
-  return value === "origin"
-    || /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/u.test(value)
-    || (path.isAbsolute(value) && path.resolve(value) === value && !value.includes("\0"));
-}
-
-function sourceOwnedLocalArguments(command, args, context) {
-  const exact = (...values) => args.length === values.length && args.every((value, index) => value === values[index]);
-  const refs = (...values) => values.every(sourceOwnedRevision);
-  switch (command) {
-    case "add": {
-      const paths = args.slice(1);
-      return args[0] === "--" && paths.length > 0 && paths.every(sourceOwnedRepositoryPath);
-    }
-    case "apply": return (exact("--check", "-") || exact("--check", "--reverse", "-"));
-    case "branch": return exact("--show-current");
-    case "cat-file": return args.length === 2 && ["-e", "-t"].includes(args[0]) && refs(args[1]);
-    case "cherry-pick": return exact("--abort") || (args.length > 0 && refs(...args));
-    case "check-ref-format": return args.length === 2 && args[0] === "--branch" && sourceOwnedBranch(args[1]);
-    case "commit": return (args.length === 2 && args[0] === "-m" && sourceOwnedMessage(args[1]))
-      || (args.length === 3 && args[0] === "--allow-empty" && args[1] === "-m" && sourceOwnedMessage(args[2]));
-    case "commit-tree": return sourceOwnedCommitTreeArguments(args);
-    case "config": return sourceOwnedConfigReadArguments(args);
-    case "diff": return sourceOwnedDiffArguments(args);
-    case "diff-index": return sourceOwnedDiffIndexArguments(args);
-    case "diff-tree": return args.length === 5 && args.slice(0, 3).join("\0") === ["--no-commit-id", "--name-only", "-r"].join("\0") && refs(args[3], args[4]);
-    case "for-each-ref": return sourceOwnedForEachRefArguments(args);
-    case "hash-object": return exact("--stdin") || (args.length === 2 && args[0] === "--" && sourceOwnedRepositoryPath(args[1]));
-    case "log": return sourceOwnedLogArguments(args);
-    case "ls-files": return sourceOwnedLsFilesArguments(args);
-    case "ls-tree": return sourceOwnedLsTreeArguments(args);
-    case "merge": return args.length === 2 && args[0] === "--ff-only"
-      && args[1].startsWith("origin/") && isSourceOwnedBranchName(args[1].slice("origin/".length));
-    case "merge-base": return (args.length === 2 || (args.length === 3 && args[0] === "--is-ancestor")) && refs(...args.filter((value) => value !== "--is-ancestor"));
-    case "merge-tree": return args.length === 3 && args[0] === "--write-tree" && refs(args[1], args[2]);
-    case "patch-id": return exact("--stable");
-    case "read-tree": return args.length === 1 && refs(args[0]);
-    case "remote": return sourceOwnedRemoteReadArguments(args);
-    case "rev-list": return sourceOwnedRevListArguments(args);
-    case "rev-parse": return sourceOwnedRevParseArguments(args);
-    case "show": return sourceOwnedShowArguments(args);
-    case "show-ref": return args.length === 0
-      || (args.length >= 2 && args[0] === "--verify"
-        && (args.length === 2 || (args.length === 3 && ["--hash", "--quiet"].includes(args[1])))
-        && sourceOwnedFullRef(args.at(-1)));
-    case "status": return [
-      "--short", "--porcelain", "--porcelain=v1", "--porcelain=v2", "--porcelain=v1\0--untracked-files=all",
-      "--porcelain=v1\0--untracked-files=normal",
-    ].includes(args.join("\0"));
-    case "switch": return (args.length === 1 && sourceOwnedBranch(args[0]))
-      || (args.length === 2 && args[0] === "-c" && sourceOwnedBranch(args[1]))
-      || (args.length === 2 && args[0] === "--detach" && sourceOwnedRevision(args[1]))
-      || (args.length === 4 && args[0] === "--no-track" && args[1] === "-C" && sourceOwnedBranch(args[2]) && sourceOwnedRevision(args[3]));
-    case "symbolic-ref": return exact("--quiet", "--short", "HEAD");
-    case "update-index": return sourceOwnedUpdateIndexArguments(args);
-    case "update-ref": return args.length === 3 && args[0] === "-d" && /^refs\/heads\//u.test(args[1]) && sourceOwnedFullRef(args[1]) && /^[a-f0-9]{40}$/u.test(args[2]);
-    case "worktree": return sourceOwnedWorktreeArguments(args, context);
-    case "write-tree": return args.length === 0;
-    default: return false;
-  }
-}
-
-function sourceOwnedDiffArguments(args) {
-  if (args.length === 5 && args[0] === "--no-index" && args[1] === "--binary" && args[2] === "--"
-    && args[3] === "/dev/null" && sourceOwnedRepositoryPath(args[4])) return true;
-  const flags = new Set(["--binary", "--cached", "--name-only", "--name-status", "--no-renames", "--numstat", "--stat"]);
-  let index = 0;
-  while (flags.has(args[index])) index += 1;
-  if (args[index] === "--no-index") {
-    return args.slice(index).length === 4 && args[index + 1] === "--" && args[index + 2] === "/dev/null" && sourceOwnedRepositoryPath(args[index + 3]);
-  }
-  const operands = args.slice(index);
-  if (operands[0] === "--") return operands.slice(1).length > 0 && operands.slice(1).every(sourceOwnedRepositoryPath);
-  return operands.length <= 2 && operands.every(sourceOwnedRevision);
-}
-
-function sourceOwnedDiffIndexArguments(args) {
-  return args.length >= 2 && args[0] === "--cached" && ["--quiet", "--name-only"].includes(args[1])
-    && args.slice(2).filter((value) => value !== "--").every(sourceOwnedRevision);
-}
-
-function sourceOwnedForEachRefArguments(args) {
-  return args.length >= 1 && args.length <= 3
-    && args.filter((value) => value.startsWith("--")).every((value) => /^--format=%\([A-Za-z0-9:*._-]+\)(?:%00%\([A-Za-z0-9:*._-]+\))*$/u.test(value) || value === "--sort=refname")
-    && args.filter((value) => !value.startsWith("--")).every(sourceOwnedFullRefPrefix);
-}
-
-function sourceOwnedLsFilesArguments(args) {
-  const signatures = new Set([
-    ["--others", "--exclude-standard"].join("\0"), ["--others", "--exclude-standard", "-z"].join("\0"),
-    ["-v", "-z"].join("\0"), ["--stage", "-z"].join("\0"), ["--error-unmatch"].join("\0"),
-  ]);
-  if (signatures.has(args.join("\0"))) return true;
-  return args.length === 2 && args[0] === "--error-unmatch" && sourceOwnedRepositoryPath(args[1]);
-}
-
-function sourceOwnedLsTreeArguments(args) {
-  const copy = [...args];
-  while (["-r", "-z", "--name-only"].includes(copy[0])) copy.shift();
-  if (copy.length === 0 || !sourceOwnedRevision(copy.shift())) return false;
-  if (copy[0] === "--") copy.shift();
-  return copy.every(sourceOwnedRepositoryPath);
-}
-
-function sourceOwnedRevListArguments(args) {
-  const copy = [...args];
-  while (["--count", "--first-parent", "--reverse", "--parents"].includes(copy[0])) copy.shift();
-  if (copy[0] === "-n" && /^[1-9][0-9]{0,3}$/u.test(copy[1] || "")) copy.splice(0, 2);
-  return copy.length > 0 && copy.every(sourceOwnedRevision);
-}
-
-function sourceOwnedRevParseArguments(args) {
-  const exactSignatures = new Set([
-    ["--show-toplevel"].join("\0"), ["--show-object-format"].join("\0"), ["--git-common-dir"].join("\0"),
-    ["--path-format=absolute", "--git-common-dir"].join("\0"), ["--is-shallow-repository"].join("\0"),
-  ]);
-  if (exactSignatures.has(args.join("\0"))) return true;
-  if (args.length === 2 && args[0] === "--git-path") return ["config.worktree", "info/attributes", "info/exclude"].includes(args[1]);
-  const copy = [...args];
-  if (copy[0] === "--verify") copy.shift();
-  if (copy[0] === "-q") copy.shift();
-  return copy.length === 1 && sourceOwnedRevision(copy[0]);
-}
-
-function sourceOwnedShowArguments(args) {
-  if (args.length === 0) return false;
-  const copy = [...args];
-  if (copy[0] === "-s") copy.shift();
-  if (copy[0]?.startsWith("--format=")) {
-    if (!/^--format=%[A-Za-z%n ]{1,30}$/u.test(copy[0])) return false;
-    copy.shift();
-  }
-  return copy.length === 1 && sourceOwnedRevision(copy[0]);
-}
-
-function sourceOwnedLogArguments(args) {
-  return args.length === 3 && args[0] === "-1" && /^--format=%[sHPTB]$/u.test(args[1]) && sourceOwnedRevision(args[2]);
-}
-
-function sourceOwnedCommitTreeArguments(args) {
-  return args.length === 7
-    && [args[0], args[2], args[4]].every((value) => /^[a-f0-9]{40}$/u.test(value || ""))
-    && args[1] === "-p" && args[3] === "-p" && args[5] === "-m"
-    && args[6] === "Settleora prospective recovery validation";
-}
-
-function sourceOwnedUpdateIndexArguments(args) {
-  if (args.length < 1) return false;
-  if (args[0] === "--add" || args[0] === "--remove") return args.slice(1).every(sourceOwnedRepositoryPath);
-  if (args[0] === "--cacheinfo") return args.length === 4 && /^(?:100644|100755|120000)$/u.test(args[1]) && /^[a-f0-9]{40,64}$/u.test(args[2]) && sourceOwnedRepositoryPath(args[3]);
-  return false;
-}
-
-function sourceOwnedWorktreeArguments(args, context) {
-  if (args.join("\0") === ["list", "--porcelain"].join("\0")) return true;
-  if (args[0] === "remove") {
-    const target = args[1] === "--" ? args[2] : args[1];
-    return args.length === (args[1] === "--" ? 3 : 2) && sourceOwnedWorktreePath(target, context);
-  }
-  if (args[0] !== "add") return false;
-  const copy = args.slice(1);
-  if (copy[0] === "--") copy.shift();
-  if (copy[0] === "--detach") return copy.length === 3 && sourceOwnedWorktreePath(copy[1], context) && sourceOwnedRevision(copy[2]);
-  if (copy[0] === "-b") return copy.length === 4 && sourceOwnedBranch(copy[1]) && sourceOwnedWorktreePath(copy[2], context) && sourceOwnedRevision(copy[3]);
-  return copy.length === 2 && sourceOwnedWorktreePath(copy[0], context) && sourceOwnedBranch(copy[1]);
-}
-
-function sourceOwnedWorktreePath(value, context) {
-  if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value || value === "/") return false;
-  if (Array.isArray(context?.options?.authorizedWorktreePaths)
-    && context.options.authorizedWorktreePaths.some((entry) => entry === value)) return true;
-  const basename = path.basename(value);
-  if (!/^(?:recovery-|settleora-)[A-Za-z0-9._-]+$/u.test(basename)) return false;
-  const root = path.resolve(context?.cwd || "");
-  return !root || (value !== root && !value.startsWith(`${root}${path.sep}`));
-}
-
-function sourceOwnedRevision(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= 1000
-    && !value.startsWith("-") && !/[\0-\x20\x7f\\]/u.test(value) && !value.includes("@{");
-}
-function sourceOwnedHeadsRef(value) {
-  return typeof value === "string" && value.startsWith("refs/heads/")
-    && isSourceOwnedBranchName(value.slice("refs/heads/".length));
-}
-
-function sourceOwnedFullRef(value) {
-  if (sourceOwnedHeadsRef(value)) return true;
-  return typeof value === "string" && value.startsWith("refs/remotes/origin/")
-    && isSourceOwnedBranchName(value.slice("refs/remotes/origin/".length));
-}
-
-function sourceOwnedFullRefPrefix(value) {
-  if (typeof value !== "string") return false;
-  for (const root of ["refs/heads", "refs/remotes/origin"]) {
-    if (value === root || value === `${root}/`) return true;
-    if (value.startsWith(`${root}/`)) {
-      const suffix = value.slice(root.length + 1).replace(/\/$/u, "");
-      return isSourceOwnedBranchName(suffix);
-    }
-  }
-  return false;
-}
-
-export function isSourceOwnedBranchName(value) {
-  if (typeof value !== "string" || value.length < 1 || value.length > 240
-    || value.startsWith("-") || value.endsWith("/") || value.endsWith(".")
-    || value.includes("..") || value.includes("//") || value.includes("@{")
-    || /[\0-\x20\x7f~^:?*\\\[]/u.test(value)) return false;
-  return value.split("/").every((component) => component.length > 0
-    && component !== "." && component !== ".." && !component.startsWith(".")
-    && !component.endsWith(".") && !component.endsWith(".lock"));
-}
-
-function sourceOwnedBranch(value) { return isSourceOwnedBranchName(value); }
-function sourceOwnedRepositoryPath(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000 && !value.startsWith("-") && !value.startsWith(":") && !path.isAbsolute(value) && path.normalize(value) === value && value !== "." && !value.startsWith(`..${path.sep}`) && !/[\0\r\n]/u.test(value); }
-function sourceOwnedMessage(value) { return typeof value === "string" && value.length > 0 && value.length <= 10_000 && !value.includes("\0"); }
-
-function sourceOwnedConfigReadArguments(args) {
-  const signature = args.join("\0");
-  return new Set([
-    ["--local", "--name-only", "--list"].join("\0"),
-    ["--local", "--get", "extensions.worktreeConfig"].join("\0"),
-    ["--local", "--get", "remote.origin.url"].join("\0"),
-    ["--local", "--list", "--show-origin", "--null"].join("\0"),
-    ["--worktree", "--name-only", "--list"].join("\0"),
-    ["--worktree", "--list", "--show-origin", "--null"].join("\0"),
-  ]).has(signature);
-}
-
-function sourceOwnedRemoteReadArguments(args) {
-  return args.join("\0") === ["get-url", "origin"].join("\0")
-    || args.join("\0") === ["get-url", "--push", "origin"].join("\0")
-    || args.join("\0") === ["get-url", "--push", "--all", "origin"].join("\0");
 }
 
 export function assertGitSuccess(result, message) {
@@ -647,7 +269,7 @@ export function getRefSha(ref, options = {}) {
   return result.stdout.trim();
 }
 
-export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef = "HEAD", cwd = trustedRepositoryContext?.root || process.cwd() } = {}) {
+export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef = "HEAD", cwd = trustedRepositoryContext || process.cwd() } = {}) {
   const exactHead = getRefSha(headRef, { cwd });
   const treeResult = runGit(["rev-parse", `${headRef}^{tree}`], { cwd });
   assertGitSuccess(treeResult, `Unable to resolve tree for ${headRef}`);
@@ -657,10 +279,9 @@ export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef 
   if (!diff.stdout.trim()) {
     return { exactHead, treeId, patchId: null, patchIdReason: "empty_cumulative_diff" };
   }
-  const patchId = spawnSync("/usr/bin/git", ["patch-id", "--stable"], {
+  const patchId = spawnSync("git", ["patch-id", "--stable"], {
     cwd,
     input: diff.stdout,
-    env: fixedPureGitEnvironment(),
     encoding: "utf8",
     windowsHide: true,
   });
@@ -686,12 +307,9 @@ export function getStatusShort(options = {}) {
 
 export function ensureLaunchWorkspace(config, logger, options = {}) {
   const cwd = options.cwd || config.repoRoot;
-  const status = inspectRawLaunchWorkspace(cwd, options.environment);
-  const branchResult = runLaunchWorkspaceGuardGit(["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd, environment: options.environment });
-  const refResult = runLaunchWorkspaceGuardGit(["rev-parse", "--verify", "origin/main^{commit}"], { cwd, environment: options.environment });
-  assertGitSuccess(refResult, "Unable to resolve launch origin/main");
-  const branch = branchResult.status === 0 ? branchResult.stdout.trim() : "";
-  const originMainSha = refResult.stdout.trim();
+  const status = getStatusShort({ cwd });
+  const branch = getCurrentBranch({ cwd });
+  const originMainSha = getRefSha("origin/main", { cwd });
   if (status && config.run) {
     throw new Error("Refusing real-run launch with a dirty worktree");
   }
@@ -702,818 +320,6 @@ export function ensureLaunchWorkspace(config, logger, options = {}) {
     logger.warn("Dry-run observed a dirty worktree; real-run launch would refuse to proceed.", { status });
   }
   return { branch, originMainSha, dirty: Boolean(status), status };
-}
-
-function runLaunchWorkspaceGuardGit(args, { cwd, environment = process.env } = {}) {
-  // Deliberately do not inherit any caller GIT_* or HOME-scoped configuration.
-  // The unused environment parameter makes hostile-environment behavior
-  // directly testable without mutating process-global state.
-  void environment;
-  const context = sourceOwnedGitContext(cwd);
-  assertSourceOwnedGitMetadata(context);
-  if (classifySourceOwnedGitCommand(args).kind !== "local") {
-    return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Git invocation is outside the source-owned command grammar", error: null };
-  }
-  const fixedArgs = fixedRepositoryGitArgs(cwd, args);
-  const result = spawnPinnedRepositoryGit(context, fixedArgs, {
-    cwd, environment: fixedRepositoryGitEnvironment(context),
-  });
-  return sourceOwnedGitContextStable(context) ? {
-    command: `/usr/bin/git ${fixedArgs.join(" ")}`,
-    status: result.status,
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    error: result.error ? result.error.message : null,
-  } : { command: `/usr/bin/git ${fixedArgs.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
-}
-
-function fixedRepositoryGitArgs(cwd, args, { allowLocalFileTransport = false } = {}) {
-  const commandArgs = args[0] === "diff" ? ["diff", "--no-ext-diff", "--no-textconv", ...args.slice(1)] : args;
-  return [
-    "--no-replace-objects",
-    "-c", "credential.helper=",
-    "-c", "credential.https://github.com.helper=!/usr/bin/gh auth git-credential",
-    "-c", "core.attributesFile=/dev/null",
-    "-c", "core.excludesFile=/dev/null",
-    "-c", "core.fsmonitor=false",
-    "-c", "core.hooksPath=/dev/null",
-    "-c", "core.editor=/usr/bin/false",
-    "-c", "sequence.editor=/usr/bin/false",
-    "-c", "commit.gpgSign=false",
-    "-c", "tag.gpgSign=false",
-    "-c", "gpg.program=/usr/bin/false",
-    "-c", "gpg.openpgp.program=/usr/bin/false",
-    "-c", "gpg.ssh.program=/usr/bin/false",
-    "-c", `core.worktree=${path.resolve(cwd)}`,
-    "-c", "protocol.ext.allow=never",
-    "-c", `protocol.file.allow=${allowLocalFileTransport ? "user" : "never"}`,
-    ...commandArgs,
-  ];
-}
-
-function fixedRepositoryGitEnvironment(context, {
-  bindAttributesToHead = true, internalIndexFile = null, manageWorktrees = false,
-} = {}) {
-  const indexFile = internalIndexFile === null
-    ? context.indexFile
-    : validateInternalGitIndexFile(internalIndexFile);
-  const environment = {
-    ...fixedUserEnvironment(),
-    PATH: "/usr/bin:/bin",
-    GIT_ATTR_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_SYSTEM: "/dev/null",
-    GIT_COMMON_DIR: context.commonDir,
-    GIT_DIR: context.gitDir,
-    GIT_NO_LAZY_FETCH: "1",
-    GIT_NO_REPLACE_OBJECTS: "1",
-    GIT_OPTIONAL_LOCKS: "0",
-    GIT_ASKPASS: "/usr/bin/false",
-    GIT_EDITOR: "/usr/bin/false",
-    GIT_LITERAL_PATHSPECS: "1",
-    GIT_PAGER: "cat",
-    GIT_SEQUENCE_EDITOR: "/usr/bin/false",
-    GIT_SSH_COMMAND: "/usr/bin/ssh -F /dev/null -o BatchMode=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no",
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_WORK_TREE: context.root,
-    LANG: "C",
-    LC_ALL: "C",
-  };
-  if (!manageWorktrees) environment.GIT_INDEX_FILE = indexFile;
-  if (bindAttributesToHead) environment.GIT_ATTR_SOURCE = "HEAD";
-  return environment;
-}
-
-function openPinnedDirectory(target, expectedIdentity, label) {
-  const flags = fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW;
-  const fd = openSync(target, flags);
-  try {
-    const info = fstatSync(fd);
-    if (directoryIdentity(info) !== expectedIdentity) throw new Error(`${label} changed during descriptor admission`);
-    return fd;
-  } catch (error) {
-    closeSync(fd);
-    throw error;
-  }
-}
-
-function spawnPinnedRepositoryGit(context, fixedArgs, {
-  cwd = context.root, input, environment, timeoutMs, maxBuffer, sourceArgs = [],
-} = {}) {
-  const descriptors = [];
-  let refDeletionGuard = null;
-  try {
-    descriptors.push(openPinnedDirectory(context.objectDir, context.objectDirIdentity, "Git object directory"));
-    descriptors.push(openPinnedDirectory(context.commonDir, context.commonDirIdentity, "Git common directory"));
-    descriptors.push(openPinnedDirectory(context.gitDir, context.gitDirIdentity, "Git directory"));
-    if (sourceArgs[0] === "update-ref" && sourceArgs[1] === "-d") {
-      refDeletionGuard = openPinnedRefDeletionGuard(descriptors[1], sourceArgs[2]);
-    }
-    let pinnedIndexFile = null;
-    if (environment.GIT_INDEX_FILE === context.indexFile) {
-      pinnedIndexFile = "/proc/self/fd/5/index";
-    } else if (environment.GIT_INDEX_FILE) {
-      const indexParent = path.dirname(environment.GIT_INDEX_FILE);
-      const childFd = 3 + descriptors.length;
-      descriptors.push(openPinnedDirectory(indexParent,
-        directoryIdentity(lstatSync(indexParent)), "internal Git index directory"));
-      pinnedIndexFile = `/proc/self/fd/${childFd}/${path.basename(environment.GIT_INDEX_FILE)}`;
-    }
-    const result = spawnSync("/usr/bin/git", fixedArgs, {
-      cwd,
-      input,
-      env: {
-        ...environment,
-        GIT_OBJECT_DIRECTORY: "/proc/self/fd/3",
-        GIT_COMMON_DIR: "/proc/self/fd/4",
-        GIT_DIR: "/proc/self/fd/5",
-        ...(pinnedIndexFile ? { GIT_INDEX_FILE: pinnedIndexFile } : {}),
-      },
-      stdio: ["pipe", "pipe", "pipe", ...descriptors],
-      encoding: "utf8",
-      windowsHide: true,
-      shell: false,
-      timeout: boundedCommandTimeout(timeoutMs),
-      maxBuffer: boundedCommandOutput(maxBuffer),
-    });
-    if (result.status === 0 && refDeletionGuard) {
-      try {
-        assertPinnedRefDeletionComplete(descriptors[1], refDeletionGuard);
-      } catch (error) {
-        return { ...result, status: 128, stdout: "", stderr: error.message, error: null };
-      }
-    }
-    return result;
-  } finally {
-    closePinnedRefDeletionGuard(refDeletionGuard);
-    for (const fd of descriptors) closeSync(fd);
-  }
-}
-
-function openPinnedRefDeletionGuard(commonFd, ref) {
-  const components = ref.split("/");
-  const opened = [];
-  let current = commonFd;
-  try {
-    for (const component of components.slice(0, -1)) {
-      let next;
-      try {
-        next = openSync(`/proc/self/fd/${current}/${component}`,
-          fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
-      } catch (error) {
-        if (error?.code === "ENOENT") {
-          return { ref, name: components.at(-1), parentFd: null, opened };
-        }
-        throw error;
-      }
-      const info = fstatSync(next);
-      if (!info.isDirectory() || info.isSymbolicLink()
-        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-        closeSync(next);
-        throw new Error("Repository ref parent is unsafe");
-      }
-      opened.push(next);
-      current = next;
-    }
-    return { ref, name: components.at(-1), parentFd: current, opened };
-  } catch (error) {
-    for (const fd of opened.reverse()) closeSync(fd);
-    throw error;
-  }
-}
-
-function assertPinnedRefDeletionComplete(commonFd, guard) {
-  // The deepest admitted parent remains open across Git. If its pathname is
-  // displaced and restored around the child process, this descriptor still
-  // exposes the original loose ref and prevents a false-successful deletion.
-  if (guard.parentFd !== null
-    && lstatOptional(`/proc/self/fd/${guard.parentFd}/${guard.name}`)) {
-    throw new Error("Repository ref deletion did not remove the admitted loose ref");
-  }
-  const current = openPinnedRefDeletionGuard(commonFd, guard.ref);
-  try {
-    if (current.parentFd !== null
-      && lstatOptional(`/proc/self/fd/${current.parentFd}/${current.name}`)) {
-      throw new Error("Repository ref deletion did not reach the current loose-ref namespace");
-    }
-  } finally { closePinnedRefDeletionGuard(current); }
-  if (pinnedPackedRefValues(commonFd, guard.ref).length !== 0) {
-    throw new Error("Repository ref deletion did not remove the admitted packed ref");
-  }
-}
-
-function closePinnedRefDeletionGuard(guard) {
-  if (!guard) return;
-  for (const fd of guard.opened.reverse()) closeSync(fd);
-}
-
-function pinnedPackedRefValues(commonFd, ref) {
-  const target = `/proc/self/fd/${commonFd}/packed-refs`;
-  const before = lstatOptional(target);
-  if (!before) return [];
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1
-    || before.size > 8 * 1024 * 1024
-    || (typeof process.getuid === "function" && before.uid !== process.getuid())) {
-    throw new Error("Repository packed refs are unsafe");
-  }
-  const fd = openSync(target, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  try {
-    const opened = fstatSync(fd);
-    if (fileIdentity(opened) !== fileIdentity(before)) {
-      throw new Error("Repository packed refs changed before descriptor read");
-    }
-    const bytes = readFileSync(fd);
-    if (bytes.length !== opened.size || fileIdentity(fstatSync(fd)) !== fileIdentity(opened)
-      || fileIdentity(lstatSync(target)) !== fileIdentity(opened)) {
-      throw new Error("Repository packed refs changed during descriptor read");
-    }
-    const values = [];
-    for (const line of bytes.toString("utf8").split("\n")) {
-      if (!line || line.startsWith("#") || line.startsWith("^")) continue;
-      const match = line.match(/^([a-f0-9]{40,64}) (refs\/[A-Za-z0-9._/-]+)$/u);
-      if (!match) throw new Error("Repository packed refs are malformed");
-      if (match[2] === ref) values.push(match[1]);
-    }
-    return values;
-  } finally { closeSync(fd); }
-}
-
-function normalizePinnedGitMetadataResult(result, args, context) {
-  if (result.status !== 0 || args[0] !== "rev-parse") return result;
-  const signature = args.slice(1).join("\0");
-  let value = null;
-  if (signature === "--git-common-dir" || signature === "--path-format=absolute\0--git-common-dir") {
-    value = context.commonDir;
-  } else if (signature === "--git-path\0config.worktree") {
-    value = path.join(context.gitDir, "config.worktree");
-  } else if (signature === "--git-path\0info/attributes") {
-    value = path.join(context.commonDir, "info", "attributes");
-  } else if (signature === "--git-path\0info/exclude") {
-    value = path.join(context.commonDir, "info", "exclude");
-  }
-  return value === null ? result : { ...result, stdout: `${value}\n` };
-}
-
-function readSourceOwnedWorktreeBlob(context, relativePath) {
-  const components = relativePath.split("/");
-  const descriptors = [];
-  try {
-    let directoryFd = openPinnedDirectory(context.root, directoryIdentity(lstatSync(context.root)), "repository worktree");
-    descriptors.push(directoryFd);
-    for (const component of components.slice(0, -1)) {
-      const next = openSync(`/proc/self/fd/${directoryFd}/${component}`,
-        fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
-      const info = fstatSync(next);
-      if (!info.isDirectory() || info.isSymbolicLink()
-        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-        closeSync(next);
-        throw new Error("Repository blob parent is unsafe");
-      }
-      descriptors.push(next);
-      directoryFd = next;
-    }
-    const terminal = `/proc/self/fd/${directoryFd}/${components.at(-1)}`;
-    const before = lstatSync(terminal);
-    if (before.isSymbolicLink()) throw new Error("Repository symlink blob hashing is unsupported");
-    if (!before.isFile() || before.size > 16 * 1024 * 1024
-      || (typeof process.getuid === "function" && before.uid !== process.getuid())) {
-      throw new Error("Repository blob is unsafe or oversized");
-    }
-    const fileFd = openSync(terminal, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-    descriptors.push(fileFd);
-    const opened = fstatSync(fileFd);
-    if (fileIdentity(opened) !== fileIdentity(before)) throw new Error("Repository blob changed before descriptor read");
-    const bytes = readFileSync(fileFd);
-    if (bytes.length !== opened.size || fileIdentity(fstatSync(fileFd)) !== fileIdentity(opened)
-      || pathIdentity(lstatSync(terminal)) !== pathIdentity(before)) {
-      throw new Error("Repository blob changed during descriptor read");
-    }
-    return bytes;
-  } finally {
-    for (const fd of descriptors.reverse()) closeSync(fd);
-  }
-}
-
-function fixedPureGitEnvironment() {
-  return {
-    ...fixedUserEnvironment(), PATH: "/usr/bin:/bin", GIT_ATTR_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
-    GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_NO_LAZY_FETCH: "1",
-    GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0", LANG: "C", LC_ALL: "C",
-  };
-}
-
-export function runTrustedGithub(config, args, options = {}) {
-  if (!config?.repoRoot || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(String(config?.repositorySlug || ""))) {
-    return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: "explicit GitHub repository context is required", error: null };
-  }
-  if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
-    return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: "fixed GitHub argv is required", error: null };
-  }
-  let boundArgs;
-  try {
-    boundArgs = bindGithubRepository(args, config.repositorySlug);
-  } catch (error) {
-    return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: error.message, error: null };
-  }
-  let authenticationEnvironment;
-  try {
-    authenticationEnvironment = trustedGithubAuthenticationEnvironment();
-  } catch {
-    return { command: "/usr/bin/gh", status: 1, stdout: "", stderr: "GitHub authentication path is untrusted", error: null };
-  }
-  const result = spawnSync("/usr/bin/gh", boundArgs, {
-    cwd: config.repoRoot,
-    input: typeof options.input === "string" || Buffer.isBuffer(options.input) ? options.input : undefined,
-    env: { ...authenticationEnvironment, GH_HOST: "github.com", GH_PROMPT_DISABLED: "1" },
-    encoding: "utf8",
-    windowsHide: true,
-    shell: false,
-    timeout: boundedCommandTimeout(options.timeoutMs ?? options.timeout),
-    maxBuffer: boundedCommandOutput(options.maxBuffer),
-  });
-  return {
-    command: `/usr/bin/gh ${boundArgs.join(" ")}`,
-    status: result.status,
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    error: result.error?.message || null,
-  };
-}
-
-function bindGithubRepository(args, repositorySlug) {
-  const expected = repositorySlug.toLowerCase();
-  const selectors = [];
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--repo" || arg === "-R") {
-      if (index + 1 >= args.length) throw new Error("GitHub repository selector is incomplete");
-      selectors.push(args[index + 1]);
-      index += 1;
-    } else if (arg.startsWith("--repo=")) selectors.push(arg.slice("--repo=".length));
-    else if (/^-R.+/u.test(arg)) selectors.push(arg.slice(2));
-  }
-  if (selectors.length > 1 || selectors.some((value) => value.toLowerCase() !== expected)) {
-    throw new Error("GitHub repository selector differs from the trusted repository context");
-  }
-  if (["issue", "pr", "run", "workflow", "release", "label"].includes(args[0])) {
-    return selectors.length === 1 ? [...args] : [...args, "--repo", repositorySlug];
-  }
-  if (args[0] === "repo" && args[1] === "view") {
-    const positional = args[2] && !args[2].startsWith("-") ? args[2] : null;
-    if (positional && positional.toLowerCase() !== expected) {
-      throw new Error("GitHub positional repository differs from the trusted repository context");
-    }
-    return positional ? [...args] : [args[0], args[1], repositorySlug, ...args.slice(2)];
-  }
-  if (args[0] === "repo") throw new Error("GitHub repository command is not source-owned");
-  if (args[0] === "api") validateGithubApiRepositoryBinding(args, repositorySlug);
-  return [...args];
-}
-
-function validateGithubApiRepositoryBinding(args, repositorySlug) {
-  const expected = repositorySlug.toLowerCase();
-  const repositoryEndpoints = args.filter((arg) => /^\/?repos\//u.test(arg));
-  for (const endpoint of repositoryEndpoints) {
-    const match = endpoint.match(/^\/?repos\/([^/]+\/[^/?#]+)(?:[/?#]|$)/u);
-    if (!match || match[1].toLowerCase() !== expected) {
-      throw new Error("GitHub API endpoint differs from the trusted repository context");
-    }
-  }
-  if (!args.includes("graphql") && repositoryEndpoints.length !== 1) {
-    throw new Error("GitHub API endpoint is not bound to the trusted repository context");
-  }
-  if (args.includes("graphql") && args.some((arg) => /\brepository\s*\(/u.test(arg))) {
-    const [owner, name] = repositorySlug.split("/");
-    const ownerVariables = args.filter((arg) => arg.startsWith("owner=")).map((arg) => arg.slice(6));
-    const nameVariables = args.filter((arg) => arg.startsWith("name=")).map((arg) => arg.slice(5));
-    if (ownerVariables.length !== 1 || nameVariables.length !== 1
-      || ownerVariables[0].toLowerCase() !== owner.toLowerCase()
-      || nameVariables[0].toLowerCase() !== name.toLowerCase()) {
-      throw new Error("GitHub GraphQL repository variables differ from the trusted repository context");
-    }
-  }
-}
-
-export const gitWorkspaceTestInternals = Object.freeze({
-  bindGithubRepository,
-  classifySourceOwnedGitCommand,
-  fixedRepositoryGitArgs,
-  fixedRepositoryGitEnvironment,
-  openPinnedRefDeletionTestGuard,
-  strictGitReadSnapshot,
-});
-
-function openPinnedRefDeletionTestGuard(commonDir, ref) {
-  const info = lstatSync(commonDir);
-  const commonFd = openPinnedDirectory(commonDir, directoryIdentity(info), "test Git common directory");
-  const guard = openPinnedRefDeletionGuard(commonFd, ref);
-  let closed = false;
-  return Object.freeze({
-    verify() {
-      if (closed) throw new Error("test ref deletion guard is closed");
-      assertPinnedRefDeletionComplete(commonFd, guard);
-    },
-    close() {
-      if (closed) return;
-      closed = true;
-      closePinnedRefDeletionGuard(guard);
-      closeSync(commonFd);
-    },
-  });
-}
-
-function trustedGithubAuthenticationEnvironment() {
-  const environment = fixedUserEnvironment();
-  const home = environment.HOME;
-  const configRoot = environment.GH_CONFIG_DIR;
-  const hosts = path.join(configRoot, "hosts.yml");
-  for (const [target, type] of [[home, "directory"], [configRoot, "directory"], [hosts, "file"]]) {
-    const info = lstatSync(target);
-    const validType = type === "directory" ? info.isDirectory() : info.isFile();
-    if (!validType || info.isSymbolicLink() || realpathSync(target) !== target
-      || (info.mode & 0o022) !== 0
-      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-      throw new Error("GitHub authentication path is untrusted");
-    }
-  }
-  return environment;
-}
-
-function fixedUserEnvironment() {
-  const home = os.userInfo().homedir;
-  return {
-    HOME: home,
-    GH_CONFIG_DIR: path.join(home, ".config", "gh"),
-    PATH: "/usr/bin:/bin",
-    LANG: "C",
-    LC_ALL: "C",
-  };
-}
-
-function boundedCommandTimeout(value) {
-  return Number.isInteger(value) ? Math.max(1_000, Math.min(value, 120_000)) : 30_000;
-}
-
-function boundedCommandOutput(value) {
-  return Number.isInteger(value) ? Math.max(1_024, Math.min(value, 16 * 1024 * 1024)) : 16 * 1024 * 1024;
-}
-
-function repositoryHasHead(context) {
-  const result = spawnPinnedRepositoryGit(context,
-    fixedRepositoryGitArgs(context.root, ["rev-parse", "--verify", "HEAD^{commit}"]), {
-      cwd: context.root,
-      environment: fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
-    });
-  return result.status === 0 && !result.error;
-}
-
-function assertSourceOwnedGitMetadata(context) {
-  const git = (args) => normalizePinnedGitMetadataResult(
-    spawnPinnedRepositoryGit(context, fixedRepositoryGitArgs(context.root, args), {
-      cwd: context.root,
-      environment: fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
-    }), args, context,
-  );
-  const local = git(["config", "--local", "--name-only", "--list"]);
-  const unsupportedLocal = unsupportedRepositoryGitConfigKeys(local.stdout);
-  if (local.status !== 0 || unsupportedLocal.length) throw new Error("Repository Git configuration is unsafe");
-  const worktreeEnabled = git(["config", "--local", "--get", "extensions.worktreeConfig"]);
-  if (worktreeEnabled.status === 0) {
-    if (worktreeEnabled.stdout.trim().toLowerCase() !== "true") throw new Error("Repository worktree Git configuration is unsafe");
-    const worktreePathRead = git(["rev-parse", "--git-path", "config.worktree"]);
-    if (worktreePathRead.status !== 0) throw new Error("Repository worktree Git configuration is unsafe");
-    const worktreePath = path.resolve(context.root, worktreePathRead.stdout.trim());
-    if (existsSync(worktreePath)) {
-      const worktree = git(["config", "--worktree", "--name-only", "--list"]);
-      const unsupportedWorktree = unsupportedRepositoryGitConfigKeys(worktree.stdout);
-      if (worktree.status !== 0 || unsupportedWorktree.length) throw new Error("Repository worktree Git configuration is unsafe");
-    }
-  } else if (worktreeEnabled.status !== 1) throw new Error("Repository Git configuration is unreadable");
-  const attributes = git(["rev-parse", "--git-path", "info/attributes"]);
-  const excludes = git(["rev-parse", "--git-path", "info/exclude"]);
-  if (attributes.status !== 0 || excludes.status !== 0) throw new Error("Repository Git metadata is unreadable");
-  if (existsSync(path.resolve(context.root, attributes.stdout.trim()))) throw new Error("Repository Git attributes are unsafe");
-  const excludePath = path.resolve(context.root, excludes.stdout.trim());
-  if (existsSync(excludePath) && readFileSync(excludePath, "utf8").split(/\r?\n/u)
-    .some((line) => line.trim() && !line.trim().startsWith("#") && line.trim() !== ".codex/")) {
-    throw new Error("Repository Git excludes are unsafe");
-  }
-}
-
-function assertSourceOwnedTreeAttributes(context) {
-  const run = (args) => spawnPinnedRepositoryGit(context, fixedRepositoryGitArgs(context.root, args), {
-    cwd: context.root,
-    environment: fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
-  });
-  const listed = run(["ls-tree", "-r", "--name-only", "HEAD"]);
-  if (listed.status !== 0 || listed.error) throw new Error("Repository attribute inventory is unreadable");
-  const attributePaths = listed.stdout.split(/\r?\n/u).filter((entry) => entry === ".gitattributes" || entry.endsWith("/.gitattributes"));
-  for (const attributePath of attributePaths) {
-    if (!sourceOwnedRepositoryPath(attributePath)) throw new Error("Repository attribute path is unsafe");
-    const shown = run(["show", `HEAD:${attributePath}`]);
-    if (shown.status !== 0 || shown.error || shown.stdout.length > 256 * 1024) throw new Error("Repository attributes are unreadable");
-    for (const line of shown.stdout.split(/\r?\n/u)) {
-      const body = line.trim();
-      if (!body || body.startsWith("#")) continue;
-      if (/(?:^|\s)(?:!?-?(?:filter|diff|merge)|working-tree-encoding)(?:[=\s]|$)/u.test(body)) {
-        throw new Error("Repository attributes may not select executable Git drivers");
-      }
-    }
-  }
-}
-
-function sourceOwnedGitContext(cwd) {
-  const root = realpathSync(path.resolve(cwd));
-  if (root !== path.resolve(cwd)) throw new Error("Repository worktree path is noncanonical");
-  const entryPath = path.join(root, ".git");
-  const entryBefore = lstatSync(entryPath);
-  if (!entryBefore.isDirectory() && !entryBefore.isFile()) throw new Error("Repository Git entry is unsafe");
-  if (entryBefore.isSymbolicLink()
-    || (typeof process.getuid === "function" && entryBefore.uid !== process.getuid())) {
-    throw new Error("Repository Git entry is unsafe");
-  }
-  const probe = spawnSync("/usr/bin/git", fixedRepositoryGitArgs(root, [
-    "rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir", "--show-toplevel",
-  ]), { cwd: root, env: fixedPureGitEnvironment(), encoding: "utf8", windowsHide: true });
-  if (probe.error || probe.status !== 0) throw new Error("Repository Git metadata is unreadable");
-  const [gitDirRaw, commonDirRaw, topRaw, ...extra] = probe.stdout.trimEnd().split("\n");
-  if (extra.length || realpathSync(topRaw) !== root) throw new Error("Repository Git worktree identity mismatch");
-  const gitDir = realpathSync(gitDirRaw);
-  const commonDir = realpathSync(commonDirRaw);
-  for (const directory of [gitDir, commonDir]) {
-    const info = lstatSync(directory);
-    if (!info.isDirectory() || info.isSymbolicLink()
-      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-      throw new Error("Repository Git directory is unsafe");
-    }
-  }
-  const objectDir = path.join(commonDir, "objects");
-  const objectInfo = lstatSync(objectDir);
-  if (!objectInfo.isDirectory() || objectInfo.isSymbolicLink()
-    || realpathSync(objectDir) !== objectDir
-    || (typeof process.getuid === "function" && objectInfo.uid !== process.getuid())) {
-    throw new Error("Repository Git object directory is unsafe");
-  }
-  const entryAfter = lstatSync(entryPath);
-  if (pathIdentity(entryBefore) !== pathIdentity(entryAfter)) throw new Error("Repository Git entry changed during admission");
-  const guardedMetadata = guardedGitMetadataIdentity(gitDir, commonDir);
-  assertGuardedGitMetadataPaths(guardedMetadata);
-  const context = {
-    root, entryPath, entryIdentity: pathIdentity(entryAfter), gitDir, commonDir, objectDir,
-    gitDirIdentity: directoryIdentity(lstatSync(gitDir)), commonDirIdentity: directoryIdentity(lstatSync(commonDir)),
-    objectDirIdentity: directoryIdentity(objectInfo),
-    indexFile: path.join(gitDir, "index"), guardedMetadata,
-  };
-  const admitted = admittedRepositoryContexts.get(root);
-  if (admitted && !sameAdmittedGitTuple(admitted, context)) {
-    throw new Error("Repository Git tuple changed after admission");
-  }
-  return context;
-}
-
-function admitSourceOwnedGitContext(cwd) {
-  const context = sourceOwnedGitContext(cwd);
-  assertSourceOwnedGitMetadata(context);
-  if (!sourceOwnedGitContextStable(context)) throw new Error("Repository Git tuple changed during admission");
-  return Object.freeze({ ...context, guardedMetadata: Object.freeze(context.guardedMetadata) });
-}
-
-function sameAdmittedGitTuple(expected, current) {
-  return expected.root === current.root
-    && expected.entryPath === current.entryPath
-    && expected.entryIdentity === current.entryIdentity
-    && expected.gitDir === current.gitDir
-    && expected.commonDir === current.commonDir
-    && expected.objectDir === current.objectDir
-    && expected.gitDirIdentity === current.gitDirIdentity
-    && expected.commonDirIdentity === current.commonDirIdentity
-    && expected.objectDirIdentity === current.objectDirIdentity
-    && expected.indexFile === current.indexFile
-    && expected.guardedMetadata.identity === current.guardedMetadata.identity;
-}
-
-function sourceOwnedGitContextStable(context) {
-  try {
-    return pathIdentity(lstatSync(context.entryPath)) === context.entryIdentity
-      && directoryIdentity(lstatSync(context.gitDir)) === context.gitDirIdentity
-      && directoryIdentity(lstatSync(context.commonDir)) === context.commonDirIdentity
-      && directoryIdentity(lstatSync(context.objectDir)) === context.objectDirIdentity
-      && guardedGitMetadataIdentity(context.gitDir, context.commonDir).identity === context.guardedMetadata.identity;
-  } catch { return false; }
-}
-
-function guardedGitMetadataIdentity(gitDir, commonDir) {
-  const paths = [...new Set([
-    path.join(commonDir, "config"), path.join(gitDir, "config.worktree"),
-    path.join(commonDir, "packed-refs"),
-    path.join(commonDir, "info", "attributes"), path.join(commonDir, "info", "exclude"),
-    path.join(commonDir, "info", "grafts"), path.join(commonDir, "objects", "info", "alternates"),
-    path.join(commonDir, "objects", "info", "http-alternates"),
-    path.join(commonDir, "shallow"), path.join(gitDir, "shallow"),
-  ])].sort();
-  const entries = paths.map((metadataPath) => {
-    const info = lstatOptional(metadataPath);
-    if (!info) return { path: metadataPath, identity: "absent", safe: true };
-    const mutableReferenceStore = metadataPath === path.join(commonDir, "packed-refs");
-    return {
-      path: metadataPath,
-      identity: mutableReferenceStore ? "safe-reference-store" : fileIdentity(info),
-      safe: info.isFile() && !info.isSymbolicLink()
-        && (typeof process.getuid !== "function" || info.uid === process.getuid()),
-      graphNeutral: !isGraphRewritingMetadata(metadataPath),
-    };
-  });
-  const referenceNamespaceIdentity = guardedReferenceNamespaceIdentity(commonDir);
-  return {
-    entries,
-    referenceNamespaceIdentity,
-    identity: [...entries.map((entry) => `${entry.path}:${entry.identity}`), referenceNamespaceIdentity].join("\n"),
-  };
-}
-
-function guardedReferenceNamespaceIdentity(commonDir) {
-  const root = path.join(commonDir, "refs");
-  const rootInfo = lstatSync(root);
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()
-    || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())) {
-    throw new Error("Repository Git refs namespace is unsafe");
-  }
-  const pending = [root];
-  let inspected = 0;
-  while (pending.length > 0) {
-    const current = pending.pop();
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (++inspected > 4096) throw new Error("Repository Git refs namespace is unbounded");
-      const candidate = path.join(current, entry.name);
-      const info = lstatSync(candidate);
-      if (entry.isSymbolicLink() || info.isSymbolicLink()
-        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-        throw new Error("Repository Git refs namespace is unsafe");
-      }
-      if (info.isDirectory()) {
-        pending.push(candidate);
-      } else if (!info.isFile()) {
-        throw new Error("Repository Git refs namespace is unsafe");
-      }
-    }
-  }
-  return `${root}:${directoryIdentity(rootInfo)}`;
-}
-
-function strictGitReadSnapshot(gitDir, commonDir) {
-  const records = [...new Set([gitDir, commonDir])].sort().map((target) => {
-    const info = lstatSync(target);
-    if (!info.isDirectory() || info.isSymbolicLink()
-      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-      throw new Error("Repository Git read directory is unsafe");
-    }
-    return `${target}:${strictPathIdentity(info)}`;
-  });
-  const metadata = [...new Set([
-    path.join(gitDir, "HEAD"), path.join(gitDir, "index"), path.join(gitDir, "config.worktree"),
-    path.join(commonDir, "config"), path.join(commonDir, "packed-refs"),
-    path.join(commonDir, "info", "attributes"), path.join(commonDir, "info", "exclude"),
-    path.join(commonDir, "info", "grafts"), path.join(commonDir, "objects", "info", "alternates"),
-    path.join(commonDir, "objects", "info", "http-alternates"),
-    path.join(commonDir, "shallow"), path.join(gitDir, "shallow"),
-  ])].sort();
-  for (const target of metadata) {
-    const info = lstatOptional(target);
-    if (!info) { records.push(`${target}:absent`); continue; }
-    if ((!info.isFile() && !info.isDirectory()) || info.isSymbolicLink()
-      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-      throw new Error("Repository Git read metadata is unsafe");
-    }
-    records.push(`${target}:${strictPathIdentity(info)}`);
-  }
-  const refsRoot = path.join(commonDir, "refs");
-  const pending = [refsRoot];
-  let inspected = 0;
-  while (pending.length > 0) {
-    const current = pending.pop();
-    const currentInfo = lstatSync(current);
-    if (!currentInfo.isDirectory() || currentInfo.isSymbolicLink()
-      || (typeof process.getuid === "function" && currentInfo.uid !== process.getuid())) {
-      throw new Error("Repository Git refs namespace is unsafe");
-    }
-    records.push(`${current}:${strictPathIdentity(currentInfo)}`);
-    for (const entry of readdirSync(current, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-      if (++inspected > 4096) throw new Error("Repository Git refs namespace is unbounded");
-      const candidate = path.join(current, entry.name);
-      const info = lstatSync(candidate);
-      if (entry.isSymbolicLink() || info.isSymbolicLink()
-        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-        throw new Error("Repository Git refs namespace is unsafe");
-      }
-      if (info.isDirectory()) pending.push(candidate);
-      else if (info.isFile() && info.size <= 4096) records.push(`${candidate}:${strictPathIdentity(info)}`);
-      else throw new Error("Repository Git ref storage is unsafe or unbounded");
-    }
-  }
-  return records.sort().join("\n");
-}
-
-function strictPathIdentity(info) {
-  return [info.dev, info.ino, info.mode, info.uid, info.size, info.mtimeMs, info.ctimeMs].join(":");
-}
-
-function lstatOptional(target) {
-  try { return lstatSync(target); }
-  catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  }
-}
-
-function assertGuardedGitMetadataPaths(snapshot) {
-  if (snapshot.entries.some((entry) => !entry.safe || entry.graphNeutral === false)) {
-    throw new Error("Repository Git metadata path is unsafe or rewrites object ancestry");
-  }
-}
-
-function isGraphRewritingMetadata(metadataPath) {
-  return /(?:\/info\/grafts|\/objects\/info\/(?:http-)?alternates|\/shallow)$/u.test(metadataPath);
-}
-
-function fileIdentity(info) {
-  return [info.dev, info.ino, info.mode, info.uid, info.size, info.mtimeMs, info.ctimeMs].join(":");
-}
-
-function directoryIdentity(info) {
-  return [info.dev, info.ino, info.mode, info.uid].join(":");
-}
-
-function pathIdentity(info) {
-  return info.isDirectory() ? directoryIdentity(info) : fileIdentity(info);
-}
-
-function validateInternalGitIndexFile(value) {
-  const candidate = path.resolve(value || "");
-  const parent = path.dirname(candidate);
-  if (!path.isAbsolute(value || "") || candidate !== value
-    || !/^settleora-(?:commit|recovery)-index-/u.test(path.basename(parent))
-    || path.dirname(parent) !== realpathSync(os.tmpdir())) {
-    throw new Error("Internal Git index path is unsafe");
-  }
-  const parentInfo = lstatSync(parent);
-  if (!parentInfo.isDirectory() || parentInfo.isSymbolicLink() || (parentInfo.mode & 0o077) !== 0) {
-    throw new Error("Internal Git index parent is unsafe");
-  }
-  return candidate;
-}
-
-function unsupportedRepositoryGitConfigKeys(value) {
-  const allowed = [
-    /^core\.(?:repositoryformatversion|filemode|bare|logallrefupdates|worktree)$/u,
-    /^extensions\.worktreeconfig$/u,
-    /^remote\.origin\.(?:url|pushurl|fetch)$/u,
-    /^branch\..+\.(?:remote|merge)$/u,
-    /^user\.(?:name|email)$/u,
-  ];
-  return String(value || "").split("\n").filter(Boolean).filter((key) => !allowed.some((pattern) => pattern.test(key)));
-}
-
-function inspectRawLaunchWorkspace(cwd, environment) {
-  const run = (args) => runLaunchWorkspaceGuardGit(args, { cwd, environment });
-  const indexFlags = run(["ls-files", "-v", "-z"]);
-  assertGitSuccess(indexFlags, "Unable to inspect launch index flags");
-  if (indexFlags.stdout.split("\0").filter(Boolean).some((entry) => !entry.startsWith("H "))) return "unsafe-index-flags";
-  const staged = run(["diff-index", "--cached", "--quiet", "HEAD", "--"]);
-  if (![0, 1].includes(staged.status) || staged.error) assertGitSuccess(staged, "Unable to inspect launch index");
-  if (staged.status === 1) return "staged-index-differs-from-head";
-  const untracked = run(["ls-files", "--others", "--exclude-standard", "-z"]);
-  assertGitSuccess(untracked, "Unable to inspect launch untracked files");
-  if (untracked.stdout.split("\0").some(Boolean)) return "untracked-files-present";
-  const format = run(["rev-parse", "--show-object-format"]);
-  assertGitSuccess(format, "Unable to inspect repository object format");
-  const algorithm = format.stdout.trim();
-  if (!["sha1", "sha256"].includes(algorithm)) throw new Error("Unsupported repository object format");
-  const index = run(["ls-files", "--stage", "-z"]);
-  assertGitSuccess(index, "Unable to inspect launch index entries");
-  for (const entry of index.stdout.split("\0").filter(Boolean)) {
-    const match = entry.match(/^(100644|100755|120000) ([a-f0-9]+) 0\t([\s\S]+)$/u);
-    if (!match) return "unsupported-or-unmerged-index-entry";
-    const [, mode, expected, relative] = match;
-    const file = path.resolve(cwd, relative);
-    const boundary = path.relative(path.resolve(cwd), file);
-    if (boundary.startsWith("..") || path.isAbsolute(boundary)) return "index-path-escaped-worktree";
-    let bytes;
-    try {
-      const stat = lstatSync(file);
-      if (mode === "120000") {
-        return stat.isSymbolicLink() ? "tracked-symlink-authentication-unsupported" : "tracked-file-type-drift";
-      } else {
-        if (!stat.isFile() || stat.isSymbolicLink()) return "tracked-file-type-drift";
-        const executable = (stat.mode & 0o111) !== 0;
-        if (executable !== (mode === "100755")) return "tracked-file-mode-drift";
-        bytes = readFileSync(file);
-      }
-    } catch { return "tracked-file-missing"; }
-    const actual = createHash(algorithm).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-    if (actual !== expected) return "tracked-file-bytes-differ-from-index";
-  }
-  return "";
 }
 
 export function ensureTaskMutationWorkspace(config, { branchName, expectedOriginMainSha }, options = {}) {
@@ -1552,63 +358,82 @@ export function fetchOriginMain(config, options = {}) {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run" };
   }
-  const verified = assertRepositoryRemoteIdentity(config);
-  const remote = verified?.originUrl || "origin";
-  const refspec = `${options.trustedHistoricalRecovery === true ? "+" : ""}refs/heads/main:refs/remotes/origin/main`;
+  assertRepositoryRemoteIdentity(config);
   const result = options.trustedHistoricalRecovery === true
-    ? runTrustedHistoricalFetch(config.repoRoot, remote, refspec, config.runtimeMode !== "external")
-    : runGit(["fetch", "--no-tags", remote, refspec], {
-      cwd: config.repoRoot, allowLocalFileTransport: config.runtimeMode !== "external",
-    });
+    ? runTrustedHistoricalFetch(config.repoRoot)
+    : runGit(["fetch", "origin", "main"], { cwd: config.repoRoot });
   assertGitSuccess(result, "Unable to fetch origin/main");
   return { skipped: false, status: result.status };
-}
-
-export function runAuthenticatedRemoteGit(config, command, trailing = [], { push = false } = {}) {
-  const verified = assertRepositoryRemoteIdentity(config);
-  const remote = verified ? (push ? verified.pushUrl : verified.originUrl) : "origin";
-  return runGit([...command, remote, ...trailing], {
-    cwd: config.repoRoot,
-    allowLocalFileTransport: config.runtimeMode !== "external",
-  });
-}
-
-export function fetchAuthenticatedRemoteRef(config, branchName, targetRef = null) {
-  if (typeof branchName !== "string" || !/^(?!.*\.\.)(?!.*\.$)[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(branchName)
-    || branchName.includes("//") || branchName.includes("@{") || branchName.endsWith("/")) {
-    return { command: "/usr/bin/git fetch", status: 128, stdout: "", stderr: "invalid branch identity", error: null };
-  }
-  const verified = assertRepositoryRemoteIdentity(config);
-  const remote = verified?.originUrl || "origin";
-  const refspec = targetRef ? `refs/heads/${branchName}:${targetRef}` : `refs/heads/${branchName}`;
-  return runGit(["fetch", "--no-tags", remote, refspec], {
-    cwd: config.repoRoot, allowLocalFileTransport: config.runtimeMode !== "external",
-  });
 }
 
 export function runTrustedProspectiveMergeTree(config, baseSha, headSha) {
   if (!/^[a-f0-9]{40}$/u.test(baseSha || "") || !/^[a-f0-9]{40}$/u.test(headSha || "")) {
     return { command: "/usr/bin/git merge-tree", status: 128, stdout: "", stderr: "invalid merge identity", error: null };
   }
-  const args = ["merge-tree", "--write-tree", baseSha, headSha];
+  const args = [
+    "-c", "credential.helper=",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.attributesFile=/dev/null",
+    "-c", "diff.external=",
+    "-c", "protocol.ext.allow=never",
+    "-c", "protocol.file.allow=never",
+    "merge-tree", "--write-tree", baseSha, headSha,
+  ];
   return runFixedTrustedGit(config.repoRoot, args);
 }
 
-function runTrustedHistoricalFetch(cwd, remote, refspec, allowLocalFileTransport) {
-  const args = ["fetch", "--no-tags", remote, refspec];
-  return runGit(args, { cwd, allowLocalFileTransport });
+function runTrustedHistoricalFetch(cwd) {
+  const args = [
+    "-c", "credential.helper=",
+    "-c", "core.hooksPath=/dev/null",
+    "-c", "core.sshCommand=",
+    "-c", "core.fsmonitor=false",
+    "-c", "core.attributesFile=/dev/null",
+    "-c", "diff.external=",
+    "-c", "protocol.ext.allow=never",
+    "-c", "protocol.file.allow=never",
+    "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main",
+  ];
+  return runFixedTrustedGit(cwd, args, {
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_SSH_COMMAND: "/usr/bin/ssh -F /dev/null -o BatchMode=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no",
+  });
 }
 
 function runFixedTrustedGit(cwd, args, extraEnv = {}) {
-  void extraEnv;
-  return runGit(args, { cwd, manageWorktrees: args.includes("worktree") });
+  const result = spawnSync("/usr/bin/git", args, {
+    cwd,
+    env: {
+      PATH: "/usr/bin:/bin",
+      LANG: "C",
+      LC_ALL: "C",
+      HOME: process.env.HOME || "/dev/null",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "core.useReplaceRefs",
+      GIT_CONFIG_VALUE_0: "false",
+      ...extraEnv,
+    },
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return {
+    command: `/usr/bin/git ${args.join(" ")}`,
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error ? result.error.message : null,
+  };
 }
 
 export function createTaskBranch(config, branchName, baseRef = "origin/main") {
   if (config.dryRun) {
     return { skipped: true, branchName, baseRef, reason: "dry-run" };
   }
-  const result = runGit(["switch", "--no-track", "-C", branchName, baseRef], { cwd: config.repoRoot });
+  const result = runGit(["switch", "-C", branchName, baseRef], { cwd: config.repoRoot });
   assertGitSuccess(result, `Unable to create task branch ${branchName}`);
   return { skipped: false, branchName, baseRef };
 }
@@ -1679,7 +504,7 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
   const effectContext = canonicalEffectContext(config, options.effectContext);
   const pending = findPendingEffect(config, effectContext, "commit", (intent) => sameStrings(intent.effect.stagedPaths, [...files].sort()) && intent.effect.messageDigest === createHash("sha256").update(normalizeCommitMessage(message)).digest("hex"));
   const parent = pending?.effect.expectedParents?.[0] || getRefSha("HEAD", { cwd });
-  const intendedTreeSha = pending?.effect.treeSha || computeIntendedTreeForCommit(cwd, files, parent);
+  const intendedTreeSha = pending?.effect.treeSha || computeIntendedTree(cwd, files, parent);
   const effect = pending?.effect || {
     expectedParents: [parent],
     treeSha: intendedTreeSha,
@@ -1715,15 +540,16 @@ function prepareCommitIntent(config, intent) {
   return preparePreEffectIntent(config, intent);
 }
 
-export function computeIntendedTreeForCommit(cwd, files, parent) {
+function computeIntendedTree(cwd, files, parent) {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-commit-index-"));
   const indexPath = path.join(tempRoot, "index");
+  const env = { GIT_INDEX_FILE: indexPath };
   try {
-    const read = runGit(["read-tree", parent], { cwd, internalIndexFile: indexPath });
+    const read = runGit(["read-tree", parent], { cwd, env });
     assertGitSuccess(read, "Unable to initialize isolated commit index");
-    const add = runGit(["add", "--", ...files], { cwd, internalIndexFile: indexPath });
+    const add = runGit(["add", "--", ...files], { cwd, env });
     assertGitSuccess(add, "Unable to stage explicit paths in isolated commit index");
-    const tree = runGit(["write-tree"], { cwd, internalIndexFile: indexPath });
+    const tree = runGit(["write-tree"], { cwd, env });
     assertGitSuccess(tree, "Unable to compute intended commit tree");
     return tree.stdout.trim();
   } finally {

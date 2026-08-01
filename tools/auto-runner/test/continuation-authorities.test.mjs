@@ -391,51 +391,10 @@ test("production split adapter cherry-picks an exact checkpoint range in a tempo
     const branch = await adapter.materializeBranch(expected);
     assert.equal(branch.ok, true);
     const verified = await adapter.verifyOwnDelta({ ...expected, ...branch });
-    assert.equal(verified.ok, true, JSON.stringify(verified));
+    assert.equal(verified.ok, true);
     for (const field of ["fileSetDigest", "diffstatDigest", "numstatDigest", "stablePatchId", "normalizedPatchDigest"]) assert.ok(verified.ownDelta[field], field);
-    assert.equal(verified.ownDelta.forwardPatchApplies, true, JSON.stringify(verified));
-    assert.equal(verified.ownDelta.reversePatchApplies, true, JSON.stringify(verified));
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("production split adapter preserves the development origin fallback", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "settleora-materializer-origin-test-"));
-  const repo = path.join(root, "repo");
-  const remote = path.join(root, "remote.git");
-  try {
-    run(root, ["init", "--bare", remote]);
-    run(root, ["init", repo]);
-    run(repo, ["config", "user.email", "test@example.invalid"]);
-    run(repo, ["config", "user.name", "Test"]);
-    writeFileSync(path.join(repo, "base.txt"), "base\n");
-    run(repo, ["add", "base.txt"]);
-    run(repo, ["commit", "-m", "base"]);
-    run(repo, ["remote", "add", "origin", remote]);
-    const headSha = run(repo, ["rev-parse", "HEAD"]).stdout.trim();
-    const adapter = createProductionSplitMaterializationAdapter({
-      repoRoot: repo,
-      runtimeMode: "development",
-    }, {
-      checkpointPath: path.join(root, "state.json"),
-      handoffToPrStack: async () => ({ ok: true }),
-    });
-    assert.deepEqual(await adapter.readBranch("split/development"), {
-      complete: true,
-      exists: false,
-      headSha: null,
-      remoteExists: false,
-    });
-    assert.deepEqual(await adapter.pushBranch({
-      branchName: "split/development",
-      headSha,
-    }), { ok: true, reasonCode: null });
-    const readback = await adapter.readBranch("split/development");
-    assert.equal(readback.complete, true);
-    assert.equal(readback.exists, true);
-    assert.equal(readback.headSha, headSha);
-    assert.equal(readback.remoteExists, true);
+    assert.equal(verified.ownDelta.forwardPatchApplies, true);
+    assert.equal(verified.ownDelta.reversePatchApplies, true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

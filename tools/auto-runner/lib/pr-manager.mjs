@@ -1,22 +1,34 @@
+import { spawnSync } from "node:child_process";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
-import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha, runGit, runTrustedGithub } from "./git-workspace.mjs";
+import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha } from "./git-workspace.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
-function runGh(config, args) {
-  return runTrustedGithub(config, args);
+function runGh(args, cwd) {
+  const result = spawnSync("gh", args, { cwd, encoding: "utf8", windowsHide: true });
+  return {
+    command: `gh ${args.join(" ")}`,
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    error: result.error ? result.error.message : null,
+  };
 }
 
 export async function pushBranch(config, branchName, options = {}) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
   if (options.effectContext) return canonicalPush(config, branchName, options.effectContext);
-  const localSha = getRefSha("HEAD", { cwd: config.repoRoot });
-  const result = runRemoteGit(config, ["push", "--no-verify"], [`${localSha}:refs/heads/${branchName}`], { push: true });
+  assertRepositoryRemoteIdentity(config);
+  const result = spawnSync("git", ["push", "origin", branchName], {
+    cwd: config.repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
   return {
     skipped: false,
     status: result.status,
     stdout: result.stdout || "",
     stderr: result.stderr || "",
-    error: result.error || null,
+    error: result.error ? result.error.message : null,
   };
 }
 
@@ -42,7 +54,8 @@ async function canonicalPush(config, branchName, lifecycle) {
       return { complete: true, present: true, identity: intent.identity, effect: { ...effect, allowedFastForwardTarget: live.sha || "remote_missing" } };
     },
     execute: () => {
-      const result = runRemoteGit(config, ["push", "--no-verify"], [`${localSha}:refs/heads/${branchName}`], { push: true });
+      assertRepositoryRemoteIdentity(config);
+      const result = spawnSync("git", ["push", "origin", `${localSha}:refs/heads/${branchName}`], { cwd: config.repoRoot, encoding: "utf8", windowsHide: true });
       if (result.error || result.status !== 0) throw new Error("Canonical normal push failed");
       return { ok: true, status: result.status };
     },
@@ -52,7 +65,8 @@ async function canonicalPush(config, branchName, lifecycle) {
 }
 
 function readRemoteHead(config, branchName) {
-  const result = runRemoteGit(config, ["ls-remote", "--heads"], [`refs/heads/${branchName}`]);
+  assertRepositoryRemoteIdentity(config);
+  const result = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`], { cwd: config.repoRoot, encoding: "utf8", windowsHide: true });
   if (result.error || result.status !== 0) return { complete: false, sha: null };
   return { complete: true, sha: result.stdout.trim() ? result.stdout.trim().split(/\s+/)[0] : null };
 }
@@ -67,9 +81,15 @@ export function inspectPreReviewPrOwnership(config, branchName) {
       prs: [],
     };
   }
-  const remote = runRemoteGit(config, ["ls-remote", "--heads"], [`refs/heads/${branchName}`]);
-  const prList = runGh(config,
+  assertRepositoryRemoteIdentity(config);
+  const remote = spawnSync("git", ["ls-remote", "--heads", "origin", branchName], {
+    cwd: config.repoRoot,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  const prList = runGh(
     ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,headRefName,headRefOid"],
+    config.repoRoot,
   );
   let prs = [];
   let prParseError = null;
@@ -98,15 +118,6 @@ export function inspectPreReviewPrOwnership(config, branchName) {
   };
 }
 
-function runRemoteGit(config, command, trailing, { push = false } = {}) {
-  const verified = assertRepositoryRemoteIdentity(config);
-  const remote = verified ? (push ? verified.pushUrl : verified.originUrl) : "origin";
-  return runGit([...command, remote, ...trailing], {
-    cwd: config.repoRoot,
-    allowLocalFileTransport: config.runtimeMode !== "external",
-  });
-}
-
 export async function openOrUpdatePr(config, issue, branchName, summary, options = {}) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
   const body = [
@@ -119,11 +130,11 @@ export async function openOrUpdatePr(config, issue, branchName, summary, options
     "Auto-merge is disabled by default. Manual review is required.",
   ].join("\n");
   if (options.effectContext) return canonicalPrCreate(config, issue, branchName, body, options.effectContext);
-  const existing = runGh(config, ["pr", "list", "--head", branchName, "--json", "number,url", "-q", ".[0].url"]);
+  const existing = runGh(["pr", "list", "--head", branchName, "--json", "number,url", "-q", ".[0].url"], config.repoRoot);
   if (existing.status === 0 && existing.stdout.trim()) {
     return { skipped: false, action: "existing", url: existing.stdout.trim() };
   }
-  const result = runGh(config, [
+  const result = runGh([
     "pr",
     "create",
     "--base",
@@ -134,7 +145,7 @@ export async function openOrUpdatePr(config, issue, branchName, summary, options
     `Auto-runner: #${issue.number} ${issue.title}`,
     "--body",
     body,
-  ]);
+  ], config.repoRoot);
   return {
     skipped: false,
     action: "create",
@@ -172,7 +183,7 @@ async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
       return { complete: true, present: true, identity: stored.identity, effect };
     },
     execute: () => {
-      const create = runGh(config, ["pr", "create", "--base", "main", "--head", branchName, "--title", title, "--body", body]);
+      const create = runGh(["pr", "create", "--base", "main", "--head", branchName, "--title", title, "--body", body], config.repoRoot);
       if (create.error || create.status !== 0) throw new Error("Canonical PR create failed");
       return { ok: true, status: create.status };
     },
@@ -194,7 +205,7 @@ async function canonicalPrCreate(config, issue, branchName, body, lifecycle) {
 }
 
 function readBranchPrs(config, branchName) {
-  const result = runGh(config, ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,isDraft,baseRefName,headRefName,headRefOid,title,body"]);
+  const result = runGh(["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,isDraft,baseRefName,headRefName,headRefOid,title,body"], config.repoRoot);
   if (result.error || result.status !== 0) return { complete: false, prs: [] };
   try { const prs = JSON.parse(result.stdout || "[]"); return { complete: Array.isArray(prs), prs: Array.isArray(prs) ? prs : [] }; }
   catch { return { complete: false, prs: [] }; }
@@ -203,7 +214,7 @@ function readBranchPrs(config, branchName) {
 
 export function watchChecks(config, prUrlOrNumber) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
-  const result = runGh(config, ["pr", "checks", String(prUrlOrNumber), "--watch", "--fail-fast"]);
+  const result = runGh(["pr", "checks", String(prUrlOrNumber), "--watch", "--fail-fast"], config.repoRoot);
   return {
     skipped: false,
     status: result.status,

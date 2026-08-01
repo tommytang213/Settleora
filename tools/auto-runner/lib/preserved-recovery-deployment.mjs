@@ -14,7 +14,6 @@ import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { findPreEffectIntents, intentIssueAuthorityMatches, reconcilePreEffectIntent } from "./pre-effect-intent.mjs";
 import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 import { projectAuthenticatedTerminalValidationRetryDerivative } from "./terminal-validation-retry-projection.mjs";
-import { runGit as runSourceOwnedGit } from "./git-workspace.mjs";
 
 const shaPattern = /^[a-f0-9]{40}$/u;
 const digestPattern = /^[a-f0-9]{64}$/u;
@@ -626,9 +625,12 @@ function validateCommitLineage(
     return { ok: false, reasonCode: "preserved_recovery_commit_proof_missing" };
   }
   const root = path.resolve(repositoryRoot);
-  const readGit = (args) => sourceOwnedGitRead(root, args);
+  const readGit = (args) => git(root, args, gitEnvironment);
   const info = lstatSync(root);
   if (!info.isDirectory() || info.isSymbolicLink() || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+    return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
+  }
+  if (path.resolve(readGit(["rev-parse", "--show-toplevel"])) !== realpathSync(root)) {
     return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
   }
   const expectedRepository = target.repository.toLowerCase();
@@ -640,16 +642,6 @@ function validateCommitLineage(
   const localTransportAuthority = gitConfigNames(root, gitEnvironment, "local").some(isGitTransportAuthorityKey);
   const worktreeTransportAuthority = worktreeConfigEnabled
     && gitConfigNames(root, gitEnvironment, "worktree").some(isGitTransportAuthorityKey);
-  const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
-  if (fetchUrls.length !== 1 || pushUrls.length > 1 || worktreeFetchUrls.length || worktreePushUrls.length
-      || localTransportAuthority || worktreeTransportAuthority
-      || canonicalGitHubRepository(fetchUrls[0]) !== expectedRepository
-      || canonicalGitHubRepository(effectivePushUrl) !== expectedRepository) {
-    return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
-  }
-  if (path.resolve(readGit(["rev-parse", "--show-toplevel"])) !== realpathSync(root)) {
-    return { ok: false, reasonCode: "preserved_recovery_git_root_untrusted" };
-  }
   const executableDefaultHooks = defaultGitHooksAreExecutable(root, readGit);
   const resumedGitAuthority = validateResumedGitAuthority(
     root,
@@ -658,7 +650,11 @@ function validateCommitLineage(
     readGit,
     resumedGitConfigRecords,
   );
-  if (executableDefaultHooks || !resumedGitAuthority) {
+  const effectivePushUrl = pushUrls.length === 1 ? pushUrls[0] : fetchUrls[0];
+  if (fetchUrls.length !== 1 || pushUrls.length > 1 || worktreeFetchUrls.length || worktreePushUrls.length
+      || localTransportAuthority || worktreeTransportAuthority || executableDefaultHooks || !resumedGitAuthority
+      || canonicalGitHubRepository(fetchUrls[0]) !== expectedRepository
+      || canonicalGitHubRepository(effectivePushUrl) !== expectedRepository) {
     return { ok: false, reasonCode: "preserved_recovery_repository_identity_mismatch" };
   }
   let branchHead;
@@ -697,7 +693,7 @@ function validateCommitLineage(
   }
   const cumulativeFiles = readGit(["diff", "--name-only", target.baseSha, target.headSha]).split("\n").filter(Boolean).sort();
   if (unmatched.size || readGit(["rev-parse", `${target.headSha}^{tree}`]) !== target.treeSha
-      || authoritativeDiffDigest(root, target) !== target.diffDigest
+      || authoritativeDiffDigest(root, target, gitEnvironment) !== target.diffDigest
       || canonical(cumulativeFiles) !== canonical([...expectedChangedFiles].sort())) {
     return { ok: false, reasonCode: "preserved_recovery_commit_lineage_mismatch" };
   }
@@ -722,18 +718,18 @@ export function validatePreservedRecoveryCommitLineage(
   );
 }
 
-function authoritativeDiffDigest(root, target) {
-  const result = runSourceOwnedGit(["diff", "--binary", `${target.baseSha}...${target.headSha}`], {
-    cwd: root, maxBuffer: 2 * 1024 * 1024,
+function authoritativeDiffDigest(root, target, environment) {
+  const result = spawnSync(trustedDeploymentGitBinary, [
+    "--no-replace-objects", "-c", "core.fsmonitor=false",
+    "diff", "--binary", `${target.baseSha}...${target.headSha}`,
+  ], {
+    cwd: root,
+    encoding: "utf8",
+    env: sanitizedDeploymentGitEnvironment(environment),
+    maxBuffer: 2 * 1024 * 1024,
   });
   if (result.status !== 0 || result.stderr) throw new Error("authoritative Git diff unavailable");
   return createHash("sha256").update(result.stdout.slice(0, 512_000)).digest("hex");
-}
-
-function sourceOwnedGitRead(root, args) {
-  const result = runSourceOwnedGit(args, { cwd: root, maxBuffer: 1024 * 1024 });
-  if (result.status !== 0 || result.stderr) throw new Error("authoritative Git read unavailable");
-  return result.stdout.trim();
 }
 
 function git(root, args, environment = process.env) {

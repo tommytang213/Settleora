@@ -122,24 +122,9 @@ import { writeRecentSummary, writeRunSummary } from "../lib/summary-writer.mjs";
 import {
   loadSummaryConfig,
   planOrdinaryRecoveryBranch,
-  runBoundedCleanupProcessInventory,
   selectPreservedTerminalCommentDigest,
   verifyProspectiveMergeValidation,
 } from "../settleora-auto-runner.mjs";
-
-test("ordinary cleanup process inventory uses one bounded absolute command", () => {
-  const result = runBoundedCleanupProcessInventory();
-  assert.equal(result.command, "/usr/bin/ps -eo pid=,args=");
-  assert.equal(result.status, 0, result.stderr || result.error);
-  assert.match(result.stdout, /[0-9]+/u);
-  const source = readFileSync("tools/auto-runner/settleora-auto-runner.mjs", "utf8");
-  const start = source.indexOf("function readOrdinaryCleanupAuthority");
-  const end = source.indexOf("function cleanupOwnershipMatchesRuntime", start);
-  const body = source.slice(start, end);
-  assert.match(body, /runner: runCleanupCommand/);
-  assert.match(body, /runBoundedCleanupProcessInventory\(\)/);
-  assert.doesNotMatch(body, /\brun\("ps"|runner: \(command, args\) => run\(/u);
-});
 import { writeIterationState } from "../lib/state-store.mjs";
 import { createInitialRecoveryState, writeRecoveryState } from "../lib/recovery-state.mjs";
 import { autoMergeEffectsConfirmed } from "../lib/terminal-effects.mjs";
@@ -1511,23 +1496,6 @@ test("readiness preflight succeeds with safe defaults and reports manual gates",
     assert.match(readFileSync(result.readinessReports.markdownPath, "utf8"), /Remaining Manual Gates/);
     assert.match(readFileSync(result.readinessReports.markdownPath, "utf8"), /trusted overnight operation/);
     assert.doesNotMatch(readFileSync(result.readinessReports.markdownPath, "utf8"), /#888|#889/);
-  } finally {
-    rmSync(tempRoot, { recursive: true, force: true });
-  }
-});
-
-test("readiness preflight passes a source-derived literal repository URL instead of symbolic origin", () => {
-  const tempRoot = mkdtempSync(path.join(tmpdir(), "settleora-readiness-literal-origin-"));
-  try {
-    const runner = createReadinessRunner();
-    const result = runPreflight(readinessConfig(tempRoot), { runner });
-    assert.equal(result.checks.find((check) => check.name === "origin-main-fetchable").status, "pass");
-    const remoteRead = runner.commands.find((command) => command.startsWith("git ls-remote"));
-    assert.equal(
-      remoteRead,
-      "git ls-remote --exit-code https://github.com/tommytang213/Settleora.git refs/heads/main",
-    );
-    assert.doesNotMatch(remoteRead, /\sorigin\s/u);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -7439,105 +7407,6 @@ test("real-run launch workspace allows clean main and non-main but rejects dirty
   }
 });
 
-test("launch workspace guard ignores caller Git environment and cannot execute injected fsmonitor", () => {
-  const repo = createTempGitRepo();
-  const alternateWorktree = mkdtempSync(path.join(tmpdir(), "settleora-launch-alternate-"));
-  const sentinel = path.join(repo, "fsmonitor-ran");
-  const hook = path.join(repo, "hostile-fsmonitor");
-  const logger = { warn() {} };
-  try {
-    writeFileSync(hook, `#!/bin/sh\n: > '${sentinel}'\n`, { mode: 0o700 });
-    writeFileSync(path.join(repo, "dirty.txt"), "dirty\n");
-    assert.throws(
-      () => ensureLaunchWorkspace(
-        { run: true, dryRun: false, repoRoot: repo },
-        logger,
-        { environment: {
-          ...process.env,
-          GIT_CONFIG_COUNT: "2",
-          GIT_CONFIG_KEY_0: "core.fsmonitor",
-          GIT_CONFIG_VALUE_0: hook,
-          GIT_CONFIG_KEY_1: "status.showUntrackedFiles",
-          GIT_CONFIG_VALUE_1: "no",
-          GIT_WORK_TREE: alternateWorktree,
-        } },
-      ),
-      /Refusing real-run launch with a dirty worktree/,
-    );
-    assert.equal(existsSync(sentinel), false);
-  } finally {
-    rmSync(alternateWorktree, { recursive: true, force: true });
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test("launch workspace guard cannot hide untracked files through caller global ignore state", () => {
-  const repo = createTempGitRepo();
-  const xdgRoot = mkdtempSync(path.join(tmpdir(), "settleora-hostile-git-xdg-"));
-  const previousXdg = process.env.XDG_CONFIG_HOME;
-  try {
-    mkdirSync(path.join(xdgRoot, "git"), { recursive: true });
-    writeFileSync(path.join(xdgRoot, "git", "ignore"), "hidden-by-global-ignore.txt\n");
-    writeFileSync(path.join(repo, "hidden-by-global-ignore.txt"), "untracked\n");
-    process.env.XDG_CONFIG_HOME = xdgRoot;
-    assert.throws(
-      () => ensureLaunchWorkspace({ run: true, dryRun: false, repoRoot: repo }, { warn() {} }),
-      /Refusing real-run launch with a dirty worktree/,
-    );
-  } finally {
-    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME;
-    else process.env.XDG_CONFIG_HOME = previousXdg;
-    rmSync(xdgRoot, { recursive: true, force: true });
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test("launch workspace guard rejects repository filters, info attributes, active excludes, and hidden index flags", () => {
-  const cases = [
-    (repo) => git(repo, ["config", "filter.cloak.clean", "/bin/false"]),
-    (repo) => writeFileSync(path.join(repo, ".git", "info", "attributes"), "* filter=cloak\n"),
-    (repo) => writeFileSync(path.join(repo, ".git", "info", "exclude"), "hidden-*\n"),
-    (repo) => {
-      git(repo, ["update-index", "--assume-unchanged", "tools/auto-runner/README.md"]);
-      writeFileSync(path.join(repo, "tools/auto-runner/README.md"), "hidden tracked mutation\n");
-    },
-  ];
-  for (const arrange of cases) {
-    const repo = createTempGitRepo();
-    try {
-      arrange(repo);
-      assert.throws(
-        () => ensureLaunchWorkspace({ run: true, dryRun: false, repoRoot: repo }, { warn() {} }),
-      );
-    } finally { rmSync(repo, { recursive: true, force: true }); }
-  }
-});
-
-test("task branch creation and mutation guard ignore caller Git repository selectors", () => {
-  const repo = createTempGitRepo();
-  const alternate = createTempGitRepo();
-  const previousGitDir = process.env.GIT_DIR;
-  const previousGitWorkTree = process.env.GIT_WORK_TREE;
-  const baseSha = git(repo, ["rev-parse", "origin/main"]).stdout.trim();
-  try {
-    process.env.GIT_DIR = path.join(alternate, ".git");
-    process.env.GIT_WORK_TREE = alternate;
-    createTaskBranch({ run: true, dryRun: false, repoRoot: repo }, "feature/fixed-git-boundary");
-    const guarded = ensureTaskMutationWorkspace(
-      { run: true, dryRun: false, repoRoot: repo },
-      { branchName: "feature/fixed-git-boundary", expectedOriginMainSha: baseSha },
-      { cwd: repo },
-    );
-    assert.equal(guarded.branch, "feature/fixed-git-boundary");
-    assert.equal(git(alternate, ["branch", "--show-current"]).stdout.trim(), "main");
-  } finally {
-    if (previousGitDir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = previousGitDir;
-    if (previousGitWorkTree === undefined) delete process.env.GIT_WORK_TREE; else process.env.GIT_WORK_TREE = previousGitWorkTree;
-    rmSync(alternate, { recursive: true, force: true });
-    rmSync(repo, { recursive: true, force: true });
-  }
-});
-
 test("task mutation workspace accepts only the exact clean generated task branch", () => {
   const repo = createTempGitRepo();
   const config = { run: true, dryRun: false, repoRoot: repo };
@@ -7727,12 +7596,7 @@ test("stack CLI constructs and injects one live fixed-argv runner", () => {
   assert.match(source, /settleoraFixedArgvRunner = true/);
   assert.match(source, /settleoraRunnerMode = "live"/);
   assert.match(source, /shell_execution_refused/);
-  assert.match(source, /command === "git"[\s\S]*runGit\(args,[\s\S]*command === "gh"[\s\S]*runTrustedGithub\(\{ \.\.\.config, repoRoot: cwd \}, args/);
-  const liveRunnerBody = source.slice(runnerIndex, source.indexOf("function createLivePrStackReviewAdapters", runnerIndex));
-  assert.match(liveRunnerBody, /runGit\(args, \{[\s\S]*allowLocalFileTransport: hasSourceOwnedDevelopmentGitTransportAdmission\(config\)[\s\S]*?\}\)/);
-  const gitWorkspace = readFileSync("tools/auto-runner/lib/git-workspace.mjs", "utf8");
-  assert.match(gitWorkspace, /spawnSync\("\/usr\/bin\/gh", boundArgs,[\s\S]*shell: false/);
-  assert.doesNotMatch(source, /spawnSync\("(?:git|gh)"/);
+  assert.match(source, /spawnSync\(command, args,[\s\S]*shell: false/);
   assert.match(source, /runStrongReview: async/);
   assert.match(source, /runCodexReview: async/);
   assert.match(source, /reviewerTier: "strong_independent"/);
