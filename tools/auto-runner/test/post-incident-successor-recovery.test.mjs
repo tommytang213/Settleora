@@ -18,7 +18,7 @@ import { createInitialRecoveryState, recoveryStatePath, writeRecoveryState } fro
 const oldHash = "6".repeat(64);
 const incidentHash = "5".repeat(64);
 const rootPath = "/sanitized/recovery/root.json";
-const authenticateArtifact = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256 });
+const authenticateArtifact = (artifact, source) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, authorityClass: source.authorityClass, claims: source.claims });
 const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact });
 const claims = {
   repository: "example/repo", issueNumber: 7, taskKey: "task-1", claimIdentity: "example/repo#7", chargeId: "c".repeat(64),
@@ -74,6 +74,24 @@ test("different class labels over one underlying artifact are not independent", 
   const result = buildSemanticRecoveryManifest(value);
   assert.equal(result.reasonCode, "semantic_evidence_class_not_independent");
   assert.deepEqual(result.diagnostics, ["duplicate_underlying_artifact"]);
+});
+
+test("production source claims and authority class come from authenticated bytes", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-evidence-bytes-"));
+  try {
+    const value = packet();
+    value.sources = value.sources.map((source, index) => {
+      const artifactPath = path.join(root, `${index}.json`);
+      const document = { contract: "semantic_recovery_evidence_source", version: 1, authorityClass: source.authorityClass, claims: source.claims };
+      writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
+      return { authorityClass: "caller_label_is_ignored", artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") }, claims: { repository: "forged" } };
+    });
+    const result = buildSemanticRecoveryManifestProduction(value);
+    assert.equal(result.ok, true);
+    assert.equal(result.manifest.claims.repository, claims.repository);
+    writeFileSync(value.sources[0].artifact.path, "{}", { mode: 0o600 });
+    assert.equal(buildSemanticRecoveryManifestProduction(value).reasonCode, "semantic_evidence_source_authentication_failed");
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("missing class and missing claim fail closed", () => {
@@ -134,6 +152,8 @@ test("successor persistence is idempotent and conflicting adoption fails closed"
     const built = buildSemanticRecoveryManifest(packet());
     const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
     const config = { logsRoot: root, postIncidentSuccessorRoot: path.join(root, "successors") };
+    mkdirSync(config.postIncidentSuccessorRoot, { mode: 0o700 });
+    mkdirSync(path.join(config.postIncidentSuccessorRoot, "provenance"), { mode: 0o700 });
     const created = persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest);
     const adopted = persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest);
     assert.equal(created.adopted, false); assert.equal(adopted.adopted, true);
@@ -161,6 +181,7 @@ test("overwrite quarantine authenticates incident bytes and does not block unrel
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: provenance }).quarantined, true);
     const altered = structuredClone(provenance); altered.incidentArtifact.sha256 = incidentHash;
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "task-1", issue: { number: 7 } }, authenticatedProvenance: altered }).reasonCode, "incident_provenance_authentication_failed");
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "altered", issue: { number: 999 } }, authenticatedProvenance: provenance }).reasonCode, "incident_identity_contradiction");
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: "/other.json", state: { taskKey: "other", issue: { number: 8 } }, authenticatedProvenance: provenance }).quarantined, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -199,7 +220,7 @@ test("symlinked successor destination cannot be adopted", () => {
   try {
     const built = buildSemanticRecoveryManifest(packet());
     const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });
-    const root = path.join(logsRoot, "successors"); mkdirSync(root, { recursive: true });
+    const root = path.join(logsRoot, "successors"); mkdirSync(root, { recursive: true, mode: 0o700 });
     const target = path.join(logsRoot, "external.json"); writeFileSync(target, `${JSON.stringify(construction.successor)}\n`, { mode: 0o600 });
     symlinkSync(target, path.join(root, `${construction.storageKey}.json`));
     assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_destination_unsafe");

@@ -1832,6 +1832,11 @@ and GitHub no-effect authority classes. Repeated renderings of one underlying
 artifact are not independent evidence. Every required security claim needs at
 least two distinct class bindings. Any omission or contradiction fails closed;
 there is no majority rule or incident-specific digest exception.
+Production authority classes and claims are parsed from the authenticated
+owner-only evidence files themselves; adjacent configuration labels or claims
+are never authority. Successor and provenance directories must be separately
+pre-provisioned beneath the trusted logs root and pass canonical ancestry,
+ownership, and mode checks before any persistence attempt.
 
 The canonical manifest binds the unavailable predecessor hash with
 `bytesAvailable=false`, immutable incident path/hash, task/candidate and

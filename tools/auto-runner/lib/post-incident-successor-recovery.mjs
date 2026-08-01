@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, linkSync, lstatSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, lstatSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const semanticRecoveryContract = "post_incident_semantic_successor";
@@ -202,8 +202,7 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
   const predecessor = canonicalExistingPath(manifest.historicalPredecessor.path);
   const incident = canonicalExistingPath(manifest.currentIncident.path);
   const successorPath = path.join(root, `${construction.storageKey}.json`);
-  mkdirSync(root, { recursive: true, mode: 0o700 });
-  const safeRoot = validateDirectoryAncestry(root);
+  const safeRoot = validatePersistenceDirectory(config.logsRoot, root);
   if (!safeRoot.ok) return safeRoot;
   const canonicalSuccessor = path.join(safeRoot.path, path.basename(successorPath));
   if ([predecessor, incident].includes(canonicalSuccessor)) return failed("post_incident_successor_aliases_protected_path");
@@ -228,8 +227,7 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
   if (existingRecord?.value && canonicalJson(existingRecord.value) !== canonicalJson(record)) return failed("post_incident_provenance_conflict");
   if (existingSuccessor?.value && canonicalJson(existingSuccessor.value) !== canonicalJson(construction.successor)) return failed("post_incident_successor_collision");
   if (existingRecord?.value && existingSuccessor?.value) return { ok: true, adopted: true, reasonCode: "post_incident_successor_adopted", successorPath, ledgerPath };
-  mkdirSync(path.dirname(ledgerPath), { recursive: true, mode: 0o700 });
-  const safeLedgerRoot = validateDirectoryAncestry(path.dirname(ledgerPath));
+  const safeLedgerRoot = validatePersistenceDirectory(config.logsRoot, path.dirname(ledgerPath));
   if (!safeLedgerRoot.ok) return safeLedgerRoot;
   const claimed = claimImmutableJson(ledgerPath, record);
   if (!claimed.ok) return claimed;
@@ -243,17 +241,22 @@ export function persistOrAdoptPostIncidentSuccessor(config, construction, manife
 export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authenticatedProvenance }) {
   if (!authenticatedProvenance?.ok) return { quarantined: false, reasonCode: "ordinary_recovery" };
   const identityMatch = state?.taskKey === authenticatedProvenance.taskKey && state?.issue?.number === authenticatedProvenance.issueNumber;
+  const configuredPathMatch = safeCanonicalMatch(recoveryPath, authenticatedProvenance.incidentPath)
+    || safeCanonicalMatch(recoveryPath, authenticatedProvenance.incidentArtifact?.path);
   let authenticatedIncident;
   try {
-    authenticatedIncident = authenticateSourceArtifact(normalizeArtifact(authenticatedProvenance.incidentArtifact));
+    authenticatedIncident = authenticateOpaqueArtifact(normalizeArtifact(authenticatedProvenance.incidentArtifact));
   } catch {
-    return identityMatch
+    return configuredPathMatch
       ? { quarantined: true, readOnly: true, reasonCode: "incident_provenance_authentication_failed", allowedAction: "none" }
       : { quarantined: false, reasonCode: "ordinary_recovery" };
   }
   const pathMatch = canonicalExistingPath(recoveryPath) === authenticatedIncident.path
     && canonicalExistingPath(authenticatedProvenance.incidentPath) === authenticatedIncident.path;
-  const overwrite = pathMatch && identityMatch
+  if (pathMatch && !identityMatch) {
+    return { quarantined: true, readOnly: true, reasonCode: "incident_identity_contradiction", allowedAction: "none" };
+  }
+  const overwrite = pathMatch
     && authenticatedProvenance.incidentSha256 === authenticatedIncident.sha256
     && authenticatedProvenance.predecessorSha256 !== authenticatedIncident.sha256
     && authenticatedProvenance.bytesAvailable === false;
@@ -275,9 +278,8 @@ function validatePacketShape(packet) {
   if (!bounded(packet?.incidentIdentity) || !bounded(packet?.lifecycleSuccessorSession)
     || !Number.isSafeInteger(packet?.lifecycleSuccessorGeneration) || packet.lifecycleSuccessorGeneration < 1
     || !bounded(packet?.operationId) || !bounded(packet?.requestId)) diagnostics.push("operation_identity");
-  if (Array.isArray(packet?.sources) && packet.sources.some((source) => !mandatorySemanticEvidenceClasses.includes(source?.authorityClass)
-    || !bounded(source?.artifact?.role) || !bounded(source?.artifact?.path) || !digest64(source?.artifact?.sha256)
-    || !source.claims || typeof source.claims !== "object" || Array.isArray(source.claims))) diagnostics.push("source_binding");
+  if (Array.isArray(packet?.sources) && packet.sources.some((source) => !bounded(source?.artifact?.role)
+    || !bounded(source?.artifact?.path) || !digest64(source?.artifact?.sha256))) diagnostics.push("source_binding");
   return diagnostics;
 }
 function validateSecurityPosture(packet, claims) {
@@ -294,8 +296,10 @@ function validateSecurityPosture(packet, claims) {
   return { ok: true };
 }
 function normalizeSource(source, authenticateArtifact) {
-  const authenticated = authenticateArtifact(normalizeArtifact(source.artifact));
-  const normalized = { authorityClass: String(source.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true }, claims: sortObject(source.claims) };
+  const authenticated = authenticateArtifact(normalizeArtifact(source.artifact), source);
+  if (!mandatorySemanticEvidenceClasses.includes(authenticated.authorityClass)
+    || !authenticated.claims || typeof authenticated.claims !== "object" || Array.isArray(authenticated.claims)) throw new Error("invalid evidence document");
+  const normalized = { authorityClass: String(authenticated.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true }, claims: sortObject(authenticated.claims) };
   Object.defineProperty(normalized, "underlyingIdentity", { value: authenticated.underlyingIdentity, enumerable: false });
   return normalized;
 }
@@ -357,23 +361,42 @@ function canonicalExistingPath(value) {
   const parent = path.dirname(resolved);
   return existsSync(parent) ? path.join(realpathSync(parent), path.basename(resolved)) : resolved;
 }
-function validateDirectoryAncestry(directory) {
-  const resolved = path.resolve(directory);
-  let cursor = resolved;
-  while (true) {
-    const stat = lstatSync(cursor);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) return failed("post_incident_successor_root_unsafe");
-    const parent = path.dirname(cursor);
-    if (parent === cursor) break;
-    cursor = parent;
-  }
-  return { ok: true, path: realpathSync(resolved) };
+function validatePersistenceDirectory(logsRoot, directory) {
+  try {
+    const trustedRoot = realpathSync(logsRoot);
+    const real = realpathSync(path.resolve(directory));
+    const relative = path.relative(trustedRoot, real);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return failed("post_incident_successor_root_unsafe");
+    let cursor = real;
+    while (true) {
+      const stat = lstatSync(cursor);
+      if (stat.isSymbolicLink() || !stat.isDirectory()
+        || (typeof process.getuid === "function" && stat.uid !== process.getuid())
+        || (stat.mode & 0o077) !== 0) return failed("post_incident_successor_root_unsafe");
+      if (cursor === trustedRoot) break;
+      const parent = path.dirname(cursor);
+      if (parent === cursor) return failed("post_incident_successor_root_unsafe");
+      cursor = parent;
+    }
+    return { ok: true, path: real };
+  } catch { return failed("post_incident_successor_root_unsafe"); }
 }
 function authenticateSourceArtifact(artifact) {
+  const authenticated = authenticateOpaqueArtifact(artifact);
+  const document = JSON.parse(readFileSync(authenticated.path, "utf8"));
+  if (document?.contract !== "semantic_recovery_evidence_source" || document?.version !== 1) throw new Error("invalid evidence document");
+  return { ...authenticated, authorityClass: document.authorityClass, claims: document.claims };
+}
+function authenticateOpaqueArtifact(artifact) {
   const canonicalPath = realpathSync(artifact.path);
   const stat = lstatSync(canonicalPath);
   if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink < 1 || (stat.mode & 0o077) !== 0) throw new Error("untrusted artifact");
-  const actualSha256 = digest(readFileSync(canonicalPath));
+  const bytes = readFileSync(canonicalPath);
+  const actualSha256 = digest(bytes);
   if (actualSha256 !== artifact.sha256) throw new Error("artifact digest mismatch");
   return { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: actualSha256 };
+}
+function safeCanonicalMatch(left, right) {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  try { return canonicalExistingPath(left) === canonicalExistingPath(right); } catch { return path.resolve(left) === path.resolve(right); }
 }
