@@ -38,6 +38,38 @@ function withProfile(profile, fn) {
   }
 }
 
+test("post-incident provenance is complete and repository-bound at config load", () => {
+  const incidentSha256 = "5".repeat(64);
+  const provenance = {
+    ok: true,
+    repository: "tommytang213/Settleora",
+    taskKey: "task-1",
+    issueNumber: 7,
+    incidentPath: "/sanitized/incident.json",
+    incidentSha256,
+    incidentArtifact: { role: "incident", path: "/sanitized/incident.json", sha256: incidentSha256 },
+    predecessorSha256: "6".repeat(64),
+    bytesAvailable: false,
+    originalRunnerRunId: "run-original",
+    originalSupervisorRunId: "supervisor-original",
+    consumedRunnerRunId: "run-consumed",
+    consumedSupervisorRunId: "supervisor-consumed",
+  };
+  withProfile({ postIncidentRecovery: { authenticatedProvenance: provenance } }, ({ configPath }) => {
+    assert.equal(loadConfig({ ...parseCliArgs(["--preflight", "--config", configPath]) }).postIncidentRecovery.authenticatedProvenance.taskKey, "task-1");
+  });
+  for (const missingField of ["taskKey", "issueNumber", "incidentPath", "incidentSha256", "predecessorSha256", "bytesAvailable"]) {
+    const incomplete = structuredClone(provenance);
+    delete incomplete[missingField];
+    withProfile({ postIncidentRecovery: { authenticatedProvenance: incomplete } }, ({ configPath }) => {
+      assert.throws(() => loadConfig({ ...parseCliArgs(["--preflight", "--config", configPath]) }), /complete overwrite-incident provenance/);
+    });
+  }
+  withProfile({ repositorySlug: "other/repo", postIncidentRecovery: { authenticatedProvenance: provenance } }, ({ configPath }) => {
+    assert.throws(() => loadConfig({ ...parseCliArgs(["--preflight", "--config", configPath]) }), /repository must match/);
+  });
+});
+
 test("disabled outage resubmission profile loads without trusted controller capability", () => {
   withProfile({ outageResubmission: { allowBoundedOutageResubmission: false } }, ({ configPath }) => {
     const config = loadConfig({ ...parseCliArgs(["--preflight", "--config", configPath]) });

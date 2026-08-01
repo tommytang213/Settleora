@@ -619,6 +619,17 @@ function normalizePostIncidentRecoveryConfig(value) {
       || !/^[a-f0-9]{64}$/.test(String(incidentArtifact.sha256 || ""))) {
     throw new Error("postIncidentRecovery requires an incident artifact binding");
   }
+  if (typeof value.authenticatedProvenance.taskKey !== "string" || value.authenticatedProvenance.taskKey.length < 1
+      || !Number.isSafeInteger(value.authenticatedProvenance.issueNumber) || value.authenticatedProvenance.issueNumber < 1
+      || typeof value.authenticatedProvenance.incidentPath !== "string" || value.authenticatedProvenance.incidentPath.length < 1
+      || value.authenticatedProvenance.incidentPath !== incidentArtifact.path
+      || !/^[a-f0-9]{64}$/.test(String(value.authenticatedProvenance.incidentSha256 || ""))
+      || value.authenticatedProvenance.incidentSha256 !== incidentArtifact.sha256
+      || !/^[a-f0-9]{64}$/.test(String(value.authenticatedProvenance.predecessorSha256 || ""))
+      || value.authenticatedProvenance.predecessorSha256 === value.authenticatedProvenance.incidentSha256
+      || value.authenticatedProvenance.bytesAvailable !== false) {
+    throw new Error("postIncidentRecovery requires complete overwrite-incident provenance");
+  }
   for (const field of ["repository", "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId", "consumedSupervisorRunId"]) {
     if (typeof value.authenticatedProvenance[field] !== "string" || value.authenticatedProvenance[field].length < 1 || value.authenticatedProvenance[field].length > 1000) {
       throw new Error(`postIncidentRecovery requires ${field} provenance`);
