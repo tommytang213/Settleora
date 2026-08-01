@@ -207,6 +207,16 @@ test("bound artifact aggregate bytes are finite", () => {
   assert.equal(result.reasonCode, "semantic_bound_artifact_bytes_exceeded");
 });
 
+test("production artifact authentication derives byte count from the authenticated descriptor", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-artifact-descriptor-"));
+  try {
+    const artifactPath = path.join(root, "oversized.json"); writeFileSync(artifactPath, "x".repeat(256 * 1024 + 1), { mode: 0o600 });
+    const value = packet(); value.artifacts[0] = { role: "current_incident_root", path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") };
+    bindPacketIncidentToFirstArtifact(value);
+    assert.equal(buildSemanticRecoveryManifestProduction(value, { authenticateArtifact }).reasonCode, "semantic_bound_artifact_authentication_failed");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("distinct successor binds provenance and stays non-executable", () => {
   const built = buildSemanticRecoveryManifest(packet());
   const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { stopReason: { reasonCode: "untrusted_incident_field" } }, mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1" } });

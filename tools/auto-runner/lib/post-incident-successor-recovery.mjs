@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, linkSync, lstatSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export const semanticRecoveryContract = "post_incident_semantic_successor";
@@ -452,10 +452,16 @@ function authenticateSourceArtifact(artifact) {
 }
 function authenticateOpaqueArtifact(artifact) {
   const canonicalPath = realpathSync(artifact.path);
-  const stat = lstatSync(canonicalPath);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink < 1 || stat.size < 1 || stat.size > maximumArtifactBytes
-    || (stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())) throw new Error("untrusted artifact");
-  const bytes = readFileSync(canonicalPath);
+  const fd = openSync(canonicalPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  let stat;
+  let bytes;
+  try {
+    stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink < 1 || stat.size < 1 || stat.size > maximumArtifactBytes
+      || (stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())) throw new Error("untrusted artifact");
+    bytes = readFileSync(fd);
+    if (bytes.length !== stat.size || bytes.length > maximumArtifactBytes) throw new Error("artifact changed during authentication");
+  } finally { closeSync(fd); }
   const actualSha256 = digest(bytes);
   if (actualSha256 !== artifact.sha256) throw new Error("artifact digest mismatch");
   const authenticated = { ...artifact, path: canonicalPath, authenticated: true, underlyingIdentity: actualSha256, byteCount: stat.size };
