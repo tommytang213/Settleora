@@ -630,6 +630,8 @@ function quiescenceEvidence({ active, unresolvedExternalEffects, reasonCode }) {
     preservedRecoveryAdmitted: false,
     targetIdentityDigest: null,
     reasonCode,
+    projectionFailureReasonCode: null,
+    projectionFailureClass: null,
     revalidationRequired: false,
   });
 }
@@ -649,7 +651,7 @@ function assertDeploymentQuiescence(value) {
 }
 
 function assertSameQuiescenceProof(initial, current) {
-  for (const key of ["active", "unresolvedExternalEffects", "preservedRecoveryAdmitted", "targetIdentityDigest", "reasonCode"]) {
+  for (const key of ["active", "unresolvedExternalEffects", "preservedRecoveryAdmitted", "targetIdentityDigest", "reasonCode", "projectionFailureReasonCode", "projectionFailureClass"]) {
     if ((initial?.[key] ?? null) !== (current?.[key] ?? null)) throw new Error("runtime deployment quiescence proof changed");
   }
   if ((initial?.recoveryProjection?.evidenceDigest ?? null)

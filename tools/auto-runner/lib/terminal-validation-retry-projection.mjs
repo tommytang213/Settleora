@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   supervisorModeToRunnerMode,
@@ -24,6 +24,8 @@ const SUCCESSOR_NODE_EXECUTABLE = "/usr/bin/node";
 const SUCCESSOR_MAX_RUNTIME_MS = 14 * 24 * 60 * 60 * 1000;
 const RUNNER_SUMMARY_FILENAME_PATTERN =
   /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(?:-[a-f0-9]{12})?\.json$/;
+const CORRELATED_RUNNER_SUMMARY_FILENAME_PATTERN =
+  /^run-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z-[a-f0-9]{12}\.json$/;
 const MAX_RUNNER_SUMMARY_FILES = 2000;
 const FAILED_CONTINUATION_STOP = "recoverable-work-blocked:terminal_projection_reloaded_checkpoint_mismatch";
 const FAILED_CONTINUATION_RUNNER_CONFIG_SHA256 = "0c9a4c43c062a245b491af427dc4edc95cd8431e085647641ce6a832c55a08f7";
@@ -1289,6 +1291,16 @@ function trustedRunnerSummaryScan(root, selectedName) {
   const summaries = [];
   let selectedArtifact = null;
   for (const name of names) {
+    const diagnostic = observeRunnerSummaryDiagnostic(root, name);
+    if (!runnerSummaryRequiresAuthentication(name, selectedName)) {
+      summaries.push({
+        path: path.join(root, name),
+        value: { supervisorRunId: diagnostic.supervisorRunId },
+        supervisorRunIdDigest: null,
+        diagnostic,
+      });
+      continue;
+    }
     const artifact = trustedJsonArtifact(
       root,
       path.join(root, name),
@@ -1303,9 +1315,96 @@ function trustedRunnerSummaryScan(root, selectedName) {
       supervisorRunIdDigest: typeof supervisorRunId === "string"
         ? digest(supervisorRunId)
         : null,
+      diagnostic,
     });
   }
+  if (selectedArtifact) {
+    const expectedSupervisorRunId = selectedArtifact.value?.supervisorRunId;
+    for (const summary of summaries) {
+      summary.diagnostic = observeRunnerSummaryDiagnostic(
+        root,
+        path.basename(summary.path),
+        expectedSupervisorRunId,
+      );
+      if (summary.supervisorRunIdDigest === null
+        && summary.diagnostic.claimsExpectedSupervisor === true) {
+        throw new Error("unsuffixed summary claims selected supervisor authority");
+      }
+    }
+  }
   return { selectedArtifact, summaries };
+}
+
+export function observeRunnerSummaryDiagnostic(root, name, expectedSupervisorRunId = null) {
+  const file = path.join(root, name);
+  const base = { file: name, status: "skipped", reason: null, runnerRunId: null };
+  try {
+    const info = lstatSync(file);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      return { ...base, reason: "json_not_regular_file", supervisorRunId: false };
+    }
+    if (info.size > MAX_RUNNER_SUMMARY_BYTES) {
+      const descriptor = openSync(file, "r");
+      let prefix;
+      try {
+        const buffer = Buffer.alloc(MAX_RUNNER_SUMMARY_BYTES);
+        const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0);
+        prefix = buffer.subarray(0, bytesRead).toString("utf8");
+      } finally {
+        closeSync(descriptor);
+      }
+      const claimsExpectedSupervisor = Boolean(expectedSupervisorRunId)
+        && prefix.includes(expectedSupervisorRunId);
+      return {
+        ...base,
+        reason: claimsExpectedSupervisor
+          ? "oversized_matching_candidate"
+          : "oversized_unrelated_candidate",
+        supervisorRunId: false,
+        claimsExpectedSupervisor,
+      };
+    }
+    let value;
+    try {
+      value = JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      const text = readFileSync(file, "utf8");
+      const claimsExpectedSupervisor = Boolean(expectedSupervisorRunId)
+        && text.includes(expectedSupervisorRunId);
+      return {
+        ...base,
+        reason: claimsExpectedSupervisor
+          ? "malformed_matching_json"
+          : "malformed_unrelated_json",
+        supervisorRunId: false,
+        claimsExpectedSupervisor,
+      };
+    }
+    const claimsExpectedSupervisor = Boolean(expectedSupervisorRunId)
+      && value?.supervisorRunId === expectedSupervisorRunId;
+    return {
+      ...base,
+      reason: claimsExpectedSupervisor
+        ? null
+        : value?.supervisorRunId
+        ? "wrong_supervisor_run_id"
+        : "missing_supervisor_run_id",
+      supervisorRunId: Boolean(value?.supervisorRunId),
+      claimsExpectedSupervisor,
+    };
+  } catch {
+    return {
+      ...base,
+      status: "fail_closed",
+      reason: "candidate_inspection_failed",
+      supervisorRunId: false,
+    };
+  }
+}
+
+export function runnerSummaryRequiresAuthentication(name, selectedName) {
+  return name === selectedName
+    || CORRELATED_RUNNER_SUMMARY_FILENAME_PATTERN.test(name);
 }
 
 export function failedContinuationTruncatedDiagnostics(
@@ -1321,7 +1420,7 @@ export function failedContinuationTruncatedDiagnostics(
     .sort()
     .slice(0, 20)
     .map((name) => artifactsByName.get(name))
-    .map(({ path: artifactPath, value }) =>
+    .map(({ path: artifactPath, value, diagnostic }) =>
       artifactPath === selectedSummaryArtifact?.path
         ? {
           file: path.basename(artifactPath),
@@ -1329,7 +1428,12 @@ export function failedContinuationTruncatedDiagnostics(
           runnerRunId: selectedRunnerRunId,
           status: "matched",
         }
-        : {
+        : diagnostic ? {
+          file: diagnostic.file,
+          reason: diagnostic.reason,
+          runnerRunId: diagnostic.runnerRunId,
+          status: diagnostic.status,
+        } : {
           file: path.basename(artifactPath),
           reason: value?.supervisorRunId
             ? "wrong_supervisor_run_id"

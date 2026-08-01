@@ -11,13 +11,16 @@ import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-ef
 import {
   defaultGitAttributeFilesAreAbsent,
   inspectPreservedRecoveryForDeployment,
+  lifecycleProjectionFailureReason,
   normalizePreservedRecoveryDeploymentTarget,
+  projectionFailureClass,
   resumedGitConfigIsTrusted,
   resumedGitEnvironmentIsTrusted,
   resumedGitRemotesMatchExpected,
   resumedGitRepositoryAuthorityIsTrusted,
   sanitizedDeploymentGitEnvironment,
 } from "../lib/preserved-recovery-deployment.mjs";
+
 import { inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
 import {
   advanceRecoveryPhase,
@@ -49,6 +52,73 @@ import {
   consumeStartupInterruptionPlanner,
   validateTerminalDerivativeContinuationAdmission,
 } from "../lib/recovery-continuation.mjs";
+
+test("deployment projection diagnostics use a finite failure taxonomy", () => {
+  const projectionFailures = new Map([
+    ["terminal_projection_authoritative_read_unavailable", "authoritative_artifact_read"],
+    ["terminal_projection_raw_checkpoint_mismatch", "authoritative_artifact_read"],
+    ["terminal_projection_state_summary_mismatch", "summary_authentication"],
+    ["terminal_projection_failed_continuation_summary_ambiguous", "summary_authentication"],
+    ["terminal_projection_failed_continuation_summary_mismatch", "summary_authentication"],
+    ["terminal_projection_successor_spec_missing_or_mismatch", "supervisor_spec_authentication"],
+    ["terminal_projection_failed_continuation_spec_mismatch", "supervisor_spec_authentication"],
+    ["terminal_projection_successor_supervisor_state_mismatch", "supervisor_state_heartbeat_authentication"],
+    ["terminal_projection_failed_continuation_supervisor_mismatch", "supervisor_state_heartbeat_authentication"],
+    ["terminal_projection_failed_continuation_chronology_mismatch", "chronology"],
+    ["terminal_projection_lifecycle_predecessor_mismatch", "predecessor_evidence_binding"],
+    ["terminal_projection_failed_continuation_predecessor_identity_mismatch", "predecessor_evidence_binding"],
+    ["terminal_projection_state_missing_ambiguous_or_superseded", "latest_state_selection"],
+    ["terminal_projection_loaded_artifact_mismatch", "authoritative_artifact_read"],
+    ["terminal_projection_failed_continuation_overlay_mismatch", "iteration_shape_or_filename_identity"],
+    ["terminal_projection_lifecycle_mismatch", "target_association"],
+    ["terminal_projection_durable_budget_mismatch", "target_association"],
+    ["terminal_projection_reloaded_checkpoint_mismatch", "target_association"],
+    ["terminal_projection_future_reason", "authoritative_artifact_read"],
+    ["", "authoritative_artifact_read"],
+  ]);
+  for (const [reason, failureClass] of projectionFailures) {
+    assert.equal(projectionFailureClass(reason), failureClass, reason || "empty projection reason");
+  }
+  const authoritativeReadFailures = [
+    "session_lifecycle_state_missing",
+    "session_lifecycle_state_ambiguous",
+    "session_lifecycle_state_corrupt",
+    "session_lifecycle_recovery_root_untrusted",
+    "session_lifecycle_recovery_artifact_untrusted",
+    "session_lifecycle_version_unsupported",
+    "session_lifecycle_identity_incomplete",
+    "session_lifecycle_session_identity_invalid",
+    "session_lifecycle_retirement_contradictory",
+    "session_lifecycle_authority_contradictory",
+    "session_lifecycle_authority_status_invalid",
+    "session_lifecycle_terminal_state_contradictory",
+    "session_lifecycle_counter_invalid",
+    "session_lifecycle_policy_invalid",
+    "session_lifecycle_report_correlation_mismatch",
+    "session_lifecycle_checkpoint_digest_mismatch",
+    "session_lifecycle_future_reason",
+    "",
+  ];
+  for (const reason of authoritativeReadFailures) {
+    assert.equal(
+      lifecycleProjectionFailureReason(reason),
+      "terminal_projection_authoritative_read_unavailable",
+      reason || "empty reason",
+    );
+  }
+  const targetAssociationFailures = [
+    "session_lifecycle_repository_mismatch",
+    "session_lifecycle_taskKey_mismatch",
+    "session_lifecycle_runId_mismatch",
+    "session_lifecycle_supervisorRunId_mismatch",
+    "session_lifecycle_claimIdentity_mismatch",
+    "session_lifecycle_sessionId_mismatch",
+    "session_lifecycle_legacy_supervisor_backfill_head_mismatch",
+  ];
+  for (const reason of targetAssociationFailures) {
+    assert.equal(lifecycleProjectionFailureReason(reason), "terminal_projection_lifecycle_mismatch", reason);
+  }
+});
 
 test("authoritative terminal projection uses the separately reloaded checkpoint path", () => {
   const state = Object.freeze({ taskKey: "20260724T075849" });
@@ -617,6 +687,18 @@ test("deployment admits only one exact effect-free preserved recovery and remain
     });
     assert.equal(legacyAdmitted.preservedRecoveryAdmitted, true, JSON.stringify(legacyAdmitted));
     assert.equal(legacyAdmitted.reasonCode, "exact_preserved_recovery_legacy_repository_omission_admitted");
+    const malformedIntentRoot = path.join(config.logsRoot, "recovery", "pre-effect-intents");
+    mkdirSync(malformedIntentRoot, { recursive: true, mode: 0o700 });
+    const malformedIntent = path.join(malformedIntentRoot, `${"0".repeat(64)}.json`);
+    writeFileSync(malformedIntent, "{}\n", { mode: 0o600 });
+    const malformedIntentDenied = inspectPreservedRecoveryForDeployment(config.logsRoot, target, {
+      repositoryRoot: config.repoRoot,
+      resumedGitConfigRecords: { global: [], system: [] },
+    });
+    assert.equal(malformedIntentDenied.reasonCode, "preserved_recovery_authoritative_read_unavailable");
+    assert.equal(malformedIntentDenied.projectionFailureReasonCode, null);
+    assert.equal(malformedIntentDenied.projectionFailureClass, null);
+    unlinkSync(malformedIntent);
     writeRecoveryState(config, {
       ...legacyRecovery,
       ordinaryContinuation: {

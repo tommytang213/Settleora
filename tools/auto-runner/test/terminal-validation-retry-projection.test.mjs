@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,8 +20,10 @@ import {
   exactLifecycle,
   exactFailedContinuationIteration,
   failedContinuationTruncatedDiagnostics,
+  observeRunnerSummaryDiagnostic,
   runnerSummaryCandidateCountWithinResolverLimit,
   runnerSummaryCandidateSizeWithinResolverLimit,
+  runnerSummaryRequiresAuthentication,
   exactFailedContinuationSpec,
   exactFailedContinuationSummary,
   exactFailedContinuationSupervisorState,
@@ -124,6 +127,57 @@ test("failed-continuation truncated diagnostics use resolver candidate order", (
   );
   assert.equal(runnerSummaryCandidateSizeWithinResolverLimit(512 * 1024), true);
   assert.equal(runnerSummaryCandidateSizeWithinResolverLimit((512 * 1024) + 1), false);
+});
+
+test("failed-continuation summary authentication follows correlated producer filenames", () => {
+  const selected = "run-2026-07-31T060319Z-c382043104fa.json";
+  assert.equal(runnerSummaryRequiresAuthentication(selected, selected), true);
+  assert.equal(
+    runnerSummaryRequiresAuthentication("run-2026-07-30T093243Z-dcc42a3a61db.json", selected),
+    true,
+  );
+  assert.equal(
+    runnerSummaryRequiresAuthentication("run-2026-07-24T034255Z.json", selected),
+    false,
+    "an unsuffixed legacy diagnostic candidate cannot authenticate as a correlated overlay summary",
+  );
+});
+
+test("unsuffixed summary candidates retain producer diagnostic parity without overlay authority", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-summary-diagnostics-"));
+  try {
+    const missing = path.join(root, "run-2026-07-24T034255Z.json");
+    const wrong = path.join(root, "run-2026-07-24T034256Z.json");
+    const malformed = path.join(root, "run-2026-07-24T034257Z.json");
+    const symlink = path.join(root, "run-2026-07-24T034258Z.json");
+    const matching = path.join(root, "run-2026-07-24T034259Z.json");
+    writeFileSync(missing, "{}\n");
+    writeFileSync(wrong, '{"supervisorRunId":"supervised-foreign"}\n');
+    writeFileSync(malformed, "{\n");
+    symlinkSync(missing, symlink);
+    writeFileSync(matching, '{"supervisorRunId":"supervised-selected"}\n');
+    const artifacts = [missing, wrong, malformed, symlink].map((artifactPath) => ({
+      path: artifactPath,
+      diagnostic: observeRunnerSummaryDiagnostic(root, path.basename(artifactPath)),
+    }));
+    const diagnostics = failedContinuationTruncatedDiagnostics(artifacts);
+    assert.deepEqual(diagnostics.map(({ reason }) => reason), [
+      "missing_supervisor_run_id",
+      "wrong_supervisor_run_id",
+      "malformed_unrelated_json",
+      "json_not_regular_file",
+    ]);
+    for (const artifact of [missing, wrong, malformed, symlink]) {
+      assert.equal(runnerSummaryRequiresAuthentication(path.basename(artifact), "run-2026-07-31T060319Z-c382043104fa.json"), false);
+    }
+    assert.equal(
+      observeRunnerSummaryDiagnostic(root, path.basename(matching), "supervised-selected")
+        .claimsExpectedSupervisor,
+      true,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("failed-continuation overlay binds the exact no-effect target and predecessor projection", () => {

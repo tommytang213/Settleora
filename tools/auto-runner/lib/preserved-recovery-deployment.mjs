@@ -128,6 +128,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
   intentEvidenceCollector = collectAuthoritativeCommentIntentEvidence,
 } = {}) {
   let target;
+  let projectionDiagnostics = null;
   try {
     target = normalizePreservedRecoveryDeploymentTarget(input);
     assertTrustedOperationalRoot(logsRoot);
@@ -173,11 +174,16 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
         lifecyclePath: rawLifecycle.statePath,
         target: projectionTarget,
       })
-      : { ok: false };
+      : { ok: false, projectionReasonCode: lifecycleProjectionFailureReason(rawLifecycle.reasonCode) };
+    projectionDiagnostics = projection.ok ? null : {
+      projectionFailureReasonCode: projection.projectionReasonCode,
+      projectionFailureClass: projectionFailureClass(projection.projectionReasonCode),
+    };
     const state = projection.ok ? projection.effectiveRecovery : rawState;
     if (state.phase !== "stopped" || !isEligibleValidationRetryCheckpoint(state)) {
-      return denied("preserved_recovery_checkpoint_not_eligible", target);
+      return denied("preserved_recovery_checkpoint_not_eligible", target, projectionDiagnostics || {});
     }
+    projectionDiagnostics = null;
     const derivative = isKnownValidationRetryDerivative(state);
     const derivativeTerminalPhase = derivative ? validationRetryDerivativeTerminalPhase(state) : null;
     if (!validateProjectNamespace(config.logsRoot, target, repositoryRoot, gitEnvironment)) {
@@ -217,7 +223,7 @@ export function inspectPreservedRecoveryForDeployment(logsRoot, input, {
       } : null,
     });
   } catch {
-    return denied("preserved_recovery_authoritative_read_unavailable", target);
+    return denied("preserved_recovery_authoritative_read_unavailable", target, projectionDiagnostics || {});
   }
 }
 
@@ -1069,12 +1075,55 @@ function parseBoundedJson(file, limit) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
-function denied(reasonCode, target) {
+function denied(reasonCode, target, diagnostics = {}) {
   return evidence({
     active: false, unresolvedExternalEffects: true, preservedRecoveryAdmitted: false,
     target: safeTarget(target), reasonCode, revalidationRequired: false,
+    projectionFailureReasonCode: diagnostics.projectionFailureReasonCode,
+    projectionFailureClass: diagnostics.projectionFailureClass,
   });
 }
+
+export function projectionFailureClass(reasonCode) {
+  return projectionFailureClasses.get(String(reasonCode || "")) || "authoritative_artifact_read";
+}
+
+const projectionFailureClasses = new Map([
+  ["terminal_projection_authoritative_read_unavailable", "authoritative_artifact_read"],
+  ["terminal_projection_raw_checkpoint_mismatch", "authoritative_artifact_read"],
+  ["terminal_projection_state_summary_mismatch", "summary_authentication"],
+  ["terminal_projection_failed_continuation_summary_ambiguous", "summary_authentication"],
+  ["terminal_projection_failed_continuation_summary_mismatch", "summary_authentication"],
+  ["terminal_projection_successor_spec_missing_or_mismatch", "supervisor_spec_authentication"],
+  ["terminal_projection_failed_continuation_spec_mismatch", "supervisor_spec_authentication"],
+  ["terminal_projection_successor_supervisor_state_mismatch", "supervisor_state_heartbeat_authentication"],
+  ["terminal_projection_failed_continuation_supervisor_mismatch", "supervisor_state_heartbeat_authentication"],
+  ["terminal_projection_failed_continuation_chronology_mismatch", "chronology"],
+  ["terminal_projection_lifecycle_predecessor_mismatch", "predecessor_evidence_binding"],
+  ["terminal_projection_failed_continuation_predecessor_identity_mismatch", "predecessor_evidence_binding"],
+  ["terminal_projection_state_missing_ambiguous_or_superseded", "latest_state_selection"],
+  ["terminal_projection_loaded_artifact_mismatch", "authoritative_artifact_read"],
+  ["terminal_projection_failed_continuation_overlay_mismatch", "iteration_shape_or_filename_identity"],
+  ["terminal_projection_lifecycle_mismatch", "target_association"],
+  ["terminal_projection_durable_budget_mismatch", "target_association"],
+  ["terminal_projection_reloaded_checkpoint_mismatch", "target_association"],
+]);
+
+export function lifecycleProjectionFailureReason(reasonCode) {
+  return lifecycleTargetAssociationFailureReasons.has(String(reasonCode || ""))
+    ? "terminal_projection_lifecycle_mismatch"
+    : "terminal_projection_authoritative_read_unavailable";
+}
+
+const lifecycleTargetAssociationFailureReasons = new Set([
+  "session_lifecycle_repository_mismatch",
+  "session_lifecycle_taskKey_mismatch",
+  "session_lifecycle_runId_mismatch",
+  "session_lifecycle_supervisorRunId_mismatch",
+  "session_lifecycle_claimIdentity_mismatch",
+  "session_lifecycle_sessionId_mismatch",
+  "session_lifecycle_legacy_supervisor_backfill_head_mismatch",
+]);
 
 function evidence(value) {
   const target = safeTarget(value.target);
@@ -1085,6 +1134,10 @@ function evidence(value) {
     preservedRecoveryAdmitted: value.preservedRecoveryAdmitted === true,
     targetIdentityDigest: target ? createHash("sha256").update(canonical(target)).digest("hex") : null,
     reasonCode: String(value.reasonCode || "deployment_quiescence_unclassified").slice(0, 160),
+    projectionFailureReasonCode: value.projectionFailureReasonCode
+      ? String(value.projectionFailureReasonCode).slice(0, 160) : null,
+    projectionFailureClass: value.projectionFailureClass
+      ? String(value.projectionFailureClass).slice(0, 80) : null,
     revalidationRequired: value.revalidationRequired === true,
     recoveryProjection: projection ? Object.freeze({
       projectionApplied: projection.projectionApplied === true,

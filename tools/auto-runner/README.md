@@ -173,6 +173,12 @@ absence safe for later execution or one exact fingerprint match safe for
 adoption. Inspection never transitions an intent. Before a generic nonzero
 refusal, the CLI writes one bounded `deploymentQuiescence` JSON diagnostic to
 stderr so an operator does not need to import a private verifier.
+When a terminal-derivative projector denies the checkpoint, that diagnostic
+keeps the compatibility `reasonCode` and also returns the finite nullable
+`projectionFailureReasonCode` and `projectionFailureClass` fields. These fields
+are propagated unchanged by deployment-quiescence inspection; they never
+contain artifact paths, payloads, exception messages, or mutation authority.
+Successful and ordinary non-overlay inspection returns both fields as `null`.
 
 The exact missing-PR validation-retry derivative uses that same identity-first
 reconciliation. Its finalized validation-failure label add/remove intents are
