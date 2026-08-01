@@ -156,6 +156,13 @@ test("malformed corroborated claim types and counters fail closed", () => {
   }
 });
 
+test("corroborated branch must be a valid short Git branch name", () => {
+  for (const branch of ["foo..bar", "refs/heads/topic", "-topic", "topic.lock", "topic@{one", "topic//child"]) {
+    const value = packet(); for (const source of value.sources) source.claims.branch = branch;
+    assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_claim_shape_invalid", branch);
+  }
+});
+
 test("altered historical or child artifact and identity/counter/effect disagreements fail closed", () => {
   for (const field of ["chargeId", "acceptedLogicalTasks", "branch", "headSha", "lifecycleLineage", "intentPosture", "submissionCount", "sourceEffect"]) {
     const value = packet(); value.sources[0].claims[field] = field.endsWith("Effect") ? true : "altered";

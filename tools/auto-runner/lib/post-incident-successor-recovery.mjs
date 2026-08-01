@@ -304,7 +304,7 @@ function validateSecurityPosture(packet, claims) {
   const boundedClaims = ["repository", "taskKey", "claimIdentity", "chargeId", "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId", "consumedSupervisorRunId", "branch", "formerRootPath", "formerEffectivePhase", "incidentPath", "lifecycleLineage", "lifecycleSessionId", "intentPosture", "earliestSafePhase"];
   if (!boundedClaims.every((claim) => bounded(claims[claim]))
     || !/^[^/\s]+\/[^/\s]+$/.test(claims.repository)
-    || !/^refs\//.test(claims.branch) && !/^[A-Za-z0-9._/-]+$/.test(claims.branch)
+    || !validShortGitBranch(claims.branch)
     || !path.isAbsolute(claims.formerRootPath) || !path.isAbsolute(claims.incidentPath)
     || !Number.isSafeInteger(claims.issueNumber) || claims.issueNumber < 1) return failed("semantic_claim_shape_invalid");
   const counters = ["acceptedLogicalTasks", "localSourceChangingRounds", "githubTriggeredFixEpochs", "lifetimeLocalSourceChangingRounds", "lifecycleMutationGeneration", "submissionCount"];
@@ -340,6 +340,13 @@ function manifestCoreFromManifest(manifest) { const clone = structuredClone(mani
 function digest(value) { return createHash("sha256").update(value).digest("hex"); }
 function digest64(value) { return /^[a-f0-9]{64}$/.test(String(value || "")); }
 function gitObjectId(value) { return /^[a-f0-9]{40}$/.test(String(value || "")); }
+function validShortGitBranch(value) {
+  if (!bounded(value) || value.startsWith("-") || value.startsWith("refs/") || value === "@"
+    || value.startsWith("/") || value.endsWith("/") || value.endsWith(".")
+    || value.includes("//") || value.includes("..") || value.includes("@{")
+    || /[\x00-\x20\x7f~^:?*\\[]/.test(value)) return false;
+  return value.split("/").every((component) => component && !component.startsWith(".") && !component.endsWith(".lock"));
+}
 function bounded(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000; }
 function unique(values) { return [...new Set(values)].sort(); }
 function deepFreeze(value) { if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value)) deepFreeze(child); } return value; }
