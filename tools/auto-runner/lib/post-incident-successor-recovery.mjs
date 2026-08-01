@@ -1,6 +1,19 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants as fsConstants, existsSync, fstatSync, linkSync, lstatSync, openSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import {
+  applySemanticRecoveryClaimOwnerMatrix,
+  authenticateRootOwnedSemanticRecoveryGrant,
+  authenticateSemanticRecoverySources,
+  createProductionSemanticRecoveryVerifierRegistry,
+  deriveSemanticRecoveryOperationRequest,
+  isValidatedSemanticRecoveryGrant,
+  semanticRecoveryAuthorityClasses,
+  semanticRecoveryClaimOwnerMatrixDigest,
+  semanticRecoveryClaimOwnerMatrixVersion,
+  semanticRecoveryVerifierSetDigest,
+  semanticRecoveryVerifierSetVersion,
+} from "./semantic-recovery-authority.mjs";
 
 export const semanticRecoveryContract = "post_incident_semantic_successor";
 export const semanticRecoveryVersion = 1;
@@ -8,35 +21,25 @@ const maximumBoundArtifacts = 64;
 const maximumArtifactBytes = 256 * 1024;
 const maximumAggregateArtifactBytes = 4 * 1024 * 1024;
 
-export const mandatorySemanticEvidenceClasses = Object.freeze([
-  "repository_git",
-  "lifecycle",
-  "logical_task_budget",
-  "intent_lineage",
-  "projection_deployment",
-  "supervisor_child_run",
-  "incident_report",
-  "github_no_effect",
-]);
-const semanticEvidenceOriginKinds = Object.freeze({
-  repository_git: "git_object_store",
-  lifecycle: "session_lifecycle_store",
-  logical_task_budget: "logical_task_budget_store",
-  intent_lineage: "pre_effect_intent_store",
-  projection_deployment: "projection_deployment_store",
-  supervisor_child_run: "supervisor_child_run_store",
-  incident_report: "incident_report_store",
-  github_no_effect: "github_readback",
-});
+export const mandatorySemanticEvidenceClasses = semanticRecoveryAuthorityClasses;
 
 export const semanticRecoveryRequiredClaims = Object.freeze([
   "repository", "issueNumber", "taskKey", "claimIdentity", "chargeId",
   "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId",
-  "consumedSupervisorRunId", "branch", "baseSha", "headSha", "treeSha",
+  "consumedSupervisorRunId", "originalSpecIdentity", "originalStateIdentity",
+  "originalIterationIdentity", "originalSummaryIdentity",
+  "failedContinuationRunnerRunId", "failedContinuationSupervisorRunId",
+  "failedContinuationSpecIdentity", "failedContinuationStateIdentity",
+  "failedContinuationHeartbeatIdentity", "failedContinuationSummaryIdentity",
+  "consumedSpecIdentity", "consumedStateIdentity", "consumedIterationIdentity",
+  "consumedSummaryIdentity", "branch", "baseSha", "headSha", "treeSha",
   "changedFilesDigest", "diffDigest", "acceptedLogicalTasks",
   "localSourceChangingRounds", "githubTriggeredFixEpochs",
   "lifetimeLocalSourceChangingRounds", "formerRootPath", "formerRootSha256",
   "formerEffectivePhase", "incidentPath", "incidentSha256", "lifecycleLineage",
+  "predecessorBytesAvailable", "prEvidenceDigest", "runtimeSourceSha",
+  "installedBundleDigest", "installedManifestDigest", "runtimeProfileDigest",
+  "runtimeApprovalDigest", "launcherDigest", "healthUnitDigest",
   "lifecycleSessionId", "lifecycleMutationGeneration",
   "intentPosture", "validationEffect", "reviewEffect", "sourceEffect",
   "pushEffect", "prEffect", "commentEffect", "mergeEffect", "issueEffect",
@@ -50,7 +53,6 @@ const zeroEffectClaims = Object.freeze([
 ]);
 const validatedConstructions = new WeakSet();
 const validatedManifests = new WeakSet();
-const validatedOperationalAuthorizations = new WeakSet();
 
 export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const diagnostics = validatePacketShape(packet);
@@ -58,17 +60,16 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   if (packet.sources.length !== mandatorySemanticEvidenceClasses.length) {
     return failed("semantic_evidence_source_count_invalid");
   }
-  const authenticateArtifact = adapters.authenticateArtifact || authenticateSourceArtifact;
   const authenticateBoundArtifact = adapters.authenticateBoundArtifact || authenticateOpaqueArtifact;
-  const authenticateSourceProvenance = adapters.authenticateSourceProvenance;
-  if (typeof authenticateSourceProvenance !== "function") return failed("semantic_evidence_provenance_verifier_missing");
+  const verifierRegistry = adapters.verifierRegistry
+    || (adapters.config ? createProductionSemanticRecoveryVerifierRegistry(adapters.config) : null);
+  if (!verifierRegistry) return failed("semantic_evidence_verifier_registry_missing");
   let sources;
   try {
-    sources = [...packet.sources].map((source) => normalizeSource(source, authenticateArtifact, authenticateSourceProvenance)).sort(compareSource);
+    sources = authenticateSemanticRecoverySources(packet.sources, verifierRegistry);
   } catch {
     return failed("semantic_evidence_source_authentication_failed");
   }
-  if (sources.some((source) => source.artifact.authenticated !== true)) return failed("semantic_evidence_source_authentication_failed");
   if (packet.artifacts.length < 1 || packet.artifacts.length > maximumBoundArtifacts) return failed("semantic_bound_artifact_count_invalid");
   let artifacts;
   try {
@@ -77,36 +78,10 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
       return { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount };
     }).sort(compareArtifact);
   } catch { return failed("semantic_bound_artifact_authentication_failed"); }
-  if ([...sources.flatMap((source) => [source.artifact, source.provenanceArtifact]), ...artifacts].reduce((total, artifact) => total + artifact.byteCount, 0) > maximumAggregateArtifactBytes) return failed("semantic_bound_artifact_bytes_exceeded");
-  const classes = new Set(sources.map((source) => source.authorityClass));
-  if (classes.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_authority_class"]);
-  const underlyingArtifacts = new Set(sources.map((source) => source.provenance.originIdentity));
-  if (underlyingArtifacts.size !== sources.length) return failed("semantic_evidence_class_not_independent", ["duplicate_underlying_artifact"]);
-  const missingClasses = mandatorySemanticEvidenceClasses.filter((name) => !classes.has(name));
-  if (missingClasses.length) return failed("semantic_evidence_class_missing", missingClasses);
-
-  const claimValues = new Map();
-  const bindings = new Map();
-  const contradictions = [];
-  for (const source of sources) {
-    for (const [claim, value] of Object.entries(source.claims)) {
-      if (!semanticRecoveryRequiredClaims.includes(claim)) {
-        return failed("semantic_evidence_unknown_claim", [claim]);
-      }
-      const encoded = canonicalJson(value);
-      if (claimValues.has(claim) && claimValues.get(claim) !== encoded) contradictions.push(claim);
-      else claimValues.set(claim, encoded);
-      if (!bindings.has(claim)) bindings.set(claim, []);
-      bindings.get(claim).push(source.authorityClass);
-    }
-  }
-  if (contradictions.length) return failed("semantic_evidence_contradiction", unique(contradictions));
-  const missingClaims = semanticRecoveryRequiredClaims.filter((claim) => !claimValues.has(claim));
-  if (missingClaims.length) return failed("semantic_evidence_claim_missing", missingClaims);
-  const uncorroborated = semanticRecoveryRequiredClaims.filter((claim) => new Set(bindings.get(claim)).size < 2);
-  if (uncorroborated.length) return failed("semantic_evidence_claim_uncorroborated", uncorroborated);
-
-  const claims = Object.fromEntries(semanticRecoveryRequiredClaims.map((claim) => [claim, JSON.parse(claimValues.get(claim))]));
+  if ([...sources.map((source) => source.store), ...artifacts].reduce((total, artifact) => total + artifact.byteCount, 0) > maximumAggregateArtifactBytes) return failed("semantic_bound_artifact_bytes_exceeded");
+  const matrix = applySemanticRecoveryClaimOwnerMatrix(sources);
+  if (!matrix.ok) return matrix;
+  const claims = matrix.claims;
   const posture = validateSecurityPosture(packet, claims);
   if (!posture.ok) return posture;
   if (!artifacts.some((artifact) => artifact.path === claims.incidentPath
@@ -119,13 +94,14 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
     identities: pickTaskIdentity(claims),
     claims,
     evidenceSources: sources,
-    sourceToClaimBindings: Object.fromEntries(semanticRecoveryRequiredClaims.map((claim) => [claim, [...new Set(bindings.get(claim))].sort()])),
+    claimOwnerMatrix: { version: semanticRecoveryClaimOwnerMatrixVersion, digest: semanticRecoveryClaimOwnerMatrixDigest },
+    sourceVerifierSet: { version: semanticRecoveryVerifierSetVersion, digest: semanticRecoveryVerifierSetDigest },
+    sourceToClaimBindings: matrix.bindings,
     historicalPredecessor: { path: claims.formerRootPath, sha256: claims.formerRootSha256, bytesAvailable: false },
     currentIncident: { path: claims.incidentPath, sha256: claims.incidentSha256, authority: "immutable_incident_evidence_only" },
     artifacts,
     oneShotExhaustion: { submissionCount: claims.submissionCount, exhausted: claims.submissionExhausted },
     noEffectProof: Object.fromEntries(zeroEffectClaims.map((claim) => [claim, claims[claim]])),
-    operation: { operationId: packet.operationId, requestId: packet.requestId },
     lifecycleSuccessor: {
       previousSessionId: claims.lifecycleSessionId,
       sessionId: packet.lifecycleSuccessorSession,
@@ -136,14 +112,25 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
     diagnostics: { contradictions: [], omissions: [] },
   };
   const manifestDigest = digest(canonicalJson(manifestCore));
+  let operation;
+  try {
+    operation = deriveSemanticRecoveryOperationRequest({
+      manifestDigest,
+      incidentIdentity: packet.incidentIdentity,
+      lifecycleSuccessorSession: packet.lifecycleSuccessorSession,
+      lifecycleSuccessorGeneration: packet.lifecycleSuccessorGeneration,
+    });
+  } catch { return failed("semantic_operation_request_identity_invalid"); }
+  if ((packet.operationId && packet.operationId !== operation.operationId)
+    || (packet.requestId && packet.requestId !== operation.requestId)) return failed("semantic_operation_request_selector_mismatch");
   const successorIdentity = deriveSuccessorIdentity({
     incidentIdentity: packet.incidentIdentity,
     taskIdentity: pickTaskIdentity(claims),
     lifecycleSuccessorSession: packet.lifecycleSuccessorSession,
-    operationId: packet.operationId,
+    operationId: operation.operationId,
     manifestDigest,
   });
-  const manifest = deepFreeze({ ...manifestCore, intendedSuccessor: successorIdentity, manifestDigest });
+  const manifest = deepFreeze({ ...manifestCore, operation: { operationId: operation.operationId, requestId: operation.requestId, action: operation.action }, intendedSuccessor: successorIdentity, manifestDigest });
   validatedManifests.add(manifest);
   return { ok: true, reasonCode: "semantic_evidence_corroborated", manifest, manifestDigest };
 }
@@ -151,6 +138,36 @@ export function buildSemanticRecoveryManifest(packet, adapters = {}) {
 export function deriveSuccessorIdentity({ incidentIdentity, taskIdentity, lifecycleSuccessorSession, operationId, manifestDigest }) {
   const storageKey = digest(canonicalJson({ contract: semanticRecoveryContract, incidentIdentity, taskIdentity, lifecycleSuccessorSession, operationId, manifestDigest }));
   return { storageKey, lifecycleSuccessorSession, operationId };
+}
+
+export function authenticateConfiguredSemanticRecoveryAuthority(config, packet, operationSelector) {
+  const corroboration = buildSemanticRecoveryManifest(packet, { config });
+  if (!corroboration.ok) return corroboration;
+  const operationId = operationSelector || corroboration.manifest.operation.operationId;
+  const grant = authenticateRootOwnedSemanticRecoveryGrant({ manifest: corroboration.manifest, operationId });
+  if (!grant?.authorized) return { ...grant, manifestDigest: corroboration.manifestDigest };
+  return { ...corroboration, grant };
+}
+
+export function executeConfiguredSemanticRecoverySuccessor(config, packet, operationSelector) {
+  const initial = authenticateConfiguredSemanticRecoveryAuthority(config, packet, operationSelector);
+  if (!initial.ok || !initial.grant?.authorized) return initial;
+  // Re-read every source store, bound artifact, runtime claim and the exact
+  // root-owned grant immediately before the only persistence boundary.
+  const fresh = authenticateConfiguredSemanticRecoveryAuthority(config, packet, operationSelector);
+  if (!fresh.ok || !fresh.grant?.authorized
+    || fresh.manifestDigest !== initial.manifestDigest
+    || fresh.grant.sha256 !== initial.grant.sha256
+    || canonicalJson(fresh.manifest) !== canonicalJson(initial.manifest)) {
+    return failed("semantic_recovery_authority_drift_before_persistence");
+  }
+  const construction = constructPostIncidentSuccessor({
+    manifest: fresh.manifest,
+    mutationGeneration: fresh.manifest.lifecycleSuccessor.mutationGeneration,
+    operationGrant: fresh.grant,
+  });
+  if (!construction.ok) return construction;
+  return persistOrAdoptPostIncidentSuccessor(config, construction, fresh.manifest);
 }
 
 export function constructPostIncidentSuccessor({ manifest, mutationGeneration, operationGrant }) {
@@ -164,11 +181,14 @@ export function constructPostIncidentSuccessor({ manifest, mutationGeneration, o
     manifestDigest: manifest.manifestDigest,
   });
   if (expectedSuccessor.storageKey !== manifest.intendedSuccessor?.storageKey) return failed("semantic_successor_identity_mismatch");
-  if (!validatedOperationalAuthorizations.has(operationGrant)
+  if (!isValidatedSemanticRecoveryGrant(operationGrant)
     || operationGrant?.authorized !== true
     || operationGrant?.manifestDigest !== manifest.manifestDigest
     || operationGrant?.operationId !== manifest.operation.operationId
-    || operationGrant?.requestId !== manifest.operation.requestId) {
+    || operationGrant?.requestId !== manifest.operation.requestId
+    || operationGrant?.action !== manifest.operation.action
+    || operationGrant?.matrixDigest !== semanticRecoveryClaimOwnerMatrixDigest
+    || operationGrant?.verifierSetDigest !== semanticRecoveryVerifierSetDigest) {
     return failed("post_incident_operational_authorization_required");
   }
   if (manifest.claims.submissionCount !== 1 || manifest.claims.submissionExhausted !== true) return failed("post_incident_submission_posture_invalid");
@@ -218,19 +238,8 @@ export function constructPostIncidentSuccessor({ manifest, mutationGeneration, o
   return construction;
 }
 
-export function authenticatePostIncidentOperationalAuthorization(artifact) {
-  let authenticated;
-  try { authenticated = authenticateOpaqueArtifact(normalizeArtifact(artifact)); }
-  catch { return failed("post_incident_operational_authorization_authentication_failed"); }
-  let document;
-  try { document = JSON.parse(authenticated.authenticatedBytes.toString("utf8")); }
-  catch { return failed("post_incident_operational_authorization_invalid"); }
-  if (document?.contract !== "post_incident_operational_authorization" || document?.version !== 1
-    || document?.authorized !== true || !digest64(document?.manifestDigest)
-    || !bounded(document?.operationId) || !bounded(document?.requestId)) return failed("post_incident_operational_authorization_invalid");
-  const grant = deepFreeze({ authorized: true, manifestDigest: document.manifestDigest, operationId: document.operationId, requestId: document.requestId, artifact: { path: authenticated.path, sha256: authenticated.sha256 } });
-  validatedOperationalAuthorizations.add(grant);
-  return grant;
+export function authenticatePostIncidentOperationalAuthorization(input) {
+  return authenticateRootOwnedSemanticRecoveryGrant(input);
 }
 
 export function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {
@@ -367,18 +376,18 @@ function validatePacketShape(packet) {
   if (!packet || !Array.isArray(packet.sources) || !Array.isArray(packet.artifacts)) diagnostics.push("packet_shape");
   if (!bounded(packet?.incidentIdentity) || !bounded(packet?.lifecycleSuccessorSession)
     || !Number.isSafeInteger(packet?.lifecycleSuccessorGeneration) || packet.lifecycleSuccessorGeneration < 1
-    || !bounded(packet?.operationId) || !bounded(packet?.requestId)) diagnostics.push("operation_identity");
-  if (Array.isArray(packet?.sources) && packet.sources.some((source) => !bounded(source?.artifact?.role)
-    || !bounded(source?.artifact?.path) || !digest64(source?.artifact?.sha256)
-    || !bounded(source?.provenanceArtifact?.role) || !bounded(source?.provenanceArtifact?.path)
-    || !digest64(source?.provenanceArtifact?.sha256))) diagnostics.push("source_binding");
+    || (packet?.operationId !== undefined && !digest64(packet.operationId))
+    || (packet?.requestId !== undefined && !digest64(packet.requestId))) diagnostics.push("operation_identity");
+  if (Array.isArray(packet?.sources) && packet.sources.some((source) => !source || typeof source !== "object" || Array.isArray(source)
+    || !mandatorySemanticEvidenceClasses.includes(source.authorityClass))) diagnostics.push("source_binding");
   return diagnostics;
 }
 function validateSecurityPosture(packet, claims) {
-  if (!digest64(claims.formerRootSha256) || !digest64(claims.incidentSha256) || claims.formerRootSha256 === claims.incidentSha256) return failed("semantic_root_identity_invalid");
+  if (!digest64(claims.formerRootSha256) || !digest64(claims.incidentSha256) || claims.formerRootSha256 === claims.incidentSha256
+    || claims.predecessorBytesAvailable !== false || !digest64(claims.prEvidenceDigest)) return failed("semantic_root_identity_invalid");
   if (![claims.baseSha, claims.headSha, claims.treeSha].every(gitObjectId)
     || !digest64(claims.changedFilesDigest) || !digest64(claims.diffDigest)) return failed("semantic_git_identity_invalid");
-  const boundedClaims = ["repository", "taskKey", "claimIdentity", "chargeId", "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId", "consumedSupervisorRunId", "branch", "formerRootPath", "formerEffectivePhase", "incidentPath", "lifecycleLineage", "lifecycleSessionId", "intentPosture", "earliestSafePhase"];
+  const boundedClaims = ["repository", "taskKey", "claimIdentity", "chargeId", "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId", "consumedSupervisorRunId", "failedContinuationRunnerRunId", "failedContinuationSupervisorRunId", "branch", "formerRootPath", "formerEffectivePhase", "incidentPath", "lifecycleLineage", "lifecycleSessionId", "intentPosture", "earliestSafePhase"];
   if (!boundedClaims.every((claim) => bounded(claims[claim]))
     || !/^[^/\s]+\/[^/\s]+$/.test(claims.repository)
     || claims.claimIdentity !== `${claims.repository}#${claims.issueNumber}`
@@ -392,6 +401,8 @@ function validateSecurityPosture(packet, claims) {
   if (!counters.every((claim) => Number.isSafeInteger(claims[claim]) && claims[claim] >= 0)
     || ![...zeroEffectClaims, "submissionExhausted", "successorEligible"].every((claim) => typeof claims[claim] === "boolean")) return failed("semantic_claim_shape_invalid");
   if (path.resolve(claims.formerRootPath) !== path.resolve(claims.incidentPath)) return failed("semantic_incident_path_lineage_invalid");
+  const artifactIdentityClaims = ["originalSpecIdentity", "originalStateIdentity", "originalIterationIdentity", "originalSummaryIdentity", "failedContinuationSpecIdentity", "failedContinuationStateIdentity", "failedContinuationHeartbeatIdentity", "failedContinuationSummaryIdentity", "consumedSpecIdentity", "consumedStateIdentity", "consumedIterationIdentity", "consumedSummaryIdentity", "installedBundleDigest", "installedManifestDigest", "runtimeProfileDigest", "runtimeApprovalDigest", "launcherDigest", "healthUnitDigest"];
+  if (!artifactIdentityClaims.every((claim) => digest64(claims[claim])) || !gitObjectId(claims.runtimeSourceSha)) return failed("semantic_runtime_or_run_identity_invalid");
   if (packet.formerBytesAvailable !== false) return failed("semantic_predecessor_bytes_posture_invalid");
   if (claims.acceptedLogicalTasks !== 1 || claims.submissionCount !== 1 || claims.submissionExhausted !== true || claims.successorEligible !== true) return failed("semantic_one_shot_posture_invalid");
   if (!Number.isSafeInteger(claims.lifecycleMutationGeneration) || claims.lifecycleMutationGeneration < 1
@@ -402,25 +413,12 @@ function validateSecurityPosture(packet, claims) {
   if (!packet.artifacts.every((artifact) => bounded(artifact.role) && bounded(artifact.path) && digest64(artifact.sha256))) return failed("semantic_artifact_binding_invalid");
   return { ok: true };
 }
-function normalizeSource(source, authenticateArtifact, authenticateSourceProvenance) {
-  const authenticated = authenticateArtifact(normalizeArtifact(source.artifact), source);
-  if (!mandatorySemanticEvidenceClasses.includes(authenticated.authorityClass)
-    || !authenticated.claims || typeof authenticated.claims !== "object" || Array.isArray(authenticated.claims)) throw new Error("invalid evidence document");
-  const verifiedProvenance = authenticateSourceProvenance({ source: authenticated, provenance: authenticated.provenance });
-  if (verifiedProvenance?.authenticated !== true || !digest64(verifiedProvenance.originIdentity)
-    || verifiedProvenance.originKind !== semanticEvidenceOriginKinds[authenticated.authorityClass]
-    || authenticated.provenanceArtifact?.authenticated !== true) throw new Error("invalid source provenance");
-  const normalized = { authorityClass: String(authenticated.authorityClass), artifact: { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount }, provenanceArtifact: authenticated.provenanceArtifact, provenance: { originKind: verifiedProvenance.originKind, originIdentity: verifiedProvenance.originIdentity }, claims: sortObject(authenticated.claims) };
-  return normalized;
-}
 function normalizeArtifact(artifact) { return { role: String(artifact?.role || ""), path: String(artifact?.path || ""), sha256: String(artifact?.sha256 || "") }; }
-function compareSource(a, b) { return a.authorityClass.localeCompare(b.authorityClass); }
 function compareArtifact(a, b) { return a.role.localeCompare(b.role) || a.path.localeCompare(b.path); }
 function pickTaskIdentity(c) { return Object.fromEntries(["repository", "issueNumber", "taskKey", "claimIdentity", "chargeId", "branch", "baseSha", "headSha", "treeSha", "changedFilesDigest", "diffDigest"].map((key) => [key, c[key]])); }
-function sortObject(value) { return Object.fromEntries(Object.entries(value || {}).sort(([a], [b]) => a.localeCompare(b))); }
 function canonicalJson(value) { return JSON.stringify(canonicalize(value)); }
 function canonicalize(value) { if (Array.isArray(value)) return value.map(canonicalize); if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])); return value; }
-function manifestCoreFromManifest(manifest) { const clone = structuredClone(manifest); delete clone.manifestDigest; delete clone.intendedSuccessor; return clone; }
+function manifestCoreFromManifest(manifest) { const clone = structuredClone(manifest); delete clone.manifestDigest; delete clone.intendedSuccessor; delete clone.operation; return clone; }
 function digest(value) { return createHash("sha256").update(value).digest("hex"); }
 function digest64(value) { return /^[a-f0-9]{64}$/.test(String(value || "")); }
 function gitObjectId(value) { return /^[a-f0-9]{40}$/.test(String(value || "")); }
@@ -510,22 +508,6 @@ function validatePersistenceDirectory(logsRoot, directory) {
     }
     return { ok: true, path: real };
   } catch { return failed("post_incident_successor_root_unsafe"); }
-}
-function authenticateSourceArtifact(artifact, source) {
-  const authenticated = authenticateOpaqueArtifact(artifact);
-  const provenanceArtifact = authenticateOpaqueArtifact(normalizeArtifact(source?.provenanceArtifact));
-  const document = JSON.parse(authenticated.authenticatedBytes.toString("utf8"));
-  const provenance = JSON.parse(provenanceArtifact.authenticatedBytes.toString("utf8"));
-  if (document?.contract !== "semantic_recovery_evidence_source" || document?.version !== 1) throw new Error("invalid evidence document");
-  if (provenance?.contract !== "semantic_recovery_source_provenance" || provenance?.version !== 1
-    || provenance.authorityClass !== document.authorityClass
-    || provenance.originKind !== semanticEvidenceOriginKinds[document.authorityClass]
-    || !digest64(provenance.originIdentity)
-    || provenance.evidenceSha256 !== authenticated.sha256
-    || provenance.repository !== document.claims?.repository
-    || provenance.issueNumber !== document.claims?.issueNumber
-    || provenance.taskKey !== document.claims?.taskKey) throw new Error("invalid source provenance");
-  return { ...authenticated, authorityClass: document.authorityClass, claims: document.claims, provenance: { originKind: provenance.originKind, originIdentity: provenance.originIdentity, repository: provenance.repository, issueNumber: provenance.issueNumber, taskKey: provenance.taskKey, evidenceSha256: provenance.evidenceSha256 }, provenanceArtifact: { role: provenanceArtifact.role, path: provenanceArtifact.path, sha256: provenanceArtifact.sha256, authenticated: true, byteCount: provenanceArtifact.byteCount } };
 }
 function authenticateOpaqueArtifact(artifact) {
   const canonicalPath = realpathSync(artifact.path);

@@ -607,6 +607,9 @@ function normalizePostIncidentRecoveryConfig(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("postIncidentRecovery config must be an object");
   }
+  const supportedFields = new Set(["authenticatedProvenance", "semanticEvidencePacket", "operationId"]);
+  const unsupported = Object.keys(value).filter((field) => !supportedFields.has(field));
+  if (unsupported.length) throw new Error(`postIncidentRecovery contains unsupported authority fields: ${unsupported.sort().join(",")}`);
   if (!value.authenticatedProvenance || typeof value.authenticatedProvenance !== "object") {
     throw new Error("postIncidentRecovery requires authenticated provenance");
   }
@@ -639,11 +642,15 @@ function normalizePostIncidentRecoveryConfig(value) {
       || value.authenticatedProvenance.originalSupervisorRunId === value.authenticatedProvenance.consumedSupervisorRunId) {
     throw new Error("postIncidentRecovery requires distinct original and consumed run identities");
   }
+  if (value.semanticEvidencePacket != null && !/^[a-f0-9]{64}$/.test(String(value.operationId || ""))) {
+    throw new Error("postIncidentRecovery semantic evidence requires one canonical operationId selector");
+  }
   return {
     authenticatedProvenance: structuredClone(value.authenticatedProvenance),
     semanticEvidencePacket: value.semanticEvidencePacket && typeof value.semanticEvidencePacket === "object"
       ? structuredClone(value.semanticEvidencePacket)
       : null,
+    operationId: value.operationId || null,
   };
 }
 

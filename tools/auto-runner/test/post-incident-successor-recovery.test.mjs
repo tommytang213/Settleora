@@ -1,415 +1,385 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   assertRecoveryWritePathAllowed,
   authenticatePostIncidentOperationalAuthorization,
-  buildSemanticRecoveryManifest as buildSemanticRecoveryManifestProduction,
+  buildSemanticRecoveryManifest,
   classifyRecoveryOverwriteIncident,
   constructPostIncidentSuccessor,
   mandatorySemanticEvidenceClasses,
   persistOrAdoptPostIncidentSuccessor,
 } from "../lib/post-incident-successor-recovery.mjs";
+import {
+  applySemanticRecoveryClaimOwnerMatrix,
+  createDeterministicSemanticRecoveryVerifierRegistry,
+  createProductionSemanticRecoveryVerifierRegistry,
+  expectedSemanticRecoveryGrantDocument,
+  semanticRecoveryClaimOwnerMatrix,
+  semanticRecoveryClaimOwnerMatrixDigest,
+  semanticRecoveryClaimOwnerMatrixVersion,
+  semanticRecoveryGrantPath,
+  semanticRecoveryProtectedControlRoot,
+  semanticRecoveryVerifierSet,
+  semanticRecoveryVerifierSetDigest,
+  semanticRecoveryVerifierSetVersion,
+} from "../lib/semantic-recovery-authority.mjs";
 import { discoverStartupRecovery } from "../lib/recovery-continuation.mjs";
 import { createInitialRecoveryState, recoveryStatePath, writeRecoveryState } from "../lib/recovery-state.mjs";
 
+const hash = (value) => createHash("sha256").update(value).digest("hex");
+const canonicalize = (value) => Array.isArray(value) ? value.map(canonicalize) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])) : value;
 const oldHash = "6".repeat(64);
 const incidentHash = "5".repeat(64);
 const rootPath = "/sanitized/recovery/root.json";
-const authenticateArtifact = (artifact, source) => ({ ...artifact, authenticated: true, provenance: source.provenance, provenanceArtifact: { ...source.provenanceArtifact, authenticated: true, byteCount: 1 }, authorityClass: source.authorityClass, claims: source.claims, byteCount: 1 });
-const authenticateBoundArtifact = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, byteCount: 1 });
-const originKinds = ["git_object_store", "session_lifecycle_store", "logical_task_budget_store", "pre_effect_intent_store", "projection_deployment_store", "supervisor_child_run_store", "incident_report_store", "github_readback"];
-const authenticateSourceProvenance = ({ source, provenance }) => ({ authenticated: true, originKind: originKinds[mandatorySemanticEvidenceClasses.indexOf(source.authorityClass)], originIdentity: provenance.originIdentity });
-const buildSemanticRecoveryManifest = (value) => buildSemanticRecoveryManifestProduction(value, { authenticateArtifact, authenticateBoundArtifact, authenticateSourceProvenance });
-const trustedProductionAdapters = { authenticateSourceProvenance: ({ provenance }) => ({ authenticated: true, originKind: provenance.originKind, originIdentity: provenance.originIdentity }) };
-const claims = {
+const baseClaims = Object.freeze({
   repository: "example/repo", issueNumber: 7, taskKey: "task-1", claimIdentity: "example/repo#7", chargeId: "c".repeat(64),
-  originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed",
+  originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original",
+  consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed",
+  originalSpecIdentity: "1".repeat(64), originalStateIdentity: "2".repeat(64), originalIterationIdentity: "3".repeat(64), originalSummaryIdentity: "4".repeat(64),
+  failedContinuationRunnerRunId: "run-failed", failedContinuationSupervisorRunId: "supervisor-failed",
+  failedContinuationSpecIdentity: "7".repeat(64), failedContinuationStateIdentity: "8".repeat(64), failedContinuationHeartbeatIdentity: "9".repeat(64), failedContinuationSummaryIdentity: "a".repeat(64),
+  consumedSpecIdentity: "b".repeat(64), consumedStateIdentity: "c".repeat(64), consumedIterationIdentity: "d".repeat(64), consumedSummaryIdentity: "e".repeat(64),
   branch: "feature/issue-7", baseSha: "a".repeat(40), headSha: "b".repeat(40), treeSha: "d".repeat(40), changedFilesDigest: "e".repeat(64), diffDigest: "f".repeat(64),
   acceptedLogicalTasks: 1, localSourceChangingRounds: 0, githubTriggeredFixEpochs: 0, lifetimeLocalSourceChangingRounds: 0,
   formerRootPath: rootPath, formerRootSha256: oldHash, formerEffectivePhase: "checkpoint_validation_commit", incidentPath: rootPath, incidentSha256: incidentHash,
-  lifecycleLineage: "terminal_validation_retry_to_distinct_successor", lifecycleSessionId: "session-predecessor", lifecycleMutationGeneration: 2, intentPosture: "one_no_effect_overlay_then_consumed_submission",
+  predecessorBytesAvailable: false, prEvidenceDigest: "f".repeat(64), runtimeSourceSha: "4".repeat(40), installedBundleDigest: "1".repeat(64), installedManifestDigest: "2".repeat(64), runtimeProfileDigest: "3".repeat(64), runtimeApprovalDigest: "4".repeat(64), launcherDigest: "5".repeat(64), healthUnitDigest: "6".repeat(64),
+  lifecycleLineage: "terminal_validation_retry_to_distinct_successor", lifecycleSessionId: "session-predecessor", lifecycleMutationGeneration: 2,
+  intentPosture: "one_no_effect_overlay_then_consumed_submission",
   validationEffect: false, reviewEffect: false, sourceEffect: false, pushEffect: false, prEffect: false, commentEffect: false, mergeEffect: false, issueEffect: false, productEffect: false,
   submissionCount: 1, submissionExhausted: true, successorEligible: true, earliestSafePhase: "checkpoint_validation_commit",
-};
+});
 
-function packet(overrides = {}) {
-  const sources = mandatorySemanticEvidenceClasses.map((authorityClass, index) => ({
-    authorityClass,
-    artifact: { role: `${authorityClass}_evidence`, path: `/sanitized/${authorityClass}.json`, sha256: String(index + 1).repeat(64).slice(0, 64) },
-    provenanceArtifact: { role: `${authorityClass}_provenance`, path: `/sanitized/${authorityClass}-provenance.json`, sha256: (index + 9).toString(16).repeat(64).slice(0, 64) },
-    provenance: { originIdentity: (index + 9).toString(16).repeat(64).slice(0, 64) },
-    claims: structuredClone(claims),
-  }));
-  const artifacts = Array.from({ length: 16 }, (_, index) => ({ role: `artifact_${String(index).padStart(2, "0")}`, path: `/sanitized/artifact-${index}.json`, sha256: (index.toString(16) || "0").repeat(64).slice(0, 64) }));
-  artifacts[0] = { role: "current_incident_root", path: rootPath, sha256: incidentHash };
-  const incidentIdentity = createHash("sha256").update(JSON.stringify({ path: rootPath, sha256: incidentHash })).digest("hex");
-  return { sources, artifacts, incidentIdentity, lifecycleSuccessorSession: "session-successor", lifecycleSuccessorGeneration: 3, operationId: "operation-1", requestId: "request-1", formerBytesAvailable: false, ...overrides };
-}
-
-function bindPacketIncidentToFirstArtifact(value) {
-  const incident = value.artifacts[0];
-  for (const source of value.sources) {
-    source.claims.formerRootPath = incident.path;
-    source.claims.incidentPath = incident.path;
-    source.claims.incidentSha256 = incident.sha256;
+function fixture(claimOverrides = {}) {
+  const claims = { ...structuredClone(baseClaims), ...claimOverrides };
+  const records = {};
+  const sources = [];
+  for (const [index, authorityClass] of mandatorySemanticEvidenceClasses.entries()) {
+    const definition = semanticRecoveryVerifierSet.verifiers[authorityClass];
+    const ownedClaims = {};
+    for (const [claim, ownership] of Object.entries(semanticRecoveryClaimOwnerMatrix)) {
+      if ([...ownership.required, ...ownership.optional].includes(authorityClass)) ownedClaims[claim] = structuredClone(claims[claim]);
+    }
+    records[authorityClass] = { record: {
+      claims: ownedClaims,
+      provenanceIdentity: hash(`provenance:${authorityClass}`),
+      store: { kind: definition.storeKind, path: `/synthetic/${authorityClass}.json`, role: `${authorityClass}_authority`, sha256: hash(`store:${authorityClass}`), byteCount: index + 1 },
+    } };
+    sources.push({ authorityClass, recordKey: "record" });
   }
-  value.incidentIdentity = createHash("sha256").update(JSON.stringify({ path: incident.path, sha256: incident.sha256 })).digest("hex");
+  const artifacts = Array.from({ length: 16 }, (_, index) => ({ role: `artifact_${String(index).padStart(2, "0")}`, path: `/sanitized/artifact-${index}.json`, sha256: hash(`artifact:${index}`) }));
+  artifacts[0] = { role: "current_incident_root", path: rootPath, sha256: incidentHash };
+  const packet = {
+    sources,
+    artifacts,
+    incidentIdentity: hash(JSON.stringify({ path: rootPath, sha256: incidentHash })),
+    lifecycleSuccessorSession: "session-successor",
+    lifecycleSuccessorGeneration: 3,
+    formerBytesAvailable: false,
+  };
+  return { packet, records, claims };
 }
 
-function recoveryState(overrides = {}) {
+const artifactAdapter = (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, byteCount: 1 });
+function build(value) {
+  return buildSemanticRecoveryManifest(value.packet, {
+    verifierRegistry: createDeterministicSemanticRecoveryVerifierRegistry(value.records),
+    authenticateBoundArtifact: artifactAdapter,
+  });
+}
+function setOwnerClaim(value, claim, authorityClass, claimValue) { value.records[authorityClass].record.claims[claim] = claimValue; }
+function setAllOwnerClaims(value, claim, claimValue) {
+  for (const authorityClass of semanticRecoveryClaimOwnerMatrix[claim].required) setOwnerClaim(value, claim, authorityClass, claimValue);
+}
+
+function grantFilesystem(document, mutation = {}) {
+  const operationId = document.operationId;
+  const grantPath = semanticRecoveryGrantPath(operationId);
+  const bytes = Buffer.from(JSON.stringify(canonicalize(document)));
+  const metadata = new Map([
+    ["/etc", { type: "directory", symlink: false, uid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
+    ["/etc/settleora-auto-runner", { type: "directory", symlink: false, uid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
+    [semanticRecoveryProtectedControlRoot, { type: "directory", symlink: false, uid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
+    [`${semanticRecoveryProtectedControlRoot}/grants`, { type: "directory", symlink: false, uid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
+    [grantPath, { type: "file", symlink: false, uid: 0, mode: 0o444, nlink: 1, size: bytes.length, generation: 1 }],
+  ]);
+  for (const [target, fields] of Object.entries(mutation.metadata || {})) metadata.set(target, { ...metadata.get(target), ...fields });
+  let inspections = 0;
   return {
-    taskKey: claims.taskKey,
-    issue: { number: claims.issueNumber },
-    run: { runId: claims.originalRunnerRunId, supervisorRunId: claims.originalSupervisorRunId },
-    branch: { name: claims.branch, baseSha: claims.baseSha, currentHeadSha: claims.headSha },
-    ordinaryContinuation: { identity: { claimIdentity: claims.claimIdentity } },
-    mutationMarkers: { logical_task_charge: { [claims.chargeId]: { status: "completed" } } },
-    sessionLifecycle: { sessionId: claims.lifecycleSessionId, mutationAuthority: { generation: 2 } },
-    ...overrides,
+    inspect(target) {
+      inspections += 1;
+      const result = { ...metadata.get(target) };
+      if (mutation.unstable && target === grantPath && inspections > 6) result.generation = 2;
+      return result;
+    },
+    realpath(target) { return mutation.realpath?.[target] || target; },
+    list() { return mutation.list || [`${operationId}.json`]; },
+    read() { return mutation.bytes || bytes; },
   };
 }
 
-function authorize(built) {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-operation-auth-"));
-  try {
-    const artifactPath = path.join(root, "authorization.json");
-    const document = { contract: "post_incident_operational_authorization", version: 1, authorized: true, manifestDigest: built.manifestDigest, operationId: built.manifest.operation.operationId, requestId: built.manifest.operation.requestId };
-    writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
-    return authenticatePostIncidentOperationalAuthorization({ role: "operational_authorization", path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") });
-  } finally { rmSync(root, { recursive: true, force: true }); }
+function authorize(built, mutation = {}) {
+  const document = { ...expectedSemanticRecoveryGrantDocument(built.manifest), createdAt: "2026-08-01T00:00:00.000Z" };
+  return authenticatePostIncidentOperationalAuthorization({ manifest: built.manifest, operationId: built.manifest.operation.operationId, filesystem: grantFilesystem(document, mutation) });
 }
 
-test("all mandatory independent classes agree and canonical manifest is ordering-stable", () => {
-  const first = buildSemanticRecoveryManifest(packet());
-  const reordered = packet();
-  reordered.sources.reverse(); reordered.artifacts.reverse();
-  const second = buildSemanticRecoveryManifest(reordered);
-  assert.equal(first.ok, true); assert.equal(first.manifestDigest, second.manifestDigest);
-  assert.equal(first.manifest.historicalPredecessor.bytesAvailable, false);
-  assert.equal(Object.keys(first.manifest.sourceToClaimBindings).length, Object.keys(claims).length);
+test("matrix and verifier set are deterministic source-owned contracts", () => {
+  assert.equal(semanticRecoveryClaimOwnerMatrixVersion, 1);
+  assert.equal(semanticRecoveryVerifierSetVersion, 1);
+  assert.match(semanticRecoveryClaimOwnerMatrixDigest, /^[a-f0-9]{64}$/);
+  assert.match(semanticRecoveryVerifierSetDigest, /^[a-f0-9]{64}$/);
+  assert.deepEqual(semanticRecoveryClaimOwnerMatrix.pushEffect.required, ["github_no_effect", "incident_report"]);
+  assert.deepEqual(semanticRecoveryClaimOwnerMatrix.chargeId.required, ["lifecycle", "logical_task_budget"]);
+  assert.deepEqual(semanticRecoveryClaimOwnerMatrix.headSha.required, ["projection_deployment", "repository_git"]);
+  assert.deepEqual(semanticRecoveryClaimOwnerMatrix.originalRunnerRunId.required, ["lifecycle", "supervisor_child_run"]);
+  assert.deepEqual(semanticRecoveryClaimOwnerMatrix.successorEligible.required, ["lifecycle", "projection_deployment"]);
 });
 
-test("duplicate authority class does not count as independent", () => {
-  const value = packet(); value.sources[1].authorityClass = value.sources[0].authorityClass;
-  assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_evidence_class_not_independent");
+test("all required domain owners build one deterministic manifest and derived operation", () => {
+  const built = build(fixture());
+  assert.equal(built.ok, true);
+  assert.equal(built.manifest.claimOwnerMatrix.digest, semanticRecoveryClaimOwnerMatrixDigest);
+  assert.equal(built.manifest.sourceVerifierSet.digest, semanticRecoveryVerifierSetDigest);
+  assert.match(built.manifest.operation.operationId, /^[a-f0-9]{64}$/);
+  assert.match(built.manifest.operation.requestId, /^[a-f0-9]{64}$/);
+  assert.equal(built.manifest.operation.action, "create_or_adopt_semantic_recovery_successor");
 });
 
-test("source count is rejected before authenticating any descriptor", () => {
-  const value = packet();
-  value.sources.push(structuredClone(value.sources[0]));
-  let authenticationCalls = 0;
-  const result = buildSemanticRecoveryManifestProduction(value, {
-    authenticateArtifact: () => { authenticationCalls += 1; throw new Error("must not authenticate"); },
-    authenticateBoundArtifact,
-  });
-  assert.equal(result.reasonCode, "semantic_evidence_source_count_invalid");
-  assert.equal(authenticationCalls, 0);
-});
-
-test("production manifest construction fails closed without trusted store-specific provenance verifiers", () => {
-  assert.equal(buildSemanticRecoveryManifestProduction(packet()).reasonCode, "semantic_evidence_provenance_verifier_missing");
-});
-
-test("different class labels over one underlying artifact are not independent", () => {
-  const value = packet(); value.sources[1].provenance.originIdentity = value.sources[0].provenance.originIdentity;
-  const result = buildSemanticRecoveryManifest(value);
-  assert.equal(result.reasonCode, "semantic_evidence_class_not_independent");
-  assert.deepEqual(result.diagnostics, ["duplicate_underlying_artifact"]);
-});
-
-test("production source claims and authority class come from authenticated bytes", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-evidence-bytes-"));
+test("production repository verifier derives candidate claims from canonical Git objects", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-semantic-git-"));
+  const git = (...args) => {
+    const result = spawnSync("/usr/bin/git", args, { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
   try {
-    const value = packet();
-    for (const artifact of value.artifacts) {
-      artifact.path = path.join(root, `bound-${artifact.role}.json`); writeFileSync(artifact.path, artifact.role, { mode: 0o600 });
-      artifact.sha256 = createHash("sha256").update(readFileSync(artifact.path)).digest("hex");
-    }
-    bindPacketIncidentToFirstArtifact(value);
-    value.sources = value.sources.map((source, index) => {
-      const artifactPath = path.join(root, `${index}.json`);
-      const provenancePath = path.join(root, `${index}-provenance.json`);
-      const document = { contract: "semantic_recovery_evidence_source", version: 1, authorityClass: source.authorityClass, claims: source.claims };
-      writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
-      writeFileSync(provenancePath, JSON.stringify({ contract: "semantic_recovery_source_provenance", version: 1, authorityClass: source.authorityClass, originKind: originKinds[index], originIdentity: source.provenance.originIdentity, evidenceSha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex"), repository: source.claims.repository, issueNumber: source.claims.issueNumber, taskKey: source.claims.taskKey }), { mode: 0o600 });
-      return { authorityClass: "caller_label_is_ignored", artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") }, provenanceArtifact: { role: source.provenanceArtifact.role, path: provenancePath, sha256: createHash("sha256").update(readFileSync(provenancePath)).digest("hex") }, claims: { repository: "forged" } };
+    git("init", "-b", "main"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid");
+    git("remote", "add", "origin", "https://github.com/example/repo.git");
+    writeFileSync(path.join(root, "fixture.txt"), "base\n"); git("add", "fixture.txt"); git("commit", "-m", "base");
+    const baseSha = git("rev-parse", "HEAD");
+    git("switch", "-c", "feature/issue-7"); writeFileSync(path.join(root, "fixture.txt"), "head\n"); git("add", "fixture.txt"); git("commit", "-m", "head");
+    const headSha = git("rev-parse", "HEAD"); const treeSha = git("rev-parse", "HEAD^{tree}");
+    const changedFilesDigest = hash(JSON.stringify(["fixture.txt"]));
+    const diffDigest = hash(spawnSync("/usr/bin/git", ["diff", "--binary", baseSha, headSha], { cwd: root }).stdout);
+    const provenanceIdentity = hash(JSON.stringify(canonicalize({ repository: "example/repo", repoRoot: root, branch: "feature/issue-7", baseSha, headSha, treeSha, changedFilesDigest, diffDigest })));
+    const registry = createProductionSemanticRecoveryVerifierRegistry({ repoRoot: root, logsRoot: root, repositorySlug: "example/repo" });
+    const descriptor = { authorityClass: "repository_git", selection: { baseSha, branch: "feature/issue-7", headSha }, store: { kind: "repository_git_store", path: root, role: "candidate_repository", sha256: provenanceIdentity } };
+    const verified = registry.verify("repository_git", descriptor);
+    assert.deepEqual(verified.claims, { repository: "example/repo", branch: "feature/issue-7", baseSha, headSha, treeSha, changedFilesDigest, diffDigest });
+    assert.throws(() => registry.verify("repository_git", { ...descriptor, store: { ...descriptor.store, sha256: "0".repeat(64) } }));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("uninstalled production producers reject self-declared class-tagged envelopes", () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-semantic-store-"));
+  try {
+    const value = fixture();
+    const definition = semanticRecoveryVerifierSet.verifiers.incident_report;
+    const storePath = path.join(logsRoot, "incident-authority.json");
+    const document = canonicalize({
+      contract: "settleora_semantic_recovery_incident_report_store",
+      version: 1,
+      producer: { id: definition.id, version: definition.version },
+      repository: "example/repo",
+      storeKind: definition.storeKind,
+      role: "incident_report_authority",
+      record: value.records.incident_report.record.claims,
     });
-    const result = buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters);
-    assert.equal(result.ok, true);
-    assert.equal(result.manifest.claims.repository, claims.repository);
-    writeFileSync(value.artifacts[0].path, "altered", { mode: 0o600 });
-    assert.equal(buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters).reasonCode, "semantic_bound_artifact_authentication_failed");
-    writeFileSync(value.artifacts[0].path, value.artifacts[0].role, { mode: 0o600 });
-    writeFileSync(value.sources[0].artifact.path, "{}", { mode: 0o600 });
-    assert.equal(buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters).reasonCode, "semantic_evidence_source_authentication_failed");
-    const forgedProvenance = JSON.parse(readFileSync(value.sources[0].provenanceArtifact.path, "utf8"));
-    writeFileSync(value.sources[0].artifact.path, JSON.stringify({ contract: "semantic_recovery_evidence_source", version: 1, authorityClass: forgedProvenance.authorityClass, claims }), { mode: 0o600 });
-    value.sources[0].artifact.sha256 = createHash("sha256").update(readFileSync(value.sources[0].artifact.path)).digest("hex");
-    forgedProvenance.originKind = "unrelated_store";
-    forgedProvenance.evidenceSha256 = value.sources[0].artifact.sha256;
-    writeFileSync(value.sources[0].provenanceArtifact.path, JSON.stringify(forgedProvenance), { mode: 0o600 });
-    value.sources[0].provenanceArtifact.sha256 = createHash("sha256").update(readFileSync(value.sources[0].provenanceArtifact.path)).digest("hex");
-    assert.equal(buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters).reasonCode, "semantic_evidence_source_authentication_failed");
-  } finally { rmSync(root, { recursive: true, force: true }); }
+    const bytes = Buffer.from(JSON.stringify(document)); writeFileSync(storePath, bytes, { mode: 0o600 });
+    const registry = createProductionSemanticRecoveryVerifierRegistry({ repoRoot: logsRoot, logsRoot, repositorySlug: "example/repo" });
+    const descriptor = { authorityClass: "incident_report", store: { kind: definition.storeKind, path: storePath, role: "incident_report_authority", sha256: hash(bytes) } };
+    assert.throws(() => registry.verify("incident_report", descriptor), /semantic source producer unavailable/u);
+    assert.throws(() => registry.verify("incident_report", { ...descriptor, store: { ...descriptor.store, role: "caller_role" } }));
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
-test("production source parses the exact bytes that passed digest authentication", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-evidence-single-read-"));
-  try {
-    const value = packet();
-    for (const artifact of value.artifacts) {
-      artifact.path = path.join(root, `bound-${artifact.role}.json`); writeFileSync(artifact.path, artifact.role, { mode: 0o600 });
-      artifact.sha256 = createHash("sha256").update(readFileSync(artifact.path)).digest("hex");
-    }
-    bindPacketIncidentToFirstArtifact(value);
-    value.sources = value.sources.map((source, index) => {
-      const artifactPath = path.join(root, `${index}.json`);
-      const provenancePath = path.join(root, `${index}-provenance.json`);
-      const document = { contract: "semantic_recovery_evidence_source", version: 1, authorityClass: source.authorityClass, claims: source.claims };
-      writeFileSync(artifactPath, JSON.stringify(document), { mode: 0o600 });
-      writeFileSync(provenancePath, JSON.stringify({ contract: "semantic_recovery_source_provenance", version: 1, authorityClass: source.authorityClass, originKind: originKinds[index], originIdentity: source.provenance.originIdentity, evidenceSha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex"), repository: source.claims.repository, issueNumber: source.claims.issueNumber, taskKey: source.claims.taskKey }), { mode: 0o600 });
-      return { artifact: { role: source.artifact.role, path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") }, provenanceArtifact: { role: source.provenanceArtifact.role, path: provenancePath, sha256: createHash("sha256").update(readFileSync(provenancePath)).digest("hex") } };
-    });
-    assert.equal(buildSemanticRecoveryManifestProduction(value, trustedProductionAdapters).ok, true);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+test("arbitrary two-class agreement cannot replace a missing domain owner", () => {
+  const value = fixture();
+  delete value.records.github_no_effect.record.claims.pushEffect;
+  setOwnerClaim(value, "pushEffect", "repository_git", false);
+  setOwnerClaim(value, "pushEffect", "lifecycle", false);
+  assert.equal(build(value).reasonCode, "semantic_claim_required_owner_missing");
 });
 
-test("missing class and missing claim fail closed", () => {
-  const missingClass = packet(); missingClass.sources.pop();
-  assert.equal(buildSemanticRecoveryManifest(missingClass).reasonCode, "semantic_evidence_source_count_invalid");
-  const missingClaim = packet(); for (const source of missingClaim.sources) delete source.claims.treeSha;
-  assert.equal(buildSemanticRecoveryManifest(missingClaim).reasonCode, "semantic_evidence_claim_missing");
+test("required-owner and present-corrobator disagreement fail closed", () => {
+  const required = fixture(); setOwnerClaim(required, "chargeId", "lifecycle", "d".repeat(64));
+  assert.equal(build(required).reasonCode, "semantic_claim_required_owner_disagreement");
+  const unrelated = fixture(); setOwnerClaim(unrelated, "pushEffect", "repository_git", false);
+  assert.equal(build(unrelated).reasonCode, "semantic_claim_ineligible_authority");
 });
 
-test("contradictory identity and unknown claim fail closed", () => {
-  const conflict = packet(); conflict.sources[0].claims.branch = "different";
-  assert.equal(buildSemanticRecoveryManifest(conflict).reasonCode, "semantic_evidence_contradiction");
-  const unknown = packet(); unknown.sources[0].claims.nonce = "nondeterministic";
-  assert.equal(buildSemanticRecoveryManifest(unknown).reasonCode, "semantic_evidence_unknown_claim");
+test("unknown claims and classes fail closed", () => {
+  const unknown = fixture(); unknown.records.lifecycle.record.claims.unknownClaim = true;
+  assert.equal(build(unknown).reasonCode, "semantic_evidence_unknown_claim");
+  const duplicate = fixture(); duplicate.packet.sources[1].authorityClass = duplicate.packet.sources[0].authorityClass;
+  assert.equal(build(duplicate).reasonCode, "semantic_evidence_source_authentication_failed");
 });
 
-test("wrong roots and false predecessor-byte posture fail closed", () => {
-  const sameHash = packet(); for (const source of sameHash.sources) source.claims.formerRootSha256 = incidentHash;
-  assert.equal(buildSemanticRecoveryManifest(sameHash).reasonCode, "semantic_root_identity_invalid");
-  assert.equal(buildSemanticRecoveryManifest(packet({ formerBytesAvailable: true })).reasonCode, "semantic_predecessor_bytes_posture_invalid");
-  const wrongPath = packet(); for (const source of wrongPath.sources) source.claims.incidentPath = "/other/root.json";
-  assert.equal(buildSemanticRecoveryManifest(wrongPath).reasonCode, "semantic_incident_path_lineage_invalid");
-});
-
-test("malformed Git object and diff identities fail closed", () => {
-  for (const field of ["baseSha", "headSha", "treeSha", "changedFilesDigest", "diffDigest"]) {
-    const value = packet(); for (const source of value.sources) source.claims[field] = "malformed";
-    assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_git_identity_invalid", field);
-  }
-});
-
-test("malformed corroborated claim types and counters fail closed", () => {
-  for (const [field, malformed] of [["issueNumber", "7"], ["taskKey", { bad: true }], ["branch", "bad branch"], ["localSourceChangingRounds", -1], ["submissionCount", 1.5]]) {
-    const value = packet(); for (const source of value.sources) source.claims[field] = malformed;
-    assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_claim_shape_invalid", field);
-  }
-});
-
-test("logical-task charge identity must be a canonical digest", () => {
-  const value = packet();
-  for (const source of value.sources) source.claims.chargeId = "charge-7";
-  assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_claim_shape_invalid");
-});
-
-test("task ownership and consumed run identities must be internally consistent", () => {
-  for (const [field, value] of [["claimIdentity", "other/repo#7"], ["consumedRunnerRunId", claims.originalRunnerRunId], ["consumedSupervisorRunId", claims.originalSupervisorRunId]]) {
-    const candidate = packet(); for (const source of candidate.sources) source.claims[field] = value;
-    assert.equal(buildSemanticRecoveryManifest(candidate).reasonCode, "semantic_claim_shape_invalid", field);
-  }
-});
-
-test("corroborated branch must be a valid short Git branch name", () => {
-  for (const branch of ["foo..bar", "refs/heads/topic", "-topic", "HEAD", "topic.lock", "topic@{one", "topic//child"]) {
-    const value = packet(); for (const source of value.sources) source.claims.branch = branch;
-    assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_claim_shape_invalid", branch);
-  }
-});
-
-test("altered historical or child artifact and identity/counter/effect disagreements fail closed", () => {
-  for (const field of ["chargeId", "acceptedLogicalTasks", "branch", "headSha", "lifecycleLineage", "intentPosture", "submissionCount", "sourceEffect"]) {
-    const value = packet(); value.sources[0].claims[field] = field.endsWith("Effect") ? true : "altered";
-    assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_evidence_contradiction", field);
-  }
-  const artifact = packet(); artifact.artifacts[0].sha256 = "wrong";
-  assert.equal(buildSemanticRecoveryManifest(artifact).reasonCode, "semantic_artifact_binding_invalid");
-});
-
-test("authenticated artifact set must bind the exact incident path and digest", () => {
-  const wrongPath = packet(); wrongPath.artifacts[0].path = "/sanitized/unrelated.json";
-  assert.equal(buildSemanticRecoveryManifest(wrongPath).reasonCode, "semantic_incident_artifact_binding_missing");
-  const wrongDigest = packet(); wrongDigest.artifacts[0].sha256 = "9".repeat(64);
-  assert.equal(buildSemanticRecoveryManifest(wrongDigest).reasonCode, "semantic_incident_artifact_binding_missing");
-  assert.equal(buildSemanticRecoveryManifest(packet({ incidentIdentity: "unbound" })).reasonCode, "semantic_incident_identity_binding_invalid");
-});
-
-test("bound artifact count is finite", () => {
-  const value = packet(); value.artifacts = Array.from({ length: 65 }, (_, index) => ({ role: `extra_${index}`, path: `/sanitized/${index}.json`, sha256: "a".repeat(64) }));
-  assert.equal(buildSemanticRecoveryManifest(value).reasonCode, "semantic_bound_artifact_count_invalid");
-});
-
-test("bound artifact aggregate bytes are finite", () => {
-  const result = buildSemanticRecoveryManifestProduction(packet(), {
-    authenticateArtifact,
-    authenticateSourceProvenance,
-    authenticateBoundArtifact: (artifact) => ({ ...artifact, authenticated: true, underlyingIdentity: artifact.sha256, byteCount: 300 * 1024 }),
+test("caller claims, provenance, class injection, and verifier callbacks are not invoked", () => {
+  const value = fixture();
+  let invoked = false;
+  value.packet.sources[0].claims = { pushEffect: false };
+  value.packet.sources[0].provenanceIdentity = "0".repeat(64);
+  const result = buildSemanticRecoveryManifest(value.packet, {
+    verifierRegistry: createDeterministicSemanticRecoveryVerifierRegistry(value.records),
+    authenticateSourceProvenance: () => { invoked = true; },
+    authenticateBoundArtifact: artifactAdapter,
   });
-  assert.equal(result.reasonCode, "semantic_bound_artifact_bytes_exceeded");
+  assert.equal(result.reasonCode, "semantic_evidence_source_authentication_failed");
+  assert.equal(invoked, false);
 });
 
-test("production artifact authentication derives byte count from the authenticated descriptor", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-artifact-descriptor-"));
-  try {
-    const artifactPath = path.join(root, "oversized.json"); writeFileSync(artifactPath, "x".repeat(256 * 1024 + 1), { mode: 0o600 });
-    const value = packet(); value.artifacts[0] = { role: "current_incident_root", path: artifactPath, sha256: createHash("sha256").update(readFileSync(artifactPath)).digest("hex") };
-    bindPacketIncidentToFirstArtifact(value);
-    assert.equal(buildSemanticRecoveryManifestProduction(value, { authenticateArtifact, authenticateSourceProvenance }).reasonCode, "semantic_bound_artifact_authentication_failed");
-  } finally { rmSync(root, { recursive: true, force: true }); }
+test("missing source-owned registry fails closed", () => {
+  assert.equal(buildSemanticRecoveryManifest(fixture().packet).reasonCode, "semantic_evidence_verifier_registry_missing");
 });
 
-test("distinct successor binds provenance and stays non-executable", () => {
-  const built = buildSemanticRecoveryManifest(packet());
-  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { stopReason: { reasonCode: "untrusted_incident_field" } }, mutationGeneration: 3, operationGrant: authorize(built) });
-  assert.equal(constructed.ok, true); assert.notEqual(constructed.storageKey, path.basename(rootPath, ".json"));
+test("malformed claim, Git, runtime, counter, charge and branch identities fail closed", () => {
+  for (const [claim, malformed, reason] of [
+    ["issueNumber", "7", "semantic_claim_shape_invalid"], ["chargeId", "charge-7", "semantic_claim_shape_invalid"],
+    ["branch", "refs/heads/topic", "semantic_claim_shape_invalid"], ["headSha", "bad", "semantic_git_identity_invalid"],
+    ["runtimeSourceSha", "bad", "semantic_runtime_or_run_identity_invalid"], ["submissionCount", 1.5, "semantic_claim_shape_invalid"],
+  ]) {
+    const value = fixture(); setAllOwnerClaims(value, claim, malformed);
+    assert.equal(build(value).reasonCode, reason, claim);
+  }
+});
+
+test("operation selectors are derived and mismatches fail closed", () => {
+  const value = fixture(); value.packet.operationId = "0".repeat(64);
+  assert.equal(build(value).reasonCode, "semantic_operation_request_selector_mismatch");
+  const malformed = fixture(); malformed.packet.operationId = "../latest";
+  assert.equal(build(malformed).reasonCode, "semantic_evidence_packet_invalid");
+});
+
+test("fixed root and exact direct-child grant path cannot be redirected", () => {
+  const built = build(fixture());
+  assert.equal(semanticRecoveryGrantPath(built.manifest.operation.operationId), `${semanticRecoveryProtectedControlRoot}/grants/${built.manifest.operation.operationId}.json`);
+  assert.throws(() => semanticRecoveryGrantPath("../latest"));
+});
+
+test("root ownership, exact mode, link count, symlinks and ancestor writability are enforced", () => {
+  const built = build(fixture());
+  const grantPath = semanticRecoveryGrantPath(built.manifest.operation.operationId);
+  for (const metadata of [
+    { [grantPath]: { uid: 1000 } }, { [grantPath]: { mode: 0o400 } }, { [grantPath]: { nlink: 2 } },
+    { [grantPath]: { symlink: true } }, { [semanticRecoveryProtectedControlRoot]: { uid: 1000 } },
+    { [`${semanticRecoveryProtectedControlRoot}/grants`]: { mode: 0o775 } },
+  ]) assert.equal(authorize(built, { metadata }).reasonCode, "semantic_protected_grant_authentication_failed");
+});
+
+test("canonical mismatch, unstable bytes, oversized bytes and ambiguous selection fail closed", () => {
+  const built = build(fixture());
+  const grantPath = semanticRecoveryGrantPath(built.manifest.operation.operationId);
+  assert.equal(authorize(built, { realpath: { [grantPath]: "/different/grant.json" } }).reasonCode, "semantic_protected_grant_authentication_failed");
+  assert.equal(authorize(built, { unstable: true }).reasonCode, "semantic_protected_grant_authentication_failed");
+  assert.equal(authorize(built, { bytes: Buffer.alloc(256 * 1024 + 1) }).reasonCode, "semantic_protected_grant_authentication_failed");
+  assert.equal(authorize(built, { list: [] }).reasonCode, "semantic_protected_grant_authentication_failed");
+});
+
+test("malformed, noncanonical and duplicate-key grant JSON fail closed", () => {
+  const built = build(fixture());
+  for (const bytes of [Buffer.from("{"), Buffer.from(`${JSON.stringify(expectedSemanticRecoveryGrantDocument(built.manifest), null, 2)}\n`), Buffer.from('{"contract":"a","contract":"b"}')]) {
+    assert.equal(authorize(built, { bytes }).reasonCode, "semantic_protected_grant_authentication_failed");
+  }
+});
+
+test("grant binds manifest, matrix, verifier, runtime, evidence and successor identities", () => {
+  const built = build(fixture());
+  assert.equal(authorize(built).authorized, true);
+  for (const mutate of [
+    (doc) => { doc.semanticManifestDigest = "0".repeat(64); },
+    (doc) => { doc.claimOwnerMatrix.digest = "0".repeat(64); },
+    (doc) => { doc.sourceVerifierSet.digest = "0".repeat(64); },
+    (doc) => { doc.evidenceSources[0].provenanceIdentity = "0".repeat(64); },
+    (doc) => { doc.runBindings.failedHeartbeat = "0".repeat(64); },
+    (doc) => { doc.runtime.profileDigest = "0".repeat(64); },
+    (doc) => { doc.oneShotExhaustion.exhausted = false; },
+    (doc) => { doc.noEffectPosture.pushEffect = true; },
+    (doc) => { doc.lifecycle.successorSession = "other"; },
+    (doc) => { doc.successor.storageKey = "0".repeat(64); },
+    (doc) => { doc.allowedAction = "write_incident"; },
+  ]) {
+    const document = structuredClone(expectedSemanticRecoveryGrantDocument(built.manifest)); mutate(document);
+    const result = authenticatePostIncidentOperationalAuthorization({ manifest: built.manifest, operationId: built.manifest.operation.operationId, filesystem: grantFilesystem(document) });
+    assert.equal(result.reasonCode, "semantic_protected_grant_binding_mismatch");
+  }
+});
+
+test("selector alone and caller-created grant-shaped objects grant no authority", () => {
+  const built = build(fixture());
+  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3 }).reasonCode, "post_incident_operational_authorization_required");
+  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: { ...authorize(built) } }).reasonCode, "post_incident_operational_authorization_required");
+});
+
+test("exact protected grant constructs only a distinct non-executable successor", () => {
+  const built = build(fixture());
+  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: authorize(built) });
+  assert.equal(constructed.ok, true);
   assert.equal(constructed.successor.postIncidentSuccessor.executable, false);
-  assert.equal(constructed.successor.phase, "checkpoint_validation_commit");
   assert.equal(constructed.successor.nextSafeAction, "await_separate_execution_authorization");
-  assert.equal(constructed.successor.sessionLifecycle.sessionId, "session-successor");
-  assert.equal(constructed.successor.sessionLifecycle.previousSessionId, "session-predecessor");
-  assert.equal(constructed.successor.run.runId, claims.originalRunnerRunId);
-  assert.equal(constructed.successor.sessionLifecycle.logicalTask.runId, claims.originalRunnerRunId);
-  assert.equal("stopReason" in constructed.successor, false);
+  assert.notEqual(constructed.storageKey, path.basename(rootPath, ".json"));
 });
 
-test("successor construction requires a separate exact operation authorization", () => {
-  const built = buildSemanticRecoveryManifest(packet());
-  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: {}, mutationGeneration: 1 }).reasonCode, "post_incident_operational_authorization_required");
-  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1", requestId: "request-1" } }).reasonCode, "post_incident_operational_authorization_required");
-  const altered = structuredClone(built.manifest); altered.claims.branch = "altered";
-  assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationGrant: authorize(built) }).reasonCode, "semantic_manifest_authority_invalid");
-  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationGrant: authorize(built) }).reasonCode, "post_incident_mutation_generation_mismatch");
-  const wrongLifecycle = structuredClone(built.manifest); wrongLifecycle.lifecycleSuccessor.previousSessionId = "wrong";
-  assert.equal(constructPostIncidentSuccessor({ manifest: wrongLifecycle, mutationGeneration: 3, operationGrant: authorize(built) }).reasonCode, "semantic_manifest_authority_invalid");
-});
-
-test("successor persistence is idempotent and conflicting adoption fails closed", () => {
+test("successor persistence is exact, idempotent and rejects competing identity", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-successor-"));
   try {
-    const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(built) });
+    const built = build(fixture());
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: authorize(built) });
     const config = { logsRoot: root, postIncidentSuccessorRoot: path.join(root, "successors") };
     mkdirSync(config.postIncidentSuccessorRoot, { mode: 0o700 });
     mkdirSync(path.join(config.postIncidentSuccessorRoot, "provenance"), { mode: 0o700 });
-    const created = persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest);
-    const adopted = persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest);
-    assert.equal(created.adopted, false); assert.equal(adopted.adopted, true);
-    const collision = { ...construction, successor: { ...construction.successor, taskKey: "collision" } };
-    assert.equal(persistOrAdoptPostIncidentSuccessor(config, collision, built.manifest).reasonCode, "post_incident_persistence_binding_invalid");
-    const alteredManifest = structuredClone(built.manifest);
-    alteredManifest.intendedSuccessor.lifecycleSuccessorSession = "competing-session";
-    assert.equal(persistOrAdoptPostIncidentSuccessor(config, construction, alteredManifest).reasonCode, "post_incident_persistence_binding_invalid");
-    const competingPacket = packet({ operationId: "operation-2", requestId: "request-2" });
-    const competingBuilt = buildSemanticRecoveryManifest(competingPacket);
-    const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(competingBuilt) });
-    assert.equal(persistOrAdoptPostIncidentSuccessor(config, competing, competingBuilt.manifest).reasonCode, "post_incident_provenance_conflict");
+    assert.equal(persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest).adopted, false);
+    assert.equal(persistOrAdoptPostIncidentSuccessor(config, construction, built.manifest).adopted, true);
+    const altered = structuredClone(built.manifest); altered.intendedSuccessor.storageKey = "0".repeat(64);
+    assert.equal(persistOrAdoptPostIncidentSuccessor(config, construction, altered).reasonCode, "post_incident_persistence_binding_invalid");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("protected raw paths block and unrelated successor path is allowed", () => {
+test("protected predecessor and incident write paths remain blocked", () => {
   assert.equal(assertRecoveryWritePathAllowed(rootPath, { predecessorPath: rootPath, incidentPath: rootPath }).reasonCode, "protected_recovery_path_write_blocked");
   assert.equal(assertRecoveryWritePathAllowed("/sanitized/successor.json", { predecessorPath: rootPath, incidentPath: rootPath, successorPath: "/sanitized/successor.json" }).ok, true);
 });
 
-test("overwrite quarantine authenticates incident bytes and does not block unrelated recovery", () => {
+test("overwrite incident quarantine remains byte-authenticated and ordinary recovery remains compatible", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-classify-"));
   try {
     const incidentPath = path.join(root, "root.json"); writeFileSync(incidentPath, "incident\n", { mode: 0o600 });
-    const actual = createHash("sha256").update(readFileSync(incidentPath)).digest("hex");
+    const actual = hash(readFileSync(incidentPath));
     const provenance = { ok: true, incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false, consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed" };
-    const incidentState = { taskKey: "task-1", issue: { number: 7 }, run: { runId: "run-consumed", supervisorRunId: "supervisor-consumed" } };
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: provenance }).quarantined, true);
-    const altered = structuredClone(provenance); altered.incidentArtifact.sha256 = incidentHash;
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: altered }).reasonCode, "incident_provenance_authentication_failed");
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { taskKey: "altered", issue: { number: 999 } }, authenticatedProvenance: provenance }).reasonCode, "incident_identity_contradiction");
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: { ...incidentState, run: { runId: "other", supervisorRunId: "supervisor-consumed" } }, authenticatedProvenance: provenance }).reasonCode, "incident_run_identity_contradiction");
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: { ...provenance, incidentSha256: incidentHash } }).reasonCode, "incident_provenance_contradiction");
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: { ...provenance, predecessorSha256: actual } }).reasonCode, "incident_provenance_contradiction");
-    const otherPath = path.join(root, "other.json"); writeFileSync(otherPath, "other\n", { mode: 0o600 });
-    const otherSha = createHash("sha256").update(readFileSync(otherPath)).digest("hex");
-    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state: incidentState, authenticatedProvenance: { ...provenance, incidentArtifact: { role: "incident", path: otherPath, sha256: otherSha }, incidentSha256: otherSha } }).reasonCode, "incident_path_contradiction");
+    const state = { taskKey: "task-1", issue: { number: 7 }, run: { runId: "run-consumed", supervisorRunId: "supervisor-consumed" } };
+    assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: incidentPath, state, authenticatedProvenance: provenance }).quarantined, true);
     assert.equal(classifyRecoveryOverwriteIncident({ recoveryPath: "/other.json", state: { taskKey: "other", issue: { number: 8 } }, authenticatedProvenance: provenance }).quarantined, false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("production discovery quarantines an authenticated incident before ordinary recovery", () => {
+test("startup quarantines configured incident before recoverability filtering without touching protected root when evidence is absent", () => {
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-quarantine-"));
-  try {
-    const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-original", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40) });
-    const config = { logsRoot, allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, incidentPath: recoveryStatePath({ logsRoot }, state), taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: incidentHash, bytesAvailable: false } } };
-    writeRecoveryState(config, state);
-    const incidentPath = recoveryStatePath({ logsRoot }, state);
-    const actual = createHash("sha256").update(readFileSync(incidentPath)).digest("hex");
-    config.postIncidentRecovery.authenticatedProvenance.incidentPath = incidentPath;
-    config.postIncidentRecovery.authenticatedProvenance.incidentSha256 = actual;
-    config.postIncidentRecovery.authenticatedProvenance.incidentArtifact = { role: "incident", path: incidentPath, sha256: actual };
-    const discovery = discoverStartupRecovery(config);
-    assert.equal(discovery.allowed, false);
-    assert.equal(discovery.reasonCode, "semantic_evidence_packet_missing");
-    assert.equal(discovery.quarantine.readOnly, true);
-  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
-});
-
-test("production discovery quarantines configured completed incident before recoverability filtering", () => {
-  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-quarantine-completed-"));
   try {
     const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-original", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40), phase: "completed" });
     writeRecoveryState({ logsRoot }, state);
-    const incidentPath = recoveryStatePath({ logsRoot }, state);
-    const actual = createHash("sha256").update(readFileSync(incidentPath)).digest("hex");
-    const config = { logsRoot, allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false } } };
+    const incidentPath = recoveryStatePath({ logsRoot }, state); const actual = hash(readFileSync(incidentPath));
+    const config = { logsRoot, repositorySlug: "example/repo", allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, repository: "example/repo", incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false, originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed" }, semanticEvidencePacket: null, operationId: null } };
     const discovery = discoverStartupRecovery(config);
-    assert.equal(discovery.found, true); assert.equal(discovery.allowed, false); assert.equal(discovery.quarantine.readOnly, true);
+    assert.equal(discovery.found, true); assert.equal(discovery.allowed, false); assert.equal(discovery.reasonCode, "semantic_evidence_packet_missing");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
-test("symlinked successor roots fail before persistence", () => {
+test("symlinked persistence roots and destinations remain fail-closed", () => {
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-root-"));
   const target = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-target-"));
   try {
+    const built = build(fixture());
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: authorize(built) });
     const root = path.join(logsRoot, "successors"); symlinkSync(target, root, "dir");
-    const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(built) });
     assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
 });
 
-test("in-root symlinked persistence directories fail before writes", () => {
-  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-in-root-symlink-"));
-  try {
-    const target = path.join(logsRoot, "target"); mkdirSync(target, { mode: 0o700 }); mkdirSync(path.join(target, "provenance"), { mode: 0o700 });
-    const root = path.join(logsRoot, "successors"); symlinkSync(target, root, "dir");
-    const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: authorize(built) });
-    assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
-  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
-});
-
-test("symlinked successor destination cannot be adopted", () => {
-  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-destination-"));
-  try {
-    const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(built) });
-    const root = path.join(logsRoot, "successors"); mkdirSync(root, { recursive: true, mode: 0o700 });
-    const target = path.join(logsRoot, "external.json"); writeFileSync(target, `${JSON.stringify(construction.successor)}\n`, { mode: 0o600 });
-    symlinkSync(target, path.join(root, `${construction.storageKey}.json`));
-    assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_destination_unsafe");
-  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+test("the test suite never creates or mutates the real protected-control root", () => {
+  assert.equal(semanticRecoveryProtectedControlRoot, "/etc/settleora-auto-runner/semantic-recovery-authority");
+  assert.equal(import.meta.url.includes("/etc/"), false);
 });

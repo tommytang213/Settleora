@@ -1826,26 +1826,82 @@ When former bytes are unavailable, a future separately authorized operation
 may construct a distinct successor only through the versioned generic contract
 in `lib/post-incident-successor-recovery.mjs`.
 
-The contract requires repository/Git, lifecycle, logical-task budget,
-intent-lineage, projection/deployment, supervisor/child-run, incident-report,
-and GitHub no-effect authority classes. Repeated renderings of one underlying
-artifact are not independent evidence. Every required security claim needs at
-least two distinct class bindings. Any omission or contradiction fails closed;
-there is no majority rule or incident-specific digest exception.
-Production authority classes and claims are parsed from the authenticated
-owner-only evidence files themselves; adjacent configuration labels or claims
-are never authority. Successor and provenance directories must be separately
-pre-provisioned beneath the trusted logs root and pass canonical ancestry,
-ownership, and mode checks before any persistence attempt.
+The contract requires source-owned repository/Git, lifecycle, logical-task
+budget, intent-lineage, projection/deployment, supervisor/child-run,
+incident-report, and GitHub no-effect verifiers. The closed verifier registry,
+verifier IDs/versions, accepted store contract for each class, and verifier-set
+digest live in `lib/semantic-recovery-authority.mjs`; JSON configuration cannot
+provide a verifier, parser, class, provenance identity, claim, or store
+authority. A source descriptor only selects one store. The selected source-
+owned verifier authenticates its canonical bounded store and derives the
+normalized result. Its provenance identity is derived from the authenticated
+producer/store/path/digest identity rather than copied from an evidence
+envelope. Repository/Git verification reads canonical Git objects through the
+fixed sanitized Git executable; lifecycle and logical-task-budget verification
+use their existing production loaders without legacy mutation/backfill. Other
+closed registry slots require separately deployed native domain producers.
+Until those producers exist, their production verifiers reject even canonical,
+owner-only, correctly class-tagged JSON: runner-owned envelopes are not
+producer identity and cannot supply claims or provenance. Tests use explicit
+synthetic adapters, but startup cannot select them. Missing store-specific
+producer support therefore remains fail-closed and is not simulated to make a
+production incident reachable.
+
+Claim ownership is also source-owned and immutable. The versioned matrix and
+its deterministic digest name every required domain owner. Repository identity
+requires repository/Git plus GitHub no-effect authority; candidate Git
+identities require repository/Git plus projection/deployment; task, claim,
+charge, and counters require lifecycle and logical-task budget owners; run
+identities require lifecycle plus supervisor/child-run; incident identities
+require projection/deployment plus incident-report; GitHub effects require
+GitHub no-effect plus incident-report; and successor phase/eligibility require
+lifecycle plus projection/deployment. Optional corroborators cannot replace a
+required owner. An unknown claim/class, missing owner, owner disagreement, or
+present corroborator disagreement fails closed. There is no arbitrary two-
+class rule, majority vote, config override, or grant-defined ownership.
 
 The canonical manifest binds the unavailable predecessor hash with
 `bytesAvailable=false`, immutable incident path/hash, task/candidate and
-one-shot identities, bounded artifact digests, source-to-claim bindings,
-no-effect proof, and deterministic successor/operation identity. The successor
-cannot alias the predecessor/incident key. Its provenance ledger and successor
-record are exact-repeat adoptable after a crash and reject conflicts. A
-constructed successor remains non-executable until a separate exact
-manifest/operation authorization is supplied.
+original/failed/consumed run identities, installed runtime/profile/approval/
+launcher/health identities, bounded artifact digests, exact claim-owner and
+verifier-set bindings, no-effect proof, and one-shot exhaustion. The manifest
+is computed first; production then derives the request, 64-hex operation ID,
+and distinct successor key, avoiding a digest cycle.
+
+Operation authority exists only at the fixed canonical protected-control root
+`/etc/settleora-auto-runner/semantic-recovery-authority`. One operation selects
+only the exact direct child
+`grants/<64-lowercase-hex-operation-id>.json`. The filename, body operation ID,
+derived request, and allowed action
+`create_or_adopt_semantic_recovery_successor` must agree. Production inspects
+the lexical and canonical chain from `/etc` through the grant without accepting
+symlinks. Directories must be root-owned and not group/world writable; the
+grant must be a root-owned regular one-link file with exact mode `0444`, stable
+bounded canonical-JSON bytes, and one exact digest. Missing, malformed,
+ambiguous, redirected, changed, or mismatched grants fail before persistence.
+An owner-only runner file, config selector, alternate root, `latest` file, or
+caller-created authorization object has zero authority.
+
+The root-owned grant exactly binds the manifest, matrix and verifier digests,
+every evidence source path/role/digest/provenance identity, bound artifact and
+run identity, predecessor and incident, PR evidence, runtime identities,
+counters, one-shot/no-effect posture, lifecycle generation, forbidden writes,
+request/action, and successor key. Startup discovery and authoritative reload
+use the same registry. Immediately before persistence, production
+reauthenticates all sources, bound artifacts, runtime claims, manifest, and the
+same exact grant; any later effect or drift fails closed. The successor cannot
+alias the predecessor/incident key. Its provenance ledger and successor record
+are exact-repeat adoptable after a crash and reject conflicts, and the created
+successor remains non-executable pending its later separately authorized
+handoff.
+
+Repository source defines this contract only. It does not create the `/etc`
+root, install a grant, deploy a producer/runtime, or execute a live successor.
+Those are separate manual operations. Native producer installation is also a
+separate deployment gate. Without every native producer and the real root-
+owned grant, production remains unreachable before successor persistence.
+Tests use synthetic metadata adapters and never inspect or mutate the live
+`/etc` root.
 
 For an exact authenticated terminal-validation-retry projection, the reloaded
 projection digest directly authorizes bounded lifecycle reopen. The legacy raw

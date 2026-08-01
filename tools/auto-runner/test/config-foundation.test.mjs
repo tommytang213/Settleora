@@ -68,6 +68,14 @@ test("post-incident provenance is complete and repository-bound at config load",
   withProfile({ repositorySlug: "other/repo", postIncidentRecovery: { authenticatedProvenance: provenance } }, ({ configPath }) => {
     assert.throws(() => loadConfig({ ...parseCliArgs(["--preflight", "--config", configPath]) }), /repository must match/);
   });
+  for (const forbiddenField of ["controlRoot", "grantPath", "verifierRegistry", "claimOwnerMatrix", "authenticateSourceProvenance"]) {
+    withProfile({ postIncidentRecovery: { authenticatedProvenance: provenance, [forbiddenField]: "caller-authority" } }, ({ configPath }) => {
+      assert.throws(() => loadConfig({ ...parseCliArgs(["--preflight", "--config", configPath]) }), /unsupported authority fields/);
+    });
+  }
+  withProfile({ postIncidentRecovery: { authenticatedProvenance: provenance, semanticEvidencePacket: {}, operationId: "not-a-digest" } }, ({ configPath }) => {
+    assert.throws(() => loadConfig({ ...parseCliArgs(["--preflight", "--config", configPath]) }), /canonical operationId selector/);
+  });
 });
 
 test("disabled outage resubmission profile loads without trusted controller capability", () => {

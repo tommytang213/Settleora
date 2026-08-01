@@ -922,3 +922,17 @@ test("configured semantic quarantine binds incident and predecessor task ownersh
   assert.match(source, /claims\?\.issueNumber !== provenance\?\.issueNumber/);
   assert.match(source, /claims\?\.formerRootSha256 !== provenance\?\.predecessorSha256/);
 });
+
+test("both startup discovery paths use the same source-owned semantic authority and exact protected grant flow", () => {
+  const source = readFileSync(new URL("../lib/recovery-continuation.mjs", import.meta.url), "utf8");
+  const authority = readFileSync(new URL("../lib/semantic-recovery-authority.mjs", import.meta.url), "utf8");
+  const recovery = readFileSync(new URL("../lib/post-incident-successor-recovery.mjs", import.meta.url), "utf8");
+  assert.equal((source.match(/authenticateConfiguredSemanticRecoveryAuthority\(config, contract\.semanticEvidencePacket, contract\.operationId\)/g) || []).length, 2);
+  assert.equal((source.match(/executeConfiguredSemanticRecoverySuccessor\(config, contract\.semanticEvidencePacket, contract\.operationId\)/g) || []).length, 2);
+  assert.match(recovery, /createProductionSemanticRecoveryVerifierRegistry\(adapters\.config\)/);
+  assert.match(recovery, /const fresh = authenticateConfiguredSemanticRecoveryAuthority/);
+  assert.match(recovery, /fresh\.grant\.sha256 !== initial\.grant\.sha256/);
+  assert.match(authority, /semanticRecoveryProtectedControlRoot = "\/etc\/settleora-auto-runner\/semantic-recovery-authority"/);
+  assert.match(authority, /semanticRecoveryGrantPath\(operationId\)/);
+  assert.doesNotMatch(source, /authenticateSourceProvenance/);
+});

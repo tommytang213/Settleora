@@ -18,7 +18,7 @@ import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAutho
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { projectAuthenticatedTerminalValidationRetryDerivative } from "./terminal-validation-retry-projection.mjs";
 import { validateOrdinaryContinuationPhaseEffects } from "./ordinary-candidate-continuation.mjs";
-import { buildSemanticRecoveryManifest, classifyRecoveryOverwriteIncident, inspectConfiguredRecoveryOverwriteIncident } from "./post-incident-successor-recovery.mjs";
+import { authenticateConfiguredSemanticRecoveryAuthority, classifyRecoveryOverwriteIncident, executeConfiguredSemanticRecoverySuccessor, inspectConfiguredRecoveryOverwriteIncident } from "./post-incident-successor-recovery.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -107,12 +107,15 @@ function detectConfiguredPostIncidentQuarantineBeforeFiltering(config) {
   const inspection = inspectConfiguredRecoveryOverwriteIncident(contract.authenticatedProvenance);
   if (!inspection?.quarantined) return null;
   const corroboration = contract.semanticEvidencePacket
-    ? buildSemanticRecoveryManifest(contract.semanticEvidencePacket)
+    ? authenticateConfiguredSemanticRecoveryAuthority(config, contract.semanticEvidencePacket, contract.operationId)
     : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
   const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection, config.repositorySlug);
+  const operation = boundCorroboration.ok
+    ? executeConfiguredSemanticRecoverySuccessor(config, contract.semanticEvidencePacket, contract.operationId)
+    : boundCorroboration;
   return {
     found: true, allowed: false, action: "stop_fail_closed",
-    reasonCode: boundCorroboration.ok ? "post_incident_semantic_operation_authorization_required" : boundCorroboration.reasonCode,
+    reasonCode: operation.reasonCode,
     quarantine: { ...inspection, state: undefined },
     semanticManifestDigest: boundCorroboration.ok ? boundCorroboration.manifestDigest : null,
     state: inspection.state ? summarizeRecoverableState(inspection.state) : null,
@@ -268,17 +271,18 @@ function detectConfiguredPostIncidentQuarantine(config, states) {
     });
     if (!classification.quarantined) continue;
     const corroboration = contract.semanticEvidencePacket
-      ? buildSemanticRecoveryManifest(contract.semanticEvidencePacket)
+      ? authenticateConfiguredSemanticRecoveryAuthority(config, contract.semanticEvidencePacket, contract.operationId)
       : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
     const inspection = inspectConfiguredRecoveryOverwriteIncident(contract.authenticatedProvenance);
     const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection, config.repositorySlug);
+    const operation = boundCorroboration.ok
+      ? executeConfiguredSemanticRecoverySuccessor(config, contract.semanticEvidencePacket, contract.operationId)
+      : boundCorroboration;
     return {
       found: true,
       allowed: false,
       action: "stop_fail_closed",
-      reasonCode: boundCorroboration.ok
-        ? "post_incident_semantic_operation_authorization_required"
-        : boundCorroboration.reasonCode,
+      reasonCode: operation.reasonCode,
       quarantine: classification,
       semanticManifestDigest: boundCorroboration.ok ? boundCorroboration.manifestDigest : null,
       state: summarizeRecoverableState(state),
