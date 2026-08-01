@@ -203,6 +203,71 @@ test("source-owned Git and runtime identity reject an escaping refs namespace be
   }
 });
 
+test("dangling packed-refs symlinks and redirected object stores fail closed", () => {
+  const packedRepo = tempRepo();
+  try {
+    const packedRefs = path.join(packedRepo.cwd, ".git", "packed-refs");
+    rmSync(packedRefs, { force: true });
+    symlinkSync(path.join(packedRepo.cwd, "missing-packed-refs"), packedRefs);
+    assert.throws(() => runGit(["branch", "--show-current"], { cwd: packedRepo.cwd }),
+      /metadata path is unsafe/u);
+    assert.throws(() => verifyRepositoryIdentity(packedRepo.cwd), /config path is unsafe/u);
+  } finally { packedRepo.cleanup(); }
+
+  const objectRepo = tempRepo();
+  try {
+    const objects = path.join(objectRepo.cwd, ".git", "objects");
+    const redirected = path.join(objectRepo.cwd, "redirected-objects");
+    renameSync(objects, redirected);
+    symlinkSync(redirected, objects);
+    const before = readdirSync(redirected).sort();
+    writeFileSync(path.join(objectRepo.cwd, "untrusted.txt"), "must not enter redirected storage\n");
+    assert.throws(() => runGit(["add", "--", "untrusted.txt"], { cwd: objectRepo.cwd }),
+      /object directory is unsafe/u);
+    assert.throws(() => verifyRepositoryIdentity(objectRepo.cwd), /object directory is unsafe/u);
+    assert.deepEqual(readdirSync(redirected).sort(), before);
+  } finally { objectRepo.cleanup(); }
+});
+
+test("exact packed ref deletion is successful, stable, and repeat-safe", () => {
+  const repo = tempRepo();
+  try {
+    const ref = "refs/heads/packed-topic";
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "branch", "packed-topic", repo.base]);
+    execFileSync("/usr/bin/git", ["-C", repo.cwd, "pack-refs", "--all"]);
+    const before = runGit(["show-ref", "--verify", "--hash", ref], { cwd: repo.cwd });
+    assert.equal(before.status, 0, before.stderr);
+    assert.equal(before.stdout.trim(), repo.base);
+    const removed = runGit(["update-ref", "-d", ref, repo.base], { cwd: repo.cwd });
+    assert.equal(removed.status, 0, removed.stderr);
+    const absent = runGit(["show-ref", "--verify", "--hash", ref], { cwd: repo.cwd });
+    assert.equal(absent.status, 1, absent.stderr);
+    assert.equal(runGit(["branch", "--show-current"], { cwd: repo.cwd }).status, 0,
+      "a legitimate reference transition must not poison the admitted context");
+    assert.notEqual(runGit(["update-ref", "-d", ref, repo.base], { cwd: repo.cwd }).status, 0);
+  } finally { repo.cleanup(); }
+});
+
+test("hash-object authenticates symlink identity and hashes the link target bytes", () => {
+  const repo = tempRepo();
+  try {
+    const outside = path.join(tmpdir(), `settleora-hash-target-${process.pid}`);
+    writeFileSync(outside, "outside secret bytes\n");
+    symlinkSync(outside, path.join(repo.cwd, "linked.txt"));
+    const hashed = runGit(["hash-object", "--", "linked.txt"], { cwd: repo.cwd });
+    assert.equal(hashed.status, 0, hashed.stderr);
+    const expected = execFileSync("/usr/bin/git", ["hash-object", "--stdin"], {
+      cwd: repo.cwd, input: outside, encoding: "utf8",
+    }).trim();
+    const followed = execFileSync("/usr/bin/git", ["hash-object", "--stdin"], {
+      cwd: repo.cwd, input: "outside secret bytes\n", encoding: "utf8",
+    }).trim();
+    assert.equal(hashed.stdout.trim(), expected);
+    assert.notEqual(hashed.stdout.trim(), followed);
+    rmSync(outside, { force: true });
+  } finally { repo.cleanup(); }
+});
+
 test("literal fetch updates the exact remote-tracking ref and only the exact fast-forward form advances HEAD", () => {
   const repo = tempRepo();
   const root = mkdtempSync(path.join(tmpdir(), "settleora-explicit-fetch-"));
@@ -351,11 +416,13 @@ test("historical task workspace is materialized without moving canonical main", 
         repoRoot,
         repositoryCommonDir: repositoryIdentity.commonDir,
         repositoryGitDir: repositoryIdentity.gitDir,
+        repositoryObjectDir: repositoryIdentity.objectDir,
         repositoryIndexFile: repositoryIdentity.indexFile,
         repositoryEntryPath: repositoryIdentity.entryPath,
         repositoryEntryIdentity: repositoryIdentity.entryIdentity,
         repositoryGitDirIdentity: repositoryIdentity.gitDirIdentity,
         repositoryCommonDirIdentity: repositoryIdentity.commonDirIdentity,
+        repositoryObjectDirIdentity: repositoryIdentity.objectDirIdentity,
         repositoryMetadataIdentity: repositoryIdentity.guardedMetadataIdentity,
         originUrl: repositoryIdentity.originUrl,
         pushUrl: repositoryIdentity.pushUrl,

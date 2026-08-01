@@ -36,8 +36,14 @@ export function hasSourceOwnedDevelopmentGitTransportAdmission(config) {
   return config?.runtimeMode !== "external" && config?.[developmentGitTransportAdmission] === true;
 }
 
-function installedRuntimeBundlePresent() {
-  return existsSync(path.join(moduleRuntimeRoot(), "runtime-bundle-manifest.json"));
+export function installedRuntimeExecutionPosture(runtimeRoot = moduleRuntimeRoot(), artifactExists = existsSync) {
+  const normalizedRoot = path.resolve(runtimeRoot || "");
+  // The installed launcher executes this module from one fixed source-owned
+  // root.  That positive location remains true even if an attacker removes or
+  // races the manifest after launcher verification; absence can never
+  // downgrade an installed process into development mode.
+  return normalizedRoot === "/workspace/auto-runner/runtime"
+    || artifactExists(path.join(normalizedRoot, "runtime-bundle-manifest.json"));
 }
 
 export const defaultConfig = Object.freeze({
@@ -488,7 +494,7 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     outageRecoveryOnly: Boolean(cliArgs.outageRecoveryOnly),
     outageRecoveryTarget: cliArgs.outageRecoveryTarget || null,
   };
-  const installedRuntime = installedRuntimeBundlePresent();
+  const installedRuntime = installedRuntimeExecutionPosture();
   assertInstalledRuntimeMode(config.runtimeMode, installedRuntime);
   Object.defineProperty(config, developmentGitTransportAdmission, {
     value: !installedRuntime && config.runtimeMode !== "external",
@@ -945,7 +951,7 @@ function readTrustedConfigFile(configPath, {
   trustHooks = null,
 } = {}) {
   const resolved = path.resolve(configPath);
-  const installedBundle = installedRuntimeBundlePresent();
+  const installedBundle = installedRuntimeExecutionPosture();
   if (!runPrStack) {
     if (installedBundle) {
       const loaded = readExternalProfileConfig(resolved, trustHooks);

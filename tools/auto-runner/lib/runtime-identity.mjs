@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -101,11 +101,13 @@ export function validateProjectRuntimeIdentity(config, {
       .digest("hex"),
     repositoryCommonDir: repository.commonDir,
     repositoryGitDir: repository.gitDir,
+    repositoryObjectDir: repository.objectDir,
     repositoryIndexFile: repository.indexFile,
     repositoryEntryPath: repository.entryPath,
     repositoryEntryIdentity: repository.entryIdentity,
     repositoryGitDirIdentity: repository.gitDirIdentity,
     repositoryCommonDirIdentity: repository.commonDirIdentity,
+    repositoryObjectDirIdentity: repository.objectDirIdentity,
     repositoryMetadataIdentity: repository.guardedMetadataIdentity,
     originUrl: repository.originUrl,
     pushUrl: repository.pushUrl,
@@ -216,11 +218,13 @@ export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
     topLevel: repoRoot,
     commonDir,
     gitDir: context.gitDir,
+    objectDir: context.objectDir,
     indexFile: context.indexFile,
     entryPath: context.entryPath,
     entryIdentity: context.entryIdentity,
     gitDirIdentity: context.gitDirIdentity,
     commonDirIdentity: context.commonDirIdentity,
+    objectDirIdentity: context.objectDirIdentity,
     guardedMetadataIdentity: context.guardedMetadata.identity,
     originUrl,
     pushUrl,
@@ -232,6 +236,7 @@ export function assertRepositoryRemoteIdentity(config) {
   const expected = config?.runtimeIdentity;
   if (!expected?.repoRoot || !expected?.originUrl || !expected?.pushUrl || !expected?.repositoryCommonDir
     || !expected?.repositoryGitDir || !expected?.repositoryIndexFile
+    || !expected?.repositoryObjectDir || !expected?.repositoryObjectDirIdentity
     || !expected?.repositoryEntryPath || !expected?.repositoryEntryIdentity
     || !expected?.repositoryGitDirIdentity || !expected?.repositoryCommonDirIdentity
     || !expected?.repositoryMetadataIdentity || !config?.repositorySlug) {
@@ -243,11 +248,13 @@ export function assertRepositoryRemoteIdentity(config) {
     topLevel: expected.repoRoot,
     commonDir: expected.repositoryCommonDir,
     gitDir: expected.repositoryGitDir,
+    objectDir: expected.repositoryObjectDir,
     indexFile: expected.repositoryIndexFile,
     entryPath: expected.repositoryEntryPath,
     entryIdentity: expected.repositoryEntryIdentity,
     gitDirIdentity: expected.repositoryGitDirIdentity,
     commonDirIdentity: expected.repositoryCommonDirIdentity,
+    objectDirIdentity: expected.repositoryObjectDirIdentity,
     guardedMetadataIdentity: expected.repositoryMetadataIdentity,
     originUrl: expected.originUrl,
     pushUrl: expected.pushUrl,
@@ -307,6 +314,8 @@ function sameRepositoryIdentity(current, expected) {
     && current.entryIdentity === expected.entryIdentity
     && current.gitDirIdentity === expected.gitDirIdentity
     && current.commonDirIdentity === expected.commonDirIdentity
+    && current.objectDir === expected.objectDir
+    && current.objectDirIdentity === expected.objectDirIdentity
     && current.guardedMetadataIdentity === expected.guardedMetadataIdentity
     && current.originUrl === expected.originUrl
     && current.pushUrl === expected.pushUrl;
@@ -347,10 +356,17 @@ function sourceOwnedIdentityGitContext(repoRoot) {
   if (extra.length || realpathSync(topRaw) !== root) throw new Error("repository Git context mismatch");
   const gitDir = realpathSync(gitDirRaw);
   const commonDir = realpathSync(commonDirRaw);
+  const objectDir = path.join(commonDir, "objects");
+  const objectInfo = lstatSync(objectDir);
+  if (!objectInfo.isDirectory() || objectInfo.isSymbolicLink() || realpathSync(objectDir) !== objectDir
+    || (typeof process.getuid === "function" && objectInfo.uid !== process.getuid())) {
+    throw new Error("repository Git object directory is unsafe");
+  }
   const context = {
-    root, entryPath, entryIdentity: stableGitPathIdentity(entry), gitDir, commonDir,
+    root, entryPath, entryIdentity: stableGitPathIdentity(entry), gitDir, commonDir, objectDir,
     gitDirIdentity: stableGitDirectoryIdentity(lstatSync(gitDir)),
     commonDirIdentity: stableGitDirectoryIdentity(lstatSync(commonDir)),
+    objectDirIdentity: stableGitDirectoryIdentity(objectInfo),
     indexFile: path.join(gitDir, "index"),
     guardedMetadata: identityGitMetadataSnapshot(gitDir, commonDir),
   };
@@ -359,16 +375,32 @@ function sourceOwnedIdentityGitContext(repoRoot) {
 }
 
 function runIdentityGit(context, args) {
-  const result = spawnSync("/usr/bin/git", identityGitArgs(context.root, args), {
-    cwd: context.root,
-    env: identityGitEnvironment(context),
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  const descriptors = [];
+  let result;
+  try {
+    descriptors.push(openIdentityDirectory(context.objectDir, context.objectDirIdentity));
+    result = spawnSync("/usr/bin/git", identityGitArgs(context.root, args), {
+      cwd: context.root,
+      env: { ...identityGitEnvironment(context), GIT_OBJECT_DIRECTORY: "/proc/self/fd/3" },
+      stdio: ["pipe", "pipe", "pipe", ...descriptors],
+      encoding: "utf8",
+      windowsHide: true,
+    });
+  } finally {
+    for (const fd of descriptors) closeSync(fd);
+  }
   if (!identityGitContextStable(context)) {
     return { status: 128, stdout: "", stderr: "repository Git context changed during read", error: null };
   }
   return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error || null };
+}
+
+function openIdentityDirectory(target, identity) {
+  const fd = openSync(target, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  try {
+    if (stableGitDirectoryIdentity(fstatSync(fd)) !== identity) throw new Error("repository Git directory changed during descriptor admission");
+    return fd;
+  } catch (error) { closeSync(fd); throw error; }
 }
 
 function identityGitArgs(root, args) {
@@ -396,6 +428,7 @@ function identityGitContextStable(context) {
     return stableGitPathIdentity(lstatSync(context.entryPath)) === context.entryIdentity
       && stableGitDirectoryIdentity(lstatSync(context.gitDir)) === context.gitDirIdentity
       && stableGitDirectoryIdentity(lstatSync(context.commonDir)) === context.commonDirIdentity
+      && stableGitDirectoryIdentity(lstatSync(context.objectDir)) === context.objectDirIdentity
       && identityGitMetadataSnapshot(context.gitDir, context.commonDir).identity === context.guardedMetadata.identity;
   } catch { return false; }
 }
@@ -411,8 +444,8 @@ function identityGitMetadataSnapshot(gitDir, commonDir) {
     path.join(commonDir, "shallow"), path.join(gitDir, "shallow"),
   ])]
     .sort().map((metadataPath) => {
-      if (!existsSync(metadataPath)) return `${metadataPath}:absent`;
-      const info = lstatSync(metadataPath);
+      const info = identityLstatOptional(metadataPath);
+      if (!info) return `${metadataPath}:absent`;
       if (!info.isFile() || info.isSymbolicLink()
         || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
         throw new Error("repository Git config path is unsafe");
@@ -420,7 +453,7 @@ function identityGitMetadataSnapshot(gitDir, commonDir) {
       if (/(?:\/info\/grafts|\/objects\/info\/(?:http-)?alternates|\/shallow)$/u.test(metadataPath)) {
         throw new Error("repository graph-rewriting Git metadata is active");
       }
-      return `${metadataPath}:${stableGitPathIdentity(info)}`;
+      return `${metadataPath}:${metadataPath === path.join(commonDir, "packed-refs") ? "safe-reference-store" : stableGitPathIdentity(info)}`;
     });
   return { identity: [...entries, identityGitReferenceNamespace(commonDir)].join("\n") };
 }
@@ -452,6 +485,11 @@ function identityGitReferenceNamespace(commonDir) {
     }
   }
   return `${root}:${stableGitDirectoryIdentity(rootInfo)}`;
+}
+
+function identityLstatOptional(target) {
+  try { return lstatSync(target); }
+  catch (error) { if (error?.code === "ENOENT") return null; throw error; }
 }
 
 function stableGitPathIdentity(info) {
