@@ -1836,16 +1836,19 @@ authority. A source descriptor only selects one store. The selected source-
 owned verifier authenticates its canonical bounded store and derives the
 normalized result. Its provenance identity is derived from the authenticated
 producer/store/path/digest identity rather than copied from an evidence
-envelope. Repository/Git verification reads canonical Git objects through the
-fixed sanitized Git executable, rejects every non-allowlisted local/worktree
-configuration key, and fixes diff rendering. Launch and later safety-critical
-Git calls use the same fixed executable and closed Git environment. Launch
+envelope. A runner-owned worktree cannot independently authenticate
+repository/Git provenance because the runner user can replace its Git metadata;
+that class therefore also requires a separately protected native producer and
+remains unavailable in production until one is deployed. Ordinary launch and
+later safety-critical Git calls use a fixed executable, pinned Git directory,
+common directory, worktree and index identities, and a closed Git environment.
+Launch
 cleanliness compares raw tracked bytes to index objects without invoking
 filters and rejects unsafe Git-dir attributes, active Git-dir excludes, non-
 allowlisted configuration, and hidden index flags. Lifecycle and logical-task-
-budget files remain inputs to future protected producers, but same-UID files
-are not independent authority. Those classes and the other closed registry
-slots require separately deployed native domain producers.
+budget files and local Git objects remain inputs to future protected producers,
+but same-UID stores are not independent authority. Every closed registry slot
+requires a separately deployed native domain producer.
 Until those producers exist, their production verifiers reject even canonical,
 owner-only, correctly class-tagged JSON: runner-owned envelopes are not
 producer identity and cannot supply claims or provenance. Tests use explicit

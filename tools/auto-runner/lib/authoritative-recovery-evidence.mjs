@@ -9,6 +9,7 @@ import { loadPreEffectIntent, reconcilePreEffectIntent } from "./pre-effect-inte
 import { canonicalGithubEvidenceDigest } from "./github-evidence-digest.mjs";
 import { readGithubIssueState } from "./github-issue-readback.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
+import { runGit } from "./git-workspace.mjs";
 
 export const authoritativeRecoveryEvidenceVersion = 1;
 
@@ -206,8 +207,8 @@ function intendedTreeFromWorktree(config, intent) {
   const paths = intent.effect.stagedPaths;
   if (!sha40(parent) || !Array.isArray(paths) || paths.length === 0) return null;
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-recovery-index-"));
-  const env = { ...process.env, GIT_INDEX_FILE: path.join(root, "index") };
-  const run = (args) => spawnSync("git", args, { cwd: config.repoRoot, env, encoding: "utf8", timeout: 15_000 });
+  const internalIndexFile = path.join(root, "index");
+  const run = (args) => runGit(args, { cwd: config.repoRoot, internalIndexFile });
   try {
     const read = run(["read-tree", parent]);
     const add = run(["add", "--", ...paths]);
@@ -262,13 +263,17 @@ function defaultLeaseRead(config, identity, now) {
 }
 
 function defaultGitRead(config, identity, repoRoot = config.repoRoot) {
-  const run = (args) => spawnSync("git", args, { cwd: repoRoot, encoding: "utf8", timeout: 15_000 });
+  const run = (args) => runGit(args, { cwd: repoRoot });
   const status = run(["status", "--porcelain=v2"]);
   const branch = run(["symbolic-ref", "--quiet", "--short", "HEAD"]);
   const head = run(["rev-parse", "HEAD"]);
   const commit = run(["show", "-s", "--format=%P%n%T%n%B", "HEAD"]);
-  assertRepositoryRemoteIdentity({ ...config, repoRoot });
-  const remote = run(["ls-remote", "--exit-code", "origin", `refs/heads/${identity.branchName}`]);
+  const verifiedRemote = assertRepositoryRemoteIdentity({ ...config, repoRoot });
+  const remoteTarget = verifiedRemote?.originUrl || "origin";
+  const remote = runGit(["ls-remote", "--exit-code", remoteTarget, `refs/heads/${identity.branchName}`], {
+    cwd: repoRoot,
+    allowLocalFileTransport: config.runtimeMode !== "external",
+  });
   const staged = run(["diff", "--cached", "--name-only"]);
   const unstaged = run(["diff", "--name-only"]);
   const untracked = run(["ls-files", "--others", "--exclude-standard"]);

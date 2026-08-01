@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { canonicalEffectContext, canonicalIntent, commitExplicitPaths } from "../lib/git-workspace.mjs";
+import { canonicalEffectContext, canonicalIntent, commitExplicitPaths, computeIntendedTreeForCommit } from "../lib/git-workspace.mjs";
 import { preparePreEffectIntent, transitionPreEffectIntent } from "../lib/pre-effect-intent.mjs";
 import { pushBranch } from "../lib/pr-manager.mjs";
 import { createSessionLifecycleState, persistSessionLifecycleState, transitionSessionLifecyclePhase } from "../lib/session-lifecycle.mjs";
@@ -44,6 +44,19 @@ test("actual commit consumer adopts a crash-window commit without recommitting",
   assert.equal(state.branch.headSha, completed);
   assert.equal(git(repo, "rev-parse", "HEAD"), completed);
   assert.equal(git(repo, "rev-list", "--count", "HEAD"), count);
+});
+
+test("commit preparation computes its intended tree without mutating the live index", () => {
+  const { repo } = fixture();
+  writeFileSync(path.join(repo, "file.txt"), "two\n");
+  const indexPath = path.join(repo, ".git", "index");
+  const beforeIndex = createHash("sha256").update(readFileSync(indexPath)).digest("hex");
+  const parent = git(repo, "rev-parse", "HEAD");
+  const intendedTree = computeIntendedTreeForCommit(repo, ["file.txt"], parent);
+  assert.notEqual(intendedTree, git(repo, "rev-parse", "HEAD^{tree}"));
+  assert.equal(createHash("sha256").update(readFileSync(indexPath)).digest("hex"), beforeIndex);
+  assert.equal(git(repo, "diff", "--name-only"), "file.txt");
+  assert.equal(git(repo, "diff", "--cached", "--name-only"), "");
 });
 
 test("actual push consumer adopts a crash-window remote update without replay", async () => {

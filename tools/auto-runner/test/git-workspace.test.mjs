@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -19,9 +20,10 @@ function tempRepo() {
     assert.equal(result.status, 0, result.stderr || result.stdout);
     return result.stdout.trim();
   };
-  git("init");
-  git("config", "user.email", "codex@example.invalid");
-  git("config", "user.name", "Codex Test");
+  execFileSync("/usr/bin/git", ["init"], { cwd, encoding: "utf8" });
+  chmodSync(path.join(cwd, ".git"), 0o700);
+  execFileSync("/usr/bin/git", ["config", "user.email", "codex@example.invalid"], { cwd, encoding: "utf8" });
+  execFileSync("/usr/bin/git", ["config", "user.name", "Codex Test"], { cwd, encoding: "utf8" });
   writeFileSync(path.join(cwd, "base.txt"), "base\n");
   git("add", "base.txt");
   git("commit", "-m", "base");
@@ -65,10 +67,11 @@ test("historical task workspace is materialized without moving canonical main", 
     return result.stdout.trim();
   };
   try {
-    git("init", "-b", "main");
-    git("config", "user.email", "codex@example.invalid");
-    git("config", "user.name", "Codex Test");
-    git("remote", "add", "origin", "https://github.com/tommytang213/Settleora.git");
+    execFileSync("/usr/bin/git", ["init", "-b", "main"], { cwd: repoRoot, encoding: "utf8" });
+    chmodSync(path.join(repoRoot, ".git"), 0o700);
+    execFileSync("/usr/bin/git", ["config", "user.email", "codex@example.invalid"], { cwd: repoRoot, encoding: "utf8" });
+    execFileSync("/usr/bin/git", ["config", "user.name", "Codex Test"], { cwd: repoRoot, encoding: "utf8" });
+    execFileSync("/usr/bin/git", ["remote", "add", "origin", "https://github.com/tommytang213/Settleora.git"], { cwd: repoRoot, encoding: "utf8" });
     writeFileSync(path.join(repoRoot, "base.txt"), "base\n");
     git("add", "base.txt");
     git("commit", "-m", "base");

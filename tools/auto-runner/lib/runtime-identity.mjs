@@ -182,13 +182,15 @@ export function repositoryAuthorityLockPath(repoRoot, authorityRoot = "/workspac
 }
 
 export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
-  const top = gitValue(repoRoot, ["rev-parse", "--show-toplevel"], "repository top-level");
+  const context = sourceOwnedIdentityGitContext(repoRoot);
+  assertIdentityGitConfig(context);
+  const top = gitValue(context, ["rev-parse", "--show-toplevel"], "repository top-level");
   if (realpathSync(top) !== repoRoot) throw new Error("repoRoot must be the exact Git worktree top-level");
-  const commonRaw = gitValue(repoRoot, ["rev-parse", "--git-common-dir"], "Git common directory");
+  const commonRaw = gitValue(context, ["rev-parse", "--git-common-dir"], "Git common directory");
   const commonDir = realpathSync(path.resolve(repoRoot, commonRaw));
-  const originResult = spawnSync("git", ["remote", "get-url", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
+  const originResult = runIdentityGit(context, ["remote", "get-url", "origin"]);
   const originUrl = originResult.status === 0 ? originResult.stdout.trim() : null;
-  const pushResult = spawnSync("git", ["remote", "get-url", "--push", "--all", "origin"], { cwd: repoRoot, encoding: "utf8", windowsHide: true });
+  const pushResult = runIdentityGit(context, ["remote", "get-url", "--push", "--all", "origin"]);
   const pushUrls = pushResult.status === 0 ? pushResult.stdout.split(/\r?\n/u).filter(Boolean) : [];
   const pushUrl = pushUrls.length === 1 ? pushUrls[0] : null;
   const normalizedExpectedSlug = expectedSlug?.toLowerCase() || null;
@@ -214,10 +216,132 @@ export function assertRepositoryRemoteIdentity(config) {
   return Object.freeze({ originUrl: current.originUrl, pushUrl: current.pushUrl });
 }
 
-function gitValue(cwd, args, label) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+function gitValue(context, args, label) {
+  const result = runIdentityGit(context, args);
   if (result.error || result.status !== 0 || !result.stdout.trim()) throw new Error(`Unable to verify ${label}`);
   return result.stdout.trim();
+}
+
+function sourceOwnedIdentityGitContext(repoRoot) {
+  const root = canonicalExistingDirectory(repoRoot, "repoRoot");
+  const entryPath = path.join(root, ".git");
+  const entry = lstatSync(entryPath);
+  if ((!entry.isDirectory() && !entry.isFile()) || entry.isSymbolicLink()
+    || (typeof process.getuid === "function" && entry.uid !== process.getuid())) {
+    throw new Error("repository Git entry is unsafe");
+  }
+  const probe = spawnSync("/usr/bin/git", identityGitArgs(root, [
+    "rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir", "--show-toplevel",
+  ]), { cwd: root, env: pureIdentityGitEnvironment(), encoding: "utf8", windowsHide: true });
+  if (probe.error || probe.status !== 0) throw new Error("Unable to verify repository Git context");
+  const [gitDirRaw, commonDirRaw, topRaw, ...extra] = probe.stdout.trimEnd().split("\n");
+  if (extra.length || realpathSync(topRaw) !== root) throw new Error("repository Git context mismatch");
+  const gitDir = realpathSync(gitDirRaw);
+  const commonDir = realpathSync(commonDirRaw);
+  const context = {
+    root, entryPath, entryIdentity: stableGitPathIdentity(entry), gitDir, commonDir,
+    gitDirIdentity: stableGitDirectoryIdentity(lstatSync(gitDir)),
+    commonDirIdentity: stableGitDirectoryIdentity(lstatSync(commonDir)),
+    indexFile: path.join(gitDir, "index"),
+    guardedMetadata: identityGitMetadataSnapshot(gitDir, commonDir),
+  };
+  if (!identityGitContextStable(context)) throw new Error("repository Git context changed during admission");
+  return context;
+}
+
+function runIdentityGit(context, args) {
+  const result = spawnSync("/usr/bin/git", identityGitArgs(context.root, args), {
+    cwd: context.root,
+    env: identityGitEnvironment(context),
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (!identityGitContextStable(context)) {
+    return { status: 128, stdout: "", stderr: "repository Git context changed during read", error: null };
+  }
+  return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error || null };
+}
+
+function identityGitArgs(root, args) {
+  return [
+    "--no-replace-objects", "-c", "credential.helper=", "-c", "core.attributesFile=/dev/null",
+    "-c", "core.excludesFile=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
+    "-c", `core.worktree=${root}`, "-c", "diff.external=", "-c", "protocol.ext.allow=never",
+    "-c", "protocol.file.allow=never", ...args,
+  ];
+}
+
+function pureIdentityGitEnvironment() {
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  return { ...inherited, PATH: "/usr/bin:/bin", GIT_ATTR_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", LANG: "C", LC_ALL: "C" };
+}
+
+function identityGitEnvironment(context) {
+  return { ...pureIdentityGitEnvironment(), GIT_COMMON_DIR: context.commonDir, GIT_DIR: context.gitDir,
+    GIT_INDEX_FILE: context.indexFile, GIT_WORK_TREE: context.root };
+}
+
+function identityGitContextStable(context) {
+  try {
+    return stableGitPathIdentity(lstatSync(context.entryPath)) === context.entryIdentity
+      && stableGitDirectoryIdentity(lstatSync(context.gitDir)) === context.gitDirIdentity
+      && stableGitDirectoryIdentity(lstatSync(context.commonDir)) === context.commonDirIdentity
+      && identityGitMetadataSnapshot(context.gitDir, context.commonDir).identity === context.guardedMetadata.identity;
+  } catch { return false; }
+}
+
+function identityGitMetadataSnapshot(gitDir, commonDir) {
+  const entries = [...new Set([path.join(commonDir, "config"), path.join(gitDir, "config.worktree")])]
+    .sort().map((metadataPath) => {
+      if (!existsSync(metadataPath)) return `${metadataPath}:absent`;
+      const info = lstatSync(metadataPath);
+      if (!info.isFile() || info.isSymbolicLink()
+        || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+        throw new Error("repository Git config path is unsafe");
+      }
+      return `${metadataPath}:${stableGitPathIdentity(info)}`;
+    });
+  return { identity: entries.join("\n") };
+}
+
+function stableGitPathIdentity(info) {
+  return info.isDirectory() ? stableGitDirectoryIdentity(info)
+    : [info.dev, info.ino, info.mode, info.uid, info.size, info.mtimeMs, info.ctimeMs].join(":");
+}
+
+function stableGitDirectoryIdentity(info) {
+  if (!info.isDirectory() || info.isSymbolicLink()
+    || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+    throw new Error("repository Git directory is unsafe");
+  }
+  return [info.dev, info.ino, info.mode, info.uid].join(":");
+}
+
+function assertIdentityGitConfig(context) {
+  const allowed = [
+    /^core\.(?:repositoryformatversion|filemode|bare|logallrefupdates|worktree)$/u,
+    /^extensions\.worktreeconfig$/u,
+    /^remote\.origin\.(?:url|pushurl|fetch)$/u,
+    /^branch\..+\.(?:remote|merge)$/u,
+    /^user\.(?:name|email)$/u,
+  ];
+  const local = runIdentityGit(context, ["config", "--local", "--name-only", "--list"]);
+  if (local.error || local.status !== 0
+    || local.stdout.split("\n").filter(Boolean).some((key) => !allowed.some((pattern) => pattern.test(key)))) {
+    throw new Error("repository Git config is unsafe");
+  }
+  const extension = runIdentityGit(context, ["config", "--local", "--get", "extensions.worktreeConfig"]);
+  if (extension.status === 1) return;
+  if (extension.error || extension.status !== 0 || extension.stdout.trim().toLowerCase() !== "true") {
+    throw new Error("repository Git worktree config is unsafe");
+  }
+  const worktree = runIdentityGit(context, ["config", "--worktree", "--name-only", "--list"]);
+  if (worktree.error || worktree.status !== 0
+    || worktree.stdout.split("\n").filter(Boolean).some((key) => !allowed.some((pattern) => pattern.test(key)))) {
+    throw new Error("repository Git worktree config is unsafe");
+  }
 }
 
 function repositorySlugFromRemote(remote) {

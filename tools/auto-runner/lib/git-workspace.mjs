@@ -236,19 +236,25 @@ function parseWorktrees(value) {
 
 export function runGit(args, options = {}) {
   const cwd = options.cwd || trustedRepositoryContext || process.cwd();
-  const initializesMissingRepository =
-    args[0] === "init" && !existsSync(path.join(cwd, ".git"));
-  const hasHead = !initializesMissingRepository && repositoryHasHead(cwd);
-  if (!initializesMissingRepository) {
-    assertSourceOwnedGitMetadata(cwd);
-  }
-  const fixedArgs = fixedRepositoryGitArgs(cwd, args);
+  const context = sourceOwnedGitContext(cwd);
+  assertSourceOwnedGitMetadata(context);
+  const hasHead = repositoryHasHead(context);
+  const fixedArgs = fixedRepositoryGitArgs(cwd, args, {
+    allowLocalFileTransport: options.allowLocalFileTransport === true,
+  });
   const result = spawnSync("/usr/bin/git", fixedArgs, {
     cwd,
-    env: fixedRepositoryGitEnvironment(options.env, { bindAttributesToHead: hasHead }),
+    env: fixedRepositoryGitEnvironment(context, {
+      bindAttributesToHead: hasHead,
+      internalIndexFile: options.internalIndexFile,
+      manageWorktrees: options.manageWorktrees === true,
+    }),
     encoding: "utf8",
     windowsHide: true,
   });
+  if (!sourceOwnedGitContextStable(context)) {
+    return { command: `git ${args.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
+  }
   return {
     command: `git ${args.join(" ")}`,
     status: result.status,
@@ -286,9 +292,10 @@ export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef 
   if (!diff.stdout.trim()) {
     return { exactHead, treeId, patchId: null, patchIdReason: "empty_cumulative_diff" };
   }
-  const patchId = spawnSync("git", ["patch-id", "--stable"], {
+  const patchId = spawnSync("/usr/bin/git", ["patch-id", "--stable"], {
     cwd,
     input: diff.stdout,
+    env: fixedPureGitEnvironment(),
     encoding: "utf8",
     windowsHide: true,
   });
@@ -337,73 +344,92 @@ function runLaunchWorkspaceGuardGit(args, { cwd, environment = process.env } = {
   // The unused environment parameter makes hostile-environment behavior
   // directly testable without mutating process-global state.
   void environment;
-  assertSourceOwnedGitMetadata(cwd);
+  const context = sourceOwnedGitContext(cwd);
+  assertSourceOwnedGitMetadata(context);
   const fixedArgs = fixedRepositoryGitArgs(cwd, args);
   const result = spawnSync("/usr/bin/git", fixedArgs, {
     cwd,
-    env: fixedRepositoryGitEnvironment(),
+    env: fixedRepositoryGitEnvironment(context),
     encoding: "utf8",
     windowsHide: true,
   });
-  return {
+  return sourceOwnedGitContextStable(context) ? {
     command: `/usr/bin/git ${fixedArgs.join(" ")}`,
     status: result.status,
     stdout: result.stdout || "",
     stderr: result.stderr || "",
     error: result.error ? result.error.message : null,
-  };
+  } : { command: `/usr/bin/git ${fixedArgs.join(" ")}`, status: 128, stdout: "", stderr: "Repository Git metadata changed during operation", error: null };
 }
 
-function fixedRepositoryGitArgs(cwd, args) {
+function fixedRepositoryGitArgs(cwd, args, { allowLocalFileTransport = false } = {}) {
   return [
     "--no-replace-objects",
+    "-c", "credential.helper=",
+    "-c", "credential.https://github.com.helper=!/usr/bin/gh auth git-credential",
     "-c", "core.attributesFile=/dev/null",
+    "-c", "core.excludesFile=/dev/null",
     "-c", "core.fsmonitor=false",
     "-c", "core.hooksPath=/dev/null",
     "-c", `core.worktree=${path.resolve(cwd)}`,
     "-c", "protocol.ext.allow=never",
-    "-c", "protocol.file.allow=never",
+    "-c", `protocol.file.allow=${allowLocalFileTransport ? "user" : "never"}`,
     ...args,
   ];
 }
 
-function fixedRepositoryGitEnvironment(overrides = {}, { bindAttributesToHead = true } = {}) {
+function fixedRepositoryGitEnvironment(context, {
+  bindAttributesToHead = true, internalIndexFile = null, manageWorktrees = false,
+} = {}) {
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
-  const permittedOverrides = Object.fromEntries(Object.entries(overrides || {}).filter(([key]) => !key.startsWith("GIT_")));
+  const indexFile = internalIndexFile === null
+    ? context.indexFile
+    : validateInternalGitIndexFile(internalIndexFile);
   const environment = {
     ...inherited,
-    ...permittedOverrides,
     PATH: "/usr/bin:/bin",
+    GIT_ATTR_NOSYSTEM: "1",
     GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_SYSTEM: "/dev/null",
+    GIT_COMMON_DIR: context.commonDir,
+    GIT_DIR: context.gitDir,
     GIT_NO_LAZY_FETCH: "1",
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_OPTIONAL_LOCKS: "0",
+    GIT_SSH_COMMAND: "/usr/bin/ssh -F /dev/null -o BatchMode=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_WORK_TREE: context.root,
     LANG: "C",
     LC_ALL: "C",
   };
+  if (!manageWorktrees) environment.GIT_INDEX_FILE = indexFile;
   if (bindAttributesToHead) environment.GIT_ATTR_SOURCE = "HEAD";
   return environment;
 }
 
-function repositoryHasHead(cwd) {
-  const root = path.resolve(cwd);
-  if (!existsSync(path.join(root, ".git"))) return false;
-  const result = spawnSync("/usr/bin/git", fixedRepositoryGitArgs(root, ["rev-parse", "--verify", "HEAD^{commit}"]), {
-    cwd: root,
-    env: fixedRepositoryGitEnvironment({}, { bindAttributesToHead: false }),
+function fixedPureGitEnvironment() {
+  return {
+    PATH: "/usr/bin:/bin", GIT_ATTR_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_SYSTEM: "/dev/null", GIT_NO_LAZY_FETCH: "1",
+    GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0", LANG: "C", LC_ALL: "C",
+  };
+}
+
+function repositoryHasHead(context) {
+  const result = spawnSync("/usr/bin/git", fixedRepositoryGitArgs(context.root, ["rev-parse", "--verify", "HEAD^{commit}"]), {
+    cwd: context.root,
+    env: fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
     encoding: "utf8",
     windowsHide: true,
   });
   return result.status === 0 && !result.error;
 }
 
-function assertSourceOwnedGitMetadata(cwd) {
-  const root = path.resolve(cwd);
-  const git = (args) => spawnSync("/usr/bin/git", fixedRepositoryGitArgs(root, args), {
-    cwd: root,
-    env: fixedRepositoryGitEnvironment({}, { bindAttributesToHead: false }),
+function assertSourceOwnedGitMetadata(context) {
+  const git = (args) => spawnSync("/usr/bin/git", fixedRepositoryGitArgs(context.root, args), {
+    cwd: context.root,
+    env: fixedRepositoryGitEnvironment(context, { bindAttributesToHead: false }),
     encoding: "utf8",
     windowsHide: true,
   });
@@ -420,11 +446,106 @@ function assertSourceOwnedGitMetadata(cwd) {
   const attributes = git(["rev-parse", "--git-path", "info/attributes"]);
   const excludes = git(["rev-parse", "--git-path", "info/exclude"]);
   if (attributes.status !== 0 || excludes.status !== 0) throw new Error("Repository Git metadata is unreadable");
-  if (existsSync(path.resolve(root, attributes.stdout.trim()))) throw new Error("Repository Git attributes are unsafe");
-  const excludePath = path.resolve(root, excludes.stdout.trim());
+  if (existsSync(path.resolve(context.root, attributes.stdout.trim()))) throw new Error("Repository Git attributes are unsafe");
+  const excludePath = path.resolve(context.root, excludes.stdout.trim());
   if (existsSync(excludePath) && readFileSync(excludePath, "utf8").split(/\r?\n/u).some((line) => line.trim() && !line.trim().startsWith("#"))) {
     throw new Error("Repository Git excludes are unsafe");
   }
+}
+
+function sourceOwnedGitContext(cwd) {
+  const root = realpathSync(path.resolve(cwd));
+  if (root !== path.resolve(cwd)) throw new Error("Repository worktree path is noncanonical");
+  const entryPath = path.join(root, ".git");
+  const entryBefore = lstatSync(entryPath);
+  if (!entryBefore.isDirectory() && !entryBefore.isFile()) throw new Error("Repository Git entry is unsafe");
+  if (entryBefore.isSymbolicLink()
+    || (typeof process.getuid === "function" && entryBefore.uid !== process.getuid())) {
+    throw new Error("Repository Git entry is unsafe");
+  }
+  const probe = spawnSync("/usr/bin/git", fixedRepositoryGitArgs(root, [
+    "rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir", "--show-toplevel",
+  ]), { cwd: root, env: fixedPureGitEnvironment(), encoding: "utf8", windowsHide: true });
+  if (probe.error || probe.status !== 0) throw new Error("Repository Git metadata is unreadable");
+  const [gitDirRaw, commonDirRaw, topRaw, ...extra] = probe.stdout.trimEnd().split("\n");
+  if (extra.length || realpathSync(topRaw) !== root) throw new Error("Repository Git worktree identity mismatch");
+  const gitDir = realpathSync(gitDirRaw);
+  const commonDir = realpathSync(commonDirRaw);
+  for (const directory of [gitDir, commonDir]) {
+    const info = lstatSync(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()
+      || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
+      throw new Error("Repository Git directory is unsafe");
+    }
+  }
+  const entryAfter = lstatSync(entryPath);
+  if (pathIdentity(entryBefore) !== pathIdentity(entryAfter)) throw new Error("Repository Git entry changed during admission");
+  const guardedMetadata = guardedGitMetadataIdentity(gitDir, commonDir);
+  assertGuardedGitMetadataPaths(guardedMetadata);
+  return {
+    root, entryPath, entryIdentity: pathIdentity(entryAfter), gitDir, commonDir,
+    gitDirIdentity: directoryIdentity(lstatSync(gitDir)), commonDirIdentity: directoryIdentity(lstatSync(commonDir)),
+    indexFile: path.join(gitDir, "index"), guardedMetadata,
+  };
+}
+
+function sourceOwnedGitContextStable(context) {
+  try {
+    return pathIdentity(lstatSync(context.entryPath)) === context.entryIdentity
+      && directoryIdentity(lstatSync(context.gitDir)) === context.gitDirIdentity
+      && directoryIdentity(lstatSync(context.commonDir)) === context.commonDirIdentity
+      && guardedGitMetadataIdentity(context.gitDir, context.commonDir).identity === context.guardedMetadata.identity;
+  } catch { return false; }
+}
+
+function guardedGitMetadataIdentity(gitDir, commonDir) {
+  const paths = [...new Set([
+    path.join(commonDir, "config"), path.join(gitDir, "config.worktree"),
+    path.join(commonDir, "info", "attributes"), path.join(commonDir, "info", "exclude"),
+    path.join(commonDir, "info", "grafts"), path.join(commonDir, "objects", "info", "alternates"),
+  ])].sort();
+  const entries = paths.map((metadataPath) => {
+    if (!existsSync(metadataPath)) return { path: metadataPath, identity: "absent", safe: true };
+    const info = lstatSync(metadataPath);
+    return {
+      path: metadataPath,
+      identity: fileIdentity(info),
+      safe: info.isFile() && !info.isSymbolicLink()
+        && (typeof process.getuid !== "function" || info.uid === process.getuid()),
+    };
+  });
+  return { entries, identity: entries.map((entry) => `${entry.path}:${entry.identity}`).join("\n") };
+}
+
+function assertGuardedGitMetadataPaths(snapshot) {
+  if (snapshot.entries.some((entry) => !entry.safe)) throw new Error("Repository Git metadata path is unsafe");
+}
+
+function fileIdentity(info) {
+  return [info.dev, info.ino, info.mode, info.uid, info.size, info.mtimeMs, info.ctimeMs].join(":");
+}
+
+function directoryIdentity(info) {
+  return [info.dev, info.ino, info.mode, info.uid].join(":");
+}
+
+function pathIdentity(info) {
+  return info.isDirectory() ? directoryIdentity(info) : fileIdentity(info);
+}
+
+function validateInternalGitIndexFile(value) {
+  const candidate = path.resolve(value || "");
+  const parent = path.dirname(candidate);
+  if (!path.isAbsolute(value || "") || candidate !== value
+    || !/^settleora-(?:commit|recovery)-index-/u.test(path.basename(parent))
+    || path.dirname(parent) !== realpathSync(os.tmpdir())) {
+    throw new Error("Internal Git index path is unsafe");
+  }
+  const parentInfo = lstatSync(parent);
+  if (!parentInfo.isDirectory() || parentInfo.isSymbolicLink() || (parentInfo.mode & 0o077) !== 0) {
+    throw new Error("Internal Git index parent is unsafe");
+  }
+  return candidate;
 }
 
 function unsupportedRepositoryGitConfigKeys(value) {
@@ -561,38 +682,15 @@ function runTrustedHistoricalFetch(cwd) {
 }
 
 function runFixedTrustedGit(cwd, args, extraEnv = {}) {
-  const result = spawnSync("/usr/bin/git", args, {
-    cwd,
-    env: {
-      PATH: "/usr/bin:/bin",
-      LANG: "C",
-      LC_ALL: "C",
-      HOME: process.env.HOME || "/dev/null",
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_OPTIONAL_LOCKS: "0",
-      GIT_CONFIG_COUNT: "1",
-      GIT_CONFIG_KEY_0: "core.useReplaceRefs",
-      GIT_CONFIG_VALUE_0: "false",
-      ...extraEnv,
-    },
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  return {
-    command: `/usr/bin/git ${args.join(" ")}`,
-    status: result.status,
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-    error: result.error ? result.error.message : null,
-  };
+  void extraEnv;
+  return runGit(args, { cwd, manageWorktrees: args.includes("worktree") });
 }
 
 export function createTaskBranch(config, branchName, baseRef = "origin/main") {
   if (config.dryRun) {
     return { skipped: true, branchName, baseRef, reason: "dry-run" };
   }
-  const result = runGit(["switch", "-C", branchName, baseRef], { cwd: config.repoRoot });
+  const result = runGit(["switch", "--no-track", "-C", branchName, baseRef], { cwd: config.repoRoot });
   assertGitSuccess(result, `Unable to create task branch ${branchName}`);
   return { skipped: false, branchName, baseRef };
 }
@@ -663,7 +761,7 @@ export async function commitExplicitPaths(config, files, message, options = {}) 
   const effectContext = canonicalEffectContext(config, options.effectContext);
   const pending = findPendingEffect(config, effectContext, "commit", (intent) => sameStrings(intent.effect.stagedPaths, [...files].sort()) && intent.effect.messageDigest === createHash("sha256").update(normalizeCommitMessage(message)).digest("hex"));
   const parent = pending?.effect.expectedParents?.[0] || getRefSha("HEAD", { cwd });
-  const intendedTreeSha = pending?.effect.treeSha || computeIntendedTree(cwd, files, parent);
+  const intendedTreeSha = pending?.effect.treeSha || computeIntendedTreeForCommit(cwd, files, parent);
   const effect = pending?.effect || {
     expectedParents: [parent],
     treeSha: intendedTreeSha,
@@ -699,16 +797,15 @@ function prepareCommitIntent(config, intent) {
   return preparePreEffectIntent(config, intent);
 }
 
-function computeIntendedTree(cwd, files, parent) {
+export function computeIntendedTreeForCommit(cwd, files, parent) {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-commit-index-"));
   const indexPath = path.join(tempRoot, "index");
-  const env = { GIT_INDEX_FILE: indexPath };
   try {
-    const read = runGit(["read-tree", parent], { cwd, env });
+    const read = runGit(["read-tree", parent], { cwd, internalIndexFile: indexPath });
     assertGitSuccess(read, "Unable to initialize isolated commit index");
-    const add = runGit(["add", "--", ...files], { cwd, env });
+    const add = runGit(["add", "--", ...files], { cwd, internalIndexFile: indexPath });
     assertGitSuccess(add, "Unable to stage explicit paths in isolated commit index");
-    const tree = runGit(["write-tree"], { cwd, env });
+    const tree = runGit(["write-tree"], { cwd, internalIndexFile: indexPath });
     assertGitSuccess(tree, "Unable to compute intended commit tree");
     return tree.stdout.trim();
   } finally {

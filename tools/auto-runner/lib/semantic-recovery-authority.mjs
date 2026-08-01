@@ -1,10 +1,8 @@
 import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import {
   closeSync,
   constants as fsConstants,
-  existsSync,
   fstatSync,
   lstatSync,
   openSync,
@@ -399,7 +397,7 @@ function createRegistry(authority, reader, persistExactSemanticSuccessor = null)
 }
 
 function verifyProductionSource(config, authorityClass, descriptor) {
-  if (authorityClass === "repository_git") return verifyRepositoryGitSource(config, descriptor);
+  void config;
   return rejectUnavailableProductionProducer(authorityClass, descriptor);
 }
 
@@ -419,121 +417,6 @@ function rejectUnavailableProductionProducer(authorityClass, descriptor) {
     || !path.isAbsolute(descriptor.store.path) || typeof descriptor.store.role !== "string"
     || !descriptor.store.role.length || !isDigest(descriptor.store.sha256)) throw new Error("semantic source store mismatch");
   throw new Error(`semantic source producer unavailable: ${authorityClass}`);
-}
-
-function verifyRepositoryGitSource(config, descriptor) {
-  assertExactKeys(descriptor, ["authorityClass", "selection", "store"]);
-  if (descriptor.authorityClass !== "repository_git") throw new Error("repository Git source class mismatch");
-  assertExactKeys(descriptor.store, ["kind", "path", "role", "sha256"]);
-  assertExactKeys(descriptor.selection, ["baseSha", "branch", "headSha"]);
-  const { baseSha, branch, headSha } = descriptor.selection;
-  if (descriptor.store.kind !== verifierDefinitions.repository_git.storeKind || descriptor.store.role !== "candidate_repository"
-    || !/^[a-f0-9]{40}$/u.test(baseSha || "") || !/^[a-f0-9]{40}$/u.test(headSha || "")
-    || typeof branch !== "string" || !branch.length || branch.startsWith("refs/") || !isDigest(descriptor.store.sha256)) throw new Error("repository Git selector invalid");
-  const repoRoot = path.resolve(config.repoRoot);
-  if (path.resolve(descriptor.store.path) !== repoRoot || realpathSync(repoRoot) !== repoRoot) throw new Error("repository Git root mismatch");
-  const git = (args, encoding = "utf8") => {
-    const result = spawnSync("/usr/bin/git", [
-      "--no-replace-objects",
-      "-c", "credential.helper=",
-      "-c", "core.hooksPath=/dev/null",
-      "-c", "core.fsmonitor=false",
-      "-c", "core.attributesFile=/dev/null",
-      "-c", "core.quotePath=true",
-      "-c", "diff.external=",
-      "-c", "diff.noprefix=false",
-      "-c", "diff.mnemonicPrefix=false",
-      "-c", "diff.renames=false",
-      "-c", "diff.algorithm=myers",
-      "-c", "diff.orderFile=/dev/null",
-      "-c", "diff.ignoreSubmodules=none",
-      "-c", "diff.submodule=short",
-      "-c", "protocol.ext.allow=never",
-      "-c", "protocol.file.allow=never",
-      ...args,
-    ], {
-      cwd: repoRoot,
-      encoding,
-      env: {
-        PATH: "/usr/bin:/bin",
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_SYSTEM: "/dev/null",
-        GIT_ATTR_SOURCE: headSha,
-        GIT_NO_REPLACE_OBJECTS: "1",
-        GIT_NO_LAZY_FETCH: "1",
-        GIT_OPTIONAL_LOCKS: "0",
-        LANG: "C",
-        LC_ALL: "C",
-      },
-      maxBuffer: 4 * 1024 * 1024,
-    });
-    if (result.status !== 0 || result.error) throw new Error("repository Git read failed");
-    return result.stdout;
-  };
-  if (path.resolve(String(git(["rev-parse", "--show-toplevel"])).trim()) !== repoRoot) throw new Error("repository Git top-level mismatch");
-  assertCanonicalRepositoryGitStore(repoRoot, git);
-  git(["check-ref-format", `refs/heads/${branch}`]);
-  const remote = String(git(["remote", "get-url", "origin"])).trim().replace(/\.git$/u, "");
-  const expectedRemote = `https://github.com/${config.repositorySlug}`.toLowerCase();
-  if (remote.toLowerCase() !== expectedRemote) throw new Error("repository Git remote mismatch");
-  if (String(git(["rev-parse", `refs/heads/${branch}`])).trim() !== headSha
-    || String(git(["rev-parse", `${baseSha}^{commit}`])).trim() !== baseSha
-    || String(git(["rev-parse", `${headSha}^{commit}`])).trim() !== headSha) throw new Error("repository Git object mismatch");
-  const treeSha = String(git(["rev-parse", `${headSha}^{tree}`])).trim();
-  const changedFiles = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", baseSha, headSha], null) || []).toString("utf8").split("\0").filter(Boolean).sort();
-  const changedFilesDigest = sha256(JSON.stringify(changedFiles));
-  const diffBytes = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--binary", baseSha, headSha], null) || []);
-  const diffDigest = sha256(diffBytes);
-  const provenanceIdentity = sha256(canonicalJson({ repository: config.repositorySlug, repoRoot, branch, baseSha, headSha, treeSha, changedFilesDigest, diffDigest }));
-  if (descriptor.store.sha256 !== provenanceIdentity) throw new Error("repository Git provenance selector mismatch");
-  return {
-    claims: { repository: config.repositorySlug, branch, baseSha, headSha, treeSha, changedFilesDigest, diffDigest },
-    provenanceIdentity,
-    store: { ...descriptor.store, path: repoRoot, byteCount: 1 },
-  };
-}
-
-function assertCanonicalRepositoryGitStore(repoRoot, git) {
-  if (String(git(["rev-parse", "--is-shallow-repository"])).trim() !== "false") throw new Error("repository Git history shallow");
-  const common = String(git(["rev-parse", "--git-common-dir"])).trim();
-  const gitDirectory = path.resolve(repoRoot, common);
-  const infoAttributes = path.resolve(repoRoot, String(git(["rev-parse", "--git-path", "info/attributes"])).trim());
-  const localConfig = String(git(["config", "--local", "--name-only", "--list"]));
-  const worktreeConfigValue = spawnGitStatus(repoRoot, ["config", "--local", "--get", "extensions.worktreeConfig"]);
-  let worktreeConfig = "";
-  if (worktreeConfigValue.status === 0) {
-    if (worktreeConfigValue.stdout.trim().toLowerCase() !== "true") throw new Error("repository Git worktree config invalid");
-    worktreeConfig = String(git(["config", "--worktree", "--name-only", "--list"]));
-  } else if (worktreeConfigValue.status !== 1) throw new Error("repository Git config unreadable");
-  if (unsafeGitConfig(localConfig) || unsafeGitConfig(worktreeConfig)) throw new Error("repository Git config unsafe");
-  const replaceRoot = path.join(gitDirectory, "refs", "replace");
-  if (existsSync(infoAttributes)) throw new Error("repository Git attributes unsafe");
-  if (existsSync(path.join(gitDirectory, "info", "grafts"))
-    || existsSync(path.join(gitDirectory, "objects", "info", "alternates"))
-    || (existsSync(replaceRoot) && readdirSync(replaceRoot).length > 0)
-    || String(git(["show-ref"])).split("\n").some((line) => line.includes(" refs/replace/"))) {
-    throw new Error("repository Git object mechanism unsafe");
-  }
-}
-
-function spawnGitStatus(repoRoot, args) {
-  return spawnSync("/usr/bin/git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", ...args], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0" },
-  });
-}
-
-function unsafeGitConfig(value) {
-  const allowed = [
-    /^core\.(?:repositoryformatversion|filemode|bare|logallrefupdates)$/u,
-    /^extensions\.worktreeconfig$/u,
-    /^remote\.origin\.(?:url|pushurl|fetch)$/u,
-    /^branch\..+\.(?:remote|merge)$/u,
-    /^user\.(?:name|email)$/u,
-  ];
-  return String(value || "").split("\n").filter(Boolean).some((key) => !allowed.some((pattern) => pattern.test(key)));
 }
 
 function normalizeVerifiedRecord(authorityClass, record, definition) {

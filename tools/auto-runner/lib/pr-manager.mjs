@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { executeCanonicalEffect } from "./canonical-effect-executor.mjs";
-import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha } from "./git-workspace.mjs";
+import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findPendingEffect, getRefSha, runGit } from "./git-workspace.mjs";
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 function runGh(args, cwd) {
@@ -17,18 +17,13 @@ function runGh(args, cwd) {
 export async function pushBranch(config, branchName, options = {}) {
   if (config.dryRun) return { skipped: true, reason: "dry-run" };
   if (options.effectContext) return canonicalPush(config, branchName, options.effectContext);
-  assertRepositoryRemoteIdentity(config);
-  const result = spawnSync("git", ["push", "origin", branchName], {
-    cwd: config.repoRoot,
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  const result = runRemoteGit(config, ["push", "--no-verify"], [branchName], { push: true });
   return {
     skipped: false,
     status: result.status,
     stdout: result.stdout || "",
     stderr: result.stderr || "",
-    error: result.error ? result.error.message : null,
+    error: result.error || null,
   };
 }
 
@@ -54,8 +49,7 @@ async function canonicalPush(config, branchName, lifecycle) {
       return { complete: true, present: true, identity: intent.identity, effect: { ...effect, allowedFastForwardTarget: live.sha || "remote_missing" } };
     },
     execute: () => {
-      assertRepositoryRemoteIdentity(config);
-      const result = spawnSync("git", ["push", "origin", `${localSha}:refs/heads/${branchName}`], { cwd: config.repoRoot, encoding: "utf8", windowsHide: true });
+      const result = runRemoteGit(config, ["push", "--no-verify"], [`${localSha}:refs/heads/${branchName}`], { push: true });
       if (result.error || result.status !== 0) throw new Error("Canonical normal push failed");
       return { ok: true, status: result.status };
     },
@@ -65,8 +59,7 @@ async function canonicalPush(config, branchName, lifecycle) {
 }
 
 function readRemoteHead(config, branchName) {
-  assertRepositoryRemoteIdentity(config);
-  const result = spawnSync("git", ["ls-remote", "--heads", "origin", `refs/heads/${branchName}`], { cwd: config.repoRoot, encoding: "utf8", windowsHide: true });
+  const result = runRemoteGit(config, ["ls-remote", "--heads"], [`refs/heads/${branchName}`]);
   if (result.error || result.status !== 0) return { complete: false, sha: null };
   return { complete: true, sha: result.stdout.trim() ? result.stdout.trim().split(/\s+/)[0] : null };
 }
@@ -81,12 +74,7 @@ export function inspectPreReviewPrOwnership(config, branchName) {
       prs: [],
     };
   }
-  assertRepositoryRemoteIdentity(config);
-  const remote = spawnSync("git", ["ls-remote", "--heads", "origin", branchName], {
-    cwd: config.repoRoot,
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  const remote = runRemoteGit(config, ["ls-remote", "--heads"], [`refs/heads/${branchName}`]);
   const prList = runGh(
     ["pr", "list", "--head", branchName, "--state", "all", "--json", "number,url,state,headRefName,headRefOid"],
     config.repoRoot,
@@ -116,6 +104,15 @@ export function inspectPreReviewPrOwnership(config, branchName) {
       prParse: prParseError,
     },
   };
+}
+
+function runRemoteGit(config, command, trailing, { push = false } = {}) {
+  const verified = assertRepositoryRemoteIdentity(config);
+  const remote = verified ? (push ? verified.pushUrl : verified.originUrl) : "origin";
+  return runGit([...command, remote, ...trailing], {
+    cwd: config.repoRoot,
+    allowLocalFileTransport: config.runtimeMode !== "external",
+  });
 }
 
 export async function openOrUpdatePr(config, issue, branchName, summary, options = {}) {

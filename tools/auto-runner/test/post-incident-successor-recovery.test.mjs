@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -138,7 +137,7 @@ test("matrix and verifier set are deterministic source-owned contracts", () => {
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.originalRunnerRunId.required, ["lifecycle", "supervisor_child_run"]);
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.successorEligible.required, ["lifecycle", "projection_deployment"]);
   const authoritySource = readFileSync(new URL("../lib/semantic-recovery-authority.mjs", import.meta.url), "utf8");
-  assert.match(authoritySource, /authorityClass === "repository_git"[\s\S]*?rejectUnavailableProductionProducer\(authorityClass, descriptor\)/u);
+  assert.match(authoritySource, /void config;[\s\S]*?rejectUnavailableProductionProducer\(authorityClass, descriptor\)/u);
   assert.doesNotMatch(authoritySource, /verifyLifecycleSource|verifyLogicalTaskBudgetSource|\.semanticRecoveryAuthority/u);
 });
 
@@ -152,53 +151,12 @@ test("all required domain owners build one deterministic manifest and derived op
   assert.equal(built.manifest.operation.action, "create_or_adopt_semantic_recovery_successor");
 });
 
-test("production repository verifier derives candidate claims from canonical Git objects", () => {
+test("production repository provenance requires a separately protected native producer", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-semantic-git-"));
-  const git = (...args) => {
-    const result = spawnSync("/usr/bin/git", args, { cwd: root, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-    return result.stdout.trim();
-  };
   try {
-    git("init", "-b", "main"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid");
-    git("remote", "add", "origin", "https://github.com/example/repo.git");
-    writeFileSync(path.join(root, "fixture.txt"), "base\n"); git("add", "fixture.txt"); git("commit", "-m", "base");
-    const baseSha = git("rev-parse", "HEAD");
-    git("switch", "-c", "feature/issue-7"); writeFileSync(path.join(root, "fixture.txt"), "head\n"); git("add", "fixture.txt"); git("commit", "-m", "head");
-    const headSha = git("rev-parse", "HEAD"); const treeSha = git("rev-parse", "HEAD^{tree}");
-    const changedFilesDigest = hash(JSON.stringify(["fixture.txt"]));
-    const diffDigest = hash(spawnSync("/usr/bin/git", ["diff", "--binary", baseSha, headSha], { cwd: root }).stdout);
-    const provenanceIdentity = hash(JSON.stringify(canonicalize({ repository: "example/repo", repoRoot: root, branch: "feature/issue-7", baseSha, headSha, treeSha, changedFilesDigest, diffDigest })));
     const registry = createProductionSemanticRecoveryVerifierRegistry({ repoRoot: root, logsRoot: root, repositorySlug: "example/repo" });
-    const descriptor = { authorityClass: "repository_git", selection: { baseSha, branch: "feature/issue-7", headSha }, store: { kind: "repository_git_store", path: root, role: "candidate_repository", sha256: provenanceIdentity } };
-    const verified = registry.verify("repository_git", descriptor);
-    assert.deepEqual(verified.claims, { repository: "example/repo", branch: "feature/issue-7", baseSha, headSha, treeSha, changedFilesDigest, diffDigest });
-    assert.throws(() => registry.verify("repository_git", { ...descriptor, store: { ...descriptor.store, sha256: "0".repeat(64) } }));
-    writeFileSync(path.join(root, ".gitattributes"), "*.txt binary\n");
-    assert.deepEqual(registry.verify("repository_git", descriptor).claims, verified.claims);
-    assert.equal(spawnSync("git", ["config", "--local", "diff.noprefix", "true"], { cwd: root }).status, 0);
-    assert.throws(() => registry.verify("repository_git", descriptor), /repository Git config unsafe/u);
-  } finally { rmSync(root, { recursive: true, force: true }); }
-});
-
-test("production repository verifier rejects Git-dir attribute overrides", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-semantic-git-info-"));
-  const git = (...args) => {
-    const result = spawnSync("/usr/bin/git", args, { cwd: root, encoding: "utf8" });
-    assert.equal(result.status, 0, result.stderr);
-    return result.stdout.trim();
-  };
-  try {
-    git("init", "-b", "main"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid");
-    git("remote", "add", "origin", "https://github.com/example/repo.git");
-    writeFileSync(path.join(root, "fixture.txt"), "base\n"); git("add", "fixture.txt"); git("commit", "-m", "base");
-    const baseSha = git("rev-parse", "HEAD");
-    git("switch", "-c", "feature/issue-7"); writeFileSync(path.join(root, "fixture.txt"), "head\n"); git("add", "fixture.txt"); git("commit", "-m", "head");
-    const headSha = git("rev-parse", "HEAD");
-    writeFileSync(path.join(root, ".git", "info", "attributes"), "*.txt binary\n");
-    const registry = createProductionSemanticRecoveryVerifierRegistry({ repoRoot: root, logsRoot: root, repositorySlug: "example/repo" });
-    const descriptor = { authorityClass: "repository_git", selection: { baseSha, branch: "feature/issue-7", headSha }, store: { kind: "repository_git_store", path: root, role: "candidate_repository", sha256: "0".repeat(64) } };
-    assert.throws(() => registry.verify("repository_git", descriptor), /repository Git attributes unsafe/u);
+    const descriptor = { authorityClass: "repository_git", store: { kind: "repository_git_store", path: root, role: "candidate_repository", sha256: "0".repeat(64) } };
+    assert.throws(() => registry.verify("repository_git", descriptor), /semantic source producer unavailable: repository_git/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

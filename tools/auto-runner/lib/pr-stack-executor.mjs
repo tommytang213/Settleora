@@ -27,6 +27,7 @@ import {
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 import { classifyIssueLane, filterForbiddenChangedFiles, laneManifest } from "./lane-policy.mjs";
 import { runCodexPrompt } from "./codex-runner.mjs";
+import { runGit } from "./git-workspace.mjs";
 import { validateReviewConvergenceState } from "./review-convergence-state.mjs";
 import { bindValidationEvidence, planValidation, runValidationPlan } from "./validation-planner.mjs";
 import { canonicalGithubEvidenceDigest, executeCanonicalGithubEffectSync } from "./github-effect-consumer.mjs";
@@ -115,7 +116,7 @@ export async function runPrStackExecution(config = {}, cliArgs = {}, options = {
   }
   if (config.sessionLifecycle?.enabled === true && !state.sessionLifecycle) {
     const runId = stackRunId;
-    const mainResult = spawnSync("git", ["rev-parse", "origin/main"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+    const mainResult = runGit(["rev-parse", "origin/main"], { cwd: config.repoRoot });
     const baseSha = mainResult.status === 0 && validSha(mainResult.stdout.trim()) ? mainResult.stdout.trim() : null;
     if (!baseSha) return fail("pr_stack_lifecycle_base_unavailable", "unable to bind PR-stack lifecycle authority to origin/main", { statePath });
     const lifecycle = createSessionLifecycleState({

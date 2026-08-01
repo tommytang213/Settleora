@@ -7439,6 +7439,27 @@ test("launch workspace guard ignores caller Git environment and cannot execute i
   }
 });
 
+test("launch workspace guard cannot hide untracked files through caller global ignore state", () => {
+  const repo = createTempGitRepo();
+  const xdgRoot = mkdtempSync(path.join(tmpdir(), "settleora-hostile-git-xdg-"));
+  const previousXdg = process.env.XDG_CONFIG_HOME;
+  try {
+    mkdirSync(path.join(xdgRoot, "git"), { recursive: true });
+    writeFileSync(path.join(xdgRoot, "git", "ignore"), "hidden-by-global-ignore.txt\n");
+    writeFileSync(path.join(repo, "hidden-by-global-ignore.txt"), "untracked\n");
+    process.env.XDG_CONFIG_HOME = xdgRoot;
+    assert.throws(
+      () => ensureLaunchWorkspace({ run: true, dryRun: false, repoRoot: repo }, { warn() {} }),
+      /Refusing real-run launch with a dirty worktree/,
+    );
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdg;
+    rmSync(xdgRoot, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("launch workspace guard rejects repository filters, info attributes, active excludes, and hidden index flags", () => {
   const cases = [
     (repo) => git(repo, ["config", "filter.cloak.clean", "/bin/false"]),
