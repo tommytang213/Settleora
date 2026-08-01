@@ -138,7 +138,7 @@ export function deriveSuccessorIdentity({ incidentIdentity, taskIdentity, lifecy
   return { storageKey, lifecycleSuccessorSession, operationId };
 }
 
-export function constructPostIncidentSuccessor({ manifest, mutationGeneration, operationalAuthorization }) {
+export function constructPostIncidentSuccessor({ manifest, mutationGeneration, operationGrant }) {
   if (!validatedManifests.has(manifest)) return failed("semantic_manifest_authority_invalid");
   if (!manifest?.manifestDigest || digest(canonicalJson(manifestCoreFromManifest(manifest))) !== manifest.manifestDigest) return failed("semantic_manifest_digest_mismatch");
   const expectedSuccessor = deriveSuccessorIdentity({
@@ -149,11 +149,11 @@ export function constructPostIncidentSuccessor({ manifest, mutationGeneration, o
     manifestDigest: manifest.manifestDigest,
   });
   if (expectedSuccessor.storageKey !== manifest.intendedSuccessor?.storageKey) return failed("semantic_successor_identity_mismatch");
-  if (!validatedOperationalAuthorizations.has(operationalAuthorization)
-    || operationalAuthorization?.authorized !== true
-    || operationalAuthorization?.manifestDigest !== manifest.manifestDigest
-    || operationalAuthorization?.operationId !== manifest.operation.operationId
-    || operationalAuthorization?.requestId !== manifest.operation.requestId) {
+  if (!validatedOperationalAuthorizations.has(operationGrant)
+    || operationGrant?.authorized !== true
+    || operationGrant?.manifestDigest !== manifest.manifestDigest
+    || operationGrant?.operationId !== manifest.operation.operationId
+    || operationGrant?.requestId !== manifest.operation.requestId) {
     return failed("post_incident_operational_authorization_required");
   }
   if (manifest.claims.submissionCount !== 1 || manifest.claims.submissionExhausted !== true) return failed("post_incident_submission_posture_invalid");
@@ -213,9 +213,9 @@ export function authenticatePostIncidentOperationalAuthorization(artifact) {
   if (document?.contract !== "post_incident_operational_authorization" || document?.version !== 1
     || document?.authorized !== true || !digest64(document?.manifestDigest)
     || !bounded(document?.operationId) || !bounded(document?.requestId)) return failed("post_incident_operational_authorization_invalid");
-  const authorization = deepFreeze({ authorized: true, manifestDigest: document.manifestDigest, operationId: document.operationId, requestId: document.requestId, artifact: { path: authenticated.path, sha256: authenticated.sha256 } });
-  validatedOperationalAuthorizations.add(authorization);
-  return authorization;
+  const grant = deepFreeze({ authorized: true, manifestDigest: document.manifestDigest, operationId: document.operationId, requestId: document.requestId, artifact: { path: authenticated.path, sha256: authenticated.sha256 } });
+  validatedOperationalAuthorizations.add(grant);
+  return grant;
 }
 
 export function persistOrAdoptPostIncidentSuccessor(config, construction, manifest) {

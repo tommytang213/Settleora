@@ -237,7 +237,7 @@ test("production artifact authentication derives byte count from the authenticat
 
 test("distinct successor binds provenance and stays non-executable", () => {
   const built = buildSemanticRecoveryManifest(packet());
-  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { stopReason: { reasonCode: "untrusted_incident_field" } }, mutationGeneration: 3, operationalAuthorization: authorize(built) });
+  const constructed = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: { stopReason: { reasonCode: "untrusted_incident_field" } }, mutationGeneration: 3, operationGrant: authorize(built) });
   assert.equal(constructed.ok, true); assert.notEqual(constructed.storageKey, path.basename(rootPath, ".json"));
   assert.equal(constructed.successor.postIncidentSuccessor.executable, false);
   assert.equal(constructed.successor.phase, "checkpoint_validation_commit");
@@ -252,19 +252,19 @@ test("distinct successor binds provenance and stays non-executable", () => {
 test("successor construction requires a separate exact operation authorization", () => {
   const built = buildSemanticRecoveryManifest(packet());
   assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: {}, mutationGeneration: 1 }).reasonCode, "post_incident_operational_authorization_required");
-  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1", requestId: "request-1" } }).reasonCode, "post_incident_operational_authorization_required");
+  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: { authorized: true, manifestDigest: built.manifestDigest, operationId: "operation-1", requestId: "request-1" } }).reasonCode, "post_incident_operational_authorization_required");
   const altered = structuredClone(built.manifest); altered.claims.branch = "altered";
-  assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationalAuthorization: authorize(built) }).reasonCode, "semantic_manifest_authority_invalid");
-  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationalAuthorization: authorize(built) }).reasonCode, "post_incident_mutation_generation_mismatch");
+  assert.equal(constructPostIncidentSuccessor({ manifest: altered, recoveryState: {}, mutationGeneration: 1, operationGrant: authorize(built) }).reasonCode, "semantic_manifest_authority_invalid");
+  assert.equal(constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 2, operationGrant: authorize(built) }).reasonCode, "post_incident_mutation_generation_mismatch");
   const wrongLifecycle = structuredClone(built.manifest); wrongLifecycle.lifecycleSuccessor.previousSessionId = "wrong";
-  assert.equal(constructPostIncidentSuccessor({ manifest: wrongLifecycle, mutationGeneration: 3, operationalAuthorization: authorize(built) }).reasonCode, "semantic_manifest_authority_invalid");
+  assert.equal(constructPostIncidentSuccessor({ manifest: wrongLifecycle, mutationGeneration: 3, operationGrant: authorize(built) }).reasonCode, "semantic_manifest_authority_invalid");
 });
 
 test("successor persistence is idempotent and conflicting adoption fails closed", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-successor-"));
   try {
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: authorize(built) });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(built) });
     const config = { logsRoot: root, postIncidentSuccessorRoot: path.join(root, "successors") };
     mkdirSync(config.postIncidentSuccessorRoot, { mode: 0o700 });
     mkdirSync(path.join(config.postIncidentSuccessorRoot, "provenance"), { mode: 0o700 });
@@ -275,7 +275,7 @@ test("successor persistence is idempotent and conflicting adoption fails closed"
     assert.equal(persistOrAdoptPostIncidentSuccessor(config, collision, built.manifest).reasonCode, "post_incident_persistence_binding_invalid");
     const competingPacket = packet({ operationId: "operation-2", requestId: "request-2" });
     const competingBuilt = buildSemanticRecoveryManifest(competingPacket);
-    const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: authorize(competingBuilt) });
+    const competing = constructPostIncidentSuccessor({ manifest: competingBuilt.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(competingBuilt) });
     assert.equal(persistOrAdoptPostIncidentSuccessor(config, competing, competingBuilt.manifest).reasonCode, "post_incident_provenance_conflict");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -343,7 +343,7 @@ test("symlinked successor roots fail before persistence", () => {
   try {
     const root = path.join(logsRoot, "successors"); symlinkSync(target, root, "dir");
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: authorize(built) });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(built) });
     assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); rmSync(target, { recursive: true, force: true }); }
 });
@@ -354,7 +354,7 @@ test("in-root symlinked persistence directories fail before writes", () => {
     const target = path.join(logsRoot, "target"); mkdirSync(target, { mode: 0o700 }); mkdirSync(path.join(target, "provenance"), { mode: 0o700 });
     const root = path.join(logsRoot, "successors"); symlinkSync(target, root, "dir");
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationalAuthorization: authorize(built) });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, mutationGeneration: 3, operationGrant: authorize(built) });
     assert.equal(persistOrAdoptPostIncidentSuccessor({ logsRoot, postIncidentSuccessorRoot: root }, construction, built.manifest).reasonCode, "post_incident_successor_root_unsafe");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
@@ -363,7 +363,7 @@ test("symlinked successor destination cannot be adopted", () => {
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-symlink-destination-"));
   try {
     const built = buildSemanticRecoveryManifest(packet());
-    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationalAuthorization: authorize(built) });
+    const construction = constructPostIncidentSuccessor({ manifest: built.manifest, recoveryState: recoveryState(), mutationGeneration: 3, operationGrant: authorize(built) });
     const root = path.join(logsRoot, "successors"); mkdirSync(root, { recursive: true, mode: 0o700 });
     const target = path.join(logsRoot, "external.json"); writeFileSync(target, `${JSON.stringify(construction.successor)}\n`, { mode: 0o600 });
     symlinkSync(target, path.join(root, `${construction.storageKey}.json`));
