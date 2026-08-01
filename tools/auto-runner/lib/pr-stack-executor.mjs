@@ -6402,7 +6402,18 @@ function isSuccessfulOrIdempotentHygieneComponent(component = {}) {
 }
 
 function defaultRunner(command, args, options = {}) {
-  const result = spawnSync(command, args, { cwd: options.cwd, input: options.input, encoding: "utf8", windowsHide: true });
+  if (command === "git") return runGit(args, { cwd: options.cwd });
+  if (command !== "gh") return { status: 1, stdout: "", stderr: "trusted executable required", error: "trusted executable required" };
+  const inherited = Object.fromEntries(Object.entries(process.env)
+    .filter(([key]) => !key.startsWith("GIT_") && !key.startsWith("GH_")));
+  const result = spawnSync("/usr/bin/gh", args, {
+    cwd: options.cwd,
+    input: options.input,
+    env: { ...inherited, PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GH_PROMPT_DISABLED: "1" },
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+  });
   return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 

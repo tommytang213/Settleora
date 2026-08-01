@@ -4,7 +4,15 @@ import { canonicalEffectContext, canonicalExecutionInput, canonicalIntent, findP
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 function runGh(args, cwd) {
-  const result = spawnSync("gh", args, { cwd, encoding: "utf8", windowsHide: true });
+  const inherited = Object.fromEntries(Object.entries(process.env)
+    .filter(([key]) => !key.startsWith("GIT_") && !key.startsWith("GH_")));
+  const result = spawnSync("/usr/bin/gh", args, {
+    cwd,
+    env: { ...inherited, PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GH_PROMPT_DISABLED: "1" },
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+  });
   return {
     command: `gh ${args.join(" ")}`,
     status: result.status,

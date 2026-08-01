@@ -706,7 +706,7 @@ test("normal review convergence checks mutation and budget before accepting post
   assert.match(source, /prospectiveMergeValidationRequired: true/);
   assert.match(source, /runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);
   assert.match(source, /validateHistoricalRecoveryGitAuthority\(config\)[\s\S]*runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);
-  assert.match(source, /if \(pr\.headRefOid !== expectedHeadSha\)[\s\S]*recovery_evidence_generation_pr_head_mismatch[\s\S]*"fetch", "origin", pr\.headRefName[\s\S]*getRefSha\("FETCH_HEAD"\) !== expectedHeadSha[\s\S]*recovery_evidence_generation_fetched_head_mismatch[\s\S]*runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);
+  assert.match(source, /if \(pr\.headRefOid !== expectedHeadSha\)[\s\S]*recovery_evidence_generation_pr_head_mismatch[\s\S]*fetchAuthenticatedRemoteRef\(config, pr\.headRefName\)[\s\S]*getRefSha\("FETCH_HEAD"\) !== expectedHeadSha[\s\S]*recovery_evidence_generation_fetched_head_mismatch[\s\S]*runTrustedProspectiveMergeTree\(\s*config, expectedOriginMainSha, expectedHeadSha/);
   assert.match(source, /generatedRecoveryEvidence[\s\S]*fetchOriginMain\(config\)[\s\S]*const refreshedOriginMainSha = getRefSha\("origin\/main"\)[\s\S]*refreshedOriginMainSha !== validatedOriginMainSha[\s\S]*existing_pr_recovery_current_main_drift[\s\S]*const issueLinkageEvidence/);
   assert.doesNotMatch(source, /"merge-tree", "--write-tree", "--messages"/);
   assert.match(source, /"commit-tree", mergeTreeSha, "-p", expectedOriginMainSha, "-p", expectedHeadSha/);

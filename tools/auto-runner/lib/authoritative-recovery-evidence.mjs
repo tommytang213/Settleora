@@ -183,7 +183,7 @@ function githubForIntent(config, intent, fallback) {
     return mergeIntentCommentReadback(result, fallback);
   }
   if (intent.effectType === "hygiene_component") {
-    const result = spawnSync("gh", ["issue", "view", String(intent.effect.issueNumber), "--repo", config.repositorySlug, "--json", "number,labels"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+    const result = runTrustedGithub(["issue", "view", String(intent.effect.issueNumber), "--repo", config.repositorySlug, "--json", "number,labels"], config.repoRoot, { timeout: 20_000 });
     if (result.error || result.status !== 0) return { ...fallback, complete: false };
     try {
       const issue = JSON.parse(result.stdout || "{}");
@@ -266,8 +266,11 @@ function defaultGitRead(config, identity, repoRoot = config.repoRoot) {
   const run = (args) => runGit(args, { cwd: repoRoot });
   const status = run(["status", "--porcelain=v2"]);
   const branch = run(["symbolic-ref", "--quiet", "--short", "HEAD"]);
-  const head = run(["rev-parse", "HEAD"]);
-  const commit = run(["show", "-s", "--format=%P%n%T%n%B", "HEAD"]);
+  const head = run(["rev-parse", "--verify", "HEAD^{commit}"]);
+  const exactHead = head.stdout.trim();
+  const commit = /^[a-f0-9]{40}$/u.test(exactHead)
+    ? run(["show", "-s", "--format=%P%n%T%n%B", exactHead])
+    : { status: 128, stdout: "", stderr: "invalid head", error: null };
   const verifiedRemote = assertRepositoryRemoteIdentity({ ...config, repoRoot });
   const remoteTarget = verifiedRemote?.originUrl || "origin";
   const remote = runGit(["ls-remote", "--exit-code", remoteTarget, `refs/heads/${identity.branchName}`], {
@@ -278,11 +281,31 @@ function defaultGitRead(config, identity, repoRoot = config.repoRoot) {
   const unstaged = run(["diff", "--name-only"]);
   const untracked = run(["ls-files", "--others", "--exclude-standard"]);
   const stagedTree = run(["write-tree"]);
-  if (status.status !== 0 || branch.status !== 0 || head.status !== 0 || commit.status !== 0 || staged.status !== 0 || unstaged.status !== 0 || untracked.status !== 0 || stagedTree.status !== 0 || !sha40(head.stdout.trim()) || ![0, 2].includes(remote.status)) return { complete: false, source: "git_cli" };
+  const finalHead = run(["rev-parse", "--verify", "HEAD^{commit}"]);
+  const finalBranch = run(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const finalStatus = run(["status", "--porcelain=v2"]);
+  const finalStaged = run(["diff", "--cached", "--name-only"]);
+  const finalUnstaged = run(["diff", "--name-only"]);
+  const finalUntracked = run(["ls-files", "--others", "--exclude-standard"]);
+  const finalStagedTree = run(["write-tree"]);
+  const stableSnapshot = finalHead.stdout === head.stdout
+    && finalBranch.stdout === branch.stdout
+    && finalStatus.stdout === status.stdout
+    && finalStaged.stdout === staged.stdout
+    && finalUnstaged.stdout === unstaged.stdout
+    && finalUntracked.stdout === untracked.stdout
+    && finalStagedTree.stdout === stagedTree.stdout;
+  const allLocalReads = [status, branch, head, commit, staged, unstaged, untracked, stagedTree,
+    finalHead, finalBranch, finalStatus, finalStaged, finalUnstaged, finalUntracked, finalStagedTree];
+  if (allLocalReads.some((entry) => entry.status !== 0 || entry.error)
+    || !stableSnapshot || !sha40(exactHead) || ![0, 2].includes(remote.status)) {
+    return { complete: false, source: "git_cli" };
+  }
+  try { assertRepositoryRemoteIdentity({ ...config, repoRoot }); } catch { return { complete: false, source: "git_cli" }; }
   const lines = status.stdout.split("\n").filter(Boolean);
   const remoteHead = remote.status === 0 ? remote.stdout.trim().split(/\s+/)[0] : null;
   const [parents = "", treeSha = "", ...messageLines] = commit.stdout.replace(/\r\n/g, "\n").split("\n");
-  return { complete: true, source: "git_cli", repoRoot: path.resolve(repoRoot), branchName: branch.stdout.trim(), baseSha: sha40(identity.baseSha), headSha: head.stdout.trim(), remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), untrackedPaths: paths(untracked.stdout), stagedTreeSha: sha40(stagedTree.stdout.trim()), stagedPaths: paths(staged.stdout), unstagedPaths: paths(unstaged.stdout), commit: { sha: head.stdout.trim(), parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
+  return { complete: true, source: "git_cli", repoRoot: path.resolve(repoRoot), branchName: branch.stdout.trim(), baseSha: sha40(identity.baseSha), headSha: exactHead, remoteHeadSha: sha40(remoteHead), worktreeClean: lines.length === 0, indexClean: !lines.some((line) => line.startsWith("1 ") || line.startsWith("2 ")), untrackedClean: !lines.some((line) => line.startsWith("? ")), untrackedPaths: paths(untracked.stdout), stagedTreeSha: sha40(stagedTree.stdout.trim()), stagedPaths: paths(staged.stdout), unstagedPaths: paths(unstaged.stdout), commit: { sha: exactHead, parentShas: parents.split(/\s+/).filter(sha40), treeSha: sha40(treeSha), messageFingerprint: fingerprint(messageLines.join("\n").trimEnd()) } };
 }
 
 function defaultGithubRead(config, identity) {
@@ -295,7 +318,7 @@ function defaultGithubRead(config, identity) {
   if (!discovered.complete) return { complete: false, source: discovered.source };
   if (!discovered.prNumber) return { complete: true, source: "gh_cli", pr: null, comments: issueComments.comments, issue, checks: { state: "not_applicable", pending: 0, failed: 0 }, hygiene: [] };
   const prNumber = discovered.prNumber;
-  const result = spawnSync("gh", ["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+  const result = runTrustedGithub(["pr", "view", String(prNumber), "--repo", config.repositorySlug, "--json", "number,state,baseRefName,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,mergeCommit,statusCheckRollup"], config.repoRoot, { timeout: 20_000 });
   if (result.status !== 0) return { complete: false, source: "gh_cli" };
   const pr = JSON.parse(result.stdout);
   const prComments = readAllGithubComments(config, `repos/${config.repositorySlug}/issues/${prNumber}/comments?per_page=100`, { channel: "pr_conversation", targetNumber: prNumber });
@@ -304,7 +327,7 @@ function defaultGithubRead(config, identity) {
   const comments = [...issueComments.comments, ...prComments.comments, ...reviewComments.comments];
   let mergeParentShas = [];
   if (pr.mergeCommit?.oid) {
-    const mergeCommit = spawnSync("gh", ["api", `repos/${config.repositorySlug}/commits/${pr.mergeCommit.oid}`], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+    const mergeCommit = runTrustedGithub(["api", `repos/${config.repositorySlug}/commits/${pr.mergeCommit.oid}`], config.repoRoot, { timeout: 20_000 });
     if (mergeCommit.error || mergeCommit.status !== 0) return { complete: false, source: "gh_cli_merge_commit_read_failed" };
     try { mergeParentShas = JSON.parse(mergeCommit.stdout || "{}").parents?.map((parent) => parent.sha).filter(sha40).slice(0, 2) || []; }
     catch { return { complete: false, source: "gh_cli_merge_commit_parse_failed" }; }
@@ -312,8 +335,11 @@ function defaultGithubRead(config, identity) {
   return { complete: true, source: "gh_cli", pr: { number: pr.number, state: pr.state, baseRefName: pr.baseRefName, headRefName: pr.headRefName, headSha: pr.headRefOid, draft: pr.isDraft, mergeable: pr.mergeable, mergeStateStatus: pr.mergeStateStatus, mergeSha: pr.mergeCommit?.oid || null, mergeParentShas }, comments, issue, checks: checks(pr.statusCheckRollup), hygiene: [] };
 }
 
-export function discoverExactRecoveryPr(config, identity, runner = spawnSync) {
-  const result = runner("gh", ["pr", "list", "--repo", config.repositorySlug, "--head", identity.branchName, "--state", "all", "--limit", "100", "--json", "number,baseRefName,headRefName,headRefOid"], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 });
+export function discoverExactRecoveryPr(config, identity, runner = null) {
+  const args = ["pr", "list", "--repo", config.repositorySlug, "--head", identity.branchName, "--state", "all", "--limit", "100", "--json", "number,baseRefName,headRefName,headRefOid"];
+  const result = runner
+    ? runner("gh", args, { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000 })
+    : runTrustedGithub(args, config.repoRoot, { timeout: 20_000 });
   if (result.error || result.status !== 0) return { complete: false, source: "gh_cli_pr_discovery_failed" };
   try {
     const matches = JSON.parse(result.stdout || "[]").filter((pr) => pr.headRefName === identity.branchName && pr.headRefOid === identity.headSha && pr.baseRefName === identity.baseBranch);
@@ -325,12 +351,27 @@ export function discoverExactRecoveryPr(config, identity, runner = spawnSync) {
 }
 
 function readAllGithubComments(config, endpoint, target = {}) {
-  const result = spawnSync("gh", ["api", "--paginate", "--jq", ".[] | @json", endpoint], { cwd: config.repoRoot, encoding: "utf8", timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = runTrustedGithub(["api", "--paginate", "--jq", ".[] | @json", endpoint], config.repoRoot, { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 });
   if (result.status !== 0) return { complete: false, comments: [] };
   try {
     const comments = result.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line));
     return { complete: true, comments: comments.map((comment) => commentIdentity(comment, target)) };
   } catch { return { complete: false, comments: [] }; }
+}
+
+function runTrustedGithub(args, cwd, options = {}) {
+  const inherited = Object.fromEntries(Object.entries(process.env)
+    .filter(([key]) => !key.startsWith("GIT_") && !key.startsWith("GH_")));
+  const result = spawnSync("/usr/bin/gh", args, {
+    cwd,
+    env: { ...inherited, PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GH_PROMPT_DISABLED: "1" },
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+    timeout: options.timeout,
+    maxBuffer: options.maxBuffer,
+  });
+  return { status: result.status, stdout: result.stdout || "", stderr: result.stderr || "", error: result.error?.message || null };
 }
 
 function reconcileIdentity(identity, git, github, intents, contradictions, ambiguities) {

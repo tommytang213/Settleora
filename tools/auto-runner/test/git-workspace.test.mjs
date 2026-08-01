@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -52,6 +52,27 @@ test("sourceStateIdentityForCommit returns exact head, tree, and stable patch ID
     assert.equal(second.patchId, first.patchId);
   } finally {
     repo.cleanup();
+  }
+});
+
+test("graph-rewriting graft, alternate and shallow metadata fail closed", () => {
+  for (const relative of [
+    ".git/info/grafts",
+    ".git/objects/info/alternates",
+    ".git/objects/info/http-alternates",
+    ".git/shallow",
+  ]) {
+    const repo = tempRepo();
+    try {
+      const target = path.join(repo.cwd, relative);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, "attacker-controlled graph metadata\n");
+      assert.throws(
+        () => runGit(["rev-parse", "HEAD"], { cwd: repo.cwd }),
+        /rewrites object ancestry/u,
+        relative,
+      );
+    } finally { repo.cleanup(); }
   }
 });
 
@@ -206,6 +227,14 @@ test("historical task workspace is materialized without moving canonical main", 
     assert.equal(restoreControlPlaneRepositoryContext(config), repoRoot);
     assert.equal(config.repoRoot, repoRoot);
     assert.equal(process.cwd(), repoRoot);
+
+    renameSync(path.join(repoRoot, ".git"), path.join(repoRoot, ".git-admitted"));
+    execFileSync("/usr/bin/git", ["init", "-b", "main"], { cwd: repoRoot, encoding: "utf8" });
+    chmodSync(path.join(repoRoot, ".git"), 0o700);
+    assert.throws(
+      () => runGit(["rev-parse", "HEAD"], { cwd: repoRoot }),
+      /Git tuple changed after admission/u,
+    );
   } finally {
     process.chdir("/tmp");
     rmSync(root, { recursive: true, force: true });

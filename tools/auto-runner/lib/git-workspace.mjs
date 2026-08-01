@@ -13,16 +13,23 @@ import { assertMutationAuthority, loadSessionLifecycleState, persistSessionLifec
 import { assertRepositoryRemoteIdentity } from "./runtime-identity.mjs";
 
 let trustedRepositoryContext = null;
+const admittedRepositoryContexts = new Map();
 
 export function bindTrustedRepositoryContext(repoRoot) {
   const canonical = path.resolve(repoRoot || "");
   if (!path.isAbsolute(repoRoot || "") || canonical !== repoRoot) {
     throw new Error("trusted repository context requires an absolute normalized repoRoot");
   }
-  if (trustedRepositoryContext && trustedRepositoryContext !== canonical) {
+  const admitted = admitSourceOwnedGitContext(canonical);
+  if (trustedRepositoryContext && trustedRepositoryContext.root !== canonical) {
     throw new Error("trusted repository context cannot be rebound to another repository");
   }
-  trustedRepositoryContext = canonical;
+  const existing = admittedRepositoryContexts.get(canonical);
+  if (existing && !sameAdmittedGitTuple(existing, admitted)) {
+    throw new Error("trusted repository Git tuple changed after admission");
+  }
+  admittedRepositoryContexts.set(canonical, admitted);
+  trustedRepositoryContext = admitted;
   return canonical;
 }
 
@@ -34,7 +41,7 @@ export function adoptHistoricalTaskWorkspace(config, {
   if (!/^[a-f0-9]{40}$/u.test(headSha || "")
     || typeof branchName !== "string" || !branchName.length
     || !path.isAbsolute(controlRoot)
-    || ![controlRoot, path.resolve(config?.repoRoot || "")].includes(trustedRepositoryContext)) {
+    || ![controlRoot, path.resolve(config?.repoRoot || "")].includes(trustedRepositoryContext?.root)) {
     throw new Error("historical task workspace authority is incomplete");
   }
   const literalRef = `refs/heads/${branchName}`;
@@ -147,7 +154,8 @@ export function adoptHistoricalTaskWorkspace(config, {
     || taskBranch !== branchName || taskHead !== expectedTaskHead || taskStatus !== "") {
     throw new Error(`Historical task worktree failed exact authority checks: sameRoot=${canonicalTaskRoot === controlRoot}; commonDir=${taskCommonDir === controlCommonDir}; branch=${taskBranch === branchName}; head=${taskHead === expectedTaskHead}; clean=${taskStatus === ""}`);
   }
-  trustedRepositoryContext = canonicalTaskRoot;
+  trustedRepositoryContext = admitSourceOwnedGitContext(canonicalTaskRoot);
+  admittedRepositoryContexts.set(canonicalTaskRoot, trustedRepositoryContext);
   config.controlPlaneRepoRoot = controlRoot;
   config.repoRoot = canonicalTaskRoot;
   process.chdir(canonicalTaskRoot);
@@ -204,7 +212,8 @@ export function restoreControlPlaneRepositoryContext(config) {
   if (!path.isAbsolute(controlRoot) || !existsSync(controlRoot) || getStatusShort({ cwd: controlRoot }) !== "") {
     throw new Error("Control-plane repository restoration authority is unavailable");
   }
-  trustedRepositoryContext = controlRoot;
+  trustedRepositoryContext = admitSourceOwnedGitContext(controlRoot);
+  admittedRepositoryContexts.set(controlRoot, trustedRepositoryContext);
   config.repoRoot = controlRoot;
   process.chdir(controlRoot);
   return controlRoot;
@@ -235,7 +244,7 @@ function parseWorktrees(value) {
 }
 
 export function runGit(args, options = {}) {
-  const cwd = options.cwd || trustedRepositoryContext || process.cwd();
+  const cwd = options.cwd || trustedRepositoryContext?.root || process.cwd();
   const context = sourceOwnedGitContext(cwd);
   assertSourceOwnedGitMetadata(context);
   const hasHead = repositoryHasHead(context);
@@ -282,7 +291,7 @@ export function getRefSha(ref, options = {}) {
   return result.stdout.trim();
 }
 
-export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef = "HEAD", cwd = trustedRepositoryContext || process.cwd() } = {}) {
+export function sourceStateIdentityForCommit({ baseRef = "origin/main", headRef = "HEAD", cwd = trustedRepositoryContext?.root || process.cwd() } = {}) {
   const exactHead = getRefSha(headRef, { cwd });
   const treeResult = runGit(["rev-parse", `${headRef}^{tree}`], { cwd });
   assertGitSuccess(treeResult, `Unable to resolve tree for ${headRef}`);
@@ -482,11 +491,35 @@ function sourceOwnedGitContext(cwd) {
   if (pathIdentity(entryBefore) !== pathIdentity(entryAfter)) throw new Error("Repository Git entry changed during admission");
   const guardedMetadata = guardedGitMetadataIdentity(gitDir, commonDir);
   assertGuardedGitMetadataPaths(guardedMetadata);
-  return {
+  const context = {
     root, entryPath, entryIdentity: pathIdentity(entryAfter), gitDir, commonDir,
     gitDirIdentity: directoryIdentity(lstatSync(gitDir)), commonDirIdentity: directoryIdentity(lstatSync(commonDir)),
     indexFile: path.join(gitDir, "index"), guardedMetadata,
   };
+  const admitted = admittedRepositoryContexts.get(root);
+  if (admitted && !sameAdmittedGitTuple(admitted, context)) {
+    throw new Error("Repository Git tuple changed after admission");
+  }
+  return context;
+}
+
+function admitSourceOwnedGitContext(cwd) {
+  const context = sourceOwnedGitContext(cwd);
+  assertSourceOwnedGitMetadata(context);
+  if (!sourceOwnedGitContextStable(context)) throw new Error("Repository Git tuple changed during admission");
+  return Object.freeze({ ...context, guardedMetadata: Object.freeze(context.guardedMetadata) });
+}
+
+function sameAdmittedGitTuple(expected, current) {
+  return expected.root === current.root
+    && expected.entryPath === current.entryPath
+    && expected.entryIdentity === current.entryIdentity
+    && expected.gitDir === current.gitDir
+    && expected.commonDir === current.commonDir
+    && expected.gitDirIdentity === current.gitDirIdentity
+    && expected.commonDirIdentity === current.commonDirIdentity
+    && expected.indexFile === current.indexFile
+    && expected.guardedMetadata.identity === current.guardedMetadata.identity;
 }
 
 function sourceOwnedGitContextStable(context) {
@@ -503,6 +536,8 @@ function guardedGitMetadataIdentity(gitDir, commonDir) {
     path.join(commonDir, "config"), path.join(gitDir, "config.worktree"),
     path.join(commonDir, "info", "attributes"), path.join(commonDir, "info", "exclude"),
     path.join(commonDir, "info", "grafts"), path.join(commonDir, "objects", "info", "alternates"),
+    path.join(commonDir, "objects", "info", "http-alternates"),
+    path.join(commonDir, "shallow"), path.join(gitDir, "shallow"),
   ])].sort();
   const entries = paths.map((metadataPath) => {
     if (!existsSync(metadataPath)) return { path: metadataPath, identity: "absent", safe: true };
@@ -512,13 +547,20 @@ function guardedGitMetadataIdentity(gitDir, commonDir) {
       identity: fileIdentity(info),
       safe: info.isFile() && !info.isSymbolicLink()
         && (typeof process.getuid !== "function" || info.uid === process.getuid()),
+      graphNeutral: !isGraphRewritingMetadata(metadataPath),
     };
   });
   return { entries, identity: entries.map((entry) => `${entry.path}:${entry.identity}`).join("\n") };
 }
 
 function assertGuardedGitMetadataPaths(snapshot) {
-  if (snapshot.entries.some((entry) => !entry.safe)) throw new Error("Repository Git metadata path is unsafe");
+  if (snapshot.entries.some((entry) => !entry.safe || entry.graphNeutral === false)) {
+    throw new Error("Repository Git metadata path is unsafe or rewrites object ancestry");
+  }
+}
+
+function isGraphRewritingMetadata(metadataPath) {
+  return /(?:\/info\/grafts|\/objects\/info\/(?:http-)?alternates|\/shallow)$/u.test(metadataPath);
 }
 
 function fileIdentity(info) {
@@ -638,12 +680,38 @@ export function fetchOriginMain(config, options = {}) {
   if (config.dryRun) {
     return { skipped: true, reason: "dry-run" };
   }
-  assertRepositoryRemoteIdentity(config);
+  const verified = assertRepositoryRemoteIdentity(config);
+  const remote = verified?.originUrl || "origin";
+  const refspec = `${options.trustedHistoricalRecovery === true ? "+" : ""}refs/heads/main:refs/remotes/origin/main`;
   const result = options.trustedHistoricalRecovery === true
-    ? runTrustedHistoricalFetch(config.repoRoot)
-    : runGit(["fetch", "origin", "main"], { cwd: config.repoRoot });
+    ? runTrustedHistoricalFetch(config.repoRoot, remote, refspec, config.runtimeMode !== "external")
+    : runGit(["fetch", "--no-tags", remote, refspec], {
+      cwd: config.repoRoot, allowLocalFileTransport: config.runtimeMode !== "external",
+    });
   assertGitSuccess(result, "Unable to fetch origin/main");
   return { skipped: false, status: result.status };
+}
+
+export function runAuthenticatedRemoteGit(config, command, trailing = [], { push = false } = {}) {
+  const verified = assertRepositoryRemoteIdentity(config);
+  const remote = verified ? (push ? verified.pushUrl : verified.originUrl) : "origin";
+  return runGit([...command, remote, ...trailing], {
+    cwd: config.repoRoot,
+    allowLocalFileTransport: config.runtimeMode !== "external",
+  });
+}
+
+export function fetchAuthenticatedRemoteRef(config, branchName, targetRef = null) {
+  if (typeof branchName !== "string" || !/^(?!.*\.\.)(?!.*\.$)[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(branchName)
+    || branchName.includes("//") || branchName.includes("@{") || branchName.endsWith("/")) {
+    return { command: "/usr/bin/git fetch", status: 128, stdout: "", stderr: "invalid branch identity", error: null };
+  }
+  const verified = assertRepositoryRemoteIdentity(config);
+  const remote = verified?.originUrl || "origin";
+  const refspec = targetRef ? `refs/heads/${branchName}:${targetRef}` : `refs/heads/${branchName}`;
+  return runGit(["fetch", "--no-tags", remote, refspec], {
+    cwd: config.repoRoot, allowLocalFileTransport: config.runtimeMode !== "external",
+  });
 }
 
 export function runTrustedProspectiveMergeTree(config, baseSha, headSha) {
@@ -663,7 +731,7 @@ export function runTrustedProspectiveMergeTree(config, baseSha, headSha) {
   return runFixedTrustedGit(config.repoRoot, args);
 }
 
-function runTrustedHistoricalFetch(cwd) {
+function runTrustedHistoricalFetch(cwd, remote, refspec, allowLocalFileTransport) {
   const args = [
     "-c", "credential.helper=",
     "-c", "core.hooksPath=/dev/null",
@@ -673,12 +741,9 @@ function runTrustedHistoricalFetch(cwd) {
     "-c", "diff.external=",
     "-c", "protocol.ext.allow=never",
     "-c", "protocol.file.allow=never",
-    "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main",
+    "fetch", "--no-tags", remote, refspec,
   ];
-  return runFixedTrustedGit(cwd, args, {
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_SSH_COMMAND: "/usr/bin/ssh -F /dev/null -o BatchMode=yes -o ProxyCommand=none -o ProxyJump=none -o PermitLocalCommand=no",
-  });
+  return runGit(args, { cwd, allowLocalFileTransport });
 }
 
 function runFixedTrustedGit(cwd, args, extraEnv = {}) {

@@ -1842,6 +1842,13 @@ that class therefore also requires a separately protected native producer and
 remains unavailable in production until one is deployed. Ordinary launch and
 later safety-critical Git calls use a fixed executable, pinned Git directory,
 common directory, worktree and index identities, and a closed Git environment.
+The complete admitted tuple is retained for both control-plane and adopted task
+worktrees; replacement of any admitted Git entry or directory fails closed.
+Legacy grafts, object alternates, HTTP alternates, and shallow metadata are not
+accepted as neutral repository state. Remote operations use the authenticated
+literal URL rather than dereferencing a mutable remote name after verification,
+and recovery evidence double-reads the exact ref, index tree, status, and path
+sets around an immutable-OID commit read before it can be marked complete.
 Launch
 cleanliness compares raw tracked bytes to index objects without invoking
 filters and rejects unsafe Git-dir attributes, active Git-dir excludes, non-

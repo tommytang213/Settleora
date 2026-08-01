@@ -95,6 +95,13 @@ export function validateProjectRuntimeIdentity(config, {
       .update(JSON.stringify([projectId, repositorySlug, repository.commonDir]))
       .digest("hex"),
     repositoryCommonDir: repository.commonDir,
+    repositoryGitDir: repository.gitDir,
+    repositoryIndexFile: repository.indexFile,
+    repositoryEntryPath: repository.entryPath,
+    repositoryEntryIdentity: repository.entryIdentity,
+    repositoryGitDirIdentity: repository.gitDirIdentity,
+    repositoryCommonDirIdentity: repository.commonDirIdentity,
+    repositoryMetadataIdentity: repository.guardedMetadataIdentity,
     originUrl: repository.originUrl,
     pushUrl: repository.pushUrl,
   });
@@ -200,17 +207,41 @@ export function verifyRepositoryIdentity(repoRoot, expectedSlug = null) {
   if (expectedSlug && (!pushUrl || repositorySlugFromRemote(pushUrl)?.toLowerCase() !== normalizedExpectedSlug || !isApprovedGitHubRemote(pushUrl))) {
     throw new Error("repoRoot push URL does not match the approved GitHub repository");
   }
-  return { topLevel: repoRoot, commonDir, originUrl, pushUrl };
+  return {
+    topLevel: repoRoot,
+    commonDir,
+    gitDir: context.gitDir,
+    indexFile: context.indexFile,
+    entryPath: context.entryPath,
+    entryIdentity: context.entryIdentity,
+    gitDirIdentity: context.gitDirIdentity,
+    commonDirIdentity: context.commonDirIdentity,
+    guardedMetadataIdentity: context.guardedMetadata.identity,
+    originUrl,
+    pushUrl,
+  };
 }
 
 export function assertRepositoryRemoteIdentity(config) {
   if (config?.runtimeMode !== "external") return null;
   const expected = config?.runtimeIdentity;
-  if (!expected?.originUrl || !expected?.pushUrl || !expected?.repositoryCommonDir || !config?.repositorySlug) {
+  if (!expected?.originUrl || !expected?.pushUrl || !expected?.repositoryCommonDir
+    || !expected?.repositoryGitDir || !expected?.repositoryIndexFile
+    || !expected?.repositoryEntryPath || !expected?.repositoryEntryIdentity
+    || !expected?.repositoryGitDirIdentity || !expected?.repositoryCommonDirIdentity
+    || !expected?.repositoryMetadataIdentity || !config?.repositorySlug) {
     throw new Error("verified repository remote identity is required before a remote Git operation");
   }
   const current = verifyRepositoryIdentity(config.repoRoot, config.repositorySlug);
-  if (current.commonDir !== expected.repositoryCommonDir || current.originUrl !== expected.originUrl || current.pushUrl !== expected.pushUrl) {
+  if (current.commonDir !== expected.repositoryCommonDir
+    || current.gitDir !== expected.repositoryGitDir
+    || current.indexFile !== expected.repositoryIndexFile
+    || current.entryPath !== expected.repositoryEntryPath
+    || current.entryIdentity !== expected.repositoryEntryIdentity
+    || current.gitDirIdentity !== expected.repositoryGitDirIdentity
+    || current.commonDirIdentity !== expected.repositoryCommonDirIdentity
+    || current.guardedMetadataIdentity !== expected.repositoryMetadataIdentity
+    || current.originUrl !== expected.originUrl || current.pushUrl !== expected.pushUrl) {
     throw new Error("repository remote identity changed after runtime admission");
   }
   return Object.freeze({ originUrl: current.originUrl, pushUrl: current.pushUrl });
@@ -293,13 +324,23 @@ function identityGitContextStable(context) {
 }
 
 function identityGitMetadataSnapshot(gitDir, commonDir) {
-  const entries = [...new Set([path.join(commonDir, "config"), path.join(gitDir, "config.worktree")])]
+  const entries = [...new Set([
+    path.join(commonDir, "config"), path.join(gitDir, "config.worktree"),
+    path.join(commonDir, "info", "attributes"), path.join(commonDir, "info", "exclude"),
+    path.join(commonDir, "info", "grafts"),
+    path.join(commonDir, "objects", "info", "alternates"),
+    path.join(commonDir, "objects", "info", "http-alternates"),
+    path.join(commonDir, "shallow"), path.join(gitDir, "shallow"),
+  ])]
     .sort().map((metadataPath) => {
       if (!existsSync(metadataPath)) return `${metadataPath}:absent`;
       const info = lstatSync(metadataPath);
       if (!info.isFile() || info.isSymbolicLink()
         || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
         throw new Error("repository Git config path is unsafe");
+      }
+      if (/(?:\/info\/grafts|\/objects\/info\/(?:http-)?alternates|\/shallow)$/u.test(metadataPath)) {
+        throw new Error("repository graph-rewriting Git metadata is active");
       }
       return `${metadataPath}:${stableGitPathIdentity(info)}`;
     });
