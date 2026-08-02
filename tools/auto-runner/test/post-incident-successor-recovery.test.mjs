@@ -253,6 +253,24 @@ test("malformed claim, Git, runtime, counter, charge and branch identities fail 
   }
 });
 
+test("semantic recovery requires exact terminal-validation posture and phase consistency", () => {
+  for (const [claim, value] of [
+    ["formerEffectivePhase", "completed"],
+    ["lifecycleLineage", "unrelated_successor"],
+    ["intentPosture", "submission_still_available"],
+    ["earliestSafePhase", "aggregate_validation"],
+  ]) {
+    const candidate = fixture();
+    setAllOwnerClaims(candidate, claim, value);
+    assert.equal(build(candidate).reasonCode, "semantic_recovery_posture_invalid", claim);
+  }
+
+  const aggregateValidation = fixture();
+  setAllOwnerClaims(aggregateValidation, "formerEffectivePhase", "aggregate_validation");
+  setAllOwnerClaims(aggregateValidation, "earliestSafePhase", "aggregate_validation");
+  assert.equal(build(aggregateValidation).ok, true);
+});
+
 test("operation selectors are derived and mismatches fail closed", () => {
   const value = fixture(); value.packet.operationId = "0".repeat(64);
   assert.equal(build(value).reasonCode, "semantic_operation_request_selector_mismatch");

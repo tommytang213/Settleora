@@ -398,6 +398,11 @@ function validateSecurityPosture(packet, claims) {
     || packet.lifecycleSuccessorSession === claims.lifecycleSessionId) return failed("semantic_lifecycle_successor_invalid");
   if (zeroEffectClaims.some((claim) => claims[claim] !== false)) return failed("semantic_no_effect_posture_invalid");
   if (!["checkpoint_validation_commit", "aggregate_validation"].includes(claims.earliestSafePhase)) return failed("semantic_earliest_safe_phase_invalid");
+  if (claims.formerEffectivePhase !== claims.earliestSafePhase
+    || claims.lifecycleLineage !== "terminal_validation_retry_to_distinct_successor"
+    || claims.intentPosture !== "one_no_effect_overlay_then_consumed_submission") {
+    return failed("semantic_recovery_posture_invalid");
+  }
   if (!packet.artifacts.every((artifact) => bounded(artifact.role) && bounded(artifact.path) && digest64(artifact.sha256))) return failed("semantic_artifact_binding_invalid");
   return { ok: true };
 }
