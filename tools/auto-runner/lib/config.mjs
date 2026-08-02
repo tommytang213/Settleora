@@ -602,6 +602,126 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   return config;
 }
 
+export function loadDeploymentProjectAuthority({
+  configPath,
+  approvedProfilePath,
+  repoRoot,
+  runtimeRoot,
+  logsRoot,
+  healthUnitPath,
+} = {}) {
+  for (const [field, value] of Object.entries({ configPath, approvedProfilePath, repoRoot, runtimeRoot, healthUnitPath })) {
+    if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value) {
+      throw new Error(`deployment ${field} must be an absolute canonical path`);
+    }
+  }
+  if (logsRoot != null && (typeof logsRoot !== "string" || !path.isAbsolute(logsRoot) || path.resolve(logsRoot) !== logsRoot)) {
+    throw new Error("deployment logsRoot must be an absolute canonical path when supplied");
+  }
+  const loaded = readExternalProfileConfig(configPath);
+  const approved = readExternalProfileConfig(approvedProfilePath);
+  const config = { ...defaultConfig, ...loaded.config };
+  const profile = { ...defaultConfig, ...approved.config };
+  if (config.runtimeMode !== "external" || profile.runtimeMode !== "external") {
+    throw new Error("trusted deployment requires external config and approved profile");
+  }
+  for (const field of ["projectId", "repositorySlug", "repoRoot", "runtimeRoot", "logsRoot"]) {
+    if (config[field] !== profile[field]) throw new Error(`deployment config/profile ${field} mismatch`);
+  }
+  const comparableConfig = structuredClone(config);
+  const comparableProfile = structuredClone(profile);
+  delete comparableConfig.runtimeBundleDigest;
+  delete comparableProfile.runtimeBundleDigest;
+  if (canonicalJson(comparableConfig) !== canonicalJson(comparableProfile)) {
+    throw new Error("deployment config/profile topology mismatch");
+  }
+  if (config.repoRoot !== repoRoot) throw new Error("deployment repoRoot must equal authenticated config repoRoot");
+  if (config.runtimeRoot !== runtimeRoot) throw new Error("deployment destination must equal authenticated config runtimeRoot");
+  if (logsRoot != null && config.logsRoot !== logsRoot) throw new Error("deployment logsRoot must equal authenticated config logsRoot");
+  const runtimeIdentity = validateProjectRuntimeIdentity(config, { actualRuntimeRoot: runtimeRoot, trusted: true });
+  const runtimeManifest = verifyRuntimeBundle(runtimeRoot, config.runtimeBundleDigest);
+  verifyProjectNamespaceMarker({ ...config, runtimeIdentity });
+  const runtimeManifestPath = path.join(runtimeRoot, "runtime-bundle-manifest.json");
+  const approvalPath = path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.approved.json`);
+  const launcherPath = path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.launcher.mjs`);
+  const artifacts = {
+    runtimeManifest: authenticateDeploymentArtifact(runtimeManifestPath, "runtime manifest"),
+    runtimeConfig: authenticateDeploymentArtifact(configPath, "runtime config"),
+    approvedProfile: authenticateDeploymentArtifact(approvedProfilePath, "approved profile"),
+    runtimeApproval: authenticateDeploymentArtifact(approvalPath, "runtime approval"),
+    runtimeLauncher: authenticateDeploymentArtifact(launcherPath, "runtime launcher"),
+    healthUnit: authenticateDeploymentArtifact(healthUnitPath, "health unit"),
+  };
+  if (artifacts.runtimeConfig.sha256 !== loaded.evidence.sha256
+      || artifacts.approvedProfile.sha256 !== approved.evidence.sha256) {
+    throw new Error("deployment config/profile identity changed during authentication");
+  }
+  const proof = {
+    contract: "settleora_deployment_project_authority",
+    version: 1,
+    projectId: runtimeIdentity.projectId,
+    repositorySlug: runtimeIdentity.repositorySlug,
+    namespace: runtimeIdentity.namespace,
+    repoRoot: runtimeIdentity.repoRoot,
+    runtimeRoot: runtimeIdentity.runtimeRoot,
+    logsRoot: runtimeIdentity.logsRoot,
+    configPath,
+    approvedProfilePath,
+    healthUnitPath,
+    runtimeSourceSha: runtimeManifest.sourceSha,
+    runtimeBundleDigest: runtimeManifest.bundleDigest,
+    artifacts,
+  };
+  return deepFreeze({
+    ...proof,
+    configPostIncidentRecoveryPresent: loaded.config.postIncidentRecovery != null,
+    evidenceDigest: createHash("sha256").update(canonicalJson(proof)).digest("hex"),
+  });
+}
+
+export function readOwnerControlledExternalJson(filePath) {
+  const loaded = readExternalProfileConfig(filePath);
+  if (createHash("sha256").update(canonicalJson(loaded.config)).digest("hex") !== loaded.evidence.sha256) {
+    throw new Error("owner-controlled external JSON must use canonical source bytes");
+  }
+  return deepFreeze({ document: structuredClone(loaded.config), evidence: structuredClone(loaded.evidence) });
+}
+
+function authenticateDeploymentArtifact(filePath, field) {
+  const lexical = path.resolve(filePath);
+  if (lexical !== filePath || realpathSync(lexical) !== lexical) throw new Error(`${field} path is not canonical`);
+  const info = lstatSync(lexical);
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1
+      || (info.mode & 0o022) !== 0 || (currentUid !== null && info.uid !== currentUid && info.uid !== 0)
+      || info.size < 1 || info.size > maxTrustedConfigBytes) {
+    throw new Error(`${field} is not a trusted deployment artifact`);
+  }
+  const bytes = readFileSync(lexical);
+  if (bytes.length !== info.size) throw new Error(`${field} changed during authentication`);
+  return Object.freeze({ path: lexical, sha256: createHash("sha256").update(bytes).digest("hex"), byteCount: bytes.length });
+}
+
+function canonicalJson(value) {
+  return JSON.stringify(canonicalizeJson(value));
+}
+
+function canonicalizeJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalizeJson(value[key])]));
+  }
+  return value;
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
+
 function normalizePostIncidentRecoveryConfig(value) {
   if (value == null) return null;
   if (!value || typeof value !== "object" || Array.isArray(value)) {

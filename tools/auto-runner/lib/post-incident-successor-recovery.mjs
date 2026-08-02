@@ -56,6 +56,100 @@ const zeroEffectClaims = Object.freeze([
 const validatedConstructions = new WeakSet();
 const validatedManifests = new WeakSet();
 
+export function corroborateSemanticRecoveryEvidenceForDeployment(packet, adapters = {}) {
+  const expectedPacketKeys = [
+    "artifacts", "formerBytesAvailable", "incidentIdentity", "lifecycleSuccessorGeneration",
+    "lifecycleSuccessorSession", "sources",
+  ];
+  const expectedArtifactRoles = [
+    "approved_runtime_profile", "current_incident_root", "health_unit", "installed_runtime_manifest",
+    "runtime_approval", "runtime_config", "runtime_launcher",
+  ];
+  if (!plainObject(packet) || canonicalJson(Object.keys(packet).sort()) !== canonicalJson(expectedPacketKeys)
+      || !Array.isArray(packet.artifacts) || packet.artifacts.length !== expectedArtifactRoles.length
+      || packet.artifacts.some((artifact) => !plainObject(artifact)
+        || canonicalJson(Object.keys(artifact).sort()) !== canonicalJson(["path", "role", "sha256"]))
+      || canonicalJson(packet.artifacts.map((artifact) => artifact.role).sort()) !== canonicalJson(expectedArtifactRoles)) {
+    return failed("semantic_deployment_packet_shape_invalid");
+  }
+  const diagnostics = validatePacketShape(packet);
+  if (diagnostics.length) return failed("semantic_evidence_packet_invalid", diagnostics);
+  if (packet.sources.length !== mandatorySemanticEvidenceClasses.length) {
+    return failed("semantic_evidence_source_count_invalid");
+  }
+  const verifierRegistry = adapters.verifierRegistry;
+  if (!verifierRegistry || verifierRegistry.authority !== "deployment_read_only") {
+    return failed("semantic_deployment_verifier_registry_missing");
+  }
+  let sources;
+  try { sources = authenticateSemanticRecoverySources(packet.sources, verifierRegistry); }
+  catch { return failed("semantic_evidence_source_authentication_failed"); }
+  if (packet.artifacts.length < 1 || packet.artifacts.length > maximumBoundArtifacts) {
+    return failed("semantic_bound_artifact_count_invalid");
+  }
+  const authenticateBoundArtifact = adapters.authenticateBoundArtifact || authenticateOpaqueArtifact;
+  let artifacts;
+  try {
+    artifacts = [...packet.artifacts].map((artifact) => {
+      const authenticated = authenticateBoundArtifact(normalizeArtifact(artifact));
+      return { role: authenticated.role, path: authenticated.path, sha256: authenticated.sha256, authenticated: true, byteCount: authenticated.byteCount };
+    }).sort(compareArtifact);
+  } catch { return failed("semantic_bound_artifact_authentication_failed"); }
+  if ([...sources.map((source) => source.store), ...artifacts]
+    .reduce((total, artifact) => total + artifact.byteCount, 0) > maximumAggregateArtifactBytes) {
+    return failed("semantic_bound_artifact_bytes_exceeded");
+  }
+  const matrix = applySemanticRecoveryClaimOwnerMatrix(sources);
+  if (!matrix.ok) return matrix;
+  const claims = matrix.claims;
+  const posture = validateSecurityPosture(packet, claims);
+  if (!posture.ok) return posture;
+  if (!artifacts.some((artifact) => artifact.path === claims.incidentPath && artifact.sha256 === claims.incidentSha256)) {
+    return failed("semantic_incident_artifact_binding_missing");
+  }
+  if (packet.incidentIdentity !== digest(canonicalJson({ path: claims.incidentPath, sha256: claims.incidentSha256 }))) {
+    return failed("semantic_incident_identity_binding_invalid");
+  }
+  const manifestCore = {
+    contract: "settleora_semantic_incident_deployment_corroboration",
+    version: 1,
+    sourceAuthority: verifierRegistry.authority,
+    incidentIdentity: packet.incidentIdentity,
+    identities: pickTaskIdentity(claims),
+    claims,
+    evidenceSources: sources,
+    claimOwnerMatrix: { version: semanticRecoveryClaimOwnerMatrixVersion, digest: semanticRecoveryClaimOwnerMatrixDigest },
+    sourceVerifierSet: { version: semanticRecoveryVerifierSetVersion, digest: semanticRecoveryVerifierSetDigest },
+    sourceToClaimBindings: matrix.bindings,
+    historicalPredecessor: { path: claims.formerRootPath, sha256: claims.formerRootSha256, bytesAvailable: false },
+    currentIncident: { path: claims.incidentPath, sha256: claims.incidentSha256, authority: "immutable_incident_evidence_only" },
+    artifacts,
+    oneShotExhaustion: { submissionCount: claims.submissionCount, exhausted: claims.submissionExhausted },
+    noEffectProof: Object.fromEntries(zeroEffectClaims.map((claim) => [claim, claims[claim]])),
+    recoveryPosture: {
+      lifecycleSessionId: claims.lifecycleSessionId,
+      lifecycleMutationGeneration: claims.lifecycleMutationGeneration,
+      successorEligible: claims.successorEligible,
+      declaredSuccessorSession: packet.lifecycleSuccessorSession,
+      declaredSuccessorGeneration: packet.lifecycleSuccessorGeneration,
+      nonOperational: true,
+    },
+    allowedAction: "runtime_deployment_quiescence_only",
+    forbiddenActions: [
+      "consume_operation_grant", "construct_successor", "persist_successor", "write_predecessor",
+      "write_incident", "submit_again", "claim_again", "charge_again", "continue_product_issue",
+    ],
+    diagnostics: { contradictions: [], omissions: [] },
+  };
+  const manifestDigest = digest(canonicalJson(manifestCore));
+  return {
+    ok: true,
+    reasonCode: "semantic_deployment_evidence_corroborated",
+    manifest: deepFreeze({ ...manifestCore, manifestDigest }),
+    manifestDigest,
+  };
+}
+
 export function buildSemanticRecoveryManifest(packet, adapters = {}) {
   const diagnostics = validatePacketShape(packet);
   if (diagnostics.length) return failed("semantic_evidence_packet_invalid", diagnostics);
@@ -422,6 +516,7 @@ function validShortGitBranch(value) {
     || /[\x00-\x20\x7f~^:?*\\[]/.test(value)) return false;
   return value.split("/").every((component) => component && !component.startsWith(".") && !component.endsWith(".lock"));
 }
+function plainObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 function bounded(value) { return typeof value === "string" && value.length > 0 && value.length <= 1000; }
 function unique(values) { return [...new Set(values)].sort(); }
 function deepFreeze(value) { if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value)) deepFreeze(child); } return value; }

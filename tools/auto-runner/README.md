@@ -112,6 +112,17 @@ another principal. Manifest source verification disables local Git replacement
 objects, and project namespace markers store the same case-normalized
 repository slug used by repository locks and runtime identity.
 
+Trusted deployment loads both the active external config and its approved
+profile before quiescence inspection. The authenticated config supplies the
+only project `logsRoot`; an explicit `--logs-root` is a compatibility assertion
+and must equal it exactly. Repository, runtime, project ID, repository slug,
+namespace marker, manifest, approval, launcher, and health-unit identities are
+bound into one deterministic project-authority digest. A parent, ancestor,
+sibling, symlink alias, namespace mismatch, containment mismatch, foreign
+owner, or writable path fails before operational state can be described as
+quiescent. `--development-unbound-project-root` is an explicit test/development
+mode and refuses the trusted runtime and project-log namespaces.
+
 Deployment remains fail-closed for every non-terminal recovery or pre-effect
 intent by default. One preserved validation-recovery checkpoint may be
 admitted only when the operator supplies the complete fixed
@@ -194,6 +205,23 @@ or runtime exchange. Runtime consumers and source bytes are also rechecked.
 Any drift stops before installed-runtime exchange. The exception is never
 available to rollback and never excuses a pending push, PR, merge, comment,
 closure, label, hygiene, cleanup, or branch effect.
+
+An authenticated overwrite incident has a separate deployment-only admission;
+it is not converted into a legacy preserved recovery. The optional
+`--semantic-deployment-evidence` file must be canonical owner-controlled JSON
+beside the trusted external profiles. It selects canonical read-only evidence
+stores whose eight source classes, claim-owner matrix, verifier set, incident,
+Git/task/run/counter identities, runtime artifacts, and no-effect posture all
+agree with an exact target selector. Exactly one associated unresolved
+incident and no active operational owner are required. The result is
+`semantic_incident_deployment_only_admitted` and binds deterministic document,
+manifest, and evidence digests into every repeated quiescence proof.
+
+This verifier exposes only `runtime_deployment_quiescence_only`. It never reads
+or consumes an operation grant, invokes a protected producer, calls successor
+execution, constructs or persists a successor, creates a claim/charge/
+submission, or grants product-task continuation. Unexpected grant-shaped files
+or document fields cannot expand it. Rollback rejects semantic evidence.
 The supervisor binds the already admitted canonical profile path and its
 SHA-256 into the immutable run spec; the installed unit therefore contains no
 hard-coded active-profile path, and the worker never reconstructs the profile
@@ -220,7 +248,9 @@ node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
   --repo-root /workspace/repos/Settleora \
   --source-root /workspace/repos/Settleora/tools/auto-runner \
   --destination /workspace/auto-runner/runtime \
-  --logs-root /workspace/logs/auto-runner/Settleora \
+  --config /workspace/auto-runner/config/settleora.json \
+  --approved-profile /workspace/auto-runner/config/<approved-profile>.json \
+  --health-unit /home/<runner>/.config/systemd/user/settleora-auto-runner-health.service \
   --approved-sha <reviewed-40-character-sha> \
   --expected-old-digest <installed-bundle-digest> \
   --dry-run
@@ -228,7 +258,9 @@ node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
 node /workspace/repos/Settleora/tools/auto-runner/deploy-runtime.mjs \
   --repo-root /workspace/repos/Settleora \
   --destination /workspace/auto-runner/runtime \
-  --logs-root /workspace/logs/auto-runner/Settleora \
+  --config /workspace/auto-runner/config/settleora.json \
+  --approved-profile /workspace/auto-runner/config/<approved-profile>.json \
+  --health-unit /home/<runner>/.config/systemd/user/settleora-auto-runner-health.service \
   --rollback \
   --expected-old-digest <current-bundle-digest> \
   --expected-rollback-digest <retained-rollback-bundle-digest>

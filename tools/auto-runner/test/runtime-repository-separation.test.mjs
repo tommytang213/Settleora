@@ -293,6 +293,7 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
     const result = spawnSync(process.execPath, [
       path.join(runtimeSource, "deploy-runtime.mjs"),
       "--dry-run",
+      "--development-unbound-project-root",
       "--repo-root", repo,
       "--destination", path.join(installParent, "runtime"),
       "--logs-root", logs,
