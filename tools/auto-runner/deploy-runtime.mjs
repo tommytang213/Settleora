@@ -33,15 +33,17 @@ for (let index = 2; index < process.argv.length; index += 1) {
 }
 if (!values.has("--destination")) throw new Error("--destination is required");
 if (values.has("--rollback") && values.has("--dry-run")) throw new Error("--rollback and --dry-run cannot be combined");
-const repoRoot = path.resolve(values.get("--repo-root") || "");
-const sourceRoot = path.resolve(values.get("--source-root") || path.join(repoRoot, "tools/auto-runner"));
-const destination = path.resolve(values.get("--destination") || "");
-const explicitLogsRoot = values.has("--logs-root") ? path.resolve(values.get("--logs-root")) : null;
+const repoRoot = canonicalCliPath("--repo-root", { required: true });
+const sourceRoot = values.has("--source-root")
+  ? canonicalCliPath("--source-root")
+  : path.join(repoRoot, "tools/auto-runner");
+const destination = canonicalCliPath("--destination", { required: true });
+const explicitLogsRoot = values.has("--logs-root") ? canonicalCliPath("--logs-root") : null;
 const developmentUnbound = values.has("--development-unbound-project-root");
-const configPath = values.has("--config") ? path.resolve(values.get("--config")) : null;
-const approvedProfilePath = values.has("--approved-profile") ? path.resolve(values.get("--approved-profile")) : null;
-const healthUnitPath = values.has("--health-unit") ? path.resolve(values.get("--health-unit")) : null;
-const semanticEvidencePath = values.has("--semantic-deployment-evidence") ? path.resolve(values.get("--semantic-deployment-evidence")) : null;
+const configPath = values.has("--config") ? canonicalCliPath("--config") : null;
+const approvedProfilePath = values.has("--approved-profile") ? canonicalCliPath("--approved-profile") : null;
+const healthUnitPath = values.has("--health-unit") ? canonicalCliPath("--health-unit") : null;
+const semanticEvidencePath = values.has("--semantic-deployment-evidence") ? canonicalCliPath("--semantic-deployment-evidence") : null;
 if (configPath && developmentUnbound) throw new Error("trusted config and development-unbound project root cannot be combined");
 if (!configPath && !developmentUnbound) throw new Error("trusted deployment requires --config or explicit --development-unbound-project-root");
 if (configPath && (!approvedProfilePath || !healthUnitPath)) {
@@ -204,4 +206,13 @@ function assertDevelopmentUnboundPaths({ destination: runtimeDestination, logsRo
       throw new Error(`development-unbound ${field} cannot target trusted production roots`);
     }
   }
+}
+
+function canonicalCliPath(option, { required = false } = {}) {
+  const value = values.get(option);
+  if (required && !value) throw new Error(`${option} is required`);
+  if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value) {
+    throw new Error(`${option} must be an absolute canonical path`);
+  }
+  return value;
 }

@@ -217,6 +217,17 @@ incident and no active operational owner are required. The result is
 `semantic_incident_deployment_only_admitted` and binds deterministic document,
 manifest, and evidence digests into every repeated quiescence proof.
 
+The descriptor-authenticated external document is the sole authority for this
+deployment-only attestation. It must state the exact
+`runtime_deployment_quiescence_only` scope and bind deterministic digests of
+the target, all eight source descriptors, and all runtime/incident artifacts.
+The eight owner-controlled source projections are mandatory corroboration;
+their agreement is not represented as protected or operational provenance.
+When the authenticated runtime config already has `postIncidentRecovery`, the
+document's provenance and packet must equal that configured value exactly.
+When it is absent, adding this owner document remains a separate external
+owner action; repository code neither synthesizes nor installs it.
+
 This verifier exposes only `runtime_deployment_quiescence_only`. It never reads
 or consumes an operation grant, invokes a protected producer, calls successor
 execution, constructs or persists a successor, creates a claim/charge/

@@ -78,7 +78,7 @@ export function corroborateSemanticRecoveryEvidenceForDeployment(packet, adapter
     return failed("semantic_evidence_source_count_invalid");
   }
   const verifierRegistry = adapters.verifierRegistry;
-  if (!verifierRegistry || verifierRegistry.authority !== "deployment_read_only") {
+  if (!verifierRegistry || verifierRegistry.authority !== "deployment_read_only_owner_attested") {
     return failed("semantic_deployment_verifier_registry_missing");
   }
   let sources;

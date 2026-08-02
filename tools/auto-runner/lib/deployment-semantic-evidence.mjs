@@ -57,6 +57,7 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
     registry = createReadOnlySemanticDeploymentVerifierRegistry({
       evidenceRoot: normalized.evidenceRoot,
       repositorySlug: normalized.authenticatedProvenance.repository,
+      ownerAuthorityDigest: normalized.documentEvidence.sha256,
     });
   } catch { return failed("semantic_deployment_verifier_registry_invalid"); }
   const corroboration = corroborateSemanticRecoveryEvidenceForDeployment(
@@ -116,6 +117,9 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
       authorityDigest: projectAuthority.evidenceDigest,
       configDigest: projectAuthority.artifacts.runtimeConfig.sha256,
       profileDigest: projectAuthority.artifacts.approvedProfile.sha256,
+      configuredPostIncidentRecoveryDigest: projectAuthority.configuredPostIncidentRecovery
+        ? digest(canonicalJson(projectAuthority.configuredPostIncidentRecovery))
+        : null,
     },
     evidenceDocument: {
       path: normalized.documentEvidence.realPath,
@@ -138,6 +142,14 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
     claimOwnerMatrix: { version: semanticRecoveryClaimOwnerMatrixVersion, digest: semanticRecoveryClaimOwnerMatrixDigest },
     sourceVerifierSet: { version: semanticRecoveryVerifierSetVersion, digest: semanticRecoveryVerifierSetDigest },
     sourceClasses: [...semanticRecoveryAuthorityClasses],
+    ownerAttestation: {
+      authority: normalized.ownerAttestation.authority,
+      scope: normalized.ownerAttestation.scope,
+      documentDigest: normalized.documentEvidence.sha256,
+      sourceManifestDigest: normalized.ownerAttestation.sourceManifestDigest,
+      artifactManifestDigest: normalized.ownerAttestation.artifactManifestDigest,
+      targetDigest: normalized.ownerAttestation.targetDigest,
+    },
     semanticManifestDigest: corroboration.manifestDigest,
     boundArtifacts: manifest.artifacts.map(({ role, path: artifactPath, sha256 }) => ({ role, path: artifactPath, sha256 })),
     noEffectProof: manifest.noEffectProof,
@@ -161,7 +173,7 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
 export function normalizeSemanticDeploymentEvidenceDocument(document, documentEvidence, projectAuthority) {
   assertExactKeys(document, [
     "approvedProfile", "authenticatedProvenance", "config", "contract", "evidenceRoot",
-    "healthUnit", "project", "semanticEvidencePacket", "target", "version",
+    "healthUnit", "ownerAttestation", "project", "semanticEvidencePacket", "target", "version",
   ]);
   if (document.contract !== semanticDeploymentEvidenceContract || document.version !== semanticDeploymentEvidenceVersion) {
     throw new Error("semantic deployment evidence contract invalid");
@@ -179,6 +191,21 @@ export function normalizeSemanticDeploymentEvidenceDocument(document, documentEv
   assertExactKeys(document.approvedProfile, ["path", "sha256"]);
   assertExactKeys(document.healthUnit, ["path", "sha256"]);
   assertExactKeys(document.target, semanticDeploymentTargetFields);
+  assertExactKeys(document.ownerAttestation, ["artifactManifestDigest", "authority", "scope", "sourceManifestDigest", "targetDigest"]);
+  if (document.ownerAttestation.authority !== "authenticated_external_profile_owner"
+      || document.ownerAttestation.scope !== "runtime_deployment_quiescence_only"
+      || document.ownerAttestation.sourceManifestDigest !== sourceManifestDigest(document.semanticEvidencePacket?.sources)
+      || document.ownerAttestation.artifactManifestDigest !== artifactManifestDigest(document.semanticEvidencePacket?.artifacts)
+      || document.ownerAttestation.targetDigest !== digest(canonicalJson(document.target))) {
+    throw new Error("semantic deployment owner attestation invalid");
+  }
+  if (projectAuthority.configuredPostIncidentRecovery
+      && (canonicalJson(document.authenticatedProvenance)
+          !== canonicalJson(projectAuthority.configuredPostIncidentRecovery.authenticatedProvenance)
+        || canonicalJson(document.semanticEvidencePacket)
+          !== canonicalJson(projectAuthority.configuredPostIncidentRecovery.semanticEvidencePacket))) {
+    throw new Error("semantic deployment evidence contradicts configured post-incident recovery");
+  }
   for (const [actual, expected] of [
     [document.project.projectId, projectAuthority.projectId],
     [String(document.project.repositorySlug || "").toLowerCase(), projectAuthority.repositorySlug],
@@ -218,6 +245,16 @@ function canonicalize(value) {
   return value;
 }
 function digest(value) { return createHash("sha256").update(value).digest("hex"); }
+function sourceManifestDigest(sources) {
+  if (!Array.isArray(sources)) return null;
+  return digest(canonicalJson(sources.map(({ authorityClass, store }) => ({ authorityClass, store }))
+    .sort((left, right) => String(left.authorityClass).localeCompare(String(right.authorityClass)))));
+}
+function artifactManifestDigest(artifacts) {
+  if (!Array.isArray(artifacts)) return null;
+  return digest(canonicalJson(artifacts.map(({ role, path: artifactPath, sha256 }) => ({ role, path: artifactPath, sha256 }))
+    .sort((left, right) => String(left.role).localeCompare(String(right.role)) || String(left.path).localeCompare(String(right.path)))));
+}
 function failed(reasonCode, diagnostics = []) { return { ok: false, reasonCode, diagnostics: [...new Set(diagnostics)].sort() }; }
 function deepFreeze(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {

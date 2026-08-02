@@ -623,6 +623,7 @@ export function loadDeploymentProjectAuthority({
   const config = { ...defaultConfig, ...loaded.config };
   const profile = { ...defaultConfig, ...approved.config };
   assertDeploymentProjectTopology({ config, profile, repoRoot, runtimeRoot, logsRoot });
+  const configuredPostIncidentRecovery = normalizePostIncidentRecoveryConfig(loaded.config.postIncidentRecovery);
   const runtimeIdentity = validateProjectRuntimeIdentity(config, { actualRuntimeRoot: runtimeRoot, trusted: true });
   const runtimeManifest = verifyRuntimeBundle(runtimeRoot, config.runtimeBundleDigest);
   verifyProjectNamespaceMarker({ ...config, runtimeIdentity });
@@ -655,11 +656,12 @@ export function loadDeploymentProjectAuthority({
     healthUnitPath,
     runtimeSourceSha: runtimeManifest.sourceSha,
     runtimeBundleDigest: runtimeManifest.bundleDigest,
+    configuredPostIncidentRecovery,
     artifacts,
   };
   return deepFreeze({
     ...proof,
-    configPostIncidentRecoveryPresent: loaded.config.postIncidentRecovery != null,
+    configPostIncidentRecoveryPresent: configuredPostIncidentRecovery != null,
     evidenceDigest: createHash("sha256").update(canonicalJson(proof)).digest("hex"),
   });
 }

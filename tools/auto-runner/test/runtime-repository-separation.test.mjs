@@ -253,10 +253,18 @@ test("deployment CLI derives trusted project logs while development keeps an exp
   assert.doesNotMatch(trustedWithoutLogs.stderr, /--logs-root is required/);
   assert.match(trustedWithoutLogs.stderr, /ENOENT|config_missing/);
   const developmentWithoutLogs = spawnSync(process.execPath, [
-    entry, "--destination", "/tmp/runtime", "--development-unbound-project-root",
+    entry, "--destination", "/tmp/runtime", "--repo-root", "/tmp/repo", "--development-unbound-project-root",
   ], { encoding: "utf8" });
   assert.notEqual(developmentWithoutLogs.status, 0);
   assert.match(developmentWithoutLogs.stderr, /development-unbound deployment requires --logs-root/);
+  for (const args of [
+    ["--destination", "/tmp/runtime", "--repo-root", "relative/repo", "--logs-root", "/tmp/logs", "--development-unbound-project-root"],
+    ["--destination", "/tmp/runtime", "--repo-root", "/tmp/repo", "--logs-root", "/tmp/logs/../logs", "--development-unbound-project-root"],
+  ]) {
+    const noncanonical = spawnSync(process.execPath, [entry, ...args], { encoding: "utf8" });
+    assert.notEqual(noncanonical.status, 0);
+    assert.match(noncanonical.stderr, /must be an absolute canonical path/);
+  }
   const rollbackDryRun = spawnSync(process.execPath, [
     entry,
     "--rollback",

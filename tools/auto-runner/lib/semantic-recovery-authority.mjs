@@ -143,12 +143,13 @@ export function createProductionSemanticRecoveryVerifierRegistry(config) {
   return registry;
 }
 
-export function createReadOnlySemanticDeploymentVerifierRegistry({ evidenceRoot, repositorySlug } = {}) {
+export function createReadOnlySemanticDeploymentVerifierRegistry({ evidenceRoot, repositorySlug, ownerAuthorityDigest } = {}) {
   const root = authenticateDeploymentEvidenceRoot(evidenceRoot);
   if (typeof repositorySlug !== "string" || !/^[^/\s]+\/[^/\s]+$/u.test(repositorySlug)) {
     throw new Error("semantic deployment repository identity invalid");
   }
-  const registry = createRegistry("deployment_read_only", (authorityClass, descriptor) => {
+  if (!isDigest(ownerAuthorityDigest)) throw new Error("semantic deployment owner authority identity invalid");
+  const registry = createRegistry("deployment_read_only_owner_attested", (authorityClass, descriptor) => {
     assertExactKeys(descriptor, ["authorityClass", "store"]);
     if (descriptor.authorityClass !== authorityClass) throw new Error("semantic source class mismatch");
     assertExactKeys(descriptor.store, ["kind", "path", "role", "sha256"]);
@@ -180,7 +181,8 @@ export function createReadOnlySemanticDeploymentVerifierRegistry({ evidenceRoot,
     return {
       claims: document.claims,
       provenanceIdentity: sha256(canonicalJson({
-        authority: "deployment_read_only",
+        authority: "deployment_read_only_owner_attested",
+        ownerAuthorityDigest,
         authorityClass,
         verifier: definition,
         path: storePath,

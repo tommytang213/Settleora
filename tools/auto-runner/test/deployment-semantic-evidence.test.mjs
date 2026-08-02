@@ -130,6 +130,15 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
     lifecycleSuccessorGeneration: 3,
     formerBytesAvailable: false,
   };
+  const ownerAttestation = {
+    authority: "authenticated_external_profile_owner",
+    scope: "runtime_deployment_quiescence_only",
+    sourceManifestDigest: sha256(canonicalJson(sources.map(({ authorityClass, store }) => ({ authorityClass, store }))
+      .sort((left, right) => left.authorityClass.localeCompare(right.authorityClass)))),
+    artifactManifestDigest: sha256(canonicalJson(artifacts.map(({ role, path: artifactPath, sha256: artifactSha256 }) => ({ role, path: artifactPath, sha256: artifactSha256 }))
+      .sort((left, right) => left.role.localeCompare(right.role) || left.path.localeCompare(right.path)))),
+    targetDigest: sha256(canonicalJson(target)),
+  };
   const namespace = "9".repeat(64);
   const projectAuthorityCore = {
     projectId: "Example", repositorySlug: "example/repo", namespace,
@@ -153,7 +162,7 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
     config: { path: paths.runtimeConfig, sha256: digests.runtimeConfig },
     approvedProfile: { path: paths.approvedProfile, sha256: digests.approvedProfile },
     healthUnit: { path: paths.healthUnit, sha256: digests.healthUnit }, target,
-    evidenceRoot, authenticatedProvenance: provenance, semanticEvidencePacket: packet,
+    evidenceRoot, ownerAttestation, authenticatedProvenance: provenance, semanticEvidencePacket: packet,
   };
   documentMutator?.(document);
   const documentEvidence = {
@@ -239,6 +248,15 @@ test("semantic deployment admission requires one associated recovery and exact p
     fixture.document.project.namespace = "0".repeat(64);
     assert.equal(inspect(fixture).reasonCode, "semantic_deployment_evidence_document_invalid");
   } finally { fixture.cleanup(); }
+  const configuredMismatch = makeFixture();
+  try {
+    configuredMismatch.projectAuthority.configuredPostIncidentRecovery = {
+      authenticatedProvenance: { ...structuredClone(configuredMismatch.document.authenticatedProvenance), taskKey: "other-task" },
+      semanticEvidencePacket: structuredClone(configuredMismatch.document.semanticEvidencePacket),
+      operationId: "1".repeat(64),
+    };
+    assert.equal(inspect(configuredMismatch).reasonCode, "semantic_deployment_evidence_document_invalid");
+  } finally { configuredMismatch.cleanup(); }
 });
 
 test("unexpected deployment evidence fields or grant-like files cannot expand authority", () => {
@@ -255,6 +273,12 @@ test("unexpected deployment evidence fields or grant-like files cannot expand au
     packetGrant.documentEvidence.sha256 = sha256(canonicalJson(packetGrant.document));
     assert.equal(inspect(packetGrant).reasonCode, "semantic_deployment_packet_shape_invalid");
   } finally { packetGrant.cleanup(); }
+  const ownerAttestationDrift = makeFixture();
+  try {
+    ownerAttestationDrift.document.ownerAttestation.targetDigest = "0".repeat(64);
+    ownerAttestationDrift.documentEvidence.sha256 = sha256(canonicalJson(ownerAttestationDrift.document));
+    assert.equal(inspect(ownerAttestationDrift).reasonCode, "semantic_deployment_evidence_document_invalid");
+  } finally { ownerAttestationDrift.cleanup(); }
 });
 
 test("quiescence proof equality rejects semantic evidence drift before exchange", () => {

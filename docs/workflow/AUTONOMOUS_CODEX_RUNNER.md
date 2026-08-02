@@ -1805,6 +1805,12 @@ persistence, submission, or issue continuation. Initial, post-lock, and
 pre-exchange inspections must reproduce identical document, manifest,
 authority, and semantic evidence digests; any drift fails closed. Legacy exact
 preserved recovery and ordinary quiescence remain separate contracts.
+The fixed-profile-root document is the sole deployment-only owner attestation
+and binds exact target, source-manifest, artifact-manifest, and document
+digests. Source-class agreement is corroboration, not protected producer or
+operational provenance. Any configured `postIncidentRecovery` provenance and
+packet must match the attestation exactly; an absent configuration is never
+silently populated by repository code.
 
 ## Missing Session-Lifecycle Recovery
 
