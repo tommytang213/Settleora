@@ -682,7 +682,7 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
     id: String(comment.id || ""),
     author: String(comment.author?.login || ""),
     createdAt: String(comment.createdAt || ""),
-    updatedAt: comment.updatedAt === null ? null : String(comment.updatedAt || ""),
+    updatedAt: comment.updatedAt == null ? null : String(comment.updatedAt || ""),
     bodySha256: sha256(String(comment.body || "")),
   })).sort((left, right) => left.id.localeCompare(right.id));
   if (new Set(comments.map(({ id }) => id)).size !== comments.length
