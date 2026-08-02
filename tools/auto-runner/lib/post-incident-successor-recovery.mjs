@@ -380,8 +380,8 @@ function validateSecurityPosture(packet, claims) {
     || !/^[^/\s]+\/[^/\s]+$/.test(claims.repository)
     || claims.claimIdentity !== `${claims.repository}#${claims.issueNumber}`
     || !digest64(claims.chargeId)
-    || claims.consumedRunnerRunId === claims.originalRunnerRunId
-    || claims.consumedSupervisorRunId === claims.originalSupervisorRunId
+    || new Set([claims.originalRunnerRunId, claims.failedContinuationRunnerRunId, claims.consumedRunnerRunId]).size !== 3
+    || new Set([claims.originalSupervisorRunId, claims.failedContinuationSupervisorRunId, claims.consumedSupervisorRunId]).size !== 3
     || !validShortGitBranch(claims.branch)
     || !path.isAbsolute(claims.formerRootPath) || !path.isAbsolute(claims.incidentPath)
     || !Number.isSafeInteger(claims.issueNumber) || claims.issueNumber < 1) return failed("semantic_claim_shape_invalid");

@@ -271,6 +271,19 @@ test("semantic recovery requires exact terminal-validation posture and phase con
   assert.equal(build(aggregateValidation).ok, true);
 });
 
+test("semantic recovery requires distinct original, failed-continuation, and consumed run roles", () => {
+  for (const [claim, value] of [
+    ["failedContinuationRunnerRunId", baseClaims.originalRunnerRunId],
+    ["failedContinuationRunnerRunId", baseClaims.consumedRunnerRunId],
+    ["failedContinuationSupervisorRunId", baseClaims.originalSupervisorRunId],
+    ["failedContinuationSupervisorRunId", baseClaims.consumedSupervisorRunId],
+  ]) {
+    const candidate = fixture();
+    setAllOwnerClaims(candidate, claim, value);
+    assert.equal(build(candidate).reasonCode, "semantic_claim_shape_invalid", `${claim}:${value}`);
+  }
+});
+
 test("operation selectors are derived and mismatches fail closed", () => {
   const value = fixture(); value.packet.operationId = "0".repeat(64);
   assert.equal(build(value).reasonCode, "semantic_operation_request_selector_mismatch");
