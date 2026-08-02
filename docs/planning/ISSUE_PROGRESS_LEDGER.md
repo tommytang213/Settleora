@@ -1,5 +1,61 @@
 # Issue Progress Ledger
 
+### Issue #1033 / PR #1034 — PostCSS Dependabot alert #29 remediation complete (2026-08-02)
+
+- Issue #1033 is `CLOSED` as completed. It has no Project item, milestone, or
+  assignee. PR #1034 merged normally with expected-head protection from exact
+  authorized base `ca4e7982d28a595b0f1c9d3c1bb355f26da8d667`, source head
+  `4a500941543e84fe381ed1ebb93b661f1f23b228`, and source tree
+  `55f84cc55fe8be3e77add313939d936086a77381` as merge
+  `e779fec81293a86649f87b30dad7f15f7d1cc88c`. The merge has the exact base
+  and source head as its two ordered parents and the exact source tree.
+- Scope was only `apps/web-user/package-lock.json`, with 7 additions and 7
+  deletions. The transitive Vite development graph moved PostCSS from `8.5.15`
+  to patched `8.5.25`; its required Nano ID edge/node moved from `3.3.15` to
+  `3.3.16`. No package manifest, direct PostCSS dependency, application source,
+  framework, package-manager, API/OpenAPI, generated client, schema, or
+  deployment configuration changed.
+- Exact merged-main validation passed clean web-user `npm ci` with 144 packages
+  audited and zero vulnerabilities, `npm explain postcss`, `npm ls postcss
+  --all`, `npm ls nanoid --all`, zero-vulnerability `npm audit --json`, lint,
+  11 test files / 129 tests, production build, root doctor, diff checks, and
+  clean-worktree guards. The merged lock graph contains exactly one PostCSS
+  instance at `8.5.25`, one Nano ID instance at `3.3.16`, and no direct PostCSS
+  declaration.
+- Fresh Gemini `strong_independent` and local Codex reviews passed with no
+  material findings. All 12 exact-head PR CodeQL, Semgrep CE/OSS, Trivy, and
+  both Scaffold Validation checks passed; exact-head GitHub Codex found no
+  major issues; review threads were `0/0` total/unresolved. On merged main, all
+  required CodeQL, Semgrep CE, Trivy, and Scaffold Validation checks passed.
+  The separate non-required API Image GHCR workflow encountered a Docker Hub
+  timeout while booting Buildx; its image build/publish step was skipped and no
+  deployment or published artifact resulted.
+- Dependabot alert #29 for `postcss` in
+  `apps/web-user/package-lock.json` / `GHSA-r28c-9q8g-f849` closed
+  automatically as `fixed` at `2026-08-02T04:33:52Z` after the patched graph
+  reached the default branch. Its dismissal request, dismissed-at/by/reason/
+  comment, and auto-dismissed-at fields remained null. Final open
+  code-scanning, secret-scanning, and Dependabot alert counts were `0/0/0`.
+- PR #1032 remains a separate resumable Issue #1012 chain on branch
+  `fix/auto-1012-semantic-evidence-successor-recovery-20260801-1136`. Its
+  retained worktree remained clean at local candidate
+  `6ea9f6cabfc26abb58ba9be8445fd4acb5e17acd`; remote/PR head remained
+  `275f9e15d0e4ee2d7d59686c9a9b3ce48bdcd3db`. Resume it only as a separately
+  launched task, incorporating current main through a normal non-force merge
+  when needed and rerunning all candidate-bound validation and reviews.
+- No deployment, rollback, Issue #959 submission, semantic-successor
+  create/adopt operation, root/systemd/service/grant operation, runner or
+  supervisor submission, queue activation, PR #1032 mutation, branch/worktree
+  cleanup, force-like history operation, or unrelated product/runtime effect
+  occurred. Later protected producer/root/grant installation, semantic
+  successor creation/adoption, and Issue #959 continuation remain separate
+  manual gates.
+- Close/keep-open recommendation: keep Issue #1033 closed; its narrow
+  dependency-remediation close rule is satisfied. Completion comment:
+  `https://github.com/tommytang213/Settleora/issues/1033#issuecomment-5155435460`.
+  Merge/hygiene report:
+  `/workspace/logs/settleora-codex-report-20260802-1220-pr1034-exact-head-merge-alert-closure-hygiene.md`.
+
 ### Issues #1012/#959/#999 and PR #1030 — live projection diagnostics replay repair merged (2026-08-01)
 
 - PR #1030 merged normally with expected-head protection from exact authorized
