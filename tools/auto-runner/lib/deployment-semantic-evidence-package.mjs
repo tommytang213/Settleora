@@ -158,7 +158,15 @@ export function planSemanticDeploymentEvidencePackage({
 export function createOrAdoptSemanticDeploymentEvidencePackage(plan) {
   validatePlan(plan);
   const current = inspectPackageResidue(plan);
-  if (current.action === "adopt_final") return packageResult(plan, "adopted");
+  if (current.action === "adopt_final") {
+    fsyncExistingPackage(plan.packageRoot, plan.members);
+    if (!packageMatches(plan.packageRoot, plan.members)) {
+      throw new Error("semantic evidence package final changed before adoption");
+    }
+    fsyncDirectory(plan.configRoot);
+    authenticateSemanticDeploymentEvidencePackage(plan.documentPath);
+    return packageResult(plan, "adopted");
+  }
   if (current.action === "adopt_incoming") {
     if (existsSync(plan.packageRoot)) throw new Error("semantic evidence package final appeared before incoming adoption");
     fsyncExistingPackage(plan.incomingRoot, plan.members);

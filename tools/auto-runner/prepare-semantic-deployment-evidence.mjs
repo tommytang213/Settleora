@@ -45,18 +45,20 @@ const projectAuthority = loadDeploymentProjectAuthority({
   healthUnitPath,
   allowRuntimeBootstrap: false,
 });
-const extractionContext = collectSemanticDeploymentEvidenceContext({
+const extractionRequest = {
   projectAuthority,
   repositoryRoot: repoRoot,
   incidentPath,
   incidentSha256: parsed.values.get("--incident-sha256"),
   associatedRecoveryPath,
   associatedRecoverySha256: parsed.values.get("--associated-recovery-sha256"),
-});
+};
+const readAuthorityContext = () => collectSemanticDeploymentEvidenceContext(extractionRequest);
+const extractionContext = readAuthorityContext();
 const plan = planSemanticDeploymentEvidencePackage({
   configRoot: path.dirname(configPath),
   packageBasename: parsed.values.get("--package-name"),
-  authorityReaders: createSemanticDeploymentAuthorityReaders(),
+  authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext }),
   extractionContext,
   createDocument: ({ packageRoot, claims, sources }) => createDeploymentDocument({
     projectAuthority,

@@ -239,10 +239,14 @@ runtime, health unit, repository, exact incident, exact associated recovery,
 all run roles, lifecycle, budget, Git candidate, and GitHub no-effect posture,
 then prints one deterministic plan without creating a file, directory, lock,
 or marker. Each class-specific extractor derives only matrix-owned claims from
-its authenticated domain inputs; the claim-owner matrix performs the only
-cross-class merge. Repository evidence additionally requires canonical clean
+its own fresh authenticated domain reread; no production extractor reuses the
+orchestrator's collected context. The claim-owner matrix performs the only
+cross-class merge and rejects drift between those independent reads.
+Repository evidence additionally requires canonical clean
 `main`/`origin/main`, a still-unmerged literal candidate ref, and clean linked
-worktrees. Intent evidence binds the exact prompt, report, finalized commit
+worktrees. Every Git command disables hooks and executable fsmonitor authority,
+and final collection reauthenticates config and repository/worktree topology.
+Intent evidence binds the exact prompt, report, finalized commit
 intent, subject, tree, and paths. GitHub evidence uses the fixed trusted CLI
 with a sanitized environment and fingerprints the exact issue-comment
 checkpoint without persisting comment bodies. `--create-or-adopt` is a
@@ -250,7 +254,9 @@ separately authorized external operation:
 it stages owner-only canonical members in the one fixed sibling `.incoming`
 directory, fsyncs every file and the directory, and atomically renames the
 whole directory, or adopts exact existing bytes idempotently. It never cleans
-conflicting residue and never reads a grant or creates a successor.
+conflicting residue. Final adoption fsyncs every member, the package directory,
+and the config root before success. The preparer never reads a grant or creates
+a successor.
 
 Plan shape (replace selectors with authenticated exact values):
 

@@ -166,46 +166,55 @@ export function collectSemanticDeploymentEvidenceContext({
   });
 }
 
-export function createSemanticDeploymentAuthorityReaders() {
+export function createSemanticDeploymentAuthorityReaders({ readAuthorityContext = null } = {}) {
+  if (readAuthorityContext !== null && typeof readAuthorityContext !== "function") {
+    throw new Error("semantic deployment authority context reader invalid");
+  }
+  const read = (context) => readAuthorityContext ? readAuthorityContext() : context;
   return Object.freeze({
-    repository_git: (context) => projection(context, "repository_git", {
-      repository: context.repository, ...repositoryClaims(context),
-    }),
-    lifecycle: (context) => projection(context, "lifecycle", {
-      ...lifecycleTaskClaims(context), ...runRoleClaims(context), ...lifecycleCounterClaims(context),
-      lifecycleLineage: lifecycleLineage(context),
-      lifecycleSessionId: context.lifecycleState.sessions.current,
-      lifecycleMutationGeneration: context.lifecycleState.mutationAuthority.generation,
-      successorEligible: successorEligible(context),
-      earliestSafePhase: context.lifecycleState.recovery.phaseAfter,
-    }),
-    logical_task_budget: (context) => projection(context, "logical_task_budget", {
-      ...budgetTaskClaims(context), ...budgetCounterClaims(context),
-      submissionCount: context.budgetState.acceptedLogicalTaskCount,
-      submissionExhausted: submissionExhausted(context),
-    }),
-    intent_lineage: (context) => projection(context, "intent_lineage", intentLineageClaims(context)),
-    projection_deployment: (context) => projection(context, "projection_deployment", {
-      ...repositoryClaims(context), ...incidentClaims(context), ...runtimeClaims(context),
-      prEvidenceDigest: context.github.digest,
-      lifecycleLineage: lifecycleLineage(context),
-      lifecycleSessionId: context.lifecycleState.sessions.current,
-      lifecycleMutationGeneration: context.lifecycleState.mutationAuthority.generation,
-      successorEligible: successorEligible(context),
-      earliestSafePhase: context.lifecycleState.recovery.phaseAfter,
-    }),
-    supervisor_child_run: (context) => projection(context, "supervisor_child_run", {
-      ...runRoleClaims(context), ...supervisorIntentClaims(context),
-      submissionCount: context.budgetState.acceptedLogicalTaskCount,
-      submissionExhausted: submissionExhausted(context),
-    }),
-    incident_report: (context) => projection(context, "incident_report", {
-      ...incidentClaims(context), ...runtimeClaims(context), ...incidentNoEffectClaims(context),
-    }),
-    github_no_effect: (context) => projection(context, "github_no_effect", {
-      repository: context.repository, prEvidenceDigest: context.github.digest, ...externalNoEffectClaims(context),
-    }),
+    repository_git: (context) => withAuthorityContext(read(context), "repository_git", (owned) => ({
+      repository: owned.repository, ...repositoryClaims(owned),
+    })),
+    lifecycle: (context) => withAuthorityContext(read(context), "lifecycle", (owned) => ({
+      ...lifecycleTaskClaims(owned), ...runRoleClaims(owned), ...lifecycleCounterClaims(owned),
+      lifecycleLineage: lifecycleLineage(owned),
+      lifecycleSessionId: owned.lifecycleState.sessions.current,
+      lifecycleMutationGeneration: owned.lifecycleState.mutationAuthority.generation,
+      successorEligible: successorEligible(owned),
+      earliestSafePhase: owned.lifecycleState.recovery.phaseAfter,
+    })),
+    logical_task_budget: (context) => withAuthorityContext(read(context), "logical_task_budget", (owned) => ({
+      ...budgetTaskClaims(owned), ...budgetCounterClaims(owned),
+      submissionCount: owned.budgetState.acceptedLogicalTaskCount,
+      submissionExhausted: submissionExhausted(owned),
+    })),
+    intent_lineage: (context) => withAuthorityContext(read(context), "intent_lineage", intentLineageClaims),
+    projection_deployment: (context) => withAuthorityContext(read(context), "projection_deployment", (owned) => ({
+      ...repositoryClaims(owned), ...incidentClaims(owned), ...runtimeClaims(owned),
+      prEvidenceDigest: owned.github.digest,
+      lifecycleLineage: lifecycleLineage(owned),
+      lifecycleSessionId: owned.lifecycleState.sessions.current,
+      lifecycleMutationGeneration: owned.lifecycleState.mutationAuthority.generation,
+      successorEligible: successorEligible(owned),
+      earliestSafePhase: owned.lifecycleState.recovery.phaseAfter,
+    })),
+    supervisor_child_run: (context) => withAuthorityContext(read(context), "supervisor_child_run", (owned) => ({
+      ...runRoleClaims(owned), ...supervisorIntentClaims(owned),
+      submissionCount: owned.budgetState.acceptedLogicalTaskCount,
+      submissionExhausted: submissionExhausted(owned),
+    })),
+    incident_report: (context) => withAuthorityContext(read(context), "incident_report", (owned) => ({
+      ...incidentClaims(owned), ...runtimeClaims(owned), ...incidentNoEffectClaims(owned),
+    })),
+    github_no_effect: (context) => withAuthorityContext(read(context), "github_no_effect", (owned) => ({
+      repository: owned.repository, prEvidenceDigest: owned.github.digest, ...externalNoEffectClaims(owned),
+    })),
   });
+}
+
+function withAuthorityContext(context, authorityClass, claims) {
+  if (!context || typeof context !== "object") throw new Error(`semantic ${authorityClass} context unavailable`);
+  return projection(context, authorityClass, claims(context));
 }
 
 function projection(context, authorityClass, claims) {
@@ -583,7 +592,11 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
       || !resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, repository, authorityEnvironment)) {
     throw new Error("semantic extraction repository authority untrusted");
   }
-  const git = (args, encoding = "utf8") => command("/usr/bin/git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", ...args], {
+  const safeGitArguments = [
+    "--no-replace-objects", "-c", "core.hooksPath=/dev/null",
+    "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+  ];
+  const git = (args, encoding = "utf8") => command("/usr/bin/git", [...safeGitArguments, ...args], {
     cwd: repositoryRoot, encoding, env: gitEnvironment,
   });
   const topLevel = String(git(["rev-parse", "--show-toplevel"])).trim();
@@ -594,6 +607,17 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   const localMain = String(git(["rev-parse", "refs/heads/main^{commit}"])).trim();
   const originMain = String(git(["rev-parse", "refs/remotes/origin/main^{commit}"])).trim();
   const shallow = String(git(["rev-parse", "--is-shallow-repository"])).trim();
+  const readConfigSnapshot = () => {
+    const localConfigDigest = sha256(Buffer.from(git(["config", "--local", "--null", "--list"], null)));
+    let worktreeConfigEnabled = false;
+    try { worktreeConfigEnabled = String(git(["config", "--local", "--type=bool", "--get", "extensions.worktreeConfig"])).trim() === "true"; }
+    catch { worktreeConfigEnabled = false; }
+    const worktreeConfigDigest = worktreeConfigEnabled
+      ? sha256(Buffer.from(git(["config", "--worktree", "--null", "--list"], null)))
+      : null;
+    return { localConfigDigest, worktreeConfigDigest, worktreeConfigEnabled };
+  };
+  const configSnapshot = readConfigSnapshot();
   if (path.resolve(topLevel) !== repositoryRoot || realpathSync(gitDir) !== gitDir || realpathSync(commonDir) !== commonDir
       || shallow !== "false"
       || Buffer.from(git(["status", "--porcelain=v1", "-z"], null)).length !== 0
@@ -636,7 +660,7 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
     Buffer.from(git(["worktree", "list", "--porcelain", "-z"], null)).toString("utf8"),
   ).map((worktree) => {
     if (realpathSync(worktree.path) !== worktree.path
-        || Buffer.from(command("/usr/bin/git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", "status", "--porcelain=v1", "-z"], {
+        || Buffer.from(command("/usr/bin/git", [...safeGitArguments, "status", "--porcelain=v1", "-z"], {
           cwd: worktree.path, encoding: null, env: gitEnvironment,
         })).length !== 0) {
       throw new Error("semantic extraction linked worktree unsafe");
@@ -648,7 +672,8 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   });
   const worktreeTopology = readWorktreeTopology(headSha);
   const initialSnapshot = {
-    canonicalHead, currentBranch, headSha, localMain, originMain, replaceRefs, shallow, treeSha, worktreeTopology,
+    canonicalHead, commonDir, configSnapshot, currentBranch, gitDir, headSha, localMain, originMain,
+    replaceRefs, repositoryRoot, shallow, topLevel: path.resolve(topLevel), treeSha, worktreeTopology,
   };
   const proof = {
     branch, baseSha, headSha, treeSha, mainSha: localMain,
@@ -659,20 +684,30 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
     if (proof[field] !== expected[field]) throw new Error(`semantic extraction Git ${field} mismatch`);
   }
   const finalHeadSha = String(git(["rev-parse", `refs/heads/${branch}^{commit}`])).trim();
+  const finalTopLevel = path.resolve(String(git(["rev-parse", "--show-toplevel"])).trim());
+  const finalGitDir = path.resolve(repositoryRoot, String(git(["rev-parse", "--git-dir"])).trim());
+  const finalCommonDir = path.resolve(repositoryRoot, String(git(["rev-parse", "--git-common-dir"])).trim());
   const finalSnapshot = {
     canonicalHead: String(git(["rev-parse", "HEAD^{commit}"])).trim(),
+    commonDir: finalCommonDir,
+    configSnapshot: readConfigSnapshot(),
     currentBranch: String(git(["symbolic-ref", "--quiet", "--short", "HEAD"])).trim(),
+    gitDir: finalGitDir,
     headSha: finalHeadSha,
     localMain: String(git(["rev-parse", "refs/heads/main^{commit}"])).trim(),
     originMain: String(git(["rev-parse", "refs/remotes/origin/main^{commit}"])).trim(),
     replaceRefs: String(git(["for-each-ref", "--format=%(refname)", "refs/replace"])).trim(),
+    repositoryRoot,
     shallow: String(git(["rev-parse", "--is-shallow-repository"])).trim(),
+    topLevel: finalTopLevel,
     treeSha: String(git(["rev-parse", `${finalHeadSha}^{tree}`])).trim(),
     worktreeTopology: readWorktreeTopology(finalHeadSha),
   };
   if (canonicalJson(finalSnapshot) !== canonicalJson(initialSnapshot)
       || Buffer.from(git(["status", "--porcelain=v1", "-z"], null)).length !== 0
-      || unsafeObjectPaths.some(existsSync)) {
+      || realpathSync(finalTopLevel) !== repositoryRoot || realpathSync(finalGitDir) !== finalGitDir
+      || realpathSync(finalCommonDir) !== finalCommonDir || unsafeObjectPaths.some(existsSync)
+      || !resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, repository, authorityEnvironment)) {
     throw new Error("semantic extraction Git authority changed during read");
   }
   return {

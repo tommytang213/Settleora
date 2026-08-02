@@ -225,7 +225,13 @@ test("production extractors derive each owned projection from authenticated doma
     const claims = completeClaims(root);
     const context = productionReaderContext(claims);
     assert.equal(Object.hasOwn(context, "common"), false);
-    const readers = createSemanticDeploymentAuthorityReaders();
+    let authorityReads = 0;
+    const readers = createSemanticDeploymentAuthorityReaders({
+      readAuthorityContext: () => {
+        authorityReads += 1;
+        return structuredClone(context);
+      },
+    });
     for (const authorityClass of semanticRecoveryAuthorityClasses) {
       const result = readers[authorityClass](context);
       const owned = Object.entries(semanticRecoveryClaimOwnerMatrix)
@@ -234,7 +240,26 @@ test("production extractors derive each owned projection from authenticated doma
       assert.deepEqual(Object.keys(result.claims).sort(), owned);
       for (const claim of owned) assert.deepEqual(result.claims[claim], claims[claim]);
     }
+    assert.equal(authorityReads, semanticRecoveryAuthorityClasses.length);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("independent authority rereads expose cross-class source drift to the claim matrix", () => {
+  const f = fixture();
+  try {
+    let authorityReads = 0;
+    const independentReaders = createSemanticDeploymentAuthorityReaders({
+      readAuthorityContext: () => {
+        authorityReads += 1;
+        const context = structuredClone(productionReaderContext(f.claims));
+        if (authorityReads === 5) context.candidate.headSha = "9".repeat(40);
+        return context;
+      },
+    });
+    Object.assign(f.readers, independentReaders);
+    assert.throws(() => f.makePlan(), /claim matrix invalid/u);
+    assert.equal(authorityReads, semanticRecoveryAuthorityClasses.length);
+  } finally { f.cleanup(); }
 });
 
 function snapshot(root) {

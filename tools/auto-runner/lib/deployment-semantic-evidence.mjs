@@ -61,17 +61,19 @@ export function inspectSemanticIncidentForDeployment({
   if (!Array.isArray(recoverableStates) || recoverableStates.length !== 1) {
     return failed("semantic_deployment_unresolved_recovery_count_invalid");
   }
+  const liveContextRequest = {
+    projectAuthority,
+    repositoryRoot: projectAuthority.repoRoot,
+    incidentPath: incident.incident.path,
+    incidentSha256: incident.incident.sha256,
+    associatedRecoveryPath: normalized.associatedRecovery.path,
+    associatedRecoverySha256: normalized.associatedRecovery.sha256,
+    ...(sourceCommand ? { command: sourceCommand } : {}),
+  };
+  const readAuthorityContext = () => collectSemanticDeploymentEvidenceContext(liveContextRequest);
   let liveContext;
   try {
-    liveContext = collectSemanticDeploymentEvidenceContext({
-      projectAuthority,
-      repositoryRoot: projectAuthority.repoRoot,
-      incidentPath: incident.incident.path,
-      incidentSha256: incident.incident.sha256,
-      associatedRecoveryPath: normalized.associatedRecovery.path,
-      associatedRecoverySha256: normalized.associatedRecovery.sha256,
-      ...(sourceCommand ? { command: sourceCommand } : {}),
-    });
+    liveContext = readAuthorityContext();
   } catch { return failed("semantic_deployment_live_source_revalidation_failed"); }
   const association = liveContext.association;
   if (path.resolve(recoverableStates[0]?.statePath || "") !== association.path
@@ -99,6 +101,7 @@ export function inspectSemanticIncidentForDeployment({
   const manifest = corroboration.manifest;
   const liveSources = revalidateLiveSemanticSources({
     context: liveContext,
+    readAuthorityContext,
     manifest,
     packet: normalized.semanticEvidencePacket,
     documentSha256: normalized.documentEvidence.sha256,
@@ -244,9 +247,9 @@ export function inspectSemanticIncidentForDeployment({
   });
 }
 
-function revalidateLiveSemanticSources({ context, manifest, packet, documentSha256 }) {
+function revalidateLiveSemanticSources({ context, readAuthorityContext, manifest, packet, documentSha256 }) {
   try {
-    const readers = createSemanticDeploymentAuthorityReaders();
+    const readers = createSemanticDeploymentAuthorityReaders({ readAuthorityContext });
     const packaged = new Map(manifest.evidenceSources.map((source) => [source.authorityClass, source]));
     const descriptors = new Map(packet.sources.map((source) => [source.authorityClass, source]));
     const live = [];
