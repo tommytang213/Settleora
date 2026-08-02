@@ -295,9 +295,13 @@ function productionReaderContext(claims) {
       iteration: claims.consumedIterationIdentity, summary: claims.consumedSummaryIdentity,
     }),
   };
-  runArtifacts.failed.iteration.value = { recovery: { terminalDerivativeProjection: { ok: true } } };
+  runArtifacts.failed.spec.value = { recoveryOnlyTarget: { terminalValidationRetryDerivativeNoPr: true } };
+  runArtifacts.failed.iteration.value = {
+    pr: { number: null }, remoteHeadSha: null, effects: {},
+    recovery: { terminalDerivativeProjection: { ok: true } },
+  };
   runArtifacts.consumed.iteration.value = {
-    outcome: "terminal_lifecycle_reconciled",
+    outcome: "terminal_lifecycle_reconciled", pr: { number: null }, remoteHeadSha: null, effects: {},
     recovery: {
       state: { taskKey: claims.taskKey, issueNumber: claims.issueNumber },
       lifecycle: { state: { controller: {
@@ -320,6 +324,12 @@ function productionReaderContext(claims) {
       },
     },
     association: { chargeId: claims.chargeId },
+    associatedState: {
+      pr: { number: null }, mutationMarkers: {}, generatedWork: null, featureBundle: null, outageResubmission: null,
+    },
+    intentLineage: {
+      proof: { commitEffectFinalized: true, reportPromptBound: true, noLaterSourceEffect: true },
+    },
     candidate: {
       branch: claims.branch, baseSha: claims.baseSha, headSha: claims.headSha, treeSha: claims.treeSha,
       changedFilesDigest: claims.changedFilesDigest, diffDigest: claims.diffDigest,
