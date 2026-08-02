@@ -376,13 +376,28 @@ test("overwrite incident quarantine remains byte-authenticated and ordinary reco
 test("startup quarantines configured incident before recoverability filtering without touching protected root when evidence is absent", () => {
   const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-quarantine-"));
   try {
-    const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-original", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40), phase: "completed" });
+    const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-consumed", supervisorRunId: "supervisor-consumed", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40), phase: "completed" });
     writeRecoveryState({ logsRoot }, state);
     const incidentPath = recoveryStatePath({ logsRoot }, state); const actual = hash(readFileSync(incidentPath));
     const config = { logsRoot, repositorySlug: "example/repo", allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance: { ok: true, repository: "example/repo", incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: actual }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256: actual, bytesAvailable: false, originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed" }, semanticEvidencePacket: null, operationId: null } };
     const discovery = discoverStartupRecovery(config);
     assert.equal(discovery.found, true); assert.equal(discovery.allowed, false); assert.equal(discovery.reasonCode, "semantic_evidence_packet_missing");
     assert.throws(() => writeRecoveryState(config, state), /protected_post_incident_recovery_state_write_blocked/u);
+  } finally { rmSync(logsRoot, { recursive: true, force: true }); }
+});
+
+test("startup rejects quarantined incident identity contradictions before semantic corroboration", () => {
+  const logsRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-quarantine-contradiction-"));
+  try {
+    const state = createInitialRecoveryState({ taskKey: "task-1", issue: { number: 7 }, runId: "run-consumed", supervisorRunId: "supervisor-consumed", branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40), phase: "completed" });
+    writeRecoveryState({ logsRoot }, state);
+    const incidentPath = recoveryStatePath({ logsRoot }, state);
+    const incidentSha256 = hash(readFileSync(incidentPath));
+    const provenance = { ok: true, repository: "example/repo", incidentPath, incidentArtifact: { role: "incident", path: incidentPath, sha256: incidentSha256 }, taskKey: "task-1", issueNumber: 7, predecessorSha256: oldHash, incidentSha256, bytesAvailable: false, originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed" };
+    const config = (authenticatedProvenance) => ({ logsRoot, repositorySlug: "example/repo", allowExistingPrRecovery: true, postIncidentRecovery: { authenticatedProvenance, semanticEvidencePacket: null, operationId: null } });
+
+    assert.equal(discoverStartupRecovery(config({ ...provenance, taskKey: "other-task" })).reasonCode, "incident_identity_contradiction");
+    assert.equal(discoverStartupRecovery(config({ ...provenance, consumedRunnerRunId: "other-run" })).reasonCode, "incident_run_identity_contradiction");
   } finally { rmSync(logsRoot, { recursive: true, force: true }); }
 });
 
@@ -411,6 +426,18 @@ test("locked semantic execution remains fail-closed without native producers and
   assert.equal(result.ok, false);
   assert.equal(result.outcome, "blocked_recovery_state");
   assert.equal(result.reasonCode, "semantic_evidence_packet_invalid");
+});
+
+test("dry-run semantic continuation previews without invoking protected persistence", async () => {
+  const recovery = { allowed: true, action: "create_or_adopt_semantic_recovery_successor" };
+  const result = await executeStartupContinuation({ dryRun: true, postIncidentRecovery: {} }, recovery);
+  assert.deepEqual(result, {
+    ok: true,
+    preview: true,
+    outcome: "dry_run_preview_complete",
+    reasonCode: "dry_run_semantic_recovery_not_executed",
+    recovery,
+  });
 });
 
 test("runner retains only the pure crash protocol and delegates every filesystem write to the protected producer", () => {
