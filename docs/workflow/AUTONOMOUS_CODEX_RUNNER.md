@@ -1829,9 +1829,10 @@ full task lineage, issue/claim/charge, branch/base/candidate/tree/diff,
 original/failed/consumed roles, lifecycle generation, counters, phase/actions,
 and no-effect posture must agree. The paths must be distinct. Zero, multiple,
 unrelated, newer, malformed, or drifting recoverable states fail closed.
-Comment/close or unknown effect markers, an ordinary continuation, generated
-work, attempts, or populated local evidence on the associated state also fail
-closed.
+Both artifacts require the complete canonical PR object with every field null
+and null generated-work, feature-bundle, and outage-resubmission authority.
+Comment/close or unknown effect markers, an ordinary continuation, attempts,
+or populated local evidence on the associated state also fail closed.
 
 The package selects the same source-owned verifier set and claim-owner matrix,
 binds an exact target and all authenticated incident/runtime artifacts, and

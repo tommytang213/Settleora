@@ -398,16 +398,18 @@ function incidentNoEffectClaims(context) {
   const effects = incident.ordinaryContinuation?.effects || {};
   const states = [incident, context.associatedState];
   const markers = states.map((state) => state?.mutationMarkers || {});
+  const prFields = ["baseRefName", "headRefName", "headSha", "number", "state", "url"];
   const claims = {
     pushEffect: markers.some((value) => Object.keys(value.push || {}).length !== 0),
     prEffect: markers.some((value) => Object.keys(value.pr_create || {}).length !== 0)
-      || states.some((state) => state?.pr?.number !== null),
+      || states.some((state) => !state?.pr || Object.keys(state.pr).sort().join("\n") !== prFields.join("\n")
+        || prFields.some((field) => state.pr[field] !== null)),
     commentEffect: markers.some((value) => Object.keys(value.issue_comment || {}).length !== 0
       || Object.keys(value.parent_comment || {}).length !== 0 || Object.keys(value.pr_comment || {}).length !== 0),
     mergeEffect: markers.some((value) => Object.keys(value.merge || {}).length !== 0),
     issueEffect: markers.some((value) => Object.keys(value.issue_close || {}).length !== 0),
-    productEffect: Object.keys(effects).length !== 0 || context.associatedState?.generatedWork !== null
-      || context.associatedState?.featureBundle !== null || context.associatedState?.outageResubmission !== null,
+    productEffect: Object.keys(effects).length !== 0 || states.some((state) => state?.generatedWork !== null
+      || state?.featureBundle !== null || state?.outageResubmission !== null),
   };
   if (Object.values(claims).some(Boolean)) throw new Error("semantic extraction incident effect posture invalid");
   return claims;
@@ -591,8 +593,9 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   const canonicalHead = String(git(["rev-parse", "HEAD^{commit}"])).trim();
   const localMain = String(git(["rev-parse", "refs/heads/main^{commit}"])).trim();
   const originMain = String(git(["rev-parse", "refs/remotes/origin/main^{commit}"])).trim();
+  const shallow = String(git(["rev-parse", "--is-shallow-repository"])).trim();
   if (path.resolve(topLevel) !== repositoryRoot || realpathSync(gitDir) !== gitDir || realpathSync(commonDir) !== commonDir
-      || String(git(["rev-parse", "--is-shallow-repository"])).trim() !== "false"
+      || shallow !== "false"
       || Buffer.from(git(["status", "--porcelain=v1", "-z"], null)).length !== 0
       || currentBranch !== "main" || canonicalHead !== localMain || localMain !== originMain) {
     throw new Error("semantic extraction repository identity unsafe");
@@ -629,21 +632,24 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   const changedFiles = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", baseSha, headSha], null)).toString("utf8").split("\0").filter(Boolean).sort();
   const diff = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--binary", baseSha, headSha], null));
   const commitSubject = String(git(["show", "-s", "--format=%s", headSha])).trimEnd();
-  const worktreeRecords = parseWorktreeRecords(Buffer.from(git(["worktree", "list", "--porcelain", "-z"], null)).toString("utf8"));
-  for (const worktree of worktreeRecords) {
+  const readWorktreeTopology = (candidateHead) => parseWorktreeRecords(
+    Buffer.from(git(["worktree", "list", "--porcelain", "-z"], null)).toString("utf8"),
+  ).map((worktree) => {
     if (realpathSync(worktree.path) !== worktree.path
         || Buffer.from(command("/usr/bin/git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", "status", "--porcelain=v1", "-z"], {
           cwd: worktree.path, encoding: null, env: gitEnvironment,
         })).length !== 0) {
       throw new Error("semantic extraction linked worktree unsafe");
     }
-    if (worktree.branch === `refs/heads/${branch}` && worktree.head !== headSha) {
+    if (worktree.branch === `refs/heads/${branch}` && worktree.head !== candidateHead) {
       throw new Error("semantic extraction candidate worktree identity mismatch");
     }
-  }
-  const worktreeTopology = worktreeRecords.map(({ path: worktreePath, head, branch: worktreeBranch, bare, detached }) => ({
-    path: worktreePath, head, branch: worktreeBranch, bare, detached,
-  }));
+    return { path: worktree.path, head: worktree.head, branch: worktree.branch, bare: worktree.bare, detached: worktree.detached };
+  });
+  const worktreeTopology = readWorktreeTopology(headSha);
+  const initialSnapshot = {
+    canonicalHead, currentBranch, headSha, localMain, originMain, replaceRefs, shallow, treeSha, worktreeTopology,
+  };
   const proof = {
     branch, baseSha, headSha, treeSha, mainSha: localMain,
     changedFilesDigest: sha256(JSON.stringify(changedFiles)),
@@ -651,6 +657,23 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   };
   for (const field of ["headSha", "treeSha", "changedFilesDigest", "diffDigest"]) {
     if (proof[field] !== expected[field]) throw new Error(`semantic extraction Git ${field} mismatch`);
+  }
+  const finalHeadSha = String(git(["rev-parse", `refs/heads/${branch}^{commit}`])).trim();
+  const finalSnapshot = {
+    canonicalHead: String(git(["rev-parse", "HEAD^{commit}"])).trim(),
+    currentBranch: String(git(["symbolic-ref", "--quiet", "--short", "HEAD"])).trim(),
+    headSha: finalHeadSha,
+    localMain: String(git(["rev-parse", "refs/heads/main^{commit}"])).trim(),
+    originMain: String(git(["rev-parse", "refs/remotes/origin/main^{commit}"])).trim(),
+    replaceRefs: String(git(["for-each-ref", "--format=%(refname)", "refs/replace"])).trim(),
+    shallow: String(git(["rev-parse", "--is-shallow-repository"])).trim(),
+    treeSha: String(git(["rev-parse", `${finalHeadSha}^{tree}`])).trim(),
+    worktreeTopology: readWorktreeTopology(finalHeadSha),
+  };
+  if (canonicalJson(finalSnapshot) !== canonicalJson(initialSnapshot)
+      || Buffer.from(git(["status", "--porcelain=v1", "-z"], null)).length !== 0
+      || unsafeObjectPaths.some(existsSync)) {
+    throw new Error("semantic extraction Git authority changed during read");
   }
   return {
     ...proof, changedFiles, commitSubject, commitMessageDigest: sha256(commitSubject),

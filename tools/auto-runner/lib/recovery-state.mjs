@@ -486,11 +486,16 @@ export function authenticateAssociatedRecoverableState({
       .every(([markerClass, markers]) => permittedMarkerClasses.has(markerClass) || Object.keys(markers || {}).length === 0));
     const associatedLocalEvidenceAbsent = Object.values(associated.state?.evidence || {}).every((value) => value === null)
       && Array.isArray(associated.state?.attempts) && associated.state.attempts.length === 0;
+    const prFields = ["baseRefName", "headRefName", "headSha", "number", "state", "url"];
+    const prAbsent = [incident.state, associated.state].every((state) => state?.pr
+      && Object.keys(state.pr).sort().join("\n") === prFields.join("\n")
+      && prFields.every((field) => state.pr[field] === null));
+    const productAuthorityAbsent = [incident.state, associated.state].every((state) => state?.generatedWork === null
+      && state?.featureBundle === null && state?.outageResubmission === null);
     const noEffectPosture = {
       remoteHeadAbsent: incident.state?.branch?.expectedRemoteHeadSha === null
         && associated.state?.branch?.expectedRemoteHeadSha === null,
-      prAbsent: [incident.state, associated.state].every((state) => state?.pr?.number === null
-        && state?.pr?.url === null && state?.pr?.headSha === null),
+      prAbsent,
       pushMarkerAbsent: [incident.state, associated.state]
         .every((state) => Object.keys(state?.mutationMarkers?.push || {}).length === 0),
       mergeMarkerAbsent: [incident.state, associated.state]
@@ -503,6 +508,7 @@ export function authenticateAssociatedRecoverableState({
       ordinaryContinuationAbsent: associated.state?.ordinaryContinuation == null,
       generatedWorkAbsent: associated.state?.generatedWork === null && associated.state?.featureBundle === null
         && associated.state?.outageResubmission === null,
+      productAuthorityAbsent,
       localEvidenceAbsent: associatedLocalEvidenceAbsent,
     };
     if (!incidentIdentity || !counters

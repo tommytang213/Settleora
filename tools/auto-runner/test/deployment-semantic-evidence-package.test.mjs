@@ -316,7 +316,11 @@ function productionReaderContext(claims) {
     repository: claims.repository,
     incident: {
       issue: { number: claims.issueNumber }, taskKey: claims.taskKey,
-      pr: { number: null }, mutationMarkers: {},
+      pr: {
+        baseRefName: null, headRefName: null, headSha: null,
+        number: null, state: null, url: null,
+      },
+      mutationMarkers: {}, generatedWork: null, featureBundle: null, outageResubmission: null,
       ordinaryContinuation: {
         effects: {}, sourceFailureHistory: [{}], processedGithubFindingFingerprints: [],
         sourceFailureBatch: { findings: [{ sourceFixEligible: false, retryable: false, classification: "unsafe_or_ambiguous" }] },
@@ -325,7 +329,11 @@ function productionReaderContext(claims) {
     },
     association: { chargeId: claims.chargeId },
     associatedState: {
-      pr: { number: null }, mutationMarkers: {}, generatedWork: null, featureBundle: null, outageResubmission: null,
+      pr: {
+        baseRefName: null, headRefName: null, headSha: null,
+        number: null, state: null, url: null,
+      },
+      mutationMarkers: {}, generatedWork: null, featureBundle: null, outageResubmission: null,
     },
     intentLineage: {
       proof: { commitEffectFinalized: true, reportPromptBound: true, noLaterSourceEffect: true },

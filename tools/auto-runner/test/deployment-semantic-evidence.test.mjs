@@ -533,6 +533,24 @@ test("live Git source binds canonical main, origin main, candidate exclusion, an
   }
 });
 
+test("live Git source rejects a candidate ref update inside the final collector read", () => {
+  const fixture = makeFixture();
+  try {
+    const trusted = fixture.sourceCommand;
+    let candidateRefReads = 0;
+    fixture.sourceCommand = (executable, args, options) => {
+      if (executable === "/usr/bin/git" && args.at(-2) === "rev-parse"
+          && args.at(-1) === "refs/heads/feature/issue-7^{commit}"
+          && ++candidateRefReads === 2) {
+        execFileSync("/usr/bin/git", ["update-ref", "refs/heads/feature/issue-7", fixture.claims.baseSha], { cwd: fixture.repositoryRoot });
+      }
+      return trusted(executable, args, options);
+    };
+    assert.equal(inspect(fixture).reasonCode, "semantic_deployment_live_source_revalidation_failed");
+    assert.equal(candidateRefReads, 2);
+  } finally { fixture.cleanup(); }
+});
+
 test("GitHub source uses a trusted absolute client and binds exact comment identities and fingerprints", () => {
   const later = makeFixture();
   try {

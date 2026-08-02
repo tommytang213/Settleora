@@ -277,7 +277,9 @@ the associated recovery binds a distinct path/SHA/state digest and must be the
 single discoverable provisional predecessor. Their task-key prefix, issue,
 claim, charge, branch/base, candidate head/tree/diff, original roles,
 lifecycle generation, counters, phase/actions, creation lineage, and no-effect
-posture must agree. The associated state may contain only its exact
+posture must agree. Both artifacts must retain the complete canonical PR
+object with every field null and must have null generated-work, feature-bundle,
+and outage-resubmission authority. The associated state may contain only its exact
 claim/charge/branch markers and must contain no continuation, generated work,
 local evidence, comment/close marker, or other external-effect marker. Literal
 path equality is forbidden, not required.

@@ -83,6 +83,7 @@ test("current-shaped incident and distinct associated recovery authenticate as t
       unexpectedMarkersAbsent: true,
       ordinaryContinuationAbsent: true,
       generatedWorkAbsent: true,
+      productAuthorityAbsent: true,
       localEvidenceAbsent: true,
     });
     assert.equal(Object.keys(result).includes("incidentState"), false);
@@ -146,8 +147,9 @@ test("candidate, lifecycle, counter, phase, status, stop, and no-effect drift fa
     (state) => { state.ordinaryContinuation.counters = null; },
     (state) => { state.sessionLifecycle.mutationAuthority.status = "active"; },
     (state) => { state.branch.expectedRemoteHeadSha = "b".repeat(40); },
-    (state) => { state.pr.number = 1; },
     (state) => { state.mutationMarkers.push = { pushed: true }; },
+    ...["number", "url", "headSha", "headRefName", "baseRefName", "state"].map((field) => (state) => { state.pr[field] = field === "number" ? 1 : "unexpected"; }),
+    ...["generatedWork", "featureBundle", "outageResubmission"].map((field) => (state) => { state[field] = { unexpected: true }; }),
   ];
   for (const mutateIncident of incidentCases) {
     const f = fixture({ mutateIncident });
@@ -164,6 +166,8 @@ test("candidate, lifecycle, counter, phase, status, stop, and no-effect drift fa
     (state) => { state.generatedWork = { path: "unexpected" }; },
     (state) => { state.evidence.localValidation = { ok: true }; },
     (state) => { state.attempts.push({ action: "unexpected" }); },
+    ...["number", "url", "headSha", "headRefName", "baseRefName", "state"].map((field) => (state) => { state.pr[field] = field === "number" ? 1 : "unexpected"; }),
+    ...["featureBundle", "outageResubmission"].map((field) => (state) => { state[field] = { unexpected: true }; }),
   ];
   for (const mutateAssociated of associatedCases) {
     const f = fixture({ mutateAssociated });
