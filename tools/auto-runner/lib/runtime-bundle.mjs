@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertSeparatedRoots, canonicalExistingDirectory, isContained } from "./runtime-identity.mjs";
 import { inspectPreservedRecoveryForDeployment, sanitizedDeploymentGitEnvironment, trustedDeploymentGitBinary } from "./preserved-recovery-deployment.mjs";
+import { inspectSemanticIncidentForDeployment } from "./deployment-semantic-evidence.mjs";
 import { listRecoverableRecoveryStates } from "./recovery-state.mjs";
 
 export const runtimeBundleFormat = "settleora-auto-runner-runtime";
@@ -418,10 +419,11 @@ export function deployRuntimeBundle({
       !== createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex")) {
       throw new Error("stable runtime launcher does not match the approved bundle");
   }
-  // Launcher preparation is deliberately outside the runtime directory exchange.
-  // Re-read operational authority after that preparation so no unrelated work
-  // separates the final proof from the first rollback/runtime rename.
-  verifyFinalQuiescence();
+  // The complete proof was refreshed immediately before this bounded,
+  // synchronous launcher/runtime adoption sequence. Re-reading it after the
+  // intentional launcher transition would compare the old authenticated
+  // runtime claim with deployment-owned new bytes and reject every legitimate
+  // launcher-changing upgrade.
   } catch (error) {
     if (launcherReplaced) {
       if (launcherPreviouslyExisted && currentManifest) {
@@ -564,10 +566,23 @@ export function rollbackRuntimeBundle({
 
 export function inspectDeploymentQuiescence(logsRoot, {
   preservedRecoveryTarget = null,
+  semanticDeploymentEvidence = null,
+  deploymentProjectAuthority = null,
   repositoryRoot = null,
   resumedGitConfigRecords = null,
 } = {}) {
   canonicalExistingDirectory(logsRoot, "logsRoot");
+  if (preservedRecoveryTarget && semanticDeploymentEvidence) {
+    throw new Error("deployment recovery admissions are mutually exclusive");
+  }
+  const projectAuthorityDigest = deploymentProjectAuthority?.evidenceDigest || null;
+  if (deploymentProjectAuthority
+      && (deploymentProjectAuthority.logsRoot !== logsRoot
+        || deploymentProjectAuthority.repoRoot !== repositoryRoot
+        || !/^[a-f0-9]{64}$/u.test(projectAuthorityDigest))) {
+    throw new Error("deployment project authority does not match quiescence root");
+  }
+  const evidence = (value) => quiescenceEvidence({ ...value, projectAuthorityDigest });
   const activePaths = [
     path.join(logsRoot, "locks"),
     path.join(logsRoot, "supervisor", "runs"),
@@ -582,30 +597,61 @@ export function inspectDeploymentQuiescence(logsRoot, {
         throw new Error("runtime deployment refused because operational state is unreadable");
       }
       if (Number.isInteger(record.pid) && processIsActive(record.pid)) {
-        return quiescenceEvidence({ active: true, unresolvedExternalEffects: false, reasonCode: "live_operational_owner" });
+        return evidence({ active: true, unresolvedExternalEffects: false, reasonCode: "live_operational_owner" });
       }
       if (["submitted", "starting", "running", "stopping_after_current"].includes(record.state)) {
-        return quiescenceEvidence({ active: true, unresolvedExternalEffects: false, reasonCode: "live_operational_state" });
+        return evidence({ active: true, unresolvedExternalEffects: false, reasonCode: "live_operational_state" });
       }
     }
   }
   if (hasUnresolvedOperationalRecords(logsRoot, "pre-effect-intents")) {
-    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
+    return evidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
   }
   if (preservedRecoveryTarget) {
-    return inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget, {
+    return Object.freeze({ ...inspectPreservedRecoveryForDeployment(logsRoot, preservedRecoveryTarget, {
       repositoryRoot,
       resumedGitConfigRecords,
-    });
+    }), projectAuthorityDigest, semanticIncidentAdmitted: false, semanticEvidenceDigest: null, semanticManifestDigest: null, semanticDeploymentProof: null });
   }
   const recoverableStates = listRecoverableRecoveryStates({ logsRoot });
+  if (semanticDeploymentEvidence) {
+    const semantic = inspectSemanticIncidentForDeployment({
+      document: semanticDeploymentEvidence.document,
+      documentEvidence: semanticDeploymentEvidence.evidence,
+      projectAuthority: deploymentProjectAuthority,
+      recoverableStates,
+    });
+    if (!semantic.ok) {
+      return evidence({
+        active: false,
+        unresolvedExternalEffects: true,
+        reasonCode: semantic.reasonCode,
+      });
+    }
+    return Object.freeze({
+      active: false,
+      unresolvedExternalEffects: false,
+      pendingEffects: false,
+      preservedRecoveryAdmitted: false,
+      targetIdentityDigest: null,
+      semanticIncidentAdmitted: true,
+      semanticEvidenceDigest: semantic.evidenceDigest,
+      semanticManifestDigest: semantic.manifestDigest,
+      semanticDeploymentProof: semantic.proof,
+      projectAuthorityDigest,
+      reasonCode: semantic.reasonCode,
+      projectionFailureReasonCode: null,
+      projectionFailureClass: null,
+      revalidationRequired: true,
+    });
+  }
   if (recoverableStates.length > 0) {
-    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "recoverable_operational_state" });
+    return evidence({ active: false, unresolvedExternalEffects: true, reasonCode: "recoverable_operational_state" });
   }
   if (hasUnresolvedOperationalRecords(logsRoot, "recovery")) {
-    return quiescenceEvidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
+    return evidence({ active: false, unresolvedExternalEffects: true, reasonCode: "unresolved_operational_state" });
   }
-  return quiescenceEvidence({ active: false, unresolvedExternalEffects: false, reasonCode: "default_quiescent" });
+  return evidence({ active: false, unresolvedExternalEffects: false, reasonCode: "default_quiescent" });
 }
 
 function hasUnresolvedOperationalRecords(logsRoot, name, { rejectFailedClosed = false } = {}) {
@@ -622,13 +668,18 @@ function hasUnresolvedOperationalRecords(logsRoot, name, { rejectFailedClosed = 
   return false;
 }
 
-function quiescenceEvidence({ active, unresolvedExternalEffects, reasonCode }) {
+function quiescenceEvidence({ active, unresolvedExternalEffects, reasonCode, projectAuthorityDigest = null }) {
   return Object.freeze({
     active: active === true,
     unresolvedExternalEffects: unresolvedExternalEffects === true,
     pendingEffects: unresolvedExternalEffects === true,
     preservedRecoveryAdmitted: false,
     targetIdentityDigest: null,
+    semanticIncidentAdmitted: false,
+    semanticEvidenceDigest: null,
+    semanticManifestDigest: null,
+    semanticDeploymentProof: null,
+    projectAuthorityDigest,
     reasonCode,
     projectionFailureReasonCode: null,
     projectionFailureClass: null,
@@ -648,14 +699,33 @@ function assertDeploymentQuiescence(value) {
         || value.revalidationRequired !== true)) {
     throw new Error("runtime deployment preserved recovery proof is invalid");
   }
+  if (value.semanticIncidentAdmitted === true
+      && (value.preservedRecoveryAdmitted === true
+        || !/^[a-f0-9]{64}$/u.test(String(value.semanticEvidenceDigest || ""))
+        || !/^[a-f0-9]{64}$/u.test(String(value.semanticManifestDigest || ""))
+        || !/^[a-f0-9]{64}$/u.test(String(value.projectAuthorityDigest || ""))
+        || value.reasonCode !== "semantic_incident_deployment_only_admitted"
+        || value.revalidationRequired !== true
+        || value.semanticDeploymentProof?.allowedAction !== "runtime_deployment_quiescence_only"
+        || value.semanticDeploymentProof?.project?.authorityDigest !== value.projectAuthorityDigest
+        || value.semanticDeploymentProof?.protectedGrantRead !== false
+        || value.semanticDeploymentProof?.protectedProducerInvoked !== false
+        || value.semanticDeploymentProof?.successorConstructed !== false
+        || value.semanticDeploymentProof?.successorPersisted !== false)) {
+    throw new Error("runtime deployment semantic incident proof is invalid");
+  }
 }
 
 function assertSameQuiescenceProof(initial, current) {
-  for (const key of ["active", "unresolvedExternalEffects", "preservedRecoveryAdmitted", "targetIdentityDigest", "reasonCode", "projectionFailureReasonCode", "projectionFailureClass"]) {
+  for (const key of ["active", "unresolvedExternalEffects", "preservedRecoveryAdmitted", "targetIdentityDigest", "semanticIncidentAdmitted", "semanticEvidenceDigest", "semanticManifestDigest", "projectAuthorityDigest", "reasonCode", "projectionFailureReasonCode", "projectionFailureClass"]) {
     if ((initial?.[key] ?? null) !== (current?.[key] ?? null)) throw new Error("runtime deployment quiescence proof changed");
   }
   if ((initial?.recoveryProjection?.evidenceDigest ?? null)
     !== (current?.recoveryProjection?.evidenceDigest ?? null)) {
+    throw new Error("runtime deployment quiescence proof changed");
+  }
+  if (canonicalJson(initial?.semanticDeploymentProof ?? null)
+    !== canonicalJson(current?.semanticDeploymentProof ?? null)) {
     throw new Error("runtime deployment quiescence proof changed");
   }
 }

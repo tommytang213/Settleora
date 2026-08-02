@@ -143,6 +143,64 @@ export function createProductionSemanticRecoveryVerifierRegistry(config) {
   return registry;
 }
 
+export function createReadOnlySemanticDeploymentVerifierRegistry({ evidenceRoot, repositorySlug, ownerAuthorityDigest } = {}) {
+  const root = authenticateDeploymentEvidenceRoot(evidenceRoot);
+  if (typeof repositorySlug !== "string" || !/^[^/\s]+\/[^/\s]+$/u.test(repositorySlug)) {
+    throw new Error("semantic deployment repository identity invalid");
+  }
+  if (!isDigest(ownerAuthorityDigest)) throw new Error("semantic deployment owner authority identity invalid");
+  const registry = createRegistry("deployment_read_only_owner_attested", (authorityClass, descriptor) => {
+    assertExactKeys(descriptor, ["authorityClass", "store"]);
+    if (descriptor.authorityClass !== authorityClass) throw new Error("semantic source class mismatch");
+    assertExactKeys(descriptor.store, ["kind", "path", "role", "sha256"]);
+    const definition = verifierDefinitions[authorityClass];
+    const storePath = path.resolve(descriptor.store.path || "");
+    if (descriptor.store.kind !== definition.storeKind
+        || path.dirname(storePath) !== root
+        || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,159}\.json$/u.test(path.basename(storePath))
+        || descriptor.store.path !== storePath
+        || typeof descriptor.store.role !== "string" || descriptor.store.role.length < 1
+        || descriptor.store.role.length > 240 || !isDigest(descriptor.store.sha256)) {
+      throw new Error("semantic deployment source descriptor invalid");
+    }
+    const authenticated = authenticateDeploymentEvidenceStore(storePath);
+    if (authenticated.sha256 !== descriptor.store.sha256) throw new Error("semantic deployment source digest mismatch");
+    const document = parseCanonicalJson(authenticated.bytes);
+    assertExactKeys(document, ["authorityClass", "claims", "contract", "producer", "repository", "store", "version"]);
+    assertExactKeys(document.producer, ["id", "version"]);
+    assertExactKeys(document.store, ["kind", "role"]);
+    if (document.contract !== "settleora_semantic_deployment_evidence_source"
+        || document.version !== 1 || document.authorityClass !== authorityClass
+        || document.repository !== repositorySlug
+        || document.producer.id !== definition.id || document.producer.version !== definition.version
+        || document.store.kind !== definition.storeKind || document.store.role !== descriptor.store.role
+        || !plainObject(document.claims)
+        || Object.keys(document.claims).some((claim) => !ownedClaimsFor(authorityClass).includes(claim))) {
+      throw new Error("semantic deployment source document invalid");
+    }
+    return {
+      claims: document.claims,
+      provenanceIdentity: sha256(canonicalJson({
+        authority: "deployment_read_only_owner_attested",
+        ownerAuthorityDigest,
+        authorityClass,
+        verifier: definition,
+        path: storePath,
+        sha256: authenticated.sha256,
+      })),
+      store: {
+        kind: definition.storeKind,
+        path: storePath,
+        role: descriptor.store.role,
+        sha256: authenticated.sha256,
+        byteCount: authenticated.byteCount,
+      },
+    };
+  });
+  validatedRegistries.add(registry);
+  return registry;
+}
+
 // Deterministic tests exercise the production registry dispatch and claim
 // normalization without creating privileged filesystem objects. A synthetic
 // registry is never constructed by startup and is clearly marked in results.
@@ -466,6 +524,38 @@ function authenticateGrantFromProductionFilesystem(grantPath, operationId) {
   if (entries.length !== 1) throw new Error("semantic grant selection ambiguous");
   const authenticated = authenticateRootReadOnlyCanonicalFile(grantPath);
   return { ...authenticated, document: parseCanonicalJson(authenticated.bytes), synthetic: false };
+}
+
+function authenticateDeploymentEvidenceRoot(evidenceRoot) {
+  if (typeof evidenceRoot !== "string" || !path.isAbsolute(evidenceRoot) || path.resolve(evidenceRoot) !== evidenceRoot) {
+    throw new Error("semantic deployment evidence root invalid");
+  }
+  const info = lstatSync(evidenceRoot);
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(evidenceRoot) !== evidenceRoot
+      || (info.mode & 0o022) !== 0 || (currentUid !== null && info.uid !== currentUid)) {
+    throw new Error("semantic deployment evidence root unsafe");
+  }
+  return evidenceRoot;
+}
+
+function authenticateDeploymentEvidenceStore(file) {
+  if (realpathSync(file) !== file) throw new Error("semantic deployment source path noncanonical");
+  const fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  try {
+    const first = fstatSync(fd);
+    const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (!first.isFile() || first.nlink !== 1 || first.size < 1 || first.size > maximumSourceBytes
+        || (first.mode & 0o077) !== 0 || (currentUid !== null && first.uid !== currentUid)) {
+      throw new Error("semantic deployment source file unsafe");
+    }
+    const bytes = readFileSync(fd);
+    const second = fstatSync(fd);
+    if (statIdentity(first) !== statIdentity(second) || bytes.length !== first.size || !isUtf8(bytes)) {
+      throw new Error("semantic deployment source file changed");
+    }
+    return { bytes, byteCount: bytes.length, sha256: sha256(bytes) };
+  } finally { closeSync(fd); }
 }
 
 function authenticateGrantWithAdapter(grantPath, operationId, filesystem) {

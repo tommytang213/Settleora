@@ -6,9 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
-import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, hasVerifiedExternalRuntimeEvidence, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
+import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, hasVerifiedExternalRuntimeEvidence, matchAuthorizedSupervisorProcess, pathEntryExists, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
-import { ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
+import { assertDeploymentBootstrapArtifactsAbsent, assertDeploymentBootstrapTransientStateAbsent, assertDeploymentProjectTopology, authenticateDeploymentArtifact, ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
 import { assertNodeCompatibility, reclaimStaleOwnMarker } from "../runtime-launcher.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
@@ -241,11 +241,30 @@ test("deployment source verification ignores local Git replacement objects", () 
   }
 });
 
-test("deployment CLI requires project logs and keeps rollback dry-run non-mutating", () => {
+test("deployment CLI derives trusted project logs while development keeps an explicit root", () => {
   const entry = path.join(sourceRoot, "deploy-runtime.mjs");
-  const missingLogs = spawnSync(process.execPath, [entry, "--rollback", "--destination", "/tmp/runtime"], { encoding: "utf8" });
-  assert.notEqual(missingLogs.status, 0);
-  assert.match(missingLogs.stderr, /--logs-root is required/);
+  const trustedWithoutLogs = spawnSync(process.execPath, [
+    entry, "--destination", "/tmp/runtime", "--repo-root", "/tmp/repo",
+    "--config", "/workspace/auto-runner/config/nonexistent-deployment-test.json",
+    "--approved-profile", "/workspace/auto-runner/config/nonexistent-approved-test.json",
+    "--health-unit", "/tmp/nonexistent-health.service",
+  ], { encoding: "utf8" });
+  assert.notEqual(trustedWithoutLogs.status, 0);
+  assert.doesNotMatch(trustedWithoutLogs.stderr, /--logs-root is required/);
+  assert.match(trustedWithoutLogs.stderr, /ENOENT|config_missing/);
+  const developmentWithoutLogs = spawnSync(process.execPath, [
+    entry, "--destination", "/tmp/runtime", "--repo-root", "/tmp/repo", "--development-unbound-project-root",
+  ], { encoding: "utf8" });
+  assert.notEqual(developmentWithoutLogs.status, 0);
+  assert.match(developmentWithoutLogs.stderr, /development-unbound deployment requires --logs-root/);
+  for (const args of [
+    ["--destination", "/tmp/runtime", "--repo-root", "relative/repo", "--logs-root", "/tmp/logs", "--development-unbound-project-root"],
+    ["--destination", "/tmp/runtime", "--repo-root", "/tmp/repo", "--logs-root", "/tmp/logs/../logs", "--development-unbound-project-root"],
+  ]) {
+    const noncanonical = spawnSync(process.execPath, [entry, ...args], { encoding: "utf8" });
+    assert.notEqual(noncanonical.status, 0);
+    assert.match(noncanonical.stderr, /must be an absolute canonical path/);
+  }
   const rollbackDryRun = spawnSync(process.execPath, [
     entry,
     "--rollback",
@@ -257,6 +276,160 @@ test("deployment CLI requires project logs and keeps rollback dry-run non-mutati
   ], { encoding: "utf8" });
   assert.notEqual(rollbackDryRun.status, 0);
   assert.match(rollbackDryRun.stderr, /cannot be combined/);
+});
+
+test("deployment project topology derives one exact config root and rejects neighboring authority", () => {
+  const topology = {
+    runtimeMode: "external", projectId: "Project", repositorySlug: "example/project",
+    repoRoot: "/srv/project", runtimeRoot: "/srv/runtime", logsRoot: "/srv/logs/Project",
+    runtimeBundleDigest: "1".repeat(64), boundedPolicy: { enabled: true },
+  };
+  const approved = { ...structuredClone(topology), runtimeBundleDigest: "2".repeat(64) };
+  assert.equal(assertDeploymentProjectTopology({
+    config: topology, profile: approved, repoRoot: topology.repoRoot, runtimeRoot: topology.runtimeRoot,
+  }), true);
+  for (const logsRoot of ["/srv/logs", "/srv/logs/Sibling", "/srv/logs/Project/alias"]) {
+    assert.throws(() => assertDeploymentProjectTopology({
+      config: topology, profile: approved, repoRoot: topology.repoRoot, runtimeRoot: topology.runtimeRoot, logsRoot,
+    }), /logsRoot must equal/);
+  }
+  assert.throws(() => assertDeploymentProjectTopology({
+    config: topology, profile: { ...approved, repositorySlug: "foreign/project" },
+    repoRoot: topology.repoRoot, runtimeRoot: topology.runtimeRoot,
+  }), /repositorySlug mismatch/);
+  assert.throws(() => assertDeploymentProjectTopology({
+    config: topology, profile: approved, repoRoot: "/srv/foreign", runtimeRoot: topology.runtimeRoot,
+  }), /repoRoot must equal/);
+  assert.throws(() => assertDeploymentProjectTopology({
+    config: topology, profile: { ...approved, boundedPolicy: { enabled: false } },
+    repoRoot: topology.repoRoot, runtimeRoot: topology.runtimeRoot,
+  }), /topology mismatch/);
+});
+
+test("trusted runtime identity has a bounded missing-destination bootstrap mode", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-bootstrap-identity-"));
+  try {
+    const repo = createRepo(root, "repo");
+    const logsRoot = path.join(root, "Project");
+    const runtimeParent = path.join(root, "install");
+    const runtimeRoot = path.join(runtimeParent, "runtime");
+    mkdirSync(logsRoot, { mode: 0o700 });
+    mkdirSync(runtimeParent, { mode: 0o700 });
+    const config = {
+      runtimeMode: "external", projectId: "Project", repositorySlug: "tommytang213/Settleora",
+      repoRoot: repo, runtimeRoot, logsRoot,
+    };
+    assert.throws(
+      () => validateProjectRuntimeIdentity(config, { actualRuntimeRoot: runtimeRoot, trusted: true }),
+      /runtimeRoot does not exist/,
+    );
+    const identity = validateProjectRuntimeIdentity(config, {
+      actualRuntimeRoot: runtimeRoot,
+      trusted: true,
+      allowMissingRuntimeRoot: true,
+    });
+    assert.equal(identity.runtimeRoot, runtimeRoot);
+    assert.equal(existsSync(runtimeRoot), false);
+    symlinkSync(path.join(root, "missing-runtime-target"), runtimeRoot);
+    assert.equal(pathEntryExists(runtimeRoot), true);
+    assert.throws(
+      () => validateProjectRuntimeIdentity(config, {
+        actualRuntimeRoot: runtimeRoot,
+        trusted: true,
+        allowMissingRuntimeRoot: true,
+      }),
+      /runtimeRoot does not exist/,
+    );
+    rmSync(runtimeRoot);
+    chmodSync(runtimeParent, 0o722);
+    assert.throws(
+      () => validateProjectRuntimeIdentity(config, {
+        actualRuntimeRoot: runtimeRoot,
+        trusted: true,
+        allowMissingRuntimeRoot: true,
+      }),
+      /deployment-control parent must not be group\/world writable/,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("trusted runtime bootstrap refuses recovery authority and stale transient state before config loading", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-bootstrap-cli-"));
+  try {
+    const runtimeRoot = path.join(root, "runtime");
+    const entry = path.join(sourceRoot, "deploy-runtime.mjs");
+    const base = [
+      entry, "--destination", runtimeRoot, "--repo-root", path.resolve("."),
+      "--config", "/workspace/auto-runner/config/nonexistent-deployment-test.json",
+      "--approved-profile", "/workspace/auto-runner/config/nonexistent-approved-test.json",
+      "--health-unit", path.join(root, "health.service"),
+    ];
+    const semantic = spawnSync(process.execPath, [...base, "--semantic-deployment-evidence", path.join(root, "evidence.json")], { encoding: "utf8" });
+    assert.notEqual(semantic.status, 0);
+    assert.match(semantic.stderr, /bootstrap admits only ordinary quiescent deployment/);
+    for (const name of [
+      ".runtime.deploy-incoming", ".runtime.rollback-incoming",
+      ".runtime.launcher.incoming", ".runtime.approved.incoming",
+    ]) {
+      const stalePath = path.join(root, name);
+      mkdirSync(stalePath);
+      const stale = spawnSync(process.execPath, base, { encoding: "utf8" });
+      assert.notEqual(stale.status, 0);
+      assert.match(stale.stderr, /stale transient deployment state/);
+      rmSync(stalePath, { recursive: true });
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("trusted bootstrap absence proofs reject dangling symlinks for every control artifact", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-bootstrap-symlinks-"));
+  try {
+    const runtimeRoot = path.join(root, "runtime");
+    const missingTarget = path.join(root, "missing-target");
+    const installedNames = [
+      ".runtime.approved.json", ".runtime.launcher.mjs", ".runtime.rollback",
+      ".runtime.rollback-incoming", ".runtime.rollback-retired",
+    ];
+    const transientNames = [
+      ".runtime.deploy-incoming", ".runtime.rollback-incoming",
+      ".runtime.launcher.incoming", ".runtime.approved.incoming",
+    ];
+    for (const name of installedNames) {
+      const residue = path.join(root, name);
+      symlinkSync(missingTarget, residue);
+      assert.equal(pathEntryExists(residue), true, name);
+      assert.throws(() => assertDeploymentBootstrapArtifactsAbsent(runtimeRoot), /contradictory installed-runtime state/, name);
+      rmSync(residue);
+    }
+    for (const name of transientNames) {
+      const residue = path.join(root, name);
+      symlinkSync(missingTarget, residue);
+      assert.equal(pathEntryExists(residue), true, name);
+      assert.throws(() => assertDeploymentBootstrapTransientStateAbsent(runtimeRoot), /stale transient deployment state/, name);
+      rmSync(residue);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("deployment artifacts require descriptor-stable bytes and owner-safe paths", () => {
+  const root = mkdtempSync(path.join(os.homedir(), ".settleora-deployment-artifact-test-"));
+  try {
+    chmodSync(root, 0o700);
+    const artifact = path.join(root, "artifact.json");
+    writeFileSync(artifact, "{}", { mode: 0o600 });
+    assert.equal(authenticateDeploymentArtifact(artifact).byteCount, 2);
+    chmodSync(artifact, 0o622);
+    assert.throws(() => authenticateDeploymentArtifact(artifact), /not a trusted deployment artifact/);
+    chmodSync(artifact, 0o600);
+    const alias = path.join(root, "alias.json");
+    symlinkSync(artifact, alias);
+    assert.throws(() => authenticateDeploymentArtifact(alias), /not canonical/);
+    chmodSync(root, 0o722);
+    assert.throws(() => authenticateDeploymentArtifact(artifact), /ancestor is not owner-controlled/);
+    chmodSync(root, 0o700);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("deployment CLI dry-run does not create deployment-control state", () => {
@@ -293,6 +466,7 @@ test("deployment CLI dry-run does not create deployment-control state", () => {
     const result = spawnSync(process.execPath, [
       path.join(runtimeSource, "deploy-runtime.mjs"),
       "--dry-run",
+      "--development-unbound-project-root",
       "--repo-root", repo,
       "--destination", path.join(installParent, "runtime"),
       "--logs-root", logs,
@@ -755,6 +929,7 @@ test("deployment atomically upgrades an authenticated stable launcher", () => {
     });
     const launcher = path.join(parent, ".runtime.launcher.mjs");
     const oldLauncherDigest = createHash("sha256").update(readFileSync(launcher)).digest("hex");
+    let finalProofCount = 0;
     const upgraded = deployRuntimeBundle({
       sourceRoot,
       destination,
@@ -762,7 +937,13 @@ test("deployment atomically upgrades an authenticated stable launcher", () => {
       logsRoot: logs,
       sourceSha,
       expectedOldDigest: installed.manifest.bundleDigest,
+      finalQuiescenceVerifier: () => {
+        finalProofCount += 1;
+        assert.equal(createHash("sha256").update(readFileSync(launcher)).digest("hex"), oldLauncherDigest);
+        return { active: false, unresolvedExternalEffects: false, preservedRecoveryAdmitted: false, reasonCode: "default_quiescent" };
+      },
     });
+    assert.equal(finalProofCount, 1);
     assert.notEqual(createHash("sha256").update(readFileSync(launcher)).digest("hex"), oldLauncherDigest);
     assert.equal(
       createHash("sha256").update(readFileSync(launcher)).digest("hex"),
@@ -800,7 +981,7 @@ test("runtime consumer discovery covers every project using the shared bundle", 
   }
 });
 
-test("quiescence drift after launcher preparation leaves installed and rollback runtimes unchanged", () => {
+test("final quiescence refusal before launcher adoption leaves installed and rollback runtimes unchanged", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-final-boundary-"));
   try {
     const repo = createRepo(root, "project");
@@ -826,7 +1007,7 @@ test("quiescence drift after launcher preparation leaves installed and rollback 
       expectedOldDigest: first.manifest.bundleDigest,
       finalQuiescenceVerifier: () => {
         inspections += 1;
-        if (inspections === 2) throw new Error("fixture drift after launcher preparation");
+        throw new Error("fixture drift before launcher adoption");
         return {
           active: false,
           unresolvedExternalEffects: false,
@@ -834,8 +1015,8 @@ test("quiescence drift after launcher preparation leaves installed and rollback 
           reasonCode: "default_quiescent",
         };
       },
-    }), /fixture drift after launcher preparation/);
-    assert.equal(inspections, 2);
+    }), /fixture drift before launcher adoption/);
+    assert.equal(inspections, 1);
     assert.equal(verifyRuntimeBundle(destination).bundleDigest, first.manifest.bundleDigest);
     assert.equal(createHash("sha256").update(readFileSync(launcher)).digest("hex"), originalLauncherDigest);
     assert.equal(existsSync(rollback), false);

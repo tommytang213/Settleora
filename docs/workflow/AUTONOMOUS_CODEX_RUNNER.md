@@ -44,6 +44,24 @@ describe the retained historical/development layout only. Live Settleora
 status, control, readiness, review, and summary operations use
 `/workspace/logs/auto-runner/Settleora` through the accepted external profile.
 
+Deployment authenticates that exact project root through the active external
+config and approved profile. It may derive the root when `--logs-root` is
+omitted; if supplied, the argument must equal the configured root exactly. The
+authenticated project ID, repository slug, runtime identity, namespace marker,
+manifest, approval, launcher, and health unit remain part of the same proof.
+Inspection of a parent or neighboring root cannot establish
+`default_quiescent` authority for a nested project.
+
+When the configured runtime destination is absent, trusted deployment uses a
+separate first-install bootstrap proof. It binds the authenticated config and
+profile, repository/project namespace, exact logs root, canonical
+owner-controlled destination parent, health unit, and target bundle digest,
+while requiring installed and transient runtime control state to be absent.
+This posture admits ordinary quiescence only: it cannot carry rollback,
+preserved-recovery, semantic-incident, or expected-old authority. Installed
+runtime manifest, approval, and launcher authentication becomes mandatory as
+soon as the runtime exists.
+
 ## Positively owned post-merge cleanup
 
 Issue #947 adds `ephemeral_cleanup_v1` as the final ordinary-continuation
@@ -1785,6 +1803,24 @@ fails closed. Repository source does not install these producers, the
 protected root, or a live grant; installation, deployment, successor creation/
 adoption, and any later product-task continuation remain separate manual
 operations.
+
+Deployment quiescence has a distinct read-only corroboration path for this
+incident class. An owner-controlled canonical evidence document may select the
+same source-owned verifier set and claim-owner matrix, bind an exact target and
+all authenticated incident/runtime artifacts, and prove one unresolved
+associated incident with no active owner or later effect. Its only admitted
+action is runtime deployment quiescence. The path does not inspect or consume
+the protected root grant and cannot invoke successor construction, protected
+persistence, submission, or issue continuation. Initial, post-lock, and
+pre-exchange inspections must reproduce identical document, manifest,
+authority, and semantic evidence digests; any drift fails closed. Legacy exact
+preserved recovery and ordinary quiescence remain separate contracts.
+The fixed-profile-root document is the sole deployment-only owner attestation
+and binds exact target, source-manifest, artifact-manifest, and document
+digests. Source-class agreement is corroboration, not protected producer or
+operational provenance. Any configured `postIncidentRecovery` provenance and
+packet must match the attestation exactly; an absent configuration is never
+silently populated by repository code.
 
 ## Missing Session-Lifecycle Recovery
 

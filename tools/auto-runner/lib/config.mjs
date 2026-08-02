@@ -10,7 +10,7 @@ import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs"
 import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.mjs";
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
 import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./session-lifecycle.mjs";
-import { moduleRuntimeRoot, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
+import { moduleRuntimeRoot, pathEntryExists, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
 import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
 import { bindTrustedRepositoryContext } from "./git-workspace.mjs";
 import { defaultLogsRoot } from "./runtime-path-defaults.mjs";
@@ -600,6 +600,202 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+export function loadDeploymentProjectAuthority({
+  configPath,
+  approvedProfilePath,
+  repoRoot,
+  runtimeRoot,
+  logsRoot,
+  healthUnitPath,
+  allowRuntimeBootstrap = false,
+} = {}) {
+  for (const [field, value] of Object.entries({ configPath, approvedProfilePath, repoRoot, runtimeRoot, healthUnitPath })) {
+    if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value) {
+      throw new Error(`deployment ${field} must be an absolute canonical path`);
+    }
+  }
+  if (logsRoot != null && (typeof logsRoot !== "string" || !path.isAbsolute(logsRoot) || path.resolve(logsRoot) !== logsRoot)) {
+    throw new Error("deployment logsRoot must be an absolute canonical path when supplied");
+  }
+  const loaded = readExternalProfileConfig(configPath);
+  const approved = readExternalProfileConfig(approvedProfilePath);
+  const config = { ...defaultConfig, ...loaded.config };
+  const profile = { ...defaultConfig, ...approved.config };
+  assertDeploymentProjectTopology({ config, profile, repoRoot, runtimeRoot, logsRoot });
+  const configuredPostIncidentRecovery = normalizePostIncidentRecoveryConfig(loaded.config.postIncidentRecovery);
+  const runtimeBootstrap = allowRuntimeBootstrap === true && !pathEntryExists(runtimeRoot);
+  const runtimeIdentity = validateProjectRuntimeIdentity(config, {
+    actualRuntimeRoot: runtimeRoot,
+    trusted: true,
+    allowMissingRuntimeRoot: runtimeBootstrap,
+  });
+  const runtimeManifest = runtimeBootstrap ? null : verifyRuntimeBundle(runtimeRoot, config.runtimeBundleDigest);
+  if (runtimeBootstrap) assertDeploymentBootstrapArtifactsAbsent(runtimeRoot);
+  verifyProjectNamespaceMarker({ ...config, runtimeIdentity });
+  const runtimeManifestPath = path.join(runtimeRoot, "runtime-bundle-manifest.json");
+  const approvalPath = path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.approved.json`);
+  const launcherPath = path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.launcher.mjs`);
+  const artifacts = {
+    runtimeConfig: authenticateDeploymentArtifact(configPath, "runtime config"),
+    approvedProfile: authenticateDeploymentArtifact(approvedProfilePath, "approved profile"),
+    healthUnit: authenticateDeploymentArtifact(healthUnitPath, "health unit"),
+    ...(runtimeBootstrap ? {} : {
+      runtimeManifest: authenticateDeploymentArtifact(runtimeManifestPath, "runtime manifest"),
+      runtimeApproval: authenticateDeploymentArtifact(approvalPath, "runtime approval"),
+      runtimeLauncher: authenticateDeploymentArtifact(launcherPath, "runtime launcher"),
+    }),
+  };
+  if (artifacts.runtimeConfig.sha256 !== loaded.evidence.sha256
+      || artifacts.approvedProfile.sha256 !== approved.evidence.sha256) {
+    throw new Error("deployment config/profile identity changed during authentication");
+  }
+  const proof = {
+    contract: "settleora_deployment_project_authority",
+    version: 2,
+    projectId: runtimeIdentity.projectId,
+    repositorySlug: runtimeIdentity.repositorySlug,
+    namespace: runtimeIdentity.namespace,
+    repoRoot: runtimeIdentity.repoRoot,
+    runtimeRoot: runtimeIdentity.runtimeRoot,
+    logsRoot: runtimeIdentity.logsRoot,
+    configPath,
+    approvedProfilePath,
+    healthUnitPath,
+    runtimeInstallation: runtimeBootstrap ? "bootstrap_absent" : "installed",
+    configuredRuntimeBundleDigest: config.runtimeBundleDigest,
+    runtimeSourceSha: runtimeManifest?.sourceSha || null,
+    runtimeBundleDigest: runtimeManifest?.bundleDigest || null,
+    configuredPostIncidentRecovery,
+    artifacts,
+  };
+  return deepFreeze({
+    ...proof,
+    configPostIncidentRecoveryPresent: configuredPostIncidentRecovery != null,
+    evidenceDigest: createHash("sha256").update(canonicalJson(proof)).digest("hex"),
+  });
+}
+
+export function assertDeploymentBootstrapArtifactsAbsent(runtimeRoot) {
+  const parent = path.dirname(runtimeRoot);
+  const base = path.basename(runtimeRoot);
+  for (const artifact of [
+    path.join(parent, `.${base}.approved.json`),
+    path.join(parent, `.${base}.launcher.mjs`),
+    path.join(parent, `.${base}.rollback`),
+    path.join(parent, `.${base}.rollback-incoming`),
+    path.join(parent, `.${base}.rollback-retired`),
+  ]) {
+    if (pathEntryExists(artifact)) throw new Error("trusted deployment bootstrap found contradictory installed-runtime state");
+  }
+}
+
+export function assertDeploymentBootstrapTransientStateAbsent(runtimeRoot) {
+  const parent = path.dirname(runtimeRoot);
+  const base = path.basename(runtimeRoot);
+  for (const artifact of [
+    path.join(parent, `.${base}.deploy-incoming`),
+    path.join(parent, `.${base}.rollback-incoming`),
+    path.join(parent, `.${base}.launcher.incoming`),
+    path.join(parent, `.${base}.approved.incoming`),
+  ]) {
+    if (pathEntryExists(artifact)) throw new Error("trusted runtime bootstrap found stale transient deployment state");
+  }
+}
+
+export function assertDeploymentProjectTopology({ config, profile, repoRoot, runtimeRoot, logsRoot } = {}) {
+  if (config.runtimeMode !== "external" || profile.runtimeMode !== "external") {
+    throw new Error("trusted deployment requires external config and approved profile");
+  }
+  for (const field of ["projectId", "repositorySlug", "repoRoot", "runtimeRoot", "logsRoot"]) {
+    if (config[field] !== profile[field]) throw new Error(`deployment config/profile ${field} mismatch`);
+  }
+  const comparableConfig = structuredClone(config);
+  const comparableProfile = structuredClone(profile);
+  delete comparableConfig.runtimeBundleDigest;
+  delete comparableProfile.runtimeBundleDigest;
+  if (canonicalJson(comparableConfig) !== canonicalJson(comparableProfile)) {
+    throw new Error("deployment config/profile topology mismatch");
+  }
+  if (config.repoRoot !== repoRoot) throw new Error("deployment repoRoot must equal authenticated config repoRoot");
+  if (config.runtimeRoot !== runtimeRoot) throw new Error("deployment destination must equal authenticated config runtimeRoot");
+  if (logsRoot != null && config.logsRoot !== logsRoot) throw new Error("deployment logsRoot must equal authenticated config logsRoot");
+  return true;
+}
+
+export function readOwnerControlledExternalJson(filePath) {
+  const loaded = readExternalProfileConfig(filePath);
+  if (createHash("sha256").update(canonicalJson(loaded.config)).digest("hex") !== loaded.evidence.sha256) {
+    throw new Error("owner-controlled external JSON must use canonical source bytes");
+  }
+  return deepFreeze({ document: structuredClone(loaded.config), evidence: structuredClone(loaded.evidence) });
+}
+
+export function authenticateDeploymentArtifact(filePath, field = "deployment artifact") {
+  const lexical = path.resolve(filePath);
+  if (lexical !== filePath || realpathSync(lexical) !== lexical) throw new Error(`${field} path is not canonical`);
+  assertDeploymentArtifactAncestors(lexical, field);
+  const before = lstatSync(lexical);
+  const fd = openSync(lexical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  try {
+    const opened = fstatSync(fd);
+    const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (!sameFileIdentity(before, opened) || !opened.isFile() || before.isSymbolicLink() || opened.nlink !== 1
+        || (opened.mode & 0o022) !== 0 || (currentUid !== null && opened.uid !== currentUid && opened.uid !== 0)
+        || opened.size < 1 || opened.size > maxTrustedConfigBytes) {
+      throw new Error(`${field} is not a trusted deployment artifact`);
+    }
+    const bytes = readFileSync(fd);
+    const after = fstatSync(fd);
+    const pathAfter = lstatSync(lexical);
+    if (deploymentArtifactStatIdentity(opened) !== deploymentArtifactStatIdentity(after)
+        || deploymentArtifactStatIdentity(opened) !== deploymentArtifactStatIdentity(pathAfter)
+        || realpathSync(lexical) !== lexical || bytes.length !== opened.size) {
+      throw new Error(`${field} changed during authentication`);
+    }
+    return Object.freeze({ path: lexical, sha256: createHash("sha256").update(bytes).digest("hex"), byteCount: bytes.length });
+  } finally { closeSync(fd); }
+}
+
+function assertDeploymentArtifactAncestors(filePath, field) {
+  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  const parent = path.dirname(filePath);
+  const segments = parent.split(path.sep).filter(Boolean);
+  let current = path.parse(parent).root;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    const info = lstatSync(current);
+    if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(current) !== current
+        || (info.mode & 0o022) !== 0
+        || (currentUid !== null && info.uid !== currentUid && info.uid !== 0)) {
+      throw new Error(`${field} ancestor is not owner-controlled`);
+    }
+  }
+}
+
+function deploymentArtifactStatIdentity(info) {
+  return [info.dev, info.ino, info.size, info.mode, info.uid, info.nlink, info.mtimeMs, info.ctimeMs].join(":");
+}
+
+function canonicalJson(value) {
+  return JSON.stringify(canonicalizeJson(value));
+}
+
+function canonicalizeJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalizeJson(value[key])]));
+  }
+  return value;
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
 }
 
 function normalizePostIncidentRecoveryConfig(value) {
