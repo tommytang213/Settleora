@@ -259,7 +259,7 @@ export function authenticateSemanticDeploymentEvidencePackage(documentPath, { af
   }
   assertNoPackageSiblingResidue(incomingRoot, retiredRoot);
   const result = {
-    config: parseCanonicalJson(documentArtifact.bytes),
+    document: parseCanonicalJson(documentArtifact.bytes),
     evidence: {
       strategy: "O_NOFOLLOW",
       realPath: lexicalDocument,

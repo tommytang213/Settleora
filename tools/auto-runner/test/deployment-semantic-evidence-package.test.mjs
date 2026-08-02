@@ -96,6 +96,8 @@ test("mutating preparation creates one exact atomically readable package", () =>
       assert.equal(info.mode & 0o777, 0o600);
     }
     const authenticated = authenticateSemanticDeploymentEvidencePackage(plan.documentPath);
+    assert.deepEqual(authenticated.document, JSON.parse(readFileSync(plan.documentPath, "utf8")));
+    assert.equal(Object.hasOwn(authenticated, "config"), false);
     assert.equal(authenticated.evidence.packageAggregateDigest, plan.packageAggregateDigest);
   } finally { f.cleanup(); }
 });
