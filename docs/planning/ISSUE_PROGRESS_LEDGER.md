@@ -1,5 +1,63 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#740/#359/#357/#999 and PR #1032 — protected semantic-recovery authority repair merged (2026-08-02)
+
+- PR #1032 merged normally with expected-head protection from exact authorized
+  base `f76a2d6e30a278f5e36a876625c1a18b2bf75643`, source head
+  `412ad22eb8c23549580c23bc09dc1b3d17cdd9ba`, and source tree
+  `925260b5205ba0cf6969a9894f354d52fd78599a` as merge
+  `5770f87f1712a2a505b97e72fba65ffc13afe19d`. The normal merge has the exact
+  base and source head as its two ordered parents and the exact source tree.
+- The repository repair changed exactly 11 Issue #1012 paths: the autonomous
+  runner workflow and README; runner configuration, recovery continuation,
+  recovery state, startup wiring, and new semantic-authority and post-incident
+  successor-recovery modules; plus three focused test files. The diff contains
+  1,978 additions and 7 deletions. It contains no planning ledger, lockfile,
+  product, API/OpenAPI, generated-client, auth/session, storage/privacy, money,
+  schema/migration, deployment, or secret path.
+- The repair makes semantic successor recovery fail closed behind source-owned
+  verifier and claim-owner contracts, a separately protected native producer,
+  the fixed protected control root, and an exact operation grant. Verifier
+  registry version `1` has digest
+  `42969de3ac42490b0c7f1bfd86421c9ab672849491efa5f90749e6e703d09e4a`;
+  claim-owner matrix version `1` has digest
+  `5e870606149f0d64dc1805c53c132b8513ce95f13119c8596203bc15fc9768b3`.
+- Exact-head and exact merged-main validation passed dependency installs and
+  zero-vulnerability root/web audits, doctor, changed-module syntax/import
+  checks, the focused recovery/authority/security suite `235/235`, the complete
+  auto-runner suite `1,340/1,340`, docs, scaffold, diff, exact-scope, and clean
+  guards. Fresh Gemini `strong_independent` passed at high confidence and fresh
+  local Codex passed with no material finding. All required CodeQL language
+  analyses/aggregate, Semgrep CE/OSS, Trivy repository/aggregate, and Scaffold
+  Validation checks passed on the exact PR head; merged-main checks also passed.
+  Exact-head GitHub Codex found no major issue; all `17/17` review threads were
+  resolved with zero unresolved; open code-scanning, secret-scanning, and
+  Dependabot alert counts were `0/0/0`.
+- The complete guarded live incident, historical/consumed-child, runner-state,
+  runtime, profile, approval, launcher, and health evidence remained
+  byte-identical. The incident digest remained
+  `50bbf9e005bbceebf1d0ef3acf06ee592ed71ae3097c1bc4ca6e64b120518a4c`.
+  No runtime deployment, rollback, protected producer/control-root/grant
+  installation, semantic successor creation/adoption, runner or supervisor
+  submission, queue activation, Issue #959 continuation, duplicate identity or
+  charge, branch/worktree cleanup, or live product effect occurred. The
+  pre-existing main-push workflow published a merge-SHA API image to GHCR, but
+  performed no deployment or live runtime/product mutation.
+- Keep Issue #1012 `OPEN` with `manual-gate`. The repository repair is merged,
+  but its close rule is not satisfied. The remaining separately authorized
+  sequence is: (1) bounded corrected-runtime deployment; (2) protected
+  producer/control-root/grant installation; (3) semantic successor
+  creation/adoption; (4) exact successor readback; and only then (5) evaluate
+  any safe Issue #959 continuation and require it to advance without duplicate
+  identity or effect.
+- Issues #959, #740, #359, and #357 remain open and unchanged. Issue #999
+  remains open and separate; no #999 work was performed. No parent issue is
+  ready to close merely because the repository prerequisite merged.
+- Issue #1012 repository-merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5157513329`.
+  Merge/hygiene report:
+  `/workspace/logs/settleora-codex-report-20260802-1851-pr1032-exact-head-merge-post-merge-hygiene.md`.
+
 ### Issue #1033 / PR #1034 — PostCSS Dependabot alert #29 remediation complete (2026-08-02)
 
 - Issue #1033 is `CLOSED` as completed. It has no Project item, milestone, or
