@@ -240,7 +240,13 @@ all run roles, lifecycle, budget, Git candidate, and GitHub no-effect posture,
 then prints one deterministic plan without creating a file, directory, lock,
 or marker. Each class-specific extractor derives only matrix-owned claims from
 its authenticated domain inputs; the claim-owner matrix performs the only
-cross-class merge. `--create-or-adopt` is a separately authorized external operation:
+cross-class merge. Repository evidence additionally requires canonical clean
+`main`/`origin/main`, a still-unmerged literal candidate ref, and clean linked
+worktrees. Intent evidence binds the exact prompt, report, finalized commit
+intent, subject, tree, and paths. GitHub evidence uses the fixed trusted CLI
+with a sanitized environment and fingerprints the exact issue-comment
+checkpoint without persisting comment bodies. `--create-or-adopt` is a
+separately authorized external operation:
 it stages owner-only canonical members in the one fixed sibling `.incoming`
 directory, fsyncs every file and the directory, and atomically renames the
 whole directory, or adopts exact existing bytes idempotently. It never cleans
@@ -271,7 +277,10 @@ the associated recovery binds a distinct path/SHA/state digest and must be the
 single discoverable provisional predecessor. Their task-key prefix, issue,
 claim, charge, branch/base, candidate head/tree/diff, original roles,
 lifecycle generation, counters, phase/actions, creation lineage, and no-effect
-posture must agree. Literal path equality is forbidden, not required.
+posture must agree. The associated state may contain only its exact
+claim/charge/branch markers and must contain no continuation, generated work,
+local evidence, comment/close marker, or other external-effect marker. Literal
+path equality is forbidden, not required.
 
 The descriptor-authenticated external document is the sole authority for this
 deployment-only attestation. It must state the exact

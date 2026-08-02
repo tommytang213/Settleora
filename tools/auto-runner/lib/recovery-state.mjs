@@ -481,6 +481,11 @@ export function authenticateAssociatedRecoverableState({
     }
     const incidentIdentity = incident.state?.ordinaryContinuation?.identity;
     const counters = incident.state?.ordinaryContinuation?.counters;
+    const permittedMarkerClasses = new Set(["branch_ownership_created", "claim", "logical_task_charge"]);
+    const unexpectedMarkersAbsent = [incident.state, associated.state].every((state) => Object.entries(state?.mutationMarkers || {})
+      .every(([markerClass, markers]) => permittedMarkerClasses.has(markerClass) || Object.keys(markers || {}).length === 0));
+    const associatedLocalEvidenceAbsent = Object.values(associated.state?.evidence || {}).every((value) => value === null)
+      && Array.isArray(associated.state?.attempts) && associated.state.attempts.length === 0;
     const noEffectPosture = {
       remoteHeadAbsent: incident.state?.branch?.expectedRemoteHeadSha === null
         && associated.state?.branch?.expectedRemoteHeadSha === null,
@@ -490,6 +495,15 @@ export function authenticateAssociatedRecoverableState({
         .every((state) => Object.keys(state?.mutationMarkers?.push || {}).length === 0),
       mergeMarkerAbsent: [incident.state, associated.state]
         .every((state) => Object.keys(state?.mutationMarkers?.merge || {}).length === 0),
+      commentMarkerAbsent: [incident.state, associated.state].every((state) => ["issue_comment", "parent_comment", "pr_comment"]
+        .every((markerClass) => Object.keys(state?.mutationMarkers?.[markerClass] || {}).length === 0)),
+      issueCloseMarkerAbsent: [incident.state, associated.state]
+        .every((state) => Object.keys(state?.mutationMarkers?.issue_close || {}).length === 0),
+      unexpectedMarkersAbsent,
+      ordinaryContinuationAbsent: associated.state?.ordinaryContinuation == null,
+      generatedWorkAbsent: associated.state?.generatedWork === null && associated.state?.featureBundle === null
+        && associated.state?.outageResubmission === null,
+      localEvidenceAbsent: associatedLocalEvidenceAbsent,
     };
     if (!incidentIdentity || !counters
         || incidentIdentity.baseSha !== incident.state.branch.baseSha

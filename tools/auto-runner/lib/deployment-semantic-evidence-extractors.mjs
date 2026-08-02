@@ -74,11 +74,21 @@ export function collectSemanticDeploymentEvidenceContext({
   const chargeIds = Object.keys(budget.state.charges || {});
   if (budget.state.acceptedLogicalTaskCount !== 1 || chargeIds.length !== 1
       || chargeIds[0] !== association.binding.chargeId) throw new Error("semantic extraction budget contradiction");
+  const intentLineage = authenticateIntentLineageArtifacts({
+    logsRoot: projectAuthority.logsRoot,
+    repositoryRoot,
+    repository,
+    incident,
+    candidate,
+    originalIteration: runArtifacts.original.iteration,
+    budgetArtifact,
+  });
   const github = readGithubNoEffect({
     repositoryRoot,
     repository,
     issueNumber: incident.issue.number,
     branch: incident.branch.name,
+    mainSha: candidate.mainSha,
     incidentUpdatedAt: incident.timestamps.updatedAt,
     command,
   });
@@ -130,6 +140,8 @@ export function collectSemanticDeploymentEvidenceContext({
     lifecycleState,
     budgetArtifact,
     budgetState: budget.state,
+    intentLineage,
+    associatedState: association.associatedState,
     recoveryArtifacts,
     runArtifacts,
     github,
@@ -142,12 +154,12 @@ export function collectSemanticDeploymentEvidenceContext({
       repository_git: candidate.evidence,
       lifecycle: [lifecycleArtifact, ...runArtifacts.allArtifacts],
       logical_task_budget: [budgetArtifact, runArtifacts.consumed.iteration],
-      intent_lineage: [lifecycleArtifact, runArtifacts.failed.iteration],
+      intent_lineage: intentLineage.artifacts,
       projection_deployment: [
         ...candidate.evidence, recoveryArtifacts[0], runArtifacts.failed.iteration, runArtifacts.consumed.iteration,
         ...runtimeArtifacts, ...github.evidence,
       ],
-      supervisor_child_run: [lifecycleArtifact, ...runArtifacts.allArtifacts],
+      supervisor_child_run: runArtifacts.allArtifacts,
       incident_report: [...recoveryArtifacts, ...runtimeArtifacts],
       github_no_effect: github.evidence,
     },
@@ -172,7 +184,7 @@ export function createSemanticDeploymentAuthorityReaders() {
       submissionCount: context.budgetState.acceptedLogicalTaskCount,
       submissionExhausted: submissionExhausted(context),
     }),
-    intent_lineage: (context) => projection(context, "intent_lineage", intentClaims(context)),
+    intent_lineage: (context) => projection(context, "intent_lineage", intentLineageClaims(context)),
     projection_deployment: (context) => projection(context, "projection_deployment", {
       ...repositoryClaims(context), ...incidentClaims(context), ...runtimeClaims(context),
       prEvidenceDigest: context.github.digest,
@@ -183,7 +195,7 @@ export function createSemanticDeploymentAuthorityReaders() {
       earliestSafePhase: context.lifecycleState.recovery.phaseAfter,
     }),
     supervisor_child_run: (context) => projection(context, "supervisor_child_run", {
-      ...runRoleClaims(context), ...intentClaims(context),
+      ...runRoleClaims(context), ...supervisorIntentClaims(context),
       submissionCount: context.budgetState.acceptedLogicalTaskCount,
       submissionExhausted: submissionExhausted(context),
     }),
@@ -200,7 +212,6 @@ function projection(context, authorityClass, claims) {
   const evidence = context?.domainEvidence?.[authorityClass];
   if (!Array.isArray(evidence) || evidence.length < 1) throw new Error(`semantic ${authorityClass} evidence missing`);
   const provenanceIdentity = sha256(canonicalJson({
-    authorityClass,
     evidence: evidence.map(({ path: evidencePath, sha256: digest, identity }) => ({ path: evidencePath, sha256: digest, identity })),
   }));
   return {
@@ -348,20 +359,29 @@ function submissionExhausted(context) {
     && Object.keys(context.budgetState.charges || {}).length === 1
     && context.runArtifacts.consumed.iteration.value?.outcome === "terminal_lifecycle_reconciled";
 }
-function intentClaims(context) {
-  const continuation = context.incident.ordinaryContinuation;
-  const effects = continuation.effects || {};
-  const finding = continuation.sourceFailureBatch?.findings?.[0];
-  const noEffect = Object.keys(effects).length === 0
-    && continuation.sourceFailureHistory?.length === 1
-    && continuation.sourceFailureBatch?.findings?.length === 1
-    && finding?.sourceFixEligible === false && finding?.retryable === false
-    && finding?.classification === "unsafe_or_ambiguous"
-    && (continuation.processedGithubFindingFingerprints?.length ?? 0) === 0
-    && continuation.preparedGithubSourceFailureBatch === null
-    && continuation.sourceFailureCommitEffect === null
-    && context.lifecycleState.recovery.effectsAlreadyPresent.mutation === false;
-  if (!noEffect) throw new Error("semantic extraction intent no-effect posture invalid");
+function intentLineageClaims(context) {
+  if (context.intentLineage.proof.commitEffectFinalized !== true
+      || context.intentLineage.proof.reportPromptBound !== true
+      || context.intentLineage.proof.noLaterSourceEffect !== true) {
+    throw new Error("semantic extraction intent lineage invalid");
+  }
+  return {
+    intentPosture: "one_no_effect_overlay_then_consumed_submission",
+    validationEffect: false,
+    reviewEffect: false,
+    sourceEffect: false,
+  };
+}
+function supervisorIntentClaims(context) {
+  const roles = context.runArtifacts;
+  const failedTarget = roles.failed.spec.value.recoveryOnlyTarget;
+  const noEffect = failedTarget?.terminalValidationRetryDerivativeNoPr === true
+    && roles.failed.iteration.value.recovery?.terminalDerivativeProjection?.ok === true
+    && roles.consumed.iteration.value?.outcome === "terminal_lifecycle_reconciled"
+    && [roles.failed.iteration.value, roles.consumed.iteration.value]
+      .every((value) => value.pr?.number == null && value.remoteHeadSha == null
+        && Object.keys(value.effects || {}).length === 0);
+  if (!noEffect) throw new Error("semantic extraction supervisor intent posture invalid");
   return {
     intentPosture: "one_no_effect_overlay_then_consumed_submission",
     validationEffect: false,
@@ -376,15 +396,18 @@ function externalNoEffectClaims(context) {
 function incidentNoEffectClaims(context) {
   const incident = context.incident;
   const effects = incident.ordinaryContinuation?.effects || {};
-  const markers = incident.mutationMarkers || {};
+  const states = [incident, context.associatedState];
+  const markers = states.map((state) => state?.mutationMarkers || {});
   const claims = {
-    pushEffect: Object.keys(markers.push || {}).length !== 0,
-    prEffect: Object.keys(markers.pr_create || {}).length !== 0 || incident.pr?.number !== null,
-    commentEffect: Object.keys(markers.issue_comment || {}).length !== 0
-      || Object.keys(markers.parent_comment || {}).length !== 0 || Object.keys(markers.pr_comment || {}).length !== 0,
-    mergeEffect: Object.keys(markers.merge || {}).length !== 0,
-    issueEffect: Object.keys(markers.issue_close || {}).length !== 0,
-    productEffect: Object.keys(effects).length !== 0,
+    pushEffect: markers.some((value) => Object.keys(value.push || {}).length !== 0),
+    prEffect: markers.some((value) => Object.keys(value.pr_create || {}).length !== 0)
+      || states.some((state) => state?.pr?.number !== null),
+    commentEffect: markers.some((value) => Object.keys(value.issue_comment || {}).length !== 0
+      || Object.keys(value.parent_comment || {}).length !== 0 || Object.keys(value.pr_comment || {}).length !== 0),
+    mergeEffect: markers.some((value) => Object.keys(value.merge || {}).length !== 0),
+    issueEffect: markers.some((value) => Object.keys(value.issue_close || {}).length !== 0),
+    productEffect: Object.keys(effects).length !== 0 || context.associatedState?.generatedWork !== null
+      || context.associatedState?.featureBundle !== null || context.associatedState?.outageResubmission !== null,
   };
   if (Object.values(claims).some(Boolean)) throw new Error("semantic extraction incident effect posture invalid");
   return claims;
@@ -453,6 +476,94 @@ function discoverRunRoleArtifacts(logsRoot, incident, original) {
   return { ...roles, allArtifacts: Object.values(roles).flatMap((entry) => [entry.iteration, entry.summary, entry.spec, entry.supervisorState, entry.heartbeat]) };
 }
 
+function authenticateIntentLineageArtifacts({
+  logsRoot,
+  repositoryRoot,
+  repository,
+  incident,
+  candidate,
+  originalIteration,
+  budgetArtifact,
+}) {
+  const iteration = originalIteration.value;
+  const taskPrompt = iteration.taskPrompt;
+  const expected = incident.expectedReportPaths;
+  const reportRoot = path.join(repositoryRoot, ".codex", "reports");
+  const promptRoot = path.join(logsRoot, "tasks");
+  if (!expected || taskPrompt?.promptPath !== expected.promptPath || taskPrompt?.reportPath !== expected.repoReportPath
+      || taskPrompt?.timestampKey !== incident.taskKey
+      || iteration.sessionLifecycle?.report?.path !== expected.repoReportPath
+      || iteration.sessionLifecycle?.report?.correlationKey !== incident.taskKey
+      || path.dirname(expected.repoReportPath) !== reportRoot
+      || path.dirname(expected.promptPath) !== promptRoot
+      || !path.basename(expected.repoReportPath).startsWith(`settleora-codex-report-${incident.taskKey}-issue-${incident.issue.number}-`)
+      || !path.basename(expected.promptPath).startsWith(`${incident.taskKey}-issue-${incident.issue.number}-`)) {
+    throw new Error("semantic extraction report or prompt identity invalid");
+  }
+  const report = authenticateArtifact(expected.repoReportPath);
+  const prompt = authenticateArtifact(expected.promptPath);
+  const commit = iteration.commit;
+  const canonicalEffect = commit?.canonicalEffect;
+  if (commit?.skipped !== false || commit.commit !== candidate.headSha
+      || canonicalJson([...(commit.files || [])].sort()) !== canonicalJson(candidate.changedFiles)
+      || canonicalEffect?.ok !== true || canonicalEffect.action !== "executed"
+      || canonicalEffect.classification !== "effect_present_exact_adoptable"
+      || canonicalEffect.status !== "finalized" || canonicalEffect.execution?.ok !== true
+      || canonicalEffect.execution?.status !== 0 || !/^[0-9a-f-]{36}$/u.test(String(canonicalEffect.intentId || ""))
+      || !digest64(canonicalEffect.fingerprint)
+      || candidate.commitSubject !== `Auto-runner issue #${incident.issue.number}: initial candidate before source classification`) {
+    throw new Error("semantic extraction finalized commit evidence invalid");
+  }
+  const intentRoot = path.join(logsRoot, "recovery", "pre-effect-intents");
+  if (realpathSync(intentRoot) !== intentRoot) throw new Error("semantic extraction intent root noncanonical");
+  const matches = readdirSync(intentRoot)
+    .filter((name) => /^[a-f0-9]{64}\.json$/u.test(name))
+    .map((name) => authenticateJson(path.join(intentRoot, name)))
+    .filter((artifact) => artifact.value?.intentId === canonicalEffect.intentId);
+  if (matches.length !== 1) throw new Error("semantic extraction commit intent ambiguous");
+  const intent = matches[0];
+  const value = intent.value;
+  const identity = value.identity;
+  const effect = value.effect;
+  if (value.effectType !== "commit" || value.status !== "finalized" || value.repository.toLowerCase() !== repository.toLowerCase()
+      || value.runId !== iteration.runId || value.sourceTaskKey !== incident.taskKey
+      || value.claimIdentity !== `${repository}#${incident.issue.number}`
+      || value.logicalTaskIdentity !== `${repository}#${incident.issue.number}`
+      || value.chargeIdentity !== budgetArtifact.path || value.fingerprint !== canonicalEffect.fingerprint
+      || identity?.repository?.toLowerCase() !== repository.toLowerCase() || identity.sourceTaskKey !== incident.taskKey
+      || identity.runId !== iteration.runId || identity.branchName !== candidate.branch
+      || identity.baseSha !== candidate.baseSha || identity.headSha !== candidate.baseSha
+      || identity.claimIdentity !== `${repository}#${incident.issue.number}`
+      || effect?.treeSha !== candidate.treeSha || effect.messageDigest !== candidate.commitMessageDigest
+      || canonicalJson(effect.expectedParents) !== canonicalJson([candidate.baseSha])
+      || canonicalJson([...(effect.stagedPaths || [])].sort()) !== canonicalJson(candidate.changedFiles)) {
+    throw new Error("semantic extraction commit intent contradiction");
+  }
+  const continuation = incident.ordinaryContinuation;
+  const finding = continuation?.sourceFailureBatch?.findings?.[0];
+  const noLaterSourceEffect = Object.keys(continuation?.effects || {}).length === 0
+    && continuation?.sourceFailureHistory?.length === 1
+    && continuation?.sourceFailureBatch?.findings?.length === 1
+    && finding?.sourceFixEligible === false && finding?.retryable === false
+    && finding?.classification === "unsafe_or_ambiguous"
+    && (continuation?.processedGithubFindingFingerprints?.length ?? 0) === 0
+    && continuation?.preparedGithubSourceFailureBatch === null
+    && continuation?.sourceFailureCommitEffect === null;
+  if (!noLaterSourceEffect) throw new Error("semantic extraction later source effect detected");
+  return {
+    artifacts: [intent, report, prompt, originalIteration],
+    proof: {
+      commitEffectFinalized: true,
+      reportPromptBound: true,
+      noLaterSourceEffect: true,
+      intentId: canonicalEffect.intentId,
+      intentSha256: intent.sha256,
+      reportSha256: report.sha256,
+      promptSha256: prompt.sha256,
+    },
+  };
+}
+
 function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, baseSha, expected, command }) {
   const forbiddenGitEnvironment = ["GIT_REPLACE_REF_BASE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_COMMON_DIR", "GIT_DIR", "GIT_WORK_TREE", "GIT_SHALLOW_FILE"];
@@ -476,9 +587,14 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   const topLevel = String(git(["rev-parse", "--show-toplevel"])).trim();
   const gitDir = path.resolve(repositoryRoot, String(git(["rev-parse", "--git-dir"])).trim());
   const commonDir = path.resolve(repositoryRoot, String(git(["rev-parse", "--git-common-dir"])).trim());
+  const currentBranch = String(git(["symbolic-ref", "--quiet", "--short", "HEAD"])).trim();
+  const canonicalHead = String(git(["rev-parse", "HEAD^{commit}"])).trim();
+  const localMain = String(git(["rev-parse", "refs/heads/main^{commit}"])).trim();
+  const originMain = String(git(["rev-parse", "refs/remotes/origin/main^{commit}"])).trim();
   if (path.resolve(topLevel) !== repositoryRoot || realpathSync(gitDir) !== gitDir || realpathSync(commonDir) !== commonDir
       || String(git(["rev-parse", "--is-shallow-repository"])).trim() !== "false"
-      || Buffer.from(git(["status", "--porcelain=v1", "-z"], null)).length !== 0) {
+      || Buffer.from(git(["status", "--porcelain=v1", "-z"], null)).length !== 0
+      || currentBranch !== "main" || canonicalHead !== localMain || localMain !== originMain) {
     throw new Error("semantic extraction repository identity unsafe");
   }
   const objectAuthorityRoots = [...new Set([gitDir, commonDir])];
@@ -491,6 +607,10 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   if (replaceRefs || unsafeObjectPaths.some(existsSync)) {
     throw new Error("semantic extraction Git object authority untrusted");
   }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$/u.test(branch)
+      || String(git(["check-ref-format", "--branch", branch])).trim() !== branch) {
+    throw new Error("semantic extraction candidate ref invalid");
+  }
   const headSha = String(git(["rev-parse", `refs/heads/${branch}^{commit}`])).trim();
   const treeSha = String(git(["rev-parse", `${headSha}^{tree}`])).trim();
   const parentShas = String(git(["show", "-s", "--format=%P", headSha])).trim().split(/\s+/u).filter(Boolean);
@@ -499,13 +619,33 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
     throw new Error("semantic extraction candidate topology mismatch");
   }
   git(["merge-base", "--is-ancestor", baseSha, headSha]);
+  git(["merge-base", "--is-ancestor", baseSha, localMain]);
+  let candidateMerged = true;
+  try { git(["merge-base", "--is-ancestor", headSha, localMain]); } catch { candidateMerged = false; }
+  if (candidateMerged) throw new Error("semantic extraction candidate already merged");
   for (const object of [baseSha, headSha]) {
     if (String(git(["cat-file", "-t", object])).trim() !== "commit") throw new Error("semantic extraction Git object invalid");
   }
   const changedFiles = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", baseSha, headSha], null)).toString("utf8").split("\0").filter(Boolean).sort();
   const diff = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--binary", baseSha, headSha], null));
+  const commitSubject = String(git(["show", "-s", "--format=%s", headSha])).trimEnd();
+  const worktreeRecords = parseWorktreeRecords(Buffer.from(git(["worktree", "list", "--porcelain", "-z"], null)).toString("utf8"));
+  for (const worktree of worktreeRecords) {
+    if (realpathSync(worktree.path) !== worktree.path
+        || Buffer.from(command("/usr/bin/git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", "status", "--porcelain=v1", "-z"], {
+          cwd: worktree.path, encoding: null, env: gitEnvironment,
+        })).length !== 0) {
+      throw new Error("semantic extraction linked worktree unsafe");
+    }
+    if (worktree.branch === `refs/heads/${branch}` && worktree.head !== headSha) {
+      throw new Error("semantic extraction candidate worktree identity mismatch");
+    }
+  }
+  const worktreeTopology = worktreeRecords.map(({ path: worktreePath, head, branch: worktreeBranch, bare, detached }) => ({
+    path: worktreePath, head, branch: worktreeBranch, bare, detached,
+  }));
   const proof = {
-    branch, baseSha, headSha, treeSha,
+    branch, baseSha, headSha, treeSha, mainSha: localMain,
     changedFilesDigest: sha256(JSON.stringify(changedFiles)),
     diffDigest: sha256(diff),
   };
@@ -513,22 +653,54 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
     if (proof[field] !== expected[field]) throw new Error(`semantic extraction Git ${field} mismatch`);
   }
   return {
-    ...proof,
+    ...proof, changedFiles, commitSubject, commitMessageDigest: sha256(commitSubject),
     evidence: [{
       path: gitDir,
-      sha256: sha256(canonicalJson({ ...proof, commonDir, gitDir, repositoryRoot })),
+      sha256: sha256(canonicalJson({ ...proof, canonicalHead, commonDir, currentBranch, gitDir, repositoryRoot, worktreeTopology })),
       identity: `source_owned_git_read:${commonDir}:${gitDir}`,
     }],
   };
 }
 
-function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, incidentUpdatedAt, command }) {
-  const remoteRefs = JSON.parse(String(command("gh", ["api", `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`], { cwd: repositoryRoot, encoding: "utf8" })) || "[]");
-  const prs = JSON.parse(String(command("gh", ["pr", "list", "--repo", repository, "--state", "all", "--head", branch, "--json", "number,state,headRefOid,mergedAt,updatedAt"], { cwd: repositoryRoot, encoding: "utf8" })) || "[]");
-  const issue = JSON.parse(String(command("gh", ["issue", "view", String(issueNumber), "--repo", repository, "--json", "number,state,updatedAt,comments"], { cwd: repositoryRoot, encoding: "utf8" })) || "{}");
+function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, mainSha, incidentUpdatedAt, command }) {
+  const githubEnvironment = {
+    PATH: "/usr/bin:/bin", HOME: userInfo().homedir, LANG: "C", LC_ALL: "C",
+    GH_PROMPT_DISABLED: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
+  };
+  const gh = (args) => command("/usr/bin/gh", args, { cwd: repositoryRoot, encoding: "utf8", env: githubEnvironment });
+  const repositoryRecord = JSON.parse(String(gh(["api", `repos/${repository}`])) || "{}");
+  const mainRef = JSON.parse(String(gh(["api", `repos/${repository}/git/ref/heads/main`])) || "{}");
+  const remoteRefs = JSON.parse(String(gh(["api", `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`])) || "[]");
+  const prs = JSON.parse(String(gh(["pr", "list", "--repo", repository, "--state", "all", "--head", branch, "--json", "number,state,headRefOid,mergedAt,updatedAt"])) || "[]");
+  const issue = JSON.parse(String(gh(["issue", "view", String(issueNumber), "--repo", repository, "--json", "number,state,updatedAt,comments"])) || "{}");
   if (!Array.isArray(remoteRefs) || remoteRefs.length !== 0 || prs.length !== 0 || issue.number !== issueNumber || issue.state !== "OPEN"
+      || repositoryRecord.full_name?.toLowerCase() !== repository.toLowerCase() || repositoryRecord.default_branch !== "main"
+      || mainRef.ref !== "refs/heads/main" || mainRef.object?.type !== "commit" || mainRef.object?.sha !== mainSha
+      || !Array.isArray(issue.comments) || !Number.isFinite(Date.parse(issue.updatedAt))
       || Date.parse(issue.updatedAt) > Date.parse(incidentUpdatedAt)) throw new Error("semantic extraction later GitHub effect detected");
-  const proof = { remoteHead: null, prs: [], issue: { number: issue.number, state: issue.state, updatedAt: issue.updatedAt, commentCount: issue.comments.length } };
+  const comments = issue.comments.map((comment) => ({
+    id: String(comment.id || ""),
+    author: String(comment.author?.login || ""),
+    createdAt: String(comment.createdAt || ""),
+    updatedAt: comment.updatedAt === null ? null : String(comment.updatedAt || ""),
+    bodySha256: sha256(String(comment.body || "")),
+  })).sort((left, right) => left.id.localeCompare(right.id));
+  if (new Set(comments.map(({ id }) => id)).size !== comments.length
+      || comments.some((comment) => !comment.id || !comment.author || !Number.isFinite(Date.parse(comment.createdAt))
+        || Date.parse(comment.createdAt) > Date.parse(incidentUpdatedAt)
+        || (comment.updatedAt !== null && (!Number.isFinite(Date.parse(comment.updatedAt))
+          || Date.parse(comment.updatedAt) > Date.parse(incidentUpdatedAt))))) {
+    throw new Error("semantic extraction GitHub comment checkpoint invalid");
+  }
+  const proof = {
+    repository: { fullName: repositoryRecord.full_name, defaultBranch: repositoryRecord.default_branch, mainSha },
+    remoteHead: null,
+    prs: [],
+    issue: {
+      number: issue.number, state: issue.state, updatedAt: issue.updatedAt,
+      commentCount: comments.length, commentManifestDigest: sha256(canonicalJson(comments)),
+    },
+  };
   const digest = sha256(canonicalJson(proof));
   return {
     digest,
@@ -542,6 +714,30 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, i
     },
     evidence: [{ path: `github://${repository}/issues/${issueNumber}`, sha256: digest, identity: "authenticated_gh_cli_read" }],
   };
+}
+
+function parseWorktreeRecords(output) {
+  const fields = output.split("\0");
+  const records = [];
+  let current = null;
+  for (const field of fields) {
+    if (!field) continue;
+    const separator = field.indexOf(" ");
+    const key = separator === -1 ? field : field.slice(0, separator);
+    const value = separator === -1 ? true : field.slice(separator + 1);
+    if (key === "worktree") {
+      if (current) records.push(current);
+      current = { path: path.resolve(value), head: null, branch: null, bare: false, detached: false };
+    } else if (current && key === "HEAD") current.head = value;
+    else if (current && key === "branch") current.branch = value;
+    else if (current && key === "bare") current.bare = true;
+    else if (current && key === "detached") current.detached = true;
+  }
+  if (current) records.push(current);
+  if (records.length < 1 || records.some((record) => !record.head || !/^[a-f0-9]{40}$/u.test(record.head))) {
+    throw new Error("semantic extraction worktree topology invalid");
+  }
+  return records;
 }
 
 function authenticateArtifact(file) {

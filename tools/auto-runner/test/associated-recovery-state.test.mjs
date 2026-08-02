@@ -73,7 +73,18 @@ test("current-shaped incident and distinct associated recovery authenticate as t
     assert.equal(result.binding.taskKey, "20260101T01");
     assert.equal(result.binding.incidentTaskKey, "20260101T010101");
     assert.equal(result.binding.phase, "implementation_or_bundle_slice");
-    assert.deepEqual(result.binding.noEffectPosture, { remoteHeadAbsent: true, prAbsent: true, pushMarkerAbsent: true, mergeMarkerAbsent: true });
+    assert.deepEqual(result.binding.noEffectPosture, {
+      remoteHeadAbsent: true,
+      prAbsent: true,
+      pushMarkerAbsent: true,
+      mergeMarkerAbsent: true,
+      commentMarkerAbsent: true,
+      issueCloseMarkerAbsent: true,
+      unexpectedMarkersAbsent: true,
+      ordinaryContinuationAbsent: true,
+      generatedWorkAbsent: true,
+      localEvidenceAbsent: true,
+    });
     assert.equal(Object.keys(result).includes("incidentState"), false);
   } finally { f.cleanup(); }
 });
@@ -146,6 +157,13 @@ test("candidate, lifecycle, counter, phase, status, stop, and no-effect drift fa
     (state) => { state.phase = "completed"; },
     (state) => { state.stopReason = { reasonCode: "other" }; },
     (state) => { state.nextSafeAction = "other"; },
+    (state) => { state.mutationMarkers.issue_comment = { later: { status: "completed" } }; },
+    (state) => { state.mutationMarkers.issue_close = { later: { status: "completed" } }; },
+    (state) => { state.mutationMarkers.unrecognized_effect = { later: { status: "completed" } }; },
+    (state) => { state.ordinaryContinuation = { effects: { product: true } }; },
+    (state) => { state.generatedWork = { path: "unexpected" }; },
+    (state) => { state.evidence.localValidation = { ok: true }; },
+    (state) => { state.attempts.push({ action: "unexpected" }); },
   ];
   for (const mutateAssociated of associatedCases) {
     const f = fixture({ mutateAssociated });

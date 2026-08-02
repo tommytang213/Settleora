@@ -38,7 +38,13 @@ const requiredRuntimeArtifactRoles = Object.freeze({
   health_unit: "healthUnit",
 });
 
-export function inspectSemanticIncidentForDeployment({ document, documentEvidence, projectAuthority, recoverableStates } = {}) {
+export function inspectSemanticIncidentForDeployment({
+  document,
+  documentEvidence,
+  projectAuthority,
+  recoverableStates,
+  sourceCommand,
+} = {}) {
   let normalized;
   try { normalized = normalizeSemanticDeploymentEvidenceDocument(document, documentEvidence, projectAuthority); }
   catch { return failed("semantic_deployment_evidence_document_invalid"); }
@@ -64,6 +70,7 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
       incidentSha256: incident.incident.sha256,
       associatedRecoveryPath: normalized.associatedRecovery.path,
       associatedRecoverySha256: normalized.associatedRecovery.sha256,
+      ...(sourceCommand ? { command: sourceCommand } : {}),
     });
   } catch { return failed("semantic_deployment_live_source_revalidation_failed"); }
   const association = liveContext.association;

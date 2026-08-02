@@ -1808,6 +1808,12 @@ Deployment quiescence has a distinct read-only corroboration path for this
 incident class. Its manual-only preparer derives one deterministic package
 from authenticated config/profile/runtime/health, repository, lifecycle,
 budget, intent, run-role, incident, associated-recovery, and GitHub readers.
+Git evidence binds clean canonical `main` and `origin/main`, candidate
+exclusion from main, and every linked worktree. Intent evidence authenticates
+the exact prompt, report, finalized commit intent, subject, tree, and paths.
+GitHub reads use the fixed trusted CLI in a sanitized environment and bind a
+body-digest-only comment checkpoint. Identical upstream evidence sets cannot
+gain independence merely from different authority-class labels.
 The package is one owner-only direct child of the external profile root with
 exactly one deployment document, eight distinct source projections, and one
 sorted manifest. Planning is non-mutating; separately authorized creation uses
@@ -1823,6 +1829,9 @@ full task lineage, issue/claim/charge, branch/base/candidate/tree/diff,
 original/failed/consumed roles, lifecycle generation, counters, phase/actions,
 and no-effect posture must agree. The paths must be distinct. Zero, multiple,
 unrelated, newer, malformed, or drifting recoverable states fail closed.
+Comment/close or unknown effect markers, an ordinary continuation, generated
+work, attempts, or populated local evidence on the associated state also fail
+closed.
 
 The package selects the same source-owned verifier set and claim-owner matrix,
 binds an exact target and all authenticated incident/runtime artifacts, and

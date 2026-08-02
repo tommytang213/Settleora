@@ -570,6 +570,7 @@ export function inspectDeploymentQuiescence(logsRoot, {
   deploymentProjectAuthority = null,
   repositoryRoot = null,
   resumedGitConfigRecords = null,
+  semanticSourceCommand = null,
 } = {}) {
   canonicalExistingDirectory(logsRoot, "logsRoot");
   if (preservedRecoveryTarget && semanticDeploymentEvidence) {
@@ -620,6 +621,7 @@ export function inspectDeploymentQuiescence(logsRoot, {
       documentEvidence: semanticDeploymentEvidence.evidence,
       projectAuthority: deploymentProjectAuthority,
       recoverableStates,
+      ...(semanticSourceCommand ? { sourceCommand: semanticSourceCommand } : {}),
     });
     if (!semantic.ok) {
       return evidence({

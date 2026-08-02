@@ -50,20 +50,23 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
   const repositoryRoot = path.join(root, "repo");
   mkdirSync(repositoryRoot, { mode: 0o700 });
   const git = (args, options = {}) => execFileSync("/usr/bin/git", args, { cwd: repositoryRoot, encoding: options.encoding ?? "utf8" });
-  git(["init", "-q"]);
+  git(["init", "-q", "-b", "main"]);
   git(["config", "user.name", "Settleora Test"]);
   git(["config", "user.email", "settleora-test@example.invalid"]);
   git(["remote", "add", "origin", "https://github.com/example/repo.git"]);
+  writeFileSync(path.join(repositoryRoot, ".gitignore"), ".codex/reports/\n", { mode: 0o600 });
   writeFileSync(path.join(repositoryRoot, "fixture.txt"), "base\n", { mode: 0o600 });
-  git(["add", "fixture.txt"]); git(["commit", "-q", "-m", "base"]);
+  git(["add", ".gitignore", "fixture.txt"]); git(["commit", "-q", "-m", "base"]);
   const baseSha = git(["rev-parse", "HEAD"]).trim();
   git(["switch", "-q", "-c", "feature/issue-7"]);
   writeFileSync(path.join(repositoryRoot, "fixture.txt"), "base\ncandidate\n", { mode: 0o600 });
-  git(["add", "fixture.txt"]); git(["commit", "-q", "-m", "candidate"]);
+  git(["add", "fixture.txt"]); git(["commit", "-q", "-m", "Auto-runner issue #7: initial candidate before source classification"]);
   const headSha = git(["rev-parse", "HEAD"]).trim();
   const treeSha = git(["rev-parse", "HEAD^{tree}"]).trim();
   const changedFilesDigest = sha256(JSON.stringify(["fixture.txt"]));
   const diffDigest = sha256(execFileSync("/usr/bin/git", ["diff", "--no-ext-diff", "--no-textconv", "--binary", baseSha, headSha], { cwd: repositoryRoot }));
+  git(["switch", "-q", "main"]);
+  git(["update-ref", "refs/remotes/origin/main", baseSha]);
   const paths = {
     incident: path.join(recoveryRoot, "incident.json"),
     associatedRecovery: path.join(recoveryRoot, "associated.json"),
@@ -98,8 +101,8 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
   associatedState.mutationMarkers = structuredClone(markers);
   incidentState.timestamps.createdAt = associatedState.timestamps.createdAt;
   incidentState.expectedReportPaths = {
-    repoReportPath: path.join(root, `settleora-codex-report-${incidentState.taskKey}-issue-7-fixture.md`),
-    promptPath: path.join(root, `${incidentState.taskKey}-issue-7-fixture.md`),
+    repoReportPath: path.join(repositoryRoot, ".codex", "reports", `settleora-codex-report-${incidentState.taskKey}-issue-7-fixture.md`),
+    promptPath: path.join(logsRoot, "tasks", `${incidentState.taskKey}-issue-7-fixture.md`),
   };
   incidentState.ordinaryContinuation = {
     identity: { baseSha, headSha, treeSha, changedFilesDigest, diffDigest },
@@ -139,16 +142,11 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
   };
   const projectAuthority = { ...projectAuthorityCore, evidenceDigest: sha256(canonicalJson(projectAuthorityCore)) };
   createCollectorArtifacts({ logsRoot, incidentState, baseSha, headSha, chargeIdentity, chargeId });
-  const oldPath = process.env.PATH;
-  const fakeBin = createFakeRemoteReaders(root);
-  process.env.PATH = `${fakeBin}:${oldPath}`;
-  let extractionContext;
-  try {
-    extractionContext = collectSemanticDeploymentEvidenceContext({
-      projectAuthority: structuredClone(projectAuthority), repositoryRoot, incidentPath: paths.incident, incidentSha256: digests.incident,
-      associatedRecoveryPath: paths.associatedRecovery, associatedRecoverySha256: digests.associatedRecovery,
-    });
-  } finally { process.env.PATH = oldPath; }
+  const sourceCommand = createFixtureCommand({ issueNumber: 7, mainSha: baseSha });
+  const extractionContext = collectSemanticDeploymentEvidenceContext({
+    projectAuthority: structuredClone(projectAuthority), repositoryRoot, incidentPath: paths.incident, incidentSha256: digests.incident,
+    associatedRecoveryPath: paths.associatedRecovery, associatedRecoverySha256: digests.associatedRecovery, command: sourceCommand,
+  });
   const authorityReaders = createSemanticDeploymentAuthorityReaders();
   const claims = Object.assign({}, ...semanticRecoveryAuthorityClasses.map((authorityClass) => authorityReaders[authorityClass](extractionContext).claims), claimOverrides);
   const targetFields = [
@@ -232,21 +230,19 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
   const recoverableStates = [{ statePath: paths.associatedRecovery, taskKey: "20260101T01", issue: { number: 7 }, run: { runId: "run-original", supervisorRunId: "supervisor-original" } }];
   return {
     root, repositoryRoot, paths, claims, document, documentEvidence, projectAuthority, recoverableStates,
-    inspectEnvironment: { PATH: `${fakeBin}:${oldPath}` }, cleanup: () => rmSync(root, { recursive: true, force: true }),
+    sourceCommand, cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
 }
 
 function inspect(fixture, recoverableStates = fixture.recoverableStates) {
-  return withFixtureEnvironment(fixture, () => inspectSemanticIncidentForDeployment({
+  return inspectSemanticIncidentForDeployment({
     document: fixture.document, documentEvidence: fixture.documentEvidence,
-    projectAuthority: fixture.projectAuthority, recoverableStates,
-  }));
+    projectAuthority: fixture.projectAuthority, recoverableStates, sourceCommand: fixture.sourceCommand,
+  });
 }
 
 function withFixtureEnvironment(fixture, operation) {
-  const previous = process.env.PATH;
-  process.env.PATH = fixture.inspectEnvironment.PATH;
-  try { return operation(); } finally { process.env.PATH = previous; }
+  return operation();
 }
 
 function createCollectorArtifacts({ logsRoot, incidentState, baseSha, headSha, chargeIdentity, chargeId }) {
@@ -257,6 +253,55 @@ function createCollectorArtifacts({ logsRoot, incidentState, baseSha, headSha, c
   });
   assert.equal(budget.ok, true, JSON.stringify(budget));
   assert.equal(budget.chargeId, chargeId);
+  const reportPath = incidentState.expectedReportPaths.repoReportPath;
+  const promptPath = incidentState.expectedReportPaths.promptPath;
+  mkdirSync(path.dirname(reportPath), { recursive: true, mode: 0o700 });
+  mkdirSync(path.dirname(promptPath), { recursive: true, mode: 0o700 });
+  writeFileSync(reportPath, "fixture report\n", { mode: 0o600 });
+  writeFileSync(promptPath, "fixture prompt\n", { mode: 0o600 });
+  const intentId = "11111111-2222-4333-8444-555555555555";
+  const intentFingerprint = "8".repeat(64);
+  const commitMessage = "Auto-runner issue #7: initial candidate before source classification";
+  const intentRoot = path.join(logsRoot, "recovery", "pre-effect-intents");
+  mkdirSync(intentRoot, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(intentRoot, `${sha256("fixture-commit-intent")}.json`), JSON.stringify({
+    schemaVersion: 1,
+    intentId,
+    effectType: "commit",
+    status: "finalized",
+    repository: "example/repo",
+    runId: "run-original",
+    sessionId: "session-commit",
+    authorityGeneration: 3,
+    claimIdentity: "example/repo#7",
+    logicalTaskIdentity: "example/repo#7",
+    chargeIdentity: budget.statePath,
+    reservationIdentity: null,
+    sourceTaskKey: incidentState.taskKey,
+    fingerprint: intentFingerprint,
+    identity: {
+      authorityGeneration: 3,
+      baseSha,
+      branchName: "feature/issue-7",
+      candidateIdentity: baseSha,
+      chargeIdentity: budget.statePath,
+      claimIdentity: "example/repo#7",
+      headSha: baseSha,
+      logicalTaskIdentity: "example/repo#7",
+      repository: "example/repo",
+      reservationIdentity: null,
+      runId: "run-original",
+      sessionId: "session-commit",
+      sourceTaskKey: incidentState.taskKey,
+    },
+    effect: {
+      expectedParents: [baseSha],
+      messageDigest: sha256(commitMessage),
+      stagedPaths: ["fixture.txt"],
+      treeSha: incidentState.ordinaryContinuation.identity.treeSha,
+    },
+    diagnostics: ["canonical_effect_executed"],
+  }), { mode: 0o600 });
 
   const lifecycle = createSessionLifecycleState({
     repository: "example/repo", issueNumber: 7, taskKey: incidentState.taskKey,
@@ -300,6 +345,22 @@ function createCollectorArtifacts({ logsRoot, incidentState, baseSha, headSha, c
     ["original", "run-original", "supervisor-original", {
       issue: { number: 7 }, runId: "run-original", index: 1, branchName: "feature/issue-7",
       baseOriginMainSha: baseSha, runnerCreatedCommitSha: headSha, outcome: "validation_failed",
+      taskPrompt: { promptPath, reportPath, timestampKey: incidentState.taskKey },
+      sessionLifecycle: { report: { path: reportPath, correlationKey: incidentState.taskKey, status: "in_progress" } },
+      commit: {
+        skipped: false,
+        files: ["fixture.txt"],
+        commit: headSha,
+        canonicalEffect: {
+          ok: true,
+          action: "executed",
+          classification: "effect_present_exact_adoptable",
+          intentId,
+          fingerprint: intentFingerprint,
+          status: "finalized",
+          execution: { ok: true, status: 0 },
+        },
+      },
     }],
     ["failed", "run-failed", "supervisor-failed", {
       issue: { number: 7 }, runId: "run-failed", branchName: "feature/issue-7",
@@ -350,21 +411,35 @@ function runRecoveryIdentity(incidentState, baseSha, headSha) {
   };
 }
 
-function createFakeRemoteReaders(root) {
-  const bin = path.join(root, "bin");
-  mkdirSync(bin, { mode: 0o700 });
-  writeFileSync(path.join(bin, "git"), "#!/bin/sh\n[ \"$1\" = \"ls-remote\" ] && exit 0\nexit 64\n", { mode: 0o700 });
-  writeFileSync(path.join(bin, "gh"), [
-    "#!/bin/sh",
-    "case \" $* \" in",
-    "  *\" api repos/\"*) printf '[]' ;;",
-    "  *\" pr list \"*) printf '[]' ;;",
-    "  *\" issue view \"*) printf '%s' '{\"number\":7,\"state\":\"OPEN\",\"updatedAt\":\"2020-01-01T00:00:00.000Z\",\"comments\":[]}' ;;",
-    "  *) exit 64 ;;",
-    "esac",
-    "",
-  ].join("\n"), { mode: 0o700 });
-  return bin;
+function createFixtureCommand({ issueNumber, mainSha }) {
+  return (executable, args, options = {}) => {
+    if (executable === "/usr/bin/git") return execFileSync(executable, args, options);
+    assert.equal(executable, "/usr/bin/gh");
+    assert.equal(options.env.PATH, "/usr/bin:/bin");
+    assert.equal(options.env.GH_CONFIG_DIR, undefined);
+    assert.equal(options.env.GH_HOST, undefined);
+    const joined = args.join(" ");
+    if (joined === "api repos/example/repo") {
+      return JSON.stringify({ full_name: "example/repo", default_branch: "main" });
+    }
+    if (joined === "api repos/example/repo/git/ref/heads/main") {
+      return JSON.stringify({ ref: "refs/heads/main", object: { type: "commit", sha: mainSha } });
+    }
+    if (joined.includes("git/matching-refs/heads/")) return "[]";
+    if (joined.startsWith("pr list ")) return "[]";
+    if (joined.startsWith("issue view ")) {
+      return JSON.stringify({
+        number: issueNumber,
+        state: "OPEN",
+        updatedAt: "2020-01-01T00:00:00.000Z",
+        comments: [{
+          id: "comment-fixture", author: { login: "fixture-owner" }, body: "checkpoint",
+          createdAt: "2020-01-01T00:00:00.000Z", updatedAt: null,
+        }],
+      });
+    }
+    throw new Error(`unexpected fixture command: ${executable} ${joined}`);
+  };
 }
 
 test("semantic overwrite incident is admitted only for deterministic read-only deployment quiescence", () => {
@@ -386,6 +461,7 @@ test("semantic overwrite incident is admitted only for deterministic read-only d
       semanticDeploymentEvidence: { document: fixture.document, evidence: fixture.documentEvidence },
       deploymentProjectAuthority: fixture.projectAuthority,
       repositoryRoot: fixture.projectAuthority.repoRoot,
+      semanticSourceCommand: fixture.sourceCommand,
     }));
     assert.equal(canonicalQuiescence.semanticIncidentAdmitted, true);
     assert.equal(canonicalQuiescence.semanticEvidenceDigest, first.evidenceDigest);
@@ -437,6 +513,85 @@ test("live Git source authentication rejects replacement, graft, and alternate o
       assert.equal(inspect(fixture).reasonCode, "semantic_deployment_live_source_revalidation_failed");
     } finally { fixture.cleanup(); }
   }
+});
+
+test("live Git source binds canonical main, origin main, candidate exclusion, and every linked worktree", () => {
+  for (const mutate of [
+    (f) => execFileSync("/usr/bin/git", ["switch", "-q", "feature/issue-7"], { cwd: f.repositoryRoot }),
+    (f) => execFileSync("/usr/bin/git", ["update-ref", "refs/remotes/origin/main", f.claims.headSha], { cwd: f.repositoryRoot }),
+    (f) => {
+      const linked = path.join(f.root, "linked-candidate");
+      execFileSync("/usr/bin/git", ["worktree", "add", "-q", linked, "feature/issue-7"], { cwd: f.repositoryRoot });
+      writeFileSync(path.join(linked, "untracked.txt"), "drift\n", { mode: 0o600 });
+    },
+  ]) {
+    const fixture = makeFixture();
+    try {
+      mutate(fixture);
+      assert.equal(inspect(fixture).reasonCode, "semantic_deployment_live_source_revalidation_failed");
+    } finally { fixture.cleanup(); }
+  }
+});
+
+test("GitHub source uses a trusted absolute client and binds exact comment identities and fingerprints", () => {
+  const later = makeFixture();
+  try {
+    const trusted = later.sourceCommand;
+    later.sourceCommand = (executable, args, options) => {
+      const result = trusted(executable, args, options);
+      if (!args.join(" ").startsWith("issue view ")) return result;
+      const issue = JSON.parse(result);
+      issue.comments.push({
+        id: "later-comment", author: { login: "fixture-owner" }, body: "later",
+        createdAt: "2030-01-01T00:00:00.000Z", updatedAt: null,
+      });
+      return JSON.stringify(issue);
+    };
+    assert.equal(inspect(later).reasonCode, "semantic_deployment_live_source_revalidation_failed");
+  } finally { later.cleanup(); }
+  const fingerprint = makeFixture();
+  try {
+    const trusted = fingerprint.sourceCommand;
+    fingerprint.sourceCommand = (executable, args, options) => {
+      const result = trusted(executable, args, options);
+      if (!args.join(" ").startsWith("issue view ")) return result;
+      const issue = JSON.parse(result);
+      issue.comments[0].body = "changed checkpoint";
+      return JSON.stringify(issue);
+    };
+    assert.equal(inspect(fingerprint).reasonCode, "semantic_deployment_live_source_claim_drift");
+  } finally { fingerprint.cleanup(); }
+});
+
+test("intent lineage authenticates exact prompt, report, finalized commit intent, and candidate subject", () => {
+  for (const selectPath of [
+    (f) => f.document.authenticatedProvenance.incidentPath && path.join(f.repositoryRoot, ".codex", "reports", "settleora-codex-report-20260101T010101-issue-7-fixture.md"),
+    (f) => path.join(f.projectAuthority.logsRoot, "tasks", "20260101T010101-issue-7-fixture.md"),
+    (f) => path.join(f.projectAuthority.logsRoot, "recovery", "pre-effect-intents", `${sha256("fixture-commit-intent")}.json`),
+  ]) {
+    const fixture = makeFixture();
+    try {
+      const target = selectPath(fixture);
+      writeFileSync(target, `${readFileSync(target, "utf8")}drift`, { mode: 0o600 });
+      assert.match(inspect(fixture).reasonCode, /^semantic_deployment_live_source_(?:provenance_drift|revalidation_failed)$/u);
+    } finally { fixture.cleanup(); }
+  }
+  const subject = makeFixture();
+  try {
+    execFileSync("/usr/bin/git", ["branch", "-f", "feature/issue-7", "main"], { cwd: subject.repositoryRoot });
+    assert.equal(inspect(subject).reasonCode, "semantic_deployment_live_source_revalidation_failed");
+  } finally { subject.cleanup(); }
+});
+
+test("all eight live source projections retain independently derived provenance", () => {
+  const fixture = makeFixture();
+  try {
+    const projections = readdirSync(fixture.document.evidenceRoot)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => JSON.parse(readFileSync(path.join(fixture.document.evidenceRoot, name), "utf8")));
+    assert.equal(projections.length, 8);
+    assert.equal(new Set(projections.map((projection) => projection.provenanceIdentity)).size, 8);
+  } finally { fixture.cleanup(); }
 });
 
 test("run-role rereads reject unrelated candidate, task lineage, and summary identities", () => {
@@ -568,6 +723,7 @@ test("trusted semantic deployment dry-run is fully non-mutating", () => {
       semanticDeploymentEvidence: { document: fixture.document, evidence: fixture.documentEvidence },
       deploymentProjectAuthority: fixture.projectAuthority,
       repositoryRoot: fixture.projectAuthority.repoRoot,
+      semanticSourceCommand: fixture.sourceCommand,
     }));
     const result = deployRuntimeBundle({
       sourceRoot: path.resolve("tools/auto-runner"), destination: path.join(installRoot, "runtime"),
