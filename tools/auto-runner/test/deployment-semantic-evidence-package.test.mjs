@@ -125,6 +125,26 @@ test("package authentication rejects a member rewrite after the initial aggregat
   } finally { f.cleanup(); }
 });
 
+test("package authentication rejects incoming or retired sibling residue before and during authentication", () => {
+  for (const residueKind of ["incomingRoot", "retiredRoot"]) {
+    const f = fixture();
+    try {
+      const plan = f.makePlan();
+      createOrAdoptSemanticDeploymentEvidencePackage(plan);
+      mkdirSync(plan[residueKind], { mode: 0o700 });
+      assert.throws(() => authenticateSemanticDeploymentEvidencePackage(plan.documentPath), /sibling residue/u);
+    } finally { f.cleanup(); }
+  }
+  const raced = fixture();
+  try {
+    const plan = raced.makePlan();
+    createOrAdoptSemanticDeploymentEvidencePackage(plan);
+    assert.throws(() => authenticateSemanticDeploymentEvidencePackage(plan.documentPath, {
+      afterInitialMembersRead: () => mkdirSync(plan.incomingRoot, { mode: 0o700 }),
+    }), /sibling residue/u);
+  } finally { raced.cleanup(); }
+});
+
 test("no-clobber publication refuses a final directory appearing at commit", () => {
   const f = fixture();
   try {

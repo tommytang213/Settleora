@@ -253,12 +253,20 @@ export function inspectSemanticIncidentForDeployment({
 
 function revalidateLiveSemanticSources({ context, readAuthorityContext, manifest, packet, documentSha256 }) {
   try {
-    const readers = createSemanticDeploymentAuthorityReaders({ readAuthorityContext });
+    const readers = createSemanticDeploymentAuthorityReaders();
     const packaged = new Map(manifest.evidenceSources.map((source) => [source.authorityClass, source]));
     const descriptors = new Map(packet.sources.map((source) => [source.authorityClass, source]));
+    const initialContextDigest = digest(canonicalJson(context));
+    const readStableContext = () => {
+      const current = readAuthorityContext();
+      if (digest(canonicalJson(current)) !== initialContextDigest) {
+        throw new Error("semantic deployment complete authority context changed");
+      }
+      return current;
+    };
     const live = [];
     for (const authorityClass of semanticRecoveryAuthorityClasses) {
-      const projection = readers[authorityClass](context);
+      const projection = readers[authorityClass](readStableContext());
       const source = packaged.get(authorityClass);
       const descriptor = descriptors.get(authorityClass);
       const definition = semanticRecoveryVerifierSet.verifiers[authorityClass];
@@ -279,6 +287,7 @@ function revalidateLiveSemanticSources({ context, readAuthorityContext, manifest
       }
       live.push({ authorityClass, claims: projection.claims, provenanceIdentity: projection.provenanceIdentity });
     }
+    readStableContext();
     return { ok: true, digest: digest(canonicalJson(live)) };
   } catch {
     return failed("semantic_deployment_live_source_revalidation_failed");

@@ -336,34 +336,45 @@ export function loadRecoveryState(config, keyOrState) {
   return { ok: true, state: parsed, statePath };
 }
 
-export function listRecoverableRecoveryStates(config) {
+export function listRecoverableRecoveryStates(config, { afterInitialRead = null } = {}) {
+  if (afterInitialRead !== null && typeof afterInitialRead !== "function") {
+    throw new Error("recovery_state_discovery_hook_invalid");
+  }
   const root = path.join(config.logsRoot, recoveryStateRootName);
   if (!existsSync(root)) return [];
-  const artifactNames = readdirSync(root).filter((name) => name.endsWith(".json"));
-  if (artifactNames.length === 0) return [];
-  const rootInfo = lstatSync(root);
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0 || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())) {
-    throw new Error("recovery_state_root_untrusted");
-  }
-  const states = artifactNames
-    .map((name) => path.join(root, name))
-    .map((statePath) => {
-      try {
-        const info = lstatSync(statePath);
-        if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || info.size <= 0 || info.size > 1024 * 1024 || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-          throw new Error("recovery_state_artifact_untrusted");
-        }
-        const parsed = JSON.parse(readFileSync(statePath, "utf8"));
-        const validation = validateRecoveryStateShape(parsed);
-        if (!validation.ok) throw new Error("recovery_state_schema_invalid");
-        if (parsed.phase === "completed") return null;
-        if (parsed.phase === "stopped" && !isValidationFailureContinuation(parsed)) return null;
-        return sanitizeRecoveryState({ ...parsed, statePath });
-      } catch {
-        throw new Error("recovery_state_artifact_untrusted");
-      }
-    })
-    .filter(Boolean);
+  const readPass = () => {
+    const rootInfo = lstatSync(root);
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0
+        || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())
+        || realpathSync(root) !== path.resolve(root)) throw new Error("recovery_state_root_untrusted");
+    const names = readdirSync(root).sort();
+    const artifacts = names.filter((name) => name.endsWith(".json")).map((name) => {
+      try { return authenticateRecoveryArtifact(root, path.join(root, name), null); }
+      catch { throw new Error("recovery_state_artifact_untrusted"); }
+    });
+    const rootAfter = lstatSync(root);
+    if (recoveryArtifactIdentity(rootInfo) !== recoveryArtifactIdentity(rootAfter)
+        || realpathSync(root) !== path.resolve(root)) throw new Error("recovery_state_root_changed");
+    return { names, artifacts, rootIdentity: recoveryArtifactIdentity(rootInfo) };
+  };
+  const first = readPass();
+  afterInitialRead?.();
+  const second = readPass();
+  if (canonicalRecoveryEvidence(first.names) !== canonicalRecoveryEvidence(second.names)
+      || first.rootIdentity !== second.rootIdentity
+      || first.artifacts.length !== second.artifacts.length
+      || first.artifacts.some((artifact, index) => {
+        const rechecked = second.artifacts[index];
+        return artifact.path !== rechecked.path || artifact.artifactIdentity !== rechecked.artifactIdentity
+          || artifact.sha256 !== rechecked.sha256 || artifact.stateDigest !== rechecked.stateDigest
+          || canonicalRecoveryEvidence(artifact.state) !== canonicalRecoveryEvidence(rechecked.state);
+      })) throw new Error("recovery_state_discovery_changed");
+  const states = second.artifacts.map((artifact) => {
+    const parsed = artifact.state;
+    if (parsed.phase === "completed") return null;
+    if (parsed.phase === "stopped" && !isValidationFailureContinuation(parsed)) return null;
+    return sanitizeRecoveryState({ ...parsed, statePath: artifact.path });
+  }).filter(Boolean);
   const superseded = new Set();
   for (const candidate of states) {
     if (!isProvisionalTaskKey(candidate.taskKey)) continue;
@@ -450,6 +461,7 @@ export function authenticateAssociatedRecoverableState({
   incidentSha256,
   associatedRecoveryPath,
   associatedRecoverySha256,
+  afterInitialRecoveryDiscovery = null,
 } = {}) {
   const fail = (reasonCode) => ({ ok: false, reasonCode });
   try {
@@ -460,7 +472,7 @@ export function authenticateAssociatedRecoverableState({
     const incident = authenticateRecoveryArtifact(recoveryRoot, incidentPath, incidentSha256);
     let associated = authenticateRecoveryArtifact(recoveryRoot, associatedRecoveryPath, associatedRecoverySha256);
     if (incident.path === associated.path) return fail("associated_recovery_incident_path_conflated");
-    const recoverable = listRecoverableRecoveryStates(config);
+    const recoverable = listRecoverableRecoveryStates(config, { afterInitialRead: afterInitialRecoveryDiscovery });
     if (recoverable.length !== 1) return fail("associated_recovery_count_invalid");
     if (recoverable[0].statePath !== associated.path) return fail("associated_recovery_selector_mismatch");
     const { statePath: listedPath, ...listedState } = recoverable[0];
@@ -506,6 +518,8 @@ export function authenticateAssociatedRecoverableState({
         .every((state) => Object.keys(state?.mutationMarkers?.issue_close || {}).length === 0),
       unexpectedMarkersAbsent,
       ordinaryContinuationAbsent: associated.state?.ordinaryContinuation == null,
+      terminalDerivativeContinuationAdmissionAbsent: associated.state?.terminalDerivativeContinuationAdmission == null,
+      recoveryReconciliationAbsent: associated.state?.recoveryReconciliation == null,
       generatedWorkAbsent: associated.state?.generatedWork === null && associated.state?.featureBundle === null
         && associated.state?.outageResubmission === null,
       productAuthorityAbsent,
@@ -610,7 +624,7 @@ export function associatedRecoveryDiscoveryIsStable({ associated, listedPath, li
 }
 
 function authenticateRecoveryArtifact(recoveryRoot, selectedPath, expectedSha256) {
-  if (!/^[a-f0-9]{64}$/u.test(String(expectedSha256 || ""))) throw new Error("recovery digest invalid");
+  if (expectedSha256 !== null && !/^[a-f0-9]{64}$/u.test(String(expectedSha256 || ""))) throw new Error("recovery digest invalid");
   const lexical = path.resolve(String(selectedPath || ""));
   if (path.dirname(lexical) !== recoveryRoot || realpathSync(lexical) !== lexical) throw new Error("recovery path invalid");
   const fd = openSync(lexical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
@@ -626,7 +640,7 @@ function authenticateRecoveryArtifact(recoveryRoot, selectedPath, expectedSha256
         || recoveryArtifactIdentity(first) !== recoveryArtifactIdentity(pathInfo)
         || bytes.length !== first.size || realpathSync(lexical) !== lexical) throw new Error("recovery changed");
     const sha256 = createHash("sha256").update(bytes).digest("hex");
-    if (sha256 !== expectedSha256) throw new Error("recovery digest mismatch");
+    if (expectedSha256 !== null && sha256 !== expectedSha256) throw new Error("recovery digest mismatch");
     const state = JSON.parse(bytes.toString("utf8"));
     if (!validateRecoveryStateShape(state).ok) throw new Error("recovery schema invalid");
     return {

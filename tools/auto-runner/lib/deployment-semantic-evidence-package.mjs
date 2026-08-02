@@ -208,7 +208,11 @@ export function authenticateSemanticDeploymentEvidencePackage(documentPath, { af
   const packageRoot = path.dirname(lexicalDocument);
   const configRoot = path.dirname(packageRoot);
   authenticatePackageParent(configRoot);
-  if (!packageBasenamePattern.test(path.basename(packageRoot))) throw new Error("semantic evidence package root name invalid");
+  const packageBasename = path.basename(packageRoot);
+  if (!packageBasenamePattern.test(packageBasename)) throw new Error("semantic evidence package root name invalid");
+  const incomingRoot = path.join(configRoot, `${packageBasename}.incoming`);
+  const retiredRoot = path.join(configRoot, `${packageBasename}.retired`);
+  assertNoPackageSiblingResidue(incomingRoot, retiredRoot);
   authenticateDirectory(packageRoot, 0o700);
   const packageRootBefore = lstatSync(packageRoot);
   const expectedNames = [
@@ -253,6 +257,7 @@ export function authenticateSemanticDeploymentEvidencePackage(documentPath, { af
   if (memberIdentity(packageRootBefore) !== memberIdentity(packageRootAfter) || realpathSync(packageRoot) !== packageRoot) {
     throw new Error("semantic evidence package directory changed during authentication");
   }
+  assertNoPackageSiblingResidue(incomingRoot, retiredRoot);
   const result = {
     config: parseCanonicalJson(documentArtifact.bytes),
     evidence: {
@@ -308,6 +313,12 @@ function inspectPackageResidue({ packageRoot, incomingRoot, retiredRoot, members
     ? { action: "adopt_incoming", reasonCode: "exact_incoming_present" }
     : { action: "refuse", reasonCode: "conflicting_incoming_present" };
   return { action: "create", reasonCode: "package_absent" };
+}
+
+function assertNoPackageSiblingResidue(incomingRoot, retiredRoot) {
+  if (pathEntryExists(incomingRoot) || pathEntryExists(retiredRoot)) {
+    throw new Error("semantic evidence package contradictory sibling residue present");
+  }
 }
 
 function packageMatches(root, members) {

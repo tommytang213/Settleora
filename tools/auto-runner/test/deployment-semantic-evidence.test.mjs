@@ -574,6 +574,38 @@ test("live Git source rejects local configuration drift inside the final collect
   } finally { fixture.cleanup(); }
 });
 
+test("live source revalidation compares complete authority contexts before every class and once finally", () => {
+  const fixture = makeFixture();
+  try {
+    const trusted = fixture.sourceCommand;
+    const lifecycleRoot = path.join(fixture.projectAuthority.logsRoot, "session-lifecycle");
+    const lifecyclePath = path.join(lifecycleRoot, readdirSync(lifecycleRoot).find((name) => name.endsWith(".json")));
+    const originalBytes = readFileSync(lifecyclePath);
+    let completeCollections = 0;
+    let transientInstalled = false;
+    fixture.sourceCommand = (executable, args, options) => {
+      if (completeCollections === 1 && !transientInstalled && executable === "/usr/bin/git") {
+        const changed = JSON.parse(originalBytes);
+        changed.reviewOnlyTransient = true;
+        changed.checkpoint.digest = null;
+        const checkpointCopy = structuredClone(changed);
+        checkpointCopy.timestamps.updatedAt = null;
+        changed.checkpoint.digest = sha256(JSON.stringify(checkpointCopy));
+        writeFileSync(lifecyclePath, `${JSON.stringify(changed, null, 2)}\n`, { mode: 0o600 });
+        transientInstalled = true;
+      }
+      const result = trusted(executable, args, options);
+      if (executable === "/usr/bin/gh" && args.join(" ").startsWith("issue view ")) {
+        completeCollections += 1;
+        if (completeCollections === 2 && transientInstalled) writeFileSync(lifecyclePath, originalBytes, { mode: 0o600 });
+      }
+      return result;
+    };
+    assert.equal(inspect(fixture).reasonCode, "semantic_deployment_live_source_revalidation_failed");
+    assert.equal(completeCollections, 2);
+  } finally { fixture.cleanup(); }
+});
+
 test("GitHub source uses a trusted absolute client and binds exact comment identities and fingerprints", () => {
   const later = makeFixture();
   try {

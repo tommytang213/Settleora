@@ -11,6 +11,11 @@ import {
 } from "../lib/recovery-state.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const canonicalize = (value) => Array.isArray(value) ? value.map(canonicalize)
+  : value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]))
+    : value;
+const canonicalJson = (value) => JSON.stringify(canonicalize(value));
 
 function fixture({ mutateIncident = null, mutateAssociated = null, extraState = null } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-associated-recovery-"));
@@ -82,6 +87,8 @@ test("current-shaped incident and distinct associated recovery authenticate as t
       issueCloseMarkerAbsent: true,
       unexpectedMarkersAbsent: true,
       ordinaryContinuationAbsent: true,
+      terminalDerivativeContinuationAdmissionAbsent: true,
+      recoveryReconciliationAbsent: true,
       generatedWorkAbsent: true,
       productAuthorityAbsent: true,
       localEvidenceAbsent: true,
@@ -166,6 +173,55 @@ test("candidate, lifecycle, counter, phase, status, stop, and no-effect drift fa
     (state) => { state.generatedWork = { path: "unexpected" }; },
     (state) => { state.evidence.localValidation = { ok: true }; },
     (state) => { state.attempts.push({ action: "unexpected" }); },
+    (state) => {
+      const evidence = {
+        version: 1,
+        repository: "example/repo",
+        issueNumber: state.issue.number,
+        taskKey: state.taskKey,
+        runnerRunId: state.run.runId,
+        supervisorRunId: state.run.supervisorRunId,
+        branchName: state.branch.name,
+        baseSha: state.branch.baseSha,
+        originalHeadSha: "b".repeat(40),
+        originalTreeSha: "d".repeat(40),
+        originalChangedFilesDigest: "e".repeat(64),
+        originalDiffDigest: "f".repeat(64),
+        projectionEvidenceDigest: "1".repeat(64),
+        lifecycleRequestId: "2".repeat(64),
+        lifecyclePredecessorDigest: "3".repeat(64),
+      };
+      state.terminalDerivativeContinuationAdmission = {
+        ...evidence,
+        admissionDigest: sha256(JSON.stringify(evidence)),
+      };
+    },
+    (state) => {
+      const evidence = {
+        version: 1,
+        repository: "example/repo",
+        issueNumber: state.issue.number,
+        taskKey: state.taskKey,
+        runId: state.run.runId,
+        supervisorRunId: state.run.supervisorRunId,
+        branchName: state.branch.name,
+        baseSha: state.branch.baseSha,
+        activeHeadSha: state.branch.currentHeadSha,
+        historicalEffectMainSha: "4".repeat(40),
+        currentMainSha: "5".repeat(40),
+        currentMainAncestryProven: true,
+        orderedPushHeads: [state.branch.currentHeadSha],
+        matchedPrCheckpointHeads: [],
+        unmatchedFinalizedPushHeads: [state.branch.currentHeadSha],
+        unmatchedPushBound: 1,
+        effectivePr: null,
+        liveReadDigest: "6".repeat(64),
+      };
+      state.recoveryReconciliation = {
+        ...evidence,
+        evidenceDigest: sha256(canonicalJson(evidence)),
+      };
+    },
     ...["number", "url", "headSha", "headRefName", "baseRefName", "state"].map((field) => (state) => { state.pr[field] = field === "number" ? 1 : "unexpected"; }),
     ...["featureBundle", "outageResubmission"].map((field) => (state) => { state[field] = { unexpected: true }; }),
   ];
@@ -203,4 +259,33 @@ test("zero, second, unrelated, or newer recoverable states fail closed", () => {
     const f = fixture({ extraState: extra });
     try { assert.equal(f.invoke().reasonCode, "associated_recovery_count_invalid"); } finally { f.cleanup(); }
   }
+});
+
+test("recovery discovery rejects content or membership changes across its complete two-pass read", () => {
+  const base = fixture();
+  const completed = structuredClone(base.associated);
+  completed.phase = "completed";
+  base.cleanup();
+  const contentDrift = fixture({ extraState: completed });
+  try {
+    const extraPath = path.join(contentDrift.root, "recovery", "extra.json");
+    const restored = readFileSync(extraPath);
+    assert.equal(contentDrift.invoke({
+      afterInitialRecoveryDiscovery: () => {
+        const changed = JSON.parse(restored);
+        changed.phase = "implementation_or_bundle_slice";
+        writeFileSync(extraPath, JSON.stringify(changed), { mode: 0o600 });
+      },
+    }).reasonCode, "associated_recovery_authentication_failed");
+  } finally { contentDrift.cleanup(); }
+  const membershipDrift = fixture();
+  try {
+    assert.equal(membershipDrift.invoke({
+      afterInitialRecoveryDiscovery: () => writeFileSync(
+        path.join(membershipDrift.root, "recovery", "appeared.json"),
+        JSON.stringify({}),
+        { mode: 0o600 },
+      ),
+    }).reasonCode, "associated_recovery_authentication_failed");
+  } finally { membershipDrift.cleanup(); }
 });
