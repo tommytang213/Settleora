@@ -852,11 +852,14 @@ test("terminal derivative execution reconstructs replay-safe review gates after 
     admission,
   );
   const normalization = recoverySource.indexOf(
-    "normalizeValidationFailureContinuation(loadedState)",
+    "normalizeValidationFailureContinuation(loadedState, {",
     replay,
   );
   assert.ok(execution >= 0 && admission > execution && replay > admission);
   assert.ok(normalization > replay);
+  assert.match(recoverySource, /const validationRetryTerminal = reloadedProjection\?\.ok[\s\S]*isValidationFailureRetryAuthorized/);
+  assert.match(recoverySource, /validationRetryDerivativeAuthorized: reloadedProjection\?\.ok === true/);
+  assert.match(recoverySource, /if \(lifecycleRecovery\.terminal\) \{[\s\S]*if \(reloadedProjection\?\.ok === true\)[\s\S]*projected_recovery_unexpected_terminal_before_successor_rotation[\s\S]*writeRecoveryState/);
 });
 
 test("projection checkpoints retain recovery, implementation, convergence, split, and stack authority", () => {
@@ -907,7 +910,38 @@ test("post-merge cleanup explicitly hands authority to the exact successor runne
 
 test("production terminal derivative reload preserves the authoritative checkpoint locator", () => {
   const source = readFileSync(new URL("../lib/recovery-continuation.mjs", import.meta.url), "utf8");
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
   assert.match(source, /projectAuthoritativeLoadedTerminalDerivative\(config, loaded\)/);
   assert.match(source, /return projectTargetedTerminalDerivative\(config, loaded\.state, loaded\.statePath\)/);
   assert.doesNotMatch(source, /projectTargetedTerminalDerivative\(config, loaded\.state\)/);
+});
+
+test("configured semantic quarantine binds incident and predecessor task ownership", () => {
+  const source = readFileSync(new URL("../lib/recovery-continuation.mjs", import.meta.url), "utf8");
+  assert.match(source, /current\?\.path !== inspection\.incident\.path/);
+  assert.match(source, /claims\?\.taskKey !== provenance\?\.taskKey/);
+  assert.match(source, /claims\?\.issueNumber !== provenance\?\.issueNumber/);
+  assert.match(source, /claims\?\.formerRootSha256 !== provenance\?\.predecessorSha256/);
+});
+
+test("both startup discovery paths use the same source-owned semantic authority and exact protected grant flow", () => {
+  const source = readFileSync(new URL("../lib/recovery-continuation.mjs", import.meta.url), "utf8");
+  const authority = readFileSync(new URL("../lib/semantic-recovery-authority.mjs", import.meta.url), "utf8");
+  const recovery = readFileSync(new URL("../lib/post-incident-successor-recovery.mjs", import.meta.url), "utf8");
+  const runner = readFileSync(new URL("../settleora-auto-runner.mjs", import.meta.url), "utf8");
+  assert.equal((source.match(/authenticateConfiguredSemanticRecoveryAuthority\(config, contract\.semanticEvidencePacket, contract\.operationId\)/g) || []).length, 2);
+  assert.equal((source.match(/executeConfiguredSemanticRecoverySuccessor\(config, contract\.semanticEvidencePacket, contract\.operationId\)/g) || []).length, 1);
+  assert.match(source, /recovery\?\.action === "create_or_adopt_semantic_recovery_successor"/u);
+  assert.ok(runner.indexOf("acquireRunnerLock(config)") < runner.indexOf("await executeStartupContinuation(config, startupRecovery)"));
+  assert.match(runner, /semanticSuccessorRecovery[\s\S]*?semantic_recovery_exact_existing_charge_unchanged[\s\S]*?chargeStartupRecoveryLogicalTask/u);
+  assert.match(runner, /\["semantic_recovery_successor_created", "semantic_recovery_successor_adopted"\]\.includes\(iteration\.outcome\)[\s\S]*?semantic-recovery-terminal/u);
+  assert.match(recovery, /createProductionSemanticRecoveryVerifierRegistry\(adapters\.config\)/);
+  assert.match(recovery, /const fresh = authenticateConfiguredWithRegistry/);
+  assert.match(recovery, /fresh\.grant\.sha256 !== initial\.grant\.sha256/);
+  assert.match(recovery, /requestSourceOwnedSemanticRecoveryPersistence\(registry, fresh\.manifest, fresh\.grant\)/u);
+  assert.doesNotMatch(recovery, /persistOrAdoptPostIncidentSuccessor|atomicJsonNoReplace/u);
+  assert.doesNotMatch(authority, /typeof persist(?:\s|[),;])|withPersistenceFence/u);
+  assert.match(authority, /semanticRecoveryProtectedControlRoot = "\/etc\/settleora-auto-runner\/semantic-recovery-authority"/);
+  assert.match(authority, /semanticRecoveryGrantPath\(operationId\)/);
+  assert.doesNotMatch(source, /authenticateSourceProvenance/);
 });

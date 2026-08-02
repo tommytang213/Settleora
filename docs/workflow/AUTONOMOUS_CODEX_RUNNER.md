@@ -1748,6 +1748,44 @@ that queue. Stale-claim stealing, direct-main push, branch deletion, force-like
 history, product deployment, secret/auth mutation, public/admin exposure, and
 product-authority capabilities remain disabled.
 
+## Protected Post-Incident Semantic Recovery
+
+An authenticated overwrite incident with unavailable predecessor bytes is not
+ordinary missing-checkpoint recovery. It is quarantined before recoverability
+filtering and may reach a distinct semantic successor only through the
+source-owned protected-control contract documented in
+`tools/auto-runner/README.md`. The verifier registry and per-claim owner matrix
+are immutable repository source; configuration supplies only bounded store and
+operation selectors. The sole operation grant is the exact root-owned `0444`
+direct child beneath
+`/etc/settleora-auto-runner/semantic-recovery-authority/grants/`, and its
+64-hex identity is derived from the validated manifest request. Startup
+reauthenticates the exact captured source-store bytes, evidence, runtime identities, matrix,
+verifier set, manifest, and grant immediately before distinct-successor
+persistence. Semantic recovery bypasses ordinary charge reconciliation, and
+the ordinary recovery writer refuses every write while an authenticated
+overwrite incident is configured. The runner exposes no persistence callback
+or pathname writer for a semantic successor. A future protected native producer
+must own descriptor-relative storage plus the fixed grant-bound three-record
+commit protocol; the pure source evaluator accepts no torn pair. Seven domain
+producer interfaces, including independently protected lifecycle and logical-
+task-budget attestation, remain deliberately unavailable
+to production until separately deployed native producers exist; runner-owned
+class-tagged JSON is rejected. The unavailable GitHub no-effect producer must
+also hold a root-grant-bound generation/CAS fence across its complete native
+operation. External Git `fetch`, `push`, and `ls-remote` likewise require a
+separately deployed protected transport producer: a runner-owned temporary Git
+directory cannot stop a same-UID configuration race, so production rejects the
+operation before spawning Git. Repository-bound GitHub API reads provide the
+read-only recovery branch evidence that does not require Git transport. Local
+file Git transport is a deterministic test adapter only and establishes no
+production authority. A missing producer or grant, missing domain
+owner, later effect, drift, ambiguity, or predecessor/incident write attempt
+fails closed. Repository source does not install these producers, the
+protected root, or a live grant; installation, deployment, successor creation/
+adoption, and any later product-task continuation remain separate manual
+operations.
+
 ## Missing Session-Lifecycle Recovery
 
 The ordinary recovery recorder and generated task prompt use one timestamp key

@@ -388,6 +388,10 @@ export async function main() {
         summary.stopReason = "no-eligible-work";
         break;
       }
+      if (["semantic_recovery_successor_created", "semantic_recovery_successor_adopted"].includes(iteration.outcome)) {
+        summary.stopReason = `semantic-recovery-terminal:${iteration.outcome}`;
+        break;
+      }
       writeActiveRunState(config, summary);
     }
     if (!summary.stopReason) {
@@ -448,9 +452,12 @@ async function runIteration(config, logger, runId, index, issueTracker = createR
 
   const startupRecovery = startupRecoveryOverride || (config.outageRecoveryOnly ? discoverTargetedStartupRecovery(config) : discoverStartupRecovery(config));
   if (startupRecovery.found) {
+    const semanticSuccessorRecovery = startupRecovery.action === "create_or_adopt_semantic_recovery_successor";
     config.logicalTaskBudgetScopeId ||= startupRecovery.state?.supervisorRunId || startupRecovery.state?.runId || config.supervisorRunId || runId;
     const recoveryBudget = config.dryRun
       ? { ok: true, charged: false, duplicate: false, preview: true, acceptedLogicalTaskCount: 0, reasonCode: "dry_run_recovery_not_charged" }
+      : semanticSuccessorRecovery
+      ? { ok: true, charged: false, duplicate: true, skipped: true, acceptedLogicalTaskCount: 1, reasonCode: "semantic_recovery_exact_existing_charge_unchanged" }
       : startupRecovery.allowed
       ? chargeStartupRecoveryLogicalTask(config, runId, startupRecovery)
       : { ok: true, charged: false, skipped: true, reasonCode: "startup_recovery_not_allowed" };

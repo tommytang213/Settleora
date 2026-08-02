@@ -8,6 +8,7 @@ import {
   listRecoverableRecoveryStates,
   recoveryRequiresExactHeadEvidenceRegeneration,
   recoveryHasMutationMarker,
+  recoveryStatePath,
   validationRetryDerivativeTerminalPhase,
   writeRecoveryState,
 } from "./recovery-state.mjs";
@@ -17,6 +18,7 @@ import { findPreEffectIntents, handoffPreEffectIntentAuthority, intentIssueAutho
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
 import { projectAuthenticatedTerminalValidationRetryDerivative } from "./terminal-validation-retry-projection.mjs";
 import { validateOrdinaryContinuationPhaseEffects } from "./ordinary-candidate-continuation.mjs";
+import { authenticateConfiguredSemanticRecoveryAuthority, classifyRecoveryOverwriteIncident, executeConfiguredSemanticRecoverySuccessor, inspectConfiguredRecoveryOverwriteIncident } from "./post-incident-successor-recovery.mjs";
 
 export const safeBoundaryPhases = Object.freeze([
   "issue_poll_claim",
@@ -56,10 +58,14 @@ const unsafeDynamicHandlerKeys = new Set([
 ]);
 
 export function discoverStartupRecovery(config) {
+  const configuredQuarantine = detectConfiguredPostIncidentQuarantineBeforeFiltering(config);
+  if (configuredQuarantine) return configuredQuarantine;
   const states = listRecoverableRecoveryStates(config);
   if (states.length === 0) {
     return { found: false, action: "poll_eligible_issues", states: [] };
   }
+  const quarantine = detectConfiguredPostIncidentQuarantine(config, states);
+  if (quarantine) return quarantine;
   const active = states[0];
   if (states.length > 1) {
     return {
@@ -95,6 +101,56 @@ export function discoverStartupRecovery(config) {
   };
 }
 
+function detectConfiguredPostIncidentQuarantineBeforeFiltering(config) {
+  const contract = config.postIncidentRecovery || null;
+  if (!contract?.authenticatedProvenance) return null;
+  const inspection = inspectConfiguredRecoveryOverwriteIncident(contract.authenticatedProvenance);
+  if (!inspection?.quarantined) return null;
+  if (inspection.allowedAction !== "semantic_corroboration_only") {
+    return {
+      found: true,
+      allowed: false,
+      action: "stop_fail_closed",
+      reasonCode: inspection.reasonCode || "semantic_incident_not_eligible_for_corroboration",
+      quarantine: { ...inspection, state: undefined },
+      state: inspection.state ? summarizeRecoverableState(inspection.state) : null,
+      states: inspection.state ? [summarizeRecoverableState(inspection.state)] : [],
+    };
+  }
+  const corroboration = contract.semanticEvidencePacket
+    ? authenticateConfiguredSemanticRecoveryAuthority(config, contract.semanticEvidencePacket, contract.operationId)
+    : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
+  const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection, config.repositorySlug);
+  return {
+    found: true,
+    allowed: boundCorroboration.ok,
+    action: boundCorroboration.ok ? "create_or_adopt_semantic_recovery_successor" : "stop_fail_closed",
+    reasonCode: boundCorroboration.ok ? "semantic_recovery_ready_for_locked_execution" : boundCorroboration.reasonCode,
+    quarantine: { ...inspection, state: undefined },
+    semanticManifestDigest: boundCorroboration.ok ? boundCorroboration.manifestDigest : null,
+    state: inspection.state ? summarizeRecoverableState(inspection.state) : null,
+    states: inspection.state ? [summarizeRecoverableState(inspection.state)] : [],
+  };
+}
+
+function bindCorroborationToConfiguredIncident(corroboration, inspection, repositorySlug) {
+  if (!corroboration?.ok) return corroboration;
+  const current = corroboration.manifest?.currentIncident;
+  const claims = corroboration.manifest?.claims;
+  const provenance = inspection?.provenance;
+  if (!inspection?.incident || current?.path !== inspection.incident.path || current?.sha256 !== inspection.incident.sha256
+    || claims?.taskKey !== provenance?.taskKey || claims?.issueNumber !== provenance?.issueNumber
+    || claims?.repository !== repositorySlug || claims?.repository !== provenance?.repository
+    || claims?.formerRootSha256 !== provenance?.predecessorSha256
+    || claims?.originalRunnerRunId !== provenance?.originalRunnerRunId
+    || claims?.originalSupervisorRunId !== provenance?.originalSupervisorRunId
+    || claims?.consumedRunnerRunId !== provenance?.consumedRunnerRunId
+    || claims?.consumedSupervisorRunId !== provenance?.consumedSupervisorRunId) {
+    return { ok: false, reasonCode: "semantic_manifest_configured_incident_mismatch" };
+  }
+  return corroboration;
+}
+
 export function discoverTargetedStartupRecovery(config) {
   const target = config.outageRecoveryTarget || null;
   if (!config.outageRecoveryOnly || !target) {
@@ -106,6 +162,8 @@ export function discoverTargetedStartupRecovery(config) {
       states: [],
     };
   }
+  const configuredQuarantine = detectConfiguredPostIncidentQuarantineBeforeFiltering(config);
+  if (configuredQuarantine) return configuredQuarantine;
   const states = listRecoverableRecoveryStates(config);
   if (states.length === 0) {
     return {
@@ -138,6 +196,8 @@ export function discoverTargetedStartupRecovery(config) {
     };
   }
   const rawState = partition.exactMatches[0];
+  const quarantine = detectConfiguredPostIncidentQuarantine(config, [rawState]);
+  if (quarantine) return { ...quarantine, stateCounts: partition.counts };
   const state = rawState;
   if (!config.allowExistingPrRecovery) {
     return {
@@ -208,6 +268,37 @@ export function discoverTargetedStartupRecovery(config) {
   }
   return discovered;
 }
+
+function detectConfiguredPostIncidentQuarantine(config, states) {
+  const contract = config.postIncidentRecovery || null;
+  if (!contract?.authenticatedProvenance) return null;
+  for (const state of states) {
+    const statePath = state.statePath || recoveryStatePath(config, state);
+    const classification = classifyRecoveryOverwriteIncident({
+      recoveryPath: statePath,
+      state,
+      authenticatedProvenance: contract.authenticatedProvenance,
+    });
+    if (!classification.quarantined) continue;
+    const corroboration = contract.semanticEvidencePacket
+      ? authenticateConfiguredSemanticRecoveryAuthority(config, contract.semanticEvidencePacket, contract.operationId)
+      : { ok: false, reasonCode: "semantic_evidence_packet_missing" };
+    const inspection = inspectConfiguredRecoveryOverwriteIncident(contract.authenticatedProvenance);
+    const boundCorroboration = bindCorroborationToConfiguredIncident(corroboration, inspection, config.repositorySlug);
+    return {
+      found: true,
+      allowed: boundCorroboration.ok,
+      action: boundCorroboration.ok ? "create_or_adopt_semantic_recovery_successor" : "stop_fail_closed",
+      reasonCode: boundCorroboration.ok ? "semantic_recovery_ready_for_locked_execution" : boundCorroboration.reasonCode,
+      quarantine: classification,
+      semanticManifestDigest: boundCorroboration.ok ? boundCorroboration.manifestDigest : null,
+      state: summarizeRecoverableState(state),
+      states: states.map(summarizeRecoverableState),
+    };
+  }
+  return null;
+}
+
 
 export function projectTargetedTerminalDerivative(
   config,
@@ -301,6 +392,22 @@ function boundedProjectionEvidence(projection) {
 }
 
 export async function executeStartupContinuation(config, recovery, handlers = {}) {
+  if (recovery?.allowed && recovery?.action === "create_or_adopt_semantic_recovery_successor") {
+    if (config.dryRun) {
+      return {
+        ok: true,
+        preview: true,
+        outcome: "dry_run_preview_complete",
+        reasonCode: "dry_run_semantic_recovery_not_executed",
+        recovery,
+      };
+    }
+    const contract = config.postIncidentRecovery || {};
+    const operation = executeConfiguredSemanticRecoverySuccessor(config, contract.semanticEvidencePacket, contract.operationId);
+    return operation?.ok
+      ? { ...operation, outcome: operation.adopted ? "semantic_recovery_successor_adopted" : "semantic_recovery_successor_created" }
+      : { ok: false, outcome: "blocked_recovery_state", reasonCode: operation?.reasonCode || "semantic_recovery_execution_failed", recovery };
+  }
   if (!recovery?.allowed || !recovery.state) {
     return {
       ok: false,
@@ -345,8 +452,15 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     || (persistedContinuationAdmission.ok
       ? replaySafeTerminalDerivativeContinuation(loaded.state)
       : loaded.state);
-  const validationRetryTerminal = isValidationFailureRetryAuthorized(loadedState) ? loadedState : null;
-  let state = normalizeValidationFailureContinuation(loadedState);
+  // A matching authenticated reload projection is itself the bounded reopen
+  // authority. The legacy raw-state predicate remains only for ordinary
+  // non-projected compatibility and must not downgrade an exact projection.
+  const validationRetryTerminal = reloadedProjection?.ok
+    ? loadedState
+    : isValidationFailureRetryAuthorized(loadedState) ? loadedState : null;
+  let state = normalizeValidationFailureContinuation(loadedState, {
+    projectedAuthority: reloadedProjection?.ok === true,
+  });
   const prepareAuthoritativeRecovery = selectOwnCallableHandler(handlers, "prepareAuthoritativeRecovery");
   const preparation = prepareAuthoritativeRecovery
     ? await prepareAuthoritativeRecovery({
@@ -393,7 +507,8 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
   }
   const lifecycleRecovery = consumeStartupInterruptionPlanner(config, state, {
     ...(recovery.interruption || {}),
-    validationRetryDerivativeAuthorized: validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
+    validationRetryDerivativeAuthorized: reloadedProjection?.ok === true
+      || validationRetryTerminal?.stopReason?.reasonCode === "checkpoint_validation_recovery_failed_closed",
     validationRetryDerivativeTerminalPhase: validationRetryTerminal
       ? validationRetryDerivativeTerminalPhase(validationRetryTerminal)
       : null,
@@ -421,6 +536,14 @@ export async function executeStartupContinuation(config, recovery, handlers = {}
     };
   }
   if (lifecycleRecovery.terminal) {
+    if (reloadedProjection?.ok === true) {
+      return {
+        ok: false,
+        outcome: "blocked_recovery_state",
+        reasonCode: "projected_recovery_unexpected_terminal_before_successor_rotation",
+        recovery: { ...recovery, lifecycle: lifecycleRecovery },
+      };
+    }
     state = advanceRecoveryPhase(state, {
       phase: lifecycleRecovery.terminalPhase,
       firstIncompleteAction: `lifecycle_${lifecycleRecovery.terminalPhase}`,
@@ -675,8 +798,8 @@ export function consumeStartupInterruptionPlanner(
   return { ...planned, state: persisted.state, statePath: persisted.statePath, successorSessionId, mutationGeneration: authority.generation, handedOffIntentIds: pendingIntents.map((intent) => intent.intentId) };
 }
 
-function normalizeValidationFailureContinuation(state) {
-  if (!isValidationFailureRetryAuthorized(state)) return state;
+function normalizeValidationFailureContinuation(state, { projectedAuthority = false } = {}) {
+  if (!projectedAuthority && !isValidationFailureRetryAuthorized(state)) return state;
   // This legacy stop shape is not authority to change source. It re-enters only
   // the validation checkpoint so the preserved candidate can be classified
   // under the now-available production toolchain; implementation stays skipped.

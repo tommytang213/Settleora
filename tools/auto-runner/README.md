@@ -1817,3 +1817,127 @@ continuation targets. Fresh current main is stored separately only after
 proving original-base to effect-time-main to current-main ancestry. Downstream
 recovery consumes both values and never substitutes current main for the
 historical effect identity.
+
+# Post-incident semantic successor authority
+
+An authenticated recovery overwrite incident is quarantined read-only.
+Ordinary startup recovery may neither advance it nor write its storage key.
+When former bytes are unavailable, a future separately authorized operation
+may construct a distinct successor only through the versioned generic contract
+in `lib/post-incident-successor-recovery.mjs`.
+
+The contract requires source-owned repository/Git, lifecycle, logical-task
+budget, intent-lineage, projection/deployment, supervisor/child-run,
+incident-report, and GitHub no-effect verifiers. The closed verifier registry,
+verifier IDs/versions, accepted store contract for each class, and verifier-set
+digest live in `lib/semantic-recovery-authority.mjs`; JSON configuration cannot
+provide a verifier, parser, class, provenance identity, claim, or store
+authority. A source descriptor only selects one store. The selected source-
+owned verifier authenticates its canonical bounded store and derives the
+normalized result. Its provenance identity is derived from the authenticated
+producer/store/path/digest identity rather than copied from an evidence
+envelope. A runner-owned worktree cannot independently authenticate
+repository/Git provenance because the runner user can replace its Git metadata;
+that class therefore also requires a separately protected native producer and
+remains unavailable in production until one is deployed. Ordinary launch and
+later safety-critical Git calls use a fixed executable, pinned Git directory,
+common directory, worktree and index identities, and a closed Git environment.
+The complete admitted tuple is retained for both control-plane and adopted task
+worktrees; replacement of any admitted Git entry or directory fails closed.
+Legacy grafts, object alternates, HTTP alternates, and shallow metadata are not
+accepted as neutral repository state. Remote operations select the
+authenticated literal URL rather than a mutable remote name. A runner-owned
+Git directory cannot protect that URL from a same-UID `insteadOf` or
+`pushInsteadOf` spawn race, even when its mode removes owner write bits.
+Production external `fetch`, `push`, and `ls-remote` therefore fail closed
+before spawning Git until a separately deployed protected transport producer
+provides a kernel-enforced or privileged immutable execution boundary. Local
+file transport remains an explicit test-only adapter and supplies no production
+authority. Repository and linked-worktree metadata are still rechecked around
+local Git reads.
+Recovery evidence double-reads the exact ref, index tree, status, and path
+sets around an immutable-OID commit read before it can be marked complete.
+Launch
+cleanliness compares raw tracked bytes to index objects without invoking
+filters and rejects unsafe Git-dir attributes, active Git-dir excludes, non-
+allowlisted configuration, and hidden index flags. Lifecycle and logical-task-
+budget files and local Git objects remain inputs to future protected producers,
+but same-UID stores are not independent authority. Every closed registry slot
+requires a separately deployed native domain producer.
+Until those producers exist, their production verifiers reject even canonical,
+owner-only, correctly class-tagged JSON: runner-owned envelopes are not
+producer identity and cannot supply claims or provenance. Tests use explicit
+synthetic adapters, but startup cannot select them. Missing store-specific
+producer support therefore remains fail-closed and is not simulated to make a
+production incident reachable.
+
+Claim ownership is also source-owned and immutable. The versioned matrix and
+its deterministic digest name every required domain owner. Repository identity
+requires repository/Git plus GitHub no-effect authority; candidate Git
+identities require repository/Git plus projection/deployment; task, claim,
+charge, and counters require lifecycle and logical-task budget owners; run
+identities require lifecycle plus supervisor/child-run; incident identities
+require projection/deployment plus incident-report; GitHub effects require
+GitHub no-effect plus incident-report; and successor phase/eligibility require
+lifecycle plus projection/deployment. Optional corroborators cannot replace a
+required owner. An unknown claim/class, missing owner, owner disagreement, or
+present corroborator disagreement fails closed. There is no arbitrary two-
+class rule, majority vote, config override, or grant-defined ownership.
+
+The canonical manifest binds the unavailable predecessor hash with
+`bytesAvailable=false`, immutable incident path/hash, task/candidate and
+original/failed/consumed run identities, installed runtime/profile/approval/
+launcher/health identities, bounded artifact digests, exact claim-owner and
+verifier-set bindings, no-effect proof, and one-shot exhaustion. The manifest
+is computed first; production then derives the request, 64-hex operation ID,
+and distinct successor key, avoiding a digest cycle.
+
+Operation authority exists only at the fixed canonical protected-control root
+`/etc/settleora-auto-runner/semantic-recovery-authority`. One operation selects
+only the exact direct child
+`grants/<64-lowercase-hex-operation-id>.json`. The filename, body operation ID,
+derived request, and allowed action
+`create_or_adopt_semantic_recovery_successor` must agree. Production inspects
+the lexical and canonical chain from `/etc` through the grant without accepting
+symlinks. Directories must be root-owned and not group/world writable; the
+grant must be a root-owned regular one-link file with exact mode `0444`, stable
+bounded canonical-JSON bytes, and one exact digest. Missing, malformed,
+ambiguous, redirected, changed, or mismatched grants fail before persistence.
+An owner-only runner file, config selector, alternate root, `latest` file, or
+caller-created authorization object has zero authority.
+
+The root-owned grant exactly binds the manifest, matrix and verifier digests,
+every evidence source path/role/digest/provenance identity, bound artifact and
+run identity, predecessor and incident, PR evidence, runtime identities,
+counters, one-shot/no-effect posture, lifecycle generation, forbidden writes,
+request/action, and the successor key plus exact successor, prepared-provenance,
+and final-commit paths under the canonical operational logs root. Startup discovery and authoritative reload
+use the same registry. Immediately before persistence, production
+reauthenticates all sources, bound artifacts, runtime claims, manifest, and the
+same exact grant. Persistence additionally requires a source-owned GitHub no-
+effect generation/CAS producer to hold its root-grant-bound fence for the
+complete native operation; that producer is currently unavailable. Any
+later effect or drift therefore fails closed. The successor cannot
+alias the predecessor/incident key. The runner accepts no persistence callback
+and contains no semantic-successor pathname writer; its ordinary recovery
+writer refuses every write while the incident contract is configured. A future
+protected producer must own descriptor-relative operations under the fixed
+`recovery-successors` destination. Prepared provenance and successor files
+become accepted only through a final immutable commit marker binding both
+digests. Every pre-commit crash point is inert and exact-repeat resumable, while
+a commit without both exact prepared records is rejected as torn. The created
+successor remains non-executable pending its later separately authorized
+handoff.
+
+Repository source defines this contract only. It does not create the `/etc`
+root, install a grant, deploy a producer/runtime, or execute a live successor.
+Those are separate manual operations. Native producer installation is also a
+separate deployment gate. Without every native producer and the real root-
+owned grant, production remains unreachable before successor persistence.
+Tests use synthetic metadata adapters and never inspect or mutate the live
+`/etc` root.
+
+For an exact authenticated terminal-validation-retry projection, the reloaded
+projection digest directly authorizes bounded lifecycle reopen. The legacy raw
+retry predicate remains only for non-projected compatibility. An unexpected
+terminal planner result in projected posture blocks before any recovery write.

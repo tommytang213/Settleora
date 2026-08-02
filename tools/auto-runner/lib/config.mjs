@@ -66,6 +66,10 @@ export const defaultConfig = Object.freeze({
     allowedNeutralChecks: [],
   },
   allowExistingPrRecovery: false,
+  // Default-off read-only incident quarantine. A trusted external config may
+  // supply authenticated provenance and a bounded semantic evidence packet;
+  // operational successor authorization is deliberately not consumed here.
+  postIncidentRecovery: null,
   outageResubmission: defaultOutageResubmissionConfig,
   sessionLifecycle: {
     enabled: false,
@@ -517,6 +521,11 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
   config.maxReviewFixCycles = config.reviewFixMutation.maxAttempts;
   config.reviewFixCanaryFixture = normalizeReviewFixCanaryFixtureConfig(config);
   config.outageResubmission = normalizeOutageResubmissionConfig(config.outageResubmission);
+  config.postIncidentRecovery = normalizePostIncidentRecoveryConfig(config.postIncidentRecovery);
+  if (config.postIncidentRecovery
+      && config.postIncidentRecovery.authenticatedProvenance.repository !== config.repositorySlug) {
+    throw new Error("postIncidentRecovery provenance repository must match repositorySlug");
+  }
   config.sessionLifecycle = {
     enabled: config.sessionLifecycle?.enabled === true,
     allowRecoveryTakeover: config.sessionLifecycle?.allowRecoveryTakeover === true,
@@ -591,6 +600,58 @@ export function loadConfig(cliArgs, trustedCapabilities = {}) {
     writeFileSync(localConfigPath, `${JSON.stringify(config, null, 2)}\n`);
   }
   return config;
+}
+
+function normalizePostIncidentRecoveryConfig(value) {
+  if (value == null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("postIncidentRecovery config must be an object");
+  }
+  const supportedFields = new Set(["authenticatedProvenance", "semanticEvidencePacket", "operationId"]);
+  const unsupported = Object.keys(value).filter((field) => !supportedFields.has(field));
+  if (unsupported.length) throw new Error(`postIncidentRecovery contains unsupported authority fields: ${unsupported.sort().join(",")}`);
+  if (!value.authenticatedProvenance || typeof value.authenticatedProvenance !== "object") {
+    throw new Error("postIncidentRecovery requires authenticated provenance");
+  }
+  if (value.authenticatedProvenance.ok !== true) {
+    throw new Error("postIncidentRecovery provenance must be authenticated");
+  }
+  const incidentArtifact = value.authenticatedProvenance.incidentArtifact;
+  if (!incidentArtifact || typeof incidentArtifact !== "object"
+      || typeof incidentArtifact.path !== "string"
+      || !/^[a-f0-9]{64}$/.test(String(incidentArtifact.sha256 || ""))) {
+    throw new Error("postIncidentRecovery requires an incident artifact binding");
+  }
+  if (typeof value.authenticatedProvenance.taskKey !== "string" || value.authenticatedProvenance.taskKey.length < 1
+      || !Number.isSafeInteger(value.authenticatedProvenance.issueNumber) || value.authenticatedProvenance.issueNumber < 1
+      || typeof value.authenticatedProvenance.incidentPath !== "string" || value.authenticatedProvenance.incidentPath.length < 1
+      || value.authenticatedProvenance.incidentPath !== incidentArtifact.path
+      || !/^[a-f0-9]{64}$/.test(String(value.authenticatedProvenance.incidentSha256 || ""))
+      || value.authenticatedProvenance.incidentSha256 !== incidentArtifact.sha256
+      || !/^[a-f0-9]{64}$/.test(String(value.authenticatedProvenance.predecessorSha256 || ""))
+      || value.authenticatedProvenance.predecessorSha256 === value.authenticatedProvenance.incidentSha256
+      || value.authenticatedProvenance.bytesAvailable !== false) {
+    throw new Error("postIncidentRecovery requires complete overwrite-incident provenance");
+  }
+  for (const field of ["repository", "originalRunnerRunId", "originalSupervisorRunId", "consumedRunnerRunId", "consumedSupervisorRunId"]) {
+    if (typeof value.authenticatedProvenance[field] !== "string" || value.authenticatedProvenance[field].length < 1 || value.authenticatedProvenance[field].length > 1000) {
+      throw new Error(`postIncidentRecovery requires ${field} provenance`);
+    }
+  }
+  if (value.authenticatedProvenance.originalRunnerRunId === value.authenticatedProvenance.consumedRunnerRunId
+      || value.authenticatedProvenance.originalSupervisorRunId === value.authenticatedProvenance.consumedSupervisorRunId) {
+    throw new Error("postIncidentRecovery requires distinct original and consumed run identities");
+  }
+  if (value.semanticEvidencePacket != null && !/^[a-f0-9]{64}$/.test(String(value.operationId || ""))) {
+    throw new Error("postIncidentRecovery semantic evidence requires one canonical operationId selector");
+  }
+  return {
+    authenticatedProvenance: structuredClone(value.authenticatedProvenance),
+    semanticEvidencePacket: value.semanticEvidencePacket && typeof value.semanticEvidencePacket === "object"
+      ? structuredClone(value.semanticEvidencePacket)
+      : null,
+    operationId: value.operationId || null,
+  };
 }
 
 export function ensureOperationalDirectory(directory, logsRoot) {

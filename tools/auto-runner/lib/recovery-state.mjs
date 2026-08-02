@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -214,6 +214,13 @@ export function createInitialRecoveryState({
 export function writeRecoveryState(config, state) {
   const validation = validateRecoveryStateShape(state);
   if (!validation.ok) throw new Error(`Invalid recovery state: ${validation.reason}`);
+  // Once an authenticated overwrite incident is configured, this ordinary
+  // pathname writer has no authority at all. Semantic successor persistence is
+  // owned by a separately deployed protected producer, so refusing every write
+  // avoids any same-UID parent-swap window around the quarantined namespace.
+  if (config.postIncidentRecovery?.authenticatedProvenance) {
+    throw new Error("protected_post_incident_recovery_state_write_blocked");
+  }
   const statePath = recoveryStatePath(config, state);
   mkdirSync(path.dirname(statePath), { recursive: true, mode: 0o700 });
   const sanitized = sanitizeRecoveryState({
