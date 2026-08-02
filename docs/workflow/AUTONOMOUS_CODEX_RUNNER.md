@@ -52,6 +52,16 @@ manifest, approval, launcher, and health unit remain part of the same proof.
 Inspection of a parent or neighboring root cannot establish
 `default_quiescent` authority for a nested project.
 
+When the configured runtime destination is absent, trusted deployment uses a
+separate first-install bootstrap proof. It binds the authenticated config and
+profile, repository/project namespace, exact logs root, canonical
+owner-controlled destination parent, health unit, and target bundle digest,
+while requiring installed and transient runtime control state to be absent.
+This posture admits ordinary quiescence only: it cannot carry rollback,
+preserved-recovery, semantic-incident, or expected-old authority. Installed
+runtime manifest, approval, and launcher authentication becomes mandatory as
+soon as the runtime exists.
+
 ## Positively owned post-merge cleanup
 
 Issue #947 adds `ephemeral_cleanup_v1` as the final ordinary-continuation

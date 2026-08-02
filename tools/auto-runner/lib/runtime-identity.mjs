@@ -53,6 +53,7 @@ export function assertSeparatedRoots({ runtimeRoot, repoRoot, logsRoot }) {
 export function validateProjectRuntimeIdentity(config, {
   actualRuntimeRoot = moduleRuntimeRoot(),
   trusted = config?.runtimeMode === "external",
+  allowMissingRuntimeRoot = false,
 } = {}) {
   const projectId = assertProjectId(config?.projectId);
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(config?.repositorySlug || ""))) {
@@ -61,9 +62,16 @@ export function validateProjectRuntimeIdentity(config, {
   const repositorySlug = config.repositorySlug.toLowerCase();
   const repoRoot = canonicalExistingDirectory(config?.repoRoot, "repoRoot");
   const repository = verifyRepositoryIdentity(repoRoot, trusted ? config.repositorySlug : null);
-  const runtimeRoot = canonicalExistingDirectory(config?.runtimeRoot || actualRuntimeRoot, "runtimeRoot");
+  const configuredRuntimeRoot = config?.runtimeRoot || actualRuntimeRoot;
+  const runtimeMissing = allowMissingRuntimeRoot === true && !existsSync(configuredRuntimeRoot);
+  const runtimeRoot = runtimeMissing
+    ? canonicalMissingDirectory(configuredRuntimeRoot, "runtimeRoot")
+    : canonicalExistingDirectory(configuredRuntimeRoot, "runtimeRoot");
   const logsRoot = canonicalExistingDirectory(config?.logsRoot, "logsRoot");
-  if (runtimeRoot !== canonicalExistingDirectory(actualRuntimeRoot, "actual runtimeRoot")) {
+  const actual = runtimeMissing
+    ? canonicalMissingDirectory(actualRuntimeRoot, "actual runtimeRoot")
+    : canonicalExistingDirectory(actualRuntimeRoot, "actual runtimeRoot");
+  if (runtimeRoot !== actual) {
     throw new Error("configured runtimeRoot does not match the executing runtime bundle");
   }
   if (trusted) {
@@ -73,7 +81,7 @@ export function validateProjectRuntimeIdentity(config, {
         throw new Error(`repository common directory and ${name} must be separate`);
       }
     }
-    assertOwnerControlledDirectory(runtimeRoot, "runtimeRoot");
+    if (!runtimeMissing) assertOwnerControlledDirectory(runtimeRoot, "runtimeRoot");
     assertOwnerControlledDirectory(canonicalExistingDirectory(path.dirname(runtimeRoot), "runtime deployment-control parent"), "runtime deployment-control parent");
   }
   const logsStat = statSync(logsRoot);
@@ -98,6 +106,17 @@ export function validateProjectRuntimeIdentity(config, {
     originUrl: repository.originUrl,
     pushUrl: repository.pushUrl,
   });
+}
+
+function canonicalMissingDirectory(value, field) {
+  if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value) {
+    throw new Error(`${field} must be an absolute normalized path`);
+  }
+  if (existsSync(value)) throw new Error(`${field} must be absent for deployment bootstrap`);
+  const parent = canonicalExistingDirectory(path.dirname(value), `${field} parent`);
+  const candidate = path.join(parent, path.basename(value));
+  if (candidate !== value) throw new Error(`${field} parent must equal its realpath`);
+  return candidate;
 }
 
 export function hasVerifiedExternalRuntimeEvidence(config = {}) {

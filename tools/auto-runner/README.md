@@ -123,6 +123,16 @@ owner, or writable path fails before operational state can be described as
 quiescent. `--development-unbound-project-root` is an explicit test/development
 mode and refuses the trusted runtime and project-log namespaces.
 
+A trusted first installation has a separate bounded bootstrap posture when the
+configured runtime destination is absent. It authenticates the same external
+config/profile, repository, project logs and namespace marker, destination
+parent, and health unit; requires the source bundle digest to equal the config's
+authenticated target digest; and refuses stale installed or transient runtime
+state. Bootstrap admits only ordinary quiescent deployment: rollback,
+preserved-recovery, semantic-incident evidence, and expected-old authority are
+all unavailable. Once a runtime exists, the full installed manifest, approval,
+launcher, and runtime identities are mandatory again.
+
 Deployment remains fail-closed for every non-terminal recovery or pre-effect
 intent by default. One preserved validation-recovery checkpoint may be
 admitted only when the operator supplies the complete fixed

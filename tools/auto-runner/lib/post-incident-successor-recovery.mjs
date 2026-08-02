@@ -87,7 +87,7 @@ export function corroborateSemanticRecoveryEvidenceForDeployment(packet, adapter
   if (packet.artifacts.length < 1 || packet.artifacts.length > maximumBoundArtifacts) {
     return failed("semantic_bound_artifact_count_invalid");
   }
-  const authenticateBoundArtifact = adapters.authenticateBoundArtifact || authenticateOpaqueArtifact;
+  const authenticateBoundArtifact = adapters.authenticateBoundArtifact || authenticateReadOnlyDeploymentArtifact;
   let artifacts;
   try {
     artifacts = [...packet.artifacts].map((artifact) => {
@@ -534,6 +534,12 @@ function canonicalExistingPath(value) {
   return existsSync(parent) ? path.join(realpathSync(parent), path.basename(resolved)) : resolved;
 }
 function authenticateOpaqueArtifact(artifact) {
+  return authenticateOpaqueArtifactWithMode(artifact, { ownerOnly: true });
+}
+function authenticateReadOnlyDeploymentArtifact(artifact) {
+  return authenticateOpaqueArtifactWithMode(artifact, { ownerOnly: false });
+}
+function authenticateOpaqueArtifactWithMode(artifact, { ownerOnly }) {
   const lexicalPath = path.resolve(artifact.path);
   const canonicalPath = realpathSync(lexicalPath);
   if (canonicalPath !== lexicalPath) throw new Error("artifact path noncanonical");
@@ -543,8 +549,9 @@ function authenticateOpaqueArtifact(artifact) {
   let bytes;
   try {
     first = fstatSync(fd);
+    const unsafeMode = ownerOnly ? (first.mode & 0o077) !== 0 : (first.mode & 0o022) !== 0;
     if (!first.isFile() || first.nlink !== 1 || first.size < 1 || first.size > maximumArtifactBytes
-      || (first.mode & 0o077) !== 0 || (typeof process.getuid === "function" && first.uid !== process.getuid())) throw new Error("untrusted artifact");
+      || unsafeMode || (typeof process.getuid === "function" && first.uid !== process.getuid())) throw new Error("untrusted artifact");
     bytes = readFileSync(fd);
     const second = fstatSync(fd);
     const pathStat = lstatSync(canonicalPath);

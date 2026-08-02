@@ -306,6 +306,63 @@ test("deployment project topology derives one exact config root and rejects neig
   }), /topology mismatch/);
 });
 
+test("trusted runtime identity has a bounded missing-destination bootstrap mode", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-bootstrap-identity-"));
+  try {
+    const repo = createRepo(root, "repo");
+    const logsRoot = path.join(root, "Project");
+    const runtimeParent = path.join(root, "install");
+    const runtimeRoot = path.join(runtimeParent, "runtime");
+    mkdirSync(logsRoot, { mode: 0o700 });
+    mkdirSync(runtimeParent, { mode: 0o700 });
+    const config = {
+      runtimeMode: "external", projectId: "Project", repositorySlug: "tommytang213/Settleora",
+      repoRoot: repo, runtimeRoot, logsRoot,
+    };
+    assert.throws(
+      () => validateProjectRuntimeIdentity(config, { actualRuntimeRoot: runtimeRoot, trusted: true }),
+      /runtimeRoot does not exist/,
+    );
+    const identity = validateProjectRuntimeIdentity(config, {
+      actualRuntimeRoot: runtimeRoot,
+      trusted: true,
+      allowMissingRuntimeRoot: true,
+    });
+    assert.equal(identity.runtimeRoot, runtimeRoot);
+    assert.equal(existsSync(runtimeRoot), false);
+    chmodSync(runtimeParent, 0o722);
+    assert.throws(
+      () => validateProjectRuntimeIdentity(config, {
+        actualRuntimeRoot: runtimeRoot,
+        trusted: true,
+        allowMissingRuntimeRoot: true,
+      }),
+      /deployment-control parent must not be group\/world writable/,
+    );
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("trusted runtime bootstrap refuses recovery authority and stale transient state before config loading", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-bootstrap-cli-"));
+  try {
+    const runtimeRoot = path.join(root, "runtime");
+    const entry = path.join(sourceRoot, "deploy-runtime.mjs");
+    const base = [
+      entry, "--destination", runtimeRoot, "--repo-root", path.resolve("."),
+      "--config", "/workspace/auto-runner/config/nonexistent-deployment-test.json",
+      "--approved-profile", "/workspace/auto-runner/config/nonexistent-approved-test.json",
+      "--health-unit", path.join(root, "health.service"),
+    ];
+    const semantic = spawnSync(process.execPath, [...base, "--semantic-deployment-evidence", path.join(root, "evidence.json")], { encoding: "utf8" });
+    assert.notEqual(semantic.status, 0);
+    assert.match(semantic.stderr, /bootstrap admits only ordinary quiescent deployment/);
+    mkdirSync(path.join(root, ".runtime.deploy-incoming"));
+    const stale = spawnSync(process.execPath, base, { encoding: "utf8" });
+    assert.notEqual(stale.status, 0);
+    assert.match(stale.stderr, /stale transient deployment state/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("deployment artifacts require descriptor-stable bytes and owner-safe paths", () => {
   const root = mkdtempSync(path.join(os.homedir(), ".settleora-deployment-artifact-test-"));
   try {

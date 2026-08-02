@@ -609,6 +609,7 @@ export function loadDeploymentProjectAuthority({
   runtimeRoot,
   logsRoot,
   healthUnitPath,
+  allowRuntimeBootstrap = false,
 } = {}) {
   for (const [field, value] of Object.entries({ configPath, approvedProfilePath, repoRoot, runtimeRoot, healthUnitPath })) {
     if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value) {
@@ -624,19 +625,27 @@ export function loadDeploymentProjectAuthority({
   const profile = { ...defaultConfig, ...approved.config };
   assertDeploymentProjectTopology({ config, profile, repoRoot, runtimeRoot, logsRoot });
   const configuredPostIncidentRecovery = normalizePostIncidentRecoveryConfig(loaded.config.postIncidentRecovery);
-  const runtimeIdentity = validateProjectRuntimeIdentity(config, { actualRuntimeRoot: runtimeRoot, trusted: true });
-  const runtimeManifest = verifyRuntimeBundle(runtimeRoot, config.runtimeBundleDigest);
+  const runtimeBootstrap = allowRuntimeBootstrap === true && !existsSync(runtimeRoot);
+  const runtimeIdentity = validateProjectRuntimeIdentity(config, {
+    actualRuntimeRoot: runtimeRoot,
+    trusted: true,
+    allowMissingRuntimeRoot: runtimeBootstrap,
+  });
+  const runtimeManifest = runtimeBootstrap ? null : verifyRuntimeBundle(runtimeRoot, config.runtimeBundleDigest);
+  if (runtimeBootstrap) assertDeploymentBootstrapArtifactsAbsent(runtimeRoot);
   verifyProjectNamespaceMarker({ ...config, runtimeIdentity });
   const runtimeManifestPath = path.join(runtimeRoot, "runtime-bundle-manifest.json");
   const approvalPath = path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.approved.json`);
   const launcherPath = path.join(path.dirname(runtimeRoot), `.${path.basename(runtimeRoot)}.launcher.mjs`);
   const artifacts = {
-    runtimeManifest: authenticateDeploymentArtifact(runtimeManifestPath, "runtime manifest"),
     runtimeConfig: authenticateDeploymentArtifact(configPath, "runtime config"),
     approvedProfile: authenticateDeploymentArtifact(approvedProfilePath, "approved profile"),
-    runtimeApproval: authenticateDeploymentArtifact(approvalPath, "runtime approval"),
-    runtimeLauncher: authenticateDeploymentArtifact(launcherPath, "runtime launcher"),
     healthUnit: authenticateDeploymentArtifact(healthUnitPath, "health unit"),
+    ...(runtimeBootstrap ? {} : {
+      runtimeManifest: authenticateDeploymentArtifact(runtimeManifestPath, "runtime manifest"),
+      runtimeApproval: authenticateDeploymentArtifact(approvalPath, "runtime approval"),
+      runtimeLauncher: authenticateDeploymentArtifact(launcherPath, "runtime launcher"),
+    }),
   };
   if (artifacts.runtimeConfig.sha256 !== loaded.evidence.sha256
       || artifacts.approvedProfile.sha256 !== approved.evidence.sha256) {
@@ -644,7 +653,7 @@ export function loadDeploymentProjectAuthority({
   }
   const proof = {
     contract: "settleora_deployment_project_authority",
-    version: 1,
+    version: 2,
     projectId: runtimeIdentity.projectId,
     repositorySlug: runtimeIdentity.repositorySlug,
     namespace: runtimeIdentity.namespace,
@@ -654,8 +663,10 @@ export function loadDeploymentProjectAuthority({
     configPath,
     approvedProfilePath,
     healthUnitPath,
-    runtimeSourceSha: runtimeManifest.sourceSha,
-    runtimeBundleDigest: runtimeManifest.bundleDigest,
+    runtimeInstallation: runtimeBootstrap ? "bootstrap_absent" : "installed",
+    configuredRuntimeBundleDigest: config.runtimeBundleDigest,
+    runtimeSourceSha: runtimeManifest?.sourceSha || null,
+    runtimeBundleDigest: runtimeManifest?.bundleDigest || null,
     configuredPostIncidentRecovery,
     artifacts,
   };
@@ -664,6 +675,19 @@ export function loadDeploymentProjectAuthority({
     configPostIncidentRecoveryPresent: configuredPostIncidentRecovery != null,
     evidenceDigest: createHash("sha256").update(canonicalJson(proof)).digest("hex"),
   });
+}
+
+function assertDeploymentBootstrapArtifactsAbsent(runtimeRoot) {
+  const parent = path.dirname(runtimeRoot);
+  const base = path.basename(runtimeRoot);
+  for (const artifact of [
+    path.join(parent, `.${base}.approved.json`),
+    path.join(parent, `.${base}.launcher.mjs`),
+    path.join(parent, `.${base}.rollback`),
+    path.join(parent, `.${base}.rollback-retired`),
+  ]) {
+    if (existsSync(artifact)) throw new Error("trusted deployment bootstrap found contradictory installed-runtime state");
+  }
 }
 
 export function assertDeploymentProjectTopology({ config, profile, repoRoot, runtimeRoot, logsRoot } = {}) {

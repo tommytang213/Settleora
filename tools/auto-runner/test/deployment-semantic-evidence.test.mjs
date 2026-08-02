@@ -202,6 +202,16 @@ test("semantic overwrite incident is admitted only for deterministic read-only d
   } finally { fixture.cleanup(); }
 });
 
+test("deployment-only semantic evidence accepts read-only service mode but rejects writable artifacts", () => {
+  const fixture = makeFixture();
+  try {
+    chmodSync(fixture.paths.healthUnit, 0o644);
+    assert.equal(inspect(fixture).ok, true);
+    chmodSync(fixture.paths.healthUnit, 0o664);
+    assert.equal(inspect(fixture).reasonCode, "semantic_bound_artifact_authentication_failed");
+  } finally { fixture.cleanup(); }
+});
+
 test("semantic deployment admission rejects missing, duplicate, wrong, or drifted source authority", () => {
   for (const mutate of [
     (f) => f.document.semanticEvidencePacket.sources.pop(),

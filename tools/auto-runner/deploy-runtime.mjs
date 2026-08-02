@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { acquireRuntimeDeploymentLock, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "./lib/runtime-bundle.mjs";
+import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "./lib/runtime-bundle.mjs";
 import { loadDeploymentProjectAuthority, readOwnerControlledExternalJson } from "./lib/config.mjs";
 import { sanitizedDeploymentGitEnvironment, trustedDeploymentGitBinary } from "./lib/preserved-recovery-deployment.mjs";
 
@@ -55,6 +56,16 @@ if (!configPath && (approvedProfilePath || healthUnitPath || semanticEvidencePat
 if (values.has("--rollback") && semanticEvidencePath) throw new Error("rollback does not accept semantic incident deployment evidence");
 if (developmentUnbound && !explicitLogsRoot) throw new Error("development-unbound deployment requires --logs-root");
 if (developmentUnbound) assertDevelopmentUnboundPaths({ destination, logsRoot: explicitLogsRoot });
+const preservedOptionPrefix = "--preserved-recovery-";
+const preservedOptionsPresent = [...values.keys()].filter((key) => key.startsWith(preservedOptionPrefix));
+const trustedRuntimeBootstrap = Boolean(configPath && !existsSync(destination));
+if (trustedRuntimeBootstrap) {
+  if (values.has("--rollback") || values.has("--expected-old-digest") || values.has("--expected-rollback-digest")
+      || semanticEvidencePath || preservedOptionsPresent.length) {
+    throw new Error("trusted runtime bootstrap admits only ordinary quiescent deployment");
+  }
+  assertTrustedBootstrapTransientStateAbsent(destination);
+}
 const loadProjectAuthority = configPath
   ? () => loadDeploymentProjectAuthority({
       configPath,
@@ -63,6 +74,7 @@ const loadProjectAuthority = configPath
       runtimeRoot: destination,
       logsRoot: explicitLogsRoot,
       healthUnitPath,
+      allowRuntimeBootstrap: trustedRuntimeBootstrap,
     })
   : () => null;
 const initialProjectAuthority = loadProjectAuthority();
@@ -84,8 +96,6 @@ const inspectCurrentQuiescence = () => {
   });
 };
 const deploymentGitEnv = sanitizedDeploymentGitEnvironment();
-const preservedOptionPrefix = "--preserved-recovery-";
-const preservedOptionsPresent = [...values.keys()].filter((key) => key.startsWith(preservedOptionPrefix));
 const preservedRecoveryTarget = preservedOptionsPresent.length === 0 ? null : {
   repository: values.get("--preserved-recovery-repository"),
   issueNumber: values.get("--preserved-recovery-issue"),
@@ -145,6 +155,12 @@ if (head.status !== 0 || status.status !== 0 || status.stdout) throw new Error("
 const approvedSha = values.get("--approved-sha");
 if (head.stdout.trim() !== approvedSha) throw new Error("source HEAD does not equal --approved-sha");
 verifyRuntimeSourceAgainstCommit({ repoRoot, sourceRoot, sourceSha: approvedSha });
+if (initialProjectAuthority?.runtimeInstallation === "bootstrap_absent") {
+  const targetManifest = buildRuntimeManifest(sourceRoot, { sourceSha: approvedSha });
+  if (targetManifest.bundleDigest !== initialProjectAuthority.configuredRuntimeBundleDigest) {
+    throw new Error("trusted runtime bootstrap target does not equal authenticated config bundle digest");
+  }
+}
 if (!values.has("--dry-run")) deploymentLock = acquireRuntimeDeploymentLock(destination);
 if (!values.has("--dry-run")) {
   const lockedQuiescence = inspectCurrentQuiescence();
@@ -205,6 +221,18 @@ function assertDevelopmentUnboundPaths({ destination: runtimeDestination, logsRo
         || value === "/workspace/logs/auto-runner" || value.startsWith("/workspace/logs/auto-runner/")) {
       throw new Error(`development-unbound ${field} cannot target trusted production roots`);
     }
+  }
+}
+
+function assertTrustedBootstrapTransientStateAbsent(runtimeDestination) {
+  const parent = path.dirname(runtimeDestination);
+  const base = path.basename(runtimeDestination);
+  for (const artifact of [
+    path.join(parent, `.${base}.deploy-incoming`),
+    path.join(parent, `.${base}.launcher.incoming`),
+    path.join(parent, `.${base}.approved.incoming`),
+  ]) {
+    if (existsSync(artifact)) throw new Error("trusted runtime bootstrap found stale transient deployment state");
   }
 }
 
