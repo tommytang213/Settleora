@@ -18,11 +18,13 @@
   logs root, distinct grant-free deployment-only semantic corroboration, and
   repeated quiescence-proof equality. Legacy evidence and bootstrap behavior
   remain supported without weakening those source-owned admission checks.
-- Exact-head and exact merged-main validation passed dependency installation,
-  doctor, zero-vulnerability root/web audits, production-module syntax/import
-  checks, the focused deployment/quiescence/runtime/configuration/semantic/
-  security suite `152/152`, the complete auto-runner suite `1,354/1,354`, docs,
-  scaffold, diff, exact-scope, and all-worktree clean guards. Fresh Gemini and
+- Exact-head validation passed the focused deployment/quiescence/runtime/
+  configuration/semantic/security suites `72/72` and the complete auto-runner
+  suite `1,354/1,354`. Exact merged-main validation passed dependency
+  installation, doctor, zero-vulnerability root/web audits, production-module
+  syntax/import checks, the expanded focused suite `152/152`, the complete
+  suite `1,354/1,354`, docs, scaffold, diff, exact-scope, and all-worktree clean
+  guards. Fresh Gemini and
   local Codex source reviews passed with zero findings; exact-head GitHub Codex
   found no major issue. All 12 exact-head CodeQL, Semgrep CE/OSS, Trivy, and
   Scaffold Validation checks passed; both review threads were resolved with
@@ -42,16 +44,15 @@
   authorization bound to final current main, the corrected source repair, exact
   installed runtime/profile/configuration/approval/launcher/health identities,
   and the new source-owned deployment semantic-evidence interface. Protected
-  root/grant installation, semantic successor operations, and any Issue #959
-  continuation remain later, separate manual gates.
+  native-producer/control-root/grant installation, semantic successor creation/
+  adoption, exact successor readback, and any Issue #959 continuation remain
+  later, separate manual gates in that order.
 - Issues #959, #740, #359, #357, and #999 remain open and unchanged. This
   mechanically generated docs-only checkpoint grants no operational authority
   and changes no policy, permission, security contract, deployment
   configuration, or source.
 - Issue #1012 source-merge checkpoint:
   `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5159128433`.
-  Merge/hygiene report:
-  `/workspace/logs/settleora-codex-report-20260802-2343-pr1037-exact-head-merge-post-merge-hygiene.md`.
 
 ### Issues #1012/#959/#740/#359/#357/#999 and PR #1032 — protected semantic-recovery authority repair merged (2026-08-02)
 
