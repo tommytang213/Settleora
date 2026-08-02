@@ -37,37 +37,54 @@ const repoRoot = canonicalPath("--repo-root");
 const runtimeRoot = canonicalPath("--runtime-root");
 const incidentPath = canonicalPath("--incident");
 const associatedRecoveryPath = canonicalPath("--associated-recovery");
-const projectAuthority = loadDeploymentProjectAuthority({
+const projectAuthorityRequest = {
   configPath,
   approvedProfilePath,
   repoRoot,
   runtimeRoot,
   healthUnitPath,
   allowRuntimeBootstrap: false,
-});
-const extractionRequest = {
-  projectAuthority,
-  repositoryRoot: repoRoot,
+};
+const readProjectAuthority = () => loadDeploymentProjectAuthority(projectAuthorityRequest);
+const extractionSelectors = {
   incidentPath,
   incidentSha256: parsed.values.get("--incident-sha256"),
   associatedRecoveryPath,
   associatedRecoverySha256: parsed.values.get("--associated-recovery-sha256"),
 };
-const readAuthorityContext = () => collectSemanticDeploymentEvidenceContext(extractionRequest);
+const contextDigests = [];
+const readAuthorityContext = () => {
+  const context = collectSemanticDeploymentEvidenceContext({
+    projectAuthority: readProjectAuthority(),
+    repositoryRoot: repoRoot,
+    ...extractionSelectors,
+  });
+  contextDigests.push(sha256(canonicalJson(context)));
+  return context;
+};
+const assertStableAuthorityReads = () => {
+  if (new Set(contextDigests).size !== 1) throw new Error("semantic deployment authority changed between independent reads");
+};
 const extractionContext = readAuthorityContext();
 const plan = planSemanticDeploymentEvidencePackage({
   configRoot: path.dirname(configPath),
   packageBasename: parsed.values.get("--package-name"),
   authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext }),
   extractionContext,
-  createDocument: ({ packageRoot, claims, sources }) => createDeploymentDocument({
-    projectAuthority,
-    context: extractionContext,
-    claims,
-    packageRoot,
-    sources,
-  }),
+  createDocument: ({ packageRoot, claims, sources }) => {
+    const documentContext = readAuthorityContext();
+    assertStableAuthorityReads();
+    return createDeploymentDocument({
+      projectAuthority: documentContext.projectAuthority,
+      context: documentContext,
+      claims,
+      packageRoot,
+      sources,
+    });
+  },
 });
+const finalContext = readAuthorityContext();
+assertStableAuthorityReads();
 
 if (parsed.flags.has("--plan")) {
   process.stdout.write(`${canonicalJson({
@@ -81,11 +98,16 @@ if (parsed.flags.has("--plan")) {
     posture: plan.posture,
     members: plan.members.map(({ name, sha256, bytes }) => ({ name, sha256, byteCount: bytes.length })),
     sourceClasses: sourcesFromPlan(plan),
-    associatedRecovery: extractionContext.association,
+    associatedRecovery: finalContext.association,
     allowedAction: "runtime_deployment_quiescence_only",
   })}\n`);
 } else {
-  const result = createOrAdoptSemanticDeploymentEvidencePackage(plan);
+  const result = createOrAdoptSemanticDeploymentEvidencePackage(plan, {
+    beforePublish: () => {
+      readAuthorityContext();
+      assertStableAuthorityReads();
+    },
+  });
   const readback = authenticateSemanticDeploymentEvidencePackage(result.documentPath);
   process.stdout.write(`${canonicalJson({ ...result, documentSha256: readback.evidence.sha256 })}\n`);
 }

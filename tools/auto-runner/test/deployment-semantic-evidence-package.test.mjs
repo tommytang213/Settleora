@@ -113,6 +113,31 @@ test("exact rerun adopts final package without changing any member bytes", () =>
   } finally { f.cleanup(); }
 });
 
+test("package authentication rejects a member rewrite after the initial aggregate read", () => {
+  const f = fixture();
+  try {
+    const plan = f.makePlan();
+    createOrAdoptSemanticDeploymentEvidencePackage(plan);
+    const target = path.join(plan.packageRoot, "repository_git.json");
+    assert.throws(() => authenticateSemanticDeploymentEvidencePackage(plan.documentPath, {
+      afterInitialMembersRead: () => writeFileSync(target, '{"drift":true}', { mode: 0o600 }),
+    }), /member changed during aggregate read/u);
+  } finally { f.cleanup(); }
+});
+
+test("no-clobber publication refuses a final directory appearing at commit", () => {
+  const f = fixture();
+  try {
+    const plan = f.makePlan();
+    assert.throws(() => createOrAdoptSemanticDeploymentEvidencePackage(plan, {
+      beforePublish: () => mkdirSync(plan.packageRoot, { mode: 0o700 }),
+    }), /no-clobber publication refused/u);
+    assert.equal(existsSync(plan.incomingRoot), true);
+    assert.equal(existsSync(plan.packageRoot), true);
+    assert.deepEqual(readdirSync(plan.packageRoot), []);
+  } finally { f.cleanup(); }
+});
+
 test("adoption result remains bound to every digest in the planned bytes", () => {
   const f = fixture();
   try {

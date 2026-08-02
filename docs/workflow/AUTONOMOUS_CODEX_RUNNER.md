@@ -1808,9 +1808,11 @@ Deployment quiescence has a distinct read-only corroboration path for this
 incident class. Its manual-only preparer derives one deterministic package
 from authenticated config/profile/runtime/health, repository, lifecycle,
 budget, intent, run-role, incident, associated-recovery, and GitHub readers.
-Every authority-class projection performs a fresh authenticated domain reread;
-the orchestrator's first context is not shared as projection authority, and
-cross-read disagreement fails at the claim-owner matrix. Git evidence binds
+Every authority-class projection performs a fresh project-authority load and
+authenticated domain/artifact reread; the orchestrator's first context is not
+shared as projection authority, and cross-read disagreement fails at the
+claim-owner matrix. A final complete equality reread is required immediately
+before publication or adoption. Git evidence binds
 clean canonical `main` and `origin/main`, candidate exclusion from main, every
 linked worktree, and repeated config/topology snapshots while disabling hooks
 and executable fsmonitor authority on every Git call. Intent evidence authenticates
@@ -1822,10 +1824,11 @@ The package is one owner-only direct child of the external profile root with
 exactly one deployment document, eight distinct source projections, and one
 sorted manifest. Planning is non-mutating; separately authorized creation uses
 one fsynced sibling incoming directory and one atomic directory rename, while
-exact final or crash-staged bytes are idempotently adoptable. Exact final
-adoption fsyncs every member, the package directory, and the external config
-root before returning. Contradictory final/incoming/retired residue is retained
-and refused, never cleaned.
+exact final or crash-staged bytes are idempotently adoptable. Publication is a
+no-clobber atomic directory move; authentication rereads all members after the
+complete aggregate pass. Exact final adoption fsyncs every member, the package
+directory, and the external config root before returning. Contradictory final/
+incoming/retired residue is retained and refused, never cleaned.
 
 The document binds the overwrite incident and the single associated
 recoverable state as different artifacts. The incident remains immutable

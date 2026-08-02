@@ -476,6 +476,11 @@ test("deployment-only semantic evidence accepts read-only service mode but rejec
     chmodSync(fixture.paths.healthUnit, 0o664);
     assert.equal(inspect(fixture).reasonCode, "semantic_bound_artifact_authentication_failed");
   } finally { fixture.cleanup(); }
+  const byteDrift = makeFixture();
+  try {
+    writeFileSync(byteDrift.paths.healthUnit, "changed-health-unit", { mode: 0o600 });
+    assert.equal(inspect(byteDrift).reasonCode, "semantic_bound_artifact_authentication_failed");
+  } finally { byteDrift.cleanup(); }
 });
 
 test("live Git source authentication rejects dirty worktrees and transport authority", () => {

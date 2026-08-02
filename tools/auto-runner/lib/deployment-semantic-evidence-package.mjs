@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   closeSync,
   constants as fsConstants,
-  existsSync,
   fchmodSync,
   fstatSync,
   fsyncSync,
@@ -13,7 +13,6 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
-  renameSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -155,10 +154,12 @@ export function planSemanticDeploymentEvidencePackage({
   });
 }
 
-export function createOrAdoptSemanticDeploymentEvidencePackage(plan) {
+export function createOrAdoptSemanticDeploymentEvidencePackage(plan, { beforePublish = null } = {}) {
+  if (beforePublish !== null && typeof beforePublish !== "function") throw new Error("semantic evidence package publication hook invalid");
   validatePlan(plan);
   const current = inspectPackageResidue(plan);
   if (current.action === "adopt_final") {
+    beforePublish?.();
     fsyncExistingPackage(plan.packageRoot, plan.members);
     if (!packageMatches(plan.packageRoot, plan.members)) {
       throw new Error("semantic evidence package final changed before adoption");
@@ -168,12 +169,13 @@ export function createOrAdoptSemanticDeploymentEvidencePackage(plan) {
     return packageResult(plan, "adopted");
   }
   if (current.action === "adopt_incoming") {
-    if (existsSync(plan.packageRoot)) throw new Error("semantic evidence package final appeared before incoming adoption");
+    if (pathEntryExists(plan.packageRoot)) throw new Error("semantic evidence package final appeared before incoming adoption");
     fsyncExistingPackage(plan.incomingRoot, plan.members);
-    if (!packageMatches(plan.incomingRoot, plan.members) || existsSync(plan.packageRoot)) {
+    if (!packageMatches(plan.incomingRoot, plan.members) || pathEntryExists(plan.packageRoot)) {
       throw new Error("semantic evidence package incoming changed before adoption");
     }
-    renameSync(plan.incomingRoot, plan.packageRoot);
+    beforePublish?.();
+    publishDirectoryNoReplace(plan.incomingRoot, plan.packageRoot);
     fsyncDirectory(plan.configRoot);
     authenticateSemanticDeploymentEvidencePackage(plan.documentPath);
     return packageResult(plan, "adopted_incoming");
@@ -184,8 +186,9 @@ export function createOrAdoptSemanticDeploymentEvidencePackage(plan) {
   try {
     for (const member of plan.members) writeMember(path.join(plan.incomingRoot, member.name), member.bytes);
     fsyncDirectory(plan.incomingRoot);
-    if (existsSync(plan.packageRoot)) throw new Error("semantic evidence package final appeared before commit");
-    renameSync(plan.incomingRoot, plan.packageRoot);
+    if (pathEntryExists(plan.packageRoot)) throw new Error("semantic evidence package final appeared before commit");
+    beforePublish?.();
+    publishDirectoryNoReplace(plan.incomingRoot, plan.packageRoot);
     fsyncDirectory(plan.configRoot);
   } catch (error) {
     // Deliberately retain crash residue for exact inspection/adoption. Never
@@ -196,7 +199,10 @@ export function createOrAdoptSemanticDeploymentEvidencePackage(plan) {
   return packageResult(plan, "created");
 }
 
-export function authenticateSemanticDeploymentEvidencePackage(documentPath) {
+export function authenticateSemanticDeploymentEvidencePackage(documentPath, { afterInitialMembersRead = null } = {}) {
+  if (afterInitialMembersRead !== null && typeof afterInitialMembersRead !== "function") {
+    throw new Error("semantic evidence package authentication hook invalid");
+  }
   const lexicalDocument = path.resolve(String(documentPath || ""));
   if (path.basename(lexicalDocument) !== semanticDeploymentEvidenceDocumentName) throw new Error("semantic evidence package document name invalid");
   const packageRoot = path.dirname(lexicalDocument);
@@ -235,6 +241,14 @@ export function authenticateSemanticDeploymentEvidencePackage(documentPath) {
     throw new Error("semantic evidence package aggregate mismatch");
   }
   const documentArtifact = authenticated.get(semanticDeploymentEvidenceDocumentName);
+  afterInitialMembersRead?.();
+  const reauthenticated = new Map(actualNames.map((name) => [name, authenticateMember(path.join(packageRoot, name))]));
+  for (const name of actualNames) {
+    const first = authenticated.get(name);
+    const second = reauthenticated.get(name);
+    if (first.identity !== second.identity || first.sha256 !== second.sha256
+        || !first.bytes.equals(second.bytes)) throw new Error("semantic evidence package member changed during aggregate read");
+  }
   const packageRootAfter = lstatSync(packageRoot);
   if (memberIdentity(packageRootBefore) !== memberIdentity(packageRootAfter) || realpathSync(packageRoot) !== packageRoot) {
     throw new Error("semantic evidence package directory changed during authentication");
@@ -283,9 +297,9 @@ function extractProjection(authorityClass, reader, context) {
 }
 
 function inspectPackageResidue({ packageRoot, incomingRoot, retiredRoot, members }) {
-  if (existsSync(retiredRoot)) return { action: "refuse", reasonCode: "retired_residue_present" };
-  const finalExists = existsSync(packageRoot);
-  const incomingExists = existsSync(incomingRoot);
+  if (pathEntryExists(retiredRoot)) return { action: "refuse", reasonCode: "retired_residue_present" };
+  const finalExists = pathEntryExists(packageRoot);
+  const incomingExists = pathEntryExists(incomingRoot);
   if (finalExists && incomingExists) return { action: "refuse", reasonCode: "final_and_incoming_present" };
   if (finalExists) return packageMatches(packageRoot, members)
     ? { action: "adopt_final", reasonCode: "exact_final_present" }
@@ -342,7 +356,7 @@ function authenticateMember(file) {
         || memberIdentity(first) !== memberIdentity(after)
         || bytes.length !== first.size || realpathSync(file) !== file) throw new Error("semantic evidence package member changed");
     parseCanonicalJson(bytes);
-    return { bytes, sha256: sha256(bytes), ownerUid: first.uid, mode: first.mode & 0o777 };
+    return { bytes, sha256: sha256(bytes), ownerUid: first.uid, mode: first.mode & 0o777, identity: memberIdentity(first) };
   } finally { closeSync(fd); }
 }
 
@@ -373,6 +387,31 @@ function fsyncExistingPackage(root, members) {
     try { fsyncSync(fd); } finally { closeSync(fd); }
   }
   fsyncDirectory(root);
+}
+
+function publishDirectoryNoReplace(source, destination) {
+  try {
+    execFileSync("/usr/bin/mv", ["--no-target-directory", "--no-clobber", "--", source, destination], {
+      encoding: "utf8",
+      env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
+      maxBuffer: 64 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 30_000,
+    });
+  } catch (error) {
+    if (pathEntryExists(source) && pathEntryExists(destination)) {
+      throw new Error("semantic evidence package no-clobber publication refused");
+    }
+    throw error;
+  }
+  if (pathEntryExists(source) || !pathEntryExists(destination)) {
+    throw new Error("semantic evidence package no-clobber publication refused");
+  }
+}
+
+function pathEntryExists(target) {
+  try { lstatSync(target); return true; }
+  catch (error) { if (error?.code === "ENOENT") return false; throw error; }
 }
 
 function validatePlan(plan) {

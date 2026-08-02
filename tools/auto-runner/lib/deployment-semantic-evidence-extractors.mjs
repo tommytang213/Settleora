@@ -125,11 +125,15 @@ export function collectSemanticDeploymentEvidenceContext({
     consumedSupervisorRunId: runArtifacts.consumed.supervisor,
   });
   const recoveryArtifacts = [authenticateArtifact(incidentPath), authenticateArtifact(associatedRecoveryPath)];
-  const runtimeArtifacts = Object.entries(projectAuthority.artifacts).map(([role, artifact]) => ({
-    path: artifact.path,
-    sha256: artifact.sha256,
-    identity: `deployment_project_authority:${role}`,
-  }));
+  const runtimeArtifacts = Object.entries(projectAuthority.artifacts).map(([role, artifact]) => {
+    let authenticated;
+    try { authenticated = authenticateArtifactBytes(artifact.path, { allowReadOnlyPublicMode: true }).artifact; }
+    catch { throw new Error(`semantic extraction project artifact authentication failed: ${role}`); }
+    if (authenticated.path !== artifact.path || authenticated.sha256 !== artifact.sha256) {
+      throw new Error(`semantic extraction project artifact authentication failed: ${role}`);
+    }
+    return { ...authenticated, identity: `deployment_project_authority:${role}:${authenticated.identity}` };
+  });
   return deepFreeze({
     projectAuthority,
     repository,
@@ -802,13 +806,14 @@ function authenticateArtifact(file) {
   return authenticateArtifactBytes(file).artifact;
 }
 
-function authenticateArtifactBytes(file) {
+function authenticateArtifactBytes(file, { allowReadOnlyPublicMode = false } = {}) {
   const lexical = path.resolve(file);
   if (realpathSync(lexical) !== lexical) throw new Error("semantic extraction artifact noncanonical");
   const before = lstatSync(lexical);
   const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  const unsafeMode = allowReadOnlyPublicMode ? (before.mode & 0o022) !== 0 : (before.mode & 0o077) !== 0;
   if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size < 1 || before.size > 1024 * 1024
-      || (before.mode & 0o077) !== 0 || (uid !== null && before.uid !== uid)) throw new Error("semantic extraction artifact unsafe");
+      || unsafeMode || (uid !== null && before.uid !== uid)) throw new Error("semantic extraction artifact unsafe");
   let descriptor;
   try {
     descriptor = openSync(lexical, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));

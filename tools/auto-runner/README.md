@@ -239,9 +239,12 @@ runtime, health unit, repository, exact incident, exact associated recovery,
 all run roles, lifecycle, budget, Git candidate, and GitHub no-effect posture,
 then prints one deterministic plan without creating a file, directory, lock,
 or marker. Each class-specific extractor derives only matrix-owned claims from
-its own fresh authenticated domain reread; no production extractor reuses the
-orchestrator's collected context. The claim-owner matrix performs the only
-cross-class merge and rejects drift between those independent reads.
+its own fresh authenticated domain reread, including a fresh project-authority
+load and direct artifact-byte authentication; no production extractor reuses
+the orchestrator's collected context. The claim-owner matrix performs the only
+cross-class merge and rejects drift between those independent reads. A complete
+final equality reread is required immediately before package publication or
+adoption.
 Repository evidence additionally requires canonical clean
 `main`/`origin/main`, a still-unmerged literal candidate ref, and clean linked
 worktrees. Every Git command disables hooks and executable fsmonitor authority,
@@ -254,9 +257,10 @@ separately authorized external operation:
 it stages owner-only canonical members in the one fixed sibling `.incoming`
 directory, fsyncs every file and the directory, and atomically renames the
 whole directory, or adopts exact existing bytes idempotently. It never cleans
-conflicting residue. Final adoption fsyncs every member, the package directory,
-and the config root before success. The preparer never reads a grant or creates
-a successor.
+conflicting residue. Publication uses a no-clobber atomic directory move, and
+authentication rereads every member after the complete aggregate read. Final
+adoption fsyncs every member, the package directory, and the config root before
+success. The preparer never reads a grant or creates a successor.
 
 Plan shape (replace selectors with authenticated exact values):
 

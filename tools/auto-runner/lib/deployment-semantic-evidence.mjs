@@ -74,7 +74,11 @@ export function inspectSemanticIncidentForDeployment({
   let liveContext;
   try {
     liveContext = readAuthorityContext();
-  } catch { return failed("semantic_deployment_live_source_revalidation_failed"); }
+  } catch (error) {
+    return failed(String(error?.message || "").startsWith("semantic extraction project artifact authentication failed:")
+      ? "semantic_bound_artifact_authentication_failed"
+      : "semantic_deployment_live_source_revalidation_failed");
+  }
   const association = liveContext.association;
   if (path.resolve(recoverableStates[0]?.statePath || "") !== association.path
       || recoverableStates[0]?.taskKey !== association.taskKey
