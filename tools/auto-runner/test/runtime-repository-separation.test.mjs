@@ -6,9 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, runtimeBundleFileList, verifyRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "../lib/runtime-bundle.mjs";
-import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, hasVerifiedExternalRuntimeEvidence, matchAuthorizedSupervisorProcess, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
+import { absoluteRuntimeEntry, assertRepositoryRemoteIdentity, assertSeparatedRoots, hasVerifiedExternalRuntimeEvidence, matchAuthorizedSupervisorProcess, pathEntryExists, repositoryAuthorityLockPath, validateProjectRuntimeIdentity } from "../lib/runtime-identity.mjs";
 import { fetchOriginMain } from "../lib/git-workspace.mjs";
-import { assertDeploymentProjectTopology, authenticateDeploymentArtifact, ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
+import { assertDeploymentBootstrapArtifactsAbsent, assertDeploymentBootstrapTransientStateAbsent, assertDeploymentProjectTopology, authenticateDeploymentArtifact, ensureOperationalDirectory, validateExternalProfilePath, verifyProjectNamespaceMarker } from "../lib/config.mjs";
 import { assertNodeCompatibility, reclaimStaleOwnMarker } from "../runtime-launcher.mjs";
 
 const sourceRoot = realpathSync(path.resolve("tools/auto-runner"));
@@ -330,6 +330,17 @@ test("trusted runtime identity has a bounded missing-destination bootstrap mode"
     });
     assert.equal(identity.runtimeRoot, runtimeRoot);
     assert.equal(existsSync(runtimeRoot), false);
+    symlinkSync(path.join(root, "missing-runtime-target"), runtimeRoot);
+    assert.equal(pathEntryExists(runtimeRoot), true);
+    assert.throws(
+      () => validateProjectRuntimeIdentity(config, {
+        actualRuntimeRoot: runtimeRoot,
+        trusted: true,
+        allowMissingRuntimeRoot: true,
+      }),
+      /runtimeRoot does not exist/,
+    );
+    rmSync(runtimeRoot);
     chmodSync(runtimeParent, 0o722);
     assert.throws(
       () => validateProjectRuntimeIdentity(config, {
@@ -356,13 +367,46 @@ test("trusted runtime bootstrap refuses recovery authority and stale transient s
     const semantic = spawnSync(process.execPath, [...base, "--semantic-deployment-evidence", path.join(root, "evidence.json")], { encoding: "utf8" });
     assert.notEqual(semantic.status, 0);
     assert.match(semantic.stderr, /bootstrap admits only ordinary quiescent deployment/);
-    for (const name of [".runtime.deploy-incoming", ".runtime.rollback-incoming"]) {
+    for (const name of [
+      ".runtime.deploy-incoming", ".runtime.rollback-incoming",
+      ".runtime.launcher.incoming", ".runtime.approved.incoming",
+    ]) {
       const stalePath = path.join(root, name);
       mkdirSync(stalePath);
       const stale = spawnSync(process.execPath, base, { encoding: "utf8" });
       assert.notEqual(stale.status, 0);
       assert.match(stale.stderr, /stale transient deployment state/);
       rmSync(stalePath, { recursive: true });
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("trusted bootstrap absence proofs reject dangling symlinks for every control artifact", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "settleora-runtime-bootstrap-symlinks-"));
+  try {
+    const runtimeRoot = path.join(root, "runtime");
+    const missingTarget = path.join(root, "missing-target");
+    const installedNames = [
+      ".runtime.approved.json", ".runtime.launcher.mjs", ".runtime.rollback",
+      ".runtime.rollback-incoming", ".runtime.rollback-retired",
+    ];
+    const transientNames = [
+      ".runtime.deploy-incoming", ".runtime.rollback-incoming",
+      ".runtime.launcher.incoming", ".runtime.approved.incoming",
+    ];
+    for (const name of installedNames) {
+      const residue = path.join(root, name);
+      symlinkSync(missingTarget, residue);
+      assert.equal(pathEntryExists(residue), true, name);
+      assert.throws(() => assertDeploymentBootstrapArtifactsAbsent(runtimeRoot), /contradictory installed-runtime state/, name);
+      rmSync(residue);
+    }
+    for (const name of transientNames) {
+      const residue = path.join(root, name);
+      symlinkSync(missingTarget, residue);
+      assert.equal(pathEntryExists(residue), true, name);
+      assert.throws(() => assertDeploymentBootstrapTransientStateAbsent(runtimeRoot), /stale transient deployment state/, name);
+      rmSync(residue);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

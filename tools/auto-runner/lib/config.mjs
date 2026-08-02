@@ -10,7 +10,7 @@ import { normalizeReviewFixCanaryFixtureConfig } from "./review-fix-fixture.mjs"
 import { validateRunnerRunId, validateSupervisorRunId } from "./run-correlation.mjs";
 import { defaultOutageResubmissionConfig, normalizeOutageResubmissionConfig } from "./outage-resubmission-policy.mjs";
 import { defaultContextBudgetPolicy, normalizeContextBudgetPolicy } from "./session-lifecycle.mjs";
-import { moduleRuntimeRoot, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
+import { moduleRuntimeRoot, pathEntryExists, validateProjectRuntimeIdentity } from "./runtime-identity.mjs";
 import { verifyRuntimeBundle } from "./runtime-bundle.mjs";
 import { bindTrustedRepositoryContext } from "./git-workspace.mjs";
 import { defaultLogsRoot } from "./runtime-path-defaults.mjs";
@@ -625,7 +625,7 @@ export function loadDeploymentProjectAuthority({
   const profile = { ...defaultConfig, ...approved.config };
   assertDeploymentProjectTopology({ config, profile, repoRoot, runtimeRoot, logsRoot });
   const configuredPostIncidentRecovery = normalizePostIncidentRecoveryConfig(loaded.config.postIncidentRecovery);
-  const runtimeBootstrap = allowRuntimeBootstrap === true && !existsSync(runtimeRoot);
+  const runtimeBootstrap = allowRuntimeBootstrap === true && !pathEntryExists(runtimeRoot);
   const runtimeIdentity = validateProjectRuntimeIdentity(config, {
     actualRuntimeRoot: runtimeRoot,
     trusted: true,
@@ -677,7 +677,7 @@ export function loadDeploymentProjectAuthority({
   });
 }
 
-function assertDeploymentBootstrapArtifactsAbsent(runtimeRoot) {
+export function assertDeploymentBootstrapArtifactsAbsent(runtimeRoot) {
   const parent = path.dirname(runtimeRoot);
   const base = path.basename(runtimeRoot);
   for (const artifact of [
@@ -687,7 +687,20 @@ function assertDeploymentBootstrapArtifactsAbsent(runtimeRoot) {
     path.join(parent, `.${base}.rollback-incoming`),
     path.join(parent, `.${base}.rollback-retired`),
   ]) {
-    if (existsSync(artifact)) throw new Error("trusted deployment bootstrap found contradictory installed-runtime state");
+    if (pathEntryExists(artifact)) throw new Error("trusted deployment bootstrap found contradictory installed-runtime state");
+  }
+}
+
+export function assertDeploymentBootstrapTransientStateAbsent(runtimeRoot) {
+  const parent = path.dirname(runtimeRoot);
+  const base = path.basename(runtimeRoot);
+  for (const artifact of [
+    path.join(parent, `.${base}.deploy-incoming`),
+    path.join(parent, `.${base}.rollback-incoming`),
+    path.join(parent, `.${base}.launcher.incoming`),
+    path.join(parent, `.${base}.approved.incoming`),
+  ]) {
+    if (pathEntryExists(artifact)) throw new Error("trusted runtime bootstrap found stale transient deployment state");
   }
 }
 

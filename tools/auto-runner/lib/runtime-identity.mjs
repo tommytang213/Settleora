@@ -23,6 +23,16 @@ export function canonicalExistingDirectory(value, field) {
   return real;
 }
 
+export function pathEntryExists(value) {
+  try {
+    lstatSync(value);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 export function assertProjectId(value) {
   if (!projectIdPattern.test(String(value || "")) || String(value).includes("..")) {
     throw new Error("projectId must be a bounded filesystem-safe identifier");
@@ -63,7 +73,7 @@ export function validateProjectRuntimeIdentity(config, {
   const repoRoot = canonicalExistingDirectory(config?.repoRoot, "repoRoot");
   const repository = verifyRepositoryIdentity(repoRoot, trusted ? config.repositorySlug : null);
   const configuredRuntimeRoot = config?.runtimeRoot || actualRuntimeRoot;
-  const runtimeMissing = allowMissingRuntimeRoot === true && !existsSync(configuredRuntimeRoot);
+  const runtimeMissing = allowMissingRuntimeRoot === true && !pathEntryExists(configuredRuntimeRoot);
   const runtimeRoot = runtimeMissing
     ? canonicalMissingDirectory(configuredRuntimeRoot, "runtimeRoot")
     : canonicalExistingDirectory(configuredRuntimeRoot, "runtimeRoot");
@@ -112,7 +122,7 @@ function canonicalMissingDirectory(value, field) {
   if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value) {
     throw new Error(`${field} must be an absolute normalized path`);
   }
-  if (existsSync(value)) throw new Error(`${field} must be absent for deployment bootstrap`);
+  if (pathEntryExists(value)) throw new Error(`${field} must be absent for deployment bootstrap`);
   const parent = canonicalExistingDirectory(path.dirname(value), `${field} parent`);
   const candidate = path.join(parent, path.basename(value));
   if (candidate !== value) throw new Error(`${field} parent must equal its realpath`);

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "./lib/runtime-bundle.mjs";
-import { loadDeploymentProjectAuthority, readOwnerControlledExternalJson } from "./lib/config.mjs";
+import { assertDeploymentBootstrapTransientStateAbsent, loadDeploymentProjectAuthority, readOwnerControlledExternalJson } from "./lib/config.mjs";
 import { sanitizedDeploymentGitEnvironment, trustedDeploymentGitBinary } from "./lib/preserved-recovery-deployment.mjs";
+import { pathEntryExists } from "./lib/runtime-identity.mjs";
 
 const booleanOptions = new Set(["--dry-run", "--rollback", "--development-unbound-project-root"]);
 const valueOptions = new Set([
@@ -58,13 +58,13 @@ if (developmentUnbound && !explicitLogsRoot) throw new Error("development-unboun
 if (developmentUnbound) assertDevelopmentUnboundPaths({ destination, logsRoot: explicitLogsRoot });
 const preservedOptionPrefix = "--preserved-recovery-";
 const preservedOptionsPresent = [...values.keys()].filter((key) => key.startsWith(preservedOptionPrefix));
-const trustedRuntimeBootstrap = Boolean(configPath && !existsSync(destination));
+const trustedRuntimeBootstrap = Boolean(configPath && !pathEntryExists(destination));
 if (trustedRuntimeBootstrap) {
   if (values.has("--rollback") || values.has("--expected-old-digest") || values.has("--expected-rollback-digest")
       || semanticEvidencePath || preservedOptionsPresent.length) {
     throw new Error("trusted runtime bootstrap admits only ordinary quiescent deployment");
   }
-  assertTrustedBootstrapTransientStateAbsent(destination);
+  assertDeploymentBootstrapTransientStateAbsent(destination);
 }
 const loadProjectAuthority = configPath
   ? () => loadDeploymentProjectAuthority({
@@ -221,19 +221,6 @@ function assertDevelopmentUnboundPaths({ destination: runtimeDestination, logsRo
         || value === "/workspace/logs/auto-runner" || value.startsWith("/workspace/logs/auto-runner/")) {
       throw new Error(`development-unbound ${field} cannot target trusted production roots`);
     }
-  }
-}
-
-function assertTrustedBootstrapTransientStateAbsent(runtimeDestination) {
-  const parent = path.dirname(runtimeDestination);
-  const base = path.basename(runtimeDestination);
-  for (const artifact of [
-    path.join(parent, `.${base}.deploy-incoming`),
-    path.join(parent, `.${base}.rollback-incoming`),
-    path.join(parent, `.${base}.launcher.incoming`),
-    path.join(parent, `.${base}.approved.incoming`),
-  ]) {
-    if (existsSync(artifact)) throw new Error("trusted runtime bootstrap found stale transient deployment state");
   }
 }
 
