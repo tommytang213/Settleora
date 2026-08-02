@@ -458,11 +458,17 @@ export function authenticateAssociatedRecoverableState({
       return fail("associated_recovery_root_noncanonical");
     }
     const incident = authenticateRecoveryArtifact(recoveryRoot, incidentPath, incidentSha256);
-    const associated = authenticateRecoveryArtifact(recoveryRoot, associatedRecoveryPath, associatedRecoverySha256);
+    let associated = authenticateRecoveryArtifact(recoveryRoot, associatedRecoveryPath, associatedRecoverySha256);
     if (incident.path === associated.path) return fail("associated_recovery_incident_path_conflated");
     const recoverable = listRecoverableRecoveryStates(config);
     if (recoverable.length !== 1) return fail("associated_recovery_count_invalid");
     if (recoverable[0].statePath !== associated.path) return fail("associated_recovery_selector_mismatch");
+    const { statePath: listedPath, ...listedState } = recoverable[0];
+    const recheckedAssociated = authenticateRecoveryArtifact(recoveryRoot, associatedRecoveryPath, associatedRecoverySha256);
+    if (!associatedRecoveryDiscoveryIsStable({ associated, listedPath, listedState, recheckedAssociated })) {
+      return fail("associated_recovery_changed_during_discovery");
+    }
+    associated = recheckedAssociated;
     if (!isProvisionalTaskKey(associated.state.taskKey)
         || !isExactRecoverySuccessor(associated.state, incident.state)) {
       return fail("associated_recovery_semantic_lineage_mismatch");
@@ -573,6 +579,16 @@ export function authenticateAssociatedRecoverableState({
   }
 }
 
+export function associatedRecoveryDiscoveryIsStable({ associated, listedPath, listedState, recheckedAssociated } = {}) {
+  return Boolean(associated && recheckedAssociated
+    && listedPath === associated.path
+    && canonicalRecoveryEvidence(listedState) === canonicalRecoveryEvidence(associated.state)
+    && recheckedAssociated.artifactIdentity === associated.artifactIdentity
+    && recheckedAssociated.sha256 === associated.sha256
+    && recheckedAssociated.stateDigest === associated.stateDigest
+    && canonicalRecoveryEvidence(recheckedAssociated.state) === canonicalRecoveryEvidence(associated.state));
+}
+
 function authenticateRecoveryArtifact(recoveryRoot, selectedPath, expectedSha256) {
   if (!/^[a-f0-9]{64}$/u.test(String(expectedSha256 || ""))) throw new Error("recovery digest invalid");
   const lexical = path.resolve(String(selectedPath || ""));
@@ -598,6 +614,7 @@ function authenticateRecoveryArtifact(recoveryRoot, selectedPath, expectedSha256
       sha256,
       state: deepFreeze(state),
       stateDigest: createHash("sha256").update(canonicalRecoveryEvidence(state)).digest("hex"),
+      artifactIdentity: recoveryArtifactIdentity(first),
     };
   } finally {
     closeSync(fd);

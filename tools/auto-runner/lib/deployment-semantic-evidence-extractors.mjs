@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import {
   closeSync,
   constants,
+  existsSync,
   fstatSync,
   lstatSync,
   openSync,
@@ -125,8 +126,11 @@ export function collectSemanticDeploymentEvidenceContext({
     incident,
     association: associatedRecoveryBinding,
     candidate,
+    lifecycleArtifact,
     lifecycleState,
+    budgetArtifact,
     budgetState: budget.state,
+    recoveryArtifacts,
     runArtifacts,
     github,
     formerRootSha256,
@@ -136,8 +140,8 @@ export function collectSemanticDeploymentEvidenceContext({
     counters,
     domainEvidence: {
       repository_git: candidate.evidence,
-      lifecycle: [lifecycleArtifact, budgetArtifact, recoveryArtifacts[0], ...runArtifacts.allArtifacts],
-      logical_task_budget: [budgetArtifact, recoveryArtifacts[0], runArtifacts.consumed.iteration],
+      lifecycle: [lifecycleArtifact, ...runArtifacts.allArtifacts],
+      logical_task_budget: [budgetArtifact, runArtifacts.consumed.iteration],
       intent_lineage: [lifecycleArtifact, runArtifacts.failed.iteration],
       projection_deployment: [
         ...candidate.evidence, recoveryArtifacts[0], runArtifacts.failed.iteration, runArtifacts.consumed.iteration,
@@ -156,7 +160,7 @@ export function createSemanticDeploymentAuthorityReaders() {
       repository: context.repository, ...repositoryClaims(context),
     }),
     lifecycle: (context) => projection(context, "lifecycle", {
-      ...taskClaims(context), ...runRoleClaims(context), ...counterClaims(context),
+      ...lifecycleTaskClaims(context), ...runRoleClaims(context), ...lifecycleCounterClaims(context),
       lifecycleLineage: lifecycleLineage(context),
       lifecycleSessionId: context.lifecycleState.sessions.current,
       lifecycleMutationGeneration: context.lifecycleState.mutationAuthority.generation,
@@ -164,7 +168,7 @@ export function createSemanticDeploymentAuthorityReaders() {
       earliestSafePhase: context.lifecycleState.recovery.phaseAfter,
     }),
     logical_task_budget: (context) => projection(context, "logical_task_budget", {
-      ...taskClaims(context), ...counterClaims(context),
+      ...budgetTaskClaims(context), ...budgetCounterClaims(context),
       submissionCount: context.budgetState.acceptedLogicalTaskCount,
       submissionExhausted: submissionExhausted(context),
     }),
@@ -184,7 +188,7 @@ export function createSemanticDeploymentAuthorityReaders() {
       submissionExhausted: submissionExhausted(context),
     }),
     incident_report: (context) => projection(context, "incident_report", {
-      ...incidentClaims(context), ...runtimeClaims(context), ...externalNoEffectClaims(context),
+      ...incidentClaims(context), ...runtimeClaims(context), ...incidentNoEffectClaims(context),
     }),
     github_no_effect: (context) => projection(context, "github_no_effect", {
       repository: context.repository, prEvidenceDigest: context.github.digest, ...externalNoEffectClaims(context),
@@ -207,12 +211,41 @@ function projection(context, authorityClass, claims) {
   };
 }
 
-function taskClaims(context) {
+function lifecycleTaskClaims(context) {
+  const task = context.lifecycleState.logicalTask;
+  const chargeIds = Object.keys(context.lifecycleState.reservations?.logical_task_charge || {});
+  if (!task || task.issueNumber !== context.incident.issue.number
+      || task.taskKey !== context.incident.taskKey
+      || task.claimIdentity !== `${context.repository}#${task.issueNumber}`
+      || task.runId !== context.runArtifacts.original.runner
+      || task.supervisorRunId !== context.runArtifacts.original.supervisor
+      || chargeIds.length !== 1 || chargeIds[0] !== context.association.chargeId) {
+    throw new Error("semantic extraction lifecycle task identity invalid");
+  }
   return {
-    issueNumber: context.incident.issue.number,
-    taskKey: context.incident.taskKey,
-    claimIdentity: `${context.repository}#${context.incident.issue.number}`,
-    chargeId: context.association.chargeId,
+    issueNumber: task.issueNumber,
+    taskKey: task.taskKey,
+    claimIdentity: task.claimIdentity,
+    chargeId: chargeIds[0],
+  };
+}
+function budgetTaskClaims(context) {
+  const chargeId = context.association.chargeId;
+  const marker = context.budgetState.charges?.[chargeId];
+  const identity = marker?.identity;
+  const consumedState = context.runArtifacts.consumed.iteration.value.recovery?.state;
+  if (!marker || marker.chargeId !== chargeId || marker.identityClass !== "accepted_issue_claim"
+      || identity?.repository !== context.repository
+      || identity.issueNumber !== consumedState?.issueNumber
+      || identity.claimIdentity !== `${context.repository}#${consumedState.issueNumber}`
+      || consumedState.taskKey !== context.incident.taskKey) {
+    throw new Error("semantic extraction budget task identity invalid");
+  }
+  return {
+    issueNumber: identity.issueNumber,
+    taskKey: consumedState.taskKey,
+    claimIdentity: identity.claimIdentity,
+    chargeId,
   };
 }
 function repositoryClaims(context) {
@@ -225,12 +258,32 @@ function repositoryClaims(context) {
     diffDigest: context.candidate.diffDigest,
   };
 }
-function counterClaims(context) {
+function lifecycleCounterClaims(context) {
+  const controller = context.lifecycleState.controller;
+  if (!controller || controller.localSourceChangingRoundsPerEpoch !== context.counters.localSourceChangingRoundsPerEpoch
+      || controller.githubTriggeredFixEpochsPerPr !== context.counters.githubTriggeredFixEpochsPerPr
+      || controller.lifetimeLocalSourceChangingRounds !== context.counters.lifetimeLocalSourceChangingRounds) {
+    throw new Error("semantic extraction lifecycle counters invalid");
+  }
+  return {
+    acceptedLogicalTasks: Object.keys(context.lifecycleState.reservations?.logical_task_charge || {}).length,
+    localSourceChangingRounds: controller.localSourceChangingRoundsPerEpoch,
+    githubTriggeredFixEpochs: controller.githubTriggeredFixEpochsPerPr,
+    lifetimeLocalSourceChangingRounds: controller.lifetimeLocalSourceChangingRounds,
+  };
+}
+function budgetCounterClaims(context) {
+  const controller = context.runArtifacts.consumed.iteration.value.recovery?.lifecycle?.state?.controller;
+  if (!controller || controller.localSourceChangingRoundsPerEpoch !== context.counters.localSourceChangingRoundsPerEpoch
+      || controller.githubTriggeredFixEpochsPerPr !== context.counters.githubTriggeredFixEpochsPerPr
+      || controller.lifetimeLocalSourceChangingRounds !== context.counters.lifetimeLocalSourceChangingRounds) {
+    throw new Error("semantic extraction consumed budget counters invalid");
+  }
   return {
     acceptedLogicalTasks: context.budgetState.acceptedLogicalTaskCount,
-    localSourceChangingRounds: context.counters.localSourceChangingRoundsPerEpoch,
-    githubTriggeredFixEpochs: context.counters.githubTriggeredFixEpochsPerPr,
-    lifetimeLocalSourceChangingRounds: context.counters.lifetimeLocalSourceChangingRounds,
+    localSourceChangingRounds: controller.localSourceChangingRoundsPerEpoch,
+    githubTriggeredFixEpochs: controller.githubTriggeredFixEpochsPerPr,
+    lifetimeLocalSourceChangingRounds: controller.lifetimeLocalSourceChangingRounds,
   };
 }
 function runRoleClaims(context) {
@@ -320,19 +373,50 @@ function externalNoEffectClaims(context) {
   return structuredClone(context.github.claims);
 }
 
+function incidentNoEffectClaims(context) {
+  const incident = context.incident;
+  const effects = incident.ordinaryContinuation?.effects || {};
+  const markers = incident.mutationMarkers || {};
+  const claims = {
+    pushEffect: Object.keys(markers.push || {}).length !== 0,
+    prEffect: Object.keys(markers.pr_create || {}).length !== 0 || incident.pr?.number !== null,
+    commentEffect: Object.keys(markers.issue_comment || {}).length !== 0
+      || Object.keys(markers.parent_comment || {}).length !== 0 || Object.keys(markers.pr_comment || {}).length !== 0,
+    mergeEffect: Object.keys(markers.merge || {}).length !== 0,
+    issueEffect: Object.keys(markers.issue_close || {}).length !== 0,
+    productEffect: Object.keys(effects).length !== 0,
+  };
+  if (Object.values(claims).some(Boolean)) throw new Error("semantic extraction incident effect posture invalid");
+  return claims;
+}
+
 function discoverRunRoleArtifacts(logsRoot, incident, original) {
   const stateRoot = path.join(logsRoot, "state");
   const iterations = readdirSync(stateRoot).filter((name) => name.endsWith(".json"))
     .map((name) => authenticateJson(path.join(stateRoot, name)))
     .filter((artifact) => artifact.value?.issue?.number === incident.issue.number);
+  const matchesCandidate = (value) => value?.issue?.number === incident.issue.number
+    && value.branchName === incident.branch.name
+    && value.baseOriginMainSha === incident.branch.baseSha
+    && value.runnerCreatedCommitSha === incident.branch.currentHeadSha;
+  const matchesRecovery = (value) => value?.taskKey === incident.taskKey
+    && value.issueNumber === incident.issue.number
+    && value.branchName === incident.branch.name
+    && value.baseSha === incident.branch.baseSha
+    && value.currentHeadSha === incident.branch.currentHeadSha
+    && (value.runnerRunId ?? value.runId) === original.runner
+    && value.supervisorRunId === original.supervisor;
   const consumedCandidates = iterations.filter((artifact) => artifact.value?.outcome === "terminal_lifecycle_reconciled"
-    && artifact.value?.branchName === incident.branch.name);
-  const failedCandidates = iterations.filter((artifact) => artifact.value?.recovery?.terminalDerivativeProjection?.ok === true);
-  const originalCandidates = iterations.filter((artifact) => artifact.value?.runId === original.runner && artifact.value?.index === 1);
+    && matchesCandidate(artifact.value) && matchesRecovery(artifact.value.recovery?.state));
+  const failedCandidates = iterations.filter((artifact) => artifact.value?.recovery?.terminalDerivativeProjection?.ok === true
+    && matchesCandidate(artifact.value) && matchesRecovery(artifact.value.recovery?.state)
+    && matchesRecovery(artifact.value.recovery?.target));
+  const originalCandidates = iterations.filter((artifact) => artifact.value?.runId === original.runner
+    && artifact.value?.index === 1 && matchesCandidate(artifact.value));
   if (consumedCandidates.length !== 1 || failedCandidates.length !== 1 || originalCandidates.length !== 1) {
     throw new Error("semantic extraction run role selection ambiguous");
   }
-  const role = (iteration, expectedSupervisor = null) => {
+  const role = (iteration, roleName, expectedSupervisor = null) => {
     const runner = iteration.value.runId;
     const summary = authenticateJson(path.join(logsRoot, "summaries", `${runner}.json`));
     const supervisor = summary.value.supervisorRunId;
@@ -342,27 +426,48 @@ function discoverRunRoleArtifacts(logsRoot, incident, original) {
     const supervisorState = authenticateJson(path.join(logsRoot, "supervisor", "runs", supervisorKey, "state.json"));
     const heartbeatPath = path.join(logsRoot, "supervisor", "runs", supervisorKey, "heartbeat.json");
     const heartbeat = authenticateJson(heartbeatPath);
-    if (spec.value.runId !== supervisor || supervisorState.value.runId !== supervisor
-        || supervisorState.value.runnerRunId !== runner || heartbeat.value.runnerRunId !== runner) {
+    const summaryIterations = summary.value.iterations?.filter((value) => value?.runId === runner
+      && value.index === iteration.value.index && value.outcome === iteration.value.outcome && matchesCandidate(value)) || [];
+    if (summary.value.runId !== runner || summary.value.supervisorRunId !== supervisor
+        || summaryIterations.length !== 1
+        || spec.value.runId !== supervisor || supervisorState.value.runId !== supervisor
+        || supervisorState.value.runnerRunId !== runner || heartbeat.value.runId !== supervisor
+        || heartbeat.value.runnerRunId !== runner) {
       throw new Error("semantic extraction run artifacts contradict");
+    }
+    if (roleName === "failed") {
+      const target = spec.value.recoveryOnlyTarget;
+      if (spec.value.sourceIssueNumber !== incident.issue.number || spec.value.sourceBranchName !== incident.branch.name
+          || spec.value.parentRunnerRunId !== original.runner || spec.value.parentSupervisorRunId !== original.supervisor
+          || !matchesRecovery(target) || target.terminalValidationRetryDerivativeNoPr !== true) {
+        throw new Error("semantic extraction failed run lineage invalid");
+      }
     }
     return { runner, supervisor, iteration, summary, spec, supervisorState, heartbeat };
   };
   const roles = {
-    original: role(originalCandidates[0], original.supervisor),
-    failed: role(failedCandidates[0]),
-    consumed: role(consumedCandidates[0]),
+    original: role(originalCandidates[0], "original", original.supervisor),
+    failed: role(failedCandidates[0], "failed"),
+    consumed: role(consumedCandidates[0], "consumed"),
   };
   return { ...roles, allArtifacts: Object.values(roles).flatMap((entry) => [entry.iteration, entry.summary, entry.spec, entry.supervisorState, entry.heartbeat]) };
 }
 
 function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, baseSha, expected, command }) {
+  const forbiddenGitEnvironment = ["GIT_REPLACE_REF_BASE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR", "GIT_DIR", "GIT_WORK_TREE", "GIT_SHALLOW_FILE"];
+  if (forbiddenGitEnvironment.some((key) => process.env[key])) {
+    throw new Error("semantic extraction Git object environment untrusted");
+  }
+  const authorityEnvironment = {
+    PATH: "/usr/bin:/bin", HOME: userInfo().homedir, LANG: "C", LC_ALL: "C", GIT_NO_REPLACE_OBJECTS: "1",
+  };
   const gitEnvironment = {
-    PATH: "/usr/bin:/bin", HOME: userInfo().homedir, LANG: "C", LC_ALL: "C",
-    GIT_NO_REPLACE_OBJECTS: "1",
+    ...authorityEnvironment, GIT_OPTIONAL_LOCKS: "0",
+    GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0",
   };
   if (realpathSync(repositoryRoot) !== repositoryRoot
-      || !resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, repository, gitEnvironment)) {
+      || !resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, repository, authorityEnvironment)) {
     throw new Error("semantic extraction repository authority untrusted");
   }
   const git = (args, encoding = "utf8") => command("/usr/bin/git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", ...args], {
@@ -375,6 +480,16 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
       || String(git(["rev-parse", "--is-shallow-repository"])).trim() !== "false"
       || Buffer.from(git(["status", "--porcelain=v1", "-z"], null)).length !== 0) {
     throw new Error("semantic extraction repository identity unsafe");
+  }
+  const objectAuthorityRoots = [...new Set([gitDir, commonDir])];
+  const unsafeObjectPaths = objectAuthorityRoots.flatMap((root) => [
+    path.join(root, "info", "grafts"),
+    path.join(root, "objects", "info", "alternates"),
+    path.join(root, "objects", "info", "http-alternates"),
+  ]);
+  const replaceRefs = String(git(["for-each-ref", "--format=%(refname)", "refs/replace"])).trim();
+  if (replaceRefs || unsafeObjectPaths.some(existsSync)) {
+    throw new Error("semantic extraction Git object authority untrusted");
   }
   const headSha = String(git(["rev-parse", `refs/heads/${branch}^{commit}`])).trim();
   const treeSha = String(git(["rev-parse", `${headSha}^{tree}`])).trim();

@@ -280,6 +280,9 @@ function createCollectorArtifacts({ logsRoot, incidentState, baseSha, headSha, c
     effectsAlreadyPresent: { mutation: false, commit: true, push: false, pr: false, merge: false, comment: false },
     phaseBefore: "implementation_or_bundle_slice", phaseAfter: "checkpoint_validation_commit",
   };
+  lifecycle.reservations.logical_task_charge = {
+    [chargeId]: { status: "completed", target: "issue-7", correlation: chargeId },
+  };
   lifecycle.checkpoint.parentDigest = null;
   lifecycle.checkpoint.digest = null;
   const checkpointCopy = structuredClone(lifecycle);
@@ -294,27 +297,57 @@ function createCollectorArtifacts({ logsRoot, incidentState, baseSha, headSha, c
   mkdirSync(stateRoot, { recursive: true, mode: 0o700 });
   mkdirSync(summariesRoot, { recursive: true, mode: 0o700 });
   const roles = [
-    ["original", "run-original", "supervisor-original", { issue: { number: 7 }, runId: "run-original", index: 1 }],
+    ["original", "run-original", "supervisor-original", {
+      issue: { number: 7 }, runId: "run-original", index: 1, branchName: "feature/issue-7",
+      baseOriginMainSha: baseSha, runnerCreatedCommitSha: headSha, outcome: "validation_failed",
+    }],
     ["failed", "run-failed", "supervisor-failed", {
-      issue: { number: 7 }, runId: "run-failed",
-      recovery: { terminalDerivativeProjection: { ok: true, boundArtifacts: [{ role: "rawRecovery", sha256: "6".repeat(64) }] } },
+      issue: { number: 7 }, runId: "run-failed", branchName: "feature/issue-7",
+      baseOriginMainSha: baseSha, runnerCreatedCommitSha: headSha, outcome: "blocked_recovery_state",
+      recovery: {
+        state: runRecoveryIdentity(incidentState, baseSha, headSha),
+        target: runRecoveryIdentity(incidentState, baseSha, headSha),
+        terminalDerivativeProjection: { ok: true, boundArtifacts: [{ role: "rawRecovery", sha256: "6".repeat(64) }] },
+      },
     }],
     ["consumed", "run-consumed", "supervisor-consumed", {
       issue: { number: 7 }, runId: "run-consumed", outcome: "terminal_lifecycle_reconciled", branchName: "feature/issue-7",
+      baseOriginMainSha: baseSha, runnerCreatedCommitSha: headSha,
+      recovery: {
+        state: runRecoveryIdentity(incidentState, baseSha, headSha),
+        lifecycle: { state: { controller: {
+          localSourceChangingRoundsPerEpoch: 0, githubTriggeredFixEpochsPerPr: 0,
+          lifetimeLocalSourceChangingRounds: 0,
+        } } },
+      },
     }],
   ];
   for (const [name, runner, supervisor, iteration] of roles) {
     writeFileSync(path.join(stateRoot, `${name}.json`), JSON.stringify(iteration), { mode: 0o600 });
-    writeFileSync(path.join(summariesRoot, `${runner}.json`), JSON.stringify({ supervisorRunId: supervisor }), { mode: 0o600 });
+    writeFileSync(path.join(summariesRoot, `${runner}.json`), JSON.stringify({
+      runId: runner, supervisorRunId: supervisor, processedIssueNumbers: [7], iterations: [iteration],
+    }), { mode: 0o600 });
     const key = sha256(supervisor);
     const specRoot = path.join(logsRoot, "supervisor", "run-specs", key);
     const runRoot = path.join(logsRoot, "supervisor", "runs", key);
     mkdirSync(specRoot, { recursive: true, mode: 0o700 });
     mkdirSync(runRoot, { recursive: true, mode: 0o700 });
-    writeFileSync(path.join(specRoot, "spec.json"), JSON.stringify({ runId: supervisor }), { mode: 0o600 });
+    const failedSpec = name === "failed" ? {
+      sourceIssueNumber: 7, sourceBranchName: "feature/issue-7",
+      parentRunnerRunId: "run-original", parentSupervisorRunId: "supervisor-original",
+      recoveryOnlyTarget: { ...runRecoveryIdentity(incidentState, baseSha, headSha), terminalValidationRetryDerivativeNoPr: true },
+    } : {};
+    writeFileSync(path.join(specRoot, "spec.json"), JSON.stringify({ runId: supervisor, ...failedSpec }), { mode: 0o600 });
     writeFileSync(path.join(runRoot, "state.json"), JSON.stringify({ runId: supervisor, runnerRunId: runner }), { mode: 0o600 });
-    writeFileSync(path.join(runRoot, "heartbeat.json"), JSON.stringify({ runnerRunId: runner }), { mode: 0o600 });
+    writeFileSync(path.join(runRoot, "heartbeat.json"), JSON.stringify({ runId: supervisor, runnerRunId: runner }), { mode: 0o600 });
   }
+}
+
+function runRecoveryIdentity(incidentState, baseSha, headSha) {
+  return {
+    taskKey: incidentState.taskKey, issueNumber: 7, branchName: "feature/issue-7", baseSha,
+    currentHeadSha: headSha, runnerRunId: "run-original", supervisorRunId: "supervisor-original",
+  };
 }
 
 function createFakeRemoteReaders(root) {
@@ -380,6 +413,47 @@ test("live Git source authentication rejects dirty worktrees and transport autho
     execFileSync("/usr/bin/git", ["config", "filter.fixture.clean", "malicious"], { cwd: transport.repositoryRoot });
     assert.equal(inspect(transport).reasonCode, "semantic_deployment_live_source_revalidation_failed");
   } finally { transport.cleanup(); }
+});
+
+test("live Git source authentication rejects replacement, graft, and alternate object authority", () => {
+  for (const mutate of [
+    (f) => execFileSync("/usr/bin/git", ["replace", f.claims.baseSha, f.claims.headSha], { cwd: f.repositoryRoot }),
+    (f) => {
+      mkdirSync(path.join(f.repositoryRoot, ".git", "info"), { recursive: true });
+      writeFileSync(path.join(f.repositoryRoot, ".git", "info", "grafts"), `${f.claims.baseSha}\n`, { mode: 0o600 });
+    },
+    (f) => {
+      mkdirSync(path.join(f.repositoryRoot, ".git", "objects", "info"), { recursive: true });
+      writeFileSync(path.join(f.repositoryRoot, ".git", "objects", "info", "alternates"), "/tmp/foreign\n", { mode: 0o600 });
+    },
+    (f) => {
+      mkdirSync(path.join(f.repositoryRoot, ".git", "objects", "info"), { recursive: true });
+      writeFileSync(path.join(f.repositoryRoot, ".git", "objects", "info", "http-alternates"), "https://invalid.example/objects\n", { mode: 0o600 });
+    },
+  ]) {
+    const fixture = makeFixture();
+    try {
+      mutate(fixture);
+      assert.equal(inspect(fixture).reasonCode, "semantic_deployment_live_source_revalidation_failed");
+    } finally { fixture.cleanup(); }
+  }
+});
+
+test("run-role rereads reject unrelated candidate, task lineage, and summary identities", () => {
+  for (const [artifact, mutate] of [
+    ["state/failed.json", (value) => { value.branchName = "feature/unrelated"; }],
+    ["state/consumed.json", (value) => { value.recovery.state.taskKey = "20260101T999999"; }],
+    ["summaries/run-failed.json", (value) => { value.runId = "run-unrelated"; }],
+  ]) {
+    const fixture = makeFixture();
+    try {
+      const target = path.join(fixture.projectAuthority.logsRoot, artifact);
+      const value = JSON.parse(readFileSync(target, "utf8"));
+      mutate(value);
+      writeFileSync(target, JSON.stringify(value), { mode: 0o600 });
+      assert.equal(inspect(fixture).reasonCode, "semantic_deployment_live_source_revalidation_failed");
+    } finally { fixture.cleanup(); }
+  }
 });
 
 test("semantic deployment admission rejects missing, duplicate, wrong, or drifted source authority", () => {

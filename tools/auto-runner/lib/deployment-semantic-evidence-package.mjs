@@ -196,6 +196,7 @@ export function authenticateSemanticDeploymentEvidencePackage(documentPath) {
   authenticatePackageParent(configRoot);
   if (!packageBasenamePattern.test(path.basename(packageRoot))) throw new Error("semantic evidence package root name invalid");
   authenticateDirectory(packageRoot, 0o700);
+  const packageRootBefore = lstatSync(packageRoot);
   const expectedNames = [
     semanticDeploymentEvidenceDocumentName,
     semanticDeploymentEvidencePackageManifestName,
@@ -226,7 +227,11 @@ export function authenticateSemanticDeploymentEvidencePackage(documentPath) {
     throw new Error("semantic evidence package aggregate mismatch");
   }
   const documentArtifact = authenticated.get(semanticDeploymentEvidenceDocumentName);
-  return deepFreeze({
+  const packageRootAfter = lstatSync(packageRoot);
+  if (memberIdentity(packageRootBefore) !== memberIdentity(packageRootAfter) || realpathSync(packageRoot) !== packageRoot) {
+    throw new Error("semantic evidence package directory changed during authentication");
+  }
+  const result = {
     config: parseCanonicalJson(documentArtifact.bytes),
     evidence: {
       strategy: "O_NOFOLLOW",
@@ -239,7 +244,12 @@ export function authenticateSemanticDeploymentEvidencePackage(documentPath) {
       packageManifestDigest: manifestArtifact.sha256,
       memberManifestDigest,
     },
+  };
+  Object.defineProperty(result.evidence, "memberDigests", {
+    value: deepFreeze(actualNames.map((name) => ({ name, sha256: authenticated.get(name).sha256 }))),
+    enumerable: false,
   });
+  return deepFreeze(result);
 }
 
 function extractProjection(authorityClass, reader, context) {
@@ -363,11 +373,37 @@ function validatePlan(plan) {
       || !Array.isArray(plan.members) || plan.members.length !== semanticRecoveryAuthorityClasses.length + 2) {
     throw new Error("semantic evidence package plan invalid");
   }
+  if (!packageBasenamePattern.test(String(plan.packageBasename || ""))
+      || plan.packageRoot !== path.join(plan.configRoot, plan.packageBasename)
+      || plan.incomingRoot !== path.join(plan.configRoot, `${plan.packageBasename}.incoming`)
+      || plan.retiredRoot !== path.join(plan.configRoot, `${plan.packageBasename}.retired`)
+      || plan.documentPath !== path.join(plan.packageRoot, semanticDeploymentEvidenceDocumentName)) {
+    throw new Error("semantic evidence package plan paths invalid");
+  }
+  const expectedNames = [semanticDeploymentEvidenceDocumentName, semanticDeploymentEvidencePackageManifestName,
+    ...semanticRecoveryAuthorityClasses.map(sourceFilename)].sort();
+  if (canonicalJson(plan.members.map(({ name }) => name).sort()) !== canonicalJson(expectedNames)
+      || plan.members.some((member) => !Buffer.isBuffer(member.bytes) || member.sha256 !== sha256(member.bytes))) {
+    throw new Error("semantic evidence package plan members invalid");
+  }
   authenticatePackageParent(plan.configRoot);
 }
 
 function packageResult(plan, action) {
   const authenticated = authenticateSemanticDeploymentEvidencePackage(plan.documentPath);
+  const plannedDigests = plan.members.map(({ name, sha256: digest }) => ({ name, sha256: digest }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const authenticatedDigests = [...authenticated.evidence.memberDigests]
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const plannedDocument = plan.members.find(({ name }) => name === semanticDeploymentEvidenceDocumentName);
+  if (authenticated.evidence.packageRoot !== plan.packageRoot
+      || authenticated.evidence.packageAggregateDigest !== plan.packageAggregateDigest
+      || authenticated.evidence.packageManifestDigest !== plan.packageManifestDigest
+      || authenticated.evidence.memberManifestDigest !== plan.memberManifestDigest
+      || authenticated.evidence.sha256 !== plannedDocument?.sha256
+      || canonicalJson(authenticatedDigests) !== canonicalJson(plannedDigests)) {
+    throw new Error("semantic evidence package committed bytes differ from plan");
+  }
   return deepFreeze({
     ok: true,
     action,

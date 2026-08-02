@@ -4,7 +4,11 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { authenticateAssociatedRecoverableState, createInitialRecoveryState } from "../lib/recovery-state.mjs";
+import {
+  associatedRecoveryDiscoveryIsStable,
+  authenticateAssociatedRecoverableState,
+  createInitialRecoveryState,
+} from "../lib/recovery-state.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -81,6 +85,32 @@ test("incident and associated path, SHA, and byte drift fail closed", () => {
     assert.equal(f.invoke({ associatedRecoverySha256: "0".repeat(64) }).ok, false);
     assert.equal(f.invoke({ associatedRecoveryPath: f.incidentPath }).ok, false);
   } finally { f.cleanup(); }
+});
+
+test("associated recovery discovery binds the listed state and descriptor-stable reread", () => {
+  const state = { taskKey: "20260101T01", issue: { number: 7 } };
+  const associated = {
+    path: "/logs/recovery/associated.json", sha256: "a".repeat(64), stateDigest: "b".repeat(64),
+    artifactIdentity: "1:2:3", state,
+  };
+  assert.equal(associatedRecoveryDiscoveryIsStable({
+    associated, listedPath: associated.path, listedState: structuredClone(state),
+    recheckedAssociated: structuredClone(associated),
+  }), true);
+  for (const mutate of [
+    (input) => { input.listedPath = "/logs/recovery/replaced.json"; },
+    (input) => { input.listedState.issue.number = 8; },
+    (input) => { input.recheckedAssociated.artifactIdentity = "1:9:3"; },
+    (input) => { input.recheckedAssociated.sha256 = "c".repeat(64); },
+    (input) => { input.recheckedAssociated.stateDigest = "d".repeat(64); },
+  ]) {
+    const input = {
+      associated, listedPath: associated.path, listedState: structuredClone(state),
+      recheckedAssociated: structuredClone(associated),
+    };
+    mutate(input);
+    assert.equal(associatedRecoveryDiscoveryIsStable(input), false);
+  }
 });
 
 test("task, issue, run, branch, base, head, creation, and marker lineage drift fail closed", () => {

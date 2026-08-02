@@ -113,6 +113,24 @@ test("exact rerun adopts final package without changing any member bytes", () =>
   } finally { f.cleanup(); }
 });
 
+test("adoption result remains bound to every digest in the planned bytes", () => {
+  const f = fixture();
+  try {
+    const plan = f.makePlan();
+    createOrAdoptSemanticDeploymentEvidencePackage(plan);
+    for (const drift of [
+      { packageAggregateDigest: "0".repeat(64) },
+      { packageManifestDigest: "1".repeat(64) },
+      { memberManifestDigest: "2".repeat(64) },
+    ]) {
+      assert.throws(() => createOrAdoptSemanticDeploymentEvidencePackage({ ...plan, ...drift }), /differ from plan/);
+    }
+    const members = plan.members.map((member) => member.name === "deployment-evidence.json"
+      ? { ...member, sha256: "3".repeat(64) } : member);
+    assert.throws(() => createOrAdoptSemanticDeploymentEvidencePackage({ ...plan, members }), /plan members invalid/);
+  } finally { f.cleanup(); }
+});
+
 test("an exact crash-staged incoming package is adopted by one directory rename", () => {
   const f = fixture();
   try {
@@ -252,6 +270,8 @@ function completeClaims(root) {
 
 function productionReaderContext(claims) {
   const artifact = (name, digest = sha256(name)) => ({ path: `/authenticated/${name}`, sha256: digest, identity: `fixture:${name}` });
+  const budgetArtifact = artifact("budget");
+  const lifecycleArtifact = artifact("lifecycle");
   const role = (prefix, runner, supervisor, values) => ({
     runner, supervisor,
     spec: artifact(`${prefix}-spec`, values.spec),
@@ -276,12 +296,23 @@ function productionReaderContext(claims) {
     }),
   };
   runArtifacts.failed.iteration.value = { recovery: { terminalDerivativeProjection: { ok: true } } };
-  runArtifacts.consumed.iteration.value = { outcome: "terminal_lifecycle_reconciled" };
+  runArtifacts.consumed.iteration.value = {
+    outcome: "terminal_lifecycle_reconciled",
+    recovery: {
+      state: { taskKey: claims.taskKey, issueNumber: claims.issueNumber },
+      lifecycle: { state: { controller: {
+        localSourceChangingRoundsPerEpoch: claims.localSourceChangingRounds,
+        githubTriggeredFixEpochsPerPr: claims.githubTriggeredFixEpochs,
+        lifetimeLocalSourceChangingRounds: claims.lifetimeLocalSourceChangingRounds,
+      } } },
+    },
+  };
   const evidence = Object.fromEntries(semanticRecoveryAuthorityClasses.map((authorityClass) => [authorityClass, [artifact(authorityClass)]]));
   return {
     repository: claims.repository,
     incident: {
       issue: { number: claims.issueNumber }, taskKey: claims.taskKey,
+      pr: { number: null }, mutationMarkers: {},
       ordinaryContinuation: {
         effects: {}, sourceFailureHistory: [{}], processedGithubFindingFingerprints: [],
         sourceFailureBatch: { findings: [{ sourceFixEligible: false, retryable: false, classification: "unsafe_or_ambiguous" }] },
@@ -294,12 +325,31 @@ function productionReaderContext(claims) {
       changedFilesDigest: claims.changedFilesDigest, diffDigest: claims.diffDigest,
     },
     lifecycleState: {
+      logicalTask: {
+        issueNumber: claims.issueNumber, taskKey: claims.taskKey, claimIdentity: claims.claimIdentity,
+        runId: claims.originalRunnerRunId, supervisorRunId: claims.originalSupervisorRunId,
+        chargeMarkerRef: budgetArtifact.path,
+      },
       sessions: { current: claims.lifecycleSessionId },
       mutationAuthority: { generation: claims.lifecycleMutationGeneration },
-      controller: { phase: claims.earliestSafePhase },
+      reservations: { logical_task_charge: { [claims.chargeId]: {} } },
+      controller: {
+        phase: claims.earliestSafePhase,
+        localSourceChangingRoundsPerEpoch: claims.localSourceChangingRounds,
+        githubTriggeredFixEpochsPerPr: claims.githubTriggeredFixEpochs,
+        lifetimeLocalSourceChangingRounds: claims.lifetimeLocalSourceChangingRounds,
+      },
       recovery: { status: "pending", phaseAfter: claims.earliestSafePhase, effectsAlreadyPresent: { mutation: false, commit: true } },
     },
-    budgetState: { acceptedLogicalTaskCount: claims.acceptedLogicalTasks, charges: { [claims.chargeId]: {} } },
+    lifecycleArtifact,
+    budgetArtifact,
+    budgetState: {
+      acceptedLogicalTaskCount: claims.acceptedLogicalTasks,
+      charges: { [claims.chargeId]: {
+        chargeId: claims.chargeId, identityClass: "accepted_issue_claim",
+        identity: { repository: claims.repository, issueNumber: claims.issueNumber, claimIdentity: claims.claimIdentity },
+      } },
+    },
     counters: {
       localSourceChangingRoundsPerEpoch: claims.localSourceChangingRounds,
       githubTriggeredFixEpochsPerPr: claims.githubTriggeredFixEpochs,
