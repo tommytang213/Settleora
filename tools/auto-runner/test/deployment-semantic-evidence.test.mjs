@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,16 @@ const canonicalize = (value) => Array.isArray(value)
     ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]))
     : value;
 const canonicalJson = (value) => JSON.stringify(canonicalize(value));
+
+function snapshotFiles(root, relative = "") {
+  return readdirSync(path.join(root, relative), { withFileTypes: true }).flatMap((entry) => {
+    const child = path.join(relative, entry.name);
+    if (entry.isDirectory()) return snapshotFiles(root, child);
+    const filePath = path.join(root, child);
+    const info = statSync(filePath);
+    return [{ path: child, mode: info.mode & 0o777, sha256: sha256(readFileSync(filePath)) }];
+  }).sort((left, right) => left.path.localeCompare(right.path));
+}
 
 function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutator = null } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-semantic-deploy-"));
@@ -268,6 +278,27 @@ test("quiescence proof equality rejects semantic evidence drift before exchange"
       sourceSha: "f".repeat(40), quiescence,
       finalQuiescenceVerifier: () => ({ ...quiescence, semanticEvidenceDigest: "0".repeat(64) }),
     }), /quiescence proof changed/);
+  } finally { rmSync(installRoot, { recursive: true, force: true }); fixture.cleanup(); }
+});
+
+test("trusted semantic deployment dry-run is fully non-mutating", () => {
+  const fixture = makeFixture();
+  const installRoot = mkdtempSync(path.join(os.tmpdir(), "settleora-semantic-deploy-dry-run-"));
+  try {
+    const before = snapshotFiles(fixture.root);
+    const quiescence = inspectDeploymentQuiescence(fixture.projectAuthority.logsRoot, {
+      semanticDeploymentEvidence: { document: fixture.document, evidence: fixture.documentEvidence },
+      deploymentProjectAuthority: fixture.projectAuthority,
+      repositoryRoot: fixture.projectAuthority.repoRoot,
+    });
+    const result = deployRuntimeBundle({
+      sourceRoot: path.resolve("tools/auto-runner"), destination: path.join(installRoot, "runtime"),
+      repoRoot: fixture.projectAuthority.repoRoot, logsRoot: fixture.projectAuthority.logsRoot,
+      sourceSha: "f".repeat(40), dryRun: true, quiescence,
+    });
+    assert.equal(result.dryRun, true);
+    assert.equal(existsSync(path.join(installRoot, "runtime")), false);
+    assert.deepEqual(snapshotFiles(fixture.root), before);
   } finally { rmSync(installRoot, { recursive: true, force: true }); fixture.cleanup(); }
 });
 

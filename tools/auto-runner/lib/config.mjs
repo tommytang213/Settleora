@@ -622,22 +622,7 @@ export function loadDeploymentProjectAuthority({
   const approved = readExternalProfileConfig(approvedProfilePath);
   const config = { ...defaultConfig, ...loaded.config };
   const profile = { ...defaultConfig, ...approved.config };
-  if (config.runtimeMode !== "external" || profile.runtimeMode !== "external") {
-    throw new Error("trusted deployment requires external config and approved profile");
-  }
-  for (const field of ["projectId", "repositorySlug", "repoRoot", "runtimeRoot", "logsRoot"]) {
-    if (config[field] !== profile[field]) throw new Error(`deployment config/profile ${field} mismatch`);
-  }
-  const comparableConfig = structuredClone(config);
-  const comparableProfile = structuredClone(profile);
-  delete comparableConfig.runtimeBundleDigest;
-  delete comparableProfile.runtimeBundleDigest;
-  if (canonicalJson(comparableConfig) !== canonicalJson(comparableProfile)) {
-    throw new Error("deployment config/profile topology mismatch");
-  }
-  if (config.repoRoot !== repoRoot) throw new Error("deployment repoRoot must equal authenticated config repoRoot");
-  if (config.runtimeRoot !== runtimeRoot) throw new Error("deployment destination must equal authenticated config runtimeRoot");
-  if (logsRoot != null && config.logsRoot !== logsRoot) throw new Error("deployment logsRoot must equal authenticated config logsRoot");
+  assertDeploymentProjectTopology({ config, profile, repoRoot, runtimeRoot, logsRoot });
   const runtimeIdentity = validateProjectRuntimeIdentity(config, { actualRuntimeRoot: runtimeRoot, trusted: true });
   const runtimeManifest = verifyRuntimeBundle(runtimeRoot, config.runtimeBundleDigest);
   verifyProjectNamespaceMarker({ ...config, runtimeIdentity });
@@ -679,6 +664,26 @@ export function loadDeploymentProjectAuthority({
   });
 }
 
+export function assertDeploymentProjectTopology({ config, profile, repoRoot, runtimeRoot, logsRoot } = {}) {
+  if (config.runtimeMode !== "external" || profile.runtimeMode !== "external") {
+    throw new Error("trusted deployment requires external config and approved profile");
+  }
+  for (const field of ["projectId", "repositorySlug", "repoRoot", "runtimeRoot", "logsRoot"]) {
+    if (config[field] !== profile[field]) throw new Error(`deployment config/profile ${field} mismatch`);
+  }
+  const comparableConfig = structuredClone(config);
+  const comparableProfile = structuredClone(profile);
+  delete comparableConfig.runtimeBundleDigest;
+  delete comparableProfile.runtimeBundleDigest;
+  if (canonicalJson(comparableConfig) !== canonicalJson(comparableProfile)) {
+    throw new Error("deployment config/profile topology mismatch");
+  }
+  if (config.repoRoot !== repoRoot) throw new Error("deployment repoRoot must equal authenticated config repoRoot");
+  if (config.runtimeRoot !== runtimeRoot) throw new Error("deployment destination must equal authenticated config runtimeRoot");
+  if (logsRoot != null && config.logsRoot !== logsRoot) throw new Error("deployment logsRoot must equal authenticated config logsRoot");
+  return true;
+}
+
 export function readOwnerControlledExternalJson(filePath) {
   const loaded = readExternalProfileConfig(filePath);
   if (createHash("sha256").update(canonicalJson(loaded.config)).digest("hex") !== loaded.evidence.sha256) {
@@ -687,19 +692,50 @@ export function readOwnerControlledExternalJson(filePath) {
   return deepFreeze({ document: structuredClone(loaded.config), evidence: structuredClone(loaded.evidence) });
 }
 
-function authenticateDeploymentArtifact(filePath, field) {
+export function authenticateDeploymentArtifact(filePath, field = "deployment artifact") {
   const lexical = path.resolve(filePath);
   if (lexical !== filePath || realpathSync(lexical) !== lexical) throw new Error(`${field} path is not canonical`);
-  const info = lstatSync(lexical);
+  assertDeploymentArtifactAncestors(lexical, field);
+  const before = lstatSync(lexical);
+  const fd = openSync(lexical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  try {
+    const opened = fstatSync(fd);
+    const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (!sameFileIdentity(before, opened) || !opened.isFile() || before.isSymbolicLink() || opened.nlink !== 1
+        || (opened.mode & 0o022) !== 0 || (currentUid !== null && opened.uid !== currentUid && opened.uid !== 0)
+        || opened.size < 1 || opened.size > maxTrustedConfigBytes) {
+      throw new Error(`${field} is not a trusted deployment artifact`);
+    }
+    const bytes = readFileSync(fd);
+    const after = fstatSync(fd);
+    const pathAfter = lstatSync(lexical);
+    if (deploymentArtifactStatIdentity(opened) !== deploymentArtifactStatIdentity(after)
+        || deploymentArtifactStatIdentity(opened) !== deploymentArtifactStatIdentity(pathAfter)
+        || realpathSync(lexical) !== lexical || bytes.length !== opened.size) {
+      throw new Error(`${field} changed during authentication`);
+    }
+    return Object.freeze({ path: lexical, sha256: createHash("sha256").update(bytes).digest("hex"), byteCount: bytes.length });
+  } finally { closeSync(fd); }
+}
+
+function assertDeploymentArtifactAncestors(filePath, field) {
   const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
-  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1
-      || (info.mode & 0o022) !== 0 || (currentUid !== null && info.uid !== currentUid && info.uid !== 0)
-      || info.size < 1 || info.size > maxTrustedConfigBytes) {
-    throw new Error(`${field} is not a trusted deployment artifact`);
+  const parent = path.dirname(filePath);
+  const segments = parent.split(path.sep).filter(Boolean);
+  let current = path.parse(parent).root;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    const info = lstatSync(current);
+    if (!info.isDirectory() || info.isSymbolicLink() || realpathSync(current) !== current
+        || (info.mode & 0o022) !== 0
+        || (currentUid !== null && info.uid !== currentUid && info.uid !== 0)) {
+      throw new Error(`${field} ancestor is not owner-controlled`);
+    }
   }
-  const bytes = readFileSync(lexical);
-  if (bytes.length !== info.size) throw new Error(`${field} changed during authentication`);
-  return Object.freeze({ path: lexical, sha256: createHash("sha256").update(bytes).digest("hex"), byteCount: bytes.length });
+}
+
+function deploymentArtifactStatIdentity(info) {
+  return [info.dev, info.ino, info.size, info.mode, info.uid, info.nlink, info.mtimeMs, info.ctimeMs].join(":");
 }
 
 function canonicalJson(value) {

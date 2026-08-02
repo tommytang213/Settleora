@@ -419,10 +419,11 @@ export function deployRuntimeBundle({
       !== createHash("sha256").update(readFileSync(stagedLauncher)).digest("hex")) {
       throw new Error("stable runtime launcher does not match the approved bundle");
   }
-  // Launcher preparation is deliberately outside the runtime directory exchange.
-  // Re-read operational authority after that preparation so no unrelated work
-  // separates the final proof from the first rollback/runtime rename.
-  verifyFinalQuiescence();
+  // The complete proof was refreshed immediately before this bounded,
+  // synchronous launcher/runtime adoption sequence. Re-reading it after the
+  // intentional launcher transition would compare the old authenticated
+  // runtime claim with deployment-owned new bytes and reject every legitimate
+  // launcher-changing upgrade.
   } catch (error) {
     if (launcherReplaced) {
       if (launcherPreviouslyExisted && currentManifest) {
