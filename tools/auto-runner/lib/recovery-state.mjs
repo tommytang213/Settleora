@@ -342,6 +342,11 @@ export function listRecoverableRecoveryStates(config, { afterInitialRead = null 
   }
   const root = path.join(config.logsRoot, recoveryStateRootName);
   if (!existsSync(root)) return [];
+  // Preserve ordinary discovery semantics when the recovery namespace has no
+  // state artifacts (for example, only a pre-effect-intents child exists).
+  // The deployment-only associated-state path always has selected JSON
+  // artifacts and therefore continues through both authenticated passes.
+  if (!readdirSync(root).some((name) => name.endsWith(".json"))) return [];
   const readPass = () => {
     const rootInfo = lstatSync(root);
     if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0
