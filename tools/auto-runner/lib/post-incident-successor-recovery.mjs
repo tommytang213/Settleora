@@ -62,8 +62,8 @@ export function corroborateSemanticRecoveryEvidenceForDeployment(packet, adapter
     "lifecycleSuccessorSession", "sources",
   ];
   const expectedArtifactRoles = [
-    "approved_runtime_profile", "current_incident_root", "health_unit", "installed_runtime_manifest",
-    "runtime_approval", "runtime_config", "runtime_launcher",
+    "approved_runtime_profile", "associated_recoverable_state", "current_incident_root", "health_unit",
+    "installed_runtime_manifest", "runtime_approval", "runtime_config", "runtime_launcher",
   ];
   if (!plainObject(packet) || canonicalJson(Object.keys(packet).sort()) !== canonicalJson(expectedPacketKeys)
       || !Array.isArray(packet.artifacts) || packet.artifacts.length !== expectedArtifactRoles.length
@@ -422,6 +422,14 @@ export function classifyRecoveryOverwriteIncident({ recoveryPath, state, authent
 }
 
 export function inspectConfiguredRecoveryOverwriteIncident(authenticatedProvenance) {
+  return inspectConfiguredRecoveryOverwriteIncidentWithRunRole(authenticatedProvenance, "consumed");
+}
+
+export function inspectConfiguredRecoveryOverwriteIncidentForDeployment(authenticatedProvenance) {
+  return inspectConfiguredRecoveryOverwriteIncidentWithRunRole(authenticatedProvenance, "original");
+}
+
+function inspectConfiguredRecoveryOverwriteIncidentWithRunRole(authenticatedProvenance, incidentRunRole) {
   if (!authenticatedProvenance) return null;
   let authenticated;
   try { authenticated = authenticateOpaqueArtifact(normalizeArtifact(authenticatedProvenance.incidentArtifact)); }
@@ -429,9 +437,17 @@ export function inspectConfiguredRecoveryOverwriteIncident(authenticatedProvenan
   let state;
   try { state = JSON.parse(authenticated.authenticatedBytes.toString("utf8")); }
   catch { return { quarantined: true, readOnly: true, reasonCode: "incident_state_parse_failed", allowedAction: "none", state: null }; }
+  const classificationProvenance = incidentRunRole === "original"
+    ? {
+      ...authenticatedProvenance,
+      consumedRunnerRunId: authenticatedProvenance.originalRunnerRunId,
+      consumedSupervisorRunId: authenticatedProvenance.originalSupervisorRunId,
+    }
+    : authenticatedProvenance;
   return {
-    ...classifyRecoveryOverwriteIncident({ recoveryPath: authenticated.path, state, authenticatedProvenance }),
+    ...classifyRecoveryOverwriteIncident({ recoveryPath: authenticated.path, state, authenticatedProvenance: classificationProvenance }),
     state,
+    ...(incidentRunRole === "original" ? { incidentRunRole } : {}),
     incident: { path: authenticated.path, sha256: authenticated.sha256 },
     provenance: {
       repository: authenticatedProvenance.repository,

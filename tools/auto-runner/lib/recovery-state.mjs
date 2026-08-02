@@ -1,5 +1,18 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -408,7 +421,7 @@ function isProvisionalTaskKey(value) {
   return /^\d{8}T\d{2}$/.test(String(value || ""));
 }
 
-function isExactRecoverySuccessor(older, newer) {
+export function isExactRecoverySuccessor(older, newer) {
   const reportPath = newer.expectedReportPaths?.repoReportPath;
   const promptPath = newer.expectedReportPaths?.promptPath;
   return /^\d{8}T\d{6}$/.test(String(newer.taskKey || ""))
@@ -429,6 +442,162 @@ function isExactRecoverySuccessor(older, newer) {
     && JSON.stringify(newer.mutationMarkers?.claim || {}) === JSON.stringify(older.mutationMarkers?.claim || {})
     && JSON.stringify(newer.mutationMarkers?.logical_task_charge || {}) === JSON.stringify(older.mutationMarkers?.logical_task_charge || {})
     && JSON.stringify(newer.mutationMarkers?.branch_ownership_created || {}) === JSON.stringify(older.mutationMarkers?.branch_ownership_created || {});
+}
+
+export function authenticateAssociatedRecoverableState({
+  config,
+  incidentPath,
+  incidentSha256,
+  associatedRecoveryPath,
+  associatedRecoverySha256,
+} = {}) {
+  const fail = (reasonCode) => ({ ok: false, reasonCode });
+  try {
+    const recoveryRoot = realpathSync(path.join(config?.logsRoot || "", recoveryStateRootName));
+    if (recoveryRoot !== path.resolve(config.logsRoot, recoveryStateRootName)) {
+      return fail("associated_recovery_root_noncanonical");
+    }
+    const incident = authenticateRecoveryArtifact(recoveryRoot, incidentPath, incidentSha256);
+    const associated = authenticateRecoveryArtifact(recoveryRoot, associatedRecoveryPath, associatedRecoverySha256);
+    if (incident.path === associated.path) return fail("associated_recovery_incident_path_conflated");
+    const recoverable = listRecoverableRecoveryStates(config);
+    if (recoverable.length !== 1) return fail("associated_recovery_count_invalid");
+    if (recoverable[0].statePath !== associated.path) return fail("associated_recovery_selector_mismatch");
+    if (!isExactRecoverySuccessor(associated.state, incident.state)) {
+      return fail("associated_recovery_semantic_lineage_mismatch");
+    }
+    const chargeIds = Object.keys(incident.state?.mutationMarkers?.logical_task_charge || {});
+    if (chargeIds.length !== 1
+        || Object.keys(associated.state?.mutationMarkers?.logical_task_charge || {}).length !== 1
+        || chargeIds[0] !== Object.keys(associated.state.mutationMarkers.logical_task_charge)[0]) {
+      return fail("associated_recovery_charge_lineage_mismatch");
+    }
+    const incidentIdentity = incident.state?.ordinaryContinuation?.identity;
+    const counters = incident.state?.ordinaryContinuation?.counters;
+    const noEffectPosture = {
+      remoteHeadAbsent: incident.state?.branch?.expectedRemoteHeadSha === null
+        && associated.state?.branch?.expectedRemoteHeadSha === null,
+      prAbsent: [incident.state, associated.state].every((state) => state?.pr?.number === null
+        && state?.pr?.url === null && state?.pr?.headSha === null),
+      pushMarkerAbsent: [incident.state, associated.state]
+        .every((state) => Object.keys(state?.mutationMarkers?.push || {}).length === 0),
+      mergeMarkerAbsent: [incident.state, associated.state]
+        .every((state) => Object.keys(state?.mutationMarkers?.merge || {}).length === 0),
+    };
+    if (!incidentIdentity || !counters
+        || incidentIdentity.baseSha !== incident.state.branch.baseSha
+        || incidentIdentity.headSha !== incident.state.branch.currentHeadSha
+        || !/^[a-f0-9]{40}$/u.test(String(incidentIdentity.treeSha || ""))
+        || ![incidentIdentity.changedFilesDigest, incidentIdentity.diffDigest].every((value) => /^[a-f0-9]{64}$/u.test(String(value || "")))
+        || counters.acceptedLogicalTasks !== 1
+        || counters.localSourceChangingRoundsPerEpoch !== 0
+        || counters.githubTriggeredFixEpochsPerPr !== 0
+        || counters.lifetimeLocalSourceChangingRounds !== 0
+        || incident.state?.sessionLifecycle?.mutationAuthority?.status !== "terminal"
+        || !Number.isSafeInteger(incident.state?.sessionLifecycle?.mutationAuthority?.generation)
+        || incident.state.sessionLifecycle.mutationAuthority.generation < 1
+        || associated.state.phase !== "implementation_or_bundle_slice"
+        || associated.state.firstIncompleteAction !== "run_implementation"
+        || associated.state.nextSafeAction !== "run_implementation"
+        || associated.state.stopReason !== null
+        || Object.values(noEffectPosture).some((value) => value !== true)) {
+      return fail("associated_recovery_no_effect_or_candidate_identity_invalid");
+    }
+    const repository = incident.state?.sessionLifecycle?.repository || config.repositorySlug;
+    if (typeof repository !== "string" || repository.toLowerCase() !== String(config.repositorySlug || "").toLowerCase()) {
+      return fail("associated_recovery_repository_identity_mismatch");
+    }
+    const binding = {
+      relationship: "provisional_predecessor_to_terminal_incident_successor",
+      path: associated.path,
+      sha256: associated.sha256,
+      stateDigest: associated.stateDigest,
+      taskKey: associated.state.taskKey,
+      incidentTaskKey: incident.state.taskKey,
+      issueNumber: associated.state.issue.number,
+      claimIdentity: `${repository}#${associated.state.issue.number}`,
+      chargeId: chargeIds[0],
+      branch: associated.state.branch.name,
+      baseSha: associated.state.branch.baseSha,
+      headSha: associated.state.branch.currentHeadSha,
+      candidateHeadSha: incidentIdentity.headSha,
+      candidateTreeSha: incidentIdentity.treeSha,
+      candidateChangedFilesDigest: incidentIdentity.changedFilesDigest,
+      candidateDiffDigest: incidentIdentity.diffDigest,
+      originalRunnerRunId: associated.state.run.runId,
+      originalSupervisorRunId: associated.state.run.supervisorRunId,
+      phase: associated.state.phase,
+      firstIncompleteAction: associated.state.firstIncompleteAction,
+      nextSafeAction: associated.state.nextSafeAction,
+      stopReason: associated.state.stopReason ?? null,
+      lifecycleStatus: incident.state?.sessionLifecycle?.mutationAuthority?.status || null,
+      lifecycleSessionId: incident.state?.sessionLifecycle?.sessions?.current || null,
+      lifecycleMutationGeneration: incident.state?.sessionLifecycle?.mutationAuthority?.generation ?? null,
+      counters: {
+        acceptedLogicalTasks: counters.acceptedLogicalTasks,
+        localSourceChangingRounds: counters.localSourceChangingRoundsPerEpoch,
+        githubTriggeredFixEpochs: counters.githubTriggeredFixEpochsPerPr,
+        lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds,
+      },
+      incident: { path: incident.path, sha256: incident.sha256, stateDigest: incident.stateDigest },
+      noEffectPosture,
+    };
+    const authenticated = {
+      ok: true,
+      reasonCode: "associated_recoverable_state_authenticated",
+      binding: deepFreeze(binding),
+    };
+    Object.defineProperties(authenticated, {
+      associatedState: { value: associated.state, enumerable: false },
+      incidentState: { value: incident.state, enumerable: false },
+    });
+    return Object.freeze(authenticated);
+  } catch {
+    return fail("associated_recovery_authentication_failed");
+  }
+}
+
+function authenticateRecoveryArtifact(recoveryRoot, selectedPath, expectedSha256) {
+  if (!/^[a-f0-9]{64}$/u.test(String(expectedSha256 || ""))) throw new Error("recovery digest invalid");
+  const lexical = path.resolve(String(selectedPath || ""));
+  if (path.dirname(lexical) !== recoveryRoot || realpathSync(lexical) !== lexical) throw new Error("recovery path invalid");
+  const fd = openSync(lexical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  try {
+    const first = fstatSync(fd);
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (!first.isFile() || first.nlink !== 1 || first.size < 1 || first.size > 1024 * 1024
+        || (first.mode & 0o077) !== 0 || (uid !== null && first.uid !== uid)) throw new Error("recovery metadata invalid");
+    const bytes = readFileSync(fd);
+    const second = fstatSync(fd);
+    const pathInfo = lstatSync(lexical);
+    if (recoveryArtifactIdentity(first) !== recoveryArtifactIdentity(second)
+        || recoveryArtifactIdentity(first) !== recoveryArtifactIdentity(pathInfo)
+        || bytes.length !== first.size || realpathSync(lexical) !== lexical) throw new Error("recovery changed");
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    if (sha256 !== expectedSha256) throw new Error("recovery digest mismatch");
+    const state = JSON.parse(bytes.toString("utf8"));
+    if (!validateRecoveryStateShape(state).ok) throw new Error("recovery schema invalid");
+    return {
+      path: lexical,
+      sha256,
+      state: deepFreeze(state),
+      stateDigest: createHash("sha256").update(canonicalRecoveryEvidence(state)).digest("hex"),
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function recoveryArtifactIdentity(info) {
+  return [info.dev, info.ino, info.mode, info.nlink, info.uid, info.gid, info.size, info.mtimeMs, info.ctimeMs].join(":");
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
 }
 
 export function recoverRecoveryState(config, expected = {}) {

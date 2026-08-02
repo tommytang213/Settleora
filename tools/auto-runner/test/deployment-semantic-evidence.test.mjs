@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { inspectSemanticIncidentForDeployment } from "../lib/deployment-semantic-evidence.mjs";
-import { createInitialRecoveryState } from "../lib/recovery-state.mjs";
+import { authenticateAssociatedRecoverableState, createInitialRecoveryState } from "../lib/recovery-state.mjs";
 import { deployRuntimeBundle, inspectDeploymentQuiescence } from "../lib/runtime-bundle.mjs";
 import {
   semanticRecoveryAuthorityClasses,
@@ -42,6 +42,7 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
   mkdirSync(recoveryRoot, { recursive: true, mode: 0o700 });
   const paths = {
     incident: path.join(recoveryRoot, "incident.json"),
+    associatedRecovery: path.join(recoveryRoot, "associated.json"),
     runtimeManifest: path.join(root, "runtime-manifest.json"),
     runtimeConfig: path.join(configRoot, "runtime.json"),
     approvedProfile: path.join(configRoot, "approved.json"),
@@ -50,12 +51,38 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
     healthUnit: path.join(root, "health.service"),
   };
   const incidentState = createInitialRecoveryState({
-    taskKey: "task-1", issue: { number: 7, title: "Fixture", url: "https://example.test/issues/7" },
-    runId: "run-consumed", supervisorRunId: "supervisor-consumed", branchName: "feature/issue-7",
+    taskKey: "20260101T010101", issue: { number: 7, title: "Fixture", url: "https://example.test/issues/7" },
+    runId: "run-original", supervisorRunId: "supervisor-original", branchName: "feature/issue-7",
     baseSha: "a".repeat(40), currentHeadSha: "b".repeat(40), phase: "implementation_or_bundle_slice", firstIncompleteAction: "implement",
   });
+  const associatedState = createInitialRecoveryState({
+    taskKey: "20260101T01", issue: { number: 7, title: "Fixture", url: "https://example.test/issues/7" },
+    runId: "run-original", supervisorRunId: "supervisor-original", branchName: "feature/issue-7",
+    baseSha: "a".repeat(40), currentHeadSha: "a".repeat(40), phase: "implementation_or_bundle_slice", firstIncompleteAction: "run_implementation",
+  });
+  const markers = {
+    claim: { "issue-7": { status: "completed", target: "https://example.test/issues/7", correlation: "run-original" } },
+    logical_task_charge: { ["c".repeat(64)]: { status: "completed", target: "issue-7", correlation: "c".repeat(64) } },
+    branch_ownership_created: { [`feature/issue-7:${"a".repeat(40)}`]: { status: "completed", target: "feature/issue-7", correlation: "a".repeat(40) } },
+  };
+  incidentState.mutationMarkers = structuredClone(markers);
+  associatedState.mutationMarkers = structuredClone(markers);
+  incidentState.timestamps.createdAt = associatedState.timestamps.createdAt;
+  incidentState.expectedReportPaths = {
+    repoReportPath: path.join(root, `settleora-codex-report-${incidentState.taskKey}-issue-7-fixture.md`),
+    promptPath: path.join(root, `${incidentState.taskKey}-issue-7-fixture.md`),
+  };
+  incidentState.ordinaryContinuation = {
+    identity: { baseSha: "a".repeat(40), headSha: "b".repeat(40), treeSha: "d".repeat(40), changedFilesDigest: "e".repeat(64), diffDigest: "f".repeat(64) },
+    counters: { acceptedLogicalTasks: 1, localSourceChangingRoundsPerEpoch: 0, githubTriggeredFixEpochsPerPr: 0, lifetimeLocalSourceChangingRounds: 0 },
+  };
+  incidentState.sessionLifecycle = { repository: "example/repo", mutationAuthority: { status: "terminal", generation: 2 }, sessions: { current: "session-predecessor" } };
+  incidentState.phase = "stopped";
+  incidentState.firstIncompleteAction = "lifecycle_stopped";
+  incidentState.nextSafeAction = "lifecycle_stopped";
   const bytesByKey = {
     incident: Buffer.from(JSON.stringify(incidentState)),
+    associatedRecovery: Buffer.from(JSON.stringify(associatedState)),
     runtimeManifest: Buffer.from("runtime-manifest"),
     runtimeConfig: Buffer.from("runtime-config"),
     approvedProfile: Buffer.from("approved-profile"),
@@ -66,7 +93,7 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
   for (const [key, target] of Object.entries(paths)) writeFileSync(target, bytesByKey[key], { mode: 0o600 });
   const digests = Object.fromEntries(Object.entries(bytesByKey).map(([key, bytes]) => [key, sha256(bytes)]));
   const claims = {
-    repository: "example/repo", issueNumber: 7, taskKey: "task-1", claimIdentity: "example/repo#7", chargeId: "c".repeat(64),
+    repository: "example/repo", issueNumber: 7, taskKey: "20260101T010101", claimIdentity: "example/repo#7", chargeId: "c".repeat(64),
     originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original",
     failedContinuationRunnerRunId: "run-failed", failedContinuationSupervisorRunId: "supervisor-failed",
     consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed",
@@ -108,6 +135,7 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
       claims: ownedClaims,
       contract: "settleora_semantic_deployment_evidence_source",
       producer: { id: definition.id, version: definition.version },
+      provenanceIdentity: sha256(`${authorityClass}:fixture`),
       repository: claims.repository,
       store: { kind: definition.storeKind, role },
       version: 1,
@@ -118,7 +146,7 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
     sources.push({ authorityClass, store: { kind: definition.storeKind, path: sourcePath, role, sha256: sha256(sourceBytes) } });
   }
   const artifacts = [
-    ["current_incident_root", "incident"], ["installed_runtime_manifest", "runtimeManifest"],
+    ["current_incident_root", "incident"], ["associated_recoverable_state", "associatedRecovery"], ["installed_runtime_manifest", "runtimeManifest"],
     ["runtime_config", "runtimeConfig"], ["approved_runtime_profile", "approvedProfile"],
     ["runtime_approval", "runtimeApproval"], ["runtime_launcher", "runtimeLauncher"], ["health_unit", "healthUnit"],
   ].map(([role, key]) => ({ role, path: paths[key], sha256: digests[key] }));
@@ -156,20 +184,30 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
     originalRunnerRunId: claims.originalRunnerRunId, originalSupervisorRunId: claims.originalSupervisorRunId,
     consumedRunnerRunId: claims.consumedRunnerRunId, consumedSupervisorRunId: claims.consumedSupervisorRunId,
   };
+  const association = authenticateAssociatedRecoverableState({
+    config: { logsRoot, repositorySlug: claims.repository },
+    incidentPath: paths.incident,
+    incidentSha256: digests.incident,
+    associatedRecoveryPath: paths.associatedRecovery,
+    associatedRecoverySha256: digests.associatedRecovery,
+  });
+  assert.equal(association.ok, true, JSON.stringify(association));
   const document = {
     contract: "settleora_semantic_incident_deployment_evidence", version: 1,
     project: { projectId: projectAuthority.projectId, repositorySlug: projectAuthority.repositorySlug, namespace },
     config: { path: paths.runtimeConfig, sha256: digests.runtimeConfig },
     approvedProfile: { path: paths.approvedProfile, sha256: digests.approvedProfile },
     healthUnit: { path: paths.healthUnit, sha256: digests.healthUnit }, target,
+    associatedRecovery: { path: association.binding.path, sha256: association.binding.sha256, stateDigest: association.binding.stateDigest, bindingDigest: sha256(canonicalJson(association.binding)) },
     evidenceRoot, ownerAttestation, authenticatedProvenance: provenance, semanticEvidencePacket: packet,
   };
   documentMutator?.(document);
   const documentEvidence = {
-    strategy: "O_NOFOLLOW", realPath: path.join(configRoot, "deployment-evidence.json"), ownerUid: process.getuid?.() ?? 0,
-    mode: 0o600, sha256: sha256(canonicalJson(document)),
+    strategy: "O_NOFOLLOW", realPath: path.join(evidenceRoot, "deployment-evidence.json"), ownerUid: process.getuid?.() ?? 0,
+    mode: 0o600, sha256: sha256(canonicalJson(document)), packageRoot: evidenceRoot,
+    packageAggregateDigest: "7".repeat(64), packageManifestDigest: "8".repeat(64), memberManifestDigest: "9".repeat(64),
   };
-  const recoverableStates = [{ statePath: paths.incident, issue: { number: 7 }, run: { runId: "run-consumed", supervisorRunId: "supervisor-consumed" } }];
+  const recoverableStates = [{ statePath: paths.associatedRecovery, taskKey: "20260101T01", issue: { number: 7 }, run: { runId: "run-original", supervisorRunId: "supervisor-original" } }];
   return { root, paths, claims, document, documentEvidence, projectAuthority, recoverableStates, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 }
 

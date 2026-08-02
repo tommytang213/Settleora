@@ -1805,15 +1805,34 @@ adoption, and any later product-task continuation remain separate manual
 operations.
 
 Deployment quiescence has a distinct read-only corroboration path for this
-incident class. An owner-controlled canonical evidence document may select the
-same source-owned verifier set and claim-owner matrix, bind an exact target and
-all authenticated incident/runtime artifacts, and prove one unresolved
-associated incident with no active owner or later effect. Its only admitted
-action is runtime deployment quiescence. The path does not inspect or consume
+incident class. Its manual-only preparer derives one deterministic package
+from authenticated config/profile/runtime/health, repository, lifecycle,
+budget, intent, run-role, incident, associated-recovery, and GitHub readers.
+The package is one owner-only direct child of the external profile root with
+exactly one deployment document, eight distinct source projections, and one
+sorted manifest. Planning is non-mutating; separately authorized creation uses
+one fsynced sibling incoming directory and one atomic directory rename, while
+exact final or crash-staged bytes are idempotently adoptable. Contradictory
+final/incoming/retired residue is retained and refused, never cleaned.
+
+The document binds the overwrite incident and the single associated
+recoverable state as different artifacts. The incident remains immutable
+semantic corroboration; the recoverable state remains the operational record
+that causes ordinary deployment refusal. Exact path/SHA/state, provisional to
+full task lineage, issue/claim/charge, branch/base/candidate/tree/diff,
+original/failed/consumed roles, lifecycle generation, counters, phase/actions,
+and no-effect posture must agree. The paths must be distinct. Zero, multiple,
+unrelated, newer, malformed, or drifting recoverable states fail closed.
+
+The package selects the same source-owned verifier set and claim-owner matrix,
+binds an exact target and all authenticated incident/runtime artifacts, and
+proves no active owner or later effect. Its only admitted action is runtime
+deployment quiescence. The path does not inspect or consume
 the protected root grant and cannot invoke successor construction, protected
 persistence, submission, or issue continuation. Initial, post-lock, and
 pre-exchange inspections must reproduce identical document, manifest,
-authority, and semantic evidence digests; any drift fails closed. Legacy exact
+authority, package aggregate/member manifest, associated-state, and semantic
+evidence digests; any drift fails closed. Legacy exact
 preserved recovery and ordinary quiescence remain separate contracts.
 The fixed-profile-root document is the sole deployment-only owner attestation
 and binds exact target, source-manifest, artifact-manifest, and document

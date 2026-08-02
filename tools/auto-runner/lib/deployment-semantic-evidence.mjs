@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   corroborateSemanticRecoveryEvidenceForDeployment,
-  inspectConfiguredRecoveryOverwriteIncident,
+  inspectConfiguredRecoveryOverwriteIncidentForDeployment,
 } from "./post-incident-successor-recovery.mjs";
 import {
   createReadOnlySemanticDeploymentVerifierRegistry,
@@ -12,6 +12,7 @@ import {
   semanticRecoveryVerifierSetDigest,
   semanticRecoveryVerifierSetVersion,
 } from "./semantic-recovery-authority.mjs";
+import { authenticateAssociatedRecoverableState } from "./recovery-state.mjs";
 
 export const semanticDeploymentEvidenceContract = "settleora_semantic_incident_deployment_evidence";
 export const semanticDeploymentEvidenceVersion = 1;
@@ -24,6 +25,7 @@ const semanticDeploymentTargetFields = Object.freeze([
 ]);
 const requiredRuntimeArtifactRoles = Object.freeze({
   current_incident_root: "incident",
+  associated_recoverable_state: "associatedRecovery",
   installed_runtime_manifest: "runtimeManifest",
   runtime_config: "runtimeConfig",
   approved_runtime_profile: "approvedProfile",
@@ -36,21 +38,40 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
   let normalized;
   try { normalized = normalizeSemanticDeploymentEvidenceDocument(document, documentEvidence, projectAuthority); }
   catch { return failed("semantic_deployment_evidence_document_invalid"); }
-  const incident = inspectConfiguredRecoveryOverwriteIncident(normalized.authenticatedProvenance);
+  // The immutable incident retains the original logical-task run identity.
+  // The explicit deployment-only reader preserves the separately corroborated
+  // consumed role while ordinary operational classification stays unchanged.
+  const incident = inspectConfiguredRecoveryOverwriteIncidentForDeployment(normalized.authenticatedProvenance);
   if (!incident?.quarantined || incident.readOnly !== true
       || incident.reasonCode !== "authenticated_recovery_overwrite_incident"
+      || incident.incidentRunRole !== "original"
       || incident.allowedAction !== "semantic_corroboration_only") {
     return failed(incident?.reasonCode || "semantic_deployment_incident_not_admissible");
   }
   if (!Array.isArray(recoverableStates) || recoverableStates.length !== 1) {
     return failed("semantic_deployment_unresolved_recovery_count_invalid");
   }
-  const recovery = recoverableStates[0];
-  if (path.resolve(recovery?.statePath || "") !== incident.incident.path
-      || recovery?.issue?.number !== normalized.authenticatedProvenance.issueNumber
-      || recovery?.run?.runId !== normalized.authenticatedProvenance.consumedRunnerRunId
-      || recovery?.run?.supervisorRunId !== normalized.authenticatedProvenance.consumedSupervisorRunId) {
-    return failed("semantic_deployment_unresolved_recovery_identity_mismatch");
+  let associated;
+  try {
+    associated = authenticateAssociatedRecoverableState({
+      config: { logsRoot: projectAuthority.logsRoot, repositorySlug: projectAuthority.repositorySlug },
+      incidentPath: incident.incident.path,
+      incidentSha256: incident.incident.sha256,
+      associatedRecoveryPath: normalized.associatedRecovery.path,
+      associatedRecoverySha256: normalized.associatedRecovery.sha256,
+    });
+  } catch { return failed("semantic_deployment_associated_recovery_authentication_failed"); }
+  if (!associated.ok
+      || path.resolve(recoverableStates[0]?.statePath || "") !== associated.binding?.path
+      || recoverableStates[0]?.taskKey !== associated.binding?.taskKey
+      || recoverableStates[0]?.issue?.number !== associated.binding?.issueNumber
+      || recoverableStates[0]?.run?.runId !== associated.binding?.originalRunnerRunId
+      || recoverableStates[0]?.run?.supervisorRunId !== associated.binding?.originalSupervisorRunId
+      || associated.binding?.stateDigest !== normalized.associatedRecovery.stateDigest
+      || digest(canonicalJson(associated.binding)) !== normalized.associatedRecovery.bindingDigest) {
+    return failed(!associated.ok
+      ? associated.reasonCode
+      : "semantic_deployment_unresolved_recovery_identity_mismatch");
   }
   let registry;
   try {
@@ -68,6 +89,7 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
   const manifest = corroboration.manifest;
   const claims = manifest.claims;
   const provenance = normalized.authenticatedProvenance;
+  const association = associated.binding;
   for (const field of semanticDeploymentTargetFields) {
     if (canonicalJson(claims[field]) !== canonicalJson(normalized.target[field])) {
       return failed("semantic_deployment_target_identity_mismatch", [field]);
@@ -83,6 +105,30 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
       || claims.consumedSupervisorRunId !== provenance.consumedSupervisorRunId) {
     return failed("semantic_deployment_incident_or_run_binding_mismatch");
   }
+  if (association.incident.path !== claims.incidentPath
+      || association.incident.sha256 !== claims.incidentSha256
+      || association.issueNumber !== claims.issueNumber
+      || association.incidentTaskKey !== claims.taskKey
+      || association.claimIdentity !== claims.claimIdentity
+      || association.chargeId !== claims.chargeId
+      || association.branch !== claims.branch || association.baseSha !== claims.baseSha
+      || association.headSha !== claims.baseSha || association.candidateHeadSha !== claims.headSha
+      || association.candidateTreeSha !== claims.treeSha
+      || association.candidateChangedFilesDigest !== claims.changedFilesDigest
+      || association.candidateDiffDigest !== claims.diffDigest
+      || association.originalRunnerRunId !== claims.originalRunnerRunId
+      || association.originalSupervisorRunId !== claims.originalSupervisorRunId
+      || association.lifecycleSessionId !== claims.lifecycleSessionId
+      || association.lifecycleMutationGeneration !== claims.lifecycleMutationGeneration
+      || canonicalJson(association.counters) !== canonicalJson({
+        acceptedLogicalTasks: claims.acceptedLogicalTasks,
+        localSourceChangingRounds: claims.localSourceChangingRounds,
+        githubTriggeredFixEpochs: claims.githubTriggeredFixEpochs,
+        lifetimeLocalSourceChangingRounds: claims.lifetimeLocalSourceChangingRounds,
+      })
+      || Object.values(association.noEffectPosture).some((value) => value !== true)) {
+    return failed("semantic_deployment_associated_recovery_semantic_mismatch");
+  }
   const artifactsByRole = new Map();
   for (const artifact of manifest.artifacts) {
     if (artifactsByRole.has(artifact.role)) return failed("semantic_deployment_artifact_role_duplicate");
@@ -92,7 +138,9 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
     const artifact = artifactsByRole.get(role);
     const expected = authorityKey === "incident"
       ? { path: incident.incident.path, sha256: incident.incident.sha256 }
-      : projectAuthority.artifacts?.[authorityKey];
+      : authorityKey === "associatedRecovery"
+        ? { path: association.path, sha256: association.sha256 }
+        : projectAuthority.artifacts?.[authorityKey];
     if (!artifact || !expected || artifact.path !== expected.path || artifact.sha256 !== expected.sha256) {
       return failed("semantic_deployment_runtime_artifact_binding_mismatch", [role]);
     }
@@ -130,6 +178,7 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
       identity: manifest.incidentIdentity,
       sha256: incident.incident.sha256,
     },
+    associatedRecovery: association,
     task: manifest.identities,
     runRoles: {
       originalRunnerRunId: claims.originalRunnerRunId,
@@ -149,6 +198,9 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
       sourceManifestDigest: normalized.ownerAttestation.sourceManifestDigest,
       artifactManifestDigest: normalized.ownerAttestation.artifactManifestDigest,
       targetDigest: normalized.ownerAttestation.targetDigest,
+      packageAggregateDigest: normalized.documentEvidence.packageAggregateDigest,
+      packageManifestDigest: normalized.documentEvidence.packageManifestDigest,
+      memberManifestDigest: normalized.documentEvidence.memberManifestDigest,
     },
     semanticManifestDigest: corroboration.manifestDigest,
     boundArtifacts: manifest.artifacts.map(({ role, path: artifactPath, sha256 }) => ({ role, path: artifactPath, sha256 })),
@@ -172,16 +224,23 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
 
 export function normalizeSemanticDeploymentEvidenceDocument(document, documentEvidence, projectAuthority) {
   assertExactKeys(document, [
-    "approvedProfile", "authenticatedProvenance", "config", "contract", "evidenceRoot",
+    "approvedProfile", "associatedRecovery", "authenticatedProvenance", "config", "contract", "evidenceRoot",
     "healthUnit", "ownerAttestation", "project", "semanticEvidencePacket", "target", "version",
   ]);
   if (document.contract !== semanticDeploymentEvidenceContract || document.version !== semanticDeploymentEvidenceVersion) {
     throw new Error("semantic deployment evidence contract invalid");
   }
-  assertExactKeys(documentEvidence, ["mode", "ownerUid", "realPath", "sha256", "strategy"]);
+  assertExactKeys(documentEvidence, [
+    "memberManifestDigest", "mode", "ownerUid", "packageAggregateDigest", "packageManifestDigest",
+    "packageRoot", "realPath", "sha256", "strategy",
+  ]);
   if (typeof documentEvidence.realPath !== "string" || !path.isAbsolute(documentEvidence.realPath)
       || path.resolve(documentEvidence.realPath) !== documentEvidence.realPath
-      || path.dirname(documentEvidence.realPath) !== path.dirname(projectAuthority.configPath)
+      || path.basename(documentEvidence.realPath) !== "deployment-evidence.json"
+      || path.dirname(documentEvidence.realPath) !== documentEvidence.packageRoot
+      || path.dirname(documentEvidence.packageRoot) !== path.dirname(projectAuthority.configPath)
+      || ![documentEvidence.packageAggregateDigest, documentEvidence.packageManifestDigest,
+        documentEvidence.memberManifestDigest].every((value) => /^[a-f0-9]{64}$/u.test(String(value || "")))
       || !/^[a-f0-9]{64}$/u.test(documentEvidence.sha256)
       || digest(canonicalJson(document)) !== documentEvidence.sha256) {
     throw new Error("semantic deployment evidence document identity invalid");
@@ -190,6 +249,7 @@ export function normalizeSemanticDeploymentEvidenceDocument(document, documentEv
   assertExactKeys(document.config, ["path", "sha256"]);
   assertExactKeys(document.approvedProfile, ["path", "sha256"]);
   assertExactKeys(document.healthUnit, ["path", "sha256"]);
+  assertExactKeys(document.associatedRecovery, ["bindingDigest", "path", "sha256", "stateDigest"]);
   assertExactKeys(document.target, semanticDeploymentTargetFields);
   assertExactKeys(document.ownerAttestation, ["artifactManifestDigest", "authority", "scope", "sourceManifestDigest", "targetDigest"]);
   if (document.ownerAttestation.authority !== "authenticated_external_profile_owner"
@@ -219,12 +279,18 @@ export function normalizeSemanticDeploymentEvidenceDocument(document, documentEv
   ]) if (actual !== expected) throw new Error("semantic deployment project authority mismatch");
   if (typeof document.evidenceRoot !== "string" || !path.isAbsolute(document.evidenceRoot)
       || path.resolve(document.evidenceRoot) !== document.evidenceRoot
-      || path.dirname(document.evidenceRoot) !== path.dirname(projectAuthority.configPath)) {
+      || document.evidenceRoot !== documentEvidence.packageRoot) {
     throw new Error("semantic deployment evidence root boundary invalid");
   }
   if (!document.authenticatedProvenance || typeof document.authenticatedProvenance !== "object"
       || !document.semanticEvidencePacket || typeof document.semanticEvidencePacket !== "object") {
     throw new Error("semantic deployment evidence content missing");
+  }
+  if (!path.isAbsolute(document.associatedRecovery.path)
+      || path.resolve(document.associatedRecovery.path) !== document.associatedRecovery.path
+      || ![document.associatedRecovery.sha256, document.associatedRecovery.stateDigest,
+        document.associatedRecovery.bindingDigest].every((value) => /^[a-f0-9]{64}$/u.test(String(value || "")))) {
+    throw new Error("semantic deployment associated recovery selector invalid");
   }
   return deepFreeze({ ...structuredClone(document), documentEvidence: structuredClone(documentEvidence) });
 }
