@@ -11,7 +11,9 @@ import {
   realpathSync,
 } from "node:fs";
 import path from "node:path";
+import { userInfo } from "node:os";
 import { loadLogicalTaskBudget } from "./logical-task-budget.mjs";
+import { resumedGitRepositoryAuthorityIsTrusted } from "./preserved-recovery-deployment.mjs";
 import { authenticateAssociatedRecoverableState } from "./recovery-state.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
 
@@ -84,6 +86,13 @@ export function collectSemanticDeploymentEvidenceContext({
   if (predecessor?.ok !== true || !digest64(formerRootSha256) || formerRootSha256 === incidentSha256) {
     throw new Error("semantic extraction predecessor evidence unavailable");
   }
+  if (incident.ordinaryContinuation?.phase !== "local_validation"
+      || lifecycle.state.controller?.phase !== "stopped"
+      || lifecycle.state.controller?.nextExactAction !== "checkpoint_validation_recovery_failed_closed"
+      || lifecycle.state.recovery?.phaseBefore !== "implementation_or_bundle_slice"
+      || lifecycle.state.interruption?.class !== "main_process_exit_without_terminal_report") {
+    throw new Error("semantic extraction predecessor lifecycle contradiction");
+  }
   const counters = incident.ordinaryContinuation.counters;
   const lifecycleState = lifecycle.state;
   if (lifecycleState.mutationAuthority.status !== "terminal"
@@ -97,6 +106,13 @@ export function collectSemanticDeploymentEvidenceContext({
       || new Set([original.supervisor, runArtifacts.failed.supervisor, runArtifacts.consumed.supervisor]).size !== 3) {
     throw new Error("semantic extraction run roles not distinct");
   }
+  const associatedRecoveryBinding = deepFreeze({
+    ...association.binding,
+    failedContinuationRunnerRunId: runArtifacts.failed.runner,
+    failedContinuationSupervisorRunId: runArtifacts.failed.supervisor,
+    consumedRunnerRunId: runArtifacts.consumed.runner,
+    consumedSupervisorRunId: runArtifacts.consumed.supervisor,
+  });
   const recoveryArtifacts = [authenticateArtifact(incidentPath), authenticateArtifact(associatedRecoveryPath)];
   const runtimeArtifacts = Object.entries(projectAuthority.artifacts).map(([role, artifact]) => ({
     path: artifact.path,
@@ -107,13 +123,14 @@ export function collectSemanticDeploymentEvidenceContext({
     projectAuthority,
     repository,
     incident,
-    association: association.binding,
+    association: associatedRecoveryBinding,
     candidate,
     lifecycleState,
     budgetState: budget.state,
     runArtifacts,
     github,
     formerRootSha256,
+    formerEffectivePhase: lifecycle.state.recovery.phaseAfter,
     incidentPath,
     incidentSha256,
     counters,
@@ -140,33 +157,37 @@ export function createSemanticDeploymentAuthorityReaders() {
     }),
     lifecycle: (context) => projection(context, "lifecycle", {
       ...taskClaims(context), ...runRoleClaims(context), ...counterClaims(context),
-      lifecycleLineage: "terminal_validation_retry_to_distinct_successor",
+      lifecycleLineage: lifecycleLineage(context),
       lifecycleSessionId: context.lifecycleState.sessions.current,
       lifecycleMutationGeneration: context.lifecycleState.mutationAuthority.generation,
-      successorEligible: true,
-      earliestSafePhase: "checkpoint_validation_commit",
+      successorEligible: successorEligible(context),
+      earliestSafePhase: context.lifecycleState.recovery.phaseAfter,
     }),
     logical_task_budget: (context) => projection(context, "logical_task_budget", {
-      ...taskClaims(context), ...counterClaims(context), submissionCount: 1, submissionExhausted: true,
+      ...taskClaims(context), ...counterClaims(context),
+      submissionCount: context.budgetState.acceptedLogicalTaskCount,
+      submissionExhausted: submissionExhausted(context),
     }),
-    intent_lineage: (context) => projection(context, "intent_lineage", intentClaims()),
+    intent_lineage: (context) => projection(context, "intent_lineage", intentClaims(context)),
     projection_deployment: (context) => projection(context, "projection_deployment", {
       ...repositoryClaims(context), ...incidentClaims(context), ...runtimeClaims(context),
       prEvidenceDigest: context.github.digest,
-      lifecycleLineage: "terminal_validation_retry_to_distinct_successor",
+      lifecycleLineage: lifecycleLineage(context),
       lifecycleSessionId: context.lifecycleState.sessions.current,
       lifecycleMutationGeneration: context.lifecycleState.mutationAuthority.generation,
-      successorEligible: true,
-      earliestSafePhase: "checkpoint_validation_commit",
+      successorEligible: successorEligible(context),
+      earliestSafePhase: context.lifecycleState.recovery.phaseAfter,
     }),
     supervisor_child_run: (context) => projection(context, "supervisor_child_run", {
-      ...runRoleClaims(context), ...intentClaims(), submissionCount: 1, submissionExhausted: true,
+      ...runRoleClaims(context), ...intentClaims(context),
+      submissionCount: context.budgetState.acceptedLogicalTaskCount,
+      submissionExhausted: submissionExhausted(context),
     }),
     incident_report: (context) => projection(context, "incident_report", {
-      ...incidentClaims(context), ...runtimeClaims(context), ...externalNoEffectClaims(),
+      ...incidentClaims(context), ...runtimeClaims(context), ...externalNoEffectClaims(context),
     }),
     github_no_effect: (context) => projection(context, "github_no_effect", {
-      repository: context.repository, prEvidenceDigest: context.github.digest, ...externalNoEffectClaims(),
+      repository: context.repository, prEvidenceDigest: context.github.digest, ...externalNoEffectClaims(context),
     }),
   });
 }
@@ -239,7 +260,7 @@ function incidentClaims(context) {
   return {
     formerRootPath: context.incidentPath,
     formerRootSha256: context.formerRootSha256,
-    formerEffectivePhase: "checkpoint_validation_commit",
+    formerEffectivePhase: context.formerEffectivePhase,
     incidentPath: context.incidentPath,
     incidentSha256: context.incidentSha256,
     predecessorBytesAvailable: false,
@@ -257,11 +278,46 @@ function runtimeClaims(context) {
     healthUnitDigest: authority.artifacts.healthUnit.sha256,
   };
 }
-function intentClaims() {
-  return { intentPosture: "one_no_effect_overlay_then_consumed_submission", validationEffect: false, reviewEffect: false, sourceEffect: false };
+function lifecycleLineage(context) {
+  if (context.runArtifacts.failed.iteration.value.recovery?.terminalDerivativeProjection?.ok !== true
+      || context.runArtifacts.consumed.iteration.value?.outcome !== "terminal_lifecycle_reconciled") {
+    throw new Error("semantic extraction lifecycle lineage invalid");
+  }
+  return "terminal_validation_retry_to_distinct_successor";
 }
-function externalNoEffectClaims() {
-  return { pushEffect: false, prEffect: false, commentEffect: false, mergeEffect: false, issueEffect: false, productEffect: false };
+function successorEligible(context) {
+  return context.lifecycleState.recovery.status === "pending"
+    && context.lifecycleState.recovery.effectsAlreadyPresent.commit === true
+    && context.lifecycleState.recovery.effectsAlreadyPresent.mutation === false;
+}
+function submissionExhausted(context) {
+  return context.budgetState.acceptedLogicalTaskCount === 1
+    && Object.keys(context.budgetState.charges || {}).length === 1
+    && context.runArtifacts.consumed.iteration.value?.outcome === "terminal_lifecycle_reconciled";
+}
+function intentClaims(context) {
+  const continuation = context.incident.ordinaryContinuation;
+  const effects = continuation.effects || {};
+  const finding = continuation.sourceFailureBatch?.findings?.[0];
+  const noEffect = Object.keys(effects).length === 0
+    && continuation.sourceFailureHistory?.length === 1
+    && continuation.sourceFailureBatch?.findings?.length === 1
+    && finding?.sourceFixEligible === false && finding?.retryable === false
+    && finding?.classification === "unsafe_or_ambiguous"
+    && (continuation.processedGithubFindingFingerprints?.length ?? 0) === 0
+    && continuation.preparedGithubSourceFailureBatch === null
+    && continuation.sourceFailureCommitEffect === null
+    && context.lifecycleState.recovery.effectsAlreadyPresent.mutation === false;
+  if (!noEffect) throw new Error("semantic extraction intent no-effect posture invalid");
+  return {
+    intentPosture: "one_no_effect_overlay_then_consumed_submission",
+    validationEffect: false,
+    reviewEffect: false,
+    sourceEffect: false,
+  };
+}
+function externalNoEffectClaims(context) {
+  return structuredClone(context.github.claims);
 }
 
 function discoverRunRoleArtifacts(logsRoot, incident, original) {
@@ -301,11 +357,36 @@ function discoverRunRoleArtifacts(logsRoot, incident, original) {
 }
 
 function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, baseSha, expected, command }) {
-  const git = (args, encoding = "utf8") => command("git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", ...args], { cwd: repositoryRoot, encoding });
-  const remote = String(git(["remote", "get-url", "origin"])).trim().replace(/\.git$/u, "");
-  if (!remote.toLowerCase().endsWith(`github.com/${repository}`.toLowerCase())) throw new Error("semantic extraction repository remote mismatch");
+  const gitEnvironment = {
+    PATH: "/usr/bin:/bin", HOME: userInfo().homedir, LANG: "C", LC_ALL: "C",
+    GIT_NO_REPLACE_OBJECTS: "1",
+  };
+  if (realpathSync(repositoryRoot) !== repositoryRoot
+      || !resumedGitRepositoryAuthorityIsTrusted(repositoryRoot, repository, gitEnvironment)) {
+    throw new Error("semantic extraction repository authority untrusted");
+  }
+  const git = (args, encoding = "utf8") => command("/usr/bin/git", ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", ...args], {
+    cwd: repositoryRoot, encoding, env: gitEnvironment,
+  });
+  const topLevel = String(git(["rev-parse", "--show-toplevel"])).trim();
+  const gitDir = path.resolve(repositoryRoot, String(git(["rev-parse", "--git-dir"])).trim());
+  const commonDir = path.resolve(repositoryRoot, String(git(["rev-parse", "--git-common-dir"])).trim());
+  if (path.resolve(topLevel) !== repositoryRoot || realpathSync(gitDir) !== gitDir || realpathSync(commonDir) !== commonDir
+      || String(git(["rev-parse", "--is-shallow-repository"])).trim() !== "false"
+      || Buffer.from(git(["status", "--porcelain=v1", "-z"], null)).length !== 0) {
+    throw new Error("semantic extraction repository identity unsafe");
+  }
   const headSha = String(git(["rev-parse", `refs/heads/${branch}^{commit}`])).trim();
   const treeSha = String(git(["rev-parse", `${headSha}^{tree}`])).trim();
+  const parentShas = String(git(["show", "-s", "--format=%P", headSha])).trim().split(/\s+/u).filter(Boolean);
+  if (parentShas.length !== 1 || parentShas[0] !== baseSha
+      || String(git(["rev-list", "--count", `${baseSha}..${headSha}`])).trim() !== "1") {
+    throw new Error("semantic extraction candidate topology mismatch");
+  }
+  git(["merge-base", "--is-ancestor", baseSha, headSha]);
+  for (const object of [baseSha, headSha]) {
+    if (String(git(["cat-file", "-t", object])).trim() !== "commit") throw new Error("semantic extraction Git object invalid");
+  }
   const changedFiles = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", baseSha, headSha], null)).toString("utf8").split("\0").filter(Boolean).sort();
   const diff = Buffer.from(git(["diff", "--no-ext-diff", "--no-textconv", "--binary", baseSha, headSha], null));
   const proof = {
@@ -316,18 +397,36 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   for (const field of ["headSha", "treeSha", "changedFilesDigest", "diffDigest"]) {
     if (proof[field] !== expected[field]) throw new Error(`semantic extraction Git ${field} mismatch`);
   }
-  return { ...proof, evidence: [{ path: path.join(repositoryRoot, ".git"), sha256: sha256(canonicalJson(proof)), identity: "source_owned_git_read" }] };
+  return {
+    ...proof,
+    evidence: [{
+      path: gitDir,
+      sha256: sha256(canonicalJson({ ...proof, commonDir, gitDir, repositoryRoot })),
+      identity: `source_owned_git_read:${commonDir}:${gitDir}`,
+    }],
+  };
 }
 
 function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, incidentUpdatedAt, command }) {
-  const remote = String(command("git", ["ls-remote", "--heads", "origin", branch], { cwd: repositoryRoot, encoding: "utf8" })).trim();
+  const remoteRefs = JSON.parse(String(command("gh", ["api", `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`], { cwd: repositoryRoot, encoding: "utf8" })) || "[]");
   const prs = JSON.parse(String(command("gh", ["pr", "list", "--repo", repository, "--state", "all", "--head", branch, "--json", "number,state,headRefOid,mergedAt,updatedAt"], { cwd: repositoryRoot, encoding: "utf8" })) || "[]");
   const issue = JSON.parse(String(command("gh", ["issue", "view", String(issueNumber), "--repo", repository, "--json", "number,state,updatedAt,comments"], { cwd: repositoryRoot, encoding: "utf8" })) || "{}");
-  if (remote || prs.length !== 0 || issue.number !== issueNumber || issue.state !== "OPEN"
+  if (!Array.isArray(remoteRefs) || remoteRefs.length !== 0 || prs.length !== 0 || issue.number !== issueNumber || issue.state !== "OPEN"
       || Date.parse(issue.updatedAt) > Date.parse(incidentUpdatedAt)) throw new Error("semantic extraction later GitHub effect detected");
   const proof = { remoteHead: null, prs: [], issue: { number: issue.number, state: issue.state, updatedAt: issue.updatedAt, commentCount: issue.comments.length } };
   const digest = sha256(canonicalJson(proof));
-  return { digest, evidence: [{ path: `github://${repository}/issues/${issueNumber}`, sha256: digest, identity: "authenticated_gh_cli_read" }] };
+  return {
+    digest,
+    claims: {
+      pushEffect: remoteRefs.length !== 0,
+      prEffect: prs.length !== 0,
+      commentEffect: false,
+      mergeEffect: prs.some((pr) => pr.mergedAt !== null),
+      issueEffect: issue.state !== "OPEN",
+      productEffect: false,
+    },
+    evidence: [{ path: `github://${repository}/issues/${issueNumber}`, sha256: digest, identity: "authenticated_gh_cli_read" }],
+  };
 }
 
 function authenticateArtifact(file) {

@@ -12,7 +12,7 @@ function fixture({ mutateIncident = null, mutateAssociated = null, extraState = 
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-associated-recovery-"));
   chmodSync(root, 0o700);
   const recoveryRoot = path.join(root, "recovery"); mkdirSync(recoveryRoot, { mode: 0o700 });
-  const issue = { number: 7, title: "Fixture", url: "https://example.test/issues/7" };
+  const issue = { number: 7, title: "Fixture", url: "https://github.com/example/repo/issues/7" };
   const associated = createInitialRecoveryState({
     taskKey: "20260101T01", issue, runId: "run-original", supervisorRunId: "supervisor-original",
     branchName: "feature/issue-7", baseSha: "a".repeat(40), currentHeadSha: "a".repeat(40),
@@ -65,6 +65,7 @@ test("current-shaped incident and distinct associated recovery authenticate as t
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.notEqual(result.binding.path, result.binding.incident.path);
     assert.equal(result.binding.relationship, "provisional_predecessor_to_terminal_incident_successor");
+    assert.equal(result.binding.operationalStatus, "recoverable_operational_state");
     assert.equal(result.binding.taskKey, "20260101T01");
     assert.equal(result.binding.incidentTaskKey, "20260101T010101");
     assert.equal(result.binding.phase, "implementation_or_bundle_slice");
@@ -115,6 +116,20 @@ test("candidate, lifecycle, counter, phase, status, stop, and no-effect drift fa
     (state) => { state.phase = "completed"; },
     (state) => { state.stopReason = { reasonCode: "other" }; },
     (state) => { state.nextSafeAction = "other"; },
+  ];
+  for (const mutateAssociated of associatedCases) {
+    const f = fixture({ mutateAssociated });
+    try { assert.equal(f.invoke().ok, false); } finally { f.cleanup(); }
+  }
+});
+
+test("provisional task identity and exact claim, charge, and branch markers are authenticated", () => {
+  const associatedCases = [
+    (state) => { state.taskKey = "20260101T010101"; },
+    (state) => { state.mutationMarkers.claim["issue-7"].target = "https://github.com/example/repo/issues/8"; },
+    (state) => { state.mutationMarkers.claim["issue-7"].correlation = "run-other"; },
+    (state) => { state.mutationMarkers.logical_task_charge["c".repeat(64)].correlation = "d".repeat(64); },
+    (state) => { state.mutationMarkers.branch_ownership_created[`feature/issue-7:${"a".repeat(40)}`].target = "feature/other"; },
   ];
   for (const mutateAssociated of associatedCases) {
     const f = fixture({ mutateAssociated });

@@ -275,25 +275,43 @@ function productionReaderContext(claims) {
       iteration: claims.consumedIterationIdentity, summary: claims.consumedSummaryIdentity,
     }),
   };
+  runArtifacts.failed.iteration.value = { recovery: { terminalDerivativeProjection: { ok: true } } };
+  runArtifacts.consumed.iteration.value = { outcome: "terminal_lifecycle_reconciled" };
   const evidence = Object.fromEntries(semanticRecoveryAuthorityClasses.map((authorityClass) => [authorityClass, [artifact(authorityClass)]]));
   return {
     repository: claims.repository,
-    incident: { issue: { number: claims.issueNumber }, taskKey: claims.taskKey },
+    incident: {
+      issue: { number: claims.issueNumber }, taskKey: claims.taskKey,
+      ordinaryContinuation: {
+        effects: {}, sourceFailureHistory: [{}], processedGithubFindingFingerprints: [],
+        sourceFailureBatch: { findings: [{ sourceFixEligible: false, retryable: false, classification: "unsafe_or_ambiguous" }] },
+        preparedGithubSourceFailureBatch: null, sourceFailureCommitEffect: null,
+      },
+    },
     association: { chargeId: claims.chargeId },
     candidate: {
       branch: claims.branch, baseSha: claims.baseSha, headSha: claims.headSha, treeSha: claims.treeSha,
       changedFilesDigest: claims.changedFilesDigest, diffDigest: claims.diffDigest,
     },
-    lifecycleState: { sessions: { current: claims.lifecycleSessionId }, mutationAuthority: { generation: claims.lifecycleMutationGeneration } },
-    budgetState: { acceptedLogicalTaskCount: claims.acceptedLogicalTasks },
+    lifecycleState: {
+      sessions: { current: claims.lifecycleSessionId },
+      mutationAuthority: { generation: claims.lifecycleMutationGeneration },
+      controller: { phase: claims.earliestSafePhase },
+      recovery: { status: "pending", phaseAfter: claims.earliestSafePhase, effectsAlreadyPresent: { mutation: false, commit: true } },
+    },
+    budgetState: { acceptedLogicalTaskCount: claims.acceptedLogicalTasks, charges: { [claims.chargeId]: {} } },
     counters: {
       localSourceChangingRoundsPerEpoch: claims.localSourceChangingRounds,
       githubTriggeredFixEpochsPerPr: claims.githubTriggeredFixEpochs,
       lifetimeLocalSourceChangingRounds: claims.lifetimeLocalSourceChangingRounds,
     },
     runArtifacts,
-    github: { digest: claims.prEvidenceDigest },
+    github: {
+      digest: claims.prEvidenceDigest,
+      claims: Object.fromEntries(["pushEffect", "prEffect", "commentEffect", "mergeEffect", "issueEffect", "productEffect"].map((key) => [key, claims[key]])),
+    },
     formerRootSha256: claims.formerRootSha256,
+    formerEffectivePhase: claims.formerEffectivePhase,
     incidentPath: claims.incidentPath,
     incidentSha256: claims.incidentSha256,
     projectAuthority: {

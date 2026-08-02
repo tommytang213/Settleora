@@ -463,7 +463,8 @@ export function authenticateAssociatedRecoverableState({
     const recoverable = listRecoverableRecoveryStates(config);
     if (recoverable.length !== 1) return fail("associated_recovery_count_invalid");
     if (recoverable[0].statePath !== associated.path) return fail("associated_recovery_selector_mismatch");
-    if (!isExactRecoverySuccessor(associated.state, incident.state)) {
+    if (!isProvisionalTaskKey(associated.state.taskKey)
+        || !isExactRecoverySuccessor(associated.state, incident.state)) {
       return fail("associated_recovery_semantic_lineage_mismatch");
     }
     const chargeIds = Object.keys(incident.state?.mutationMarkers?.logical_task_charge || {});
@@ -507,8 +508,23 @@ export function authenticateAssociatedRecoverableState({
     if (typeof repository !== "string" || repository.toLowerCase() !== String(config.repositorySlug || "").toLowerCase()) {
       return fail("associated_recovery_repository_identity_mismatch");
     }
+    const issueKey = `issue-${associated.state.issue.number}`;
+    const branchKey = `${associated.state.branch.name}:${associated.state.branch.baseSha}`;
+    const claimMarker = associated.state.mutationMarkers.claim?.[issueKey];
+    const chargeMarker = associated.state.mutationMarkers.logical_task_charge?.[chargeIds[0]];
+    const branchMarker = associated.state.mutationMarkers.branch_ownership_created?.[branchKey];
+    if (Object.keys(associated.state.mutationMarkers.claim || {}).length !== 1
+        || Object.keys(associated.state.mutationMarkers.branch_ownership_created || {}).length !== 1
+        || claimMarker?.status !== "completed" || claimMarker.correlation !== associated.state.run.runId
+        || String(claimMarker.target || "").toLowerCase() !== `https://github.com/${repository}/issues/${associated.state.issue.number}`.toLowerCase()
+        || chargeMarker?.status !== "completed" || chargeMarker.target !== issueKey || chargeMarker.correlation !== chargeIds[0]
+        || branchMarker?.status !== "completed" || branchMarker.target !== associated.state.branch.name
+        || branchMarker.correlation !== associated.state.branch.baseSha) {
+      return fail("associated_recovery_marker_identity_mismatch");
+    }
     const binding = {
       relationship: "provisional_predecessor_to_terminal_incident_successor",
+      operationalStatus: "recoverable_operational_state",
       path: associated.path,
       sha256: associated.sha256,
       stateDigest: associated.stateDigest,

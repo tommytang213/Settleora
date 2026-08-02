@@ -161,6 +161,10 @@ export function createOrAdoptSemanticDeploymentEvidencePackage(plan) {
   if (current.action === "adopt_final") return packageResult(plan, "adopted");
   if (current.action === "adopt_incoming") {
     if (existsSync(plan.packageRoot)) throw new Error("semantic evidence package final appeared before incoming adoption");
+    fsyncExistingPackage(plan.incomingRoot, plan.members);
+    if (!packageMatches(plan.incomingRoot, plan.members) || existsSync(plan.packageRoot)) {
+      throw new Error("semantic evidence package incoming changed before adoption");
+    }
     renameSync(plan.incomingRoot, plan.packageRoot);
     fsyncDirectory(plan.configRoot);
     authenticateSemanticDeploymentEvidencePackage(plan.documentPath);
@@ -336,6 +340,21 @@ function writeMember(file, bytes) {
 function fsyncDirectory(directory) {
   const fd = openSync(directory, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY || 0));
   try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
+function fsyncExistingPackage(root, members) {
+  authenticateDirectory(root, 0o700);
+  if (canonicalJson(readdirSync(root).sort()) !== canonicalJson(members.map((member) => member.name).sort())) {
+    throw new Error("semantic evidence package incoming members changed");
+  }
+  for (const member of members) {
+    const file = path.join(root, member.name);
+    const authenticated = authenticateMember(file);
+    if (authenticated.sha256 !== member.sha256) throw new Error("semantic evidence package incoming member changed");
+    const fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+  }
+  fsyncDirectory(root);
 }
 
 function validatePlan(plan) {

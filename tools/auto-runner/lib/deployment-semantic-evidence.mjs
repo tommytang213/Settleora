@@ -10,9 +10,13 @@ import {
   semanticRecoveryClaimOwnerMatrixDigest,
   semanticRecoveryClaimOwnerMatrixVersion,
   semanticRecoveryVerifierSetDigest,
+  semanticRecoveryVerifierSet,
   semanticRecoveryVerifierSetVersion,
 } from "./semantic-recovery-authority.mjs";
-import { authenticateAssociatedRecoverableState } from "./recovery-state.mjs";
+import {
+  collectSemanticDeploymentEvidenceContext,
+  createSemanticDeploymentAuthorityReaders,
+} from "./deployment-semantic-evidence-extractors.mjs";
 
 export const semanticDeploymentEvidenceContract = "settleora_semantic_incident_deployment_evidence";
 export const semanticDeploymentEvidenceVersion = 1;
@@ -51,27 +55,26 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
   if (!Array.isArray(recoverableStates) || recoverableStates.length !== 1) {
     return failed("semantic_deployment_unresolved_recovery_count_invalid");
   }
-  let associated;
+  let liveContext;
   try {
-    associated = authenticateAssociatedRecoverableState({
-      config: { logsRoot: projectAuthority.logsRoot, repositorySlug: projectAuthority.repositorySlug },
+    liveContext = collectSemanticDeploymentEvidenceContext({
+      projectAuthority,
+      repositoryRoot: projectAuthority.repoRoot,
       incidentPath: incident.incident.path,
       incidentSha256: incident.incident.sha256,
       associatedRecoveryPath: normalized.associatedRecovery.path,
       associatedRecoverySha256: normalized.associatedRecovery.sha256,
     });
-  } catch { return failed("semantic_deployment_associated_recovery_authentication_failed"); }
-  if (!associated.ok
-      || path.resolve(recoverableStates[0]?.statePath || "") !== associated.binding?.path
-      || recoverableStates[0]?.taskKey !== associated.binding?.taskKey
-      || recoverableStates[0]?.issue?.number !== associated.binding?.issueNumber
-      || recoverableStates[0]?.run?.runId !== associated.binding?.originalRunnerRunId
-      || recoverableStates[0]?.run?.supervisorRunId !== associated.binding?.originalSupervisorRunId
-      || associated.binding?.stateDigest !== normalized.associatedRecovery.stateDigest
-      || digest(canonicalJson(associated.binding)) !== normalized.associatedRecovery.bindingDigest) {
-    return failed(!associated.ok
-      ? associated.reasonCode
-      : "semantic_deployment_unresolved_recovery_identity_mismatch");
+  } catch { return failed("semantic_deployment_live_source_revalidation_failed"); }
+  const association = liveContext.association;
+  if (path.resolve(recoverableStates[0]?.statePath || "") !== association.path
+      || recoverableStates[0]?.taskKey !== association.taskKey
+      || recoverableStates[0]?.issue?.number !== association.issueNumber
+      || recoverableStates[0]?.run?.runId !== association.originalRunnerRunId
+      || recoverableStates[0]?.run?.supervisorRunId !== association.originalSupervisorRunId
+      || association.stateDigest !== normalized.associatedRecovery.stateDigest
+      || digest(canonicalJson(association)) !== normalized.associatedRecovery.bindingDigest) {
+    return failed("semantic_deployment_unresolved_recovery_identity_mismatch");
   }
   let registry;
   try {
@@ -87,9 +90,15 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
   );
   if (!corroboration.ok) return corroboration;
   const manifest = corroboration.manifest;
+  const liveSources = revalidateLiveSemanticSources({
+    context: liveContext,
+    manifest,
+    packet: normalized.semanticEvidencePacket,
+    documentSha256: normalized.documentEvidence.sha256,
+  });
+  if (!liveSources.ok) return liveSources;
   const claims = manifest.claims;
   const provenance = normalized.authenticatedProvenance;
-  const association = associated.binding;
   for (const field of semanticDeploymentTargetFields) {
     if (canonicalJson(claims[field]) !== canonicalJson(normalized.target[field])) {
       return failed("semantic_deployment_target_identity_mismatch", [field]);
@@ -118,6 +127,10 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
       || association.candidateDiffDigest !== claims.diffDigest
       || association.originalRunnerRunId !== claims.originalRunnerRunId
       || association.originalSupervisorRunId !== claims.originalSupervisorRunId
+      || association.failedContinuationRunnerRunId !== claims.failedContinuationRunnerRunId
+      || association.failedContinuationSupervisorRunId !== claims.failedContinuationSupervisorRunId
+      || association.consumedRunnerRunId !== claims.consumedRunnerRunId
+      || association.consumedSupervisorRunId !== claims.consumedSupervisorRunId
       || association.lifecycleSessionId !== claims.lifecycleSessionId
       || association.lifecycleMutationGeneration !== claims.lifecycleMutationGeneration
       || canonicalJson(association.counters) !== canonicalJson({
@@ -126,6 +139,7 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
         githubTriggeredFixEpochs: claims.githubTriggeredFixEpochs,
         lifetimeLocalSourceChangingRounds: claims.lifetimeLocalSourceChangingRounds,
       })
+      || association.operationalStatus !== "recoverable_operational_state"
       || Object.values(association.noEffectPosture).some((value) => value !== true)) {
     return failed("semantic_deployment_associated_recovery_semantic_mismatch");
   }
@@ -203,6 +217,7 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
       memberManifestDigest: normalized.documentEvidence.memberManifestDigest,
     },
     semanticManifestDigest: corroboration.manifestDigest,
+    liveSourceRevalidationDigest: liveSources.digest,
     boundArtifacts: manifest.artifacts.map(({ role, path: artifactPath, sha256 }) => ({ role, path: artifactPath, sha256 })),
     noEffectProof: manifest.noEffectProof,
     oneShotExhaustion: manifest.oneShotExhaustion,
@@ -220,6 +235,40 @@ export function inspectSemanticIncidentForDeployment({ document, documentEvidenc
     evidenceDigest: digest(canonicalJson(proofCore)),
     proof: proofCore,
   });
+}
+
+function revalidateLiveSemanticSources({ context, manifest, packet, documentSha256 }) {
+  try {
+    const readers = createSemanticDeploymentAuthorityReaders();
+    const packaged = new Map(manifest.evidenceSources.map((source) => [source.authorityClass, source]));
+    const descriptors = new Map(packet.sources.map((source) => [source.authorityClass, source]));
+    const live = [];
+    for (const authorityClass of semanticRecoveryAuthorityClasses) {
+      const projection = readers[authorityClass](context);
+      const source = packaged.get(authorityClass);
+      const descriptor = descriptors.get(authorityClass);
+      const definition = semanticRecoveryVerifierSet.verifiers[authorityClass];
+      if (!source || !descriptor || canonicalJson(source.claims) !== canonicalJson(projection.claims)) {
+        return failed("semantic_deployment_live_source_claim_drift", [authorityClass]);
+      }
+      const expectedProvenance = digest(canonicalJson({
+        authority: "deployment_read_only_owner_attested",
+        ownerAuthorityDigest: documentSha256,
+        authorityClass,
+        verifier: { id: definition.id, version: definition.version, storeKind: definition.storeKind },
+        sourceProvenanceIdentity: projection.provenanceIdentity,
+        path: descriptor.store.path,
+        sha256: descriptor.store.sha256,
+      }));
+      if (source.provenanceIdentity !== expectedProvenance) {
+        return failed("semantic_deployment_live_source_provenance_drift", [authorityClass]);
+      }
+      live.push({ authorityClass, claims: projection.claims, provenanceIdentity: projection.provenanceIdentity });
+    }
+    return { ok: true, digest: digest(canonicalJson(live)) };
+  } catch {
+    return failed("semantic_deployment_live_source_revalidation_failed");
+  }
 }
 
 export function normalizeSemanticDeploymentEvidenceDocument(document, documentEvidence, projectAuthority) {
