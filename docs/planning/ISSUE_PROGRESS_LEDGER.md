@@ -1,5 +1,58 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#740/#359/#357/#999 and PR #1037 — semantic deployment-quiescence source repair merged (2026-08-02)
+
+- PR #1037 merged normally with exact-head protection from authorized base
+  `571f1091fd756ccb3700eddfdc5cd3b6026a5de7`, source head
+  `cb88ec1f2f79d116b42771044d691595c6564cd4`, and source tree
+  `9ffd1a1bb719ee6e8b1ec9f30b9a067a4c7e1fc5` as merge
+  `5fcdd9631c1264829c771da02101145ae55aec96`. The merge has the exact
+  base and source head as its two ordered parents and the exact source tree.
+- The source repair changed exactly 11 Issue #1012 workflow, runner
+  documentation, runtime/configuration/identity/evidence/authority modules, and
+  focused test paths, with 1,499 additions and 44 deletions. It contains no
+  product, API/OpenAPI, generated-client, auth/session, storage/privacy, money,
+  schema/migration, OCR, UI, Docker, CI, secret, or deployment-configuration
+  path.
+- The repair requires authenticated exact equality to the configured project
+  logs root, distinct grant-free deployment-only semantic corroboration, and
+  repeated quiescence-proof equality. Legacy evidence and bootstrap behavior
+  remain supported without weakening those source-owned admission checks.
+- Exact-head and exact merged-main validation passed dependency installation,
+  doctor, zero-vulnerability root/web audits, production-module syntax/import
+  checks, the focused deployment/quiescence/runtime/configuration/semantic/
+  security suite `152/152`, the complete auto-runner suite `1,354/1,354`, docs,
+  scaffold, diff, exact-scope, and all-worktree clean guards. Fresh Gemini and
+  local Codex source reviews passed with zero findings; exact-head GitHub Codex
+  found no major issue. All 12 exact-head CodeQL, Semgrep CE/OSS, Trivy, and
+  Scaffold Validation checks passed; both review threads were resolved with
+  zero unresolved. Merged-main checks passed, and open code-scanning,
+  secret-scanning, and Dependabot alert counts remained `0/0/0`.
+- The complete 42-file guarded live incident, runner-state, runtime, profile,
+  configuration, approval, launcher, health, and preserved Issue #959 evidence
+  set remained byte-identical at aggregate digest
+  `dcc88559bfe77f3bca79d80a3380f37ae600b803d5880db90b570fa97a5cd38e`.
+  No deployment, rollback, protected root/grant/producer installation,
+  semantic-successor creation/adoption, runner/supervisor submission, queue
+  activation, Issue #959 continuation, duplicate claim/charge, branch/worktree
+  cleanup, or live product effect occurred. The pre-existing main-push workflow
+  published a merge-SHA API image to GHCR but performed no deployment.
+- Keep Issue #1012 `OPEN` with `manual-gate`; merging the repository repair did
+  not satisfy its close rule. The next gate requires fresh owner deployment
+  authorization bound to final current main, the corrected source repair, exact
+  installed runtime/profile/configuration/approval/launcher/health identities,
+  and the new source-owned deployment semantic-evidence interface. Protected
+  root/grant installation, semantic successor operations, and any Issue #959
+  continuation remain later, separate manual gates.
+- Issues #959, #740, #359, #357, and #999 remain open and unchanged. This
+  mechanically generated docs-only checkpoint grants no operational authority
+  and changes no policy, permission, security contract, deployment
+  configuration, or source.
+- Issue #1012 source-merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5159128433`.
+  Merge/hygiene report:
+  `/workspace/logs/settleora-codex-report-20260802-2343-pr1037-exact-head-merge-post-merge-hygiene.md`.
+
 ### Issues #1012/#959/#740/#359/#357/#999 and PR #1032 — protected semantic-recovery authority repair merged (2026-08-02)
 
 - PR #1032 merged normally with expected-head protection from exact authorized
