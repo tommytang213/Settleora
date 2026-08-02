@@ -684,6 +684,7 @@ function assertDeploymentBootstrapArtifactsAbsent(runtimeRoot) {
     path.join(parent, `.${base}.approved.json`),
     path.join(parent, `.${base}.launcher.mjs`),
     path.join(parent, `.${base}.rollback`),
+    path.join(parent, `.${base}.rollback-incoming`),
     path.join(parent, `.${base}.rollback-retired`),
   ]) {
     if (existsSync(artifact)) throw new Error("trusted deployment bootstrap found contradictory installed-runtime state");

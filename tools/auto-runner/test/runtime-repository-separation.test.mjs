@@ -356,10 +356,14 @@ test("trusted runtime bootstrap refuses recovery authority and stale transient s
     const semantic = spawnSync(process.execPath, [...base, "--semantic-deployment-evidence", path.join(root, "evidence.json")], { encoding: "utf8" });
     assert.notEqual(semantic.status, 0);
     assert.match(semantic.stderr, /bootstrap admits only ordinary quiescent deployment/);
-    mkdirSync(path.join(root, ".runtime.deploy-incoming"));
-    const stale = spawnSync(process.execPath, base, { encoding: "utf8" });
-    assert.notEqual(stale.status, 0);
-    assert.match(stale.stderr, /stale transient deployment state/);
+    for (const name of [".runtime.deploy-incoming", ".runtime.rollback-incoming"]) {
+      const stalePath = path.join(root, name);
+      mkdirSync(stalePath);
+      const stale = spawnSync(process.execPath, base, { encoding: "utf8" });
+      assert.notEqual(stale.status, 0);
+      assert.match(stale.stderr, /stale transient deployment state/);
+      rmSync(stalePath, { recursive: true });
+    }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

@@ -229,6 +229,7 @@ function assertTrustedBootstrapTransientStateAbsent(runtimeDestination) {
   const base = path.basename(runtimeDestination);
   for (const artifact of [
     path.join(parent, `.${base}.deploy-incoming`),
+    path.join(parent, `.${base}.rollback-incoming`),
     path.join(parent, `.${base}.launcher.incoming`),
     path.join(parent, `.${base}.approved.incoming`),
   ]) {
