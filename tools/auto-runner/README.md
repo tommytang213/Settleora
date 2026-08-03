@@ -218,14 +218,87 @@ closure, label, hygiene, cleanup, or branch effect.
 
 An authenticated overwrite incident has a separate deployment-only admission;
 it is not converted into a legacy preserved recovery. The optional
-`--semantic-deployment-evidence` file must be canonical owner-controlled JSON
-beside the trusted external profiles. It selects canonical read-only evidence
-stores whose eight source classes, claim-owner matrix, verifier set, incident,
+`--semantic-deployment-evidence` argument names `deployment-evidence.json`
+inside one canonical owner-controlled package directory directly beneath the
+trusted external-profile root. The package has exactly ten members: that
+document, one package manifest, and one distinct canonical projection for each
+of the eight authority classes. Extra entries, nested paths, links, unsafe
+modes/owners, noncanonical JSON, manifest drift, and final/incoming/retired
+residue fail closed. It selects canonical read-only evidence stores whose eight
+source classes, claim-owner matrix, verifier set, incident,
 Git/task/run/counter identities, runtime artifacts, and no-effect posture all
 agree with an exact target selector. Exactly one associated unresolved
-incident and no active operational owner are required. The result is
+recoverable state and no active operational owner are required. The result is
 `semantic_incident_deployment_only_admitted` and binds deterministic document,
-manifest, and evidence digests into every repeated quiescence proof.
+package/member manifest, aggregate, semantic manifest, and evidence digests
+into every repeated quiescence proof.
+
+`prepare-semantic-deployment-evidence.mjs` is the manual-only source-owned
+preparer. `--plan` authenticates the external config/profile, installed
+runtime, health unit, repository, exact incident, exact associated recovery,
+all run roles, lifecycle, budget, Git candidate, and GitHub no-effect posture,
+then prints one deterministic plan without creating a file, directory, lock,
+or marker. Each class-specific extractor derives only matrix-owned claims from
+its own fresh authenticated domain reread, including a fresh project-authority
+load and direct artifact-byte authentication; no production extractor reuses
+the orchestrator's collected context. The claim-owner matrix performs the only
+cross-class merge and rejects drift between those independent reads. A complete
+final equality reread is required immediately before package publication or
+adoption.
+Repository evidence additionally requires canonical clean
+`main`/`origin/main`, a still-unmerged literal candidate ref, and clean linked
+worktrees. Every Git command disables hooks and executable fsmonitor authority,
+and final collection reauthenticates config and repository/worktree topology.
+Intent evidence binds the exact prompt, report, finalized commit
+intent, subject, tree, and paths. GitHub evidence uses the fixed trusted CLI
+with a sanitized environment and fingerprints the exact issue-comment
+checkpoint without persisting comment bodies. `--create-or-adopt` is a
+separately authorized external operation:
+it stages owner-only canonical members in the one fixed sibling `.incoming`
+directory, fsyncs every file and the directory, and atomically renames the
+whole directory, or adopts exact existing bytes idempotently. It never cleans
+conflicting residue. Publication uses a no-clobber atomic directory move, and
+authentication rereads every member after the complete aggregate read. The
+staged manifest is a `0400` inert publication seal: a package moved through a
+pathname substitution cannot authenticate at the final path. Only after the
+moved directory and all retained member descriptors match does the preparer
+commit that exact manifest descriptor to `0600` and fsync it. An exact crash-
+published inert final is resumable only through a later explicit create-or-
+adopt invocation. Final adoption fsyncs every member, the package directory,
+and the config root before success. The preparer never reads a grant or creates
+a successor.
+
+Plan shape (replace selectors with authenticated exact values):
+
+```bash
+node tools/auto-runner/prepare-semantic-deployment-evidence.mjs --plan \
+  --config /workspace/auto-runner/config/<project>.json \
+  --approved-profile /workspace/auto-runner/config/<approved-profile>.json \
+  --health-unit /absolute/path/to/<project>-auto-runner-health.service \
+  --repo-root /absolute/path/to/repository \
+  --runtime-root /workspace/auto-runner/runtime \
+  --incident /absolute/project/logs/recovery/<incident>.json \
+  --incident-sha256 <64-lowercase-hex> \
+  --associated-recovery /absolute/project/logs/recovery/<associated>.json \
+  --associated-recovery-sha256 <64-lowercase-hex> \
+  --package-name settleora-semantic-deployment-evidence-<authorization-key>
+```
+
+Changing `--plan` to `--create-or-adopt` is the external mutation and requires
+a future authorization naming the exact package root and planned members.
+
+The overwrite incident and associated recovery remain two immutable read-only
+authorities. The incident binds its own path/SHA and original task/run lineage;
+the associated recovery binds a distinct path/SHA/state digest and must be the
+single discoverable provisional predecessor. Their task-key prefix, issue,
+claim, charge, branch/base, candidate head/tree/diff, original roles,
+lifecycle generation, counters, phase/actions, creation lineage, and no-effect
+posture must agree. Both artifacts must retain the complete canonical PR
+object with every field null and must have null generated-work, feature-bundle,
+and outage-resubmission authority. The associated state may contain only its exact
+claim/charge/branch markers and must contain no continuation, generated work,
+local evidence, comment/close marker, or other external-effect marker. Literal
+path equality is forbidden, not required.
 
 The descriptor-authenticated external document is the sole authority for this
 deployment-only attestation. It must state the exact

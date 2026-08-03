@@ -1805,15 +1805,58 @@ adoption, and any later product-task continuation remain separate manual
 operations.
 
 Deployment quiescence has a distinct read-only corroboration path for this
-incident class. An owner-controlled canonical evidence document may select the
-same source-owned verifier set and claim-owner matrix, bind an exact target and
-all authenticated incident/runtime artifacts, and prove one unresolved
-associated incident with no active owner or later effect. Its only admitted
-action is runtime deployment quiescence. The path does not inspect or consume
+incident class. Its manual-only preparer derives one deterministic package
+from authenticated config/profile/runtime/health, repository, lifecycle,
+budget, intent, run-role, incident, associated-recovery, and GitHub readers.
+Every authority-class projection performs a fresh project-authority load and
+authenticated domain/artifact reread; the orchestrator's first context is not
+shared as projection authority, and cross-read disagreement fails at the
+claim-owner matrix. A final complete equality reread is required immediately
+before publication or adoption. Git evidence binds
+clean canonical `main` and `origin/main`, candidate exclusion from main, every
+linked worktree, and repeated config/topology snapshots while disabling hooks
+and executable fsmonitor authority on every Git call. Intent evidence authenticates
+the exact prompt, report, finalized commit intent, subject, tree, and paths.
+GitHub reads use the fixed trusted CLI in a sanitized environment and bind a
+body-digest-only comment checkpoint. Identical upstream evidence sets cannot
+gain independence merely from different authority-class labels.
+The package is one owner-only direct child of the external profile root with
+exactly one deployment document, eight distinct source projections, and one
+sorted manifest. Planning is non-mutating; separately authorized creation uses
+one fsynced sibling incoming directory and one atomic directory rename, while
+exact final or crash-staged bytes are idempotently adoptable. Publication is a
+no-clobber atomic directory move with the staged manifest held at `0400` as an
+inert publication seal. A substituted directory therefore cannot authenticate
+at the final path. The seal becomes `0600` only through its retained descriptor
+after the moved directory and every retained member descriptor match; an exact
+crash-published inert final requires a later explicit adoption to commit.
+Authentication rereads all members after the complete aggregate pass. Exact
+final adoption fsyncs every member, the package directory, and the external
+config root before returning. Contradictory final/incoming/retired residue is
+retained and refused, never cleaned.
+
+The document binds the overwrite incident and the single associated
+recoverable state as different artifacts. The incident remains immutable
+semantic corroboration; the recoverable state remains the operational record
+that causes ordinary deployment refusal. Exact path/SHA/state, provisional to
+full task lineage, issue/claim/charge, branch/base/candidate/tree/diff,
+original/failed/consumed roles, lifecycle generation, counters, phase/actions,
+and no-effect posture must agree. The paths must be distinct. Zero, multiple,
+unrelated, newer, malformed, or drifting recoverable states fail closed.
+Both artifacts require the complete canonical PR object with every field null
+and null generated-work, feature-bundle, and outage-resubmission authority.
+Comment/close or unknown effect markers, an ordinary continuation, attempts,
+or populated local evidence on the associated state also fail closed.
+
+The package selects the same source-owned verifier set and claim-owner matrix,
+binds an exact target and all authenticated incident/runtime artifacts, and
+proves no active owner or later effect. Its only admitted action is runtime
+deployment quiescence. The path does not inspect or consume
 the protected root grant and cannot invoke successor construction, protected
 persistence, submission, or issue continuation. Initial, post-lock, and
 pre-exchange inspections must reproduce identical document, manifest,
-authority, and semantic evidence digests; any drift fails closed. Legacy exact
+authority, package aggregate/member manifest, associated-state, and semantic
+evidence digests; any drift fails closed. Legacy exact
 preserved recovery and ordinary quiescence remain separate contracts.
 The fixed-profile-root document is the sole deployment-only owner attestation
 and binds exact target, source-manifest, artifact-manifest, and document

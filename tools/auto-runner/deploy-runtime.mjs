@@ -2,7 +2,8 @@
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { acquireRuntimeDeploymentLock, buildRuntimeManifest, deployRuntimeBundle, inspectDeploymentQuiescence, inspectRuntimeConsumers, releaseRuntimeDeploymentLock, rollbackRuntimeBundle, verifyRuntimeSourceAgainstCommit } from "./lib/runtime-bundle.mjs";
-import { assertDeploymentBootstrapTransientStateAbsent, loadDeploymentProjectAuthority, readOwnerControlledExternalJson } from "./lib/config.mjs";
+import { assertDeploymentBootstrapTransientStateAbsent, loadDeploymentProjectAuthority } from "./lib/config.mjs";
+import { authenticateSemanticDeploymentEvidencePackage } from "./lib/deployment-semantic-evidence-package.mjs";
 import { sanitizedDeploymentGitEnvironment, trustedDeploymentGitBinary } from "./lib/preserved-recovery-deployment.mjs";
 import { pathEntryExists } from "./lib/runtime-identity.mjs";
 
@@ -86,7 +87,7 @@ const inspectCurrentQuiescence = () => {
     throw new Error("deployment project authority changed during deployment");
   }
   const semanticDeploymentEvidence = semanticEvidencePath
-    ? readOwnerControlledExternalJson(semanticEvidencePath)
+    ? authenticateSemanticDeploymentEvidencePackage(semanticEvidencePath)
     : null;
   return inspectDeploymentQuiescence(logsRoot, {
     preservedRecoveryTarget,

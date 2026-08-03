@@ -1,5 +1,18 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { sanitizePersistedEvidence } from "./evidence-sanitizer.mjs";
 
@@ -323,34 +336,50 @@ export function loadRecoveryState(config, keyOrState) {
   return { ok: true, state: parsed, statePath };
 }
 
-export function listRecoverableRecoveryStates(config) {
+export function listRecoverableRecoveryStates(config, { afterInitialRead = null } = {}) {
+  if (afterInitialRead !== null && typeof afterInitialRead !== "function") {
+    throw new Error("recovery_state_discovery_hook_invalid");
+  }
   const root = path.join(config.logsRoot, recoveryStateRootName);
   if (!existsSync(root)) return [];
-  const artifactNames = readdirSync(root).filter((name) => name.endsWith(".json"));
-  if (artifactNames.length === 0) return [];
-  const rootInfo = lstatSync(root);
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0 || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())) {
-    throw new Error("recovery_state_root_untrusted");
-  }
-  const states = artifactNames
-    .map((name) => path.join(root, name))
-    .map((statePath) => {
-      try {
-        const info = lstatSync(statePath);
-        if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0 || info.size <= 0 || info.size > 1024 * 1024 || (typeof process.getuid === "function" && info.uid !== process.getuid())) {
-          throw new Error("recovery_state_artifact_untrusted");
-        }
-        const parsed = JSON.parse(readFileSync(statePath, "utf8"));
-        const validation = validateRecoveryStateShape(parsed);
-        if (!validation.ok) throw new Error("recovery_state_schema_invalid");
-        if (parsed.phase === "completed") return null;
-        if (parsed.phase === "stopped" && !isValidationFailureContinuation(parsed)) return null;
-        return sanitizeRecoveryState({ ...parsed, statePath });
-      } catch {
-        throw new Error("recovery_state_artifact_untrusted");
-      }
-    })
-    .filter(Boolean);
+  // Preserve ordinary discovery semantics when the recovery namespace has no
+  // state artifacts (for example, only a pre-effect-intents child exists).
+  // The deployment-only associated-state path always has selected JSON
+  // artifacts and therefore continues through both authenticated passes.
+  if (!readdirSync(root).some((name) => name.endsWith(".json"))) return [];
+  const readPass = () => {
+    const rootInfo = lstatSync(root);
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || (rootInfo.mode & 0o077) !== 0
+        || (typeof process.getuid === "function" && rootInfo.uid !== process.getuid())
+        || realpathSync(root) !== path.resolve(root)) throw new Error("recovery_state_root_untrusted");
+    const names = readdirSync(root).sort();
+    const artifacts = names.filter((name) => name.endsWith(".json")).map((name) => {
+      try { return authenticateRecoveryArtifact(root, path.join(root, name), null); }
+      catch { throw new Error("recovery_state_artifact_untrusted"); }
+    });
+    const rootAfter = lstatSync(root);
+    if (recoveryArtifactIdentity(rootInfo) !== recoveryArtifactIdentity(rootAfter)
+        || realpathSync(root) !== path.resolve(root)) throw new Error("recovery_state_root_changed");
+    return { names, artifacts, rootIdentity: recoveryArtifactIdentity(rootInfo) };
+  };
+  const first = readPass();
+  afterInitialRead?.();
+  const second = readPass();
+  if (canonicalRecoveryEvidence(first.names) !== canonicalRecoveryEvidence(second.names)
+      || first.rootIdentity !== second.rootIdentity
+      || first.artifacts.length !== second.artifacts.length
+      || first.artifacts.some((artifact, index) => {
+        const rechecked = second.artifacts[index];
+        return artifact.path !== rechecked.path || artifact.artifactIdentity !== rechecked.artifactIdentity
+          || artifact.sha256 !== rechecked.sha256 || artifact.stateDigest !== rechecked.stateDigest
+          || canonicalRecoveryEvidence(artifact.state) !== canonicalRecoveryEvidence(rechecked.state);
+      })) throw new Error("recovery_state_discovery_changed");
+  const states = second.artifacts.map((artifact) => {
+    const parsed = artifact.state;
+    if (parsed.phase === "completed") return null;
+    if (parsed.phase === "stopped" && !isValidationFailureContinuation(parsed)) return null;
+    return sanitizeRecoveryState({ ...parsed, statePath: artifact.path });
+  }).filter(Boolean);
   const superseded = new Set();
   for (const candidate of states) {
     if (!isProvisionalTaskKey(candidate.taskKey)) continue;
@@ -408,7 +437,7 @@ function isProvisionalTaskKey(value) {
   return /^\d{8}T\d{2}$/.test(String(value || ""));
 }
 
-function isExactRecoverySuccessor(older, newer) {
+export function isExactRecoverySuccessor(older, newer) {
   const reportPath = newer.expectedReportPaths?.repoReportPath;
   const promptPath = newer.expectedReportPaths?.promptPath;
   return /^\d{8}T\d{6}$/.test(String(newer.taskKey || ""))
@@ -429,6 +458,226 @@ function isExactRecoverySuccessor(older, newer) {
     && JSON.stringify(newer.mutationMarkers?.claim || {}) === JSON.stringify(older.mutationMarkers?.claim || {})
     && JSON.stringify(newer.mutationMarkers?.logical_task_charge || {}) === JSON.stringify(older.mutationMarkers?.logical_task_charge || {})
     && JSON.stringify(newer.mutationMarkers?.branch_ownership_created || {}) === JSON.stringify(older.mutationMarkers?.branch_ownership_created || {});
+}
+
+export function authenticateAssociatedRecoverableState({
+  config,
+  incidentPath,
+  incidentSha256,
+  associatedRecoveryPath,
+  associatedRecoverySha256,
+  afterInitialRecoveryDiscovery = null,
+} = {}) {
+  const fail = (reasonCode) => ({ ok: false, reasonCode });
+  try {
+    const recoveryRoot = realpathSync(path.join(config?.logsRoot || "", recoveryStateRootName));
+    if (recoveryRoot !== path.resolve(config.logsRoot, recoveryStateRootName)) {
+      return fail("associated_recovery_root_noncanonical");
+    }
+    const incident = authenticateRecoveryArtifact(recoveryRoot, incidentPath, incidentSha256);
+    let associated = authenticateRecoveryArtifact(recoveryRoot, associatedRecoveryPath, associatedRecoverySha256);
+    if (incident.path === associated.path) return fail("associated_recovery_incident_path_conflated");
+    const recoverable = listRecoverableRecoveryStates(config, { afterInitialRead: afterInitialRecoveryDiscovery });
+    if (recoverable.length !== 1) return fail("associated_recovery_count_invalid");
+    if (recoverable[0].statePath !== associated.path) return fail("associated_recovery_selector_mismatch");
+    const { statePath: listedPath, ...listedState } = recoverable[0];
+    const recheckedAssociated = authenticateRecoveryArtifact(recoveryRoot, associatedRecoveryPath, associatedRecoverySha256);
+    if (!associatedRecoveryDiscoveryIsStable({ associated, listedPath, listedState, recheckedAssociated })) {
+      return fail("associated_recovery_changed_during_discovery");
+    }
+    associated = recheckedAssociated;
+    const provisionalFields = [
+      "attempts", "branch", "evidence", "featureBundle", "firstIncompleteAction", "generatedWork", "issue",
+      "mutationMarkers", "nextSafeAction", "outageResubmission", "phase", "pr", "retryBudgets", "run",
+      "stateVersion", "stopReason", "taskKey", "timestamps",
+    ].sort();
+    if (JSON.stringify(Object.keys(associated.state).sort()) !== JSON.stringify(provisionalFields)) {
+      return fail("associated_recovery_shape_invalid");
+    }
+    if (!isProvisionalTaskKey(associated.state.taskKey)
+        || !isExactRecoverySuccessor(associated.state, incident.state)) {
+      return fail("associated_recovery_semantic_lineage_mismatch");
+    }
+    const chargeIds = Object.keys(incident.state?.mutationMarkers?.logical_task_charge || {});
+    if (chargeIds.length !== 1
+        || Object.keys(associated.state?.mutationMarkers?.logical_task_charge || {}).length !== 1
+        || chargeIds[0] !== Object.keys(associated.state.mutationMarkers.logical_task_charge)[0]) {
+      return fail("associated_recovery_charge_lineage_mismatch");
+    }
+    const incidentIdentity = incident.state?.ordinaryContinuation?.identity;
+    const counters = incident.state?.ordinaryContinuation?.counters;
+    const permittedMarkerClasses = new Set(["branch_ownership_created", "claim", "logical_task_charge"]);
+    const unexpectedMarkersAbsent = [incident.state, associated.state].every((state) => Object.entries(state?.mutationMarkers || {})
+      .every(([markerClass, markers]) => permittedMarkerClasses.has(markerClass) || Object.keys(markers || {}).length === 0));
+    const associatedLocalEvidenceAbsent = Object.values(associated.state?.evidence || {}).every((value) => value === null)
+      && Array.isArray(associated.state?.attempts) && associated.state.attempts.length === 0;
+    const prFields = ["baseRefName", "headRefName", "headSha", "number", "state", "url"];
+    const prAbsent = [incident.state, associated.state].every((state) => state?.pr
+      && Object.keys(state.pr).sort().join("\n") === prFields.join("\n")
+      && prFields.every((field) => state.pr[field] === null));
+    const productAuthorityAbsent = [incident.state, associated.state].every((state) => state?.generatedWork === null
+      && state?.featureBundle === null && state?.outageResubmission === null);
+    const noEffectPosture = {
+      remoteHeadAbsent: incident.state?.branch?.expectedRemoteHeadSha === null
+        && associated.state?.branch?.expectedRemoteHeadSha === null,
+      prAbsent,
+      pushMarkerAbsent: [incident.state, associated.state]
+        .every((state) => Object.keys(state?.mutationMarkers?.push || {}).length === 0),
+      mergeMarkerAbsent: [incident.state, associated.state]
+        .every((state) => Object.keys(state?.mutationMarkers?.merge || {}).length === 0),
+      commentMarkerAbsent: [incident.state, associated.state].every((state) => ["issue_comment", "parent_comment", "pr_comment"]
+        .every((markerClass) => Object.keys(state?.mutationMarkers?.[markerClass] || {}).length === 0)),
+      issueCloseMarkerAbsent: [incident.state, associated.state]
+        .every((state) => Object.keys(state?.mutationMarkers?.issue_close || {}).length === 0),
+      unexpectedMarkersAbsent,
+      ordinaryContinuationAbsent: associated.state?.ordinaryContinuation == null,
+      terminalDerivativeContinuationAdmissionAbsent: associated.state?.terminalDerivativeContinuationAdmission == null,
+      recoveryReconciliationAbsent: associated.state?.recoveryReconciliation == null,
+      generatedWorkAbsent: associated.state?.generatedWork === null && associated.state?.featureBundle === null
+        && associated.state?.outageResubmission === null,
+      productAuthorityAbsent,
+      localEvidenceAbsent: associatedLocalEvidenceAbsent,
+    };
+    if (!incidentIdentity || !counters
+        || incidentIdentity.baseSha !== incident.state.branch.baseSha
+        || incidentIdentity.headSha !== incident.state.branch.currentHeadSha
+        || !/^[a-f0-9]{40}$/u.test(String(incidentIdentity.treeSha || ""))
+        || ![incidentIdentity.changedFilesDigest, incidentIdentity.diffDigest].every((value) => /^[a-f0-9]{64}$/u.test(String(value || "")))
+        || counters.acceptedLogicalTasks !== 1
+        || counters.localSourceChangingRoundsPerEpoch !== 0
+        || counters.githubTriggeredFixEpochsPerPr !== 0
+        || counters.lifetimeLocalSourceChangingRounds !== 0
+        || incident.state?.sessionLifecycle?.mutationAuthority?.status !== "terminal"
+        || !Number.isSafeInteger(incident.state?.sessionLifecycle?.mutationAuthority?.generation)
+        || incident.state.sessionLifecycle.mutationAuthority.generation < 1
+        || associated.state.phase !== "implementation_or_bundle_slice"
+        || associated.state.firstIncompleteAction !== "run_implementation"
+        || associated.state.nextSafeAction !== "run_implementation"
+        || associated.state.stopReason !== null
+        || Object.values(noEffectPosture).some((value) => value !== true)) {
+      return fail("associated_recovery_no_effect_or_candidate_identity_invalid");
+    }
+    const repository = incident.state?.sessionLifecycle?.repository || config.repositorySlug;
+    if (typeof repository !== "string" || repository.toLowerCase() !== String(config.repositorySlug || "").toLowerCase()) {
+      return fail("associated_recovery_repository_identity_mismatch");
+    }
+    const issueKey = `issue-${associated.state.issue.number}`;
+    const branchKey = `${associated.state.branch.name}:${associated.state.branch.baseSha}`;
+    const claimMarker = associated.state.mutationMarkers.claim?.[issueKey];
+    const chargeMarker = associated.state.mutationMarkers.logical_task_charge?.[chargeIds[0]];
+    const branchMarker = associated.state.mutationMarkers.branch_ownership_created?.[branchKey];
+    if (Object.keys(associated.state.mutationMarkers.claim || {}).length !== 1
+        || Object.keys(associated.state.mutationMarkers.branch_ownership_created || {}).length !== 1
+        || claimMarker?.status !== "completed" || claimMarker.correlation !== associated.state.run.runId
+        || String(claimMarker.target || "").toLowerCase() !== `https://github.com/${repository}/issues/${associated.state.issue.number}`.toLowerCase()
+        || chargeMarker?.status !== "completed" || chargeMarker.target !== issueKey || chargeMarker.correlation !== chargeIds[0]
+        || branchMarker?.status !== "completed" || branchMarker.target !== associated.state.branch.name
+        || branchMarker.correlation !== associated.state.branch.baseSha) {
+      return fail("associated_recovery_marker_identity_mismatch");
+    }
+    const binding = {
+      relationship: "provisional_predecessor_to_terminal_incident_successor",
+      operationalStatus: "recoverable_operational_state",
+      path: associated.path,
+      sha256: associated.sha256,
+      stateDigest: associated.stateDigest,
+      taskKey: associated.state.taskKey,
+      incidentTaskKey: incident.state.taskKey,
+      issueNumber: associated.state.issue.number,
+      claimIdentity: `${repository}#${associated.state.issue.number}`,
+      chargeId: chargeIds[0],
+      branch: associated.state.branch.name,
+      baseSha: associated.state.branch.baseSha,
+      headSha: associated.state.branch.currentHeadSha,
+      candidateHeadSha: incidentIdentity.headSha,
+      candidateTreeSha: incidentIdentity.treeSha,
+      candidateChangedFilesDigest: incidentIdentity.changedFilesDigest,
+      candidateDiffDigest: incidentIdentity.diffDigest,
+      originalRunnerRunId: associated.state.run.runId,
+      originalSupervisorRunId: associated.state.run.supervisorRunId,
+      phase: associated.state.phase,
+      firstIncompleteAction: associated.state.firstIncompleteAction,
+      nextSafeAction: associated.state.nextSafeAction,
+      stopReason: associated.state.stopReason ?? null,
+      lifecycleStatus: incident.state?.sessionLifecycle?.mutationAuthority?.status || null,
+      lifecycleSessionId: incident.state?.sessionLifecycle?.sessions?.current || null,
+      lifecycleMutationGeneration: incident.state?.sessionLifecycle?.mutationAuthority?.generation ?? null,
+      counters: {
+        acceptedLogicalTasks: counters.acceptedLogicalTasks,
+        localSourceChangingRounds: counters.localSourceChangingRoundsPerEpoch,
+        githubTriggeredFixEpochs: counters.githubTriggeredFixEpochsPerPr,
+        lifetimeLocalSourceChangingRounds: counters.lifetimeLocalSourceChangingRounds,
+      },
+      incident: { path: incident.path, sha256: incident.sha256, stateDigest: incident.stateDigest },
+      noEffectPosture,
+    };
+    const authenticated = {
+      ok: true,
+      reasonCode: "associated_recoverable_state_authenticated",
+      binding: deepFreeze(binding),
+    };
+    Object.defineProperties(authenticated, {
+      associatedState: { value: associated.state, enumerable: false },
+      incidentState: { value: incident.state, enumerable: false },
+    });
+    return Object.freeze(authenticated);
+  } catch {
+    return fail("associated_recovery_authentication_failed");
+  }
+}
+
+export function associatedRecoveryDiscoveryIsStable({ associated, listedPath, listedState, recheckedAssociated } = {}) {
+  return Boolean(associated && recheckedAssociated
+    && listedPath === associated.path
+    && canonicalRecoveryEvidence(listedState) === canonicalRecoveryEvidence(associated.state)
+    && recheckedAssociated.artifactIdentity === associated.artifactIdentity
+    && recheckedAssociated.sha256 === associated.sha256
+    && recheckedAssociated.stateDigest === associated.stateDigest
+    && canonicalRecoveryEvidence(recheckedAssociated.state) === canonicalRecoveryEvidence(associated.state));
+}
+
+function authenticateRecoveryArtifact(recoveryRoot, selectedPath, expectedSha256) {
+  if (expectedSha256 !== null && !/^[a-f0-9]{64}$/u.test(String(expectedSha256 || ""))) throw new Error("recovery digest invalid");
+  const lexical = path.resolve(String(selectedPath || ""));
+  if (path.dirname(lexical) !== recoveryRoot || realpathSync(lexical) !== lexical) throw new Error("recovery path invalid");
+  const fd = openSync(lexical, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  try {
+    const first = fstatSync(fd);
+    const uid = typeof process.getuid === "function" ? process.getuid() : null;
+    if (!first.isFile() || first.nlink !== 1 || first.size < 1 || first.size > 1024 * 1024
+        || (first.mode & 0o077) !== 0 || (uid !== null && first.uid !== uid)) throw new Error("recovery metadata invalid");
+    const bytes = readFileSync(fd);
+    const second = fstatSync(fd);
+    const pathInfo = lstatSync(lexical);
+    if (recoveryArtifactIdentity(first) !== recoveryArtifactIdentity(second)
+        || recoveryArtifactIdentity(first) !== recoveryArtifactIdentity(pathInfo)
+        || bytes.length !== first.size || realpathSync(lexical) !== lexical) throw new Error("recovery changed");
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    if (expectedSha256 !== null && sha256 !== expectedSha256) throw new Error("recovery digest mismatch");
+    const state = JSON.parse(bytes.toString("utf8"));
+    if (!validateRecoveryStateShape(state).ok) throw new Error("recovery schema invalid");
+    return {
+      path: lexical,
+      sha256,
+      state: deepFreeze(state),
+      stateDigest: createHash("sha256").update(canonicalRecoveryEvidence(state)).digest("hex"),
+      artifactIdentity: recoveryArtifactIdentity(first),
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function recoveryArtifactIdentity(info) {
+  return [info.dev, info.ino, info.mode, info.nlink, info.uid, info.gid, info.size, info.mtimeMs, info.ctimeMs].join(":");
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
 }
 
 export function recoverRecoveryState(config, expected = {}) {

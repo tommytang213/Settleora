@@ -145,6 +145,7 @@ export function createProductionSemanticRecoveryVerifierRegistry(config) {
 
 export function createReadOnlySemanticDeploymentVerifierRegistry({ evidenceRoot, repositorySlug, ownerAuthorityDigest } = {}) {
   const root = authenticateDeploymentEvidenceRoot(evidenceRoot);
+  const sourceProvenanceIdentities = new Set();
   if (typeof repositorySlug !== "string" || !/^[^/\s]+\/[^/\s]+$/u.test(repositorySlug)) {
     throw new Error("semantic deployment repository identity invalid");
   }
@@ -166,18 +167,23 @@ export function createReadOnlySemanticDeploymentVerifierRegistry({ evidenceRoot,
     const authenticated = authenticateDeploymentEvidenceStore(storePath);
     if (authenticated.sha256 !== descriptor.store.sha256) throw new Error("semantic deployment source digest mismatch");
     const document = parseCanonicalJson(authenticated.bytes);
-    assertExactKeys(document, ["authorityClass", "claims", "contract", "producer", "repository", "store", "version"]);
+    assertExactKeys(document, ["authorityClass", "claims", "contract", "producer", "provenanceIdentity", "repository", "store", "version"]);
     assertExactKeys(document.producer, ["id", "version"]);
     assertExactKeys(document.store, ["kind", "role"]);
     if (document.contract !== "settleora_semantic_deployment_evidence_source"
         || document.version !== 1 || document.authorityClass !== authorityClass
         || document.repository !== repositorySlug
+        || !isDigest(document.provenanceIdentity)
         || document.producer.id !== definition.id || document.producer.version !== definition.version
         || document.store.kind !== definition.storeKind || document.store.role !== descriptor.store.role
         || !plainObject(document.claims)
         || Object.keys(document.claims).some((claim) => !ownedClaimsFor(authorityClass).includes(claim))) {
       throw new Error("semantic deployment source document invalid");
     }
+    if (sourceProvenanceIdentities.has(document.provenanceIdentity)) {
+      throw new Error("semantic deployment source provenance is not independent");
+    }
+    sourceProvenanceIdentities.add(document.provenanceIdentity);
     return {
       claims: document.claims,
       provenanceIdentity: sha256(canonicalJson({
@@ -185,6 +191,7 @@ export function createReadOnlySemanticDeploymentVerifierRegistry({ evidenceRoot,
         ownerAuthorityDigest,
         authorityClass,
         verifier: definition,
+        sourceProvenanceIdentity: document.provenanceIdentity,
         path: storePath,
         sha256: authenticated.sha256,
       })),
