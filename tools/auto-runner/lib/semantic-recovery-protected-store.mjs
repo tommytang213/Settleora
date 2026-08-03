@@ -556,9 +556,9 @@ function recoverExactInterruptedHardLink(incomingPath, finalPath, expectedBytes)
   if (!existsSync(incomingPath) || !existsSync(finalPath)) return;
   const authenticated = authenticateExactInterruptedHardLink(incomingPath, finalPath);
   if (!authenticated.bytes.equals(expectedBytes)) throw new Error("semantic protected publication residue changed");
+  fsyncDirectory(path.posix.dirname(finalPath));
   unlinkSync(incomingPath);
   fsyncDirectory(path.posix.dirname(incomingPath));
-  fsyncDirectory(path.posix.dirname(finalPath));
 }
 
 function authenticateExactInterruptedHardLink(incomingPath, finalPath) {

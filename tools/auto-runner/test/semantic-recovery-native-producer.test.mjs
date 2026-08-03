@@ -442,6 +442,7 @@ test("installed producer bundle, fixed runtime and real source identity close th
   assert.match(persistence, /authenticateExactInterruptedHardLink\(incomingPath, finalPath\);\s*if \(!authenticated\.bytes\.equals\(expectedBytes\)\)/u);
   assert.match(persistence, /opened\.dev !== incoming\.dev[\s\S]*?incoming\.ino !== final\.ino[\s\S]*?opened\.nlink !== 2/u);
   assert.match(persistence, /linkSync\(incomingPath, finalPath\);\s*fsyncDirectory\(path\.posix\.dirname\(finalPath\)\);\s*unlinkSync\(incomingPath\);\s*fsyncDirectory\(path\.posix\.dirname\(incomingPath\)\)/u);
+  assert.match(persistence, /authenticated\.bytes\.equals\(expectedBytes\)[\s\S]*?fsyncDirectory\(path\.posix\.dirname\(finalPath\)\);\s*unlinkSync\(incomingPath\);\s*fsyncDirectory\(path\.posix\.dirname\(incomingPath\)\)/u);
 });
 
 test("producer support bytes come from authenticated GitHub blobs with recomputed object identities", () => {
