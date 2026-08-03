@@ -1818,6 +1818,13 @@ authority. Producer installation, one exact grant, root-executed successor
 persistence, authenticated readback, and any Issue #959 continuation remain
 separate owner gates. A committed successor explicitly reports that it is not
 authorized to continue.
+The installed exact root-owned executable alone also exposes the closed
+`--persist-successor` and `--readback-successor` operations. Persistence
+requires UID 0 at the fixed canonical executable path, temporarily drops
+effective UID to the authenticated config owner for fresh domain-artifact
+authentication, restores UID 0, and reauthenticates all protected stores and
+the real grant before any bounded publication. The runner has no invocation or
+path-selection capability for this offline operator action.
 
 Deployment quiescence has a distinct read-only corroboration path for this
 incident class. Its manual-only preparer derives one deterministic package

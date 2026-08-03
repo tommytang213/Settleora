@@ -9,6 +9,10 @@ import {
   createSemanticDeploymentAuthorityReaders,
 } from "./lib/deployment-semantic-evidence-extractors.mjs";
 import {
+  authenticateConfiguredSemanticRecoveryAuthority,
+  constructPostIncidentSuccessor,
+} from "./lib/post-incident-successor-recovery.mjs";
+import {
   planSemanticRecoveryGrant,
   planSemanticRecoveryNativeInstall,
   readSemanticRecoverySupportFiles,
@@ -16,21 +20,30 @@ import {
   verifySemanticRecoveryGrantPlan,
   verifySemanticRecoveryNativeInstallPlan,
 } from "./lib/semantic-recovery-native-producer.mjs";
+import {
+  persistExactSemanticRecoverySuccessorFromNativeProducer,
+  readbackProtectedSemanticRecoverySuccessor,
+  semanticRecoveryProtectedLayout,
+} from "./lib/semantic-recovery-protected-store.mjs";
 
 const maximumInputBytes = 8 * 1024 * 1024;
 const repositoryRoot = realpathSync("/workspace/repos/Settleora");
 const runtimeRoot = "/workspace/auto-runner/runtime";
-const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed"]);
+const configPath = "/workspace/auto-runner/config/settleora.json";
+const approvedProfilePath = "/workspace/auto-runner/config/settleora-production-approved-20260724-0946.json";
+const healthUnitPath = "/home/tommytang213/.config/systemd/user/settleora-auto-runner-health.service";
+const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor"]);
 
 export async function main(argv = process.argv.slice(2), input = process.stdin) {
-  if (argv.length !== 1 || !supportedModes.has(argv[0])) throw new Error("one supported non-mutating semantic recovery mode is required");
+  if (argv.length !== 1 || !supportedModes.has(argv[0])) throw new Error("one supported semantic recovery mode is required");
   const request = await readCanonicalInput(input);
   let result;
   if (argv[0] === "--plan-install") result = planInstall(request);
   else if (argv[0] === "--verify-install-plan") result = verifyInstallPackage(request);
   else if (argv[0] === "--plan-grant") result = encodeGrantPlan(planSemanticRecoveryGrant(request));
   else if (argv[0] === "--verify-grant-plan") result = verifyGrantPackage(request);
-  else result = verifyInstalled(request);
+  else if (argv[0] === "--verify-installed") result = verifyInstalled(request);
+  else result = executeProtectedSuccessorOperation(argv[0], request);
   process.stderr.write(`${summary(argv[0], result)}\n`);
   process.stdout.write(`${canonicalJson(result)}\n`);
   return result;
@@ -68,13 +81,7 @@ function planInstall(request) {
     if (new Set(contextDigests).size !== 1) throw new Error("semantic native authority changed between independent reads");
     return context;
   };
-  const supportPaths = [
-    "tools/auto-runner/semantic-recovery-native-producer.mjs",
-    ...readdirSync(path.join(repositoryRoot, "tools/auto-runner/lib"))
-      .filter((name) => name.endsWith(".mjs"))
-      .sort()
-      .map((name) => `tools/auto-runner/lib/${name}`),
-  ];
+  const supportPaths = discoverProducerSupportPaths();
   const generated = planSemanticRecoveryNativeInstall({
     request,
     authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext }),
@@ -103,6 +110,96 @@ function verifyInstalled(value) {
   const planned = verifySemanticRecoveryNativeInstallPlan(decoded);
   if (!planned.ok) return planned;
   return verifyInstalledSemanticRecoveryNativeProducer({ plan: decoded.plan, filesystem: realFilesystem() });
+}
+
+function executeProtectedSuccessorOperation(mode, value) {
+  assertInstalledProducerInvocation();
+  assertExactKeys(value, ["operationId", "semanticEvidencePacket"]);
+  if (!/^[a-f0-9]{64}$/u.test(String(value.operationId || ""))) throw new Error("semantic native operation selector invalid");
+  const sourceUid = trustedSourceUid();
+  const authenticate = () => withSourceEuid(sourceUid, () => {
+    const authority = loadDeploymentProjectAuthority({ configPath, approvedProfilePath, repoRoot: repositoryRoot, runtimeRoot, healthUnitPath, allowRuntimeBootstrap: false });
+    const config = { repoRoot: repositoryRoot, logsRoot: authority.logsRoot, repositorySlug: authority.repositorySlug };
+    return authenticateConfiguredSemanticRecoveryAuthority(config, value.semanticEvidencePacket, value.operationId);
+  });
+  const initial = authenticate();
+  if (!initial.ok || !initial.grant?.authorized) return initial;
+  const construction = withSourceEuid(sourceUid, () => constructPostIncidentSuccessor({
+    manifest: initial.manifest,
+    mutationGeneration: initial.manifest.lifecycleSuccessor.mutationGeneration,
+    operationGrant: initial.grant,
+  }));
+  if (!construction.ok) return construction;
+  if (mode === "--readback-successor") {
+    return readbackProtectedSemanticRecoverySuccessor({ manifest: initial.manifest, grant: initial.grant, construction });
+  }
+  return persistExactSemanticRecoverySuccessorFromNativeProducer({
+    manifest: initial.manifest,
+    grant: initial.grant,
+    construction,
+    reauthenticate() {
+      const fresh = authenticate();
+      return {
+        ok: fresh.ok === true && fresh.grant?.authorized === true,
+        manifestDigest: fresh.manifestDigest,
+        grantSha256: fresh.grant?.sha256,
+        operationId: fresh.manifest?.operation?.operationId,
+      };
+    },
+  });
+}
+
+function discoverProducerSupportPaths() {
+  const root = path.join(repositoryRoot, "tools/auto-runner");
+  const found = [];
+  const walk = (directory, relative) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.name === "test" || entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const childRelative = path.posix.join(relative, entry.name);
+      const child = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(child, childRelative);
+      else if (entry.isFile() && (entry.name.endsWith(".mjs") || childRelative === "README.md")) found.push(`tools/auto-runner/${childRelative}`);
+      else if (!entry.isFile()) throw new Error("semantic native support entry unsafe");
+    }
+  };
+  walk(root, "");
+  return found.sort();
+}
+
+function trustedSourceUid() {
+  const info = lstatSync(configPath);
+  if (!info.isFile() || info.isSymbolicLink() || info.uid < 1 || info.nlink !== 1 || (info.mode & 0o022) !== 0) {
+    throw new Error("semantic native source owner invalid");
+  }
+  return info.uid;
+}
+
+function withSourceEuid(uid, operation) {
+  if (typeof process.geteuid !== "function" || typeof process.seteuid !== "function" || process.getuid?.() !== 0 || process.geteuid() !== 0) {
+    throw new Error("semantic native root privilege boundary unavailable");
+  }
+  try {
+    process.seteuid(uid);
+    return operation();
+  } finally {
+    process.seteuid(0);
+  }
+}
+
+function assertInstalledProducerInvocation() {
+  if (process.getuid?.() !== 0 || process.geteuid?.() !== 0
+      || path.resolve(process.argv[1] || "") !== semanticRecoveryProtectedLayout.producerExecutable
+      || realpathSync(process.argv[1]) !== semanticRecoveryProtectedLayout.producerExecutable) {
+    throw new Error("semantic native protected invocation required");
+  }
+  for (const target of ["/etc", "/etc/settleora-auto-runner", semanticRecoveryProtectedLayout.root, semanticRecoveryProtectedLayout.producerRoot, semanticRecoveryProtectedLayout.producerExecutable]) {
+    const info = lstatSync(target);
+    const executable = target === semanticRecoveryProtectedLayout.producerExecutable;
+    if (info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0 || realpathSync(target) !== target
+        || (executable ? (!info.isFile() || info.nlink !== 1 || (info.mode & 0o7777) !== 0o555) : (!info.isDirectory() || (info.mode & 0o022) !== 0))) {
+      throw new Error("semantic native installed producer unsafe");
+    }
+  }
 }
 
 function encodeInstallPackage(value) {
@@ -139,6 +236,7 @@ function realFilesystem() {
       return { type: stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other", symlink: stat.isSymbolicLink(), uid: stat.uid, gid: stat.gid, mode: stat.mode & 0o7777, nlink: stat.nlink, size: stat.size, dev: stat.dev, ino: stat.ino, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs };
     },
     read: (target) => readFileSync(target),
+    list: (target) => readdirSync(target),
     realpath: (target) => realpathSync(target),
   };
 }

@@ -147,7 +147,10 @@ export function createProductionSemanticRecoveryVerifierRegistry(config) {
       if (!existsSync(semanticRecoveryProtectedControlRoot)) {
         throw new Error("semantic recovery protected persistence producer unavailable");
       }
-      return readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction });
+      const readback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction });
+      return readback.ok
+        ? { ...readback, reasonCode: "semantic_recovery_successor_adopted", adopted: true, created: false }
+        : readback;
     },
   );
   validatedRegistries.add(registry);

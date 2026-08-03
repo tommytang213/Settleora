@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
@@ -137,6 +137,8 @@ test("native planner emits eight independent fixed protected stores and verifies
   assert.equal(new Set(first.plan.sourceDescriptors.map((entry) => entry.store.sha256)).size, 8);
   assert.equal(first.plan.serviceEffects.length, 0);
   assert.equal(verifySemanticRecoveryNativeInstallPlan(first).ok, true);
+  const incomplete = first.artifacts.map((artifact, index) => index === 0 ? { ...artifact, bytes: undefined } : artifact);
+  assert.equal(verifySemanticRecoveryNativeInstallPlan({ plan: first.plan, artifacts: incomplete }).ok, false);
   const filesystem = new ProtectedMemoryFilesystem();
   filesystem.installPlan(first);
   assert.equal(verifyInstalledSemanticRecoveryNativeProducer({ plan: first.plan, filesystem }).ok, true);
@@ -146,6 +148,8 @@ test("native planner emits eight independent fixed protected stores and verifies
   }
   filesystem.mutate(first.plan.files[0].destination, { mode: 0o666 });
   assert.equal(verifyInstalledSemanticRecoveryNativeProducer({ plan: first.plan, filesystem }).reasonCode, "semantic_native_install_readback_drift");
+  const extra = new ProtectedMemoryFilesystem(); extra.installPlan(first); extra.writeExclusive(`${semanticRecoveryProtectedLayout.producerRoot}/extra.mjs`, Buffer.from("export {};"), { uid: 0, mode: 0o444 });
+  assert.equal(verifyInstalledSemanticRecoveryNativeProducer({ plan: first.plan, filesystem: extra }).reasonCode, "semantic_native_install_readback_drift");
   assert.equal(existsSync(semanticRecoveryProtectedLayout.root), before);
 });
 
@@ -243,6 +247,34 @@ test("protected persistence recovers exact crash windows and rejects conflicts, 
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_conflict");
   filesystem.mutate(expected.paths.storagePath, { nlink: 2 });
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_authentication_failed");
+  filesystem.mutate(expected.paths.storagePath, { nlink: 1 });
+  filesystem.writeExclusive(`${semanticRecoveryProtectedLayout.successorsRoot}/${expected.storageKey}.duplicate`, filesystem.read(expected.paths.storagePath), { uid: 0, mode: 0o444 });
+  assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_duplicate");
+});
+
+test("a commit marker with either predecessor missing is torn and never backfilled", () => {
+  for (const missing of ["storagePath", "provenancePath"]) {
+    const fixture = persistenceFixture();
+    const filesystem = new ProtectedMemoryFilesystem();
+    const authority = () => ({ ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId });
+    assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority }).ok, true);
+    const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction);
+    filesystem.entries.delete(expected.paths[missing]);
+    assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_torn_commit");
+    assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority }).reasonCode, "semantic_successor_readback_torn_commit");
+    assert.equal(filesystem.exists(expected.paths[missing]), false);
+  }
+});
+
+test("installed producer bundle discovery crosses lib and supervisor dependencies and root persistence is path-gated", () => {
+  const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
+  const persistence = readFileSync(new URL("../lib/semantic-recovery-protected-store.mjs", import.meta.url), "utf8");
+  assert.match(source, /walk\(root, ""\)/u);
+  assert.match(source, /entry\.name === "test"/u);
+  assert.match(source, /--persist-successor/u);
+  assert.match(source, /assertInstalledProducerInvocation\(\)/u);
+  assert.match(source, /withSourceEuid\(sourceUid/u);
+  assert.match(persistence, /recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?readbackProtectedSemanticRecoverySuccessor/u);
 });
 
 test("claim-owner disagreement remains authoritative", () => {

@@ -144,9 +144,24 @@ export function readbackProtectedSemanticRecoverySuccessor({ manifest, grant, co
     const provenance = readOptionalProtectedJson(expected.paths.provenancePath, { filesystem });
     const commit = readOptionalProtectedJson(expected.paths.commitPath, { filesystem });
     const incoming = listProtectedDirectory(semanticRecoveryProtectedLayout.successorIncomingRoot, { filesystem });
-    const selectedIncoming = incoming.filter((name) => name.includes(expected.storageKey));
+    const selectedIncomingNames = [expected.paths.storagePath, expected.paths.provenancePath, expected.paths.commitPath]
+      .map((finalPath) => path.posix.basename(incomingPathFor(finalPath)));
+    const selectedIncoming = incoming.filter((name) => selectedIncomingNames.includes(name));
     if (selectedIncoming.length !== 0) return failed("semantic_successor_readback_incoming_residue");
+    for (const [directory, finalPath] of [
+      [semanticRecoveryProtectedLayout.successorsRoot, expected.paths.storagePath],
+      [semanticRecoveryProtectedLayout.successorProvenanceRoot, expected.paths.provenancePath],
+      [semanticRecoveryProtectedLayout.successorCommitsRoot, expected.paths.commitPath],
+    ]) {
+      const basename = path.posix.basename(finalPath);
+      const key = basename.slice(0, -5);
+      const matches = listProtectedDirectory(directory, { filesystem }).filter((name) => name.startsWith(key));
+      if (matches.some((name) => name !== basename) || matches.filter((name) => name === basename).length > 1) {
+        return failed("semantic_successor_readback_duplicate");
+      }
+    }
     if (!final && !provenance && !commit) return failed("semantic_successor_not_persisted");
+    if (commit && (!final || !provenance)) return failed("semantic_successor_readback_torn_commit");
     if (!final || !provenance || !commit) return failed("semantic_successor_readback_partial");
     if (canonicalJson(final.document) !== canonicalJson(expected.successor)
         || canonicalJson(provenance.document) !== canonicalJson(expected.provenance)
@@ -201,6 +216,10 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
       || fresh.grantSha256 !== grant.sha256
       || fresh.operationId !== manifest.operation.operationId) {
     return failed("semantic_native_persistence_authority_drift");
+  }
+  if (!filesystem) {
+    try { recoverExactInterruptedPublicationSet(expected); }
+    catch { return failed("semantic_native_persistence_publication_residue_conflict"); }
   }
   const readback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem });
   if (readback.ok) return { ...readback, reasonCode: "semantic_recovery_successor_adopted" };
@@ -398,7 +417,7 @@ function publishRecordNoClobber(finalPath, document, { filesystem }) {
   const bytes = Buffer.from(canonicalJson(document));
   const incomingPath = path.posix.join(
     semanticRecoveryProtectedLayout.successorIncomingRoot,
-    `${path.posix.basename(finalPath)}.${sha256(finalPath).slice(0, 16)}.incoming`,
+    path.posix.basename(incomingPathFor(finalPath)),
   );
   if (filesystem) {
     if (filesystem.exists(finalPath)) {
@@ -460,6 +479,24 @@ function recoverExactInterruptedHardLink(incomingPath, finalPath, expectedBytes)
   unlinkSync(incomingPath);
   const parentFd = openSync(path.posix.dirname(finalPath), fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY || 0));
   try { fsyncSync(parentFd); } finally { closeSync(parentFd); }
+}
+
+function recoverExactInterruptedPublicationSet(expected) {
+  for (const [finalPath, document] of [
+    [expected.paths.provenancePath, expected.provenance],
+    [expected.paths.storagePath, expected.successor],
+    [expected.paths.commitPath, expected.commit],
+  ]) {
+    const incomingPath = incomingPathFor(finalPath);
+    recoverExactInterruptedHardLink(incomingPath, finalPath, Buffer.from(canonicalJson(document)));
+  }
+}
+
+function incomingPathFor(finalPath) {
+  return path.posix.join(
+    semanticRecoveryProtectedLayout.successorIncomingRoot,
+    `${path.posix.basename(finalPath)}.${sha256(finalPath).slice(0, 16)}.incoming`,
+  );
 }
 
 function assertFilesystemAdapter(filesystem) {
