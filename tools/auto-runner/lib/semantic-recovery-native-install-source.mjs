@@ -5,9 +5,6 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {
-  verifySemanticRecoveryNativeInstallPlan,
-} from "./semantic-recovery-native-producer.mjs";
 
 export const nativeInstallSourceContract = "settleora_semantic_recovery_native_install_source";
 export const nativeInstallSourceVersion = 1;
@@ -193,67 +190,6 @@ export function verifyAuthenticatedNativeInstallSource(value) {
   }
 }
 
-/*
- * No plan or request enters this function. Both are created by root-owned
- * readers after the immutable source has been authenticated. A second pass
- * recreates the package so a verifier cannot merely bless the producer's first
- * output.
- */
-export function deriveAndVerifyRootNativeInstallPackage(options = {}) {
-  assertExactKeys(options, ["authenticatedSource", "derivePackage", "deriveRequest"]);
-  const { authenticatedSource, deriveRequest, derivePackage } = options;
-  const sourceVerification = verifyAuthenticatedNativeInstallSource(authenticatedSource);
-  if (!sourceVerification.ok || typeof deriveRequest !== "function" || typeof derivePackage !== "function") {
-    throw new Error("native install root derivation dependencies invalid");
-  }
-  const firstRequest = deriveRequest();
-  const first = derivePackage({
-    request: firstRequest,
-    producerSourceSha: authenticatedSource.manifest.sourceCommit,
-    supportFiles: authenticatedSource.supportFiles
-      .filter((entry) => entry.source.endsWith(".mjs") && entry.source !== nativeInstallBootstrapEntrypoint)
-      .map(({ gitBlobOid: _gitBlobOid, ...entry }) => entry),
-  });
-  if (!verifySemanticRecoveryNativeInstallPlan(first).ok) throw new Error("native install root plan invalid");
-  assertRootPackageSourceBinding(first, firstRequest, authenticatedSource);
-  const secondRequest = deriveRequest();
-  const second = derivePackage({
-    request: secondRequest,
-    producerSourceSha: authenticatedSource.manifest.sourceCommit,
-    supportFiles: authenticatedSource.supportFiles
-      .filter((entry) => entry.source.endsWith(".mjs") && entry.source !== nativeInstallBootstrapEntrypoint)
-      .map(({ gitBlobOid: _gitBlobOid, ...entry }) => entry),
-  });
-  if (!verifySemanticRecoveryNativeInstallPlan(second).ok
-      || canonicalJson(firstRequest) !== canonicalJson(secondRequest)
-      || canonicalInstallPackage(first) !== canonicalInstallPackage(second)) {
-    throw new Error("native install root authority changed between verification passes");
-  }
-  assertRootPackageSourceBinding(second, secondRequest, authenticatedSource);
-  return deepFreeze({
-    sourceManifestDigest: sourceVerification.sourceManifestDigest,
-    requestDigest: first.plan.requestDigest,
-    planDigest: first.plan.planDigest,
-    package: first,
-  });
-}
-
-function assertRootPackageSourceBinding(installPackage, request, authenticatedSource) {
-  const bySource = new Map(authenticatedSource.supportFiles.filter((entry) => entry.source.endsWith(".mjs")).map((entry) => [entry.source, entry]));
-  const producerClosure = [...selectExecutableClosure(bySource, nativeInstallProducerEntrypoint)].sort();
-  const planned = installPackage.plan.files.filter((entry) => entry.kind === "producer_runtime")
-    .map((entry) => ({ source: entry.source, sha256: entry.sha256, byteCount: entry.byteCount })).sort((left, right) => left.source.localeCompare(right.source));
-  const expected = producerClosure.map((source) => {
-    const entry = bySource.get(source);
-    return { source, sha256: entry.sha256, byteCount: entry.byteCount };
-  });
-  if (installPackage.plan.selectedSource?.producerSourceSha !== authenticatedSource.manifest.sourceCommit
-      || canonicalJson(installPackage.plan.request) !== canonicalJson(request)
-      || canonicalJson(planned) !== canonicalJson(expected)) {
-    throw new Error("native install root plan source binding invalid");
-  }
-}
-
 export function reverifyMaterializedNativeInstallClosure({ authenticatedSource, materializedReader } = {}) {
   const sourceVerification = verifyAuthenticatedNativeInstallSource(authenticatedSource);
   if (!sourceVerification.ok || typeof materializedReader !== "function") {
@@ -263,7 +199,7 @@ export function reverifyMaterializedNativeInstallClosure({ authenticatedSource, 
     const value = materializedReader(member.source);
     assertExactKeys(value, ["bytes", "gid", "mode", "nlink", "realpath", "source", "symlink", "type", "uid"]);
     const bytes = Buffer.from(value.bytes);
-    const expectedMode = member.executable ? 0o500 : 0o400;
+    const expectedMode = member.executable ? 0o555 : 0o444;
     if (value.source !== member.source || value.type !== "file" || value.symlink !== false || value.uid !== 0 || value.gid !== 0
         || value.mode !== expectedMode || value.nlink !== 1 || value.realpath !== member.source
         || !bytes.equals(member.bytes) || gitObjectOid("blob", bytes) !== member.gitBlobOid || sha256(bytes) !== member.sha256) {
@@ -294,14 +230,17 @@ export function materializeAuthenticatedNativeInstallClosure({ authenticatedSour
       createdDirectories.add(directory);
       fsyncDirectory(path.dirname(directory));
     }
-    const mode = member.executable ? 0o500 : 0o400;
+    const mode = member.executable ? 0o555 : 0o444;
     const fd = openSync(destination, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, mode);
     try { writeFileSync(fd, member.bytes); fsyncSync(fd); } finally { closeSync(fd); }
     chownSync(destination, 0, 0);
     chmodSync(destination, mode);
     fsyncDirectory(path.dirname(destination));
   }
-  for (const directory of [...createdDirectories].sort((left, right) => right.length - left.length)) fsyncDirectory(directory);
+  for (const directory of [...createdDirectories].sort((left, right) => right.length - left.length)) {
+    chmodSync(directory, 0o555);
+    fsyncDirectory(directory);
+  }
   fsyncDirectory(path.dirname(root));
   reverifyMaterializedNativeInstallClosure({
     authenticatedSource,
@@ -419,9 +358,6 @@ function strictUtf8(bytes, label) {
 function stripBytes(value) {
   const { bytes: _bytes, ...rest } = value;
   return rest;
-}
-function canonicalInstallPackage(value) {
-  return canonicalJson({ plan: value.plan, artifacts: value.artifacts.map((artifact) => ({ ...stripBytes(artifact), bytesBase64: Buffer.from(artifact.bytes).toString("base64") })) });
 }
 function assertExactKeys(value, expected) {
   if (!value || typeof value !== "object" || Array.isArray(value)

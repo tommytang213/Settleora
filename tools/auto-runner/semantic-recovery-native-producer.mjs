@@ -1,7 +1,7 @@
 #!/usr/bin/node
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { loadDeploymentProjectAuthority } from "./lib/config.mjs";
@@ -29,6 +29,8 @@ import {
   readbackProtectedSemanticRecoverySuccessor,
   semanticRecoveryProtectedLayout,
 } from "./lib/semantic-recovery-protected-store.mjs";
+import { listRecoverableRecoveryStates } from "./lib/recovery-state.mjs";
+import { semanticRecoveryAuthorityClasses } from "./lib/semantic-recovery-authority.mjs";
 
 const maximumInputBytes = 8 * 1024 * 1024;
 const fixedNodeRuntimePath = "/usr/bin/node";
@@ -90,14 +92,11 @@ function planInstallFromAuthenticatedSource(request) {
   return encodeInstallPackage(deriveSemanticRecoveryNativeInstallPackageFromRoot({ request, repositoryRoot, producerSourceSha, supportFiles, authenticated }));
 }
 
-export function deriveSemanticRecoveryNativeProducerRequestFromRoot({ repositoryRoot, now = new Date() } = {}) {
-  if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot) || realpathSync(repositoryRoot) !== repositoryRoot
-      || !(now instanceof Date) || !Number.isFinite(now.getTime())) {
+export function deriveSemanticRecoveryNativeProducerRequestFromRoot({ now = new Date() } = {}) {
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
     throw new Error("semantic native root request derivation boundary invalid");
   }
-  const authenticated = authenticateSemanticDeploymentEvidencePackage(deploymentEvidenceDocumentPath);
-  const repository = authenticated.document.project?.repositorySlug;
-  const context = createRootInstallAuthorityContext({ authenticated, repositoryRoot, repository });
+  const context = createRootInstallAuthorityContext();
   const authorityContext = context.readAuthorityContext();
   const authority = authorityContext.projectAuthority;
   return normalizeSemanticRecoveryNativeProducerRequest({
@@ -107,7 +106,7 @@ export function deriveSemanticRecoveryNativeProducerRequestFromRoot({ repository
     repository: authority.repositorySlug,
     observedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
-    source: { deploymentEvidenceDocument: deploymentEvidenceDocumentPath, sha256: authenticated.evidence.sha256 },
+    source: { deploymentEvidenceDocument: deploymentEvidenceDocumentPath, sha256: authorityContext.deploymentEvidenceDigest },
     runtime: {
       sourceSha: authority.runtimeSourceSha,
       bundleDigest: authority.runtimeBundleDigest,
@@ -122,18 +121,18 @@ export function deriveSemanticRecoveryNativeProducerRequestFromRoot({ repository
 
 export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
   request,
-  repositoryRoot,
   producerSourceSha,
   supportFiles,
-  authenticated = authenticateSemanticDeploymentEvidencePackage(request?.source?.deploymentEvidenceDocument),
 } = {}) {
   const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
-  if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot) || realpathSync(repositoryRoot) !== repositoryRoot
-      || !/^[a-f0-9]{40}$/u.test(String(producerSourceSha || "")) || !Array.isArray(supportFiles)) {
+  if (!/^[a-f0-9]{40}$/u.test(String(producerSourceSha || "")) || !Array.isArray(supportFiles)) {
     throw new Error("semantic native root package derivation boundary invalid");
   }
-  if (authenticated.evidence.sha256 !== normalized.source.sha256) throw new Error("semantic native selected evidence digest mismatch");
-  const context = createRootInstallAuthorityContext({ authenticated, repositoryRoot, repository: normalized.repository });
+  const context = createRootInstallAuthorityContext();
+  const initial = context.readAuthorityContext();
+  if (initial.deploymentEvidenceDigest !== normalized.source.sha256 || initial.repository !== normalized.repository) {
+    throw new Error("semantic native selected evidence digest mismatch");
+  }
   const generated = planSemanticRecoveryNativeInstall({
     request: normalized,
     authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext: context.readAuthorityContext }),
@@ -147,37 +146,81 @@ export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
   return generated;
 }
 
-function createRootInstallAuthorityContext({ authenticated, repositoryRoot, repository }) {
-  const document = authenticated.document;
-  if (document.project?.repositorySlug?.toLowerCase() !== String(repository || "").toLowerCase()) {
-    throw new Error("semantic native selected repository mismatch");
+export function deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ request } = {}) {
+  const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
+  const context = createRootInstallAuthorityContext();
+  const readers = createSemanticDeploymentAuthorityReaders({ readAuthorityContext: context.readAuthorityContext });
+  const projections = semanticRecoveryAuthorityClasses.map((authorityClass) => readers[authorityClass](context.readAuthorityContext(authorityClass)));
+  const final = context.readAuthorityContext();
+  if (final.deploymentEvidenceDigest !== normalized.source.sha256 || final.repository !== normalized.repository) {
+    throw new Error("semantic native independent authority projection drift");
   }
-  const projectRequest = {
-    configPath: document.config.path,
-    approvedProfilePath: document.approvedProfile.path,
-    repoRoot: repositoryRoot,
-    runtimeRoot,
-    healthUnitPath: document.healthUnit.path,
-    allowRuntimeBootstrap: false,
-  };
-  const selectors = {
-    incidentPath: document.authenticatedProvenance.incidentArtifact.path,
-    incidentSha256: document.authenticatedProvenance.incidentArtifact.sha256,
-    associatedRecoveryPath: document.associatedRecovery.path,
-    associatedRecoverySha256: document.associatedRecovery.sha256,
-  };
+  return { request: normalized, projections };
+}
+
+function createRootInstallAuthorityContext() {
   const contextDigests = [];
   const readAuthorityContext = () => {
-    const context = collectSemanticDeploymentEvidenceContext({
-      projectAuthority: loadDeploymentProjectAuthority(projectRequest),
-      repositoryRoot,
-      ...selectors,
+    const repositoryRoot = productionRepositoryRoot();
+    const projectAuthority = loadDeploymentProjectAuthority({
+      configPath,
+      approvedProfilePath,
+      repoRoot: repositoryRoot,
+      runtimeRoot,
+      healthUnitPath,
+      allowRuntimeBootstrap: false,
     });
+    const incident = projectAuthority.configuredPostIncidentRecovery?.authenticatedProvenance?.incidentArtifact;
+    if (!incident || !path.isAbsolute(incident.path || "") || !/^[a-f0-9]{64}$/u.test(String(incident.sha256 || ""))) {
+      throw new Error("semantic native fixed incident selector unavailable");
+    }
+    const recoverable = listRecoverableRecoveryStates({ logsRoot: projectAuthority.logsRoot, repositorySlug: projectAuthority.repositorySlug });
+    if (recoverable.length !== 1 || !path.isAbsolute(recoverable[0].statePath || "")) {
+      throw new Error("semantic native associated recovery discovery ambiguous");
+    }
+    const associatedRecoveryPath = recoverable[0].statePath;
+    const associatedRecoverySha256 = authenticateCurrentOwnerFileDigest(associatedRecoveryPath);
+    const authenticated = authenticateSemanticDeploymentEvidencePackage(deploymentEvidenceDocumentPath);
+    const document = authenticated.document;
+    if (document.project?.repositorySlug?.toLowerCase() !== projectAuthority.repositorySlug.toLowerCase()
+        || document.config?.path !== configPath || document.approvedProfile?.path !== approvedProfilePath
+        || document.healthUnit?.path !== healthUnitPath
+        || document.authenticatedProvenance?.incidentArtifact?.path !== incident.path
+        || document.authenticatedProvenance?.incidentArtifact?.sha256 !== incident.sha256
+        || document.associatedRecovery?.path !== associatedRecoveryPath
+        || document.associatedRecovery?.sha256 !== associatedRecoverySha256) {
+      throw new Error("semantic native deployment evidence does not corroborate fixed discovery");
+    }
+    const collected = collectSemanticDeploymentEvidenceContext({
+      projectAuthority,
+      repositoryRoot,
+      incidentPath: incident.path,
+      incidentSha256: incident.sha256,
+      associatedRecoveryPath,
+      associatedRecoverySha256,
+    });
+    const context = deepFreeze({ ...collected, deploymentEvidenceDigest: authenticated.evidence.sha256 });
     contextDigests.push(sha256(canonicalJson(context)));
     if (new Set(contextDigests).size !== 1) throw new Error("semantic native authority changed between independent reads");
     return context;
   };
-  return { repository: document.project.repositorySlug, readAuthorityContext };
+  return { repository: "tommytang213/Settleora", readAuthorityContext };
+}
+
+function authenticateCurrentOwnerFileDigest(file) {
+  if (path.resolve(file) !== file || realpathSync(file) !== file) throw new Error("semantic native discovered file path invalid");
+  const fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const first = fstatSync(fd);
+    const bytes = readFileSync(fd);
+    const second = fstatSync(fd);
+    if (!first.isFile() || first.nlink !== 1 || first.uid !== process.getuid?.() || (first.mode & 0o077) !== 0
+        || first.dev !== second.dev || first.ino !== second.ino || first.size !== second.size
+        || first.mtimeMs !== second.mtimeMs || first.ctimeMs !== second.ctimeMs || bytes.length !== first.size) {
+      throw new Error("semantic native discovered file changed");
+    }
+    return sha256(bytes);
+  } finally { closeSync(fd); }
 }
 
 function verifyInstallPackage(value) {

@@ -1818,19 +1818,24 @@ Git blob objects at the exact authenticated canonical-main SHA frozen in the
 plan and policy. The source-UID-writable worktree is never the bundle byte
 source, and the full authority context is reread after artifact derivation.
 The source-owned root-authoritative controller instead requires the owner to
-bind one typed real-TTY bootstrap to the exact merged GitHub repository, commit
-and bootstrap blob OID; no mutable-checkout executable crosses sudo. Root
-fetches into a private checkout with fixed tools, sanitized environment,
+bind one typed real-TTY, system-tool-only bootstrap literal to the exact merged
+GitHub repository, commit and second-stage bootstrap blob OID; no mutable-checkout
+or unauthenticated stdin program crosses sudo. Root fetches into a private checkout with fixed tools, sanitized environment,
 disabled redirects/credentials and strict fsck, then recomputes the raw commit,
 every reachable tree and every reachable blob ID. It selects and
 re-materializes only the complete bootstrap/producer dependency closure in a
 second root-owned private directory and rereads every member immediately before
-execution. Root freshly derives the closed request and all eight authorities,
-derives and separately verifies two byte-identical complete plans, then either
-adopts an exact final tree without rewriting it or stages, fsyncs and publishes
+execution. Separate planner and independent-reconstruction processes run from
+that root-owned read-only closure under the fixed production source UID, each
+freshly deriving the closed request and all eight authorities; root requires
+their complete packages to match byte-for-byte. Root then either adopts an
+exact final tree without rewriting it after complete fsync plus repeated
+readback, or stages, fsyncs and publishes
 once with `renameat2(RENAME_NOREPLACE)`. Durable owner/root journals make
-`publication_started` ambiguous on process loss and permit exact readback only,
-never automatic replay. Root planning from a runner-writable repository path is
+`publication_started` ambiguous on process loss and permit a fresh two-reader
+reconstruction plus exact readback only, never automatic replay. Exclusive
+root-owned transition claims and a repository/source operation identity prevent
+concurrent or fresh-correlation reset. Root planning from a runner-writable repository path is
 rejected, and unprivileged planned bytes alone are not authority. Producer installation, one exact grant, root-executed successor
 persistence, authenticated readback, and any Issue #959 continuation remain
 separate owner gates. A committed successor explicitly reports that it is not

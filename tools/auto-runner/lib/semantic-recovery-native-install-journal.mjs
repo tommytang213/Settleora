@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 export const nativeInstallJournalContract = "settleora_semantic_recovery_native_install_journal";
 export const nativeInstallJournalVersion = 1;
+export const nativeInstallOperationContract = "settleora_semantic_recovery_native_install_operation";
 export const nativeInstallJournalStates = Object.freeze([
   "prepared",
   "awaiting_interactive_sudo",
@@ -167,10 +168,26 @@ export function resumeNativeInstallProtocol({ ownerJournal, rootJournal = null, 
   return { action: "block", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_restart_blocked" };
 }
 
+export const nativeInstallRootBootstrapLiteral = String.raw`set -euo pipefail
+[[ "$#" -eq 3 && "$1" =~ ^[a-f0-9]{40}$ && "$2" =~ ^[a-f0-9]{40}$ && "$3" =~ ^[a-z0-9][a-z0-9._:-]{7,127}$ ]] || exit 64
+d=$(/usr/bin/mktemp -d /var/tmp/settleora-native-install-git.XXXXXXXXXXXX)
+trap '/usr/bin/chmod -R 0000 "$d" 2>/dev/null || true; /usr/bin/rm -rf -- "$d"' EXIT HUP INT TERM
+/usr/bin/chown 0:0 "$d" && /usr/bin/chmod 0700 "$d"
+/usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= -c http.followRedirects=false -c transfer.fsckObjects=true -c fetch.fsckObjects=true -C "$d" init --quiet
+/usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= -c http.followRedirects=false -c transfer.fsckObjects=true -c fetch.fsckObjects=true -C "$d" fetch --quiet --no-tags --depth=1 https://github.com/tommytang213/Settleora.git "$1"
+[[ "$(/usr/bin/git -C "$d" rev-parse 'FETCH_HEAD^{commit}')" == "$1" ]] || exit 65
+/usr/bin/git -C "$d" remote add origin https://github.com/tommytang213/Settleora.git
+/usr/bin/git -C "$d" checkout --quiet --detach FETCH_HEAD
+p=tools/auto-runner/semantic-recovery-native-install-bootstrap.sh
+[[ "$(/usr/bin/git -C "$d" rev-parse "$1:$p")" == "$2" && "$(/usr/bin/git -C "$d" hash-object "$p")" == "$2" ]] || exit 66
+/usr/bin/chown -R 0:0 "$d" && /usr/bin/chmod -R go-rwx "$d"
+/usr/bin/bash "$d/$p" "$d" "$1" "$2" "$3"`;
+
 export const nativeInstallSudoArgv = Object.freeze([
   "/usr/bin/sudo", "--", "/usr/bin/env", "-i",
+  "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",
   "HOME=/root", "LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin", "TZ=UTC",
-  "/usr/bin/bash", "-s", "--",
+  "/usr/bin/bash", "-c", nativeInstallRootBootstrapLiteral, "settleora-native-install-bootstrap",
 ]);
 
 export function buildNativeInstallSudoArgv({ sourceCommit, bootstrapBlob, correlation } = {}) {
@@ -184,10 +201,22 @@ export function validateInteractiveSudoBoundary({ argv, env, tty, stdinKind, std
     ? buildNativeInstallSudoArgv({ sourceCommit: argv.at(-3), bootstrapBlob: argv.at(-2), correlation: argv.at(-1) })
     : null;
   if (canonicalJson(argv) !== canonicalJson(expected) || canonicalJson(env) !== "{}" || tty !== true
-      || stdinKind !== "bootstrap_bytes_not_credentials" || stdoutKind !== "bounded_capture" || stderrKind !== "bounded_capture") {
+      || stdinKind !== "tty_password_only_no_program_bytes" || stdoutKind !== "bounded_capture" || stderrKind !== "bounded_capture") {
     throw new Error("native install interactive sudo boundary invalid");
   }
   return { ok: true, reasonCode: "native_install_interactive_sudo_boundary_verified" };
+}
+
+export function nativeInstallOperationIdentity({ repository, sourceCommit } = {}) {
+  if (!repositoryPattern.test(String(repository || "")) || !shaPattern.test(String(sourceCommit || ""))) {
+    throw new Error("native install operation identity invalid");
+  }
+  return sha256(canonicalJson({
+    contract: nativeInstallOperationContract,
+    operation: "install_semantic_recovery_native_producer_once",
+    repository: repository.toLowerCase(),
+    sourceCommit,
+  }));
 }
 
 export function sanitizeNativeInstallProcessResult({ status, signal, stdout, stderr, timedOut, processLost } = {}) {
