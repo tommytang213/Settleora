@@ -654,6 +654,7 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   const safeGitArguments = [
     "--no-replace-objects", "-c", "core.hooksPath=/dev/null",
     "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+    "-c", `safe.directory=${repositoryRoot}`,
   ];
   const git = (args, encoding = "utf8") => command("/usr/bin/git", [...safeGitArguments, ...args], {
     cwd: repositoryRoot, encoding, env: gitEnvironment,

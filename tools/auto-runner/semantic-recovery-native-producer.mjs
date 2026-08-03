@@ -130,7 +130,8 @@ export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
   }
   const context = createRootInstallAuthorityContext();
   const initial = context.readAuthorityContext();
-  if (initial.deploymentEvidenceDigest !== normalized.source.sha256 || initial.repository !== normalized.repository) {
+  if (initial.deploymentEvidenceDigest !== normalized.source.sha256 || initial.repository !== normalized.repository
+      || initial.candidate?.mainSha !== producerSourceSha) {
     throw new Error("semantic native selected evidence digest mismatch");
   }
   const generated = planSemanticRecoveryNativeInstall({
@@ -140,7 +141,8 @@ export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
     producerSourceSha,
     supportFiles,
   });
-  context.readAuthorityContext();
+  const final = context.readAuthorityContext();
+  if (final.candidate?.mainSha !== producerSourceSha) throw new Error("semantic native selected source changed during planning");
   const verified = verifySemanticRecoveryNativeInstallPlan(generated);
   if (!verified.ok) throw new Error("semantic native generated install plan did not verify");
   return generated;
@@ -155,7 +157,10 @@ export function deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ reque
   if (final.deploymentEvidenceDigest !== normalized.source.sha256 || final.repository !== normalized.repository) {
     throw new Error("semantic native independent authority projection drift");
   }
-  return { request: normalized, projections };
+  if (!/^[a-f0-9]{40}$/u.test(String(final.candidate?.mainSha || ""))) {
+    throw new Error("semantic native independent source authority unavailable");
+  }
+  return { request: normalized, projections, sourceCommit: final.candidate.mainSha };
 }
 
 function createRootInstallAuthorityContext() {

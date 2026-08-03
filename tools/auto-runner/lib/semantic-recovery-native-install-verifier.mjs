@@ -28,11 +28,13 @@ import { nativeInstallProducerEntrypoint, verifyAuthenticatedNativeInstallSource
  * verifier. It reconstructs the complete expected package from a fresh request,
  * fresh eight-class projections, and authenticated immutable source bytes.
  */
-export function independentlyVerifyRootNativeInstallPackage({ installPackage, authenticatedSource, request, projections } = {}) {
+export function independentlyVerifyRootNativeInstallPackage({ installPackage, authenticatedSource, request, projections, authoritySourceCommit } = {}) {
   if (!verifyAuthenticatedNativeInstallSource(authenticatedSource).ok) throw new Error("native install independent source invalid");
   const normalizedRequest = normalizeSemanticRecoveryNativeProducerRequest(request);
   if ((installPackage !== null && installPackage !== undefined && (!plainObject(installPackage.plan) || !Array.isArray(installPackage.artifacts)))
-      || !Array.isArray(projections) || projections.length !== semanticRecoveryAuthorityClasses.length) {
+      || !Array.isArray(projections) || projections.length !== semanticRecoveryAuthorityClasses.length
+      || !/^[a-f0-9]{40}$/u.test(String(authoritySourceCommit || ""))
+      || authoritySourceCommit !== authenticatedSource.manifest.sourceCommit) {
     throw new Error("native install independent inputs invalid");
   }
   const matrix = applySemanticRecoveryClaimOwnerMatrix(projections.map((projection) => ({

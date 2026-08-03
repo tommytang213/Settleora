@@ -360,6 +360,11 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
       planDigest: verified.planDigest,
     });
 
+    const finalAuthority = runIndependentRootReaders(hint, verified.package.plan.request.observedAt, verified.package);
+    if (finalAuthority.sourceManifestDigest !== verified.sourceManifestDigest
+        || finalAuthority.requestDigest !== verified.requestDigest || finalAuthority.planDigest !== verified.planDigest) {
+      throw new Error("native install final source authority changed before publication");
+    }
     const published = publishOrAdoptVerifiedNativeInstall({
       installPackage: verified.package,
       correlation: hint.taskCorrelation,
@@ -449,13 +454,17 @@ function rootSourceReader(mode, value) {
   const producerSupport = authenticatedSource.supportFiles
     .filter((entry) => entry.source.endsWith(".mjs") && entry.source !== "tools/auto-runner/semantic-recovery-native-install.mjs")
     .map(({ gitBlobOid: _gitBlobOid, ...entry }) => entry);
+  const independentAuthority = mode === "--root-verify-reader-internal"
+    ? deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ request })
+    : null;
   const result = mode === "--root-plan-reader-internal"
     ? { package: deriveSemanticRecoveryNativeInstallPackageFromRoot({ request, producerSourceSha: authenticatedSource.manifest.sourceCommit, supportFiles: producerSupport }) }
     : independentlyVerifyRootNativeInstallPackage({
       installPackage: null,
       authenticatedSource,
       request,
-      projections: deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ request }).projections,
+      projections: independentAuthority.projections,
+      authoritySourceCommit: independentAuthority.sourceCommit,
     });
   const installPackage = result.package;
   return writeResult({

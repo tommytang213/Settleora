@@ -44,21 +44,6 @@ controller_mode='--root-bootstrap'
 [[ "$(/usr/bin/stat -Lc '%F:%u:%g:%a:%h' -- "$trusted_path")" == 'regular file:0:0:555:1' ]] || block
 [[ "$(/usr/bin/git hash-object -- "$trusted_path")" == "$bootstrap_blob" ]] || block
 
-if [[ "$handoff_mode" == install && ! -e /etc/settleora-auto-runner ]]; then
-  /usr/bin/mkdir --mode=0755 /etc/settleora-auto-runner
-  /usr/bin/chown 0:0 /etc/settleora-auto-runner
-  /usr/bin/chmod 0755 /etc/settleora-auto-runner
-  /usr/bin/sync -f /etc
-fi
-[[ "$(/usr/bin/stat -Lc '%F:%u:%g:%a' /etc/settleora-auto-runner)" == 'directory:0:0:755' ]] || block
-if [[ "$handoff_mode" == install && ! -e "$root_state_root" ]]; then
-  /usr/bin/mkdir --mode=0700 "$root_state_root"
-  /usr/bin/chown 0:0 "$root_state_root"
-  /usr/bin/chmod 0700 "$root_state_root"
-  /usr/bin/sync -f /etc/settleora-auto-runner
-fi
-[[ "$(/usr/bin/stat -Lc '%F:%u:%g:%a' "$root_state_root")" == 'directory:0:0:700' ]] || block
-
 # Freeze the exact armed owner transition before any network or source work.
 # The owner journal is correlation evidence only; no installation authority is
 # read from it. The authenticated bootstrap passes its embedded helper on stdin;
@@ -131,6 +116,26 @@ def read_root_file(directory_fd, name, maximum):
     finally:
         os.close(fd)
 
+def open_exact_root_directory(parent_fd, name, mode, create):
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    try:
+        fd = os.open(name, flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        if not create:
+            raise
+        os.mkdir(name, mode, dir_fd=parent_fd)
+        fd = os.open(name, flags, dir_fd=parent_fd)
+        os.fchown(fd, 0, 0)
+        os.fchmod(fd, mode)
+        os.fsync(fd)
+        os.fsync(parent_fd)
+    info = os.fstat(fd)
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+            or stat.S_IMODE(info.st_mode) != mode):
+        os.close(fd)
+        raise ValueError("root journal directory unsafe")
+    return fd
+
 try:
     owner_root, root_state, repository, source_commit, bootstrap_blob, correlation, operation_id, owner_digest, owner_sha, handoff_mode = sys.argv[1:]
     owner_directory_fd = os.open(owner_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -171,52 +176,62 @@ try:
         "version": 1,
     }
     receipt_bytes = canonical(receipt) + b"\n"
-    root_directory_fd = os.open(root_state, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    if root_state != "/etc/settleora-auto-runner/.semantic-recovery-native-install-journals":
+        raise ValueError("root journal path invalid")
+    etc_directory_fd = os.open("/etc", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        root_info = os.fstat(root_directory_fd)
-        if root_info.st_uid != 0 or root_info.st_gid != 0 or stat.S_IMODE(root_info.st_mode) != 0o700:
-            raise ValueError("root journal directory unsafe")
-        owner_name = f"{operation_id}.owner.json"
-        receipt_name = f"{operation_id}.receipt.json"
-        present = []
-        for name in (owner_name, receipt_name):
-            try:
-                os.stat(name, dir_fd=root_directory_fd, follow_symlinks=False)
-                present.append(name)
-            except FileNotFoundError:
-                pass
-        if len(present) == 0 and handoff_mode == "install":
-            nonce = f"{os.getpid()}.{secrets.token_hex(12)}"
-            write_root_file(root_directory_fd, f".{operation_id}.owner.{nonce}.tmp", owner_name, owner_bytes)
-            write_root_file(root_directory_fd, f".{operation_id}.receipt.{nonce}.tmp", receipt_name, receipt_bytes)
-            os.fsync(root_directory_fd)
-        elif len(present) != 2:
-            raise ValueError("partial root receipt")
-        frozen_owner = read_root_file(root_directory_fd, owner_name, MAXIMUM_JOURNAL_BYTES)
-        frozen_receipt = read_root_file(root_directory_fd, receipt_name, MAXIMUM_JOURNAL_BYTES)
-        if frozen_owner != owner_bytes:
-            raise ValueError("root owner snapshot mismatch")
-        parsed_receipt = json.loads(frozen_receipt)
-        if canonical(parsed_receipt) + b"\n" != frozen_receipt:
-            raise ValueError("root receipt noncanonical")
-        expected_receipt = dict(receipt)
-        expected_receipt["observedAt"] = parsed_receipt.get("observedAt")
+        etc_info = os.fstat(etc_directory_fd)
+        if not stat.S_ISDIR(etc_info.st_mode) or etc_info.st_uid != 0 or etc_info.st_gid != 0 or stat.S_IMODE(etc_info.st_mode) != 0o755:
+            raise ValueError("root ancestor unsafe")
+        parent_directory_fd = open_exact_root_directory(etc_directory_fd, "settleora-auto-runner", 0o755, handoff_mode == "install")
         try:
-            datetime.datetime.fromisoformat(expected_receipt["observedAt"].replace("Z", "+00:00"))
-        except Exception as error:
-            raise ValueError("root receipt timestamp invalid") from error
-        if parsed_receipt != expected_receipt:
-            raise ValueError("root receipt mismatch")
-        if handoff_mode == "recover_readback":
-            for name in (f"{operation_id}.json", f"{operation_id}.package.json"):
-                info = os.stat(name, dir_fd=root_directory_fd, follow_symlinks=False)
-                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
-                        or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1
-                        or info.st_size < 1 or info.st_size > 32 * 1024 * 1024):
-                    raise ValueError("root recovery artifact unsafe")
-        os.fsync(root_directory_fd)
+            root_directory_fd = open_exact_root_directory(parent_directory_fd, ".semantic-recovery-native-install-journals", 0o700, handoff_mode == "install")
+            try:
+                owner_name = f"{operation_id}.owner.json"
+                receipt_name = f"{operation_id}.receipt.json"
+                present = []
+                for name in (owner_name, receipt_name):
+                    try:
+                        os.stat(name, dir_fd=root_directory_fd, follow_symlinks=False)
+                        present.append(name)
+                    except FileNotFoundError:
+                        pass
+                if len(present) == 0 and handoff_mode == "install":
+                    nonce = f"{os.getpid()}.{secrets.token_hex(12)}"
+                    write_root_file(root_directory_fd, f".{operation_id}.owner.{nonce}.tmp", owner_name, owner_bytes)
+                    write_root_file(root_directory_fd, f".{operation_id}.receipt.{nonce}.tmp", receipt_name, receipt_bytes)
+                    os.fsync(root_directory_fd)
+                elif len(present) != 2:
+                    raise ValueError("partial root receipt")
+                frozen_owner = read_root_file(root_directory_fd, owner_name, MAXIMUM_JOURNAL_BYTES)
+                frozen_receipt = read_root_file(root_directory_fd, receipt_name, MAXIMUM_JOURNAL_BYTES)
+                if frozen_owner != owner_bytes:
+                    raise ValueError("root owner snapshot mismatch")
+                parsed_receipt = json.loads(frozen_receipt)
+                if canonical(parsed_receipt) + b"\n" != frozen_receipt:
+                    raise ValueError("root receipt noncanonical")
+                expected_receipt = dict(receipt)
+                expected_receipt["observedAt"] = parsed_receipt.get("observedAt")
+                try:
+                    datetime.datetime.fromisoformat(expected_receipt["observedAt"].replace("Z", "+00:00"))
+                except Exception as error:
+                    raise ValueError("root receipt timestamp invalid") from error
+                if parsed_receipt != expected_receipt:
+                    raise ValueError("root receipt mismatch")
+                if handoff_mode == "recover_readback":
+                    for name in (f"{operation_id}.json", f"{operation_id}.package.json"):
+                        info = os.stat(name, dir_fd=root_directory_fd, follow_symlinks=False)
+                        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+                                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1
+                                or info.st_size < 1 or info.st_size > 32 * 1024 * 1024):
+                            raise ValueError("root recovery artifact unsafe")
+                os.fsync(root_directory_fd)
+            finally:
+                os.close(root_directory_fd)
+        finally:
+            os.close(parent_directory_fd)
     finally:
-        os.close(root_directory_fd)
+        os.close(etc_directory_fd)
 except Exception:
     sys.exit(1)
 PY
@@ -229,18 +244,131 @@ trap '/usr/bin/chmod -R 0000 "$checkout_root" 2>/dev/null || true; /usr/bin/rm -
 /usr/bin/chown 0:0 "$checkout_root"
 /usr/bin/chmod 0700 "$checkout_root"
 /usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= -c http.followRedirects=false -c transfer.fsckObjects=true -c fetch.fsckObjects=true -C "$checkout_root" init --quiet
-/usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= -c http.followRedirects=false -c transfer.fsckObjects=true -c fetch.fsckObjects=true -C "$checkout_root" fetch --quiet --no-tags --depth=1 "$repository_url" "$source_commit"
+/usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= -c http.followRedirects=false -c transfer.fsckObjects=true -c fetch.fsckObjects=true -C "$checkout_root" fetch --quiet --no-tags --depth=1 "$repository_url" refs/heads/main
 [[ "$(/usr/bin/git -C "$checkout_root" rev-parse 'FETCH_HEAD^{commit}')" == "$source_commit" ]] || block
 /usr/bin/git -C "$checkout_root" remote add origin "$repository_url"
-/usr/bin/git -C "$checkout_root" checkout --quiet --detach FETCH_HEAD
+/usr/bin/git -C "$checkout_root" update-ref HEAD "$source_commit"
 [[ "$(/usr/bin/git -C "$checkout_root" rev-parse "$source_commit:$bootstrap_path")" == "$bootstrap_blob" ]] || block
-[[ "$(/usr/bin/git -C "$checkout_root" hash-object "$bootstrap_path")" == "$bootstrap_blob" ]] || block
 [[ "$(/usr/bin/git hash-object -- "$trusted_path")" == "$bootstrap_blob" ]] || block
 [[ "$(/usr/bin/git -C "$checkout_root" rev-parse "$source_commit:$controller_path")" =~ ^[a-f0-9]{40}$ ]] || block
-[[ "$(/usr/bin/git -C "$checkout_root" hash-object "$controller_path")" == "$(/usr/bin/git -C "$checkout_root" rev-parse "$source_commit:$controller_path")" ]] || block
 /usr/bin/git -C "$checkout_root" fsck --full --strict --no-dangling >/dev/null
+
+# No fetched working-tree path is executed. This trusted embedded materializer
+# walks the complete selected tree listing, rejects every non-regular member,
+# recomputes every blob object identity, and writes only authenticated
+# auto-runner bytes beneath the unique root-owned checkout. Node cannot follow
+# a fetched symlink or import a byte sequence that was not checked first.
+if ! /usr/bin/python3 -I - "$checkout_root" "$source_commit" <<'PY'
+import hashlib
+import os
+import pathlib
+import stat
+import subprocess
+import sys
+
+MAXIMUM_BLOB_BYTES = 2 * 1024 * 1024
+MAXIMUM_REPOSITORY_BYTES = 128 * 1024 * 1024
+
+def git(root, arguments):
+    environment = {
+        "HOME": "/root", "LANG": "C", "LC_ALL": "C", "PATH": "/usr/bin:/bin",
+        "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+    }
+    result = subprocess.run(
+        ["/usr/bin/git", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=",
+         "-c", "http.followRedirects=false", "-C", root, *arguments],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env=environment, timeout=30, check=False,
+    )
+    if result.returncode != 0 or result.stderr:
+        raise ValueError("authenticated Git read failed")
+    return result.stdout
+
+def blob_oid(payload):
+    return hashlib.sha1(b"blob " + str(len(payload)).encode("ascii") + b"\0" + payload).hexdigest()
+
+try:
+    root, source_commit = sys.argv[1:]
+    listing = git(root, ["ls-tree", "-r", "-z", "--full-tree", source_commit])
+    records = listing.split(b"\0")
+    if records[-1] != b"":
+        raise ValueError("tree listing truncated")
+    records.pop()
+    if not records:
+        raise ValueError("tree listing empty")
+    seen = set()
+    materialized_directories = {pathlib.Path(root)}
+    total = 0
+    for record in records:
+        header, separator, raw_path = record.partition(b"\t")
+        fields = header.split(b" ")
+        if not separator or len(fields) != 3:
+            raise ValueError("tree listing invalid")
+        mode, object_type, raw_oid = fields
+        member_path = raw_path.decode("utf-8", "strict")
+        parts = member_path.split("/")
+        if (mode not in (b"100644", b"100755") or object_type != b"blob"
+                or len(raw_oid) != 40 or any(byte not in b"0123456789abcdef" for byte in raw_oid)
+                or not member_path or member_path.startswith("/") or "\\" in member_path or "\0" in member_path
+                or any(part in ("", ".", "..", ".git") for part in parts)
+                or member_path in seen or len(raw_path) > 4096 or any(len(part.encode()) > 255 for part in parts)):
+            raise ValueError("tree member invalid")
+        seen.add(member_path)
+        payload = git(root, ["cat-file", "blob", raw_oid.decode("ascii")])
+        total += len(payload)
+        if len(payload) > MAXIMUM_BLOB_BYTES or total > MAXIMUM_REPOSITORY_BYTES or blob_oid(payload) != raw_oid.decode("ascii"):
+            raise ValueError("blob identity invalid")
+        if not member_path.startswith("tools/auto-runner/"):
+            continue
+        destination = pathlib.Path(root).joinpath(*parts)
+        destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        cursor = destination.parent
+        while cursor != pathlib.Path(root):
+            materialized_directories.add(cursor)
+            cursor = cursor.parent
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW
+        descriptor = os.open(destination, flags, 0o500 if mode == b"100755" else 0o400)
+        try:
+            offset = 0
+            while offset < len(payload):
+                offset += os.write(descriptor, payload[offset:])
+            os.fchown(descriptor, 0, 0)
+            os.fchmod(descriptor, 0o500 if mode == b"100755" else 0o400)
+            os.fsync(descriptor)
+            info = os.fstat(descriptor)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+                    or info.st_nlink != 1 or info.st_size != len(payload)):
+                raise ValueError("materialized member unsafe")
+        finally:
+            os.close(descriptor)
+    required = {
+        "tools/auto-runner/semantic-recovery-native-install-bootstrap.sh",
+        "tools/auto-runner/semantic-recovery-native-install.mjs",
+    }
+    if not required.issubset(seen):
+        raise ValueError("required controller closure absent")
+    for directory in sorted(materialized_directories, key=lambda value: len(value.parts), reverse=True):
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0:
+                raise ValueError("materialized directory unsafe")
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+except Exception:
+    sys.exit(1)
+PY
+then
+  block
+fi
+
+[[ "$(/usr/bin/git -C "$checkout_root" hash-object --no-filters "$bootstrap_path")" == "$bootstrap_blob" ]] || block
+[[ "$(/usr/bin/git -C "$checkout_root" hash-object --no-filters "$controller_path")" == "$(/usr/bin/git -C "$checkout_root" rev-parse "$source_commit:$controller_path")" ]] || block
 /usr/bin/chown -R 0:0 "$checkout_root"
 /usr/bin/chmod -R go-rwx "$checkout_root"
+/usr/bin/sync -f "$checkout_root"
+/usr/bin/sync -f /var/tmp
 
 /usr/bin/printf '{"bootstrapBlob":"%s","contract":"settleora_semantic_recovery_native_install_source","repository":"%s","sourceCommit":"%s","taskCorrelation":"%s","version":1}\n' \
   "$bootstrap_blob" "$repository" "$source_commit" "$task_correlation" \

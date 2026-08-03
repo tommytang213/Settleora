@@ -2036,8 +2036,11 @@ future files and directories, reports zero service effects, and keeps producer
 installation, grant installation, and successor execution distinct.
 Producer executable/support bytes are selected only from an authenticated
 GitHub HTTPS fetch into a unique root-owned `0700` checkout at the exact
-owner-selected immutable commit, never from the source-UID-writable worktree or
-its object database. `semantic-recovery-native-install.mjs` rereads the raw
+canonical `refs/heads/main` commit, never from the source-UID-writable worktree
+or its object database. The owner commit is only an expected scalar: root
+fetches `main`, refuses a mismatch, and later requires the same SHA from the
+fresh repository candidate and GitHub no-effect authority.
+`semantic-recovery-native-install.mjs` rereads the raw
 commit, every reachable tree, and every reachable blob from that private Git
 object database and locally recomputes each Git object ID. It walks trees one
 object at a time, so recursive-API truncation or pagination cannot be mistaken
@@ -2047,8 +2050,8 @@ bootstrap/producer dependency closure is then copied to a second unique
 root-owned private directory, each member is fsynced and reread by Git blob ID,
 SHA-256, owner, group, mode, link count, and relative realpath immediately
 before the root-authoritative producer path runs. The selected main SHA is
-frozen in the plan and policy, and a final full authority-context reread must
-match after artifact derivation.
+frozen in the plan and policy, and a final independent full authority-context
+reread must match immediately before publication.
 Grant planning is available only through the exact installed root-owned
 producer. Its closed request supplies the previously verified install package,
 one exact operation selector, and the semantic evidence packet; the producer
@@ -2100,10 +2103,14 @@ network access, freezes the exact armed owner journal as a root-owned receipt,
 and then uses absolute system-tool paths, a sanitized environment, HTTPS origin
 `https://github.com/tommytang213/Settleora.git`, disabled redirects and
 credentials, strict object fsck, a unique root-owned `0700` temporary checkout,
-and the exact immutable commit. It verifies that the fetched bootstrap is the
-selected tree member, that its recomputed raw blob ID matches, and that it is
-byte-identical to the fixed installed bootstrap before executing any fetched
-repository byte. A later separately authorized prerequisite-install task must
+and the remote canonical-main ref. Before Node starts, the embedded trusted
+materializer walks the complete tree listing, rejects symlinks, gitlinks and
+all other non-regular members, recomputes every blob ID from raw bytes, and
+materializes the auto-runner tree exclusively from those blobs. It verifies
+that the fetched bootstrap is the selected tree member and byte-identical to
+the fixed installed bootstrap before executing any fetched repository byte.
+Root state ancestors are opened/created descriptor-relatively with no-follow
+checks and fsynced before a receipt is published. A later separately authorized prerequisite-install task must
 bind the helper to the exact merged head; the handoff must present the full
 scalar-only argv for owner review. Sudo stdin is reserved for the real TTY/PAM
 exchange and never contains program bytes. Piping or typing a bootstrap, using
@@ -2121,6 +2128,9 @@ metadata, layout and forbidden-effect field without importing the planner.
 Each root process applies the fixed production source UID/GID only as the
 expected-owner policy used by the existing artifact validators; it never drops
 to that UID, inherits its process authority, or accepts its process output.
+The fixed, authenticated repository path is supplied to Git only as the exact
+command-scoped `safe.directory`, so Git's different-owner defense remains
+closed while real-root readers can traverse that one already-verified path.
 Root requires their complete encoded packages to be byte-identical. The
 unprivileged plan is never an input. Live publication is reachable only in this root/private-source mode;
 fixture publication uses an injected in-memory filesystem and never selects a

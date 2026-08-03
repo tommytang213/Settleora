@@ -1827,11 +1827,18 @@ bootstrap bytes as root:root, one-link mode `0555` at the fixed
 interactive handoff invokes only that root-owned path with closed scalar
 repository/commit/blob/correlation/journal identities; no shell literal,
 clipboard program, mutable checkout, or stdin program crosses sudo. The fixed
-bootstrap verifies its own Git blob identity and freezes the armed owner
-transition in a root-owned receipt before network access. Root then fetches
-into a private checkout with fixed tools and a sanitized environment,
-disabled redirects/credentials and strict fsck, then recomputes the raw commit,
-every reachable tree and every reachable blob ID. It selects and
+bootstrap verifies its own Git blob identity, opens/creates every privileged
+journal ancestor descriptor-relatively with no-follow metadata checks, and
+freezes the armed owner transition in a root-owned receipt before network
+access. Root then fetches
+the canonical `refs/heads/main` ref into a private object database with fixed
+tools and a sanitized environment, disabled redirects/credentials and strict
+fsck. The unprivileged commit is only an expected hint: root refuses unless it
+equals fetched main and the later fresh local/GitHub authority. Before Node
+starts, the trusted bootstrap rejects every non-regular tree member,
+recomputes every blob ID, and materializes the auto-runner bytes directly from
+raw authenticated blobs; no Git checkout member is executed. Root then
+recomputes the raw commit, every reachable tree and every reachable blob ID and
 re-materializes only the complete bootstrap/producer dependency closure in a
 second root-owned private directory and rereads every member immediately before
 execution. Separate planner and independent-reconstruction processes run as
@@ -1840,7 +1847,11 @@ freshly deriving the closed request and all eight authorities; root requires
 their complete packages to match byte-for-byte. The fixed production source
 UID/GID is used only as an expected-owner validation policy inside those root
 processes, so no same-UID mutable process can alter their memory, projected
-result, supplementary groups, or execution. Root then either adopts an
+result, supplementary groups, or execution. The one fixed expected-owner
+repository is passed to Git through an exact command-scoped `safe.directory`
+after its canonical path and owner are authenticated. The independent verifier
+reruns the complete source and authority binding immediately before
+publication. Root then either adopts an
 exact final tree without rewriting it after complete fsync plus repeated
 readback, or stages, fsyncs and publishes
 once with `renameat2(RENAME_NOREPLACE)`. The sealed root remains beneath a

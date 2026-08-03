@@ -720,7 +720,7 @@ export function validatePreservedRecoveryCommitLineage(
 
 function authoritativeDiffDigest(root, target, environment) {
   const result = spawnSync(trustedDeploymentGitBinary, [
-    "--no-replace-objects", "-c", "core.fsmonitor=false",
+    "--no-replace-objects", "-c", "core.fsmonitor=false", ...gitSafeDirectoryArguments(root),
     "diff", "--binary", `${target.baseSha}...${target.headSha}`,
   ], {
     cwd: root,
@@ -733,7 +733,7 @@ function authoritativeDiffDigest(root, target, environment) {
 }
 
 function git(root, args, environment = process.env) {
-  const result = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "-c", "core.fsmonitor=false", ...args], {
+  const result = spawnSync(trustedDeploymentGitBinary, ["--no-replace-objects", "-c", "core.fsmonitor=false", ...gitSafeDirectoryArguments(root), ...args], {
     cwd: root,
     encoding: "utf8",
     env: sanitizedDeploymentGitEnvironment(environment),
@@ -744,7 +744,7 @@ function git(root, args, environment = process.env) {
 }
 
 function gitConfigValues(root, key, environment, scope = "local") {
-  const result = spawnSync(trustedDeploymentGitBinary, ["config", `--${scope}`, "--no-includes", "-z", "--get-all", key], {
+  const result = spawnSync(trustedDeploymentGitBinary, [...gitSafeDirectoryArguments(root), "config", `--${scope}`, "--no-includes", "-z", "--get-all", key], {
     cwd: root,
     encoding: "buffer",
     env: sanitizedDeploymentGitEnvironment(environment),
@@ -758,7 +758,7 @@ function gitConfigValues(root, key, environment, scope = "local") {
 }
 
 function gitConfigBoolean(root, key, environment) {
-  const result = spawnSync(trustedDeploymentGitBinary, ["config", "--local", "--no-includes", "--bool", "--get-all", key], {
+  const result = spawnSync(trustedDeploymentGitBinary, [...gitSafeDirectoryArguments(root), "config", "--local", "--no-includes", "--bool", "--get-all", key], {
     cwd: root,
     encoding: "buffer",
     env: sanitizedDeploymentGitEnvironment(environment),
@@ -774,7 +774,7 @@ function gitConfigBoolean(root, key, environment) {
 }
 
 function gitConfigNames(root, environment, scope) {
-  const result = spawnSync(trustedDeploymentGitBinary, ["config", `--${scope}`, "--no-includes", "--name-only", "-z", "--list"], {
+  const result = spawnSync(trustedDeploymentGitBinary, [...gitSafeDirectoryArguments(root), "config", `--${scope}`, "--no-includes", "--name-only", "-z", "--list"], {
     cwd: root,
     encoding: "buffer",
     env: sanitizedDeploymentGitEnvironment(environment),
@@ -965,7 +965,7 @@ function trustedUserGitConfigEnvironment() {
 }
 
 function gitConfigRecords(root, scope, environment) {
-  const result = spawnSync(trustedDeploymentGitBinary, ["config", `--${scope}`, "--no-includes", "--null", "--list"], {
+  const result = spawnSync(trustedDeploymentGitBinary, [...gitSafeDirectoryArguments(root), "config", `--${scope}`, "--no-includes", "--null", "--list"], {
     cwd: root,
     encoding: "buffer",
     env: environment,
@@ -978,6 +978,14 @@ function gitConfigRecords(root, scope, environment) {
     if (separator < 0) throw new Error("resumed Git configuration is malformed");
     return [record.slice(0, separator).toLowerCase(), record.slice(separator + 1)];
   });
+}
+
+function gitSafeDirectoryArguments(root) {
+  const resolved = path.resolve(root || "");
+  if (resolved === path.parse(resolved).root || realpathSync(resolved) !== resolved) {
+    throw new Error("authoritative Git safe directory invalid");
+  }
+  return ["-c", `safe.directory=${resolved}`];
 }
 
 function exactAllowedConfig(records, allowed) {

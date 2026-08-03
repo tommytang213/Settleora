@@ -279,12 +279,14 @@ test("independent verifier reconstructs the exact package without calling the pl
     claims: ownedClaims(authorityClass),
     provenanceIdentity: sha256(`provenance:${authorityClass}`),
   }));
-  const reconstructed = independentlyVerifyRootNativeInstallPackage({ installPackage: null, authenticatedSource, request, projections });
+  const authoritySourceCommit = authenticatedSource.manifest.sourceCommit;
+  const reconstructed = independentlyVerifyRootNativeInstallPackage({ installPackage: null, authenticatedSource, request, projections, authoritySourceCommit });
   assert.equal(reconstructed.ok, true);
-  assert.equal(independentlyVerifyRootNativeInstallPackage({ installPackage: reconstructed.package, authenticatedSource, request, projections }).ok, true);
+  assert.equal(independentlyVerifyRootNativeInstallPackage({ installPackage: reconstructed.package, authenticatedSource, request, projections, authoritySourceCommit }).ok, true);
   const defect = { plan: structuredClone(reconstructed.package.plan), artifacts: reconstructed.package.artifacts.map((entry) => ({ ...entry, bytes: Buffer.from(entry.bytes) })) };
   defect.artifacts[0].bytes[0] ^= 0xff;
-  assert.throws(() => independentlyVerifyRootNativeInstallPackage({ installPackage: defect, authenticatedSource, request, projections }), /package mismatch/u);
+  assert.throws(() => independentlyVerifyRootNativeInstallPackage({ installPackage: defect, authenticatedSource, request, projections, authoritySourceCommit }), /package mismatch/u);
+  assert.throws(() => independentlyVerifyRootNativeInstallPackage({ installPackage: null, authenticatedSource, request, projections, authoritySourceCommit: "f".repeat(40) }), /independent inputs invalid/u);
 });
 
 test("root operation identity cannot be reset by selecting a fresh owner correlation", () => {
@@ -761,6 +763,23 @@ test("trusted bootstrap records the exact armed receipt before authenticated net
   assert.match(source, /os\.O_RDONLY \| os\.O_NOFOLLOW, dir_fd=owner_directory_fd/u);
   assert.match(source, /first\.st_size > MAXIMUM_JOURNAL_BYTES/u);
   assert.match(source, /os\.fchown\(fd, 0, 0\)[\s\S]*os\.fchmod\(fd, 0o400\)[\s\S]*os\.fsync\(fd\)/u);
+  assert.match(source, /fetch --quiet --no-tags --depth=1 "\$repository_url" refs\/heads\/main/u);
+  assert.doesNotMatch(source, /fetch[^\n]*"\$source_commit"|checkout --quiet/u);
+  assert.match(source, /ls-tree", "-r", "-z", "--full-tree"/u);
+  assert.match(source, /mode not in \(b"100644", b"100755"\)[\s\S]*object_type != b"blob"/u);
+  assert.match(source, /blob_oid\(payload\) != raw_oid\.decode\("ascii"\)/u);
+  assert.equal(source.indexOf("blob_oid(payload)") < source.indexOf('| /usr/bin/node "$checkout_root/$controller_path"'), true);
+  assert.match(source, /os\.open\("\/etc", os\.O_RDONLY \| os\.O_DIRECTORY \| os\.O_NOFOLLOW\)/u);
+  assert.match(source, /open_exact_root_directory\(etc_directory_fd, "settleora-auto-runner"/u);
+  assert.doesNotMatch(source, /stat -L[^\n]*\/etc\/settleora-auto-runner/u);
+  const embeddedPython = [...source.matchAll(/<<'PY'\n([\s\S]*?)\nPY\n/gu)].map((match) => match[1]);
+  assert.equal(embeddedPython.length, 2);
+  for (const program of embeddedPython) {
+    const compiled = spawnSync("/usr/bin/python3", ["-I", "-c", "import sys; compile(sys.stdin.read(), '<trusted-bootstrap>', 'exec')"], {
+      input: program, encoding: "utf8", env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin" },
+    });
+    assert.equal(compiled.status, 0, compiled.stderr);
+  }
   assert.doesNotMatch(source, /cp --no-dereference|chown 0:0 "\$snapshot/u);
   assert.doesNotMatch(source, /^\s*(?:eval|source)\b|\bcurl\b|\bwget\b/mu);
 });
@@ -775,6 +794,27 @@ test("authenticated root planners retain OS root while applying the fixed source
   assert.match(policy, /process\.getuid = \(\) => identity\.uid/u);
   assert.match(source, /existing root journal requires recovery-only handoff/u);
   assert.match(source, /recovery root journal absent/u);
+  assert.equal(source.indexOf("const finalAuthority = runIndependentRootReaders") < source.indexOf("const published = publishOrAdoptVerifiedNativeInstall"), true);
+  const producer = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../semantic-recovery-native-producer.mjs"), "utf8");
+  assert.match(producer, /initial\.candidate\?\.mainSha !== producerSourceSha/u);
+  assert.match(producer, /final\.candidate\?\.mainSha !== producerSourceSha/u);
+  const deploymentReader = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../lib/deployment-semantic-evidence-extractors.mjs"), "utf8");
+  assert.match(deploymentReader, /safe\.directory=\$\{repositoryRoot\}/u);
+});
+
+test("command-scoped safe.directory admits only the exact authenticated different-owner repository", () => {
+  const repositoryRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../..");
+  const environment = {
+    HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin",
+    GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TEST_ASSUME_DIFFERENT_OWNER: "1",
+  };
+  const refused = spawnSync("/usr/bin/git", ["-C", repositoryRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", env: environment });
+  assert.notEqual(refused.status, 0);
+  const admitted = spawnSync("/usr/bin/git", ["-c", `safe.directory=${repositoryRoot}`, "-C", repositoryRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", env: environment });
+  assert.equal(admitted.status, 0, admitted.stderr);
+  assert.equal(admitted.stdout.trim(), repositoryRoot);
+  const wrong = spawnSync("/usr/bin/git", ["-c", `safe.directory=${path.dirname(repositoryRoot)}`, "-C", repositoryRoot, "rev-parse", "--show-toplevel"], { encoding: "utf8", env: environment });
+  assert.notEqual(wrong.status, 0);
 });
 
 test("real Python rename_noreplace helper interoperates through stdin using exact package bytes without protected-root access", () => {
