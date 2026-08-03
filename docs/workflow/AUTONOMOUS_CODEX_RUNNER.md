@@ -1825,10 +1825,15 @@ exactly one deployment document, eight distinct source projections, and one
 sorted manifest. Planning is non-mutating; separately authorized creation uses
 one fsynced sibling incoming directory and one atomic directory rename, while
 exact final or crash-staged bytes are idempotently adoptable. Publication is a
-no-clobber atomic directory move; authentication rereads all members after the
-complete aggregate pass. Exact final adoption fsyncs every member, the package
-directory, and the external config root before returning. Contradictory final/
-incoming/retired residue is retained and refused, never cleaned.
+no-clobber atomic directory move with the staged manifest held at `0400` as an
+inert publication seal. A substituted directory therefore cannot authenticate
+at the final path. The seal becomes `0600` only through its retained descriptor
+after the moved directory and every retained member descriptor match; an exact
+crash-published inert final requires a later explicit adoption to commit.
+Authentication rereads all members after the complete aggregate pass. Exact
+final adoption fsyncs every member, the package directory, and the external
+config root before returning. Contradictory final/incoming/retired residue is
+retained and refused, never cleaned.
 
 The document binds the overwrite incident and the single associated
 recoverable state as different artifacts. The incident remains immutable

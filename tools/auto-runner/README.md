@@ -258,9 +258,15 @@ it stages owner-only canonical members in the one fixed sibling `.incoming`
 directory, fsyncs every file and the directory, and atomically renames the
 whole directory, or adopts exact existing bytes idempotently. It never cleans
 conflicting residue. Publication uses a no-clobber atomic directory move, and
-authentication rereads every member after the complete aggregate read. Final
-adoption fsyncs every member, the package directory, and the config root before
-success. The preparer never reads a grant or creates a successor.
+authentication rereads every member after the complete aggregate read. The
+staged manifest is a `0400` inert publication seal: a package moved through a
+pathname substitution cannot authenticate at the final path. Only after the
+moved directory and all retained member descriptors match does the preparer
+commit that exact manifest descriptor to `0600` and fsync it. An exact crash-
+published inert final is resumable only through a later explicit create-or-
+adopt invocation. Final adoption fsyncs every member, the package directory,
+and the config root before success. The preparer never reads a grant or creates
+a successor.
 
 Plan shape (replace selectors with authenticated exact values):
 

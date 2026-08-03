@@ -213,6 +213,54 @@ test("publication retains the authenticated incoming inode through atomic rename
   }
 });
 
+test("a pathname substitution after final authentication can publish only an inert unsealed package", () => {
+  for (const action of ["create", "adopt_incoming"]) {
+    const f = fixture();
+    try {
+      const plan = f.makePlan();
+      if (action === "adopt_incoming") {
+        mkdirSync(plan.incomingRoot, { mode: 0o700 });
+        for (const member of plan.members) writeFileSync(path.join(plan.incomingRoot, member.name), member.bytes, { mode: 0o600 });
+      }
+      assert.throws(() => createOrAdoptSemanticDeploymentEvidencePackage(plan, {
+        afterFinalAuthentication: () => {
+          renameSync(plan.incomingRoot, `${plan.incomingRoot}.swapped-after-authentication`);
+          mkdirSync(plan.incomingRoot, { mode: 0o700 });
+          for (const member of plan.members) {
+            const mode = member.name === "package-manifest.json" ? 0o400 : 0o600;
+            writeFileSync(path.join(plan.incomingRoot, member.name), member.bytes, { mode });
+          }
+        },
+      }), /incoming directory changed through publication/u);
+      assert.equal(existsSync(plan.incomingRoot), false);
+      assert.equal(existsSync(plan.packageRoot), true);
+      assert.equal(lstatSync(path.join(plan.packageRoot, "package-manifest.json")).mode & 0o777, 0o400);
+      assert.throws(() => authenticateSemanticDeploymentEvidencePackage(plan.documentPath), /member unsafe/u);
+      assert.equal(existsSync(`${plan.incomingRoot}.swapped-after-authentication`), true);
+    } finally { f.cleanup(); }
+  }
+});
+
+test("an exact crash-published inert package is committed only by explicit adoption", () => {
+  const f = fixture();
+  try {
+    const plan = f.makePlan();
+    mkdirSync(plan.packageRoot, { mode: 0o700 });
+    for (const member of plan.members) {
+      const mode = member.name === "package-manifest.json" ? 0o400 : 0o600;
+      writeFileSync(path.join(plan.packageRoot, member.name), member.bytes, { mode });
+    }
+    assert.throws(() => authenticateSemanticDeploymentEvidencePackage(plan.documentPath), /member unsafe/u);
+    const resumed = f.makePlan();
+    assert.equal(resumed.posture.action, "adopt_pending_final");
+    const result = createOrAdoptSemanticDeploymentEvidencePackage(resumed);
+    assert.equal(result.action, "adopted_pending_final");
+    assert.equal(lstatSync(path.join(plan.packageRoot, "package-manifest.json")).mode & 0o777, 0o600);
+    assert.equal(authenticateSemanticDeploymentEvidencePackage(plan.documentPath).evidence.packageAggregateDigest,
+      plan.packageAggregateDigest);
+  } finally { f.cleanup(); }
+});
+
 test("adoption result remains bound to every digest in the planned bytes", () => {
   const f = fixture();
   try {
