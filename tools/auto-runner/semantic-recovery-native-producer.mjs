@@ -39,6 +39,7 @@ const runtimeRoot = "/workspace/auto-runner/runtime";
 const configPath = "/workspace/auto-runner/config/settleora.json";
 const approvedProfilePath = "/workspace/auto-runner/config/settleora-production-approved-20260724-0946.json";
 const healthUnitPath = "/home/tommytang213/.config/systemd/user/settleora-auto-runner-health.service";
+const deploymentEvidenceDocumentPath = "/workspace/auto-runner/config/settleora-semantic-deployment-evidence-issue-1012/deployment-evidence.json";
 const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor", sourceAuthenticationMode, sourcePlanMode, sourceGrantPlanMode]);
 
 export async function main(argv = process.argv.slice(2), input = process.stdin) {
@@ -83,9 +84,72 @@ function executeSourcePlan(request) {
 function planInstallFromAuthenticatedSource(request) {
   const repositoryRoot = productionRepositoryRoot();
   const authenticated = authenticateSemanticDeploymentEvidencePackage(request.source.deploymentEvidenceDocument);
-  if (authenticated.evidence.sha256 !== request.source.sha256) throw new Error("semantic native selected evidence digest mismatch");
+  const context = createRootInstallAuthorityContext({ authenticated, repositoryRoot, repository: request.repository });
+  const producerSourceSha = context.readAuthorityContext().candidate?.mainSha;
+  const supportFiles = readSemanticRecoverySupportFilesFromGit({ repositoryRoot, repository: context.repository, producerSourceSha });
+  return encodeInstallPackage(deriveSemanticRecoveryNativeInstallPackageFromRoot({ request, repositoryRoot, producerSourceSha, supportFiles, authenticated }));
+}
+
+export function deriveSemanticRecoveryNativeProducerRequestFromRoot({ repositoryRoot, now = new Date() } = {}) {
+  if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot) || realpathSync(repositoryRoot) !== repositoryRoot
+      || !(now instanceof Date) || !Number.isFinite(now.getTime())) {
+    throw new Error("semantic native root request derivation boundary invalid");
+  }
+  const authenticated = authenticateSemanticDeploymentEvidencePackage(deploymentEvidenceDocumentPath);
+  const repository = authenticated.document.project?.repositorySlug;
+  const context = createRootInstallAuthorityContext({ authenticated, repositoryRoot, repository });
+  const authorityContext = context.readAuthorityContext();
+  const authority = authorityContext.projectAuthority;
+  return normalizeSemanticRecoveryNativeProducerRequest({
+    contract: "settleora_semantic_recovery_native_producer_request",
+    version: 1,
+    operation: "install_native_semantic_recovery_producer",
+    repository: authority.repositorySlug,
+    observedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+    source: { deploymentEvidenceDocument: deploymentEvidenceDocumentPath, sha256: authenticated.evidence.sha256 },
+    runtime: {
+      sourceSha: authority.runtimeSourceSha,
+      bundleDigest: authority.runtimeBundleDigest,
+      manifestDigest: authority.artifacts.runtimeManifest.sha256,
+      profileDigest: authority.artifacts.approvedProfile.sha256,
+      approvalDigest: authority.artifacts.runtimeApproval.sha256,
+      launcherDigest: authority.artifacts.runtimeLauncher.sha256,
+      healthUnitDigest: authority.artifacts.healthUnit.sha256,
+    },
+  });
+}
+
+export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
+  request,
+  repositoryRoot,
+  producerSourceSha,
+  supportFiles,
+  authenticated = authenticateSemanticDeploymentEvidencePackage(request?.source?.deploymentEvidenceDocument),
+} = {}) {
+  const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
+  if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot) || realpathSync(repositoryRoot) !== repositoryRoot
+      || !/^[a-f0-9]{40}$/u.test(String(producerSourceSha || "")) || !Array.isArray(supportFiles)) {
+    throw new Error("semantic native root package derivation boundary invalid");
+  }
+  if (authenticated.evidence.sha256 !== normalized.source.sha256) throw new Error("semantic native selected evidence digest mismatch");
+  const context = createRootInstallAuthorityContext({ authenticated, repositoryRoot, repository: normalized.repository });
+  const generated = planSemanticRecoveryNativeInstall({
+    request: normalized,
+    authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext: context.readAuthorityContext }),
+    readAuthorityContext: context.readAuthorityContext,
+    producerSourceSha,
+    supportFiles,
+  });
+  context.readAuthorityContext();
+  const verified = verifySemanticRecoveryNativeInstallPlan(generated);
+  if (!verified.ok) throw new Error("semantic native generated install plan did not verify");
+  return generated;
+}
+
+function createRootInstallAuthorityContext({ authenticated, repositoryRoot, repository }) {
   const document = authenticated.document;
-  if (document.project?.repositorySlug?.toLowerCase() !== request.repository.toLowerCase()) {
+  if (document.project?.repositorySlug?.toLowerCase() !== String(repository || "").toLowerCase()) {
     throw new Error("semantic native selected repository mismatch");
   }
   const projectRequest = {
@@ -113,24 +177,7 @@ function planInstallFromAuthenticatedSource(request) {
     if (new Set(contextDigests).size !== 1) throw new Error("semantic native authority changed between independent reads");
     return context;
   };
-  const producerSourceContext = readAuthorityContext();
-  const producerSourceSha = producerSourceContext.candidate?.mainSha;
-  const supportFiles = readSemanticRecoverySupportFilesFromGit({
-    repositoryRoot,
-    repository: producerSourceContext.repository,
-    producerSourceSha,
-  });
-  const generated = planSemanticRecoveryNativeInstall({
-    request,
-    authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext }),
-    readAuthorityContext,
-    producerSourceSha,
-    supportFiles,
-  });
-  readAuthorityContext();
-  const verified = verifySemanticRecoveryNativeInstallPlan(generated);
-  if (!verified.ok) throw new Error("semantic native generated install plan did not verify");
-  return encodeInstallPackage(generated);
+  return { repository: document.project.repositorySlug, readAuthorityContext };
 }
 
 function verifyInstallPackage(value) {

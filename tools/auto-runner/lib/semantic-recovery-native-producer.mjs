@@ -262,8 +262,8 @@ export function verifySemanticRecoveryNativeInstallPlan({ plan, artifacts } = {}
       })) throw new Error("semantic native install artifacts invalid");
     validateInstallArtifactContents(plan, artifacts);
     return { ok: true, reasonCode: "semantic_native_install_plan_verified", planDigest: plan.planDigest };
-  } catch {
-    return { ok: false, reasonCode: "semantic_native_install_plan_invalid" };
+  } catch (error) {
+    return { ok: false, reasonCode: "semantic_native_install_plan_invalid", detailCode: fixedValidationDetail(error) };
   }
 }
 
@@ -273,10 +273,12 @@ export function verifyInstalledSemanticRecoveryNativeProducer({ plan, filesystem
     validateInstallPlanStructure(plan);
     for (const directory of plan.directories) {
       const stat = filesystem.inspect(directory.destination);
-      if (!stat || stat.type !== "directory" || stat.symlink === true || stat.uid !== 0 || stat.gid !== 0
-          || stat.mode !== directory.mode || filesystem.realpath(directory.destination) !== directory.destination) {
-        throw new Error("semantic native installed directory drift");
-      }
+      if (!stat || stat.type !== "directory") throw new Error("semantic native installed directory type drift");
+      if (stat.symlink === true) throw new Error("semantic native installed directory symlink drift");
+      if (stat.uid !== 0) throw new Error("semantic native installed directory owner drift");
+      if (stat.gid !== 0) throw new Error("semantic native installed directory group drift");
+      if (stat.mode !== directory.mode) throw new Error("semantic native installed directory mode drift");
+      if (filesystem.realpath(directory.destination) !== directory.destination) throw new Error("semantic native installed directory realpath drift");
       const expectedChildren = [
         ...plan.directories.filter((entry) => path.posix.dirname(entry.destination) === directory.destination).map((entry) => path.posix.basename(entry.destination)),
         ...plan.files.filter((entry) => path.posix.dirname(entry.destination) === directory.destination).map((entry) => path.posix.basename(entry.destination)),
@@ -290,18 +292,22 @@ export function verifyInstalledSemanticRecoveryNativeProducer({ plan, filesystem
       const first = filesystem.inspect(file.destination);
       const bytes = Buffer.from(filesystem.read(file.destination));
       const second = filesystem.inspect(file.destination);
-      if (!first || first.type !== "file" || first.symlink === true || first.uid !== 0 || first.gid !== 0
-          || first.nlink !== 1 || first.mode !== file.mode || first.size !== file.byteCount
-          || canonicalJson(first) !== canonicalJson(second) || sha256(bytes) !== file.sha256
-          || filesystem.realpath(file.destination) !== file.destination) {
-        throw new Error("semantic native installed file drift");
-      }
+      if (!first || first.type !== "file") throw new Error("semantic native installed file type drift");
+      if (first.symlink === true) throw new Error("semantic native installed file symlink drift");
+      if (first.uid !== 0) throw new Error("semantic native installed file owner drift");
+      if (first.gid !== 0) throw new Error("semantic native installed file group drift");
+      if (first.nlink !== 1) throw new Error("semantic native installed file link count drift");
+      if (first.mode !== file.mode) throw new Error("semantic native installed file mode drift");
+      if (first.size !== file.byteCount) throw new Error("semantic native installed file size drift");
+      if (canonicalJson(first) !== canonicalJson(second)) throw new Error("semantic native installed file metadata race");
+      if (sha256(bytes) !== file.sha256) throw new Error("semantic native installed file digest drift");
+      if (filesystem.realpath(file.destination) !== file.destination) throw new Error("semantic native installed file realpath drift");
       installedArtifacts.push({ ...file, bytes });
     }
     validateInstallArtifactContents(plan, installedArtifacts);
     return { ok: true, reasonCode: "semantic_native_install_readback_verified", planDigest: plan.planDigest };
-  } catch {
-    return { ok: false, reasonCode: "semantic_native_install_readback_drift" };
+  } catch (error) {
+    return { ok: false, reasonCode: "semantic_native_install_readback_drift", detailCode: fixedValidationDetail(error) };
   }
 }
 
@@ -412,12 +418,14 @@ function validateInstallPlanStructure(plan) {
   if (plan.directories.some((entry) => {
     assertExactKeys(entry, ["destination", "gid", "kind", "mode", "uid"]);
     return entry.kind !== "directory" || entry.uid !== 0 || entry.gid !== 0 || entry.mode !== 0o755
+      || path.posix.normalize(entry.destination) !== entry.destination
       || (entry.destination !== semanticRecoveryProtectedLayout.root && !entry.destination.startsWith(`${semanticRecoveryProtectedLayout.root}/`));
   })) throw new Error("semantic native install directory invalid");
   if (plan.files.some((entry) => {
     assertExactKeys(entry, ["byteCount", "destination", "gid", "kind", "mode", "sha256", "source", "uid"]);
     return entry.uid !== 0 || entry.gid !== 0 || ![0o444, 0o555].includes(entry.mode)
       || !Number.isSafeInteger(entry.byteCount) || entry.byteCount < 1
+      || path.posix.normalize(entry.destination) !== entry.destination
       || !entry.destination.startsWith(`${semanticRecoveryProtectedLayout.root}/`) || !isDigest(entry.sha256);
   })) throw new Error("semantic native install file invalid");
   if (new Set(plan.files.map((entry) => entry.destination)).size !== plan.files.length
@@ -644,3 +652,8 @@ function canonicalJson(value) { return JSON.stringify(canonicalize(value)); }
 function canonicalize(value) { if (Array.isArray(value)) return value.map(canonicalize); if (plainObject(value)) return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])); return value; }
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 function deepFreeze(value) { if (ArrayBuffer.isView(value)) return value; if (value && typeof value === "object" && !Object.isFrozen(value)) { Object.freeze(value); for (const child of Object.values(value)) deepFreeze(child); } return value; }
+function fixedValidationDetail(error) {
+  const message = error instanceof Error ? error.message : "invalid";
+  const fixed = message.replace(/:[\s\S]*$/u, "").replace(/[^a-z0-9]+/gu, "_").replace(/^_+|_+$/gu, "");
+  return (fixed.startsWith("semantic_native_") ? fixed : `semantic_native_${fixed || "invalid"}`).slice(0, 160);
+}

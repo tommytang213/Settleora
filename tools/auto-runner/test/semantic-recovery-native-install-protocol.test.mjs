@@ -1,0 +1,485 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import {
+  authenticateNativeInstallGitSource,
+  deriveAndVerifyRootNativeInstallPackage,
+  gitObjectOid,
+  nativeInstallBootstrapEntrypoint,
+  nativeInstallBootstrapScript,
+  nativeInstallProducerEntrypoint,
+  nativeInstallRenameNoReplaceHelper,
+  reverifyMaterializedNativeInstallClosure,
+  verifyAuthenticatedNativeInstallSource,
+} from "../lib/semantic-recovery-native-install-source.mjs";
+import {
+  createNativeInstallJournal,
+  buildNativeInstallSudoArgv,
+  nativeInstallSudoArgv,
+  resumeNativeInstallProtocol,
+  sanitizeNativeInstallProcessResult,
+  transitionNativeInstallJournal,
+  validateInteractiveSudoBoundary,
+  validateNativeInstallJournal,
+} from "../lib/semantic-recovery-native-install-journal.mjs";
+import {
+  persistNativeInstallJournalTransition,
+  publishOrAdoptVerifiedNativeInstall,
+} from "../lib/semantic-recovery-native-install-publication.mjs";
+import {
+  semanticRecoveryAuthorityClasses,
+  semanticRecoveryClaimOwnerMatrix,
+} from "../lib/semantic-recovery-authority.mjs";
+import {
+  planSemanticRecoveryNativeInstall,
+  verifySemanticRecoveryNativeInstallPlan,
+  verifyInstalledSemanticRecoveryNativeProducer,
+} from "../lib/semantic-recovery-native-producer.mjs";
+import { semanticRecoveryProtectedLayout } from "../lib/semantic-recovery-protected-store.mjs";
+
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const canonicalize = (value) => Array.isArray(value) ? value.map(canonicalize) : value && typeof value === "object" && !Buffer.isBuffer(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])) : value;
+const canonicalJson = (value) => JSON.stringify(canonicalize(value));
+const hint = (overrides = {}) => ({
+  contract: "settleora_semantic_recovery_native_install_source",
+  version: 1,
+  repository: "example/repo",
+  sourceCommit: "0".repeat(40),
+  taskCorrelation: "issue-1012-fixture",
+  ...overrides,
+});
+
+function gitFixture(overrides = {}) {
+  const objects = new Map();
+  const put = (type, bytes) => {
+    const value = Buffer.from(bytes);
+    const oid = gitObjectOid(type, value);
+    objects.set(oid, { oid, type, bytes: value });
+    return oid;
+  };
+  const files = new Map(Object.entries({
+    [nativeInstallBootstrapEntrypoint]: 'import "./semantic-recovery-native-producer.mjs";\n',
+    [nativeInstallProducerEntrypoint]: 'import "./lib/producer-support.mjs";\n',
+    "tools/auto-runner/lib/producer-support.mjs": "export const fixture = true;\n",
+    [nativeInstallRenameNoReplaceHelper]: "# fixture helper\n",
+    [nativeInstallBootstrapScript]: "#!/usr/bin/bash\nexit 1\n",
+    "unrelated/complete-tree-proof.txt": "unrelated blob is still authenticated\n",
+    ...(overrides.files || {}),
+  }));
+  const blobOids = new Map([...files].map(([source, value]) => [source, put("blob", Buffer.from(value))]));
+  const buildTree = (prefix = "") => {
+    const directFiles = [...blobOids].filter(([source]) => path.posix.dirname(source) === (prefix || "."));
+    const childNames = new Set([...blobOids.keys()].filter((source) => prefix === "" ? source.includes("/") : source.startsWith(`${prefix}/`) && source.slice(prefix.length + 1).includes("/"))
+      .map((source) => source.slice(prefix.length === 0 ? 0 : prefix.length + 1).split("/")[0]));
+    const entries = [];
+    for (const child of childNames) {
+      const childPrefix = prefix === "" ? child : `${prefix}/${child}`;
+      entries.push({ mode: "40000", name: child, oid: buildTree(childPrefix) });
+    }
+    for (const [source, oid] of directFiles) entries.push({ mode: [nativeInstallBootstrapEntrypoint, nativeInstallProducerEntrypoint, nativeInstallBootstrapScript].includes(source) ? "100755" : "100644", name: path.posix.basename(source), oid });
+    entries.sort((left, right) => Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)));
+    return put("tree", Buffer.concat(entries.map((entry) => Buffer.concat([
+      Buffer.from(`${entry.mode} ${entry.name}\0`), Buffer.from(entry.oid, "hex"),
+    ]))));
+  };
+  const rootTree = buildTree();
+  const commitBytes = Buffer.from(`tree ${rootTree}\nauthor Fixture <fixture@example.invalid> 0 +0000\ncommitter Fixture <fixture@example.invalid> 0 +0000\n\nfixture\n`);
+  const commit = put("commit", commitBytes);
+  const selectedHint = hint({ sourceCommit: commit, ...(overrides.hint || {}) });
+  const objectReader = {
+    resolveRepository: () => ({ repository: overrides.repository || selectedHint.repository, commit: overrides.commit || commit, transport: overrides.transport || "authenticated_github_https" }),
+    readObject(oid) {
+      const value = objects.get(oid);
+      if (!value) throw new Error("fixture object missing");
+      if (overrides.corruptOid === oid) return { ...value, bytes: Buffer.concat([value.bytes, Buffer.from("x")]) };
+      return value;
+    },
+  };
+  return { hint: selectedHint, objects, objectReader, commit, rootTree, blobOids };
+}
+
+test("root source authentication rehashes commit, every tree and every blob before selecting the exact support closure", () => {
+  const fixture = gitFixture();
+  const authenticated = authenticateNativeInstallGitSource({ hint: fixture.hint, objectReader: fixture.objectReader });
+  assert.equal(authenticated.manifest.objectCount, fixture.objects.size);
+  assert.equal(authenticated.manifest.blobCount, fixture.blobOids.size);
+  assert.equal(authenticated.manifest.support.length, 5);
+  assert.equal(authenticated.manifest.support.some((entry) => entry.source === "unrelated/complete-tree-proof.txt"), false);
+  assert.equal(verifyAuthenticatedNativeInstallSource(authenticated).ok, true);
+  assert.equal(authenticated.supportFiles.every((entry) => entry.gitBlobOid === gitObjectOid("blob", entry.bytes)), true);
+});
+
+test("wrong repository, source, transport, object bytes, dependency and symlink tree entry fail closed", () => {
+  for (const overrides of [
+    { repository: "other/repo" },
+    { commit: "f".repeat(40) },
+    { transport: "local_checkout" },
+  ]) {
+    const fixture = gitFixture(overrides);
+    assert.throws(() => authenticateNativeInstallGitSource({ hint: fixture.hint, objectReader: fixture.objectReader }), /authority mismatch/u);
+  }
+  const corrupt = gitFixture();
+  corrupt.objectReader.readObject = (oid) => {
+    const value = corrupt.objects.get(oid);
+    return oid === corrupt.rootTree ? { ...value, bytes: Buffer.concat([value.bytes, Buffer.from("x")]) } : value;
+  };
+  assert.throws(() => authenticateNativeInstallGitSource({ hint: corrupt.hint, objectReader: corrupt.objectReader }), /identity mismatch/u);
+  const missing = gitFixture({ files: { [nativeInstallProducerEntrypoint]: 'import "./lib/missing.mjs";\n' } });
+  assert.throws(() => authenticateNativeInstallGitSource({ hint: missing.hint, objectReader: missing.objectReader }), /dependency missing/u);
+
+  const symlink = gitFixture();
+  const root = symlink.objects.get(symlink.rootTree);
+  const firstModeEnd = root.bytes.indexOf(0x20);
+  root.bytes = Buffer.concat([Buffer.from("120000"), root.bytes.subarray(firstModeEnd)]);
+  const forgedRoot = gitObjectOid("tree", root.bytes);
+  symlink.objects.delete(symlink.rootTree);
+  symlink.objects.set(forgedRoot, { oid: forgedRoot, type: "tree", bytes: root.bytes });
+  const commitObject = symlink.objects.get(symlink.commit);
+  commitObject.bytes = Buffer.from(commitObject.bytes.toString("utf8").replace(symlink.rootTree, forgedRoot));
+  const forgedCommit = gitObjectOid("commit", commitObject.bytes);
+  symlink.objects.delete(symlink.commit);
+  symlink.objects.set(forgedCommit, { oid: forgedCommit, type: "commit", bytes: commitObject.bytes });
+  const forgedHint = hint({ sourceCommit: forgedCommit });
+  symlink.objectReader.resolveRepository = () => ({ repository: forgedHint.repository, commit: forgedCommit, transport: "authenticated_github_https" });
+  assert.throws(() => authenticateNativeInstallGitSource({ hint: forgedHint, objectReader: symlink.objectReader }), /symlink entry forbidden/u);
+});
+
+test("materialized readback requires root metadata, one link, canonical relative realpath and exact Git/blob bytes", () => {
+  const authenticated = authenticateNativeInstallGitSource(gitFixture());
+  const values = new Map(authenticated.supportFiles.map((entry) => [entry.source, {
+    source: entry.source, type: "file", symlink: false, uid: 0, gid: 0, mode: entry.executable ? 0o500 : 0o400,
+    nlink: 1, realpath: entry.source, bytes: entry.bytes,
+  }]));
+  assert.equal(reverifyMaterializedNativeInstallClosure({ authenticatedSource: authenticated, materializedReader: (source) => values.get(source) }).ok, true);
+  for (const mutation of [
+    { mode: 0o777 }, { uid: 1000 }, { gid: 1000 }, { nlink: 2 }, { symlink: true }, { realpath: "outside" }, { bytes: Buffer.from("forged") },
+  ]) {
+    const target = authenticated.supportFiles[0].source;
+    const changed = new Map(values);
+    changed.set(target, { ...values.get(target), ...mutation });
+    assert.throws(() => reverifyMaterializedNativeInstallClosure({ authenticatedSource: authenticated, materializedReader: (source) => changed.get(source) }), /changed/u);
+  }
+});
+
+test("root derivation rejects an unprivileged plan field before any reader or verifier runs", () => {
+  let calls = 0;
+  assert.throws(() => deriveAndVerifyRootNativeInstallPackage({
+    authenticatedSource: {}, deriveRequest() { calls += 1; }, derivePackage() { calls += 1; }, plan: { forged: true },
+  }), /closed schema/u);
+  assert.equal(calls, 0);
+});
+
+test("root derivation creates and separately verifies two identical packages without consulting mutable planner projections", () => {
+  const authenticatedSource = authenticateNativeInstallGitSource(gitFixture());
+  const producerSupport = authenticatedSource.supportFiles.filter((entry) => entry.source.endsWith(".mjs") && entry.source !== nativeInstallBootstrapEntrypoint)
+    .map(({ gitBlobOid: _gitBlobOid, ...entry }) => entry);
+  const expected = installPackageFixture({ supportFiles: producerSupport, producerSourceSha: authenticatedSource.manifest.sourceCommit });
+  const mutableProjection = { planDigest: "f".repeat(64), artifacts: [Buffer.from("forged")] };
+  let requestReads = 0;
+  let packageReads = 0;
+  const verified = deriveAndVerifyRootNativeInstallPackage({
+    authenticatedSource,
+    deriveRequest() { requestReads += 1; return structuredClone(expected.plan.request); },
+    derivePackage({ request, producerSourceSha, supportFiles }) {
+      packageReads += 1;
+      assert.deepEqual(request, expected.plan.request);
+      assert.equal(producerSourceSha, authenticatedSource.manifest.sourceCommit);
+      assert.equal(supportFiles.every((entry) => entry.source.endsWith(".mjs") && !Object.hasOwn(entry, "gitBlobOid")), true);
+      assert.notEqual(mutableProjection.planDigest, expected.plan.planDigest);
+      return expected;
+    },
+  });
+  assert.equal(requestReads, 2);
+  assert.equal(packageReads, 2);
+  assert.equal(verified.planDigest, expected.plan.planDigest);
+  mutableProjection.planDigest = expected.plan.planDigest;
+  mutableProjection.artifacts[0][0] ^= 0xff;
+  assert.equal(verified.package.artifacts[0].bytes.equals(expected.artifacts[0].bytes), true);
+});
+
+const baseClaims = Object.freeze({
+  repository: "example/repo", issueNumber: 1012, taskKey: "fixture-task", claimIdentity: "example/repo#1012", chargeId: "c".repeat(64),
+  originalRunnerRunId: "run-original", originalSupervisorRunId: "supervisor-original", consumedRunnerRunId: "run-consumed", consumedSupervisorRunId: "supervisor-consumed",
+  originalSpecIdentity: "1".repeat(64), originalStateIdentity: "2".repeat(64), originalIterationIdentity: "3".repeat(64), originalSummaryIdentity: "4".repeat(64),
+  failedContinuationRunnerRunId: "run-failed", failedContinuationSupervisorRunId: "supervisor-failed", failedContinuationSpecIdentity: "7".repeat(64), failedContinuationStateIdentity: "8".repeat(64), failedContinuationHeartbeatIdentity: "9".repeat(64), failedContinuationSummaryIdentity: "a".repeat(64),
+  consumedSpecIdentity: "b".repeat(64), consumedStateIdentity: "c".repeat(64), consumedIterationIdentity: "d".repeat(64), consumedSummaryIdentity: "e".repeat(64),
+  branch: "feature/issue-1012", baseSha: "a".repeat(40), headSha: "b".repeat(40), treeSha: "d".repeat(40), changedFilesDigest: "e".repeat(64), diffDigest: "f".repeat(64),
+  acceptedLogicalTasks: 1, localSourceChangingRounds: 0, githubTriggeredFixEpochs: 0, lifetimeLocalSourceChangingRounds: 0,
+  formerRootPath: "/sanitized/root.json", formerRootSha256: "6".repeat(64), formerEffectivePhase: "checkpoint_validation_commit", incidentPath: "/sanitized/root.json", incidentSha256: "5".repeat(64), predecessorBytesAvailable: false, prEvidenceDigest: "f".repeat(64),
+  runtimeSourceSha: "4".repeat(40), installedBundleDigest: "1".repeat(64), installedManifestDigest: "2".repeat(64), runtimeProfileDigest: "3".repeat(64), runtimeApprovalDigest: "4".repeat(64), launcherDigest: "5".repeat(64), healthUnitDigest: "6".repeat(64),
+  lifecycleLineage: "terminal_validation_retry_to_distinct_successor", lifecycleSessionId: "session-predecessor", lifecycleMutationGeneration: 2,
+  intentPosture: "one_no_effect_overlay_then_consumed_submission", validationEffect: false, reviewEffect: false, sourceEffect: false, pushEffect: false, prEffect: false, commentEffect: false, mergeEffect: false, issueEffect: false, productEffect: false,
+  submissionCount: 1, submissionExhausted: true, successorEligible: true, earliestSafePhase: "checkpoint_validation_commit",
+});
+
+function ownedClaims(authorityClass) {
+  return Object.fromEntries(Object.entries(semanticRecoveryClaimOwnerMatrix)
+    .filter(([, ownership]) => [...ownership.required, ...ownership.optional].includes(authorityClass))
+    .map(([claim]) => [claim, structuredClone(baseClaims[claim])]));
+}
+function installPackageFixture(options = {}) {
+  const producer = Buffer.from('import "./lib/semantic-recovery-native-producer.mjs";');
+  const library = Buffer.from('import "./required-dependency.mjs";');
+  const dependency = Buffer.from("export {};");
+  const supportFiles = options.supportFiles || [
+    [nativeInstallProducerEntrypoint, producer, true],
+    ["tools/auto-runner/lib/semantic-recovery-native-producer.mjs", library, false],
+    ["tools/auto-runner/lib/required-dependency.mjs", dependency, false],
+  ].map(([source, bytes, executable]) => ({ source, bytes, byteCount: bytes.length, sha256: sha256(bytes), executable }));
+  const request = {
+    contract: "settleora_semantic_recovery_native_producer_request", version: 1, operation: "install_native_semantic_recovery_producer",
+    repository: baseClaims.repository,
+    source: { deploymentEvidenceDocument: "/workspace/auto-runner/config/fixture/deployment-evidence.json", sha256: "7".repeat(64) },
+    runtime: { sourceSha: baseClaims.runtimeSourceSha, bundleDigest: baseClaims.installedBundleDigest, manifestDigest: baseClaims.installedManifestDigest, profileDigest: baseClaims.runtimeProfileDigest, approvalDigest: baseClaims.runtimeApprovalDigest, launcherDigest: baseClaims.launcherDigest, healthUnitDigest: baseClaims.healthUnitDigest },
+    observedAt: "2026-08-03T12:00:00.000Z", expiresAt: "2026-08-03T12:10:00.000Z",
+  };
+  const readers = Object.fromEntries(semanticRecoveryAuthorityClasses.map((authorityClass) => [authorityClass, () => ({
+    authorityClass, repository: baseClaims.repository, claims: ownedClaims(authorityClass), provenanceIdentity: sha256(`provenance:${authorityClass}`),
+  })]));
+  return planSemanticRecoveryNativeInstall({ request, authorityReaders: readers, readAuthorityContext: (authorityClass) => ({ authorityClass }), producerSourceSha: options.producerSourceSha || "8".repeat(40), supportFiles, now: new Date("2026-08-03T12:01:00.000Z") });
+}
+
+class PublicationMemoryFilesystem {
+  constructor() { this.final = null; this.stage = null; this.events = []; this.residue = false; }
+  assertAuthorityBoundary() { this.events.push("authority"); }
+  finalExists() { return this.final !== null; }
+  assertNoPublicationResidue() { if (this.residue) throw new Error("residue"); }
+  createStage(correlation, mode, uid, gid) { this.events.push(`stage:${correlation}`); this.stage = new Map(); this.stage.set(semanticRecoveryProtectedLayout.root, directory(mode, uid, gid)); return "stage"; }
+  createDirectory(_stage, relative, mode, uid, gid) { const target = path.posix.join(semanticRecoveryProtectedLayout.root, relative); this.stage.set(target, directory(mode, uid, gid)); this.events.push(`mkdir:${relative}`); }
+  createFile(_stage, relative, bytes, mode, uid, gid) { const target = path.posix.join(semanticRecoveryProtectedLayout.root, relative); this.stage.set(target, file(bytes, mode, uid, gid)); this.events.push(`write:${relative}`); }
+  sealStage(_stage, mode, uid, gid) { assert.equal(this.stage.get(semanticRecoveryProtectedLayout.root).metadata.mode, 0o700); this.stage.set(semanticRecoveryProtectedLayout.root, directory(mode, uid, gid)); this.events.push("seal-stage"); }
+  fsyncFile(_stage, relative) { this.events.push(`fsync-file:${relative}`); }
+  fsyncDirectory(_stage, relative) { this.events.push(`fsync-dir:${relative}`); }
+  fsyncPublicationParent() { this.events.push("fsync-parent"); }
+  fsyncPublicationAncestor() { this.events.push("fsync-ancestor"); }
+  stageView() { return view(this.stage); }
+  finalView() { return view(this.final); }
+  publishNoReplace() { if (this.final) throw new Error("exists"); this.events.push("rename-noreplace"); this.final = this.stage; this.stage = null; }
+}
+function directory(mode = 0o755, uid = 0, gid = 0) { return { metadata: { type: "directory", symlink: false, uid, gid, mode, nlink: 2, size: 0 }, bytes: null }; }
+function file(bytes, mode = 0o444, uid = 0, gid = 0) { return { metadata: { type: "file", symlink: false, uid, gid, mode, nlink: 1, size: bytes.length }, bytes: Buffer.from(bytes) }; }
+function view(entries) {
+  return {
+    inspect: (target) => entries?.get(target)?.metadata ? { ...entries.get(target).metadata } : null,
+    read: (target) => Buffer.from(entries.get(target).bytes),
+    realpath: (target) => entries.get(target)?.realpath ?? target,
+    list(directoryPath) {
+      const prefix = `${directoryPath}/`;
+      return [...entries.keys()].filter((target) => target.startsWith(prefix) && !target.slice(prefix.length).includes("/")).map((target) => target.slice(prefix.length)).sort();
+    },
+  };
+}
+
+function rebindInstallPackage(installPackage, mutate) {
+  const plan = structuredClone(installPackage.plan);
+  const artifacts = installPackage.artifacts.map((entry) => ({ ...structuredClone({ ...entry, bytes: undefined }), bytes: Buffer.from(entry.bytes) }));
+  mutate({ plan, artifacts });
+  delete plan.planDigest;
+  const manifestCore = structuredClone(plan);
+  delete manifestCore.installManifestDigest;
+  manifestCore.files = manifestCore.files.filter((entry) => entry.kind !== "install_manifest");
+  plan.installManifestDigest = sha256(canonicalJson(manifestCore));
+  const manifestDocument = structuredClone(plan);
+  manifestDocument.files = manifestDocument.files.filter((entry) => entry.kind !== "install_manifest");
+  const manifestBytes = Buffer.from(canonicalJson(manifestDocument));
+  const manifestFile = plan.files.find((entry) => entry.kind === "install_manifest");
+  const manifestArtifact = artifacts.find((entry) => entry.kind === "install_manifest");
+  manifestFile.sha256 = sha256(manifestBytes); manifestFile.byteCount = manifestBytes.length;
+  manifestArtifact.sha256 = manifestFile.sha256; manifestArtifact.byteCount = manifestBytes.length; manifestArtifact.bytes = manifestBytes;
+  plan.planDigest = sha256(canonicalJson(plan));
+  return { plan, artifacts };
+}
+function publicationJournal() {
+  const transitions = [];
+  let state = "root_plan_verified";
+  return { transitions, transition(expected, next) { assert.equal(state, expected); transitions.push(`${expected}->${next}`); state = next; } };
+}
+
+test("exact fixture installation fsyncs every created file/directory and both publication boundaries before verified completion", () => {
+  const installPackage = installPackageFixture();
+  const filesystem = new PublicationMemoryFilesystem();
+  const journal = publicationJournal();
+  const result = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal });
+  assert.equal(result.installed, true);
+  assert.equal(verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() }).ok, true);
+  assert.equal(filesystem.events.filter((entry) => entry.startsWith("fsync-file:")).length, installPackage.artifacts.length);
+  assert.equal(filesystem.events.filter((entry) => entry.startsWith("fsync-dir:")).length >= (installPackage.plan.directories.length - 1) * 2 + installPackage.artifacts.length + 1, true);
+  assert.equal(filesystem.events.at(-2), "fsync-parent");
+  assert.equal(filesystem.events.at(-1), "fsync-ancestor");
+  assert.deepEqual(journal.transitions, ["root_plan_verified->publication_intent_durable", "publication_intent_durable->publication_started", "publication_started->installed_verified"]);
+});
+
+test("exact existing installation adopts without rewrite while conflict and residue remain untouched", () => {
+  const installPackage = installPackageFixture();
+  const filesystem = new PublicationMemoryFilesystem();
+  publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal: publicationJournal() });
+  const before = canonicalJson([...filesystem.final].map(([target, entry]) => [target, entry.metadata, entry.bytes?.toString("base64")]));
+  filesystem.events.length = 0;
+  const journal = publicationJournal();
+  const adopted = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal });
+  assert.equal(adopted.adopted, true);
+  assert.equal(canonicalJson([...filesystem.final].map(([target, entry]) => [target, entry.metadata, entry.bytes?.toString("base64")])), before);
+  assert.deepEqual(filesystem.events, ["authority"]);
+  assert.deepEqual(journal.transitions, ["root_plan_verified->adopted_verified"]);
+  const conflict = new PublicationMemoryFilesystem(); conflict.final = new Map([[semanticRecoveryProtectedLayout.root, directory()], [`${semanticRecoveryProtectedLayout.root}/extra`, file(Buffer.from("x"))]]);
+  const conflictBefore = canonicalJson([...conflict.final]);
+  assert.throws(() => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem: conflict, journal: publicationJournal() }), /conflicts/u);
+  assert.equal(canonicalJson([...conflict.final]), conflictBefore);
+  const residue = new PublicationMemoryFilesystem(); residue.residue = true;
+  assert.throws(() => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem: residue, journal: publicationJournal() }), /residue/u);
+  assert.equal(residue.stage, null);
+});
+
+test("deep path, forbidden-effect and installed metadata fixtures reach their specific validators after valid outer bindings", () => {
+  const original = installPackageFixture();
+  for (const [name, mutate, detail] of [
+    ["traversal", ({ plan, artifacts }) => { const file = plan.files.find((entry) => entry.kind === "authority_store"); const artifact = artifacts.find((entry) => entry.destination === file.destination); file.destination = `${semanticRecoveryProtectedLayout.root}/stores/../escape.json`; artifact.destination = file.destination; }, "semantic_native_install_file_invalid"],
+    ["absolute", ({ plan, artifacts }) => { const file = plan.files.find((entry) => entry.kind === "authority_store"); const artifact = artifacts.find((entry) => entry.destination === file.destination); file.destination = "/tmp/escape.json"; artifact.destination = file.destination; }, "semantic_native_install_file_invalid"],
+    ["grant", ({ plan }) => { const file = plan.files.find((entry) => entry.kind === "authority_store"); file.kind = "operation_grant"; }, "semantic_native_install_file_kind_invalid"],
+    ["service", ({ plan }) => { plan.serviceEffects = [{ kind: "service", action: "enable" }]; }, "semantic_native_install_plan_invalid"],
+  ]) {
+    const rebound = rebindInstallPackage(original, mutate);
+    const result = verifySemanticRecoveryNativeInstallPlan(rebound);
+    assert.equal(result.ok, false, name);
+    assert.equal(result.detailCode, detail, name);
+  }
+
+  const mutations = [
+    ["symlink", (entry) => { entry.metadata.symlink = true; }, "semantic_native_installed_file_symlink_drift"],
+    ["owner", (entry) => { entry.metadata.uid = 1000; }, "semantic_native_installed_file_owner_drift"],
+    ["group", (entry) => { entry.metadata.gid = 1000; }, "semantic_native_installed_file_group_drift"],
+    ["mode", (entry) => { entry.metadata.mode = 0o666; }, "semantic_native_installed_file_mode_drift"],
+    ["hardlink", (entry) => { entry.metadata.nlink = 2; }, "semantic_native_installed_file_link_count_drift"],
+    ["bytes", (entry) => { entry.bytes[0] ^= 0xff; }, "semantic_native_installed_file_digest_drift"],
+    ["realpath", (entry) => { entry.realpath = "/outside"; }, "semantic_native_installed_file_realpath_drift"],
+  ];
+  for (const [name, mutate, detail] of mutations) {
+    const filesystem = new PublicationMemoryFilesystem();
+    publishOrAdoptVerifiedNativeInstall({ installPackage: original, correlation: "issue-1012-fixture", filesystem, journal: publicationJournal() });
+    const target = original.plan.files[0].destination;
+    mutate(filesystem.final.get(target));
+    const result = verifyInstalledSemanticRecoveryNativeProducer({ plan: original.plan, filesystem: filesystem.finalView() });
+    assert.equal(result.ok, false, name);
+    assert.equal(result.detailCode, detail, name);
+  }
+});
+
+const journalIdentity = Object.freeze({
+  correlation: "issue-1012-fixture", repository: "example/repo", sourceCommit: "a".repeat(40), operationId: "b".repeat(64), observedAt: "2026-08-03T12:00:00.000Z",
+});
+const emptyResult = (reasonCode, extras = {}) => ({ outcome: "none", reasonCode, requestDigest: null, sourceManifestDigest: null, planDigest: null, installedDigest: null, process: null, ...extras });
+
+test("journal compare-and-swap persists temp, file fsync, replace, directory fsync and exact readback", () => {
+  const initial = createNativeInstallJournal(journalIdentity);
+  let current = initial;
+  const events = [];
+  const store = {
+    read: () => current,
+    writeExclusive(bytes) { events.push("write-temp"); this.bytes = bytes; return "temp"; },
+    fsyncFile() { events.push("fsync-file"); },
+    replace() { events.push("replace"); current = JSON.parse(this.bytes.toString("utf8")); },
+    fsyncDirectory() { events.push("fsync-directory"); },
+  };
+  const next = transitionNativeInstallJournal({
+    current: initial, expectedState: "prepared", nextState: "awaiting_interactive_sudo", observedAt: "2026-08-03T12:00:01.000Z",
+    persist: (value) => persistNativeInstallJournalTransition({ ...value, store }),
+  });
+  assert.deepEqual(events, ["write-temp", "fsync-file", "replace", "fsync-directory"]);
+  assert.equal(current.journalDigest, next.journalDigest);
+  assert.equal(validateNativeInstallJournal(current).state, "awaiting_interactive_sudo");
+});
+
+test("journal interruption windows, corruption, stale correlation and duplicate sudo/publication fail closed", () => {
+  const initial = createNativeInstallJournal(journalIdentity);
+  assert.throws(() => transitionNativeInstallJournal({ current: initial, expectedState: "sudo_started", nextState: "root_authority_rederived", observedAt: "2026-08-03T12:00:01.000Z", persist() {} }), /transition invalid/u);
+  assert.throws(() => validateNativeInstallJournal({ ...initial, sequence: 9 }), /invalid/u);
+  let awaiting = transitionNativeInstallJournal({ current: initial, expectedState: "prepared", nextState: "awaiting_interactive_sudo", observedAt: "2026-08-03T12:00:01.000Z", persist() {} });
+  let sudo = transitionNativeInstallJournal({ current: awaiting, expectedState: "awaiting_interactive_sudo", nextState: "sudo_started", observedAt: "2026-08-03T12:00:02.000Z", result: emptyResult("native_install_sudo_started"), persist() {} });
+  assert.equal(sudo.sudoAttemptCount, 1);
+  assert.throws(() => transitionNativeInstallJournal({ current: sudo, expectedState: "awaiting_interactive_sudo", nextState: "sudo_started", observedAt: "2026-08-03T12:00:03.000Z", persist() {} }), /transition invalid/u);
+  assert.equal(resumeNativeInstallProtocol({ ownerJournal: sudo, processEvidence: { correlation: sudo.correlation, active: false } }).action, "block_process_result_unknown");
+  const wrong = createNativeInstallJournal({ ...journalIdentity, correlation: "issue-1012-other" });
+  assert.throws(() => resumeNativeInstallProtocol({ ownerJournal: sudo, rootJournal: wrong }), /correlate/u);
+});
+
+test("publication transport ambiguity always selects exact readback and never automatic replay", () => {
+  const initial = createNativeInstallJournal(journalIdentity);
+  const pathToAmbiguous = [
+    ["prepared", "awaiting_interactive_sudo", null],
+    ["awaiting_interactive_sudo", "sudo_started", emptyResult("native_install_sudo_started")],
+    ["sudo_started", "root_authority_rederived", emptyResult("native_install_root_authority_rederived", { requestDigest: "1".repeat(64), sourceManifestDigest: "2".repeat(64) })],
+    ["root_authority_rederived", "root_plan_verified", emptyResult("native_install_root_plan_verified", { requestDigest: "1".repeat(64), sourceManifestDigest: "2".repeat(64), planDigest: "3".repeat(64) })],
+    ["root_plan_verified", "publication_intent_durable", emptyResult("native_install_publication_intent_durable", { planDigest: "3".repeat(64) })],
+    ["publication_intent_durable", "publication_started", { ...emptyResult("native_install_publication_started", { planDigest: "3".repeat(64) }), outcome: "ambiguous" }],
+    ["publication_started", "publication_ambiguous", { ...emptyResult("native_install_publication_ambiguous", { planDigest: "3".repeat(64) }), outcome: "ambiguous" }],
+  ];
+  let journal = initial;
+  for (let index = 0; index < pathToAmbiguous.length; index += 1) {
+    const [expectedState, nextState, result] = pathToAmbiguous[index];
+    journal = transitionNativeInstallJournal({ current: journal, expectedState, nextState, observedAt: new Date(Date.parse(journalIdentity.observedAt) + (index + 1) * 1000).toISOString(), result, persist() {} });
+  }
+  const action = resumeNativeInstallProtocol({ ownerJournal: journal });
+  assert.deepEqual(action, { action: "readback_only", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_publication_ambiguous" });
+  const adopted = resumeNativeInstallProtocol({ ownerJournal: journal, installedReadback: { ok: true, planDigest: "3".repeat(64) } });
+  assert.equal(adopted.action, "adopt_verified_result");
+});
+
+test("lost rename transport adopts exact final readback and never invokes publication twice", () => {
+  const installPackage = installPackageFixture();
+  const filesystem = new PublicationMemoryFilesystem();
+  let calls = 0;
+  filesystem.publishNoReplace = function publishThenLoseTransport() {
+    calls += 1;
+    this.final = this.stage;
+    this.stage = null;
+    throw new Error("transport lost");
+  };
+  const journal = publicationJournal();
+  const result = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal });
+  assert.equal(result.reasonCode, "native_install_ambiguous_publication_verified");
+  assert.equal(calls, 1);
+  assert.deepEqual(journal.transitions, [
+    "root_plan_verified->publication_intent_durable",
+    "publication_intent_durable->publication_started",
+    "publication_started->publication_ambiguous",
+    "publication_ambiguous->installed_verified",
+  ]);
+});
+
+test("real TTY/PAM process outcomes are abstracted and argv/environment/journal evidence contain digests only", () => {
+  const secret = "health-token-super-secret";
+  const sudoArgv = buildNativeInstallSudoArgv({ sourceCommit: "a".repeat(40), bootstrapBlob: "b".repeat(40), correlation: "issue-1012-fixture" });
+  assert.deepEqual(sudoArgv.slice(0, nativeInstallSudoArgv.length), nativeInstallSudoArgv);
+  assert.equal(validateInteractiveSudoBoundary({ argv: sudoArgv, env: {}, tty: true, stdinKind: "bootstrap_bytes_not_credentials", stdoutKind: "bounded_capture", stderrKind: "bounded_capture" }).ok, true);
+  for (const changed of [
+    { argv: [...sudoArgv, secret] }, { env: { TOKEN: secret } }, { tty: false }, { stdinKind: "password_pipe" },
+  ]) {
+    assert.throws(() => validateInteractiveSudoBoundary({ argv: sudoArgv, env: {}, tty: true, stdinKind: "bootstrap_bytes_not_credentials", stdoutKind: "bounded_capture", stderrKind: "bounded_capture", ...changed }), /boundary invalid/u);
+  }
+  for (const fixture of [
+    { status: 0, signal: null, timedOut: false, processLost: false },
+    { status: 1, signal: null, timedOut: false, processLost: false },
+    { status: 130, signal: null, timedOut: false, processLost: false },
+    { status: null, signal: null, timedOut: false, processLost: true },
+    { status: null, signal: "SIGTERM", timedOut: true, processLost: false },
+  ]) {
+    const result = sanitizeNativeInstallProcessResult({ ...fixture, stdout: secret, stderr: secret });
+    assert.doesNotMatch(canonicalJson(result), /health-token|super-secret/u);
+    assert.equal(result.stdoutSha256, sha256(secret));
+    assert.equal(result.stderrSha256, sha256(secret));
+  }
+});
+
+test("real Python rename_noreplace helper interoperates through stdin using exact package bytes without protected-root access", () => {
+  const installPackage = installPackageFixture();
+  const packageBytes = Buffer.from(canonicalJson({ plan: installPackage.plan, artifacts: installPackage.artifacts.map(({ bytes, ...entry }) => ({ ...entry, bytesBase64: bytes.toString("base64") })) }));
+  const helper = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../lib/semantic-recovery-native-rename-noreplace.py");
+  const result = spawnSync("/usr/bin/python3", ["-I", helper, "--self-test"], { input: packageBytes, encoding: "utf8", env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(JSON.parse(result.stdout), { byteCount: packageBytes.length, reasonCode: "native_install_python_rename_noreplace_verified", sha256: sha256(packageBytes) });
+  assert.equal(readFileSync(helper).includes(Buffer.from("RENAME_NOREPLACE = 1")), true);
+});

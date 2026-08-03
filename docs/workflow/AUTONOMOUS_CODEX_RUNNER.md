@@ -1817,12 +1817,21 @@ installation first bootstraps only executable/support bytes read from immutable
 Git blob objects at the exact authenticated canonical-main SHA frozen in the
 plan and policy. The source-UID-writable worktree is never the bundle byte
 source, and the full authority context is reread after artifact derivation.
-The installer then publishes only the exact owner-selected executable/support
-bundle into the protected path, then invokes that installed root-owned producer
-to rederive the complete plan through its real/effective source-UID/GID child
-and requires an exact plan match before completing installation. Root planning
-from a runner-writable repository path is rejected, and unprivileged planned
-bytes alone are not authority. Producer installation, one exact grant, root-executed successor
+The source-owned root-authoritative controller instead requires the owner to
+bind one typed real-TTY bootstrap to the exact merged GitHub repository, commit
+and bootstrap blob OID; no mutable-checkout executable crosses sudo. Root
+fetches into a private checkout with fixed tools, sanitized environment,
+disabled redirects/credentials and strict fsck, then recomputes the raw commit,
+every reachable tree and every reachable blob ID. It selects and
+re-materializes only the complete bootstrap/producer dependency closure in a
+second root-owned private directory and rereads every member immediately before
+execution. Root freshly derives the closed request and all eight authorities,
+derives and separately verifies two byte-identical complete plans, then either
+adopts an exact final tree without rewriting it or stages, fsyncs and publishes
+once with `renameat2(RENAME_NOREPLACE)`. Durable owner/root journals make
+`publication_started` ambiguous on process loss and permit exact readback only,
+never automatic replay. Root planning from a runner-writable repository path is
+rejected, and unprivileged planned bytes alone are not authority. Producer installation, one exact grant, root-executed successor
 persistence, authenticated readback, and any Issue #959 continuation remain
 separate owner gates. A committed successor explicitly reports that it is not
 authorized to continue.

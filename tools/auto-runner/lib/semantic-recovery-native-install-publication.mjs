@@ -1,0 +1,385 @@
+import { createHash, randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  chownSync,
+  closeSync,
+  constants,
+  existsSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
+import {
+  verifyInstalledSemanticRecoveryNativeProducer,
+  verifySemanticRecoveryNativeInstallPlan,
+} from "./semantic-recovery-native-producer.mjs";
+import { semanticRecoveryProtectedLayout } from "./semantic-recovery-protected-store.mjs";
+import { validateNativeInstallJournal } from "./semantic-recovery-native-install-journal.mjs";
+
+export const nativeInstallOwnerJournalRoot = "/workspace/logs/auto-runner/Settleora/manual-root-install-journals";
+export const nativeInstallRootJournalRoot = "/etc/settleora-auto-runner/.semantic-recovery-native-install-journals";
+
+const correlationPattern = /^[a-z0-9][a-z0-9._:-]{7,127}$/u;
+
+/*
+ * The adapter is deliberately an effect capability rather than a path. The live
+ * adapter below has only the fixed protected root; tests inject an in-memory
+ * implementation. No caller can select an arbitrary publication destination.
+ */
+export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlation, filesystem, journal } = {}) {
+  if (!verifySemanticRecoveryNativeInstallPlan(installPackage).ok || !correlationPattern.test(String(correlation || ""))
+      || !filesystem || !journal || typeof journal.transition !== "function") {
+    throw new Error("native install publication dependencies invalid");
+  }
+  assertPublicationFilesystem(filesystem);
+  filesystem.assertAuthorityBoundary();
+  if (filesystem.finalExists()) {
+    const adopted = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() });
+    if (!adopted.ok) throw new Error("native install existing state conflicts with root plan");
+    filesystem.assertNoPublicationResidue(correlation);
+    journal.transition("root_plan_verified", "adopted_verified", {
+      outcome: "adopted",
+      reasonCode: "native_install_exact_state_adopted",
+      planDigest: installPackage.plan.planDigest,
+      installedDigest: installedIdentity(installPackage.plan),
+    });
+    return { ok: true, adopted: true, installed: false, reasonCode: "native_install_exact_state_adopted", planDigest: installPackage.plan.planDigest };
+  }
+
+  filesystem.assertNoPublicationResidue(correlation);
+  const stage = filesystem.createStage(correlation, 0o700, 0, 0);
+  const directories = [...installPackage.plan.directories]
+    .filter((entry) => entry.destination !== semanticRecoveryProtectedLayout.root)
+    .sort((left, right) => depth(left.destination) - depth(right.destination) || left.destination.localeCompare(right.destination));
+  for (const directory of directories) {
+    const relative = relativeProtectedPath(directory.destination);
+    filesystem.createDirectory(stage, relative, directory.mode, directory.uid, directory.gid);
+    filesystem.fsyncDirectory(stage, relative);
+    filesystem.fsyncDirectory(stage, path.posix.dirname(relative));
+  }
+  for (const artifact of installPackage.artifacts) {
+    const relative = relativeProtectedPath(artifact.destination);
+    filesystem.createFile(stage, relative, artifact.bytes, artifact.mode, artifact.uid, artifact.gid);
+    filesystem.fsyncFile(stage, relative);
+    filesystem.fsyncDirectory(stage, path.posix.dirname(relative));
+  }
+  filesystem.sealStage(stage, 0o755, 0, 0);
+  filesystem.fsyncDirectory(stage, ".");
+  filesystem.fsyncPublicationParent();
+  const staged = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.stageView(stage) });
+  if (!staged.ok) throw new Error("native install staged readback invalid");
+  journal.transition("root_plan_verified", "publication_intent_durable", {
+    outcome: "none",
+    reasonCode: "native_install_publication_intent_durable",
+    planDigest: installPackage.plan.planDigest,
+  });
+  journal.transition("publication_intent_durable", "publication_started", {
+    outcome: "ambiguous",
+    reasonCode: "native_install_publication_started",
+    planDigest: installPackage.plan.planDigest,
+  });
+  try {
+    filesystem.publishNoReplace(stage);
+  } catch {
+    const ambiguousReadback = filesystem.finalExists()
+      ? verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() })
+      : { ok: false };
+    journal.transition("publication_started", "publication_ambiguous", {
+      outcome: "ambiguous",
+      reasonCode: "native_install_publication_transport_ambiguous",
+      planDigest: installPackage.plan.planDigest,
+    });
+    if (!ambiguousReadback.ok) throw new Error("native install publication transport ambiguous");
+    filesystem.fsyncPublicationParent();
+    filesystem.fsyncPublicationAncestor();
+    journal.transition("publication_ambiguous", "installed_verified", {
+      outcome: "verified",
+      reasonCode: "native_install_ambiguous_publication_verified",
+      planDigest: installPackage.plan.planDigest,
+      installedDigest: installedIdentity(installPackage.plan),
+    });
+    return { ok: true, adopted: false, installed: true, reasonCode: "native_install_ambiguous_publication_verified", planDigest: installPackage.plan.planDigest };
+  }
+  filesystem.fsyncPublicationParent();
+  filesystem.fsyncPublicationAncestor();
+  const installed = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() });
+  if (!installed.ok) {
+    journal.transition("publication_started", "publication_ambiguous", {
+      outcome: "ambiguous",
+      reasonCode: "native_install_publication_readback_ambiguous",
+      planDigest: installPackage.plan.planDigest,
+    });
+    throw new Error("native install publication readback ambiguous");
+  }
+  journal.transition("publication_started", "installed_verified", {
+    outcome: "verified",
+    reasonCode: "native_install_publication_verified",
+    planDigest: installPackage.plan.planDigest,
+    installedDigest: installedIdentity(installPackage.plan),
+  });
+  return { ok: true, adopted: false, installed: true, reasonCode: "native_install_publication_verified", planDigest: installPackage.plan.planDigest };
+}
+
+export function persistNativeInstallJournalTransition({ previous, next, store } = {}) {
+  validateNativeInstallJournal(previous);
+  validateNativeInstallJournal(next);
+  if (!store || typeof store.read !== "function" || typeof store.writeExclusive !== "function"
+      || typeof store.fsyncFile !== "function" || typeof store.replace !== "function" || typeof store.fsyncDirectory !== "function") {
+    throw new Error("native install journal store invalid");
+  }
+  const current = store.read();
+  validateNativeInstallJournal(current);
+  if (current.journalDigest !== previous.journalDigest || next.previousState !== previous.state || next.sequence !== previous.sequence + 1) {
+    throw new Error("native install journal compare-and-swap failed");
+  }
+  const bytes = canonicalBytes(next);
+  const temporary = store.writeExclusive(bytes);
+  store.fsyncFile(temporary);
+  store.replace(temporary);
+  store.fsyncDirectory();
+  const readback = store.read();
+  validateNativeInstallJournal(readback);
+  if (readback.journalDigest !== next.journalDigest || !canonicalBytes(readback).equals(bytes)) {
+    throw new Error("native install journal readback failed");
+  }
+  return readback;
+}
+
+export function createFixedNativeInstallJournalStore({ scope, correlation } = {}) {
+  if (!["owner", "root"].includes(scope) || !correlationPattern.test(String(correlation || ""))) {
+    throw new Error("native install journal store selector invalid");
+  }
+  const root = scope === "root" ? nativeInstallRootJournalRoot : nativeInstallOwnerJournalRoot;
+  const ownerAuthority = scope === "owner" ? lstatSync("/workspace/logs/auto-runner/Settleora") : null;
+  const expectedUid = scope === "root" ? 0 : ownerAuthority.uid;
+  const expectedGid = scope === "root" ? 0 : ownerAuthority.gid;
+  if (!Number.isSafeInteger(expectedUid) || !Number.isSafeInteger(expectedGid)
+      || (scope === "root" && (process.getuid?.() !== 0 || process.geteuid?.() !== 0))
+      || (scope === "owner" && process.geteuid?.() !== 0 && (process.getuid?.() !== expectedUid || process.geteuid?.() !== expectedUid))) {
+    throw new Error("native install journal process identity invalid");
+  }
+  ensurePrivateDirectory(root, expectedUid, expectedGid, scope);
+  const finalPath = path.join(root, `${correlation}.json`);
+  return {
+    path: finalPath,
+    exists: () => existsSync(finalPath),
+    read() {
+      assertPrivateRegularFile(finalPath, expectedUid, expectedGid);
+      return parseCanonicalJson(readFileSync(finalPath));
+    },
+    writeInitial(bytes) {
+      if (existsSync(finalPath)) throw new Error("native install journal already exists");
+      const fd = openSync(finalPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+      try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+      chownSync(finalPath, expectedUid, expectedGid);
+      chmodSync(finalPath, 0o600);
+      fsyncFile(finalPath);
+      fsyncDirectory(root);
+    },
+    writeExclusive(bytes) {
+      const temporary = path.join(root, `.${correlation}.${randomBytes(12).toString("hex")}.tmp`);
+      const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+      try { writeFileSync(fd, bytes); } finally { closeSync(fd); }
+      chownSync(temporary, expectedUid, expectedGid);
+      chmodSync(temporary, 0o600);
+      return temporary;
+    },
+    fsyncFile(target) { fsyncFile(target); },
+    replace(temporary) {
+      assertPrivateRegularFile(temporary, expectedUid, expectedGid);
+      renameSync(temporary, finalPath);
+    },
+    fsyncDirectory() { fsyncDirectory(root); },
+  };
+}
+
+export function createLiveNativeInstallFilesystem({ renameNoReplace } = {}) {
+  if (process.getuid?.() !== 0 || process.geteuid?.() !== 0 || process.getgid?.() !== 0 || process.getegid?.() !== 0) {
+    throw new Error("native install live filesystem requires real and effective root");
+  }
+  const protectedRoot = semanticRecoveryProtectedLayout.root;
+  const publicationParent = path.posix.dirname(protectedRoot);
+  const publicationAncestor = path.posix.dirname(publicationParent);
+  if (typeof renameNoReplace !== "function") throw new Error("native install rename_noreplace capability required");
+  return {
+    assertAuthorityBoundary() {
+      for (const target of ["/etc", publicationAncestor]) assertRootDirectory(target);
+      if (existsSync(publicationParent)) assertRootDirectory(publicationParent);
+    },
+    finalExists: () => existsSync(protectedRoot),
+    assertNoPublicationResidue(correlation) {
+      if (!existsSync(publicationParent)) return;
+      const expected = new Set([path.posix.basename(protectedRoot), path.posix.basename(nativeInstallRootJournalRoot)]);
+      for (const name of readdirSync(publicationParent)) {
+        if (name.startsWith(`.semantic-recovery-authority.install-${correlation}`) || name.startsWith(".semantic-recovery-authority.retired-")
+            || name.startsWith(".semantic-recovery-authority.backup-") || (!expected.has(name) && name.includes("semantic-recovery-authority"))) {
+          throw new Error("native install publication residue present");
+        }
+      }
+    },
+    createStage(correlation, mode, uid, gid) {
+      if (!existsSync(publicationParent)) {
+        mkdirSync(publicationParent, { mode: 0o755 });
+        chownSync(publicationParent, 0, 0);
+        chmodSync(publicationParent, 0o755);
+        fsyncDirectory(publicationAncestor);
+      }
+      const stage = path.posix.join(publicationParent, `.semantic-recovery-authority.install-${correlation}`);
+      mkdirSync(stage, { mode });
+      chownSync(stage, uid, gid);
+      chmodSync(stage, mode);
+      return stage;
+    },
+    createDirectory(stage, relative, mode, uid, gid) {
+      const target = stageTarget(stage, relative);
+      mkdirSync(target, { mode });
+      chownSync(target, uid, gid);
+      chmodSync(target, mode);
+      assertWithinStage(stage, target);
+    },
+    createFile(stage, relative, bytes, mode, uid, gid) {
+      const target = stageTarget(stage, relative);
+      const fd = openSync(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, mode);
+      try { writeFileSync(fd, bytes); } finally { closeSync(fd); }
+      chownSync(target, uid, gid);
+      chmodSync(target, mode);
+      assertWithinStage(stage, target);
+    },
+    sealStage(stage, mode, uid, gid) {
+      const info = lstatSync(stage);
+      if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0 || (info.mode & 0o7777) !== 0o700
+          || realpathSync(stage) !== stage) throw new Error("native install private stage changed before seal");
+      chownSync(stage, uid, gid);
+      chmodSync(stage, mode);
+    },
+    fsyncFile(stage, relative) { fsyncFile(stageTarget(stage, relative)); },
+    fsyncDirectory(stage, relative) { fsyncDirectory(stageTarget(stage, relative)); },
+    fsyncPublicationParent: () => fsyncDirectory(publicationParent),
+    fsyncPublicationAncestor: () => fsyncDirectory(publicationAncestor),
+    stageView: (stage) => createMappedReadOnlyFilesystem(stage),
+    finalView: () => createMappedReadOnlyFilesystem(protectedRoot),
+    publishNoReplace(stage) { renameNoReplace(stage, protectedRoot); },
+  };
+}
+
+function createMappedReadOnlyFilesystem(actualRoot) {
+  const map = (target) => {
+    const relative = relativeProtectedPath(target);
+    return relative === "." ? actualRoot : path.posix.join(actualRoot, relative);
+  };
+  return {
+    inspect(target) {
+      const info = lstatSync(map(target));
+      return { type: info.isDirectory() ? "directory" : info.isFile() ? "file" : "other", symlink: info.isSymbolicLink(), uid: info.uid, gid: info.gid, mode: info.mode & 0o7777, nlink: info.nlink, size: info.size, dev: info.dev, ino: info.ino, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs };
+    },
+    read: (target) => readFileSync(map(target)),
+    list: (target) => readdirSync(map(target)),
+    realpath(target) {
+      const actual = realpathSync(map(target));
+      const relative = path.posix.relative(actualRoot, actual);
+      if (relative.startsWith("..") || path.posix.isAbsolute(relative)) return actual;
+      return relative === "" ? semanticRecoveryProtectedLayout.root : path.posix.join(semanticRecoveryProtectedLayout.root, relative);
+    },
+  };
+}
+
+function assertPublicationFilesystem(value) {
+  for (const method of [
+    "assertAuthorityBoundary", "finalExists", "assertNoPublicationResidue", "createStage", "createDirectory", "createFile",
+    "fsyncFile", "fsyncDirectory", "fsyncPublicationParent", "fsyncPublicationAncestor", "sealStage", "stageView", "finalView", "publishNoReplace",
+  ]) if (typeof value[method] !== "function") throw new Error(`native install filesystem capability missing: ${method}`);
+}
+function relativeProtectedPath(target) {
+  if (target === semanticRecoveryProtectedLayout.root) return ".";
+  const prefix = `${semanticRecoveryProtectedLayout.root}/`;
+  if (typeof target !== "string" || !target.startsWith(prefix) || path.posix.normalize(target) !== target) {
+    throw new Error("native install destination outside protected root");
+  }
+  const relative = target.slice(prefix.length);
+  if (relative === "" || relative.split("/").some((part) => part === "" || part === "." || part === "..")) {
+    throw new Error("native install destination invalid");
+  }
+  return relative;
+}
+function stageTarget(stage, relative) {
+  if (relative === ".") return stage;
+  const target = path.posix.join(stage, relative);
+  if (path.posix.relative(stage, target).startsWith("..")) throw new Error("native install stage escape");
+  return target;
+}
+function assertWithinStage(stage, target) {
+  const parent = path.posix.dirname(target);
+  const realParent = realpathSync(parent);
+  const realStage = realpathSync(stage);
+  if (realParent !== parent || (realParent !== realStage && !realParent.startsWith(`${realStage}/`))) {
+    throw new Error("native install stage parent unsafe");
+  }
+}
+function installedIdentity(plan) { return createHash("sha256").update(canonicalBytes({ planDigest: plan.planDigest, files: plan.files, directories: plan.directories })).digest("hex"); }
+function depth(target) { return target.split("/").length; }
+function ensurePrivateDirectory(target, uid, gid, scope) {
+  const parent = path.dirname(target);
+  if (scope === "root" && !existsSync(parent)) {
+    if (parent !== "/etc/settleora-auto-runner") throw new Error("native install root journal parent invalid");
+    assertRootDirectory("/etc");
+    mkdirSync(parent, { mode: 0o755 });
+    chownSync(parent, 0, 0);
+    chmodSync(parent, 0o755);
+    fsyncDirectory("/etc");
+    fsyncDirectory(parent);
+  }
+  if (scope === "root") assertRootDirectory(parent);
+  else {
+    const authority = lstatSync(parent);
+    if (!authority.isDirectory() || authority.isSymbolicLink() || authority.uid !== uid || authority.gid !== gid
+        || (authority.mode & 0o077) !== 0 || realpathSync(parent) !== parent) throw new Error("native install owner journal parent unsafe");
+  }
+  if (!existsSync(target)) {
+    mkdirSync(target, { mode: 0o700 });
+    chownSync(target, uid, gid);
+    chmodSync(target, 0o700);
+    fsyncDirectory(parent);
+  }
+  const info = lstatSync(target);
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== uid || info.gid !== gid || (info.mode & 0o7777) !== 0o700
+      || realpathSync(target) !== target) throw new Error("native install journal directory unsafe");
+  fsyncDirectory(target);
+  fsyncDirectory(parent);
+}
+function assertPrivateRegularFile(target, uid, gid) {
+  const first = lstatSync(target);
+  const second = statSync(target);
+  if (!first.isFile() || first.isSymbolicLink() || first.uid !== uid || first.gid !== gid || first.nlink !== 1
+      || (first.mode & 0o7777) !== 0o600 || first.dev !== second.dev || first.ino !== second.ino || realpathSync(target) !== target) {
+    throw new Error("native install journal file unsafe");
+  }
+}
+function assertRootDirectory(target) {
+  const info = lstatSync(target);
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0 || (info.mode & 0o022) !== 0
+      || realpathSync(target) !== target) throw new Error("native install root boundary unsafe");
+}
+function fsyncFile(target) { const fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW); try { fsyncSync(fd); } finally { closeSync(fd); } }
+function fsyncDirectory(target) { const fd = openSync(target, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); try { fsyncSync(fd); } finally { closeSync(fd); } }
+function parseCanonicalJson(bytes) {
+  const text = Buffer.from(bytes).toString("utf8");
+  if (!Buffer.from(text).equals(Buffer.from(bytes))) throw new Error("native install journal encoding invalid");
+  let value;
+  try { value = JSON.parse(text); } catch { throw new Error("native install journal JSON invalid"); }
+  if (!canonicalBytes(value).equals(Buffer.from(bytes))) throw new Error("native install journal JSON noncanonical");
+  return value;
+}
+function canonicalBytes(value) { return Buffer.from(`${JSON.stringify(canonicalize(value))}\n`); }
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+  return value;
+}

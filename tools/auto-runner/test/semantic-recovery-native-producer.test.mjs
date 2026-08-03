@@ -528,7 +528,7 @@ test("out-of-order successor residue is never rebound to a later GitHub snapshot
 test("installed producer bundle, fixed runtime and real source identity close the privilege boundary", () => {
   const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
   const persistence = readFileSync(new URL("../lib/semantic-recovery-protected-store.mjs", import.meta.url), "utf8");
-  assert.match(source, /readSemanticRecoverySupportFilesFromGit\(\{[\s\S]*repository: producerSourceContext\.repository,[\s\S]*producerSourceSha/u);
+  assert.match(source, /const producerSourceSha = context\.readAuthorityContext\(\)\.candidate\?\.mainSha;[\s\S]*readSemanticRecoverySupportFilesFromGit\(\{ repositoryRoot, repository: context\.repository, producerSourceSha \}\)/u);
   assert.match(source, /git\/commits\/\$\{producerSourceSha\}/u);
   assert.match(source, /git\/trees\/\$\{commit\.tree\.sha\}\?recursive=1/u);
   assert.match(source, /gitObjectSha1\("blob", bytes\) !== entry\.sha/u);

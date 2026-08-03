@@ -2018,7 +2018,7 @@ JSON, root:root, one-link, and exact mode `0444` (`0555` only for the producer
 entry point). Extra or missing store names, link or realpath changes,
 ownership/mode drift, stale snapshots, and byte/digest drift fail closed.
 
-The manual command has five canonical-stdin, non-mutating modes:
+The installed producer has five canonical-stdin, non-mutating modes:
 `--plan-install`, `--verify-install-plan`, `--plan-grant`,
 `--verify-grant-plan`, and `--verify-installed`. Canonical machine JSON goes to
 stdout and a bounded high-level summary goes to stderr. The closed install
@@ -2029,14 +2029,21 @@ Unknown fields and alternate operations, commands, paths, environment, or
 output roots are rejected. The plan derives subordinate digests, enumerates
 future files and directories, reports zero service effects, and keeps producer
 installation, grant installation, and successor execution distinct.
-Producer executable/support bytes are selected only through authenticated
-GitHub Git-data commit/tree/blob reads beneath the exact authenticated
-canonical-main commit, never from the source-UID-writable worktree or its
-writable object database. The recursive tree must be complete, each returned
-blob path/type/mode/size/OID must match the closed dependency graph, and the
-producer recomputes the Git blob object ID from the returned bytes before the
-bytes can enter a plan. The selected main SHA is frozen in the plan and policy,
-and a final full authority-context reread must match after artifact derivation.
+Producer executable/support bytes are selected only from an authenticated
+GitHub HTTPS fetch into a unique root-owned `0700` checkout at the exact
+owner-selected immutable commit, never from the source-UID-writable worktree or
+its object database. `semantic-recovery-native-install.mjs` rereads the raw
+commit, every reachable tree, and every reachable blob from that private Git
+object database and locally recomputes each Git object ID. It walks trees one
+object at a time, so recursive-API truncation or pagination cannot be mistaken
+for a complete repository. Duplicate, conflicting, escaping, symlink, missing,
+extra, or ambiguous support members fail before materialization. The closed
+bootstrap/producer dependency closure is then copied to a second unique
+root-owned private directory, each member is fsynced and reread by Git blob ID,
+SHA-256, owner, group, mode, link count, and relative realpath immediately
+before the root-authoritative producer path runs. The selected main SHA is
+frozen in the plan and policy, and a final full authority-context reread must
+match after artifact derivation.
 Grant planning is available only through the exact installed root-owned
 producer. Its closed request supplies the previously verified install package,
 one exact operation selector, and the semantic evidence packet; the producer
@@ -2061,18 +2068,74 @@ non-adoptable partial state; an exact retry can resume that snapshot only while
 it remains fresh, or adopt an already exact committed successor after a new
 complete authority authentication.
 
+## Root-authoritative first-install protocol
+
+The source-owned first-install controller is
+`semantic-recovery-native-install.mjs`. Its unprivileged interface accepts only
+the versioned repository/source/correlation hint and can prepare, arm exactly
+one interactive-sudo attempt, or inspect the owner journal. It accepts no plan,
+manifest, store bytes, verifier result, helper digest, path list, command,
+environment, or effect. Arming durably advances the owner-only journal to
+`sudo_started` before the owner invokes sudo, so cancellation, EOF, timeout, or
+process loss cannot silently authorize a second sudo attempt.
+
+The later owner-authorized bootstrap is the reviewed source at
+`semantic-recovery-native-install-bootstrap.sh`, but is deliberately not run by
+pathname from a checked-out local executable. The owner must independently open the exact merged commit on
+GitHub, verify the repository, commit and bootstrap blob OID, and type the
+reviewed fixed bootstrap through a real TTY. That small literal is the manual
+trust root. It uses absolute `/usr/bin/git`, `/usr/bin/node`, and `/usr/bin/env`
+paths, an empty/sanitized environment, HTTPS origin
+`https://github.com/tommytang213/Settleora.git`, disabled redirects and
+credentials, strict object fsck, a unique root-owned `0700` temporary checkout,
+and the exact immutable commit. It verifies that the fetched bootstrap path is
+the selected tree member and that its raw blob ID matches before execution.
+There is intentionally no runnable command or resolved commit/blob placeholder
+in repository source: a later separately authorized handoff must bind those
+values to the exact merged head and present the full literal for owner review.
+Piping a bootstrap from a mutable checkout, accepting a local helper hash, or
+using `sudo node /mutable/path` is prohibited.
+
+Inside root, the controller independently authenticates the complete raw Git
+object closure, materializes the exact support closure, freshly derives the
+closed production request from the fixed deployment-evidence document and
+current runtime/profile/approval/launcher/health/incident/recovery/GitHub
+state, derives the complete install package twice, and runs the separate full
+plan verifier on both byte-identical results. The unprivileged plan is never an
+input. Live publication is reachable only in this root/private-source mode;
+fixture publication uses an injected in-memory filesystem and never selects a
+path.
+
+New installation uses one root-owned sibling stage, exact plan-listed members,
+exclusive/no-follow creation, exact metadata, file fsync, every descendant
+directory fsync, staged readback, and the source-owned Python
+`renameat2(RENAME_NOREPLACE)` helper. It then fsyncs the protected parent and
+ancestor and performs complete final readback. The helper admits only the
+fixed final root and a correlation-bound sibling stage. An exact existing final
+tree is adopted without rewrite; partial, extra, stale, or conflicting state
+is left untouched. Grants and all successor subdirectories must be empty.
+
+Owner-only and root-only canonical journals use atomic temporary write, file
+fsync, rename, directory fsync, exact previous-state comparison, one sudo
+counter, and one publication counter. States are `prepared`,
+`awaiting_interactive_sudo`, `sudo_started`, `root_authority_rederived`,
+`root_plan_verified`, `publication_intent_durable`, `publication_started`,
+`publication_ambiguous`, `installed_verified`, `adopted_verified`, `blocked`,
+and `completed`. A crash or lost transport after publication starts permits
+only exact installed-state readback, never replay. An exact final readback may
+adopt the result; contradiction remains a bounded blocker. Process output is
+represented only by byte counts and SHA-256 digests. Health tokens,
+authorization headers, credentials, raw evidence, logs, and provider payloads
+never enter argv, environment, journals, summaries, or exceptions.
+
 This offline root-invoked model is the smallest privilege boundary because it
 adds no listener, service, socket, timer, sudoers rule, credential, arbitrary
 copy, command passthrough, or generic JSON-signing surface. A later authorized
-installer must run the same producer as root, rederive the snapshots from fresh
-domain sources, compare the exact plan, publish without clobber, and verify the
-installed tree. The bounded bootstrap copies only the exact owner-selected,
-authenticated-Git-object executable/support bundle to its fixed protected path;
-the installed root-owned
-producer then delegates the full evidence read and plan derivation to a
-closed-environment real/effective source-UID/GID child. Root planning directly
-from a runner-writable checkout is rejected. Copying the planner's projected
-bytes without this installed rederivation is insufficient. The
+installer runs the authenticated temporary root producer, rederives the
+snapshots from fresh domain sources, verifies the exact plan, publishes without
+clobber, and verifies the installed tree. Root planning directly from a
+runner-writable checkout is rejected. Copying the planner's projected bytes
+without root rederivation is insufficient. The
 unprivileged runner can only read installed root-owned snapshots and, after a
 separately installed grant and root-executed persistence operation,
 authenticate a committed successor; it cannot invoke a privileged mutation.
