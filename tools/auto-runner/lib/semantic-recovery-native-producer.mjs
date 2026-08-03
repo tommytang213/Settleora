@@ -317,6 +317,7 @@ export function planSemanticRecoveryGrant({ manifest } = {}) {
     operationId: manifest.operation.operationId,
     requestId: manifest.operation.requestId,
     manifestDigest: manifest.manifestDigest,
+    manifest: structuredClone(manifest),
     allowedAction: semanticRecoveryAllowedAction,
     selectedSource: { manifestDigest: manifest.manifestDigest },
     effect: { destination: grantPath, uid: 0, gid: 0, mode: 0o444, nlink: 1, sha256: sha256(bytes), byteCount: bytes.length },
@@ -327,13 +328,32 @@ export function planSemanticRecoveryGrant({ manifest } = {}) {
 
 export function verifySemanticRecoveryGrantPlan({ plan, artifact } = {}) {
   try {
+    assertExactKeys(plan, [
+      "allowedAction", "contract", "effect", "manifest", "manifestDigest", "mode", "mutating", "operationId",
+      "planDigest", "requestId", "selectedSource", "successorExecutionIncluded", "version",
+    ]);
+    assertExactKeys(plan.effect, ["byteCount", "destination", "gid", "mode", "nlink", "sha256", "uid"]);
+    assertExactKeys(plan.selectedSource, ["manifestDigest"]);
+    assertExactKeys(artifact, ["byteCount", "bytes", "destination", "gid", "mode", "nlink", "sha256", "uid"]);
+    validateGrantPlanningManifest(plan.manifest);
+    const expectedDocument = expectedSemanticRecoveryGrantDocument(plan.manifest);
+    const expectedBytes = canonicalBytes(expectedDocument);
+    const expectedEffect = {
+      destination: path.posix.join(semanticRecoveryProtectedLayout.grantsRoot, `${plan.operationId}.json`),
+      uid: 0, gid: 0, mode: 0o444, nlink: 1,
+      sha256: sha256(expectedBytes), byteCount: expectedBytes.length,
+    };
     const { planDigest, ...core } = plan;
     if (plan.contract !== semanticRecoveryNativeGrantPlanContract || plan.version !== semanticRecoveryNativeGrantPlanVersion
         || plan.mode !== "plan_grant" || plan.mutating !== false || plan.successorExecutionIncluded !== false
-        || plan.allowedAction !== semanticRecoveryAllowedAction || plan.effect.destination !== `${semanticRecoveryProtectedLayout.grantsRoot}/${plan.operationId}.json`
-        || plan.effect.uid !== 0 || plan.effect.gid !== 0 || plan.effect.mode !== 0o444 || plan.effect.nlink !== 1
-        || planDigest !== sha256(canonicalJson(core)) || artifact.sha256 !== plan.effect.sha256
-        || sha256(artifact.bytes) !== artifact.sha256) throw new Error("semantic grant plan invalid");
+        || plan.allowedAction !== semanticRecoveryAllowedAction || !isDigest(plan.operationId) || !isDigest(plan.requestId)
+        || !isDigest(plan.manifestDigest) || plan.manifestDigest !== plan.manifest.manifestDigest
+        || plan.operationId !== plan.manifest.operation.operationId || plan.requestId !== plan.manifest.operation.requestId
+        || canonicalJson(plan.selectedSource) !== canonicalJson({ manifestDigest: plan.manifestDigest })
+        || canonicalJson(plan.effect) !== canonicalJson(expectedEffect)
+        || canonicalJson(stripBytes(artifact)) !== canonicalJson(expectedEffect)
+        || !Buffer.isBuffer(artifact.bytes) || !artifact.bytes.equals(expectedBytes)
+        || planDigest !== sha256(canonicalJson(core))) throw new Error("semantic grant plan invalid");
     return { ok: true, reasonCode: "semantic_native_grant_plan_verified", planDigest };
   } catch { return { ok: false, reasonCode: "semantic_native_grant_plan_invalid" }; }
 }
