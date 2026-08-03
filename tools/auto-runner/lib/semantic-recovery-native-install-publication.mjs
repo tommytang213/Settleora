@@ -5,9 +5,12 @@ import {
   closeSync,
   constants,
   existsSync,
+  fchmodSync,
+  fchownSync,
   fstatSync,
   fsyncSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -91,6 +94,7 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
     const match = rootResultTemporaryPattern.exec(name);
     if (!match) return null;
     const candidate = path.join(nativeInstallRootResultRoot, name);
+    finishAtomicNoClobberLink({ root: nativeInstallRootResultRoot, finalPath: candidate, uid: 0, gid: 0, mode: 0o444 });
     const staged = readFixedNativeInstallRootResultFile(candidate, match[1]);
     return { candidate, staged };
   }).filter(Boolean).sort((left, right) => left.candidate.localeCompare(right.candidate));
@@ -117,11 +121,7 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
     temporary = temporaryRecords[temporaryDisposition.index].candidate;
   } else {
     temporary = path.join(nativeInstallRootResultRoot, `.${value.operationId}.${randomBytes(12).toString("hex")}.tmp`);
-    const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o400);
-    try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-    chownSync(temporary, 0, 0);
-    chmodSync(temporary, 0o444);
-    fsyncFile(temporary);
+    writeAtomicNoClobberFile({ root: nativeInstallRootResultRoot, finalPath: temporary, bytes, uid: 0, gid: 0, mode: 0o444 });
   }
   publishRootResultTemporary({ temporary, finalPath, bytes, operationId: value.operationId, renameNoReplace });
   fsyncDirectory(nativeInstallRootResultRoot);
@@ -484,6 +484,7 @@ export function createFixedNativeInstallJournalStore({ scope, correlation, opera
     path: finalPath,
     exists: () => existsSync(finalPath),
     read() {
+      finishAtomicNoClobberLink({ root, finalPath, uid: expectedUid, gid: expectedGid, mode: 0o600 });
       assertPrivateRegularFile(finalPath, expectedUid, expectedGid);
       let current = parseCanonicalJson(readFileSync(finalPath));
       validateNativeInstallJournal(current);
@@ -492,6 +493,7 @@ export function createFixedNativeInstallJournalStore({ scope, correlation, opera
       if (claims.length > 1) throw new Error("native install journal transition claim ambiguous");
       if (claims.length === 1) {
         const claimPath = path.join(root, claims[0]);
+        finishAtomicNoClobberLink({ root, finalPath: claimPath, uid: expectedUid, gid: expectedGid, mode: 0o600 });
         assertPrivateRegularFile(claimPath, expectedUid, expectedGid);
         const claim = parseCanonicalJson(readFileSync(claimPath));
         assertExactKeys(claim, ["next", "previousDigest", "sequence"]);
@@ -513,26 +515,17 @@ export function createFixedNativeInstallJournalStore({ scope, correlation, opera
     },
     writeInitial(bytes) {
       if (existsSync(finalPath)) throw new Error("native install journal already exists");
-      const fd = openSync(finalPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
-      try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-      chownSync(finalPath, expectedUid, expectedGid);
-      chmodSync(finalPath, 0o600);
-      fsyncFile(finalPath);
-      fsyncDirectory(root);
+      writeAtomicNoClobberFile({ root, finalPath, bytes, uid: expectedUid, gid: expectedGid, mode: 0o600 });
     },
     writePlanSnapshot(bytes) {
       if (scope !== "root" || !Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > 32 * 1024 * 1024
           || existsSync(packagePath)) throw new Error("native install root plan snapshot write invalid");
-      const fd = openSync(packagePath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
-      try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-      chownSync(packagePath, 0, 0);
-      chmodSync(packagePath, 0o600);
-      fsyncFile(packagePath);
-      fsyncDirectory(root);
+      writeAtomicNoClobberFile({ root, finalPath: packagePath, bytes, uid: 0, gid: 0, mode: 0o600 });
       if (!readFileSync(packagePath).equals(bytes)) throw new Error("native install root plan snapshot readback failed");
     },
     readPlanSnapshot() {
       if (scope !== "root" || !existsSync(packagePath)) return null;
+      finishAtomicNoClobberLink({ root, finalPath: packagePath, uid: 0, gid: 0, mode: 0o600 });
       assertPrivateRegularFile(packagePath, 0, 0);
       const bytes = readFileSync(packagePath);
       if (bytes.length < 1 || bytes.length > 32 * 1024 * 1024) throw new Error("native install root plan snapshot invalid");
@@ -549,12 +542,7 @@ export function createFixedNativeInstallJournalStore({ scope, correlation, opera
     claimTransition(previous, next) {
       const claim = path.join(root, `.${selector}.transition-${next.sequence}-${previous.journalDigest}.json`);
       const bytes = canonicalBytes({ next, previousDigest: previous.journalDigest, sequence: next.sequence });
-      const fd = openSync(claim, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
-      try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-      chownSync(claim, expectedUid, expectedGid);
-      chmodSync(claim, 0o600);
-      fsyncFile(claim);
-      fsyncDirectory(root);
+      writeAtomicNoClobberFile({ root, finalPath: claim, bytes, uid: expectedUid, gid: expectedGid, mode: 0o600 });
     },
     fsyncFile(target) { fsyncFile(target); },
     replace(temporary) {
@@ -719,6 +707,58 @@ function assertWithinStage(stage, target) {
 }
 function installedIdentity(plan) { return createHash("sha256").update(canonicalBytes({ planDigest: plan.planDigest, files: plan.files, directories: plan.directories })).digest("hex"); }
 function fileIdentity(value) { return `${value.dev}:${value.ino}:${value.size}:${value.mtimeMs}:${value.ctimeMs}:${value.mode}:${value.uid}:${value.gid}:${value.nlink}`; }
+function atomicControlPrefix(finalPath) {
+  return `..atomic-${createHash("sha256").update(path.basename(finalPath)).digest("hex").slice(0, 32)}-`;
+}
+function writeAtomicNoClobberFile({ root, finalPath, bytes, uid, gid, mode }) {
+  if (path.dirname(finalPath) !== root || existsSync(finalPath) || !Buffer.isBuffer(bytes)
+      || !Number.isSafeInteger(uid) || !Number.isSafeInteger(gid) || ![0o444, 0o600].includes(mode)) {
+    throw new Error("native install atomic control publication boundary invalid");
+  }
+  const staging = path.join(root, `${atomicControlPrefix(finalPath)}${randomBytes(12).toString("hex")}.partial`);
+  const fd = openSync(staging, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+  try {
+    writeFileSync(fd, bytes);
+    fchownSync(fd, uid, gid);
+    fchmodSync(fd, mode);
+    fsyncSync(fd);
+  } finally { closeSync(fd); }
+  try {
+    linkSync(staging, finalPath);
+    fsyncDirectory(root);
+    unlinkSync(staging);
+    fsyncDirectory(root);
+  } catch (error) {
+    // Exact post-link recovery is completed by finishAtomicNoClobberLink.
+    // Pre-link staging remains in the ignored namespace as crash evidence.
+    throw error;
+  }
+  finishAtomicNoClobberLink({ root, finalPath, uid, gid, mode });
+  const readback = readFileSync(finalPath);
+  if (!readback.equals(bytes)) throw new Error("native install atomic control publication readback failed");
+  return finalPath;
+}
+function finishAtomicNoClobberLink({ root, finalPath, uid, gid, mode }) {
+  if (path.dirname(finalPath) !== root || !existsSync(finalPath)) return;
+  const final = lstatSync(finalPath);
+  if (!final.isFile() || final.isSymbolicLink() || final.uid !== uid || final.gid !== gid
+      || (final.mode & 0o7777) !== mode || ![1, 2].includes(final.nlink) || realpathSync(finalPath) !== finalPath) {
+    throw new Error("native install atomic control publication unsafe");
+  }
+  if (final.nlink === 1) return;
+  const prefix = atomicControlPrefix(finalPath);
+  const linked = readdirSync(root).filter((name) => name.startsWith(prefix) && name.endsWith(".partial")).filter((name) => {
+    const candidate = lstatSync(path.join(root, name));
+    return candidate.dev === final.dev && candidate.ino === final.ino;
+  });
+  if (linked.length !== 1) throw new Error("native install atomic control publication ambiguous");
+  unlinkSync(path.join(root, linked[0]));
+  fsyncDirectory(root);
+  const completed = lstatSync(finalPath);
+  if (completed.nlink !== 1 || completed.dev !== final.dev || completed.ino !== final.ino) {
+    throw new Error("native install atomic control publication recovery failed");
+  }
+}
 function depth(target) { return target.split("/").length; }
 function ensurePrivateDirectory(target, uid, gid, scope) {
   const parent = path.dirname(target);

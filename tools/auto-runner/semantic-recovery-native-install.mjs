@@ -40,6 +40,7 @@ import {
   verifyDurableInstalledNativeInstall,
 } from "./lib/semantic-recovery-native-install-publication.mjs";
 import {
+  createPublicSemanticRecoveryGithubSnapshotReader,
   deriveSemanticRecoveryNativeInstallPackageFromRoot,
   deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot,
   deriveSemanticRecoveryNativeProducerRequestFromRoot,
@@ -336,7 +337,7 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
   advanceRoot("awaiting_interactive_sudo", "sudo_started", { outcome: "none", reasonCode: "native_install_interactive_root_started" });
 
   try {
-    const verified = runIndependentRootReaders(hint, journal.observedAt);
+    const verified = runIndependentRootReaders(hint, journal.observedAt, null, { phase: "initial" });
     store.writePlanSnapshot(canonicalBytes({
       contract: "settleora_semantic_recovery_native_install_root_plan_snapshot",
       version: 1,
@@ -366,7 +367,7 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
       filesystem,
       journal: { transition(expectedState, nextState, partial) { advanceRoot(expectedState, nextState, partial); } },
       reauthenticate() {
-        const finalAuthority = runIndependentRootReaders(hint, verified.package.plan.request.observedAt, verified.package);
+        const finalAuthority = runIndependentRootReaders(hint, verified.package.plan.request.observedAt, verified.package, { phase: "edge" });
         if (finalAuthority.sourceManifestDigest !== verified.sourceManifestDigest
             || finalAuthority.requestDigest !== verified.requestDigest || finalAuthority.planDigest !== verified.planDigest) {
           throw new Error("native install final source authority changed at publication edge");
@@ -447,21 +448,30 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
 }
 
 function rootSourceReader(mode, value) {
-  assertExactKeys(value, ["hint", "observedAt"]);
+  assertExactKeys(value, ["hint", "historicalVerification", "minimumRateRemaining", "observedAt"]);
   const hint = normalizeNativeInstallSourceHint(value.hint);
   const observedAt = new Date(value.observedAt);
-  if (!Number.isFinite(observedAt.getTime()) || observedAt.toISOString() !== value.observedAt) throw new Error("native install reader timestamp invalid");
+  if (!Number.isFinite(observedAt.getTime()) || observedAt.toISOString() !== value.observedAt
+      || typeof value.historicalVerification !== "boolean" || !Number.isSafeInteger(value.minimumRateRemaining)
+      || value.minimumRateRemaining < 0 || value.minimumRateRemaining > 60) throw new Error("native install reader boundary invalid");
   activateRootAuthorityOwnershipPolicy();
   const authenticatedSource = loadMaterializedSource(hint);
-  const request = deriveSemanticRecoveryNativeProducerRequestFromRoot({ now: observedAt });
+  const githubRead = createPublicSemanticRecoveryGithubSnapshotReader({ minimumRateRemaining: value.minimumRateRemaining });
+  const request = deriveSemanticRecoveryNativeProducerRequestFromRoot({ now: observedAt, githubRead });
   const producerSupport = authenticatedSource.supportFiles
     .filter((entry) => entry.source.endsWith(".mjs") && entry.source !== "tools/auto-runner/semantic-recovery-native-install.mjs")
     .map(({ gitBlobOid: _gitBlobOid, ...entry }) => entry);
   const independentAuthority = mode === "--root-verify-reader-internal"
-    ? deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ request })
+    ? deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ request, githubRead })
     : null;
   const result = mode === "--root-plan-reader-internal"
-    ? { package: deriveSemanticRecoveryNativeInstallPackageFromRoot({ request, producerSourceSha: authenticatedSource.manifest.sourceCommit, supportFiles: producerSupport }) }
+    ? { package: deriveSemanticRecoveryNativeInstallPackageFromRoot({
+      request,
+      producerSourceSha: authenticatedSource.manifest.sourceCommit,
+      supportFiles: producerSupport,
+      githubRead,
+      verificationNow: value.historicalVerification ? observedAt : new Date(),
+    }) }
     : independentlyVerifyRootNativeInstallPackage({
       installPackage: null,
       authenticatedSource,
@@ -478,10 +488,17 @@ function rootSourceReader(mode, value) {
   });
 }
 
-function runIndependentRootReaders(hint, observedAt = new Date().toISOString(), expectedPackage = null) {
-  const input = canonicalBytes({ hint, observedAt });
+function runIndependentRootReaders(hint, observedAt = new Date().toISOString(), expectedPackage = null, { phase = "initial" } = {}) {
+  const floors = { initial: [30, 24], edge: [18, 12], recovery: [6, 0] }[phase];
+  if (!floors) throw new Error("native install reader phase invalid");
   const modesToRun = ["--root-plan-reader-internal", "--root-verify-reader-internal"];
-  const outputs = modesToRun.map((mode) => {
+  const outputs = modesToRun.map((mode, index) => {
+    const input = canonicalBytes({
+      hint,
+      historicalVerification: phase === "recovery",
+      minimumRateRemaining: floors[index],
+      observedAt,
+    });
     const child = spawnSync(fixedNode, [path.join(authenticatedCheckoutRoot(), "tools/auto-runner/semantic-recovery-native-install.mjs"), mode], {
       cwd: authenticatedCheckoutRoot(),
       env: { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
@@ -518,7 +535,7 @@ function reconcileRootResult({ hint, receipt, store, filesystem }) {
   if (snapshot.contract !== "settleora_semantic_recovery_native_install_root_plan_snapshot" || snapshot.version !== 1
       || snapshot.observedAt !== journal.observedAt || snapshot.planDigest !== journal.result?.planDigest
       || snapshot.requestDigest !== journal.requestDigest) throw new Error("native install root plan snapshot identity mismatch");
-  const verified = runIndependentRootReaders(hint, snapshot.observedAt, decodeInstallPackage(snapshot.package));
+  const verified = runIndependentRootReaders(hint, snapshot.observedAt, decodeInstallPackage(snapshot.package), { phase: "recovery" });
   if (journal.result?.planDigest !== verified.planDigest) throw new Error("native install root journal plan identity mismatch");
   const advance = (expectedState, nextState, partial) => {
     journal = transitionNativeInstallJournal({ current: journal, expectedState, nextState, observedAt: new Date().toISOString(), result: journalResult(partial), persist: (value) => persistNativeInstallJournalTransition({ ...value, store }) });

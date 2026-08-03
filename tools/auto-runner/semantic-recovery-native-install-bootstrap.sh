@@ -100,9 +100,23 @@ def write_root_file(directory_fd, temporary, final, payload):
     finally:
         os.close(fd)
     os.link(temporary, final, src_dir_fd=directory_fd, dst_dir_fd=directory_fd, follow_symlinks=False)
+    os.fsync(directory_fd)
     os.unlink(temporary, dir_fd=directory_fd)
+    os.fsync(directory_fd)
 
 def read_root_file(directory_fd, name, maximum):
+    pathname = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    if pathname.st_nlink == 2:
+        role = "owner" if name == f"{operation_id}.owner.json" else "receipt" if name == f"{operation_id}.receipt.json" else None
+        linked = [] if role is None else [
+            entry for entry in os.listdir(directory_fd)
+            if entry.startswith(f".{operation_id}.{role}.") and entry.endswith(".tmp")
+            and same_file(os.stat(entry, dir_fd=directory_fd, follow_symlinks=False), pathname)
+        ]
+        if len(linked) != 1:
+            raise ValueError("root file link recovery ambiguous")
+        os.unlink(linked[0], dir_fd=directory_fd)
+        os.fsync(directory_fd)
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
     try:
         first = os.fstat(fd)
@@ -199,6 +213,12 @@ try:
                 if len(present) == 0 and handoff_mode == "install":
                     nonce = f"{os.getpid()}.{secrets.token_hex(12)}"
                     write_root_file(root_directory_fd, f".{operation_id}.owner.{nonce}.tmp", owner_name, owner_bytes)
+                    write_root_file(root_directory_fd, f".{operation_id}.receipt.{nonce}.tmp", receipt_name, receipt_bytes)
+                    os.fsync(root_directory_fd)
+                elif present == [owner_name] and handoff_mode == "install":
+                    if read_root_file(root_directory_fd, owner_name, MAXIMUM_JOURNAL_BYTES) != owner_bytes:
+                        raise ValueError("partial root owner snapshot mismatch")
+                    nonce = f"{os.getpid()}.{secrets.token_hex(12)}"
                     write_root_file(root_directory_fd, f".{operation_id}.receipt.{nonce}.tmp", receipt_name, receipt_bytes)
                     os.fsync(root_directory_fd)
                 elif len(present) != 2:

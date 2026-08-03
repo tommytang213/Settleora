@@ -39,7 +39,10 @@ import {
   validateRootResultTransition,
 } from "../lib/semantic-recovery-native-install-publication.mjs";
 import { corroborateNativeInstallRootReaderOutputs } from "../semantic-recovery-native-install.mjs";
-import { readPublicSemanticRecoveryGithubRoute } from "../semantic-recovery-native-producer.mjs";
+import {
+  createPublicSemanticRecoveryGithubSnapshotReader,
+  readPublicSemanticRecoveryGithubRoute,
+} from "../semantic-recovery-native-producer.mjs";
 import {
   semanticRecoveryAuthorityClasses,
   semanticRecoveryClaimOwnerMatrix,
@@ -574,11 +577,42 @@ test("root GitHub reader uses fixed public TLS transport with no HOME, token, co
   assert.equal(captured.executable, "/usr/bin/python3");
   assert.deepEqual(captured.args.slice(0, 2), ["-I", "-c"]);
   assert.equal(captured.args.includes("repos/tommytang213/Settleora"), false);
-  assert.deepEqual(JSON.parse(captured.options.input), { route: "repos/tommytang213/Settleora" });
+  assert.deepEqual(JSON.parse(captured.options.input), { minimumRateRemaining: 0, route: "repos/tommytang213/Settleora" });
   assert.deepEqual(captured.options.env, { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" });
   assert.match(captured.args[2], /HTTPSConnection\("api\.github\.com", 443/u);
   assert.match(captured.args[2], /response\.status != 200/u);
+  assert.match(captured.args[2], /X-RateLimit-Remaining/u);
   assert.throws(() => readPublicSemanticRecoveryGithubRoute("https://attacker.invalid/"), /public GitHub read blocked/u);
+});
+
+test("one root reader reuses one rate-reserved GitHub snapshot while separate readers remain independent", () => {
+  const calls = [];
+  const read = (route, options) => { calls.push({ route, options }); return { route, ordinal: calls.length }; };
+  const first = createPublicSemanticRecoveryGithubSnapshotReader({ minimumRateRemaining: 24, read });
+  assert.deepEqual(first("route-a"), { route: "route-a", ordinal: 1 });
+  assert.deepEqual(first("route-a"), { route: "route-a", ordinal: 1 });
+  first("route-b");
+  const second = createPublicSemanticRecoveryGithubSnapshotReader({ minimumRateRemaining: 12, read });
+  assert.deepEqual(second("route-a"), { route: "route-a", ordinal: 3 });
+  assert.deepEqual(calls, [
+    { route: "route-a", options: { minimumRateRemaining: 24 } },
+    { route: "route-b", options: { minimumRateRemaining: 24 } },
+    { route: "route-a", options: { minimumRateRemaining: 12 } },
+  ]);
+});
+
+test("recovery reader is explicitly historical and canonical control records use an ignored durable staging namespace", () => {
+  const installer = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../semantic-recovery-native-install.mjs"), "utf8");
+  const publication = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../lib/semantic-recovery-native-install-publication.mjs"), "utf8");
+  const bootstrap = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../semantic-recovery-native-install-bootstrap.sh"), "utf8");
+  assert.match(installer, /historicalVerification: phase === "recovery"/u);
+  assert.match(installer, /verificationNow: value\.historicalVerification \? observedAt : new Date\(\)/u);
+  assert.match(publication, /\.\.atomic-[\s\S]*\.partial/u);
+  assert.match(publication, /fchmodSync\(fd, mode\)[\s\S]*fsyncSync\(fd\)[\s\S]*linkSync\(staging, finalPath\)/u);
+  assert.equal(publication.indexOf("linkSync(staging, finalPath)") < publication.indexOf("unlinkSync(staging)"), true);
+  assert.match(publication, /finishAtomicNoClobberLink\(\{ root, finalPath: claim/u);
+  assert.match(bootstrap, /os\.link\(temporary, final,[\s\S]*os\.fsync\(directory_fd\)[\s\S]*os\.unlink\(temporary,[\s\S]*os\.fsync\(directory_fd\)/u);
+  assert.match(bootstrap, /pathname\.st_nlink == 2[\s\S]*root file link recovery ambiguous/u);
 });
 
 test("the production root-result builder emits the exact accepted versioned schema", () => {

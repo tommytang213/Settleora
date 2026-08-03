@@ -51,9 +51,13 @@ import ssl
 import sys
 
 request = json.loads(sys.stdin.buffer.read(4097).decode("utf-8"))
-if not isinstance(request, dict) or set(request) != {"route"} or not isinstance(request["route"], str):
+if (not isinstance(request, dict) or set(request) != {"minimumRateRemaining", "route"}
+        or not isinstance(request["route"], str) or not isinstance(request["minimumRateRemaining"], int)
+        or isinstance(request["minimumRateRemaining"], bool)
+        or request["minimumRateRemaining"] < 0 or request["minimumRateRemaining"] > 60):
     raise RuntimeError("semantic_native_public_github_request_invalid")
 route = request["route"]
+minimum_rate_remaining = request["minimumRateRemaining"]
 patterns = (
     r"repos/tommytang213/Settleora",
     r"repos/tommytang213/Settleora/git/ref/heads/main",
@@ -74,6 +78,12 @@ try:
     response = connection.getresponse()
     if response.status != 200 or response.getheader("Location") is not None:
         raise RuntimeError("semantic_native_public_github_response_refused")
+    rate_limit = response.getheader("X-RateLimit-Limit")
+    rate_remaining = response.getheader("X-RateLimit-Remaining")
+    if (rate_limit is None or not rate_limit.isdigit() or int(rate_limit) < 60
+            or rate_remaining is None or not rate_remaining.isdigit()
+            or int(rate_remaining) < minimum_rate_remaining):
+        raise RuntimeError("semantic_native_public_github_rate_budget_refused")
     length = response.getheader("Content-Length")
     if length is not None and (not length.isdigit() or int(length) > 4 * 1024 * 1024):
         raise RuntimeError("semantic_native_public_github_response_oversized")
@@ -135,11 +145,11 @@ function planInstallFromAuthenticatedSource(request) {
   return encodeInstallPackage(deriveSemanticRecoveryNativeInstallPackageFromRoot({ request, repositoryRoot, producerSourceSha, supportFiles, authenticated }));
 }
 
-export function deriveSemanticRecoveryNativeProducerRequestFromRoot({ now = new Date() } = {}) {
+export function deriveSemanticRecoveryNativeProducerRequestFromRoot({ now = new Date(), githubRead = null } = {}) {
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
     throw new Error("semantic native root request derivation boundary invalid");
   }
-  const context = createRootInstallAuthorityContext();
+  const context = createRootInstallAuthorityContext({ githubRead });
   const authorityContext = context.readAuthorityContext();
   const authority = authorityContext.projectAuthority;
   return normalizeSemanticRecoveryNativeProducerRequest({
@@ -166,12 +176,17 @@ export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
   request,
   producerSourceSha,
   supportFiles,
+  githubRead = null,
+  verificationNow = new Date(),
 } = {}) {
   const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
   if (!/^[a-f0-9]{40}$/u.test(String(producerSourceSha || "")) || !Array.isArray(supportFiles)) {
     throw new Error("semantic native root package derivation boundary invalid");
   }
-  const context = createRootInstallAuthorityContext();
+  if (!(verificationNow instanceof Date) || !Number.isFinite(verificationNow.getTime())) {
+    throw new Error("semantic native root package verification time invalid");
+  }
+  const context = createRootInstallAuthorityContext({ githubRead });
   const initial = context.readAuthorityContext();
   if (initial.deploymentEvidenceDigest !== normalized.source.sha256 || initial.repository !== normalized.repository
       || initial.candidate?.mainSha !== producerSourceSha) {
@@ -183,6 +198,7 @@ export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
     readAuthorityContext: context.readAuthorityContext,
     producerSourceSha,
     supportFiles,
+    now: verificationNow,
   });
   const final = context.readAuthorityContext();
   if (final.candidate?.mainSha !== producerSourceSha) throw new Error("semantic native selected source changed during planning");
@@ -191,9 +207,9 @@ export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
   return generated;
 }
 
-export function deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ request } = {}) {
+export function deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ request, githubRead = null } = {}) {
   const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
-  const context = createRootInstallAuthorityContext();
+  const context = createRootInstallAuthorityContext({ githubRead });
   const readers = createSemanticDeploymentAuthorityReaders({ readAuthorityContext: context.readAuthorityContext });
   const projections = semanticRecoveryAuthorityClasses.map((authorityClass) => readers[authorityClass](context.readAuthorityContext(authorityClass)));
   const final = context.readAuthorityContext();
@@ -206,13 +222,10 @@ export function deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ reque
   return { request: normalized, projections, sourceCommit: final.candidate.mainSha };
 }
 
-function createRootInstallAuthorityContext() {
+function createRootInstallAuthorityContext({ githubRead = null } = {}) {
   const contextDigests = [];
-  const githubResponses = new Map();
-  const githubRead = (route) => {
-    if (!githubResponses.has(route)) githubResponses.set(route, deepFreeze(readPublicSemanticRecoveryGithubRoute(route)));
-    return structuredClone(githubResponses.get(route));
-  };
+  const boundedGithubRead = githubRead || createPublicSemanticRecoveryGithubSnapshotReader();
+  if (typeof boundedGithubRead !== "function") throw new Error("semantic native public GitHub snapshot reader invalid");
   const readAuthorityContext = () => {
     const repositoryRoot = productionRepositoryRoot();
     const projectAuthority = loadDeploymentProjectAuthority({
@@ -251,7 +264,7 @@ function createRootInstallAuthorityContext() {
       incidentSha256: incident.sha256,
       associatedRecoveryPath,
       associatedRecoverySha256,
-      githubRead,
+      githubRead: boundedGithubRead,
     });
     const context = deepFreeze({ ...collected, deploymentEvidenceDigest: authenticated.evidence.sha256 });
     contextDigests.push(sha256(canonicalJson(context)));
@@ -261,12 +274,23 @@ function createRootInstallAuthorityContext() {
   return { repository: "tommytang213/Settleora", readAuthorityContext };
 }
 
-export function readPublicSemanticRecoveryGithubRoute(route, { command = spawnSync } = {}) {
-  if (typeof route !== "string" || route.length < 1 || route.length > 1024 || typeof command !== "function") {
+export function createPublicSemanticRecoveryGithubSnapshotReader({ minimumRateRemaining = 0, read = readPublicSemanticRecoveryGithubRoute } = {}) {
+  if (!Number.isSafeInteger(minimumRateRemaining) || minimumRateRemaining < 0 || minimumRateRemaining > 60
+      || typeof read !== "function") throw new Error("semantic native public GitHub snapshot boundary invalid");
+  const responses = new Map();
+  return (route) => {
+    if (!responses.has(route)) responses.set(route, deepFreeze(read(route, { minimumRateRemaining })));
+    return structuredClone(responses.get(route));
+  };
+}
+
+export function readPublicSemanticRecoveryGithubRoute(route, { command = spawnSync, minimumRateRemaining = 0 } = {}) {
+  if (typeof route !== "string" || route.length < 1 || route.length > 1024 || typeof command !== "function"
+      || !Number.isSafeInteger(minimumRateRemaining) || minimumRateRemaining < 0 || minimumRateRemaining > 60) {
     throw new Error("semantic native public GitHub read boundary invalid");
   }
   const child = command(fixedPythonRuntimePath, ["-I", "-c", publicGithubReadProgram], {
-    input: canonicalJson({ route }),
+    input: canonicalJson({ minimumRateRemaining, route }),
     encoding: "utf8",
     env: { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
     maxBuffer: 4 * 1024 * 1024 + 1024,
@@ -698,6 +722,13 @@ function plainObject(value) { return Boolean(value) && typeof value === "object"
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 function canonicalJson(value) { return JSON.stringify(canonicalize(value)); }
 function canonicalize(value) { if (Array.isArray(value)) return value.map(canonicalize); if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])); return value; }
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((error) => {

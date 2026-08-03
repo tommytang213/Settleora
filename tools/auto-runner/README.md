@@ -2138,8 +2138,12 @@ GitHub no-effect reads use a fixed source-owned Python TLS client bound to
 `api.github.com`, closed repository/issue/routes, system trust roots, no
 redirects, bounded response bytes, and no `HOME`, CLI configuration, token,
 credential, argv route, or environment authority. Each reader caches only its
-own internally consistent page set; the separately spawned reader and later
-edge pass obtain independent fresh sets. The
+own internally consistent page set across request and package/projection
+derivation; the separately spawned reader and later edge pass obtain independent
+fresh sets. Every response must carry an authenticated public rate-limit header
+at or above the phase-specific floor. Initial planning reserves the complete
+edge-plus-readback budget, the edge reserves one complete readback, and recovery
+consumes only its reserved final budget. The
 unprivileged plan is never an input. Live publication is reachable only in this root/private-source mode;
 fixture publication uses an injected in-memory filesystem and never selects a
 path.
@@ -2189,6 +2193,13 @@ byte-identical duplicates with a directory fsync after each unlink; conflicting
 temporaries are retained and block publication. If the durable journal has
 advanced beyond one exact stranded earlier result, the earlier record is first
 published to its own identity and read back before the later append proceeds.
+Journal, snapshot, claim, and recognized result-temporary names are linked only
+from fully written, metadata-finalized, fsynced files in an ignored staging
+namespace. An exact crash between the no-clobber link and staging unlink is
+finished by inode-bound readback; partial staging bytes never occupy a canonical
+reader-visible name. Readback-only recovery recreates the original bounded
+request at its authenticated snapshot time, freshly rereads current authorities,
+and compares the exact historical package without reopening publication.
 The sequence lets the unprivileged coordinator durably complete its journal
 after verified root completion. Once installation
 or adoption is verified, `blocked` is no longer a legal transition: failure of
