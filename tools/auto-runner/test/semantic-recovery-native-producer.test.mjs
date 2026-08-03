@@ -74,10 +74,15 @@ function planFixture() {
     assert.equal(context.authorityClass, authorityClass);
     return { authorityClass, repository: claims.repository, claims: ownedClaims(authorityClass), provenanceIdentity: sha256(`native:${authorityClass}:${context.generation}`) };
   }]));
-  const supportFiles = ["tools/auto-runner/semantic-recovery-native-producer.mjs", "tools/auto-runner/lib/semantic-recovery-native-producer.mjs"].map((source) => {
+  const supportFiles = [
+    "tools/auto-runner/semantic-recovery-native-producer.mjs",
+    "tools/auto-runner/lib/semantic-recovery-native-producer.mjs",
+    "tools/auto-runner/lib/required-dependency.mjs",
+  ].map((source) => {
     const bytes = Buffer.from(source === "tools/auto-runner/semantic-recovery-native-producer.mjs"
       ? 'import "./lib/semantic-recovery-native-producer.mjs";'
-      : "export {};");
+      : source.endsWith("semantic-recovery-native-producer.mjs") ? 'import "./required-dependency.mjs";'
+        : "export {};");
     return { source, bytes, byteCount: bytes.length, sha256: sha256(bytes), executable: source === "tools/auto-runner/semantic-recovery-native-producer.mjs" };
   });
   const value = planSemanticRecoveryNativeInstall({
@@ -183,6 +188,11 @@ test("planner closes request, path, command, environment, expiry and store-indep
   const { planDigest: staleBundleDigest, ...unboundBundleCore } = unboundBundle.plan;
   unboundBundle.plan.planDigest = sha256(canonicalJson(unboundBundleCore));
   assert.equal(verifySemanticRecoveryNativeInstallPlan(unboundBundle).ok, false);
+  const omittedTransitive = rederiveOmittedTransitivePlan(deps);
+  assert.equal(verifySemanticRecoveryNativeInstallPlan(omittedTransitive).ok, false);
+  const omittedInstalled = new ProtectedMemoryFilesystem();
+  omittedInstalled.installPlan(omittedTransitive);
+  assert.equal(verifyInstalledSemanticRecoveryNativeProducer({ plan: omittedTransitive.plan, filesystem: omittedInstalled }).ok, false);
 });
 
 test("protected source readers reject descriptor, class, producer, store, metadata and ambiguity drift", () => {
@@ -318,3 +328,48 @@ test("claim-owner disagreement remains authoritative", () => {
   projections.find((entry) => entry.authorityClass === "github_no_effect").claims.repository = "foreign/repo";
   assert.equal(applySemanticRecoveryClaimOwnerMatrix(projections).reasonCode, "semantic_claim_required_owner_disagreement");
 });
+
+function rederiveOmittedTransitivePlan(original) {
+  const attacked = structuredClone(original);
+  const missingSource = "tools/auto-runner/lib/required-dependency.mjs";
+  const missing = attacked.plan.files.find((entry) => entry.source === missingSource);
+  attacked.plan.files = attacked.plan.files.filter((entry) => entry.destination !== missing.destination);
+  attacked.artifacts = attacked.artifacts.filter((entry) => entry.destination !== missing.destination);
+  attacked.plan.producerBundleDigest = sha256(canonicalJson(attacked.plan.files
+    .filter((entry) => entry.kind === "producer_runtime")
+    .map(({ source, sha256: digest, byteCount }) => ({ source, sha256: digest, byteCount }))
+    .sort((left, right) => left.source.localeCompare(right.source))));
+  const replaceDocument = (destination, mutate) => {
+    const artifact = attacked.artifacts.find((entry) => entry.destination === destination);
+    const document = JSON.parse(Buffer.from(artifact.bytes).toString("utf8"));
+    mutate(document);
+    artifact.bytes = Buffer.from(canonicalJson(document));
+    artifact.byteCount = artifact.bytes.length;
+    artifact.sha256 = sha256(artifact.bytes);
+    const planned = attacked.plan.files.find((entry) => entry.destination === destination);
+    planned.byteCount = artifact.byteCount;
+    planned.sha256 = artifact.sha256;
+  };
+  replaceDocument(semanticRecoveryProtectedLayout.producerPolicy, (document) => {
+    document.producerBundleDigest = attacked.plan.producerBundleDigest;
+  });
+  for (const descriptor of attacked.plan.sourceDescriptors) {
+    replaceDocument(descriptor.store.path, (document) => {
+      document.producer.bundleDigest = attacked.plan.producerBundleDigest;
+    });
+    descriptor.store.sha256 = attacked.artifacts.find((entry) => entry.destination === descriptor.store.path).sha256;
+  }
+  const manifestDocument = structuredClone(attacked.plan);
+  delete manifestDocument.planDigest;
+  manifestDocument.files = manifestDocument.files.filter((entry) => entry.kind !== "install_manifest");
+  const { installManifestDigest: staleManifestDigest, ...manifestCore } = manifestDocument;
+  attacked.plan.installManifestDigest = sha256(canonicalJson(manifestCore));
+  manifestDocument.installManifestDigest = attacked.plan.installManifestDigest;
+  replaceDocument(semanticRecoveryProtectedLayout.installManifest, (document) => {
+    for (const key of Object.keys(document)) delete document[key];
+    Object.assign(document, manifestDocument);
+  });
+  const { planDigest: stalePlanDigest, ...planCore } = attacked.plan;
+  attacked.plan.planDigest = sha256(canonicalJson(planCore));
+  return attacked;
+}

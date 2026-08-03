@@ -284,6 +284,7 @@ export function verifyInstalledSemanticRecoveryNativeProducer({ plan, filesystem
         throw new Error("semantic native installed directory membership drift");
       }
     }
+    const installedArtifacts = [];
     for (const file of plan.files) {
       const first = filesystem.inspect(file.destination);
       const bytes = Buffer.from(filesystem.read(file.destination));
@@ -294,7 +295,9 @@ export function verifyInstalledSemanticRecoveryNativeProducer({ plan, filesystem
           || filesystem.realpath(file.destination) !== file.destination) {
         throw new Error("semantic native installed file drift");
       }
+      installedArtifacts.push({ ...file, bytes });
     }
+    validateInstallArtifactContents(plan, installedArtifacts);
     return { ok: true, reasonCode: "semantic_native_install_readback_verified", planDigest: plan.planDigest };
   } catch {
     return { ok: false, reasonCode: "semantic_native_install_readback_drift" };
