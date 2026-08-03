@@ -436,7 +436,7 @@ function createFixtureCommand({ issueNumber, mainSha }) {
     if (joined.includes("git/matching-refs/heads/") && joined.endsWith("per_page=100&page=1")) return "[]";
     if (joined.includes("repos/example/repo/pulls?state=all&head=") && joined.endsWith("per_page=100&page=1")) return "[]";
     if (joined === `api repos/example/repo/issues/${issueNumber}`) {
-      return JSON.stringify({ number: issueNumber, state: "OPEN", updated_at: "2020-01-01T00:00:00.000Z" });
+      return JSON.stringify({ number: issueNumber, state: "open", updated_at: "2020-01-01T00:00:00.000Z" });
     }
     if (joined === `api repos/example/repo/issues/${issueNumber}/comments?per_page=100&page=1`) {
       return JSON.stringify([{
@@ -497,47 +497,85 @@ test("semantic GitHub no-effect fence is freshly requeried and exact-digest boun
   } finally { fixture.cleanup(); }
 });
 
-test("semantic GitHub no-effect fence reads every bounded page", () => {
+test("semantic GitHub no-effect fence reads every bounded page for refs, pull requests, and comments", () => {
+  for (const route of ["matching-refs", "pulls", "comments"]) {
+    const fixture = makeFixture();
+    try {
+      const manifest = semanticGithubManifest(fixture);
+      const calls = [];
+      const secondPageEffect = (executable, args, options) => {
+        const joined = args.join(" ");
+        const selected = route === "matching-refs"
+          ? joined.includes("git/matching-refs/heads/")
+          : route === "pulls"
+            ? joined.includes("repos/example/repo/pulls?")
+            : joined.includes(`/issues/${fixture.claims.issueNumber}/comments?`);
+        if (executable === "/usr/bin/gh" && selected && joined.includes("per_page=100&page=")) {
+          calls.push(joined);
+          if (joined.endsWith("page=1")) {
+            return JSON.stringify(Array.from({ length: 100 }, (_, index) => githubPageRecord(route, index, fixture)));
+          }
+          if (joined.endsWith("page=2")) return JSON.stringify([githubPageRecord(route, 100, fixture, true)]);
+        }
+        return fixture.sourceCommand(executable, args, options);
+      };
+      assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({
+        repositoryRoot: fixture.repositoryRoot,
+        manifest,
+        command: secondPageEffect,
+      }), /(?:later GitHub effect|GitHub comment checkpoint invalid)/u, route);
+      assert.equal(calls.length, 2, route);
+      assert.match(calls[1], /page=2$/u, route);
+    } finally { fixture.cleanup(); }
+  }
+});
+
+test("semantic GitHub no-effect pagination fails closed at the page bound", () => {
   const fixture = makeFixture();
   try {
-    const manifest = {
-      currentIncident: { path: fixture.paths.incident, sha256: sha256(readFileSync(fixture.paths.incident)) },
-      claims: {
-        repository: fixture.claims.repository,
-        issueNumber: fixture.claims.issueNumber,
-        branch: fixture.claims.branch,
-        prEvidenceDigest: fixture.claims.prEvidenceDigest,
-      },
-    };
     const calls = [];
-    const laterCommentOnSecondPage = (executable, args, options) => {
+    const endlessRefs = (executable, args, options) => {
       const joined = args.join(" ");
-      if (executable === "/usr/bin/gh" && joined.includes(`/issues/${fixture.claims.issueNumber}/comments?per_page=100&page=`)) {
+      if (executable === "/usr/bin/gh" && joined.includes("git/matching-refs/heads/") && joined.includes("per_page=100&page=")) {
         calls.push(joined);
-        if (joined.endsWith("page=1")) {
-          return JSON.stringify(Array.from({ length: 100 }, (_, index) => ({
-            id: `comment-${index}`, user: { login: "fixture-owner" }, body: "checkpoint",
-            created_at: "2020-01-01T00:00:00.000Z", updated_at: null,
-          })));
-        }
-        if (joined.endsWith("page=2")) {
-          return JSON.stringify([{
-            id: "later-comment", user: { login: "fixture-owner" }, body: "later",
-            created_at: "2030-01-01T00:00:00.000Z", updated_at: null,
-          }]);
-        }
+        return JSON.stringify(Array.from({ length: 100 }, (_, index) => githubPageRecord("matching-refs", index, fixture)));
       }
       return fixture.sourceCommand(executable, args, options);
     };
     assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({
       repositoryRoot: fixture.repositoryRoot,
-      manifest,
-      command: laterCommentOnSecondPage,
-    }), /GitHub comment checkpoint invalid/u);
-    assert.equal(calls.length, 2);
-    assert.match(calls[1], /page=2$/u);
+      manifest: semanticGithubManifest(fixture),
+      command: endlessRefs,
+    }), /GitHub refs pagination bound exceeded/u);
+    assert.equal(calls.length, 100);
+    assert.match(calls.at(-1), /page=100$/u);
   } finally { fixture.cleanup(); }
 });
+
+function semanticGithubManifest(fixture) {
+  return {
+    currentIncident: { path: fixture.paths.incident, sha256: sha256(readFileSync(fixture.paths.incident)) },
+    claims: {
+      repository: fixture.claims.repository,
+      issueNumber: fixture.claims.issueNumber,
+      branch: fixture.claims.branch,
+      prEvidenceDigest: fixture.claims.prEvidenceDigest,
+    },
+  };
+}
+
+function githubPageRecord(route, index, fixture, later = false) {
+  if (route === "matching-refs") {
+    return { ref: `refs/heads/${fixture.claims.branch}-${index}`, object: { type: "commit", sha: fixture.claims.headSha } };
+  }
+  if (route === "pulls") {
+    return { number: index + 1, state: "open", head: { sha: fixture.claims.headSha }, merged_at: null, updated_at: "2020-01-01T00:00:00.000Z" };
+  }
+  return {
+    id: `comment-${index}`, user: { login: "fixture-owner" }, body: later ? "later" : "checkpoint",
+    created_at: later ? "2030-01-01T00:00:00.000Z" : "2020-01-01T00:00:00.000Z", updated_at: null,
+  };
+}
 
 test("deployment-only semantic evidence accepts read-only service mode but rejects writable artifacts", () => {
   const fixture = makeFixture();

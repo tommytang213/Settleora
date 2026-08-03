@@ -771,7 +771,7 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
   const issueComments = readGithubPages(gh, `repos/${repository}/issues/${issueNumber}/comments`, "comments");
   const issue = {
     number: issueRecord.number,
-    state: issueRecord.state,
+    state: issueRecord.state === "open" ? "OPEN" : issueRecord.state === "closed" ? "CLOSED" : null,
     updatedAt: issueRecord.updated_at,
     comments: issueComments.map((comment) => ({
       id: comment.id,
