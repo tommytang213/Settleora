@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { assertSourceProcessIdentity } from "../semantic-recovery-native-producer.mjs";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
   deriveSemanticRecoveryOperationRequest,
@@ -266,14 +267,20 @@ test("a commit marker with either predecessor missing is torn and never backfill
   }
 });
 
-test("installed producer bundle discovery crosses lib and supervisor dependencies and root persistence is path-gated", () => {
+test("installed producer bundle, fixed runtime and real source identity close the privilege boundary", () => {
   const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
   const persistence = readFileSync(new URL("../lib/semantic-recovery-protected-store.mjs", import.meta.url), "utf8");
   assert.match(source, /walk\(root, ""\)/u);
   assert.match(source, /entry\.name === "test"/u);
   assert.match(source, /--persist-successor/u);
   assert.match(source, /assertInstalledProducerInvocation\(\)/u);
-  assert.match(source, /withSourceEuid\(sourceUid/u);
+  assert.equal(source.startsWith("#!/usr/bin/node\n"), true);
+  assert.doesNotMatch(source, /#!\/usr\/bin\/env/u);
+  assert.match(source, /spawnSync\(fixedNodeRuntimePath/u);
+  assert.match(source, /uid: sourceIdentity\.uid/u);
+  assert.equal(assertSourceProcessIdentity({ uid: 1000, gid: 1000 }, { realUid: 1000, effectiveUid: 1000, realGid: 1000, effectiveGid: 1000 }), true);
+  assert.throws(() => assertSourceProcessIdentity({ uid: 1000, gid: 1000 }, { realUid: 0, effectiveUid: 1000, realGid: 0, effectiveGid: 1000 }), /identity mismatch/u);
+  assert.throws(() => assertSourceProcessIdentity({ uid: 1000, gid: 1000 }, { realUid: 1000, effectiveUid: 1000, realGid: 0, effectiveGid: 1000 }), /identity mismatch/u);
   assert.match(persistence, /recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?readbackProtectedSemanticRecoverySuccessor/u);
 });
 

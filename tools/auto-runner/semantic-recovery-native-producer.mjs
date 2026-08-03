@@ -1,5 +1,6 @@
-#!/usr/bin/env node
+#!/usr/bin/node
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { loadDeploymentProjectAuthority } from "./lib/config.mjs";
@@ -27,24 +28,27 @@ import {
 } from "./lib/semantic-recovery-protected-store.mjs";
 
 const maximumInputBytes = 8 * 1024 * 1024;
+const fixedNodeRuntimePath = "/usr/bin/node";
+const sourceAuthenticationMode = "--authenticate-successor-internal";
 const repositoryRoot = realpathSync("/workspace/repos/Settleora");
 const runtimeRoot = "/workspace/auto-runner/runtime";
 const configPath = "/workspace/auto-runner/config/settleora.json";
 const approvedProfilePath = "/workspace/auto-runner/config/settleora-production-approved-20260724-0946.json";
 const healthUnitPath = "/home/tommytang213/.config/systemd/user/settleora-auto-runner-health.service";
-const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor"]);
+const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor", sourceAuthenticationMode]);
 
 export async function main(argv = process.argv.slice(2), input = process.stdin) {
   if (argv.length !== 1 || !supportedModes.has(argv[0])) throw new Error("one supported semantic recovery mode is required");
   const request = await readCanonicalInput(input);
   let result;
-  if (argv[0] === "--plan-install") result = planInstall(request);
+  if (argv[0] === sourceAuthenticationMode) result = executeSourceAuthentication(request);
+  else if (argv[0] === "--plan-install") result = planInstall(request);
   else if (argv[0] === "--verify-install-plan") result = verifyInstallPackage(request);
   else if (argv[0] === "--plan-grant") result = encodeGrantPlan(planSemanticRecoveryGrant(request));
   else if (argv[0] === "--verify-grant-plan") result = verifyGrantPackage(request);
   else if (argv[0] === "--verify-installed") result = verifyInstalled(request);
   else result = executeProtectedSuccessorOperation(argv[0], request);
-  process.stderr.write(`${summary(argv[0], result)}\n`);
+  if (argv[0] !== sourceAuthenticationMode) process.stderr.write(`${summary(argv[0], result)}\n`);
   process.stdout.write(`${canonicalJson(result)}\n`);
   return result;
 }
@@ -116,19 +120,12 @@ function executeProtectedSuccessorOperation(mode, value) {
   assertInstalledProducerInvocation();
   assertExactKeys(value, ["operationId", "semanticEvidencePacket"]);
   if (!/^[a-f0-9]{64}$/u.test(String(value.operationId || ""))) throw new Error("semantic native operation selector invalid");
-  const sourceUid = trustedSourceUid();
-  const authenticate = () => withSourceEuid(sourceUid, () => {
-    const authority = loadDeploymentProjectAuthority({ configPath, approvedProfilePath, repoRoot: repositoryRoot, runtimeRoot, healthUnitPath, allowRuntimeBootstrap: false });
-    const config = { repoRoot: repositoryRoot, logsRoot: authority.logsRoot, repositorySlug: authority.repositorySlug };
-    return authenticateConfiguredSemanticRecoveryAuthority(config, value.semanticEvidencePacket, value.operationId);
-  });
-  const initial = authenticate();
+  const sourceIdentity = trustedSourceIdentity();
+  const authenticate = () => authenticateInSourceProcess(sourceIdentity, value);
+  const initialPacket = authenticate();
+  const initial = initialPacket.authentication;
   if (!initial.ok || !initial.grant?.authorized) return initial;
-  const construction = withSourceEuid(sourceUid, () => constructPostIncidentSuccessor({
-    manifest: initial.manifest,
-    mutationGeneration: initial.manifest.lifecycleSuccessor.mutationGeneration,
-    operationGrant: initial.grant,
-  }));
+  const construction = initialPacket.construction;
   if (!construction.ok) return construction;
   if (mode === "--readback-successor") {
     return readbackProtectedSemanticRecoverySuccessor({ manifest: initial.manifest, grant: initial.grant, construction });
@@ -138,15 +135,57 @@ function executeProtectedSuccessorOperation(mode, value) {
     grant: initial.grant,
     construction,
     reauthenticate() {
-      const fresh = authenticate();
+      const freshPacket = authenticate();
+      const fresh = freshPacket.authentication;
+      const unchanged = canonicalJson(freshPacket) === canonicalJson(initialPacket);
       return {
-        ok: fresh.ok === true && fresh.grant?.authorized === true,
+        ok: unchanged && fresh.ok === true && fresh.grant?.authorized === true,
         manifestDigest: fresh.manifestDigest,
         grantSha256: fresh.grant?.sha256,
         operationId: fresh.manifest?.operation?.operationId,
       };
     },
   });
+}
+
+function executeSourceAuthentication(value) {
+  assertExactKeys(value, ["operationId", "semanticEvidencePacket"]);
+  if (!/^[a-f0-9]{64}$/u.test(String(value.operationId || ""))) throw new Error("semantic native operation selector invalid");
+  const sourceIdentity = trustedSourceIdentity();
+  assertInstalledProducerInvocation({ rootRequired: false });
+  assertSourceProcessIdentity(sourceIdentity);
+  const authority = loadDeploymentProjectAuthority({ configPath, approvedProfilePath, repoRoot: repositoryRoot, runtimeRoot, healthUnitPath, allowRuntimeBootstrap: false });
+  const config = { repoRoot: repositoryRoot, logsRoot: authority.logsRoot, repositorySlug: authority.repositorySlug };
+  const authentication = authenticateConfiguredSemanticRecoveryAuthority(config, value.semanticEvidencePacket, value.operationId);
+  if (!authentication.ok || !authentication.grant?.authorized) return { authentication, construction: null };
+  const construction = constructPostIncidentSuccessor({
+    manifest: authentication.manifest,
+    mutationGeneration: authentication.manifest.lifecycleSuccessor.mutationGeneration,
+    operationGrant: authentication.grant,
+  });
+  return { authentication, construction };
+}
+
+function authenticateInSourceProcess(sourceIdentity, value) {
+  const child = spawnSync(fixedNodeRuntimePath, [semanticRecoveryProtectedLayout.producerExecutable, sourceAuthenticationMode], {
+    cwd: "/",
+    env: { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
+    gid: sourceIdentity.gid,
+    uid: sourceIdentity.uid,
+    input: `${canonicalJson(value)}\n`,
+    encoding: "utf8",
+    maxBuffer: maximumInputBytes,
+    timeout: 60_000,
+  });
+  if (child.error || child.status !== 0 || child.signal || child.stderr !== "") {
+    throw new Error("semantic native source authentication subprocess failed");
+  }
+  const output = child.stdout.trimEnd();
+  let parsed;
+  try { parsed = JSON.parse(output); } catch { throw new Error("semantic native source authentication response invalid"); }
+  if (canonicalJson(parsed) !== output) throw new Error("semantic native source authentication response noncanonical");
+  assertExactKeys(parsed, ["authentication", "construction"]);
+  return parsed;
 }
 
 function discoverProducerSupportPaths() {
@@ -166,31 +205,38 @@ function discoverProducerSupportPaths() {
   return found.sort();
 }
 
-function trustedSourceUid() {
+function trustedSourceIdentity() {
   const info = lstatSync(configPath);
-  if (!info.isFile() || info.isSymbolicLink() || info.uid < 1 || info.nlink !== 1 || (info.mode & 0o022) !== 0) {
+  if (!info.isFile() || info.isSymbolicLink() || realpathSync(configPath) !== configPath
+      || info.uid < 1 || info.gid < 1 || info.nlink !== 1 || (info.mode & 0o022) !== 0) {
     throw new Error("semantic native source owner invalid");
   }
-  return info.uid;
+  return { uid: info.uid, gid: info.gid };
 }
 
-function withSourceEuid(uid, operation) {
-  if (typeof process.geteuid !== "function" || typeof process.seteuid !== "function" || process.getuid?.() !== 0 || process.geteuid() !== 0) {
-    throw new Error("semantic native root privilege boundary unavailable");
+export function assertSourceProcessIdentity(sourceIdentity, identity = {}) {
+  const realUid = identity.realUid ?? process.getuid?.();
+  const effectiveUid = identity.effectiveUid ?? process.geteuid?.();
+  const realGid = identity.realGid ?? process.getgid?.();
+  const effectiveGid = identity.effectiveGid ?? process.getegid?.();
+  if (!sourceIdentity || realUid !== sourceIdentity.uid || effectiveUid !== sourceIdentity.uid
+      || realGid !== sourceIdentity.gid || effectiveGid !== sourceIdentity.gid) {
+    throw new Error("semantic native source process identity mismatch");
   }
-  try {
-    process.seteuid(uid);
-    return operation();
-  } finally {
-    process.seteuid(0);
-  }
+  return true;
 }
 
-function assertInstalledProducerInvocation() {
-  if (process.getuid?.() !== 0 || process.geteuid?.() !== 0
+function assertInstalledProducerInvocation({ rootRequired = true } = {}) {
+  if ((rootRequired && (process.getuid?.() !== 0 || process.geteuid?.() !== 0))
       || path.resolve(process.argv[1] || "") !== semanticRecoveryProtectedLayout.producerExecutable
       || realpathSync(process.argv[1]) !== semanticRecoveryProtectedLayout.producerExecutable) {
     throw new Error("semantic native protected invocation required");
+  }
+  const runtime = lstatSync(fixedNodeRuntimePath);
+  if (!runtime.isFile() || runtime.isSymbolicLink() || runtime.uid !== 0 || runtime.gid !== 0 || runtime.nlink !== 1
+      || (runtime.mode & 0o022) !== 0 || realpathSync(fixedNodeRuntimePath) !== fixedNodeRuntimePath
+      || realpathSync(process.execPath) !== fixedNodeRuntimePath) {
+    throw new Error("semantic native fixed node runtime unsafe");
   }
   for (const target of ["/etc", "/etc/settleora-auto-runner", semanticRecoveryProtectedLayout.root, semanticRecoveryProtectedLayout.producerRoot, semanticRecoveryProtectedLayout.producerExecutable]) {
     const info = lstatSync(target);

@@ -2042,11 +2042,16 @@ authenticate a committed successor; it cannot invoke a privileged mutation.
 Only the installed exact root-owned executable additionally admits
 `--persist-successor` and `--readback-successor`. Both take the closed semantic
 packet plus exact 64-hex operation ID; the mutating mode refuses any invocation
-outside the fixed installed path or without real/effective UID 0. It drops
-effective UID to the authenticated external-config owner for fresh runner-owned
-artifact reads, restores effective UID 0, reauthenticates the fixed protected
-stores and real grant, and then calls the bounded persistence core. No path,
-command, environment, or output selector crosses that boundary.
+outside the fixed installed path or without real/effective UID 0. Its shebang
+and child launch both name the root-owned canonical `/usr/bin/node` directly,
+so PATH is never consulted before the installed-path guard. For fresh
+runner-owned artifact reads, the root process starts a closed-environment child
+with real/effective UID and GID set to the authenticated external-config owner;
+an effective-UID-only transition is insufficient and is rejected. The root
+parent compares two canonical child results, reauthenticates the fixed protected
+stores and real grant immediately before the write, and alone calls the bounded
+persistence core. No path, command, environment, or output selector crosses
+that boundary.
 
 Claim ownership is also source-owned and immutable. The versioned matrix and
 its deterministic digest name every required domain owner. Repository identity

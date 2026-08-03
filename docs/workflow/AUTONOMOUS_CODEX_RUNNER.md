@@ -1820,11 +1820,14 @@ separate owner gates. A committed successor explicitly reports that it is not
 authorized to continue.
 The installed exact root-owned executable alone also exposes the closed
 `--persist-successor` and `--readback-successor` operations. Persistence
-requires UID 0 at the fixed canonical executable path, temporarily drops
-effective UID to the authenticated config owner for fresh domain-artifact
-authentication, restores UID 0, and reauthenticates all protected stores and
-the real grant before any bounded publication. The runner has no invocation or
-path-selection capability for this offline operator action.
+requires real/effective UID 0 at the fixed canonical executable path and the
+fixed root-owned `/usr/bin/node` interpreter (never PATH-based shebang
+resolution). It spawns a closed-environment child with both real/effective UID
+and GID set to the authenticated config owner for fresh domain-artifact
+authentication. The root parent receives only canonical bounded authority and
+construction data, repeats the child authentication immediately before the
+write, and alone performs bounded protected publication. The runner has no
+invocation or path-selection capability for this offline operator action.
 
 Deployment quiescence has a distinct read-only corroboration path for this
 incident class. Its manual-only preparer derives one deterministic package
