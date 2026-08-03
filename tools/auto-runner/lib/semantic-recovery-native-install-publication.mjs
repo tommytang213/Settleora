@@ -83,21 +83,26 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
     throw new Error("native install conflicting root result transition refused");
   }
   if (existing && existing.rootJournalSequence < value.rootJournalSequence) validateRootResultTransition(existing, value);
-  if (existsSync(finalPath)) {
-    const adopted = readFixedNativeInstallRootResultFile(finalPath, value.operationId);
-    if (!canonicalBytes(adopted).equals(bytes)) throw new Error("native install root result identity conflict");
-    fsyncFile(finalPath);
-    fsyncDirectory(nativeInstallRootResultRoot);
-    return adopted;
-  }
-  const temporaryRecords = readdirSync(nativeInstallRootResultRoot).map((name) => {
+  const readRelevantTemporaries = () => readdirSync(nativeInstallRootResultRoot).map((name) => {
     const match = rootResultTemporaryPattern.exec(name);
-    if (!match) return null;
+    if (!match || match[1] !== value.operationId) return null;
     const candidate = path.join(nativeInstallRootResultRoot, name);
     finishAtomicNoClobberLink({ root: nativeInstallRootResultRoot, finalPath: candidate, uid: 0, gid: 0, mode: 0o444 });
     const staged = readFixedNativeInstallRootResultFile(candidate, match[1]);
     return { candidate, staged };
   }).filter(Boolean).sort((left, right) => left.candidate.localeCompare(right.candidate));
+  if (existsSync(finalPath)) {
+    const adopted = readFixedNativeInstallRootResultFile(finalPath, value.operationId);
+    if (!canonicalBytes(adopted).equals(bytes)) throw new Error("native install root result identity conflict");
+    const residue = readRelevantTemporaries();
+    classifyFixedNativeInstallPublishedResidue(adopted, residue.map(({ staged }) => staged));
+    for (const { candidate } of residue) unlinkSync(candidate);
+    if (residue.length > 0) fsyncDirectory(nativeInstallRootResultRoot);
+    fsyncFile(finalPath);
+    fsyncDirectory(nativeInstallRootResultRoot);
+    return adopted;
+  }
+  const temporaryRecords = readRelevantTemporaries();
   const temporaryDisposition = classifyFixedNativeInstallRootResultTemporaries(existing, value, temporaryRecords.map(({ staged }) => staged));
   if (temporaryDisposition.action === "publish_prior") {
     const prior = temporaryRecords[temporaryDisposition.index];
@@ -128,7 +133,21 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
   const readback = readFixedNativeInstallRootResult(value.operationId);
   if (!readback || readback.rootJournalSequence !== value.rootJournalSequence
       || !canonicalBytes(readback).equals(bytes)) throw new Error("native install root result readback failed");
+  const duplicateResidue = readRelevantTemporaries();
+  classifyFixedNativeInstallPublishedResidue(readback, duplicateResidue.map(({ staged }) => staged));
+  for (const { candidate } of duplicateResidue) unlinkSync(candidate);
+  if (duplicateResidue.length > 0) fsyncDirectory(nativeInstallRootResultRoot);
   return readback;
+}
+
+export function classifyFixedNativeInstallPublishedResidue(finalValue, temporaryValues) {
+  validateFixedNativeInstallRootResult(finalValue);
+  if (!Array.isArray(temporaryValues)) throw new Error("native install root result temporary set invalid");
+  temporaryValues.forEach(validateFixedNativeInstallRootResult);
+  if (temporaryValues.some((candidate) => !canonicalBytes(candidate).equals(canonicalBytes(finalValue)))) {
+    throw new Error("native install conflicting root result temporary refused");
+  }
+  return Object.freeze({ action: "remove_exact", count: temporaryValues.length });
 }
 
 export function classifyFixedNativeInstallRootResultTemporaries(existing, current, temporaryValues) {

@@ -1829,7 +1829,8 @@ repository/commit/blob/correlation/journal identities; no shell literal,
 clipboard program, mutable checkout, or stdin program crosses sudo. The fixed
 bootstrap verifies its own Git blob identity, opens/creates every privileged
 journal ancestor descriptor-relatively with no-follow metadata checks, and
-freezes the armed owner transition in a root-owned receipt before network
+freezes the armed owner transition inside one atomically published root-owned
+receipt before network
 access. Root then fetches
 the canonical `refs/heads/main` ref into a private object database with fixed
 tools and a sanitized environment, disabled redirects/credentials and strict
@@ -1861,7 +1862,9 @@ with no redirects, ambient root CLI configuration, credentials, or route in
 argv/environment. One cache is shared only within a reader's request and
 package/projection derivation; other readers and passes remain fresh. Authenticated
 rate-limit headers enforce phase floors that reserve the edge and one complete
-readback before one-shot publication. Root then either adopts an
+readback before one-shot publication. A full 100-record REST page is rejected
+before publication so pagination cannot consume that fixed recovery reserve.
+Root then either adopts an
 exact final tree without rewriting it after complete fsync plus repeated
 readback, or stages, fsyncs and publishes
 once with `renameat2(RENAME_NOREPLACE)`. The sealed root remains beneath a

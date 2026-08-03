@@ -279,7 +279,17 @@ export function createPublicSemanticRecoveryGithubSnapshotReader({ minimumRateRe
       || typeof read !== "function") throw new Error("semantic native public GitHub snapshot boundary invalid");
   const responses = new Map();
   return (route) => {
-    if (!responses.has(route)) responses.set(route, deepFreeze(read(route, { minimumRateRemaining })));
+    if (!responses.has(route)) {
+      const response = read(route, { minimumRateRemaining });
+      // The root installation protocol reserves a fixed six authenticated
+      // requests for each independent authority snapshot. A full REST page
+      // would require another request to prove completeness, so refuse it
+      // before publication rather than consume the recovery reservation.
+      if (Array.isArray(response) && response.length === 100) {
+        throw new Error("semantic native public GitHub paginated snapshot unsupported");
+      }
+      responses.set(route, deepFreeze(response));
+    }
     return structuredClone(responses.get(route));
   };
 }

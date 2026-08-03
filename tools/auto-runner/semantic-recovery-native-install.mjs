@@ -729,8 +729,7 @@ function assertHintCorrelation(hint, journal) {
 function loadRootReceipt(hint) {
   const operationId = operationIdentity(hint);
   const receiptPath = path.join(nativeInstallRootJournalRoot, `${operationId}.receipt.json`);
-  const ownerSnapshotPath = path.join(nativeInstallRootJournalRoot, `${operationId}.owner.json`);
-  for (const target of [receiptPath, ownerSnapshotPath]) {
+  for (const target of [receiptPath]) {
     const info = lstatSync(target);
     if (!info.isFile() || info.isSymbolicLink() || info.uid !== 0 || info.gid !== 0 || info.nlink !== 1
         || (info.mode & 0o7777) !== 0o400 || realpathSync(target) !== target || info.size < 1 || info.size > 1024 * 1024) {
@@ -739,11 +738,11 @@ function loadRootReceipt(hint) {
   }
   const receipt = parseCanonicalJson(readFileSync(receiptPath));
   assertExactKeys(receipt, [
-    "bootstrapBlob", "contract", "observedAt", "operationId", "ownerJournalDigest", "ownerJournalSha256", "repository",
+    "bootstrapBlob", "contract", "observedAt", "operationId", "ownerJournal", "ownerJournalDigest", "ownerJournalSha256", "repository",
     "sourceCommit", "taskCorrelation", "version",
   ]);
-  const ownerBytes = readFileSync(ownerSnapshotPath);
-  const ownerJournal = parseCanonicalJson(ownerBytes);
+  const ownerJournal = receipt.ownerJournal;
+  const ownerBytes = canonicalBytes(ownerJournal);
   validateNativeInstallJournal(ownerJournal);
   if (receipt.contract !== "settleora_semantic_recovery_native_install_root_receipt" || receipt.version !== 1
       || receipt.repository.toLowerCase() !== hint.repository.toLowerCase() || receipt.sourceCommit !== hint.sourceCommit

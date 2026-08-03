@@ -50,7 +50,8 @@ controller_mode='--root-bootstrap'
 # no unprivileged program bytes enter root. Stable directory/file descriptors,
 # O_NOFOLLOW, bounded reads, fstat equality, exclusive regular destinations and
 # descriptor fsync prevent pathname substitution, symlink effects and unbounded
-# copies. A partial pair remains root-owned contradictory residue and blocks.
+# copies. The owner snapshot and receipt are one canonical atomic object, so no
+# owner-only crash state can consume the one permitted sudo attempt.
 if ! /usr/bin/python3 -I - \
   "$owner_journal_root" "$root_state_root" "$repository" "$source_commit" \
   "$bootstrap_blob" "$task_correlation" "$operation_id" \
@@ -64,6 +65,7 @@ import stat
 import sys
 
 MAXIMUM_JOURNAL_BYTES = 64 * 1024
+MAXIMUM_RECEIPT_BYTES = 128 * 1024
 
 def canonical(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
@@ -182,6 +184,7 @@ try:
         "contract": "settleora_semantic_recovery_native_install_root_receipt",
         "observedAt": observed_at,
         "operationId": operation_id,
+        "ownerJournal": owner,
         "ownerJournalDigest": owner_digest,
         "ownerJournalSha256": owner_sha,
         "repository": repository,
@@ -201,32 +204,17 @@ try:
         try:
             root_directory_fd = open_exact_root_directory(parent_directory_fd, ".semantic-recovery-native-install-journals", 0o700, handoff_mode == "install")
             try:
-                owner_name = f"{operation_id}.owner.json"
                 receipt_name = f"{operation_id}.receipt.json"
-                present = []
-                for name in (owner_name, receipt_name):
-                    try:
-                        os.stat(name, dir_fd=root_directory_fd, follow_symlinks=False)
-                        present.append(name)
-                    except FileNotFoundError:
-                        pass
-                if len(present) == 0 and handoff_mode == "install":
-                    nonce = f"{os.getpid()}.{secrets.token_hex(12)}"
-                    write_root_file(root_directory_fd, f".{operation_id}.owner.{nonce}.tmp", owner_name, owner_bytes)
-                    write_root_file(root_directory_fd, f".{operation_id}.receipt.{nonce}.tmp", receipt_name, receipt_bytes)
-                    os.fsync(root_directory_fd)
-                elif present == [owner_name] and handoff_mode == "install":
-                    if read_root_file(root_directory_fd, owner_name, MAXIMUM_JOURNAL_BYTES) != owner_bytes:
-                        raise ValueError("partial root owner snapshot mismatch")
+                try:
+                    os.stat(receipt_name, dir_fd=root_directory_fd, follow_symlinks=False)
+                    receipt_present = True
+                except FileNotFoundError:
+                    receipt_present = False
+                if not receipt_present and handoff_mode == "install":
                     nonce = f"{os.getpid()}.{secrets.token_hex(12)}"
                     write_root_file(root_directory_fd, f".{operation_id}.receipt.{nonce}.tmp", receipt_name, receipt_bytes)
                     os.fsync(root_directory_fd)
-                elif len(present) != 2:
-                    raise ValueError("partial root receipt")
-                frozen_owner = read_root_file(root_directory_fd, owner_name, MAXIMUM_JOURNAL_BYTES)
-                frozen_receipt = read_root_file(root_directory_fd, receipt_name, MAXIMUM_JOURNAL_BYTES)
-                if frozen_owner != owner_bytes:
-                    raise ValueError("root owner snapshot mismatch")
+                frozen_receipt = read_root_file(root_directory_fd, receipt_name, MAXIMUM_RECEIPT_BYTES)
                 parsed_receipt = json.loads(frozen_receipt)
                 if canonical(parsed_receipt) + b"\n" != frozen_receipt:
                     raise ValueError("root receipt noncanonical")

@@ -32,6 +32,7 @@ import {
 import { independentlyVerifyRootNativeInstallPackage } from "../lib/semantic-recovery-native-install-verifier.mjs";
 import {
   buildFixedNativeInstallRootResult,
+  classifyFixedNativeInstallPublishedResidue,
   classifyFixedNativeInstallRootResultTemporaries,
   completeVerifiedNativeInstallResult,
   persistNativeInstallJournalTransition,
@@ -553,6 +554,17 @@ test("root-result retry publishes an authenticated older state before appending 
   );
 });
 
+test("already-published result coalesces only exact raced temporaries and rejects poison residue", () => {
+  const completed = rootResult("completed", 9, { installedDigest: "4".repeat(64) });
+  assert.deepEqual(classifyFixedNativeInstallPublishedResidue(completed, [structuredClone(completed), structuredClone(completed)]), {
+    action: "remove_exact", count: 2,
+  });
+  assert.throws(
+    () => classifyFixedNativeInstallPublishedResidue(completed, [rootResult("publication_ambiguous", 7)]),
+    /conflicting root result temporary/u,
+  );
+});
+
 test("publication-edge corroboration requires planner and verifier encoded packages and compares decoded expected bytes", () => {
   const installPackage = installPackageFixture();
   const encoded = {
@@ -599,6 +611,10 @@ test("one root reader reuses one rate-reserved GitHub snapshot while separate re
     { route: "route-b", options: { minimumRateRemaining: 24 } },
     { route: "route-a", options: { minimumRateRemaining: 12 } },
   ]);
+  const fullPage = createPublicSemanticRecoveryGithubSnapshotReader({
+    read: () => Array.from({ length: 100 }, (_, index) => ({ index })),
+  });
+  assert.throws(() => fullPage("full-page"), /paginated snapshot unsupported/u);
 });
 
 test("recovery reader is explicitly historical and canonical control records use an ignored durable staging namespace", () => {
@@ -613,6 +629,8 @@ test("recovery reader is explicitly historical and canonical control records use
   assert.match(publication, /finishAtomicNoClobberLink\(\{ root, finalPath: claim/u);
   assert.match(bootstrap, /os\.link\(temporary, final,[\s\S]*os\.fsync\(directory_fd\)[\s\S]*os\.unlink\(temporary,[\s\S]*os\.fsync\(directory_fd\)/u);
   assert.match(bootstrap, /pathname\.st_nlink == 2[\s\S]*root file link recovery ambiguous/u);
+  assert.match(bootstrap, /"ownerJournal": owner/u);
+  assert.doesNotMatch(bootstrap, /owner_name =/u);
 });
 
 test("the production root-result builder emits the exact accepted versioned schema", () => {

@@ -2099,7 +2099,8 @@ fixed root-owned path—not a checkout, clipboard, shell literal, stdin program,
 or caller-selected executable—is the first root-executed code. Sudo receives
 only the exact commit/blob/correlation/operation and owner-journal digest
 scalars. The bootstrap verifies its own Git blob OID and metadata before any
-network access, freezes the exact armed owner journal as a root-owned receipt,
+network access, freezes the exact armed owner journal inside one atomically
+published root-owned receipt,
 and then uses absolute system-tool paths, a sanitized environment, HTTPS origin
 `https://github.com/tommytang213/Settleora.git`, disabled redirects and
 credentials, strict object fsck, a unique root-owned `0700` temporary checkout,
@@ -2143,7 +2144,9 @@ derivation; the separately spawned reader and later edge pass obtain independent
 fresh sets. Every response must carry an authenticated public rate-limit header
 at or above the phase-specific floor. Initial planning reserves the complete
 edge-plus-readback budget, the edge reserves one complete readback, and recovery
-consumes only its reserved final budget. The
+consumes only its reserved final budget. Any full 100-record REST page blocks
+before publication because proving another page would exceed that fixed
+six-request-per-reader reservation. The
 unprivileged plan is never an input. Live publication is reachable only in this root/private-source mode;
 fixture publication uses an injected in-memory filesystem and never selects a
 path.
@@ -2170,7 +2173,7 @@ untouched. Grants and all successor subdirectories must be empty.
 Owner-only and root-only canonical journals use atomic temporary write, file
 fsync, rename, directory fsync, and an exclusive immutable transition claim
 bound to the exact previous digest and next sequence. The root bootstrap writes
-a root-owned receipt and frozen owner-journal copy before source acquisition;
+one root-owned atomic receipt containing the frozen owner journal before source acquisition;
 the privileged journal binds the exact owner `sudo_started` transition digest.
 Both journal names are
 bound to repository/source/operation—not the caller-selected correlation—so a
