@@ -1830,6 +1830,13 @@ derives the exact operation manifest there, and then plans the one fixed grant
 path in the root parent. Unknown fields, caller-supplied manifests,
 self-consistent substitute packages, and any installed-byte drift fail before
 grant bytes are emitted.
+Live production paths are resolved only by live operator modes, never during
+module import. Grant planning and persistence requery the authenticated
+paginated GitHub exact-target no-effect source rather than trusting only the
+installed snapshot. The persistence adapter repeats that query after exact
+successor/provenance publication and before the atomic commit marker, so a
+concurrent later effect cannot produce committed readback; exact uncommitted
+bytes remain fail-closed until a later fresh fence permits idempotent adoption.
 The installed exact root-owned executable alone also exposes the closed
 `--persist-successor` and `--readback-successor` operations. Persistence
 requires real/effective UID 0 at the fixed canonical executable path and the

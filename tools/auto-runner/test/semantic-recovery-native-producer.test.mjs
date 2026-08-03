@@ -258,6 +258,7 @@ test("grant plan preserves one exact fixed-path read-only operation and excludes
 
 test("production grant planning is closed behind installed readback and manifest derivation", () => {
   const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source.slice(0, source.indexOf("export async function main")), /realpathSync\("\/workspace\/repos\/Settleora"\)/u);
   const planner = source.slice(source.indexOf("function planGrantFromInstalled"), source.indexOf("function verifyInstalled"));
   assert.match(planner, /assertExactKeys\(value, \["installPackage", "operationId", "semanticEvidencePacket"\]\)/u);
   assert.match(planner, /assertInstalledProducerInvocation\(\)/u);
@@ -271,6 +272,7 @@ test("production grant planning is closed behind installed readback and manifest
   assert.match(child, /assertInstalledProducerInvocation\(\{ rootRequired: false \}\)/u);
   assert.match(child, /assertSourceProcessIdentity\(sourceIdentity\)/u);
   assert.match(child, /buildSemanticRecoveryManifest\(value\.semanticEvidencePacket/u);
+  assert.match(child, /reauthenticateSemanticRecoveryGithubNoEffect/u);
   const manifest = persistenceFixture().manifest;
   const response = { ok: true, reasonCode: "semantic_evidence_corroborated", manifest, manifestDigest: manifest.manifestDigest };
   assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--derive-grant-manifest-internal", canonicalJson(response)), response);
@@ -290,7 +292,7 @@ test("protected persistence reauthenticates, publishes once, adopts exact bytes,
   const adopted = persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, effectiveUid: 1000, reauthenticate });
   assert.equal(adopted.reasonCode, "semantic_recovery_successor_adopted");
   assert.deepEqual(filesystem.read(expected.paths.storagePath), bytes);
-  assert.equal(reads, 2);
+  assert.equal(reads, 3);
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).ok, true);
 });
 
@@ -319,6 +321,22 @@ test("protected persistence recovers exact crash windows and rejects conflicts, 
   filesystem.mutate(expected.paths.storagePath, { nlink: 1 });
   filesystem.writeExclusive(`${semanticRecoveryProtectedLayout.successorsRoot}/${expected.storageKey}.duplicate`, filesystem.read(expected.paths.storagePath), { uid: 0, mode: 0o444 });
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_duplicate");
+});
+
+test("protected persistence reauthenticates GitHub fence before commit publication", () => {
+  const fixture = persistenceFixture();
+  const filesystem = new ProtectedMemoryFilesystem();
+  let reads = 0;
+  const fence = () => {
+    reads += 1;
+    return reads === 1
+      ? { ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId }
+      : { ok: false };
+  };
+  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: fence }).reasonCode, "semantic_native_persistence_authority_drift_before_commit");
+  assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_partial");
+  const stable = () => ({ ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId });
+  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: stable }).ok, true);
 });
 
 test("a commit marker with either predecessor missing is torn and never backfilled", () => {

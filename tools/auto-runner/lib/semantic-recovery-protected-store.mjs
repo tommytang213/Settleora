@@ -232,6 +232,15 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
     if (crashAfter === "provenance") throw crashError();
     publishRecordNoClobber(expected.paths.storagePath, expected.successor, { filesystem });
     if (crashAfter === "successor") throw crashError();
+    let commitFresh;
+    try { commitFresh = reauthenticate(); }
+    catch { return failed("semantic_native_persistence_reauthentication_before_commit_failed"); }
+    if (commitFresh?.ok !== true
+        || commitFresh.manifestDigest !== manifest.manifestDigest
+        || commitFresh.grantSha256 !== grant.sha256
+        || commitFresh.operationId !== manifest.operation.operationId) {
+      return failed("semantic_native_persistence_authority_drift_before_commit");
+    }
     publishRecordNoClobber(expected.paths.commitPath, expected.commit, { filesystem });
     if (crashAfter === "commit") throw crashError();
   } catch (error) {

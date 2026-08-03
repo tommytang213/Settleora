@@ -2037,6 +2037,15 @@ operation manifest in its closed-environment real/effective source-UID/GID
 child, and only then emits the fixed-path grant bytes from the root parent. A
 caller-supplied manifest, self-digested substitute package, or installed-tree
 drift cannot produce a grant plan.
+The production repository path is resolved only inside live source modes, so
+import-safe helpers and verification tests do not depend on the DevBox checkout
+location. Grant derivation and each persistence authentication freshly rerun
+the authenticated paginated GitHub exact-target no-effect read and require its
+digest to equal the protected source claim. Persistence authenticates again
+after publishing the exact successor and provenance bytes but before the
+no-clobber commit marker; a later effect leaves only non-adoptable partial state
+and no committed successor, while an exact retry can finish only after a fresh
+successful fence.
 
 This offline root-invoked model is the smallest privilege boundary because it
 adds no listener, service, socket, timer, sudoers rule, credential, arbitrary

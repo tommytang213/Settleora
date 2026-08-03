@@ -9,6 +9,7 @@ import { inspectSemanticIncidentForDeployment } from "../lib/deployment-semantic
 import {
   collectSemanticDeploymentEvidenceContext,
   createSemanticDeploymentAuthorityReaders,
+  reauthenticateSemanticRecoveryGithubNoEffect,
 } from "../lib/deployment-semantic-evidence-extractors.mjs";
 import { chargeAcceptedLogicalTask, logicalTaskChargeIdentity } from "../lib/logical-task-budget.mjs";
 import { authenticateAssociatedRecoverableState, createInitialRecoveryState } from "../lib/recovery-state.mjs";
@@ -472,6 +473,29 @@ test("semantic overwrite incident is admitted only for deterministic read-only d
     }));
     assert.equal(canonicalQuiescence.semanticIncidentAdmitted, true);
     assert.equal(canonicalQuiescence.semanticEvidenceDigest, first.evidenceDigest);
+  } finally { fixture.cleanup(); }
+});
+
+test("semantic GitHub no-effect fence is freshly requeried and exact-digest bound", () => {
+  const fixture = makeFixture();
+  try {
+    const manifest = {
+      currentIncident: { path: fixture.paths.incident, sha256: sha256(readFileSync(fixture.paths.incident)) },
+      claims: {
+        repository: fixture.claims.repository,
+        issueNumber: fixture.claims.issueNumber,
+        branch: fixture.claims.branch,
+        prEvidenceDigest: fixture.claims.prEvidenceDigest,
+      },
+    };
+    assert.equal(reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command: fixture.sourceCommand }).ok, true);
+    const laterBranch = (executable, args, options) => {
+      if (executable === "/usr/bin/gh" && args.join(" ").includes("git/matching-refs/heads/")) {
+        return JSON.stringify([{ ref: `refs/heads/${fixture.claims.branch}`, object: { type: "commit", sha: fixture.claims.headSha } }]);
+      }
+      return fixture.sourceCommand(executable, args, options);
+    };
+    assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command: laterBranch }), /later GitHub effect/u);
   } finally { fixture.cleanup(); }
 });
 

@@ -8,6 +8,7 @@ import { authenticateSemanticDeploymentEvidencePackage } from "./lib/deployment-
 import {
   collectSemanticDeploymentEvidenceContext,
   createSemanticDeploymentAuthorityReaders,
+  reauthenticateSemanticRecoveryGithubNoEffect,
 } from "./lib/deployment-semantic-evidence-extractors.mjs";
 import {
   authenticateConfiguredSemanticRecoveryAuthority,
@@ -34,7 +35,6 @@ const fixedNodeRuntimePath = "/usr/bin/node";
 const sourceAuthenticationMode = "--authenticate-successor-internal";
 const sourcePlanMode = "--plan-install-internal";
 const sourceGrantPlanMode = "--derive-grant-manifest-internal";
-const repositoryRoot = realpathSync("/workspace/repos/Settleora");
 const runtimeRoot = "/workspace/auto-runner/runtime";
 const configPath = "/workspace/auto-runner/config/settleora.json";
 const approvedProfilePath = "/workspace/auto-runner/config/settleora-production-approved-20260724-0946.json";
@@ -81,6 +81,7 @@ function executeSourcePlan(request) {
 }
 
 function planInstallFromAuthenticatedSource(request) {
+  const repositoryRoot = productionRepositoryRoot();
   const authenticated = authenticateSemanticDeploymentEvidencePackage(request.source.deploymentEvidenceDocument);
   if (authenticated.evidence.sha256 !== request.source.sha256) throw new Error("semantic native selected evidence digest mismatch");
   const document = authenticated.document;
@@ -210,6 +211,7 @@ function executeSourceAuthentication(value) {
   const config = productionRecoveryConfig();
   const authentication = authenticateConfiguredSemanticRecoveryAuthority(config, value.semanticEvidencePacket, value.operationId);
   if (!authentication.ok || !authentication.grant?.authorized) return { authentication, construction: null };
+  reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: config.repoRoot, manifest: authentication.manifest });
   const construction = constructPostIncidentSuccessor({
     manifest: authentication.manifest,
     mutationGeneration: authentication.manifest.lifecycleSuccessor.mutationGeneration,
@@ -227,6 +229,9 @@ function executeSourceGrantPlan(value) {
   assertInstalledProducerInvocation({ rootRequired: false });
   assertSourceProcessIdentity(sourceIdentity);
   const corroboration = buildSemanticRecoveryManifest(value.semanticEvidencePacket, { config: productionRecoveryConfig() });
+  if (corroboration?.ok === true) {
+    reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: productionRepositoryRoot(), manifest: corroboration.manifest });
+  }
   return {
     ok: corroboration?.ok === true,
     reasonCode: corroboration?.reasonCode || "semantic_native_grant_manifest_invalid",
@@ -236,6 +241,7 @@ function executeSourceGrantPlan(value) {
 }
 
 function productionRecoveryConfig() {
+  const repositoryRoot = productionRepositoryRoot();
   const authority = loadDeploymentProjectAuthority({
     configPath,
     approvedProfilePath,
@@ -245,6 +251,10 @@ function productionRecoveryConfig() {
     allowRuntimeBootstrap: false,
   });
   return { repoRoot: repositoryRoot, logsRoot: authority.logsRoot, repositorySlug: authority.repositorySlug };
+}
+
+function productionRepositoryRoot() {
+  return realpathSync("/workspace/repos/Settleora");
 }
 
 function authenticateInSourceProcess(sourceIdentity, value) {
@@ -285,6 +295,7 @@ export function parseSemanticRecoverySourceProcessResponse(mode, output) {
 }
 
 function discoverProducerSupportPaths() {
+  const repositoryRoot = productionRepositoryRoot();
   const root = path.join(repositoryRoot, "tools/auto-runner");
   const found = [];
   const walk = (directory, relative) => {
