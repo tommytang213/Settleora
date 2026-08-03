@@ -58,11 +58,10 @@ def stat_matches(left: os.stat_result, right: os.stat_result) -> bool:
 
 
 def entry_absent(directory_fd: int, name: str) -> bool:
-    try:
-        os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-        return False
-    except FileNotFoundError:
-        return True
+    # The caller supplies only source-owned closed names. Membership comparison
+    # avoids reopening a caller-derived pathname; renameat2 remains the atomic
+    # no-clobber authority if the directory changes after this observation.
+    return name not in os.listdir(directory_fd)
 
 
 def production() -> int:
