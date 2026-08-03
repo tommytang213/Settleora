@@ -41,6 +41,14 @@ export function publishFixedNativeInstallRootResult(value) {
   const finalPath = path.join(nativeInstallRootResultRoot, `${value.operationId}.json`);
   const temporary = path.join(nativeInstallRootResultRoot, `.${value.operationId}.${randomBytes(12).toString("hex")}.tmp`);
   const bytes = canonicalBytes(value);
+  const existing = readFixedNativeInstallRootResult(value.operationId);
+  if (existing && canonicalBytes(existing).equals(bytes)) {
+    fsyncFile(finalPath);
+    fsyncDirectory(nativeInstallRootResultRoot);
+    const readback = readFixedNativeInstallRootResult(value.operationId);
+    if (!readback || !canonicalBytes(readback).equals(bytes)) throw new Error("native install root result changed during adoption");
+    return readback;
+  }
   const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o400);
   try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
   chownSync(temporary, 0, 0);
@@ -124,6 +132,45 @@ export function verifyDurableInstalledNativeInstall({ installPackage, filesystem
   const second = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() });
   if (!second.ok) return { ok: false, reasonCode: "native_install_final_changed_during_readback" };
   return { ok: true, reasonCode: "native_install_final_durable_readback_verified", planDigest: installPackage.plan.planDigest, installedDigest: installedIdentity(installPackage.plan) };
+}
+
+export function completeVerifiedNativeInstallResult({
+  journal,
+  installPackage,
+  filesystem,
+  completion,
+  transition,
+  publishResult,
+} = {}) {
+  validateNativeInstallJournal(journal);
+  if (!verifySemanticRecoveryNativeInstallPlan(installPackage).ok || !filesystem
+      || !completion || typeof completion !== "object" || typeof transition !== "function" || typeof publishResult !== "function"
+      || !["installed_verified", "adopted_verified", "completed"].includes(journal.state)) {
+    throw new Error("native install verified completion dependencies invalid");
+  }
+  filesystem.assertNoPublicationResidue(journal.correlation);
+  const readback = verifyDurableInstalledNativeInstall({ installPackage, filesystem });
+  if (!readback.ok || readback.planDigest !== installPackage.plan.planDigest) {
+    throw new Error("native install verified completion readback blocked");
+  }
+  let current = journal;
+  if (["installed_verified", "adopted_verified"].includes(current.state)) {
+    current = transition({
+      current,
+      expectedState: current.state,
+      nextState: "completed",
+      result: {
+        ...completion,
+        outcome: "completed",
+        planDigest: readback.planDigest,
+        installedDigest: readback.installedDigest,
+      },
+    });
+    validateNativeInstallJournal(current);
+  }
+  if (current.state !== "completed") throw new Error("native install verified completion state invalid");
+  publishResult(current);
+  return { journal: current, readback };
 }
 
 /*

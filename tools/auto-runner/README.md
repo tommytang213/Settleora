@@ -2157,7 +2157,10 @@ corroborate the exact bytes; it never creates a time-varying replacement plan.
 A crash or lost transport after publication starts permits only that exact
 package plus durable installed-state readback, never replay. A root-owned,
 owner-readable sanitized result record lets the unprivileged coordinator
-durably complete its journal after verified root completion. Contradiction or
+durably complete its journal after verified root completion. Once installation
+or adoption is verified, `blocked` is no longer a legal transition: failure of
+the final journal or result publication reopens only frozen-package readback,
+completion, and idempotent exact-result adoption. Contradiction or
 private-stage residue remains a bounded blocker. Process output is
 represented only by byte counts and SHA-256 digests. Health tokens,
 authorization headers, credentials, raw evidence, logs, and provider payloads

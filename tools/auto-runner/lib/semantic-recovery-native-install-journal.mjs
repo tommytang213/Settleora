@@ -27,8 +27,8 @@ const transitions = Object.freeze({
   publication_intent_durable: ["publication_started", "blocked"],
   publication_started: ["publication_ambiguous", "installed_verified", "blocked"],
   publication_ambiguous: ["installed_verified", "blocked"],
-  installed_verified: ["completed", "blocked"],
-  adopted_verified: ["completed", "blocked"],
+  installed_verified: ["completed"],
+  adopted_verified: ["completed"],
   blocked: [],
   completed: [],
 });

@@ -30,6 +30,7 @@ import {
 import {
   createFixedNativeInstallJournalStore,
   createLiveNativeInstallFilesystem,
+  completeVerifiedNativeInstallResult,
   persistNativeInstallJournalTransition,
   publishFixedNativeInstallRootResult,
   publishOrAdoptVerifiedNativeInstall,
@@ -261,6 +262,7 @@ function rootAuthority(hint) {
       result,
       persist: (value) => persistNativeInstallJournalTransition({ ...value, store }),
     });
+    return journal;
   };
   advanceRoot("prepared", "awaiting_interactive_sudo");
   advanceRoot("awaiting_interactive_sudo", "sudo_started", { outcome: "none", reasonCode: "native_install_interactive_root_started" });
@@ -296,15 +298,23 @@ function rootAuthority(hint) {
       filesystem,
       journal: { transition(expectedState, nextState, partial) { advanceRoot(expectedState, nextState, partial); } },
     });
-    advanceRoot(published.adopted ? "adopted_verified" : "installed_verified", "completed", {
-      outcome: "completed",
-      reasonCode: "native_install_completed",
-      requestDigest: verified.requestDigest,
-      sourceManifestDigest: verified.sourceManifestDigest,
-      planDigest: verified.planDigest,
-      installedDigest: journal.result?.installedDigest,
+    const completed = completeVerifiedNativeInstallResult({
+      journal,
+      installPackage: verified.package,
+      filesystem,
+      completion: {
+        reasonCode: "native_install_completed",
+        requestDigest: verified.requestDigest,
+        sourceManifestDigest: verified.sourceManifestDigest,
+        planDigest: verified.planDigest,
+      },
+      transition: ({ current, expectedState, nextState, result }) => {
+        if (current.journalDigest !== journal.journalDigest) throw new Error("native install verified completion journal changed");
+        return advanceRoot(expectedState, nextState, result);
+      },
+      publishResult: (current) => publishRootResult(hint, current),
     });
-    publishRootResult(hint, journal);
+    journal = completed.journal;
     return writeResult({
       ok: true,
       reasonCode: published.reasonCode,
@@ -317,6 +327,11 @@ function rootAuthority(hint) {
       adopted: published.adopted,
     });
   } catch {
+    try { journal = store.read(); } catch { /* Preserve the last authenticated in-process state. */ }
+    if (["installed_verified", "adopted_verified", "completed"].includes(journal.state)) {
+      try { return reconcileRootResult({ hint, receipt, store, filesystem }); }
+      catch { throw new Error("native install verified result reconciliation blocked"); }
+    }
     if (journal.state === "publication_started") {
       try {
         advanceRoot("publication_started", "publication_ambiguous", {
@@ -330,7 +345,11 @@ function rootAuthority(hint) {
       } catch {
         try { journal = store.read(); } catch { /* Exact durable state is unavailable; do not issue another effect. */ }
       }
-    } else if (!["publication_ambiguous", "blocked", "completed"].includes(journal.state)) {
+      if (["installed_verified", "adopted_verified", "completed"].includes(journal.state)) {
+        try { return reconcileRootResult({ hint, receipt, store, filesystem }); }
+        catch { throw new Error("native install verified result reconciliation blocked"); }
+      }
+    } else if (!["publication_ambiguous", "blocked", "completed", "installed_verified", "adopted_verified"].includes(journal.state)) {
       try {
         advanceRoot(journal.state, "blocked", {
           outcome: "blocked",
@@ -421,15 +440,25 @@ function reconcileRootResult({ hint, receipt, store, filesystem }) {
   if (journal.result?.planDigest !== verified.planDigest) throw new Error("native install root journal plan identity mismatch");
   const advance = (expectedState, nextState, partial) => {
     journal = transitionNativeInstallJournal({ current: journal, expectedState, nextState, observedAt: new Date().toISOString(), result: journalResult(partial), persist: (value) => persistNativeInstallJournalTransition({ ...value, store }) });
+    return journal;
   };
   if (journal.state === "publication_started") advance("publication_started", "publication_ambiguous", { outcome: "ambiguous", reasonCode: "native_install_restart_publication_ambiguous", planDigest: verified.planDigest });
   filesystem.assertNoPublicationResidue(hint.taskCorrelation);
   const readback = verifyDurableInstalledNativeInstall({ installPackage: verified.package, filesystem });
   if (!readback.ok) throw new Error("native install readback-only reconciliation blocked");
   if (journal.state === "publication_ambiguous") advance("publication_ambiguous", "installed_verified", { outcome: "verified", reasonCode: "native_install_restart_readback_verified", requestDigest: verified.requestDigest, sourceManifestDigest: verified.sourceManifestDigest, planDigest: verified.planDigest, installedDigest: readback.installedDigest });
-  if (["installed_verified", "adopted_verified"].includes(journal.state)) advance(journal.state, "completed", { outcome: "completed", reasonCode: "native_install_readback_completed", requestDigest: verified.requestDigest, sourceManifestDigest: verified.sourceManifestDigest, planDigest: verified.planDigest, installedDigest: readback.installedDigest });
-  if (journal.state !== "completed") throw new Error("native install root journal state requires separate recovery authority");
-  publishRootResult(hint, journal);
+  const completed = completeVerifiedNativeInstallResult({
+    journal,
+    installPackage: verified.package,
+    filesystem,
+    completion: { reasonCode: "native_install_readback_completed", requestDigest: verified.requestDigest, sourceManifestDigest: verified.sourceManifestDigest, planDigest: verified.planDigest },
+    transition: ({ current, expectedState, nextState, result }) => {
+      if (current.journalDigest !== journal.journalDigest) throw new Error("native install reconciliation journal changed");
+      return advance(expectedState, nextState, result);
+    },
+    publishResult: (current) => publishRootResult(hint, current),
+  });
+  journal = completed.journal;
   return writeResult({ ok: true, reasonCode: "native_install_existing_result_reconciled", correlation: hint.taskCorrelation, sourceCommit: hint.sourceCommit, planDigest: verified.planDigest, installed: true, adopted: false });
 }
 

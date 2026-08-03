@@ -1847,7 +1847,10 @@ owner/root journals bind the exact armed transition, persist the verified
 root-derived package, and make `publication_started` ambiguous on process loss.
 Restart uses the original request/package plus fresh authority corroboration
 and exact readback only, never automatic replay. A root-owned sanitized result
-record supports durable owner-side completion. Exclusive root-owned transition
+record supports durable owner-side completion. Verified installation/adoption
+cannot transition to `blocked`; a final journal or result-publication failure
+permits only exact frozen-package readback, completion, and idempotent result
+adoption. Exclusive root-owned transition
 claims and a repository/source operation identity prevent
 concurrent or fresh-correlation reset. Root planning from a runner-writable repository path is
 rejected, and unprivileged planned bytes alone are not authority. Producer installation, one exact grant, root-executed successor

@@ -31,6 +31,7 @@ import {
 } from "../lib/semantic-recovery-native-install-journal.mjs";
 import { independentlyVerifyRootNativeInstallPackage } from "../lib/semantic-recovery-native-install-verifier.mjs";
 import {
+  completeVerifiedNativeInstallResult,
   persistNativeInstallJournalTransition,
   publishOrAdoptVerifiedNativeInstall,
 } from "../lib/semantic-recovery-native-install-publication.mjs";
@@ -467,6 +468,17 @@ test("journal interruption windows, corruption, stale correlation and duplicate 
   assert.equal(resumeNativeInstallProtocol({ ownerJournal: sudo, processEvidence: { correlation: sudo.correlation, active: false } }).action, "block_process_result_unknown");
   const wrong = createNativeInstallJournal({ ...journalIdentity, correlation: "issue-1012-other" });
   assert.throws(() => resumeNativeInstallProtocol({ ownerJournal: sudo, rootJournal: wrong }), /correlate/u);
+  for (const state of ["installed_verified", "adopted_verified"]) {
+    let verified = createNativeInstallJournal(journalIdentity);
+    const route = state === "installed_verified"
+      ? [["prepared", "awaiting_interactive_sudo"], ["awaiting_interactive_sudo", "sudo_started"], ["sudo_started", "root_authority_rederived"], ["root_authority_rederived", "root_plan_verified"], ["root_plan_verified", "publication_intent_durable"], ["publication_intent_durable", "publication_started"], ["publication_started", "installed_verified"]]
+      : [["prepared", "awaiting_interactive_sudo"], ["awaiting_interactive_sudo", "sudo_started"], ["sudo_started", "root_authority_rederived"], ["root_authority_rederived", "root_plan_verified"], ["root_plan_verified", "adopted_verified"]];
+    for (const [expectedState, nextState] of route) {
+      verified = transitionNativeInstallJournal({ current: verified, expectedState, nextState, observedAt: new Date(Date.parse(verified.updatedAt) + 1000).toISOString(), result: nextState.endsWith("verified") ? { ...emptyResult(`native_install_${nextState}`, { requestDigest: "1".repeat(64), sourceManifestDigest: "2".repeat(64), planDigest: "3".repeat(64), installedDigest: "4".repeat(64) }), outcome: nextState === "adopted_verified" ? "adopted" : "verified" } : null, persist() {} });
+    }
+    assert.equal(verified.state, state);
+    assert.throws(() => transitionNativeInstallJournal({ current: verified, expectedState: state, nextState: "blocked", observedAt: new Date(Date.parse(verified.updatedAt) + 1000).toISOString(), result: { ...emptyResult("native_install_blocked"), outcome: "blocked" }, persist() {} }), /transition invalid/u);
+  }
 });
 
 test("root journal is bound to the exact armed owner transition digest", () => {
@@ -584,6 +596,58 @@ test("a post-rename durability failure is recorded ambiguous and reconciles by e
     "publication_ambiguous->installed_verified",
   ]);
   assert.equal(verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() }).ok, true);
+});
+
+test("verified completion journal and result failures resume by readback without publication replay", () => {
+  const installPackage = installPackageFixture();
+  const filesystem = new PublicationMemoryFilesystem();
+  let publications = 0;
+  const originalPublish = filesystem.publishNoReplace.bind(filesystem);
+  filesystem.publishNoReplace = function publishOnce() { publications += 1; originalPublish(); };
+  let durable = createNativeInstallJournal(journalIdentity);
+  const advance = (expectedState, nextState, result = null, persist = () => {}) => {
+    const next = transitionNativeInstallJournal({ current: durable, expectedState, nextState, observedAt: new Date(Date.parse(durable.updatedAt) + 1000).toISOString(), result, persist });
+    durable = next;
+    return next;
+  };
+  advance("prepared", "awaiting_interactive_sudo");
+  advance("awaiting_interactive_sudo", "sudo_started", emptyResult("native_install_sudo_started"));
+  advance("sudo_started", "root_authority_rederived", { ...emptyResult("native_install_root_authority_rederived", { requestDigest: installPackage.plan.requestDigest, sourceManifestDigest: "2".repeat(64) }), outcome: "verified" });
+  advance("root_authority_rederived", "root_plan_verified", { ...emptyResult("native_install_root_plan_verified", { requestDigest: installPackage.plan.requestDigest, sourceManifestDigest: "2".repeat(64), planDigest: installPackage.plan.planDigest }), outcome: "verified" });
+  publishOrAdoptVerifiedNativeInstall({
+    installPackage,
+    correlation: durable.correlation,
+    filesystem,
+    journal: { transition(expectedState, nextState, result) { advance(expectedState, nextState, emptyResult(result.reasonCode, result)); } },
+  });
+  assert.equal(durable.state, "installed_verified");
+  const completion = { reasonCode: "native_install_completed", requestDigest: installPackage.plan.requestDigest, sourceManifestDigest: "2".repeat(64), planDigest: installPackage.plan.planDigest };
+  assert.throws(() => completeVerifiedNativeInstallResult({
+    journal: durable, installPackage, filesystem, completion,
+    transition() { throw new Error("simulated pre-durable completion transition failure"); },
+    publishResult() { assert.fail("result publication must not run before completion is durable"); },
+  }), /pre-durable/u);
+  assert.equal(durable.state, "installed_verified");
+  let resultAttempts = 0;
+  assert.throws(() => completeVerifiedNativeInstallResult({
+    journal: durable, installPackage, filesystem, completion,
+    transition: ({ current, expectedState, nextState, result }) => {
+      const next = transitionNativeInstallJournal({ current, expectedState, nextState, observedAt: new Date(Date.parse(current.updatedAt) + 1000).toISOString(), result: emptyResult(result.reasonCode, result), persist({ next: persisted }) { durable = persisted; } });
+      durable = next;
+      return next;
+    },
+    publishResult() { resultAttempts += 1; throw new Error("simulated result transport loss"); },
+  }), /result transport/u);
+  assert.equal(durable.state, "completed");
+  const resumed = completeVerifiedNativeInstallResult({
+    journal: durable, installPackage, filesystem, completion,
+    transition() { assert.fail("completed recovery must not repeat the journal transition"); },
+    publishResult(current) { resultAttempts += 1; assert.equal(current.state, "completed"); },
+  });
+  assert.equal(resumed.journal.state, "completed");
+  assert.equal(resultAttempts, 2);
+  assert.equal(publications, 1);
+  assert.equal(filesystem.finalExists(), true);
 });
 
 test("real TTY/PAM process outcomes are abstracted and argv/environment/journal evidence contain digests only", () => {
