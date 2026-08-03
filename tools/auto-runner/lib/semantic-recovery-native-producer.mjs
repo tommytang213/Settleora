@@ -61,11 +61,12 @@ export function planSemanticRecoveryNativeInstall({
   request,
   authorityReaders,
   readAuthorityContext,
+  producerSourceSha,
   supportFiles,
   now = new Date(),
 } = {}) {
   const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
-  if (!authorityReaders || typeof authorityReaders !== "object"
+  if (!authorityReaders || typeof authorityReaders !== "object" || !shaPattern.test(String(producerSourceSha || ""))
       || typeof readAuthorityContext !== "function" || !Array.isArray(supportFiles)) {
     throw new Error("semantic native producer dependencies invalid");
   }
@@ -123,6 +124,7 @@ export function planSemanticRecoveryNativeInstall({
     verifierSet: { version: semanticRecoveryVerifierSetVersion, digest: semanticRecoveryVerifierSetDigest },
     layout: semanticRecoveryProtectedLayout,
     processModel: "root_invoked_offline_no_network_listener",
+    producerSourceSha,
   };
   const policyBytes = canonicalBytes(policy);
   const files = normalizedSupport.map((support) => ({
@@ -205,7 +207,7 @@ export function planSemanticRecoveryNativeInstall({
     claimOwnerMatrix: { version: semanticRecoveryClaimOwnerMatrixVersion, digest: semanticRecoveryClaimOwnerMatrixDigest },
     verifierSet: { version: semanticRecoveryVerifierSetVersion, digest: semanticRecoveryVerifierSetDigest },
     selectedOperation: normalized.operation,
-    selectedSource: { path: normalized.source.deploymentEvidenceDocument, sha256: normalized.source.sha256 },
+    selectedSource: { path: normalized.source.deploymentEvidenceDocument, producerSourceSha, sha256: normalized.source.sha256 },
     directories,
     files: files.map(stripBytes).sort((left, right) => left.destination.localeCompare(right.destination)),
     sourceDescriptors: sourceDescriptors.sort((left, right) => left.authorityClass.localeCompare(right.authorityClass)),
@@ -411,7 +413,7 @@ function validateInstallPlanStructure(plan) {
   normalizeSemanticRecoveryNativeProducerRequest(plan.request);
   assertExactKeys(plan.claimOwnerMatrix, ["digest", "version"]);
   assertExactKeys(plan.verifierSet, ["digest", "version"]);
-  assertExactKeys(plan.selectedSource, ["path", "sha256"]);
+  assertExactKeys(plan.selectedSource, ["path", "producerSourceSha", "sha256"]);
   assertExactKeys(plan.summary, ["authorityClassCount", "directoryCount", "fileCount", "grantsInstalled", "servicesEnabled", "successorsCreated"]);
   const expectedForbiddenEffects = [
     "mutate_live_filesystem", "install_grant", "construct_successor", "persist_successor",
@@ -423,7 +425,8 @@ function validateInstallPlanStructure(plan) {
       || plan.verifierSet?.version !== semanticRecoveryVerifierSetVersion
       || plan.verifierSet?.digest !== semanticRecoveryVerifierSetDigest
       || plan.selectedOperation !== plan.request.operation
-      || canonicalJson(plan.selectedSource) !== canonicalJson({ path: plan.request.source.deploymentEvidenceDocument, sha256: plan.request.source.sha256 })
+      || !shaPattern.test(String(plan.selectedSource.producerSourceSha || ""))
+      || canonicalJson(plan.selectedSource) !== canonicalJson({ path: plan.request.source.deploymentEvidenceDocument, producerSourceSha: plan.selectedSource.producerSourceSha, sha256: plan.request.source.sha256 })
       || canonicalJson(plan.forbiddenEffects) !== canonicalJson(expectedForbiddenEffects)) throw new Error("semantic native install contract identity invalid");
   if (plan.directories.some((entry) => {
     assertExactKeys(entry, ["destination", "gid", "kind", "mode", "uid"]);
@@ -529,6 +532,7 @@ function validateInstallArtifactContents(plan, artifacts) {
     requestDigest: plan.requestDigest, producerBundleDigest: plan.producerBundleDigest,
     claimOwnerMatrix: plan.claimOwnerMatrix, verifierSet: plan.verifierSet,
     layout: semanticRecoveryProtectedLayout, processModel: "root_invoked_offline_no_network_listener",
+    producerSourceSha: plan.selectedSource.producerSourceSha,
   };
   assertExactArtifactBytes(byPath.get(semanticRecoveryProtectedLayout.producerPolicy), canonicalBytes(policy));
   const manifestDocument = structuredClone(plan);

@@ -2029,6 +2029,11 @@ Unknown fields and alternate operations, commands, paths, environment, or
 output roots are rejected. The plan derives subordinate digests, enumerates
 future files and directories, reports zero service effects, and keeps producer
 installation, grant installation, and successor execution distinct.
+Producer executable/support bytes are selected only from immutable Git blob
+objects beneath the exact authenticated canonical-main commit, never from the
+source-UID-writable worktree. The selected main SHA is frozen in the plan and
+policy, and a final full authority-context reread must match after artifact
+derivation.
 Grant planning is available only through the exact installed root-owned
 producer. Its closed request supplies the previously verified install package,
 one exact operation selector, and the semantic evidence packet; the producer
@@ -2052,8 +2057,9 @@ adds no listener, service, socket, timer, sudoers rule, credential, arbitrary
 copy, command passthrough, or generic JSON-signing surface. A later authorized
 installer must run the same producer as root, rederive the snapshots from fresh
 domain sources, compare the exact plan, publish without clobber, and verify the
-installed tree. The bounded bootstrap copies only the exact owner-selected
-executable/support bundle to its fixed protected path; the installed root-owned
+installed tree. The bounded bootstrap copies only the exact owner-selected,
+authenticated-Git-object executable/support bundle to its fixed protected path;
+the installed root-owned
 producer then delegates the full evidence read and plan derivation to a
 closed-environment real/effective source-UID/GID child. Root planning directly
 from a runner-writable checkout is rejected. Copying the planner's projected

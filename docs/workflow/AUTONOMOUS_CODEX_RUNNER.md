@@ -1813,7 +1813,11 @@ derive every subordinate digest. The fixed layout contains immutable producer
 runtime/policy, exactly eight protected stores, a grants directory, and
 successor incoming/provenance/commit roots. Plan readback requires canonical
 root:root directories and one-link immutable files at the exact paths. A later
-installation first bootstraps only the exact owner-selected executable/support
+installation first bootstraps only executable/support bytes read from immutable
+Git blob objects at the exact authenticated canonical-main SHA frozen in the
+plan and policy. The source-UID-writable worktree is never the bundle byte
+source, and the full authority context is reread after artifact derivation.
+The installer then publishes only the exact owner-selected executable/support
 bundle into the protected path, then invokes that installed root-owned producer
 to rederive the complete plan through its real/effective source-UID/GID child
 and requires an exact plan match before completing installation. Root planning

@@ -1,7 +1,7 @@
 #!/usr/bin/node
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { loadDeploymentProjectAuthority } from "./lib/config.mjs";
 import { authenticateSemanticDeploymentEvidencePackage } from "./lib/deployment-semantic-evidence-package.mjs";
@@ -19,7 +19,6 @@ import {
   normalizeSemanticRecoveryNativeProducerRequest,
   planSemanticRecoveryGrant,
   planSemanticRecoveryNativeInstall,
-  readSemanticRecoverySupportFiles,
   verifyInstalledSemanticRecoveryNativeProducer,
   verifySemanticRecoveryGrantPlan,
   verifySemanticRecoveryNativeInstallPlan,
@@ -113,13 +112,17 @@ function planInstallFromAuthenticatedSource(request) {
     if (new Set(contextDigests).size !== 1) throw new Error("semantic native authority changed between independent reads");
     return context;
   };
-  const supportPaths = discoverProducerSupportPaths();
+  const producerSourceContext = readAuthorityContext();
+  const producerSourceSha = producerSourceContext.candidate?.mainSha;
+  const supportFiles = readSemanticRecoverySupportFilesFromGit({ repositoryRoot, producerSourceSha });
   const generated = planSemanticRecoveryNativeInstall({
     request,
     authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext }),
     readAuthorityContext,
-    supportFiles: readSemanticRecoverySupportFiles(repositoryRoot, supportPaths),
+    producerSourceSha,
+    supportFiles,
   });
+  readAuthorityContext();
   const verified = verifySemanticRecoveryNativeInstallPlan(generated);
   if (!verified.ok) throw new Error("semantic native generated install plan did not verify");
   return encodeInstallPackage(generated);
@@ -294,22 +297,49 @@ export function parseSemanticRecoverySourceProcessResponse(mode, output) {
   return parsed;
 }
 
-function discoverProducerSupportPaths() {
-  const repositoryRoot = productionRepositoryRoot();
-  const root = path.join(repositoryRoot, "tools/auto-runner");
-  const found = [];
-  const walk = (directory, relative) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-      if (entry.name === "test" || entry.name === "node_modules" || entry.name.startsWith(".")) continue;
-      const childRelative = path.posix.join(relative, entry.name);
-      const child = path.join(directory, entry.name);
-      if (entry.isDirectory()) walk(child, childRelative);
-      else if (entry.isFile() && (entry.name.endsWith(".mjs") || childRelative === "README.md")) found.push(`tools/auto-runner/${childRelative}`);
-      else if (!entry.isFile()) throw new Error("semantic native support entry unsafe");
-    }
+export function readSemanticRecoverySupportFilesFromGit({ repositoryRoot, producerSourceSha, command = fixedGitCommand } = {}) {
+  if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)
+      || realpathSync(repositoryRoot) !== repositoryRoot
+      || !/^[a-f0-9]{40}$/u.test(String(producerSourceSha || ""))) {
+    throw new Error("semantic native producer Git source invalid");
+  }
+  const forbidden = ["GIT_REPLACE_REF_BASE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_DIR", "GIT_WORK_TREE", "GIT_SHALLOW_FILE"];
+  if (forbidden.some((key) => process.env[key])) throw new Error("semantic native producer Git environment untrusted");
+  const args = ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
+  const options = {
+    cwd: repositoryRoot,
+    env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" },
   };
-  walk(root, "");
-  return found.sort();
+  const git = (suffix, encoding = "utf8") => command("/usr/bin/git", [...args, ...suffix], { ...options, encoding });
+  if (String(git(["cat-file", "-t", producerSourceSha])).trim() !== "commit") {
+    throw new Error("semantic native producer Git commit invalid");
+  }
+  const records = Buffer.from(git(["ls-tree", "-rz", "--full-tree", producerSourceSha, "--", "tools/auto-runner"], null))
+    .toString("utf8").split("\0").filter(Boolean).map((record) => {
+      const match = /^(100644|100755) blob ([a-f0-9]{40})\t(tools\/auto-runner\/(.+))$/u.exec(record);
+      if (!match) throw new Error("semantic native producer Git tree entry invalid");
+      return { mode: match[1], object: match[2], source: match[3], relative: match[4] };
+    });
+  const selected = records.filter(({ relative }) => {
+    const segments = relative.split("/");
+    return !segments.some((segment) => segment === "test" || segment === "node_modules" || segment.startsWith("."))
+      && (relative.endsWith(".mjs") || relative === "README.md");
+  }).sort((left, right) => left.source.localeCompare(right.source));
+  if (selected.length < 2 || new Set(selected.map(({ source }) => source)).size !== selected.length
+      || !selected.some(({ source }) => source === "tools/auto-runner/semantic-recovery-native-producer.mjs")) {
+    throw new Error("semantic native producer Git support selection invalid");
+  }
+  return selected.map(({ object, source }) => {
+    const bytes = Buffer.from(git(["cat-file", "blob", object], null));
+    if (bytes.length < 1 || bytes.length > 1024 * 1024) throw new Error("semantic native producer Git blob invalid");
+    return { source, bytes, sha256: sha256(bytes), byteCount: bytes.length, executable: source === "tools/auto-runner/semantic-recovery-native-producer.mjs" };
+  });
+}
+
+function fixedGitCommand(executable, args, options) {
+  const result = spawnSync(executable, args, { ...options, maxBuffer: 8 * 1024 * 1024, timeout: 30_000 });
+  if (result.status !== 0 || result.error) throw result.error || new Error("semantic native producer Git command failed");
+  return result.stdout;
 }
 
 function trustedSourceIdentity() {

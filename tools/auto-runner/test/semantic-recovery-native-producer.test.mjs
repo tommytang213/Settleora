@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { assertSourceProcessIdentity, parseSemanticRecoverySourceProcessResponse, semanticRecoveryPlanExecutionRoute } from "../semantic-recovery-native-producer.mjs";
+import { assertSourceProcessIdentity, parseSemanticRecoverySourceProcessResponse, readSemanticRecoverySupportFilesFromGit, semanticRecoveryPlanExecutionRoute } from "../semantic-recovery-native-producer.mjs";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
   deriveSemanticRecoveryOperationRequest,
@@ -88,6 +91,7 @@ function planFixture() {
   const value = planSemanticRecoveryNativeInstall({
     request: request(), authorityReaders,
     readAuthorityContext(authorityClass) { reads.push(authorityClass); return { authorityClass, generation: 1 }; },
+    producerSourceSha: "8".repeat(40),
     supportFiles, now: new Date("2026-08-03T12:01:00.000Z"),
   });
   assert.deepEqual(reads, semanticRecoveryAuthorityClasses);
@@ -356,8 +360,10 @@ test("a commit marker with either predecessor missing is torn and never backfill
 test("installed producer bundle, fixed runtime and real source identity close the privilege boundary", () => {
   const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
   const persistence = readFileSync(new URL("../lib/semantic-recovery-protected-store.mjs", import.meta.url), "utf8");
-  assert.match(source, /walk\(root, ""\)/u);
-  assert.match(source, /entry\.name === "test"/u);
+  assert.match(source, /readSemanticRecoverySupportFilesFromGit\(\{ repositoryRoot, producerSourceSha \}\)/u);
+  assert.match(source, /ls-tree", "-rz", "--full-tree", producerSourceSha/u);
+  assert.match(source, /cat-file", "blob", object/u);
+  assert.doesNotMatch(source, /readSemanticRecoverySupportFiles\(repositoryRoot/u);
   assert.match(source, /--persist-successor/u);
   assert.match(source, /assertInstalledProducerInvocation\(\)/u);
   assert.equal(source.startsWith("#!/usr/bin/node\n"), true);
@@ -378,6 +384,30 @@ test("installed producer bundle, fixed runtime and real source identity close th
   assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--authenticate-successor-internal", canonicalJson({ authentication: { ok: false }, construction: null })), { authentication: { ok: false }, construction: null });
   assert.throws(() => parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson({ authentication: {}, construction: null })), /unsupported/u);
   assert.match(persistence, /recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?readbackProtectedSemanticRecoverySuccessor/u);
+});
+
+test("producer support bytes come from the authenticated immutable Git commit, not mutable worktree files", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-semantic-producer-git-"));
+  try {
+    execFileSync("/usr/bin/git", ["init", "-q"], { cwd: root });
+    execFileSync("/usr/bin/git", ["config", "user.email", "fixture@example.invalid"], { cwd: root });
+    execFileSync("/usr/bin/git", ["config", "user.name", "Fixture"], { cwd: root });
+    const source = path.join(root, "tools/auto-runner/semantic-recovery-native-producer.mjs");
+    const support = path.join(root, "tools/auto-runner/lib/support.mjs");
+    mkdirSync(path.dirname(support), { recursive: true });
+    writeFileSync(source, "export const committed = true;\n");
+    writeFileSync(support, "export const support = true;\n");
+    execFileSync("/usr/bin/git", ["add", "tools/auto-runner"], { cwd: root });
+    execFileSync("/usr/bin/git", ["commit", "-qm", "fixture"], { cwd: root });
+    const producerSourceSha = String(execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root })).trim();
+    writeFileSync(source, "export const attackerSelected = true;\n");
+    const files = readSemanticRecoverySupportFilesFromGit({ repositoryRoot: root, producerSourceSha });
+    const executable = files.find((entry) => entry.source === "tools/auto-runner/semantic-recovery-native-producer.mjs");
+    assert.equal(executable.bytes.toString("utf8"), "export const committed = true;\n");
+    assert.doesNotMatch(executable.bytes.toString("utf8"), /attackerSelected/u);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
 });
 
 test("claim-owner disagreement remains authoritative", () => {
