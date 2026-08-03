@@ -225,10 +225,12 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
       || fresh.operationId !== manifest.operation.operationId) {
     return failed("semantic_native_persistence_authority_drift");
   }
-  const readback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem });
-  if (readback.ok) return { ...readback, reasonCode: "semantic_recovery_successor_adopted" };
-  if (!["semantic_successor_not_persisted", "semantic_successor_readback_partial", "semantic_successor_readback_incoming_residue"].includes(readback.reasonCode)) {
-    return readback;
+  try { authenticateSemanticRecoveryGithubNoEffectSnapshot(fresh.githubNoEffectSnapshot, manifest, { now: clock(), requireFresh: true }); }
+  catch { return failed("semantic_native_persistence_github_snapshot_invalid"); }
+  const initialReadback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem });
+  if (initialReadback.ok) return { ...initialReadback, reasonCode: "semantic_recovery_successor_adopted" };
+  if (!["semantic_successor_not_persisted", "semantic_successor_readback_partial", "semantic_successor_readback_incoming_residue", "semantic_successor_readback_authentication_failed"].includes(initialReadback.reasonCode)) {
+    return initialReadback;
   }
   let githubNoEffectSnapshot;
   try {
@@ -246,6 +248,11 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
   if (!filesystem) {
     try { recoverExactInterruptedPublicationSet(expected); }
     catch { return failed("semantic_native_persistence_publication_residue_conflict"); }
+  }
+  const recoveredReadback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem });
+  if (recoveredReadback.ok) return { ...recoveredReadback, reasonCode: "semantic_recovery_successor_adopted" };
+  if (!["semantic_successor_not_persisted", "semantic_successor_readback_partial", "semantic_successor_readback_incoming_residue"].includes(recoveredReadback.reasonCode)) {
+    return recoveredReadback;
   }
   try {
     ensureProtectedSuccessorDirectories({ filesystem });
@@ -394,11 +401,23 @@ export function authenticateSemanticRecoveryGithubNoEffectSnapshot(snapshot, man
 }
 
 function selectSemanticRecoveryGithubNoEffectSnapshot({ freshSnapshot, manifest, provenancePath, filesystem, now }) {
-  const existing = readOptionalProtectedJson(provenancePath, { filesystem })
-    || readOptionalProtectedJson(incomingPathFor(provenancePath), { filesystem });
+  const existing = readOptionalProtectedPublicationJson(provenancePath, { filesystem });
   const selected = existing?.document?.githubNoEffectSnapshot || freshSnapshot;
   authenticateSemanticRecoveryGithubNoEffectSnapshot(selected, manifest, { now, requireFresh: true });
   return selected;
+}
+
+function readOptionalProtectedPublicationJson(finalPath, { filesystem }) {
+  const incomingPath = incomingPathFor(finalPath);
+  if (filesystem) {
+    return readOptionalProtectedJson(finalPath, { filesystem })
+      || readOptionalProtectedJson(incomingPath, { filesystem });
+  }
+  const finalPresent = existsSync(finalPath);
+  const incomingPresent = existsSync(incomingPath);
+  if (finalPresent && incomingPresent) return authenticateExactInterruptedHardLink(incomingPath, finalPath);
+  if (finalPresent) return authenticateProtectedJson(finalPath);
+  return incomingPresent ? authenticateProtectedJson(incomingPath) : null;
 }
 
 function authenticateProtectedJson(file, { filesystem = null, maximumBytes = maximumJsonBytes, expectedMode = expectedFileMode } = {}) {
@@ -528,30 +547,43 @@ function publishRecordNoClobber(finalPath, document, { filesystem }) {
   }
   if (existsSync(finalPath)) throw new Error("semantic protected final appeared");
   linkSync(incomingPath, finalPath);
+  fsyncDirectory(path.posix.dirname(finalPath));
   unlinkSync(incomingPath);
-  const parentFd = openSync(path.posix.dirname(finalPath), fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY || 0));
-  try { fsyncSync(parentFd); } finally { closeSync(parentFd); }
+  fsyncDirectory(path.posix.dirname(incomingPath));
 }
 
 function recoverExactInterruptedHardLink(incomingPath, finalPath, expectedBytes) {
   if (!existsSync(incomingPath) || !existsSync(finalPath)) return;
+  const authenticated = authenticateExactInterruptedHardLink(incomingPath, finalPath);
+  if (!authenticated.bytes.equals(expectedBytes)) throw new Error("semantic protected publication residue changed");
+  unlinkSync(incomingPath);
+  fsyncDirectory(path.posix.dirname(incomingPath));
+  fsyncDirectory(path.posix.dirname(finalPath));
+}
+
+function authenticateExactInterruptedHardLink(incomingPath, finalPath) {
   assertProtectedPath(incomingPath);
   assertProtectedPath(finalPath);
-  const incoming = lstatSync(incomingPath);
-  const final = lstatSync(finalPath);
-  if (!incoming.isFile() || incoming.isSymbolicLink() || !final.isFile() || final.isSymbolicLink()
-      || incoming.dev !== final.dev || incoming.ino !== final.ino || incoming.nlink !== 2 || final.nlink !== 2
-      || incoming.uid !== 0 || incoming.gid !== 0 || (incoming.mode & 0o7777) !== expectedFileMode
-      || realpathSync(incomingPath) !== incomingPath || realpathSync(finalPath) !== finalPath) {
-    throw new Error("semantic protected publication residue conflict");
-  }
-  const bytes = readFileSync(incomingPath);
-  const after = lstatSync(incomingPath);
-  if (incoming.dev !== after.dev || incoming.ino !== after.ino || incoming.size !== after.size
-      || !bytes.equals(expectedBytes)) throw new Error("semantic protected publication residue changed");
-  unlinkSync(incomingPath);
-  const parentFd = openSync(path.posix.dirname(finalPath), fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY || 0));
-  try { fsyncSync(parentFd); } finally { closeSync(parentFd); }
+  const fd = openSync(incomingPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  try {
+    const opened = fstatSync(fd);
+    const incoming = lstatSync(incomingPath);
+    const final = lstatSync(finalPath);
+    if (!opened.isFile() || opened.isSymbolicLink() || !incoming.isFile() || incoming.isSymbolicLink()
+        || !final.isFile() || final.isSymbolicLink() || opened.dev !== incoming.dev || opened.ino !== incoming.ino
+        || incoming.dev !== final.dev || incoming.ino !== final.ino || opened.nlink !== 2
+        || incoming.nlink !== 2 || final.nlink !== 2 || opened.uid !== 0 || opened.gid !== 0
+        || (opened.mode & 0o7777) !== expectedFileMode || opened.size < 1 || opened.size > maximumJsonBytes
+        || realpathSync(incomingPath) !== incomingPath || realpathSync(finalPath) !== finalPath) {
+      throw new Error("semantic protected publication residue conflict");
+    }
+    const bytes = readFileSync(fd);
+    const after = fstatSync(fd);
+    if (statIdentity(opened) !== statIdentity(after) || bytes.length !== opened.size || !isUtf8(bytes)) {
+      throw new Error("semantic protected publication residue changed");
+    }
+    return { path: finalPath, document: parseCanonicalJson(bytes), sha256: sha256(bytes), byteCount: bytes.length, bytes };
+  } finally { closeSync(fd); }
 }
 
 function recoverExactInterruptedPublicationSet(expected) {
@@ -570,6 +602,11 @@ function incomingPathFor(finalPath) {
     semanticRecoveryProtectedLayout.successorIncomingRoot,
     `${path.posix.basename(finalPath)}.${sha256(finalPath).slice(0, 16)}.incoming`,
   );
+}
+
+function fsyncDirectory(directory) {
+  const fd = openSync(directory, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY || 0));
+  try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 
 function assertFilesystemAdapter(filesystem) {

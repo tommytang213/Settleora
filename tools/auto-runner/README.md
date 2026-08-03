@@ -2147,7 +2147,10 @@ protected `successors` destination. It stages canonical bytes, fsyncs each
 record, publishes without clobber, fsyncs parent directories, and writes the
 commit marker last. Prepared provenance and successor files
 become accepted only through a final immutable commit marker binding both
-digests. Every pre-commit crash point is inert and exact-repeat resumable, while
+digests. A crash-retained incoming/final hard-link pair is reconciled only when
+both canonical names prove the same root-owned inode, exact two-link metadata,
+and expected bytes; both publication directories are fsynced around link and
+unlink. Every pre-commit crash point is inert and exact-repeat resumable, while
 a commit without both exact prepared records is rejected as torn. The created
 successor remains non-executable pending its later separately authorized
 handoff.

@@ -1849,6 +1849,10 @@ uses the contract's protected-snapshot option instead of claiming an impossible
 atomic CAS between GitHub and a local filesystem; exact uncommitted bytes remain
 fail-closed after expiry, while an already exact committed successor requires a
 new complete authority authentication before idempotent adoption.
+An interrupted hard-link publication is reconciled before strict readback only
+when the incoming and final canonical names prove the same root-owned inode,
+exact two-link metadata, and expected bytes. The final and incoming directories
+are fsynced on the respective link and unlink boundaries.
 The installed exact root-owned executable alone also exposes the closed
 `--persist-successor` and `--readback-successor` operations. Persistence
 requires real/effective UID 0 at the fixed canonical executable path and the

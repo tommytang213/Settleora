@@ -318,7 +318,23 @@ test("protected persistence reauthenticates, publishes once, adopts exact bytes,
   const adopted = persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, effectiveUid: 1000, reauthenticate });
   assert.equal(adopted.reasonCode, "semantic_recovery_successor_adopted");
   assert.deepEqual(filesystem.read(expected.paths.storagePath), bytes);
-  assert.equal(reads, 2);
+  const renewedSnapshotCore = {
+    ...fixture.githubNoEffectSnapshot,
+    observedAt: "2026-08-03T10:01:00.000Z",
+    expiresAt: "2026-08-03T10:01:30.000Z",
+  };
+  delete renewedSnapshotCore.snapshotDigest;
+  const renewedSnapshot = { ...renewedSnapshotCore, snapshotDigest: sha256(canonicalJson(renewedSnapshotCore)) };
+  const adoptedAfterHistoricalSnapshotExpiry = persistExactSemanticRecoverySuccessorFromNativeProducer({
+    ...fixture,
+    filesystem,
+    effectiveUid: 1000,
+    clock: () => new Date("2026-08-03T10:01:01.000Z"),
+    reauthenticate: () => { reads += 1; return persistenceAuthority(fixture, { githubNoEffectSnapshot: renewedSnapshot }); },
+  });
+  assert.equal(adoptedAfterHistoricalSnapshotExpiry.reasonCode, "semantic_recovery_successor_adopted");
+  assert.equal(adoptedAfterHistoricalSnapshotExpiry.githubNoEffectSnapshotDigest, fixture.githubNoEffectSnapshot.snapshotDigest);
+  assert.equal(reads, 3);
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).ok, true);
 });
 
@@ -375,7 +391,7 @@ test("protected persistence binds one fresh exact-operation GitHub snapshot thro
   assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: expired, reauthenticate: stable, clock: lateClock }).reasonCode, "semantic_native_persistence_github_snapshot_invalid");
   const commitExpiry = new ProtectedMemoryFilesystem();
   let ticks = 0;
-  const expiringClock = () => new Date(ticks++ === 0 ? "2026-08-03T10:00:29.000Z" : "2026-08-03T10:00:30.000Z");
+  const expiringClock = () => new Date(ticks++ < 2 ? "2026-08-03T10:00:29.000Z" : "2026-08-03T10:00:30.000Z");
   assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: commitExpiry, reauthenticate: stable, clock: expiringClock }).reasonCode, "semantic_native_persistence_github_snapshot_expired_before_commit");
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem: commitExpiry }).reasonCode, "semantic_successor_readback_partial");
 });
@@ -421,7 +437,11 @@ test("installed producer bundle, fixed runtime and real source identity close th
   assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson(encodedPlan)), encodedPlan);
   assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--authenticate-successor-internal", canonicalJson({ authentication: { ok: false }, construction: null, githubNoEffectSnapshot: null })), { authentication: { ok: false }, construction: null, githubNoEffectSnapshot: null });
   assert.throws(() => parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson({ authentication: {}, construction: null })), /unsupported/u);
-  assert.match(persistence, /recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?readbackProtectedSemanticRecoverySuccessor/u);
+  assert.match(persistence, /const initialReadback = readbackProtectedSemanticRecoverySuccessor[\s\S]*?semantic_successor_readback_authentication_failed[\s\S]*?expected = expectedPersistenceRecords[\s\S]*?recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?const recoveredReadback = readbackProtectedSemanticRecoverySuccessor/u);
+  assert.match(persistence, /finalPresent && incomingPresent[\s\S]*?authenticateExactInterruptedHardLink\(incomingPath, finalPath\)/u);
+  assert.match(persistence, /authenticateExactInterruptedHardLink\(incomingPath, finalPath\);\s*if \(!authenticated\.bytes\.equals\(expectedBytes\)\)/u);
+  assert.match(persistence, /opened\.dev !== incoming\.dev[\s\S]*?incoming\.ino !== final\.ino[\s\S]*?opened\.nlink !== 2/u);
+  assert.match(persistence, /linkSync\(incomingPath, finalPath\);\s*fsyncDirectory\(path\.posix\.dirname\(finalPath\)\);\s*unlinkSync\(incomingPath\);\s*fsyncDirectory\(path\.posix\.dirname\(incomingPath\)\)/u);
 });
 
 test("producer support bytes come from authenticated GitHub blobs with recomputed object identities", () => {
