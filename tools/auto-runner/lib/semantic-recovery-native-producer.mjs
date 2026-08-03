@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
@@ -360,24 +359,6 @@ export function verifySemanticRecoveryGrantPlan({ plan, artifact } = {}) {
   } catch { return { ok: false, reasonCode: "semantic_native_grant_plan_invalid" }; }
 }
 
-export function readSemanticRecoverySupportFiles(repositoryRoot, relativePaths) {
-  if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)
-      || realpathSync(repositoryRoot) !== repositoryRoot || !Array.isArray(relativePaths)) {
-    throw new Error("semantic native support root invalid");
-  }
-  return relativePaths.map((source) => {
-    if (!supportSourcePattern.test(String(source || ""))) throw new Error("semantic native support path invalid");
-    const absolute = path.join(repositoryRoot, source);
-    if (realpathSync(absolute) !== absolute) throw new Error("semantic native support path noncanonical");
-    const before = lstatSync(absolute);
-    const bytes = readFileSync(absolute);
-    const after = lstatSync(absolute);
-    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size !== bytes.length
-        || statIdentity(before) !== statIdentity(after)) throw new Error("semantic native support file unsafe");
-    return { source, bytes, sha256: sha256(bytes), byteCount: bytes.length, executable: source === "tools/auto-runner/semantic-recovery-native-producer.mjs" };
-  });
-}
-
 function normalizeSupportFile(value) {
   assertExactKeys(value, ["byteCount", "bytes", "executable", "sha256", "source"]);
   const bytes = Buffer.from(value.bytes);
@@ -655,7 +636,6 @@ function validateGrantPlanningManifest(manifest) {
 }
 function stripBytes(value) { const { bytes, ...rest } = value; return rest; }
 function assertExactKeys(value, expected) { if (!plainObject(value) || canonicalJson(Object.keys(value).sort()) !== canonicalJson([...expected].sort())) throw new Error("unsupported or missing fields"); }
-function statIdentity(info) { return [info.dev, info.ino, info.mode, info.nlink, info.uid, info.gid, info.size, info.mtimeMs, info.ctimeMs].join(":"); }
 function validTimestamp(value) { return typeof value === "string" && Number.isFinite(Date.parse(value)); }
 function isDigest(value) { return digestPattern.test(String(value || "")); }
 function plainObject(value) { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }

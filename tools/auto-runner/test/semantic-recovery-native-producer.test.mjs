@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { assertSourceProcessIdentity, parseSemanticRecoverySourceProcessResponse, readSemanticRecoverySupportFilesFromGit, semanticRecoveryPlanExecutionRoute } from "../semantic-recovery-native-producer.mjs";
+import { assertSourceProcessIdentity, createSemanticRecoveryReadOnlyFilesystem, parseSemanticRecoverySourceProcessResponse, readSemanticRecoverySupportFilesFromGit, semanticRecoveryPlanExecutionRoute } from "../semantic-recovery-native-producer.mjs";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
   deriveSemanticRecoveryOperationRequest,
@@ -405,6 +405,19 @@ test("producer support bytes come from the authenticated immutable Git commit, n
     const executable = files.find((entry) => entry.source === "tools/auto-runner/semantic-recovery-native-producer.mjs");
     assert.equal(executable.bytes.toString("utf8"), "export const committed = true;\n");
     assert.doesNotMatch(executable.bytes.toString("utf8"), /attackerSelected/u);
+  } finally {
+    rmSync(root, { recursive: true });
+  }
+});
+
+test("real installed-filesystem adapter exposes stable read-only directory membership", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-semantic-producer-readonly-"));
+  try {
+    writeFileSync(path.join(root, "member.json"), "{}", { mode: 0o600 });
+    const filesystem = createSemanticRecoveryReadOnlyFilesystem();
+    assert.deepEqual(filesystem.list(root), ["member.json"]);
+    assert.equal(filesystem.inspect(path.join(root, "member.json")).type, "file");
+    assert.equal(filesystem.read(path.join(root, "member.json")).toString("utf8"), "{}");
   } finally {
     rmSync(root, { recursive: true });
   }

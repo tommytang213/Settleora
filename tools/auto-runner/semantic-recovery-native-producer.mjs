@@ -1,7 +1,7 @@
 #!/usr/bin/node
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { loadDeploymentProjectAuthority } from "./lib/config.mjs";
 import { authenticateSemanticDeploymentEvidencePackage } from "./lib/deployment-semantic-evidence-package.mjs";
@@ -146,7 +146,7 @@ function planGrantFromInstalled(value) {
     throw new Error("semantic native grant operation selector invalid");
   }
   assertInstalledProducerInvocation();
-  const filesystem = realFilesystem();
+  const filesystem = createSemanticRecoveryReadOnlyFilesystem();
   const decoded = decodeInstallPackage(value.installPackage);
   if (!verifySemanticRecoveryNativeInstallPlan(decoded).ok
       || !verifyInstalledSemanticRecoveryNativeProducer({ plan: decoded.plan, filesystem }).ok) {
@@ -170,7 +170,7 @@ function verifyInstalled(value) {
   const decoded = decodeInstallPackage(value);
   const planned = verifySemanticRecoveryNativeInstallPlan(decoded);
   if (!planned.ok) return planned;
-  return verifyInstalledSemanticRecoveryNativeProducer({ plan: decoded.plan, filesystem: realFilesystem() });
+  return verifyInstalledSemanticRecoveryNativeProducer({ plan: decoded.plan, filesystem: createSemanticRecoveryReadOnlyFilesystem() });
 }
 
 function executeProtectedSuccessorOperation(mode, value) {
@@ -428,7 +428,7 @@ function encodeGrantPlan(value) {
   return { plan: value.plan, artifact: { ...artifact, bytesBase64: Buffer.from(bytes).toString("base64") } };
 }
 
-function realFilesystem() {
+export function createSemanticRecoveryReadOnlyFilesystem() {
   return {
     inspect(target) {
       const stat = lstatSync(target);
