@@ -147,6 +147,23 @@ test("wrong repository, source, transport, object bytes, dependency and symlink 
   assert.throws(() => authenticateNativeInstallGitSource({ hint: forgedHint, objectReader: symlink.objectReader }), /symlink entry forbidden/u);
 });
 
+test("a transport-truncated raw tree blocks after its tree and commit identities are correctly rebound", () => {
+  const fixture = gitFixture();
+  const root = fixture.objects.get(fixture.rootTree);
+  root.bytes = root.bytes.subarray(0, root.bytes.length - 1);
+  const truncatedRoot = gitObjectOid("tree", root.bytes);
+  fixture.objects.delete(fixture.rootTree);
+  fixture.objects.set(truncatedRoot, { oid: truncatedRoot, type: "tree", bytes: root.bytes });
+  const commitObject = fixture.objects.get(fixture.commit);
+  commitObject.bytes = Buffer.from(commitObject.bytes.toString("utf8").replace(fixture.rootTree, truncatedRoot));
+  const reboundCommit = gitObjectOid("commit", commitObject.bytes);
+  fixture.objects.delete(fixture.commit);
+  fixture.objects.set(reboundCommit, { oid: reboundCommit, type: "commit", bytes: commitObject.bytes });
+  const reboundHint = hint({ sourceCommit: reboundCommit });
+  fixture.objectReader.resolveRepository = () => ({ repository: reboundHint.repository, commit: reboundCommit, transport: "authenticated_github_https" });
+  assert.throws(() => authenticateNativeInstallGitSource({ hint: reboundHint, objectReader: fixture.objectReader }), /Git tree invalid|Git tree truncated/u);
+});
+
 test("materialized readback requires root metadata, one link, canonical relative realpath and exact Git/blob bytes", () => {
   const authenticated = authenticateNativeInstallGitSource(gitFixture());
   const values = new Map(authenticated.supportFiles.map((entry) => [entry.source, {
@@ -335,12 +352,16 @@ test("exact existing installation adopts without rewrite while conflict and resi
 
 test("deep path, forbidden-effect and installed metadata fixtures reach their specific validators after valid outer bindings", () => {
   const original = installPackageFixture();
-  for (const [name, mutate, detail] of [
+  const planMutations = [
     ["traversal", ({ plan, artifacts }) => { const file = plan.files.find((entry) => entry.kind === "authority_store"); const artifact = artifacts.find((entry) => entry.destination === file.destination); file.destination = `${semanticRecoveryProtectedLayout.root}/stores/../escape.json`; artifact.destination = file.destination; }, "semantic_native_install_file_invalid"],
     ["absolute", ({ plan, artifacts }) => { const file = plan.files.find((entry) => entry.kind === "authority_store"); const artifact = artifacts.find((entry) => entry.destination === file.destination); file.destination = "/tmp/escape.json"; artifact.destination = file.destination; }, "semantic_native_install_file_invalid"],
     ["grant", ({ plan }) => { const file = plan.files.find((entry) => entry.kind === "authority_store"); file.kind = "operation_grant"; }, "semantic_native_install_file_kind_invalid"],
-    ["service", ({ plan }) => { plan.serviceEffects = [{ kind: "service", action: "enable" }]; }, "semantic_native_install_plan_invalid"],
-  ]) {
+    ["successor", ({ plan }) => { const file = plan.files.find((entry) => entry.kind === "authority_store"); file.kind = "semantic_successor"; }, "semantic_native_install_file_kind_invalid"],
+  ];
+  for (const effectKind of ["service", "socket", "timer", "sudoers", "user", "group", "credential", "secret", "network", "arbitrary_command"]) {
+    planMutations.push([effectKind, ({ plan }) => { plan.serviceEffects = [{ kind: effectKind, action: "inject" }]; }, "semantic_native_install_plan_invalid"]);
+  }
+  for (const [name, mutate, detail] of planMutations) {
     const rebound = rebindInstallPackage(original, mutate);
     const result = verifySemanticRecoveryNativeInstallPlan(rebound);
     assert.equal(result.ok, false, name);
@@ -403,6 +424,41 @@ test("journal interruption windows, corruption, stale correlation and duplicate 
   assert.equal(resumeNativeInstallProtocol({ ownerJournal: sudo, processEvidence: { correlation: sudo.correlation, active: false } }).action, "block_process_result_unknown");
   const wrong = createNativeInstallJournal({ ...journalIdentity, correlation: "issue-1012-other" });
   assert.throws(() => resumeNativeInstallProtocol({ ownerJournal: sudo, rootJournal: wrong }), /correlate/u);
+});
+
+test("restart before every journal boundary never duplicates sudo or publication and only ambiguity permits readback", () => {
+  const steps = [
+    ["prepared", "awaiting_interactive_sudo", null],
+    ["awaiting_interactive_sudo", "sudo_started", emptyResult("native_install_sudo_started")],
+    ["sudo_started", "root_authority_rederived", emptyResult("native_install_root_authority_rederived", { requestDigest: "1".repeat(64), sourceManifestDigest: "2".repeat(64) })],
+    ["root_authority_rederived", "root_plan_verified", emptyResult("native_install_root_plan_verified", { requestDigest: "1".repeat(64), sourceManifestDigest: "2".repeat(64), planDigest: "3".repeat(64) })],
+    ["root_plan_verified", "publication_intent_durable", emptyResult("native_install_publication_intent_durable", { planDigest: "3".repeat(64) })],
+    ["publication_intent_durable", "publication_started", { ...emptyResult("native_install_publication_started", { planDigest: "3".repeat(64) }), outcome: "ambiguous" }],
+    ["publication_started", "publication_ambiguous", { ...emptyResult("native_install_publication_ambiguous", { planDigest: "3".repeat(64) }), outcome: "ambiguous" }],
+    ["publication_ambiguous", "installed_verified", { ...emptyResult("native_install_installed_verified", { planDigest: "3".repeat(64), installedDigest: "4".repeat(64) }), outcome: "verified" }],
+    ["installed_verified", "completed", { ...emptyResult("native_install_completed", { planDigest: "3".repeat(64), installedDigest: "4".repeat(64) }), outcome: "completed" }],
+  ];
+  let journal = createNativeInstallJournal(journalIdentity);
+  for (let index = 0; index < steps.length; index += 1) {
+    const before = resumeNativeInstallProtocol({ ownerJournal: journal });
+    assert.equal(before.mutationAllowed, false, journal.state);
+    assert.equal(before.sudoAllowed, journal.state === "awaiting_interactive_sudo", journal.state);
+    if (["publication_started", "publication_ambiguous"].includes(journal.state)) assert.equal(before.action, "readback_only", journal.state);
+    const [expectedState, nextState, result] = steps[index];
+    journal = transitionNativeInstallJournal({
+      current: journal,
+      expectedState,
+      nextState,
+      observedAt: new Date(Date.parse(journalIdentity.observedAt) + (index + 1) * 1000).toISOString(),
+      result,
+      persist() {},
+    });
+    assert.equal(journal.sudoAttemptCount <= 1, true);
+    assert.equal(journal.publicationAttemptCount <= 1, true);
+  }
+  assert.equal(journal.sudoAttemptCount, 1);
+  assert.equal(journal.publicationAttemptCount, 1);
+  assert.equal(resumeNativeInstallProtocol({ ownerJournal: journal }).action, "readback_only");
 });
 
 test("publication transport ambiguity always selects exact readback and never automatic replay", () => {
@@ -470,6 +526,18 @@ test("real TTY/PAM process outcomes are abstracted and argv/environment/journal 
     assert.doesNotMatch(canonicalJson(result), /health-token|super-secret/u);
     assert.equal(result.stdoutSha256, sha256(secret));
     assert.equal(result.stderrSha256, sha256(secret));
+  }
+  const process = sanitizeNativeInstallProcessResult({ status: 1, signal: null, timedOut: false, processLost: false, stdout: secret, stderr: secret });
+  const armed = transitionNativeInstallJournal({
+    current: createNativeInstallJournal(journalIdentity), expectedState: "prepared", nextState: "awaiting_interactive_sudo",
+    observedAt: "2026-08-03T12:00:01.000Z", persist() {},
+  });
+  const journal = transitionNativeInstallJournal({
+    current: armed, expectedState: "awaiting_interactive_sudo", nextState: "sudo_started",
+    observedAt: "2026-08-03T12:00:02.000Z", result: emptyResult("native_install_sudo_refused", { process }), persist() {},
+  });
+  for (const evidence of [sudoArgv, {}, process, journal, resumeNativeInstallProtocol({ ownerJournal: journal, processEvidence: { correlation: journal.correlation, active: false } })]) {
+    assert.doesNotMatch(canonicalJson(evidence), /health-token|super-secret/u);
   }
 });
 
