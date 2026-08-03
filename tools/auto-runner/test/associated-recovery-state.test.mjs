@@ -231,6 +231,18 @@ test("candidate, lifecycle, counter, phase, status, stop, and no-effect drift fa
   }
 });
 
+test("associated provisional state is shape-closed against lifecycle, report, grant, and successor authority", () => {
+  for (const mutateAssociated of [
+    (state) => { state.sessionLifecycle = { mutationAuthority: { status: "active", generation: 1 } }; },
+    (state) => { state.expectedReportPaths = { promptPath: "/tmp/prompt", repoReportPath: "/tmp/report" }; },
+    (state) => { state.operationGrant = { authority: "unexpected" }; },
+    (state) => { state.semanticRecoverySuccessor = { authority: "unexpected" }; },
+  ]) {
+    const f = fixture({ mutateAssociated });
+    try { assert.equal(f.invoke().reasonCode, "associated_recovery_shape_invalid"); } finally { f.cleanup(); }
+  }
+});
+
 test("provisional task identity and exact claim, charge, and branch markers are authenticated", () => {
   const associatedCases = [
     (state) => { state.taskKey = "20260101T010101"; },

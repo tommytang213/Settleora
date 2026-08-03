@@ -154,8 +154,9 @@ export function planSemanticDeploymentEvidencePackage({
   });
 }
 
-export function createOrAdoptSemanticDeploymentEvidencePackage(plan, { beforePublish = null } = {}) {
+export function createOrAdoptSemanticDeploymentEvidencePackage(plan, { beforePublish = null, beforeAtomicRename = null } = {}) {
   if (beforePublish !== null && typeof beforePublish !== "function") throw new Error("semantic evidence package publication hook invalid");
+  if (beforeAtomicRename !== null && typeof beforeAtomicRename !== "function") throw new Error("semantic evidence package atomic publication hook invalid");
   validatePlan(plan);
   const current = inspectPackageResidue(plan);
   if (current.action === "adopt_final") {
@@ -175,9 +176,8 @@ export function createOrAdoptSemanticDeploymentEvidencePackage(plan, { beforePub
       throw new Error("semantic evidence package incoming changed before adoption");
     }
     beforePublish?.();
-    fsyncExistingPackage(plan.incomingRoot, plan.members);
     if (pathEntryExists(plan.packageRoot)) throw new Error("semantic evidence package final appeared before incoming publication");
-    publishDirectoryNoReplace(plan.incomingRoot, plan.packageRoot);
+    publishAuthenticatedDirectoryNoReplace(plan.incomingRoot, plan.packageRoot, plan.members, beforeAtomicRename);
     fsyncDirectory(plan.configRoot);
     authenticateSemanticDeploymentEvidencePackage(plan.documentPath);
     return packageResult(plan, "adopted_incoming");
@@ -190,9 +190,8 @@ export function createOrAdoptSemanticDeploymentEvidencePackage(plan, { beforePub
     fsyncDirectory(plan.incomingRoot);
     if (pathEntryExists(plan.packageRoot)) throw new Error("semantic evidence package final appeared before commit");
     beforePublish?.();
-    fsyncExistingPackage(plan.incomingRoot, plan.members);
     if (pathEntryExists(plan.packageRoot)) throw new Error("semantic evidence package final appeared before publication");
-    publishDirectoryNoReplace(plan.incomingRoot, plan.packageRoot);
+    publishAuthenticatedDirectoryNoReplace(plan.incomingRoot, plan.packageRoot, plan.members, beforeAtomicRename);
     fsyncDirectory(plan.configRoot);
   } catch (error) {
     // Deliberately retain crash residue for exact inspection/adoption. Never
@@ -354,6 +353,14 @@ function authenticateDirectory(directory, mode) {
 }
 
 function authenticateMember(file) {
+  const authenticated = openAuthenticatedMember(file);
+  try {
+    const { fd: ignored, ...result } = authenticated;
+    return result;
+  } finally { closeSync(authenticated.fd); }
+}
+
+function openAuthenticatedMember(file) {
   if (realpathSync(file) !== file) throw new Error("semantic evidence package member noncanonical");
   const fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
   try {
@@ -371,8 +378,8 @@ function authenticateMember(file) {
         || memberIdentity(first) !== memberIdentity(after)
         || bytes.length !== first.size || realpathSync(file) !== file) throw new Error("semantic evidence package member changed");
     parseCanonicalJson(bytes);
-    return { bytes, sha256: sha256(bytes), ownerUid: first.uid, mode: first.mode & 0o777, identity: memberIdentity(first) };
-  } finally { closeSync(fd); }
+    return { fd, bytes, sha256: sha256(bytes), ownerUid: first.uid, mode: first.mode & 0o777, identity: memberIdentity(first) };
+  } catch (error) { closeSync(fd); throw error; }
 }
 
 function writeMember(file, bytes) {
@@ -396,12 +403,71 @@ function fsyncExistingPackage(root, members) {
   }
   for (const member of members) {
     const file = path.join(root, member.name);
-    const authenticated = authenticateMember(file);
-    if (authenticated.sha256 !== member.sha256) throw new Error("semantic evidence package incoming member changed");
-    const fd = openSync(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
-    try { fsyncSync(fd); } finally { closeSync(fd); }
+    const authenticated = openAuthenticatedMember(file);
+    try {
+      if (authenticated.sha256 !== member.sha256) throw new Error("semantic evidence package incoming member changed");
+      fsyncSync(authenticated.fd);
+    } finally { closeSync(authenticated.fd); }
   }
   fsyncDirectory(root);
+}
+
+function publishAuthenticatedDirectoryNoReplace(source, destination, members, beforeAtomicRename) {
+  const frozen = freezePackageForPublication(source, members);
+  try {
+    beforeAtomicRename?.();
+    assertFrozenPackageAtPath(frozen, source, "before publication");
+    publishDirectoryNoReplace(source, destination);
+    assertFrozenPackageAtPath(frozen, destination, "through publication");
+  } finally {
+    for (const member of frozen.members) closeSync(member.fd);
+    closeSync(frozen.directoryFd);
+  }
+}
+
+function freezePackageForPublication(root, members) {
+  authenticateDirectory(root, 0o700);
+  const directoryFd = openSync(root, fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY || 0) | (fsConstants.O_NOFOLLOW || 0));
+  const openedMembers = [];
+  try {
+    const directoryInfo = fstatSync(directoryFd);
+    if (directoryIdentity(directoryInfo) !== directoryIdentity(lstatSync(root))
+        || canonicalJson(readdirSync(root).sort()) !== canonicalJson(members.map((member) => member.name).sort())) {
+      throw new Error("semantic evidence package incoming directory changed before publication");
+    }
+    for (const member of members) {
+      const authenticated = openAuthenticatedMember(path.join(root, member.name));
+      if (authenticated.sha256 !== member.sha256) {
+        closeSync(authenticated.fd);
+        throw new Error("semantic evidence package incoming member changed");
+      }
+      fsyncSync(authenticated.fd);
+      openedMembers.push({ name: member.name, fd: authenticated.fd, identity: authenticated.identity });
+    }
+    fsyncSync(directoryFd);
+    const frozen = { directoryFd, directoryIdentity: directoryIdentity(directoryInfo), members: openedMembers,
+      expectedNames: members.map((member) => member.name).sort() };
+    assertFrozenPackageAtPath(frozen, root, "during final authentication");
+    return frozen;
+  } catch (error) {
+    for (const member of openedMembers) closeSync(member.fd);
+    closeSync(directoryFd);
+    throw error;
+  }
+}
+
+function assertFrozenPackageAtPath(frozen, root, phase) {
+  if (realpathSync(root) !== root || directoryIdentity(lstatSync(root)) !== frozen.directoryIdentity
+      || directoryIdentity(fstatSync(frozen.directoryFd)) !== frozen.directoryIdentity
+      || canonicalJson(readdirSync(root).sort()) !== canonicalJson(frozen.expectedNames)) {
+    throw new Error(`semantic evidence package incoming directory changed ${phase}`);
+  }
+  for (const member of frozen.members) {
+    const current = lstatSync(path.join(root, member.name));
+    if (memberIdentity(current) !== member.identity || memberIdentity(fstatSync(member.fd)) !== member.identity) {
+      throw new Error(`semantic evidence package incoming member changed ${phase}`);
+    }
+  }
 }
 
 function publishDirectoryNoReplace(source, destination) {
@@ -496,6 +562,7 @@ function canonicalize(value) {
 }
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 function memberIdentity(info) { return [info.dev, info.ino, info.mode, info.nlink, info.uid, info.gid, info.size, info.mtimeMs, info.ctimeMs].join(":"); }
+function directoryIdentity(info) { return [info.dev, info.ino, info.mode, info.nlink, info.uid, info.gid].join(":"); }
 function deepFreeze(value) {
   if (ArrayBuffer.isView(value)) return value;
   if (value && typeof value === "object" && !Object.isFrozen(value)) {

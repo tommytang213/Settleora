@@ -486,6 +486,14 @@ export function authenticateAssociatedRecoverableState({
       return fail("associated_recovery_changed_during_discovery");
     }
     associated = recheckedAssociated;
+    const provisionalFields = [
+      "attempts", "branch", "evidence", "featureBundle", "firstIncompleteAction", "generatedWork", "issue",
+      "mutationMarkers", "nextSafeAction", "outageResubmission", "phase", "pr", "retryBudgets", "run",
+      "stateVersion", "stopReason", "taskKey", "timestamps",
+    ].sort();
+    if (JSON.stringify(Object.keys(associated.state).sort()) !== JSON.stringify(provisionalFields)) {
+      return fail("associated_recovery_shape_invalid");
+    }
     if (!isProvisionalTaskKey(associated.state.taskKey)
         || !isExactRecoverySuccessor(associated.state, incident.state)) {
       return fail("associated_recovery_semantic_lineage_mismatch");

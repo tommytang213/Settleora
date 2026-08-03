@@ -9,6 +9,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -174,6 +175,40 @@ test("staged members are reauthenticated after the final publication callback", 
       }), /incoming member changed/u);
       assert.equal(existsSync(plan.packageRoot), false);
       assert.equal(existsSync(plan.incomingRoot), true);
+    } finally { f.cleanup(); }
+  }
+});
+
+test("publication retains the authenticated incoming inode through atomic rename", () => {
+  for (const [action, replacement] of [
+    ["create", "directory"],
+    ["adopt_incoming", "directory"],
+    ["create", "member"],
+    ["adopt_incoming", "member"],
+  ]) {
+    const f = fixture();
+    try {
+      const plan = f.makePlan();
+      if (action === "adopt_incoming") {
+        mkdirSync(plan.incomingRoot, { mode: 0o700 });
+        for (const member of plan.members) writeFileSync(path.join(plan.incomingRoot, member.name), member.bytes, { mode: 0o600 });
+      }
+      assert.throws(() => createOrAdoptSemanticDeploymentEvidencePackage(plan, {
+        beforeAtomicRename: () => {
+          if (replacement === "directory") {
+            renameSync(plan.incomingRoot, `${plan.incomingRoot}.swapped`);
+            mkdirSync(plan.incomingRoot, { mode: 0o700 });
+            for (const member of plan.members) writeFileSync(path.join(plan.incomingRoot, member.name), member.bytes, { mode: 0o600 });
+          } else {
+            const member = plan.members.find(({ name }) => name === "deployment-evidence.json");
+            renameSync(path.join(plan.incomingRoot, member.name), `${plan.incomingRoot}.member-swapped`);
+            writeFileSync(path.join(plan.incomingRoot, member.name), member.bytes, { mode: 0o600 });
+          }
+        },
+      }), /incoming (?:directory|member) changed before publication/u);
+      assert.equal(existsSync(plan.packageRoot), false);
+      assert.equal(existsSync(plan.incomingRoot), true);
+      assert.equal(existsSync(replacement === "directory" ? `${plan.incomingRoot}.swapped` : `${plan.incomingRoot}.member-swapped`), true);
     } finally { f.cleanup(); }
   }
 });
