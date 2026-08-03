@@ -33,12 +33,13 @@ const maximumInputBytes = 8 * 1024 * 1024;
 const fixedNodeRuntimePath = "/usr/bin/node";
 const sourceAuthenticationMode = "--authenticate-successor-internal";
 const sourcePlanMode = "--plan-install-internal";
+const sourceGrantPlanMode = "--derive-grant-manifest-internal";
 const repositoryRoot = realpathSync("/workspace/repos/Settleora");
 const runtimeRoot = "/workspace/auto-runner/runtime";
 const configPath = "/workspace/auto-runner/config/settleora.json";
 const approvedProfilePath = "/workspace/auto-runner/config/settleora-production-approved-20260724-0946.json";
 const healthUnitPath = "/home/tommytang213/.config/systemd/user/settleora-auto-runner-health.service";
-const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor", sourceAuthenticationMode, sourcePlanMode]);
+const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor", sourceAuthenticationMode, sourcePlanMode, sourceGrantPlanMode]);
 
 export async function main(argv = process.argv.slice(2), input = process.stdin) {
   if (argv.length !== 1 || !supportedModes.has(argv[0])) throw new Error("one supported semantic recovery mode is required");
@@ -46,13 +47,14 @@ export async function main(argv = process.argv.slice(2), input = process.stdin) 
   let result;
   if (argv[0] === sourceAuthenticationMode) result = executeSourceAuthentication(request);
   else if (argv[0] === sourcePlanMode) result = executeSourcePlan(request);
+  else if (argv[0] === sourceGrantPlanMode) result = executeSourceGrantPlan(request);
   else if (argv[0] === "--plan-install") result = planInstall(request);
   else if (argv[0] === "--verify-install-plan") result = verifyInstallPackage(request);
   else if (argv[0] === "--plan-grant") result = planGrantFromInstalled(request);
   else if (argv[0] === "--verify-grant-plan") result = verifyGrantPackage(request);
   else if (argv[0] === "--verify-installed") result = verifyInstalled(request);
   else result = executeProtectedSuccessorOperation(argv[0], request);
-  if (![sourceAuthenticationMode, sourcePlanMode].includes(argv[0])) process.stderr.write(`${summary(argv[0], result)}\n`);
+  if (![sourceAuthenticationMode, sourcePlanMode, sourceGrantPlanMode].includes(argv[0])) process.stderr.write(`${summary(argv[0], result)}\n`);
   process.stdout.write(`${canonicalJson(result)}\n`);
   return result;
 }
@@ -146,11 +148,16 @@ function planGrantFromInstalled(value) {
       || !verifyInstalledSemanticRecoveryNativeProducer({ plan: decoded.plan, filesystem }).ok) {
     throw new Error("semantic native grant planning requires exact installed producer readback");
   }
-  const config = productionRecoveryConfig();
-  const corroboration = buildSemanticRecoveryManifest(value.semanticEvidencePacket, { config });
-  if (!corroboration?.ok || !corroboration.manifest
+  const corroboration = runSourceProcess(trustedSourceIdentity(), sourceGrantPlanMode, {
+    operationId: value.operationId,
+    semanticEvidencePacket: value.semanticEvidencePacket,
+  });
+  if (!corroboration.ok || !corroboration.manifest
       || corroboration.manifest.operation?.operationId !== value.operationId) {
     throw new Error("semantic native grant planning authority invalid");
+  }
+  if (!verifyInstalledSemanticRecoveryNativeProducer({ plan: decoded.plan, filesystem }).ok) {
+    throw new Error("semantic native grant planning installed producer changed during authentication");
   }
   return encodeGrantPlan(planSemanticRecoveryGrant({ manifest: corroboration.manifest }));
 }
@@ -211,6 +218,23 @@ function executeSourceAuthentication(value) {
   return { authentication, construction };
 }
 
+function executeSourceGrantPlan(value) {
+  assertExactKeys(value, ["operationId", "semanticEvidencePacket"]);
+  if (!/^[a-f0-9]{64}$/u.test(String(value.operationId || ""))) {
+    throw new Error("semantic native grant operation selector invalid");
+  }
+  const sourceIdentity = trustedSourceIdentity();
+  assertInstalledProducerInvocation({ rootRequired: false });
+  assertSourceProcessIdentity(sourceIdentity);
+  const corroboration = buildSemanticRecoveryManifest(value.semanticEvidencePacket, { config: productionRecoveryConfig() });
+  return {
+    ok: corroboration?.ok === true,
+    reasonCode: corroboration?.reasonCode || "semantic_native_grant_manifest_invalid",
+    manifest: corroboration?.ok === true ? corroboration.manifest : null,
+    manifestDigest: corroboration?.ok === true ? corroboration.manifestDigest : null,
+  };
+}
+
 function productionRecoveryConfig() {
   const authority = loadDeploymentProjectAuthority({
     configPath,
@@ -228,7 +252,7 @@ function authenticateInSourceProcess(sourceIdentity, value) {
 }
 
 function runSourceProcess(sourceIdentity, mode, value) {
-  if (![sourceAuthenticationMode, sourcePlanMode].includes(mode)) throw new Error("semantic native source subprocess mode invalid");
+  if (![sourceAuthenticationMode, sourcePlanMode, sourceGrantPlanMode].includes(mode)) throw new Error("semantic native source subprocess mode invalid");
   const child = spawnSync(fixedNodeRuntimePath, [semanticRecoveryProtectedLayout.producerExecutable, mode], {
     cwd: "/",
     env: { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
@@ -246,13 +270,17 @@ function runSourceProcess(sourceIdentity, mode, value) {
 }
 
 export function parseSemanticRecoverySourceProcessResponse(mode, output) {
-  if (![sourceAuthenticationMode, sourcePlanMode].includes(mode) || typeof output !== "string" || output.length > maximumInputBytes) {
+  if (![sourceAuthenticationMode, sourcePlanMode, sourceGrantPlanMode].includes(mode) || typeof output !== "string" || output.length > maximumInputBytes) {
     throw new Error("semantic native source authentication response invalid");
   }
   let parsed;
   try { parsed = JSON.parse(output); } catch { throw new Error("semantic native source authentication response invalid"); }
   if (canonicalJson(parsed) !== output) throw new Error("semantic native source authentication response noncanonical");
-  assertExactKeys(parsed, mode === sourceAuthenticationMode ? ["authentication", "construction"] : ["artifacts", "plan"]);
+  const expected = mode === sourceAuthenticationMode
+    ? ["authentication", "construction"]
+    : mode === sourcePlanMode ? ["artifacts", "plan"]
+      : ["manifest", "manifestDigest", "ok", "reasonCode"];
+  assertExactKeys(parsed, expected);
   return parsed;
 }
 

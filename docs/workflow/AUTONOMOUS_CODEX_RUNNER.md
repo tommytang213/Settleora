@@ -1825,8 +1825,9 @@ authorized to continue.
 The grant planner is not an offline arbitrary-manifest encoder. It runs only
 from the installed root-owned producer, verifies the supplied exact install
 package against the complete installed tree, authenticates all eight stores
-and the closed semantic packet, derives the exact operation manifest, and then
-plans the one fixed grant path. Unknown fields, caller-supplied manifests,
+and the closed semantic packet in the real/effective source-UID/GID child,
+derives the exact operation manifest there, and then plans the one fixed grant
+path in the root parent. Unknown fields, caller-supplied manifests,
 self-consistent substitute packages, and any installed-byte drift fail before
 grant bytes are emitted.
 The installed exact root-owned executable alone also exposes the closed

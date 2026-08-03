@@ -262,9 +262,19 @@ test("production grant planning is closed behind installed readback and manifest
   assert.match(planner, /assertExactKeys\(value, \["installPackage", "operationId", "semanticEvidencePacket"\]\)/u);
   assert.match(planner, /assertInstalledProducerInvocation\(\)/u);
   assert.match(planner, /verifySemanticRecoveryNativeInstallPlan\(decoded\)[\s\S]*verifyInstalledSemanticRecoveryNativeProducer/u);
-  assert.match(planner, /buildSemanticRecoveryManifest\(value\.semanticEvidencePacket, \{ config \}\)/u);
+  assert.match(planner, /runSourceProcess\(trustedSourceIdentity\(\), sourceGrantPlanMode/u);
   assert.match(planner, /corroboration\.manifest\.operation\?\.operationId !== value\.operationId/u);
+  assert.equal((planner.match(/verifyInstalledSemanticRecoveryNativeProducer/g) || []).length, 2);
+  assert.doesNotMatch(planner, /buildSemanticRecoveryManifest/u);
   assert.doesNotMatch(planner, /planSemanticRecoveryGrant\(value\)/u);
+  const child = source.slice(source.indexOf("function executeSourceGrantPlan"), source.indexOf("function productionRecoveryConfig"));
+  assert.match(child, /assertInstalledProducerInvocation\(\{ rootRequired: false \}\)/u);
+  assert.match(child, /assertSourceProcessIdentity\(sourceIdentity\)/u);
+  assert.match(child, /buildSemanticRecoveryManifest\(value\.semanticEvidencePacket/u);
+  const manifest = persistenceFixture().manifest;
+  const response = { ok: true, reasonCode: "semantic_evidence_corroborated", manifest, manifestDigest: manifest.manifestDigest };
+  assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--derive-grant-manifest-internal", canonicalJson(response)), response);
+  assert.throws(() => parseSemanticRecoverySourceProcessResponse("--derive-grant-manifest-internal", canonicalJson({ ...response, command: "id" })), /unsupported/u);
 });
 
 test("protected persistence reauthenticates, publishes once, adopts exact bytes, and never authorizes continuation", () => {

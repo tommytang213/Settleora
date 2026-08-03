@@ -2033,7 +2033,8 @@ Grant planning is available only through the exact installed root-owned
 producer. Its closed request supplies the previously verified install package,
 one exact operation selector, and the semantic evidence packet; the producer
 reauthenticates the installed tree and all eight protected stores, derives the
-operation manifest itself, and only then emits the fixed-path grant bytes. A
+operation manifest in its closed-environment real/effective source-UID/GID
+child, and only then emits the fixed-path grant bytes from the root parent. A
 caller-supplied manifest, self-digested substitute package, or installed-tree
 drift cannot produce a grant plan.
 
