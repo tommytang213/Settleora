@@ -763,9 +763,24 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
   const gh = (args) => command("/usr/bin/gh", args, { cwd: repositoryRoot, encoding: "utf8", env: githubEnvironment });
   const repositoryRecord = JSON.parse(String(gh(["api", `repos/${repository}`])) || "{}");
   const mainRef = JSON.parse(String(gh(["api", `repos/${repository}/git/ref/heads/main`])) || "{}");
-  const remoteRefs = JSON.parse(String(gh(["api", `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`])) || "[]");
-  const prs = JSON.parse(String(gh(["pr", "list", "--repo", repository, "--state", "all", "--head", branch, "--json", "number,state,headRefOid,mergedAt,updatedAt"])) || "[]");
-  const issue = JSON.parse(String(gh(["issue", "view", String(issueNumber), "--repo", repository, "--json", "number,state,updatedAt,comments"])) || "{}");
+  const remoteRefs = readGithubPages(gh, `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`, "refs");
+  const owner = repository.split("/")[0];
+  const prs = readGithubPages(gh, `repos/${repository}/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}`, "pulls")
+    .map((pr) => ({ number: pr.number, state: pr.state, headRefOid: pr.head?.sha, mergedAt: pr.merged_at, updatedAt: pr.updated_at }));
+  const issueRecord = JSON.parse(String(gh(["api", `repos/${repository}/issues/${issueNumber}`])) || "{}");
+  const issueComments = readGithubPages(gh, `repos/${repository}/issues/${issueNumber}/comments`, "comments");
+  const issue = {
+    number: issueRecord.number,
+    state: issueRecord.state,
+    updatedAt: issueRecord.updated_at,
+    comments: issueComments.map((comment) => ({
+      id: comment.id,
+      author: { login: comment.user?.login },
+      body: comment.body,
+      createdAt: comment.created_at,
+      updatedAt: comment.updated_at,
+    })),
+  };
   const observedMainSha = mainRef.object?.sha;
   if (!Array.isArray(remoteRefs) || remoteRefs.length !== 0 || prs.length !== 0 || issue.number !== issueNumber || issue.state !== "OPEN"
       || repositoryRecord.full_name?.toLowerCase() !== repository.toLowerCase() || repositoryRecord.default_branch !== "main"
@@ -809,6 +824,18 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
     },
     evidence: [{ path: `github://${repository}/issues/${issueNumber}`, sha256: digest, identity: "authenticated_gh_cli_read" }],
   };
+}
+
+function readGithubPages(gh, route, label) {
+  const separator = route.includes("?") ? "&" : "?";
+  const records = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const value = JSON.parse(String(gh(["api", `${route}${separator}per_page=100&page=${page}`])) || "null");
+    if (!Array.isArray(value) || value.length > 100) throw new Error(`semantic extraction GitHub ${label} page invalid`);
+    records.push(...value);
+    if (value.length < 100) return records;
+  }
+  throw new Error(`semantic extraction GitHub ${label} pagination bound exceeded`);
 }
 
 function parseWorktreeRecords(output) {

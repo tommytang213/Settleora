@@ -433,18 +433,16 @@ function createFixtureCommand({ issueNumber, mainSha }) {
     if (joined === "api repos/example/repo/git/ref/heads/main") {
       return JSON.stringify({ ref: "refs/heads/main", object: { type: "commit", sha: mainSha } });
     }
-    if (joined.includes("git/matching-refs/heads/")) return "[]";
-    if (joined.startsWith("pr list ")) return "[]";
-    if (joined.startsWith("issue view ")) {
-      return JSON.stringify({
-        number: issueNumber,
-        state: "OPEN",
-        updatedAt: "2020-01-01T00:00:00.000Z",
-        comments: [{
-          id: "comment-fixture", author: { login: "fixture-owner" }, body: "checkpoint",
-          createdAt: "2020-01-01T00:00:00.000Z", updatedAt: null,
-        }],
-      });
+    if (joined.includes("git/matching-refs/heads/") && joined.endsWith("per_page=100&page=1")) return "[]";
+    if (joined.includes("repos/example/repo/pulls?state=all&head=") && joined.endsWith("per_page=100&page=1")) return "[]";
+    if (joined === `api repos/example/repo/issues/${issueNumber}`) {
+      return JSON.stringify({ number: issueNumber, state: "OPEN", updated_at: "2020-01-01T00:00:00.000Z" });
+    }
+    if (joined === `api repos/example/repo/issues/${issueNumber}/comments?per_page=100&page=1`) {
+      return JSON.stringify([{
+        id: "comment-fixture", user: { login: "fixture-owner" }, body: "checkpoint",
+        created_at: "2020-01-01T00:00:00.000Z", updated_at: null,
+      }]);
     }
     throw new Error(`unexpected fixture command: ${executable} ${joined}`);
   };
@@ -496,6 +494,48 @@ test("semantic GitHub no-effect fence is freshly requeried and exact-digest boun
       return fixture.sourceCommand(executable, args, options);
     };
     assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command: laterBranch }), /later GitHub effect/u);
+  } finally { fixture.cleanup(); }
+});
+
+test("semantic GitHub no-effect fence reads every bounded page", () => {
+  const fixture = makeFixture();
+  try {
+    const manifest = {
+      currentIncident: { path: fixture.paths.incident, sha256: sha256(readFileSync(fixture.paths.incident)) },
+      claims: {
+        repository: fixture.claims.repository,
+        issueNumber: fixture.claims.issueNumber,
+        branch: fixture.claims.branch,
+        prEvidenceDigest: fixture.claims.prEvidenceDigest,
+      },
+    };
+    const calls = [];
+    const laterCommentOnSecondPage = (executable, args, options) => {
+      const joined = args.join(" ");
+      if (executable === "/usr/bin/gh" && joined.includes(`/issues/${fixture.claims.issueNumber}/comments?per_page=100&page=`)) {
+        calls.push(joined);
+        if (joined.endsWith("page=1")) {
+          return JSON.stringify(Array.from({ length: 100 }, (_, index) => ({
+            id: `comment-${index}`, user: { login: "fixture-owner" }, body: "checkpoint",
+            created_at: "2020-01-01T00:00:00.000Z", updated_at: null,
+          })));
+        }
+        if (joined.endsWith("page=2")) {
+          return JSON.stringify([{
+            id: "later-comment", user: { login: "fixture-owner" }, body: "later",
+            created_at: "2030-01-01T00:00:00.000Z", updated_at: null,
+          }]);
+        }
+      }
+      return fixture.sourceCommand(executable, args, options);
+    };
+    assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({
+      repositoryRoot: fixture.repositoryRoot,
+      manifest,
+      command: laterCommentOnSecondPage,
+    }), /GitHub comment checkpoint invalid/u);
+    assert.equal(calls.length, 2);
+    assert.match(calls[1], /page=2$/u);
   } finally { fixture.cleanup(); }
 });
 
@@ -626,7 +666,7 @@ test("live source revalidation compares complete authority contexts before every
         transientInstalled = true;
       }
       const result = trusted(executable, args, options);
-      if (executable === "/usr/bin/gh" && args.join(" ").startsWith("issue view ")) {
+      if (executable === "/usr/bin/gh" && args.join(" ").includes(`/issues/${fixture.claims.issueNumber}/comments?`)) {
         completeCollections += 1;
         if (completeCollections === 2 && transientInstalled) writeFileSync(lifecyclePath, originalBytes, { mode: 0o600 });
       }
@@ -648,13 +688,13 @@ test("GitHub source uses a trusted absolute client and binds exact comment ident
     const trusted = later.sourceCommand;
     later.sourceCommand = (executable, args, options) => {
       const result = trusted(executable, args, options);
-      if (!args.join(" ").startsWith("issue view ")) return result;
-      const issue = JSON.parse(result);
-      issue.comments.push({
-        id: "later-comment", author: { login: "fixture-owner" }, body: "later",
-        createdAt: "2030-01-01T00:00:00.000Z", updatedAt: null,
+      if (!args.join(" ").includes(`/issues/${later.claims.issueNumber}/comments?`)) return result;
+      const comments = JSON.parse(result);
+      comments.push({
+        id: "later-comment", user: { login: "fixture-owner" }, body: "later",
+        created_at: "2030-01-01T00:00:00.000Z", updated_at: null,
       });
-      return JSON.stringify(issue);
+      return JSON.stringify(comments);
     };
     assert.equal(inspect(later).reasonCode, "semantic_deployment_live_source_revalidation_failed");
   } finally { later.cleanup(); }
@@ -663,10 +703,10 @@ test("GitHub source uses a trusted absolute client and binds exact comment ident
     const trusted = fingerprint.sourceCommand;
     fingerprint.sourceCommand = (executable, args, options) => {
       const result = trusted(executable, args, options);
-      if (!args.join(" ").startsWith("issue view ")) return result;
-      const issue = JSON.parse(result);
-      issue.comments[0].body = "changed checkpoint";
-      return JSON.stringify(issue);
+      if (!args.join(" ").includes(`/issues/${fingerprint.claims.issueNumber}/comments?`)) return result;
+      const comments = JSON.parse(result);
+      comments[0].body = "changed checkpoint";
+      return JSON.stringify(comments);
     };
     assert.equal(inspect(fingerprint).reasonCode, "semantic_deployment_live_source_claim_drift");
   } finally { fingerprint.cleanup(); }
