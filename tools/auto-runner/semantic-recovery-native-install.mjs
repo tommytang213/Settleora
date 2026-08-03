@@ -30,6 +30,7 @@ import {
 import {
   createFixedNativeInstallJournalStore,
   createLiveNativeInstallFilesystem,
+  buildFixedNativeInstallRootResult,
   completeVerifiedNativeInstallResult,
   persistNativeInstallJournalTransition,
   publishFixedNativeInstallRootResult,
@@ -714,25 +715,12 @@ function loadRootReceipt(hint) {
   return receipt;
 }
 function publishRootResult(hint, journal, filesystem) {
-  validateNativeInstallJournal(journal);
-  if (!["publication_ambiguous", "installed_verified", "adopted_verified", "blocked", "completed"].includes(journal.state)) {
-    throw new Error("native install root result state invalid");
-  }
-  return publishFixedNativeInstallRootResult({
-    contract: "settleora_semantic_recovery_native_install_root_result",
-    version: 1,
+  return publishFixedNativeInstallRootResult(buildFixedNativeInstallRootResult({
     correlation: hint.taskCorrelation,
     repository: hint.repository,
     sourceCommit: hint.sourceCommit,
-    operationId: journal.operationId,
-    state: journal.state,
-    outcome: journal.result?.outcome || "blocked",
-    reasonCode: journal.result?.reasonCode || "native_install_root_operation_blocked",
-    planDigest: journal.result?.planDigest || null,
-    installedDigest: journal.result?.installedDigest || null,
-    rootJournalDigest: journal.journalDigest,
-    rootJournalSequence: journal.sequence,
-  }, { renameNoReplace: filesystem.publishRootResultNoReplace });
+    journal,
+  }), { renameNoReplace: filesystem.publishRootResultNoReplace });
 }
 async function readCanonicalInput(stream) {
   const chunks = [];

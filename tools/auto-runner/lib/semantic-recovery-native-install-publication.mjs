@@ -30,10 +30,36 @@ import { validateNativeInstallJournal } from "./semantic-recovery-native-install
 export const nativeInstallOwnerJournalRoot = "/workspace/logs/auto-runner/Settleora/manual-root-install-journals";
 export const nativeInstallRootJournalRoot = "/etc/settleora-auto-runner/.semantic-recovery-native-install-journals";
 export const nativeInstallRootResultRoot = "/etc/settleora-auto-runner/.semantic-recovery-native-install-results";
+export const nativeInstallRootResultContract = "settleora_semantic_recovery_native_install_root_result";
+export const nativeInstallRootResultVersion = 2;
 
 const correlationPattern = /^[a-z0-9][a-z0-9._:-]{7,127}$/u;
 const digestPattern = /^[a-f0-9]{64}$/u;
 const shaPattern = /^[a-f0-9]{40}$/u;
+
+export function buildFixedNativeInstallRootResult({ correlation, repository, sourceCommit, journal } = {}) {
+  validateNativeInstallJournal(journal);
+  if (!["publication_ambiguous", "installed_verified", "adopted_verified", "blocked", "completed"].includes(journal.state)) {
+    throw new Error("native install root result state invalid");
+  }
+  const value = {
+    contract: nativeInstallRootResultContract,
+    version: nativeInstallRootResultVersion,
+    correlation,
+    repository,
+    sourceCommit,
+    operationId: journal.operationId,
+    state: journal.state,
+    outcome: journal.result?.outcome || "blocked",
+    reasonCode: journal.result?.reasonCode || "native_install_root_operation_blocked",
+    planDigest: journal.result?.planDigest || null,
+    installedDigest: journal.result?.installedDigest || null,
+    rootJournalDigest: journal.journalDigest,
+    rootJournalSequence: journal.sequence,
+  };
+  validateFixedNativeInstallRootResult(value);
+  return Object.freeze(value);
+}
 
 export function publishFixedNativeInstallRootResult(value, { renameNoReplace } = {}) {
   if (process.getuid?.() !== 0 || process.geteuid?.() !== 0) throw new Error("native install root result writer identity invalid");
@@ -132,7 +158,7 @@ function validateFixedNativeInstallRootResult(value) {
     "contract", "correlation", "installedDigest", "operationId", "outcome", "planDigest", "reasonCode", "repository",
     "rootJournalDigest", "rootJournalSequence", "sourceCommit", "state", "version",
   ]);
-  if (value.contract !== "settleora_semantic_recovery_native_install_root_result" || value.version !== 2
+  if (value.contract !== nativeInstallRootResultContract || value.version !== nativeInstallRootResultVersion
       || !correlationPattern.test(String(value.correlation || "")) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(String(value.repository || ""))
       || !shaPattern.test(String(value.sourceCommit || "")) || !digestPattern.test(String(value.operationId || ""))
       || !digestPattern.test(String(value.rootJournalDigest || ""))

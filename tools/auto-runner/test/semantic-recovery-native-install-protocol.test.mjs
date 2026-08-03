@@ -31,6 +31,7 @@ import {
 } from "../lib/semantic-recovery-native-install-journal.mjs";
 import { independentlyVerifyRootNativeInstallPackage } from "../lib/semantic-recovery-native-install-verifier.mjs";
 import {
+  buildFixedNativeInstallRootResult,
   completeVerifiedNativeInstallResult,
   persistNativeInstallJournalTransition,
   publishOrAdoptVerifiedNativeInstall,
@@ -504,6 +505,26 @@ test("root results are append-only journal-sequenced monotonic records that reje
     [rootResult("installed_verified", 8), rootResult("completed", 8)],
     [rootResult("installed_verified", 8), rootResult("completed", 9, { sourceCommit: "f".repeat(40) })],
   ]) assert.throws(() => validateRootResultTransition(before, after), /monotonic transition invalid/u);
+});
+
+test("the production root-result builder emits the exact accepted versioned schema", () => {
+  let journal = createNativeInstallJournal(journalIdentity);
+  const route = [
+    ["prepared", "awaiting_interactive_sudo", null],
+    ["awaiting_interactive_sudo", "sudo_started", emptyResult("native_install_sudo_started")],
+    ["sudo_started", "root_authority_rederived", { ...emptyResult("native_install_root_authority_rederived", { requestDigest: "1".repeat(64) }), outcome: "verified" }],
+    ["root_authority_rederived", "root_plan_verified", { ...emptyResult("native_install_root_plan_verified", { requestDigest: "1".repeat(64), planDigest: "3".repeat(64) }), outcome: "verified" }],
+    ["root_plan_verified", "adopted_verified", { ...emptyResult("native_install_adopted_verified", { requestDigest: "1".repeat(64), planDigest: "3".repeat(64), installedDigest: "4".repeat(64) }), outcome: "adopted" }],
+    ["adopted_verified", "completed", { ...emptyResult("native_install_completed", { requestDigest: "1".repeat(64), planDigest: "3".repeat(64), installedDigest: "4".repeat(64) }), outcome: "completed" }],
+  ];
+  for (const [expectedState, nextState, result] of route) {
+    journal = transitionNativeInstallJournal({ current: journal, expectedState, nextState, observedAt: new Date(Date.parse(journal.updatedAt) + 1000).toISOString(), result, persist() {} });
+  }
+  const result = buildFixedNativeInstallRootResult({ correlation: journal.correlation, repository: journal.repository, sourceCommit: journal.sourceCommit, journal });
+  assert.equal(result.version, 2);
+  assert.equal(result.rootJournalSequence, journal.sequence);
+  assert.equal(result.rootJournalDigest, journal.journalDigest);
+  assert.equal(result.state, "completed");
 });
 
 test("root journal is bound to the exact armed owner transition digest", () => {
