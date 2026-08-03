@@ -1,5 +1,68 @@
 # Issue Progress Ledger
 
+### Issues #1012/#959/#740/#359/#357/#999 and PR #1039 — semantic evidence package and associated-recovery source repair merged (2026-08-03)
+
+- PR #1039 merged normally with exact-head protection from authorized base
+  `3ad4212aa06021bde5f7907dd90fe94fab64d2ae`, source head
+  `649ee8f7cec825f30f6a863d1f0ff5091454c5eb`, and source tree
+  `041df77f36ae0a346cb7b600157357433c4ffc4d` as merge
+  `11bdee391d72f43c8cb1084d7933ddc96475d0ef`. The merge has the exact
+  base and source head as its two ordered parents and the exact source tree.
+- The source repair changed exactly 14 Issue #1012 workflow, runner
+  documentation, semantic-evidence package/extractor, recovery, runtime, and
+  focused-test paths, with 3,690 additions and 101 deletions. It contains no
+  product, API/OpenAPI, generated-client, auth/session, storage/privacy, money,
+  schema/migration, OCR, UI, Docker, CI, secret, or deployment-configuration
+  path.
+- The merged source provides a manual-only deterministic plan/create-or-adopt
+  entry point for one strict 10-member package: the deployment document, eight
+  independently authenticated source projections, and the package manifest.
+  Publication is crash-safe, inert until its retained manifest seal is
+  descriptor-verified and committed, and no-clobber on exact adoption. The
+  overwrite incident and distinct associated recoverable state remain two
+  artifacts linked by exact semantic association. Authority remains grant-free
+  and limited to `runtime_deployment_quiescence_only`.
+- Exact merged-main validation passed dependency installation, doctor,
+  zero-vulnerability root/web audits, changed-module syntax `12/12`, import
+  checks `7/7`, the focused package/evidence/recovery/config/runtime/security/
+  systemd suite `308/308`, the complete auto-runner suite `1,392/1,392`, docs,
+  scaffold, diff, exact-scope, and all-worktree clean guards. Fresh Gemini and
+  local Codex source reviews passed with zero findings; exact-head GitHub Codex
+  found no major issue. All 12 exact-head checks passed with the sole review
+  thread resolved and zero unresolved. All nine merged-main checks passed, and
+  open code-scanning, secret-scanning, and Dependabot alerts remained `0/0/0`.
+- The fresh inert live plan selected 10 members across eight source classes at
+  `/workspace/auto-runner/config/settleora-semantic-deployment-evidence-issue-1012`
+  with aggregate `04fd489aa30b06fba85bcf276c2f75786c7c9c024a724b42f9f1fd81a313510b`,
+  package-manifest `c8573b1af34d696c7ed1f8003ea0a20954bd6832cd871af3d2ce3eb78713e23d`,
+  and member-manifest `260e82d41ae68f3396e42510e239e79eca37e88da540dd63176febc4a4ab726a`.
+  The live package was not created or adopted, and deployment was not
+  performed. Final, incoming, and retired package paths remained absent.
+- The complete 42-file guarded live incident, associated recovery,
+  runner-state, runtime, profile, configuration, approval, launcher, health,
+  and preserved Issue #959 evidence set remained byte-identical at aggregate
+  `dcc88559bfe77f3bca79d80a3380f37ae600b803d5880db90b570fa97a5cd38e`.
+  No rollback, root/systemd mutation, protected root/grant/producer operation,
+  semantic-successor construction/adoption/persistence/readback, runner or
+  supervisor submission, queue activation, Issue #959 continuation, duplicate
+  claim/charge, branch/worktree cleanup, or live product effect occurred. The
+  pre-existing main workflow published the merge-SHA API image but performed no
+  deployment.
+- Keep Issue #1012 `OPEN` with `manual-gate`; source repair completion does not
+  satisfy its close rule. The next gate requires fresh owner authorization
+  bound to final current `main`, the exact package root and basename, and the
+  freshly rederived exact 10-member plan, package aggregate, package-manifest,
+  and member-manifest, explicitly permitting package `--create-or-adopt`, two
+  matching canonical deployment dry-runs, and at most one atomic deployment/
+  adoption. Protected root/grant, semantic successor, exact successor readback,
+  and Issue #959 continuation remain later separate gates.
+- Issues #959, #740, #359, #357, and #999 remain open and unchanged. This
+  mechanically generated docs-only checkpoint grants no operational
+  authorization and changes no policy, permission, security contract,
+  deployment configuration, or source.
+- Issue #1012 source-merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5161709293`.
+
 ### Issues #1012/#959/#740/#359/#357/#999 and PR #1037 — semantic deployment-quiescence source repair merged (2026-08-02)
 
 - PR #1037 merged normally with exact-head protection from authorized base
