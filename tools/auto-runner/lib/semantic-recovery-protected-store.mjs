@@ -150,7 +150,16 @@ export function readbackProtectedSemanticRecoverySuccessor({ manifest, grant, co
     const selectedIncomingNames = [identity.paths.storagePath, identity.paths.provenancePath, identity.paths.commitPath]
       .map((finalPath) => path.posix.basename(incomingPathFor(finalPath)));
     const selectedIncoming = incoming.filter((name) => selectedIncomingNames.includes(name));
-    if (selectedIncoming.length !== 0) return failed("semantic_successor_readback_incoming_residue");
+    if (selectedIncoming.length !== 0) {
+      const incomingSet = new Set(selectedIncoming);
+      const provenancePresent = Boolean(provenance) || incomingSet.has(path.posix.basename(incomingPathFor(identity.paths.provenancePath)));
+      const successorPresent = Boolean(final) || incomingSet.has(path.posix.basename(incomingPathFor(identity.paths.storagePath)));
+      const commitPresent = Boolean(commit) || incomingSet.has(path.posix.basename(incomingPathFor(identity.paths.commitPath)));
+      if ((successorPresent && !provenancePresent) || (commitPresent && (!provenancePresent || !successorPresent))) {
+        return failed("semantic_successor_readback_publication_order_conflict");
+      }
+      return failed("semantic_successor_readback_incoming_residue");
+    }
     for (const [directory, finalPath] of [
       [semanticRecoveryProtectedLayout.successorsRoot, identity.paths.storagePath],
       [semanticRecoveryProtectedLayout.successorProvenanceRoot, identity.paths.provenancePath],
@@ -165,6 +174,7 @@ export function readbackProtectedSemanticRecoverySuccessor({ manifest, grant, co
     }
     if (!final && !provenance && !commit) return failed("semantic_successor_not_persisted");
     if (commit && (!final || !provenance)) return failed("semantic_successor_readback_torn_commit");
+    if (final && !provenance) return failed("semantic_successor_readback_publication_order_conflict");
     if (!final || !provenance || !commit) return failed("semantic_successor_readback_partial");
     const githubNoEffectSnapshot = provenance.document?.githubNoEffectSnapshot;
     authenticateSemanticRecoveryGithubNoEffectSnapshot(githubNoEffectSnapshot, manifest, { requireFresh: false });

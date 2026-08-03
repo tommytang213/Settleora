@@ -160,6 +160,7 @@ test("production repository provenance requires a separately protected native pr
     const registry = createProductionSemanticRecoveryVerifierRegistry({ repoRoot: root, logsRoot: root, repositorySlug: "example/repo" });
     const descriptor = { authorityClass: "repository_git", store: { kind: "repository_git_store", path: root, role: "candidate_repository", sha256: "0".repeat(64) } };
     assert.throws(() => registry.verify("repository_git", descriptor), /semantic source producer unavailable: repository_git/u);
+    assert.throws(() => registry.persistExactSemanticSuccessor({}, {}, {}), /installed root producer invocation/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

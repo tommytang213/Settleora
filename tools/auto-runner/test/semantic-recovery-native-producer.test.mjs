@@ -410,6 +410,33 @@ test("a commit marker with either predecessor missing is torn and never backfill
   }
 });
 
+test("out-of-order successor residue is never rebound to a later GitHub snapshot", () => {
+  const fixture = persistenceFixture();
+  const filesystem = new ProtectedMemoryFilesystem();
+  const authority = () => persistenceAuthority(fixture);
+  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority }).ok, true);
+  const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction, fixture.githubNoEffectSnapshot);
+  filesystem.entries.delete(expected.paths.provenancePath);
+  filesystem.entries.delete(expected.paths.commitPath);
+  assert.equal(
+    persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority }).reasonCode,
+    "semantic_successor_readback_publication_order_conflict",
+  );
+  assert.equal(filesystem.exists(expected.paths.provenancePath), false);
+  assert.equal(filesystem.exists(expected.paths.commitPath), false);
+
+  const incomingOnly = new ProtectedMemoryFilesystem();
+  incomingOnly.ensureDirectory(semanticRecoveryProtectedLayout.successorsRoot, { uid: 0, mode: 0o755 });
+  incomingOnly.ensureDirectory(semanticRecoveryProtectedLayout.successorIncomingRoot, { uid: 0, mode: 0o755 });
+  const incomingPath = `${semanticRecoveryProtectedLayout.successorIncomingRoot}/${path.posix.basename(expected.paths.storagePath)}.${sha256(expected.paths.storagePath).slice(0, 16)}.incoming`;
+  incomingOnly.writeExclusive(incomingPath, Buffer.from(canonicalJson(expected.successor)), { uid: 0, mode: 0o444 });
+  assert.equal(
+    persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: incomingOnly, reauthenticate: authority }).reasonCode,
+    "semantic_successor_readback_publication_order_conflict",
+  );
+  assert.equal(incomingOnly.exists(incomingPath), true);
+});
+
 test("installed producer bundle, fixed runtime and real source identity close the privilege boundary", () => {
   const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
   const persistence = readFileSync(new URL("../lib/semantic-recovery-protected-store.mjs", import.meta.url), "utf8");

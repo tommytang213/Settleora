@@ -2164,6 +2164,9 @@ grant/successor authorization, root-executed persistence and authenticated
 readback, then another explicit decision about Issue #959 continuation.
 Persistence returns `authorizedToContinue=false`; it never submits work or
 changes the incident, predecessor, lifecycle, budget, intent, or Issue #959.
+The runner-side production registry cannot label protected readback adopted;
+fresh adoption is available only through the installed root producer, which
+repeats the complete source and GitHub authentication first.
 Without the installed producer root and real grant, production remains
 unreachable before successor persistence.
 Tests use synthetic metadata adapters and never inspect or mutate the live

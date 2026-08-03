@@ -14,7 +14,6 @@ import {
 import path from "node:path";
 import {
   authenticateNativeSemanticRecoveryStore,
-  readbackProtectedSemanticRecoverySuccessor,
   semanticRecoveryProtectedRoot,
 } from "./semantic-recovery-protected-store.mjs";
 
@@ -143,15 +142,7 @@ export function createProductionSemanticRecoveryVerifierRegistry(config) {
   const registry = createRegistry(
     "production",
     (authorityClass, descriptor) => verifyProductionSource(config, authorityClass, descriptor),
-    (manifest, grant, construction) => {
-      if (!existsSync(semanticRecoveryProtectedControlRoot)) {
-        throw new Error("semantic recovery protected persistence producer unavailable");
-      }
-      const readback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction });
-      return readback.ok
-        ? { ...readback, reasonCode: "semantic_recovery_successor_adopted", adopted: true, created: false }
-        : readback;
-    },
+    () => { throw new Error("semantic recovery requires installed root producer invocation"); },
   );
   validatedRegistries.add(registry);
   return registry;

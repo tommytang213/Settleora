@@ -291,8 +291,9 @@ export function executeConfiguredSemanticRecoverySuccessor(config, packet, opera
   // and persist this exact successor while holding its no-effect fence and
   // descriptor-relative storage authority. The runner supplies no callback,
   // path operation, or mutation capability. With installation absent, the
-  // production registry still fails closed; with it present, this call can
-  // only authenticate/adopt an exact already committed readback.
+  // production registry still fails closed. Even with installation present,
+  // the runner cannot adopt a committed readback: only the separately invoked
+  // root producer can perform the required fresh GitHub reauthentication.
   return requestSourceOwnedSemanticRecoveryPersistence(registry, fresh.manifest, fresh.grant, construction);
 }
 
