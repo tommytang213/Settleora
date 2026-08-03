@@ -372,6 +372,11 @@ function validateProjection(authorityClass, projection, repository) {
   }
 }
 function validateInstallPlanStructure(plan) {
+  assertExactKeys(plan, [
+    "claimOwnerMatrix", "contract", "directories", "files", "forbiddenEffects", "installManifestDigest",
+    "mode", "mutating", "planDigest", "producerBundleDigest", "request", "requestDigest", "selectedOperation",
+    "selectedSource", "serviceEffects", "sourceDescriptors", "summary", "verifierSet", "version",
+  ]);
   if (!plainObject(plan) || plan.contract !== semanticRecoveryNativeInstallPlanContract
       || plan.version !== semanticRecoveryNativeInstallPlanVersion || plan.mode !== "plan_install"
       || plan.mutating !== false || !Array.isArray(plan.directories) || !Array.isArray(plan.files)
@@ -381,11 +386,22 @@ function validateInstallPlanStructure(plan) {
   const { planDigest, ...core } = plan;
   if (!isDigest(planDigest) || planDigest !== sha256(canonicalJson(core))) throw new Error("semantic native install plan digest invalid");
   normalizeSemanticRecoveryNativeProducerRequest(plan.request);
+  assertExactKeys(plan.claimOwnerMatrix, ["digest", "version"]);
+  assertExactKeys(plan.verifierSet, ["digest", "version"]);
+  assertExactKeys(plan.selectedSource, ["path", "sha256"]);
+  assertExactKeys(plan.summary, ["authorityClassCount", "directoryCount", "fileCount", "grantsInstalled", "servicesEnabled", "successorsCreated"]);
+  const expectedForbiddenEffects = [
+    "mutate_live_filesystem", "install_grant", "construct_successor", "persist_successor",
+    "authorize_issue_continuation", "submit_runner", "activate_queue", "network_listener",
+  ];
   if (plan.requestDigest !== sha256(canonicalJson(plan.request))
       || plan.claimOwnerMatrix?.version !== semanticRecoveryClaimOwnerMatrixVersion
       || plan.claimOwnerMatrix?.digest !== semanticRecoveryClaimOwnerMatrixDigest
       || plan.verifierSet?.version !== semanticRecoveryVerifierSetVersion
-      || plan.verifierSet?.digest !== semanticRecoveryVerifierSetDigest) throw new Error("semantic native install contract identity invalid");
+      || plan.verifierSet?.digest !== semanticRecoveryVerifierSetDigest
+      || plan.selectedOperation !== plan.request.operation
+      || canonicalJson(plan.selectedSource) !== canonicalJson({ path: plan.request.source.deploymentEvidenceDocument, sha256: plan.request.source.sha256 })
+      || canonicalJson(plan.forbiddenEffects) !== canonicalJson(expectedForbiddenEffects)) throw new Error("semantic native install contract identity invalid");
   if (plan.directories.some((entry) => {
     assertExactKeys(entry, ["destination", "gid", "kind", "mode", "uid"]);
     return entry.kind !== "directory" || entry.uid !== 0 || entry.gid !== 0 || entry.mode !== 0o755
