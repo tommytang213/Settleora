@@ -192,6 +192,17 @@ export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlatio
   try {
     filesystem.publishNoReplace(stage);
     filesystem.finalizePublishedStage(stage);
+    filesystem.fsyncPublicationParent();
+    filesystem.fsyncPublicationAncestor();
+    const installed = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() });
+    if (!installed.ok) throw new Error("native install publication readback ambiguous");
+    journal.transition("publication_started", "installed_verified", {
+      outcome: "verified",
+      reasonCode: "native_install_publication_verified",
+      planDigest: installPackage.plan.planDigest,
+      installedDigest: installedIdentity(installPackage.plan),
+    });
+    return { ok: true, adopted: false, installed: true, reasonCode: "native_install_publication_verified", planDigest: installPackage.plan.planDigest };
   } catch {
     const ambiguousReadback = filesystem.finalExists()
       ? verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() })
@@ -214,24 +225,6 @@ export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlatio
     });
     return { ok: true, adopted: false, installed: true, reasonCode: "native_install_ambiguous_publication_verified", planDigest: installPackage.plan.planDigest };
   }
-  filesystem.fsyncPublicationParent();
-  filesystem.fsyncPublicationAncestor();
-  const installed = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() });
-  if (!installed.ok) {
-    journal.transition("publication_started", "publication_ambiguous", {
-      outcome: "ambiguous",
-      reasonCode: "native_install_publication_readback_ambiguous",
-      planDigest: installPackage.plan.planDigest,
-    });
-    throw new Error("native install publication readback ambiguous");
-  }
-  journal.transition("publication_started", "installed_verified", {
-    outcome: "verified",
-    reasonCode: "native_install_publication_verified",
-    planDigest: installPackage.plan.planDigest,
-    installedDigest: installedIdentity(installPackage.plan),
-  });
-  return { ok: true, adopted: false, installed: true, reasonCode: "native_install_publication_verified", planDigest: installPackage.plan.planDigest };
 }
 
 export function persistNativeInstallJournalTransition({ previous, next, store } = {}) {

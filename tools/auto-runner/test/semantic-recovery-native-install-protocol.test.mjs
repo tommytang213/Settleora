@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   authenticateNativeInstallGitSource,
   gitObjectOid,
@@ -115,6 +116,38 @@ test("root source authentication rehashes commit, every tree and every blob befo
   assert.equal(authenticated.manifest.support.some((entry) => entry.source === "unrelated/complete-tree-proof.txt"), false);
   assert.equal(verifyAuthenticatedNativeInstallSource(authenticated).ok, true);
   assert.equal(authenticated.supportFiles.every((entry) => entry.gitBlobOid === gitObjectOid("blob", entry.bytes)), true);
+});
+
+test("the exact candidate Git tree authenticates with the real source and helper modes", () => {
+  const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+  const git = (args, encoding = null) => {
+    const child = spawnSync("/usr/bin/git", ["-C", repositoryRoot, ...args], {
+      cwd: repositoryRoot,
+      env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+      encoding,
+      maxBuffer: 32 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    assert.equal(child.status, 0, Buffer.from(child.stderr || "").toString("utf8"));
+    assert.equal(child.signal, null);
+    return child.stdout;
+  };
+  const sourceCommit = git(["rev-parse", "HEAD^{commit}"], "utf8").trim();
+  const bootstrapBlob = git(["rev-parse", `${sourceCommit}:${nativeInstallBootstrapScript}`], "utf8").trim();
+  const objectReader = {
+    resolveRepository: () => ({ repository: "tommytang213/Settleora", commit: sourceCommit, transport: "authenticated_github_https" }),
+    readObject(oid) {
+      const type = git(["cat-file", "-t", oid], "utf8").trim();
+      return { oid, type, bytes: git(["cat-file", type, oid]) };
+    },
+  };
+  const authenticated = authenticateNativeInstallGitSource({
+    hint: hint({ repository: "tommytang213/Settleora", sourceCommit, bootstrapBlob, taskCorrelation: "issue-1012-exact-candidate" }),
+    objectReader,
+  });
+  assert.equal(verifyAuthenticatedNativeInstallSource(authenticated).ok, true);
+  assert.equal(authenticated.manifest.sourceCommit, sourceCommit);
+  assert.equal(authenticated.supportFiles.find((entry) => entry.source === nativeInstallProducerEntrypoint)?.executable, true);
 });
 
 test("wrong repository, source, transport, object bytes, dependency and symlink tree entry fail closed", () => {
@@ -527,6 +560,32 @@ test("lost rename transport with surviving private container stays ambiguous and
   assert.equal(filesystem.stageResidue, true);
 });
 
+test("a post-rename durability failure is recorded ambiguous and reconciles by exact readback without replay", () => {
+  const installPackage = installPackageFixture();
+  const filesystem = new PublicationMemoryFilesystem();
+  let parentFsyncs = 0;
+  let publications = 0;
+  const originalFsync = filesystem.fsyncPublicationParent.bind(filesystem);
+  filesystem.fsyncPublicationParent = function failFirstPostRenameFsync() {
+    parentFsyncs += 1;
+    if (parentFsyncs === 2) throw new Error("simulated post-rename fsync loss");
+    originalFsync();
+  };
+  const originalPublish = filesystem.publishNoReplace.bind(filesystem);
+  filesystem.publishNoReplace = function publishOnce() { publications += 1; originalPublish(); };
+  const journal = publicationJournal();
+  const result = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal });
+  assert.equal(result.reasonCode, "native_install_ambiguous_publication_verified");
+  assert.equal(publications, 1);
+  assert.deepEqual(journal.transitions, [
+    "root_plan_verified->publication_intent_durable",
+    "publication_intent_durable->publication_started",
+    "publication_started->publication_ambiguous",
+    "publication_ambiguous->installed_verified",
+  ]);
+  assert.equal(verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() }).ok, true);
+});
+
 test("real TTY/PAM process outcomes are abstracted and argv/environment/journal evidence contain digests only", () => {
   const secret = "health-token-super-secret";
   const sudoArgv = buildNativeInstallSudoArgv({
@@ -576,8 +635,12 @@ test("trusted bootstrap records the exact armed receipt before authenticated net
   assert.match(source, /trusted_path='\/usr\/libexec\/settleora-semantic-recovery-native-install-bootstrap'/u);
   assert.match(source, /stat -Lc '%F:%u:%g:%a:%h'/u);
   assert.match(source, /git hash-object -- "\$trusted_path"/u);
-  assert.equal(source.indexOf("owner_snapshot=", 0) < source.indexOf("git -c core.hooksPath=/dev/null", 0), true);
-  assert.equal(source.indexOf("sync -f \"$root_state_root\"") < source.indexOf("fetch --quiet"), true);
+  assert.equal(source.indexOf("owner_directory_fd = os.open", 0) < source.indexOf("git -c core.hooksPath=/dev/null", 0), true);
+  assert.equal(source.indexOf("os.fsync(root_directory_fd)") < source.indexOf("fetch --quiet"), true);
+  assert.match(source, /os\.O_RDONLY \| os\.O_NOFOLLOW, dir_fd=owner_directory_fd/u);
+  assert.match(source, /first\.st_size > MAXIMUM_JOURNAL_BYTES/u);
+  assert.match(source, /os\.fchown\(fd, 0, 0\)[\s\S]*os\.fchmod\(fd, 0o400\)[\s\S]*os\.fsync\(fd\)/u);
+  assert.doesNotMatch(source, /cp --no-dereference|chown 0:0 "\$snapshot/u);
   assert.doesNotMatch(source, /^\s*(?:eval|source)\b|\bcurl\b|\bwget\b/mu);
 });
 

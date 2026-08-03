@@ -317,7 +317,20 @@ function rootAuthority(hint) {
       adopted: published.adopted,
     });
   } catch {
-    if (journal.state !== "blocked" && journal.state !== "completed") {
+    if (journal.state === "publication_started") {
+      try {
+        advanceRoot("publication_started", "publication_ambiguous", {
+          outcome: "ambiguous",
+          reasonCode: "native_install_post_publication_failure_ambiguous",
+          requestDigest: journal.requestDigest,
+          sourceManifestDigest: journal.result?.sourceManifestDigest,
+          planDigest: journal.result?.planDigest,
+          installedDigest: journal.result?.installedDigest,
+        });
+      } catch {
+        try { journal = store.read(); } catch { /* Exact durable state is unavailable; do not issue another effect. */ }
+      }
+    } else if (!["publication_ambiguous", "blocked", "completed"].includes(journal.state)) {
       try {
         advanceRoot(journal.state, "blocked", {
           outcome: "blocked",
@@ -330,6 +343,7 @@ function rootAuthority(hint) {
       } catch {
         // A durable transition claim may have won immediately before failure.
         // Never issue another effect while reconciliation is ambiguous.
+        try { journal = store.read(); } catch { /* Preserve bounded failure below. */ }
       }
     }
     if (["publication_ambiguous", "blocked"].includes(journal.state)) publishRootResult(hint, journal);
