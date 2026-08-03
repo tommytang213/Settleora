@@ -1835,12 +1835,20 @@ path in the root parent. Unknown fields, caller-supplied manifests,
 self-consistent substitute packages, and any installed-byte drift fail before
 grant bytes are emitted.
 Live production paths are resolved only by live operator modes, never during
-module import. Grant planning and persistence requery the authenticated
-paginated GitHub exact-target no-effect source rather than trusting only the
-installed snapshot. The persistence adapter repeats that query after exact
-successor/provenance publication and before the atomic commit marker, so a
-concurrent later effect cannot produce committed readback; exact uncommitted
-bytes remain fail-closed until a later fresh fence permits idempotent adoption.
+module import. Native executable/support bytes come from authenticated GitHub
+Git-data commit/tree/blob responses at the exact canonical-main SHA; the tree
+must be complete and every blob object ID is recomputed from its bytes, so a
+writable local worktree or object database cannot select installed code. Grant
+planning and persistence requery the authenticated paginated GitHub
+exact-target no-effect source rather than trusting only the installed store.
+The final pre-write query produces a canonical 30-second source-owned snapshot
+bound to repository, issue, branch, manifest, request, and operation. The
+adapter checks its local freshness again immediately before the atomic commit
+marker and binds the snapshot/digest into provenance and commit readback. This
+uses the contract's protected-snapshot option instead of claiming an impossible
+atomic CAS between GitHub and a local filesystem; exact uncommitted bytes remain
+fail-closed after expiry, while an already exact committed successor requires a
+new complete authority authentication before idempotent adoption.
 The installed exact root-owned executable alone also exposes the closed
 `--persist-successor` and `--readback-successor` operations. Persistence
 requires real/effective UID 0 at the fixed canonical executable path and the

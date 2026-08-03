@@ -2029,11 +2029,14 @@ Unknown fields and alternate operations, commands, paths, environment, or
 output roots are rejected. The plan derives subordinate digests, enumerates
 future files and directories, reports zero service effects, and keeps producer
 installation, grant installation, and successor execution distinct.
-Producer executable/support bytes are selected only from immutable Git blob
-objects beneath the exact authenticated canonical-main commit, never from the
-source-UID-writable worktree. The selected main SHA is frozen in the plan and
-policy, and a final full authority-context reread must match after artifact
-derivation.
+Producer executable/support bytes are selected only through authenticated
+GitHub Git-data commit/tree/blob reads beneath the exact authenticated
+canonical-main commit, never from the source-UID-writable worktree or its
+writable object database. The recursive tree must be complete, each returned
+blob path/type/mode/size/OID must match the closed dependency graph, and the
+producer recomputes the Git blob object ID from the returned bytes before the
+bytes can enter a plan. The selected main SHA is frozen in the plan and policy,
+and a final full authority-context reread must match after artifact derivation.
 Grant planning is available only through the exact installed root-owned
 producer. Its closed request supplies the previously verified install package,
 one exact operation selector, and the semantic evidence packet; the producer
@@ -2046,11 +2049,17 @@ The production repository path is resolved only inside live source modes, so
 import-safe helpers and verification tests do not depend on the DevBox checkout
 location. Grant derivation and each persistence authentication freshly rerun
 the authenticated paginated GitHub exact-target no-effect read and require its
-digest to equal the protected source claim. Persistence authenticates again
-after publishing the exact successor and provenance bytes but before the
-no-clobber commit marker; a later effect leaves only non-adoptable partial state
-and no committed successor, while an exact retry can finish only after a fresh
-successful fence.
+digest to equal the protected source claim. The final pre-write read emits a
+canonical source-owned snapshot bound to the exact repository, issue, branch,
+manifest, request, and operation, with an exact 30-second validity interval.
+This explicit point-in-time snapshot replaces any false claim that a remote
+GitHub state and a local filesystem commit can participate in one atomic CAS.
+The root parent authenticates snapshot freshness before publication and again
+immediately before the no-clobber commit marker, then binds the complete
+snapshot and digest into provenance and commit readback. Expiry leaves only
+non-adoptable partial state; an exact retry can resume that snapshot only while
+it remains fresh, or adopt an already exact committed successor after a new
+complete authority authentication.
 
 This offline root-invoked model is the smallest privilege boundary because it
 adds no listener, service, socket, timer, sudoers rule, credential, arbitrary
@@ -2076,10 +2085,11 @@ so PATH is never consulted before the installed-path guard. For fresh
 runner-owned artifact reads, the root process starts a closed-environment child
 with real/effective UID and GID set to the authenticated external-config owner;
 an effective-UID-only transition is insufficient and is rejected. The root
-parent compares two canonical child results, reauthenticates the fixed protected
-stores and real grant immediately before the write, and alone calls the bounded
-persistence core. No path, command, environment, or output selector crosses
-that boundary.
+parent compares the stable authority/construction portion of two canonical
+child results, uses the second child's fresh exact-operation GitHub snapshot,
+reauthenticates the fixed protected stores and real grant immediately before
+the write, and alone calls the bounded persistence core. No path, command,
+environment, or output selector crosses that boundary.
 
 Claim ownership is also source-owned and immutable. The versioned matrix and
 its deterministic digest name every required domain owner. Repository identity
@@ -2126,8 +2136,9 @@ use the same registry. Immediately before persistence, production
 reauthenticates all sources, bound artifacts, runtime claims, manifest, and the
 same exact grant. Persistence additionally requires a fresh source-owned
 reauthentication of all eight stores, bound artifacts, runtime tuple, grant,
-and GitHub no-effect fence immediately before the complete root-executed
-operation. Any later effect or drift therefore fails closed. The successor cannot
+and GitHub no-effect snapshot immediately before the complete root-executed
+operation. Any effect observed by that final read, source drift, snapshot
+identity mismatch, or expiry therefore fails closed. The successor cannot
 alias the predecessor/incident key. The runner accepts no persistence callback
 and contains no semantic-successor pathname writer; its ordinary recovery
 writer refuses every write while the incident contract is configured. The

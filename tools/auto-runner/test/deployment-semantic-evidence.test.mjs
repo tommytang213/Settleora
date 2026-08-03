@@ -477,16 +477,14 @@ test("semantic overwrite incident is admitted only for deterministic read-only d
 test("semantic GitHub no-effect fence is freshly requeried and exact-digest bound", () => {
   const fixture = makeFixture();
   try {
-    const manifest = {
-      currentIncident: { path: fixture.paths.incident, sha256: sha256(readFileSync(fixture.paths.incident)) },
-      claims: {
-        repository: fixture.claims.repository,
-        issueNumber: fixture.claims.issueNumber,
-        branch: fixture.claims.branch,
-        prEvidenceDigest: fixture.claims.prEvidenceDigest,
-      },
-    };
-    assert.equal(reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command: fixture.sourceCommand }).ok, true);
+    const manifest = semanticGithubManifest(fixture);
+    const snapshot = reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command: fixture.sourceCommand, now: new Date("2026-08-03T10:00:00.000Z") });
+    assert.equal(snapshot.contract, "settleora_semantic_recovery_github_no_effect_snapshot");
+    assert.equal(snapshot.operationId, manifest.operation.operationId);
+    assert.equal(snapshot.manifestDigest, manifest.manifestDigest);
+    assert.equal(snapshot.observedAt, "2026-08-03T10:00:00.000Z");
+    assert.equal(snapshot.expiresAt, "2026-08-03T10:00:30.000Z");
+    assert.equal(Object.values(snapshot.effectClaims).every((effect) => effect === false), true);
     const laterBranch = (executable, args, options) => {
       if (executable === "/usr/bin/gh" && args.join(" ").includes("git/matching-refs/heads/")) {
         return JSON.stringify([{ ref: `refs/heads/${fixture.claims.branch}`, object: { type: "commit", sha: fixture.claims.headSha } }]);
@@ -554,6 +552,8 @@ test("semantic GitHub no-effect pagination fails closed at the page bound", () =
 
 function semanticGithubManifest(fixture) {
   return {
+    manifestDigest: "a".repeat(64),
+    operation: { operationId: "b".repeat(64), requestId: "c".repeat(64) },
     currentIncident: { path: fixture.paths.incident, sha256: sha256(readFileSync(fixture.paths.incident)) },
     claims: {
       repository: fixture.claims.repository,

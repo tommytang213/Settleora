@@ -38,6 +38,9 @@ export const nativeSemanticSourceContract = "settleora_semantic_recovery_native_
 export const nativeSemanticSourceVersion = 1;
 export const nativeSemanticPersistenceContract = "settleora_semantic_recovery_native_persistence";
 export const nativeSemanticPersistenceVersion = 1;
+export const semanticRecoveryGithubNoEffectSnapshotContract = "settleora_semantic_recovery_github_no_effect_snapshot";
+export const semanticRecoveryGithubNoEffectSnapshotVersion = 1;
+export const semanticRecoveryGithubNoEffectSnapshotLifetimeMs = 30_000;
 
 const digestPattern = /^[a-f0-9]{64}$/u;
 const maximumJsonBytes = 256 * 1024;
@@ -136,22 +139,22 @@ export function authenticateNativeSemanticRecoveryStore({
 }
 
 export function readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem = null } = {}) {
-  let expected;
-  try { expected = expectedPersistenceRecords(manifest, grant, construction); }
+  let identity;
+  try { identity = expectedPersistenceIdentity(manifest, grant, construction); }
   catch { return failed("semantic_successor_readback_identity_invalid"); }
   try {
-    const final = readOptionalProtectedJson(expected.paths.storagePath, { filesystem });
-    const provenance = readOptionalProtectedJson(expected.paths.provenancePath, { filesystem });
-    const commit = readOptionalProtectedJson(expected.paths.commitPath, { filesystem });
+    const final = readOptionalProtectedJson(identity.paths.storagePath, { filesystem });
+    const provenance = readOptionalProtectedJson(identity.paths.provenancePath, { filesystem });
+    const commit = readOptionalProtectedJson(identity.paths.commitPath, { filesystem });
     const incoming = listProtectedDirectory(semanticRecoveryProtectedLayout.successorIncomingRoot, { filesystem });
-    const selectedIncomingNames = [expected.paths.storagePath, expected.paths.provenancePath, expected.paths.commitPath]
+    const selectedIncomingNames = [identity.paths.storagePath, identity.paths.provenancePath, identity.paths.commitPath]
       .map((finalPath) => path.posix.basename(incomingPathFor(finalPath)));
     const selectedIncoming = incoming.filter((name) => selectedIncomingNames.includes(name));
     if (selectedIncoming.length !== 0) return failed("semantic_successor_readback_incoming_residue");
     for (const [directory, finalPath] of [
-      [semanticRecoveryProtectedLayout.successorsRoot, expected.paths.storagePath],
-      [semanticRecoveryProtectedLayout.successorProvenanceRoot, expected.paths.provenancePath],
-      [semanticRecoveryProtectedLayout.successorCommitsRoot, expected.paths.commitPath],
+      [semanticRecoveryProtectedLayout.successorsRoot, identity.paths.storagePath],
+      [semanticRecoveryProtectedLayout.successorProvenanceRoot, identity.paths.provenancePath],
+      [semanticRecoveryProtectedLayout.successorCommitsRoot, identity.paths.commitPath],
     ]) {
       const basename = path.posix.basename(finalPath);
       const key = basename.slice(0, -5);
@@ -163,6 +166,9 @@ export function readbackProtectedSemanticRecoverySuccessor({ manifest, grant, co
     if (!final && !provenance && !commit) return failed("semantic_successor_not_persisted");
     if (commit && (!final || !provenance)) return failed("semantic_successor_readback_torn_commit");
     if (!final || !provenance || !commit) return failed("semantic_successor_readback_partial");
+    const githubNoEffectSnapshot = provenance.document?.githubNoEffectSnapshot;
+    authenticateSemanticRecoveryGithubNoEffectSnapshot(githubNoEffectSnapshot, manifest, { requireFresh: false });
+    const expected = expectedPersistenceRecords(manifest, grant, construction, githubNoEffectSnapshot);
     if (canonicalJson(final.document) !== canonicalJson(expected.successor)
         || canonicalJson(provenance.document) !== canonicalJson(expected.provenance)
         || canonicalJson(commit.document) !== canonicalJson(expected.commit)) {
@@ -184,6 +190,7 @@ export function readbackProtectedSemanticRecoverySuccessor({ manifest, grant, co
       successorSha256: final.sha256,
       provenanceSha256: provenance.sha256,
       commitSha256: commit.sha256,
+      githubNoEffectSnapshotDigest: githubNoEffectSnapshot.snapshotDigest,
       paths: expected.paths,
     });
   } catch {
@@ -202,11 +209,12 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
   filesystem = null,
   effectiveUid = typeof process.getuid === "function" ? process.getuid() : null,
   crashAfter = null,
+  clock = () => new Date(),
 } = {}) {
   if (!filesystem && effectiveUid !== 0) return failed("semantic_native_persistence_root_required");
   if (typeof reauthenticate !== "function") return failed("semantic_native_persistence_reauthentication_missing");
-  let expected;
-  try { expected = expectedPersistenceRecords(manifest, grant, construction); }
+  let identity;
+  try { identity = expectedPersistenceIdentity(manifest, grant, construction); }
   catch { return failed("semantic_native_persistence_identity_invalid"); }
   let fresh;
   try { fresh = reauthenticate(); }
@@ -217,14 +225,27 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
       || fresh.operationId !== manifest.operation.operationId) {
     return failed("semantic_native_persistence_authority_drift");
   }
-  if (!filesystem) {
-    try { recoverExactInterruptedPublicationSet(expected); }
-    catch { return failed("semantic_native_persistence_publication_residue_conflict"); }
-  }
   const readback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem });
   if (readback.ok) return { ...readback, reasonCode: "semantic_recovery_successor_adopted" };
   if (!["semantic_successor_not_persisted", "semantic_successor_readback_partial", "semantic_successor_readback_incoming_residue"].includes(readback.reasonCode)) {
     return readback;
+  }
+  let githubNoEffectSnapshot;
+  try {
+    githubNoEffectSnapshot = selectSemanticRecoveryGithubNoEffectSnapshot({
+      freshSnapshot: fresh.githubNoEffectSnapshot,
+      manifest,
+      provenancePath: identity.paths.provenancePath,
+      filesystem,
+      now: clock(),
+    });
+  } catch { return failed("semantic_native_persistence_github_snapshot_invalid"); }
+  let expected;
+  try { expected = expectedPersistenceRecords(manifest, grant, construction, githubNoEffectSnapshot); }
+  catch { return failed("semantic_native_persistence_identity_invalid"); }
+  if (!filesystem) {
+    try { recoverExactInterruptedPublicationSet(expected); }
+    catch { return failed("semantic_native_persistence_publication_residue_conflict"); }
   }
   try {
     ensureProtectedSuccessorDirectories({ filesystem });
@@ -232,15 +253,8 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
     if (crashAfter === "provenance") throw crashError();
     publishRecordNoClobber(expected.paths.storagePath, expected.successor, { filesystem });
     if (crashAfter === "successor") throw crashError();
-    let commitFresh;
-    try { commitFresh = reauthenticate(); }
-    catch { return failed("semantic_native_persistence_reauthentication_before_commit_failed"); }
-    if (commitFresh?.ok !== true
-        || commitFresh.manifestDigest !== manifest.manifestDigest
-        || commitFresh.grantSha256 !== grant.sha256
-        || commitFresh.operationId !== manifest.operation.operationId) {
-      return failed("semantic_native_persistence_authority_drift_before_commit");
-    }
+    try { authenticateSemanticRecoveryGithubNoEffectSnapshot(githubNoEffectSnapshot, manifest, { now: clock(), requireFresh: true }); }
+    catch { return failed("semantic_native_persistence_github_snapshot_expired_before_commit"); }
     publishRecordNoClobber(expected.paths.commitPath, expected.commit, { filesystem });
     if (crashAfter === "commit") throw crashError();
   } catch (error) {
@@ -253,32 +267,10 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
     : committed;
 }
 
-export function expectedPersistenceRecords(manifest, grant, construction = null) {
-  if (!plainObject(manifest) || !plainObject(grant)
-      || manifest.sourceAuthority !== "production"
-      || grant.authorized !== true
-      || grant.synthetic === true
-      || grant.manifestDigest !== manifest.manifestDigest
-      || grant.operationId !== manifest.operation?.operationId
-      || grant.requestId !== manifest.operation?.requestId) {
-    throw new Error("semantic persistence authority invalid");
-  }
-  const paths = manifest.intendedSuccessor;
-  const storageKey = paths?.storageKey;
-  const expectedStoragePath = path.posix.join(semanticRecoveryProtectedLayout.successorsRoot, `${storageKey}.json`);
-  const expectedProvenancePath = path.posix.join(semanticRecoveryProtectedLayout.successorProvenanceRoot, `${sha256(canonicalJson({ contract: "post_incident_semantic_successor", incidentIdentity: manifest.incidentIdentity }))}.json`);
-  const expectedCommitPath = path.posix.join(semanticRecoveryProtectedLayout.successorCommitsRoot, `${storageKey}.json`);
-  if (!isDigest(storageKey)
-      || paths.storagePath !== expectedStoragePath
-      || paths.provenancePath !== expectedProvenancePath
-      || paths.commitPath !== expectedCommitPath) {
-    throw new Error("semantic persistence path invalid");
-  }
-  const successorState = construction?.successor;
-  if (!plainObject(successorState) || construction.storageKey !== storageKey
-      || construction.ok !== true || construction.reasonCode !== "post_incident_successor_constructed") {
-    throw new Error("semantic persistence construction invalid");
-  }
+export function expectedPersistenceRecords(manifest, grant, construction = null, githubNoEffectSnapshot = null) {
+  const identity = expectedPersistenceIdentity(manifest, grant, construction);
+  authenticateSemanticRecoveryGithubNoEffectSnapshot(githubNoEffectSnapshot, manifest, { requireFresh: false });
+  const { storageKey, paths, successorState } = identity;
   const successor = {
     contract: nativeSemanticPersistenceContract,
     version: nativeSemanticPersistenceVersion,
@@ -301,6 +293,7 @@ export function expectedPersistenceRecords(manifest, grant, construction = null)
     requestId: manifest.operation.requestId,
     manifestDigest: manifest.manifestDigest,
     grantSha256: grant.sha256,
+    githubNoEffectSnapshot,
     evidenceSources: manifest.evidenceSources.map((source) => ({
       authorityClass: source.authorityClass,
       path: source.store.path,
@@ -332,9 +325,80 @@ export function expectedPersistenceRecords(manifest, grant, construction = null)
     manifestDigest: manifest.manifestDigest,
     successorSha256,
     provenanceSha256,
+    githubNoEffectSnapshotDigest: githubNoEffectSnapshot.snapshotDigest,
     authorizedToContinue: false,
   };
-  return deepFreeze({ storageKey, paths: { storagePath: paths.storagePath, provenancePath: paths.provenancePath, commitPath: paths.commitPath }, successor, provenance, commit });
+  return deepFreeze({ storageKey, paths, successor, provenance, commit });
+}
+
+function expectedPersistenceIdentity(manifest, grant, construction = null) {
+  if (!plainObject(manifest) || !plainObject(grant)
+      || manifest.sourceAuthority !== "production"
+      || grant.authorized !== true
+      || grant.synthetic === true
+      || grant.manifestDigest !== manifest.manifestDigest
+      || grant.operationId !== manifest.operation?.operationId
+      || grant.requestId !== manifest.operation?.requestId) {
+    throw new Error("semantic persistence authority invalid");
+  }
+  const paths = manifest.intendedSuccessor;
+  const storageKey = paths?.storageKey;
+  const expectedStoragePath = path.posix.join(semanticRecoveryProtectedLayout.successorsRoot, `${storageKey}.json`);
+  const expectedProvenancePath = path.posix.join(semanticRecoveryProtectedLayout.successorProvenanceRoot, `${sha256(canonicalJson({ contract: "post_incident_semantic_successor", incidentIdentity: manifest.incidentIdentity }))}.json`);
+  const expectedCommitPath = path.posix.join(semanticRecoveryProtectedLayout.successorCommitsRoot, `${storageKey}.json`);
+  if (!isDigest(storageKey)
+      || paths.storagePath !== expectedStoragePath
+      || paths.provenancePath !== expectedProvenancePath
+      || paths.commitPath !== expectedCommitPath) {
+    throw new Error("semantic persistence path invalid");
+  }
+  const successorState = construction?.successor;
+  if (!plainObject(successorState) || construction.storageKey !== storageKey
+      || construction.ok !== true || construction.reasonCode !== "post_incident_successor_constructed") {
+    throw new Error("semantic persistence construction invalid");
+  }
+  return deepFreeze({
+    storageKey,
+    paths: { storagePath: paths.storagePath, provenancePath: paths.provenancePath, commitPath: paths.commitPath },
+    successorState,
+  });
+}
+
+export function authenticateSemanticRecoveryGithubNoEffectSnapshot(snapshot, manifest, { now = new Date(), requireFresh = true } = {}) {
+  assertExactKeys(snapshot, [
+    "branch", "contract", "effectClaims", "evidenceDigest", "expiresAt", "issueNumber", "manifestDigest",
+    "observedAt", "operationId", "repository", "requestId", "snapshotDigest", "version",
+  ]);
+  assertExactKeys(snapshot.effectClaims, ["commentEffect", "issueEffect", "mergeEffect", "prEffect", "productEffect", "pushEffect"]);
+  const { snapshotDigest, ...core } = snapshot;
+  const observedMs = Date.parse(snapshot.observedAt);
+  const expiresMs = Date.parse(snapshot.expiresAt);
+  const nowMs = now instanceof Date ? now.getTime() : Number.NaN;
+  if (snapshot.contract !== semanticRecoveryGithubNoEffectSnapshotContract
+      || snapshot.version !== semanticRecoveryGithubNoEffectSnapshotVersion
+      || snapshot.repository !== manifest?.claims?.repository
+      || snapshot.issueNumber !== manifest?.claims?.issueNumber
+      || snapshot.branch !== manifest?.claims?.branch
+      || snapshot.operationId !== manifest?.operation?.operationId
+      || snapshot.requestId !== manifest?.operation?.requestId
+      || snapshot.manifestDigest !== manifest?.manifestDigest
+      || snapshot.evidenceDigest !== manifest?.claims?.prEvidenceDigest
+      || Object.values(snapshot.effectClaims).some((effect) => effect !== false)
+      || !isDigest(snapshotDigest) || snapshotDigest !== sha256(canonicalJson(core))
+      || !Number.isFinite(observedMs) || !Number.isFinite(expiresMs)
+      || expiresMs - observedMs !== semanticRecoveryGithubNoEffectSnapshotLifetimeMs
+      || (requireFresh && (!Number.isFinite(nowMs) || nowMs < observedMs || nowMs >= expiresMs))) {
+    throw new Error("semantic recovery GitHub no-effect snapshot invalid");
+  }
+  return true;
+}
+
+function selectSemanticRecoveryGithubNoEffectSnapshot({ freshSnapshot, manifest, provenancePath, filesystem, now }) {
+  const existing = readOptionalProtectedJson(provenancePath, { filesystem })
+    || readOptionalProtectedJson(incomingPathFor(provenancePath), { filesystem });
+  const selected = existing?.document?.githubNoEffectSnapshot || freshSnapshot;
+  authenticateSemanticRecoveryGithubNoEffectSnapshot(selected, manifest, { now, requireFresh: true });
+  return selected;
 }
 
 function authenticateProtectedJson(file, { filesystem = null, maximumBytes = maximumJsonBytes, expectedMode = expectedFileMode } = {}) {

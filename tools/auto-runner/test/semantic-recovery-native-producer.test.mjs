@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,6 +25,7 @@ import {
   verifySemanticRecoveryNativeInstallPlan,
 } from "../lib/semantic-recovery-native-producer.mjs";
 import {
+  authenticateSemanticRecoveryGithubNoEffectSnapshot,
   authenticateNativeSemanticRecoveryStore,
   expectedPersistenceRecords,
   persistExactSemanticRecoverySuccessorFromNativeProducer,
@@ -35,6 +35,7 @@ import {
 } from "../lib/semantic-recovery-protected-store.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const gitBlobSha1 = (value) => createHash("sha1").update(Buffer.from(`blob ${value.length}\0`)).update(value).digest("hex");
 const canonicalize = (value) => Array.isArray(value) ? value.map(canonicalize) : value && typeof value === "object" && !Buffer.isBuffer(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])) : value;
 const canonicalJson = (value) => JSON.stringify(canonicalize(value));
 const oldHash = "6".repeat(64);
@@ -137,7 +138,28 @@ function persistenceFixture() {
   const manifest = { ...core, operation: { operationId: operation.operationId, requestId: operation.requestId, action: operation.action }, intendedSuccessor: { storageKey, storagePath: `${semanticRecoveryProtectedLayout.successorsRoot}/${storageKey}.json`, provenancePath: `${semanticRecoveryProtectedLayout.successorProvenanceRoot}/${sha256(canonicalJson({ contract: "post_incident_semantic_successor", incidentIdentity }))}.json`, commitPath: `${semanticRecoveryProtectedLayout.successorCommitsRoot}/${storageKey}.json`, lifecycleSuccessorSession: lifecycleSuccessor.sessionId, operationId: operation.operationId }, manifestDigest };
   const grant = { authorized: true, synthetic: false, sha256: sha256("grant"), operationId: operation.operationId, requestId: operation.requestId, manifestDigest };
   const construction = { ok: true, reasonCode: "post_incident_successor_constructed", storageKey, successor: { task: manifest.identities, phase: "checkpoint_validation_commit", firstIncompleteAction: "reconstruct_and_validate_preserved_candidate", nextSafeAction: "await_separate_execution_authorization", mutationGeneration: 3 } };
-  return { manifest, grant, construction };
+  const snapshotCore = {
+    contract: "settleora_semantic_recovery_github_no_effect_snapshot", version: 1,
+    repository: manifest.claims.repository, issueNumber: manifest.claims.issueNumber, branch: manifest.claims.branch,
+    operationId: operation.operationId, requestId: operation.requestId, manifestDigest,
+    evidenceDigest: manifest.claims.prEvidenceDigest,
+    effectClaims: { pushEffect: false, prEffect: false, commentEffect: false, mergeEffect: false, issueEffect: false, productEffect: false },
+    observedAt: "2026-08-03T10:00:00.000Z", expiresAt: "2026-08-03T10:00:30.000Z",
+  };
+  const githubNoEffectSnapshot = { ...snapshotCore, snapshotDigest: sha256(canonicalJson(snapshotCore)) };
+  const clock = () => new Date("2026-08-03T10:00:01.000Z");
+  return { manifest, grant, construction, githubNoEffectSnapshot, clock };
+}
+
+function persistenceAuthority(fixture, overrides = {}) {
+  return {
+    ok: true,
+    manifestDigest: fixture.manifest.manifestDigest,
+    grantSha256: fixture.grant.sha256,
+    operationId: fixture.manifest.operation.operationId,
+    githubNoEffectSnapshot: fixture.githubNoEffectSnapshot,
+    ...overrides,
+  };
 }
 
 test("native planner emits eight independent fixed protected stores and verifies deterministic readback", () => {
@@ -287,16 +309,16 @@ test("protected persistence reauthenticates, publishes once, adopts exact bytes,
   const fixture = persistenceFixture();
   const filesystem = new ProtectedMemoryFilesystem();
   let reads = 0;
-  const reauthenticate = () => { reads += 1; return { ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId }; };
+  const reauthenticate = () => { reads += 1; return persistenceAuthority(fixture); };
   const created = persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, effectiveUid: 1000, reauthenticate });
   assert.equal(created.reasonCode, "semantic_recovery_successor_created");
   assert.equal(created.authorizedToContinue, false);
-  const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction);
+  const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction, fixture.githubNoEffectSnapshot);
   const bytes = filesystem.read(expected.paths.storagePath);
   const adopted = persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, effectiveUid: 1000, reauthenticate });
   assert.equal(adopted.reasonCode, "semantic_recovery_successor_adopted");
   assert.deepEqual(filesystem.read(expected.paths.storagePath), bytes);
-  assert.equal(reads, 3);
+  assert.equal(reads, 2);
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).ok, true);
 });
 
@@ -304,7 +326,7 @@ test("protected persistence recovers exact crash windows and rejects conflicts, 
   for (const crashAfter of ["provenance", "successor", "commit"]) {
     const fixture = persistenceFixture();
     const filesystem = new ProtectedMemoryFilesystem();
-    const authority = () => ({ ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId });
+    const authority = () => persistenceAuthority(fixture);
     assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority, crashAfter }).reasonCode, "semantic_native_persistence_interrupted");
     const recovered = persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority });
     assert.equal(recovered.ok, true, crashAfter);
@@ -315,9 +337,9 @@ test("protected persistence recovers exact crash windows and rejects conflicts, 
   const drift = persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: new ProtectedMemoryFilesystem(), reauthenticate: () => ({ ok: true, manifestDigest: "0".repeat(64), grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId }) });
   assert.equal(drift.reasonCode, "semantic_native_persistence_authority_drift");
   const filesystem = new ProtectedMemoryFilesystem();
-  const authority = () => ({ ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId });
+  const authority = () => persistenceAuthority(fixture);
   assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority }).ok, true);
-  const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction);
+  const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction, fixture.githubNoEffectSnapshot);
   filesystem.replace(expected.paths.storagePath, { conflict: true });
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_conflict");
   filesystem.mutate(expected.paths.storagePath, { nlink: 2 });
@@ -327,29 +349,44 @@ test("protected persistence recovers exact crash windows and rejects conflicts, 
   assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_duplicate");
 });
 
-test("protected persistence reauthenticates GitHub fence before commit publication", () => {
+test("protected persistence binds one fresh exact-operation GitHub snapshot through commit publication", () => {
   const fixture = persistenceFixture();
   const filesystem = new ProtectedMemoryFilesystem();
-  let reads = 0;
-  const fence = () => {
-    reads += 1;
-    return reads === 1
-      ? { ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId }
-      : { ok: false };
-  };
-  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: fence }).reasonCode, "semantic_native_persistence_authority_drift_before_commit");
-  assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_partial");
-  const stable = () => ({ ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId });
-  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: stable }).ok, true);
+  assert.equal(authenticateSemanticRecoveryGithubNoEffectSnapshot(fixture.githubNoEffectSnapshot, fixture.manifest, { now: fixture.clock() }), true);
+  const stable = () => persistenceAuthority(fixture);
+  const created = persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: stable });
+  assert.equal(created.ok, true);
+  const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction, fixture.githubNoEffectSnapshot);
+  assert.equal(expected.provenance.githubNoEffectSnapshot.snapshotDigest, fixture.githubNoEffectSnapshot.snapshotDigest);
+  assert.equal(expected.commit.githubNoEffectSnapshotDigest, fixture.githubNoEffectSnapshot.snapshotDigest);
+  for (const mutate of [
+    (snapshot) => { snapshot.operationId = "0".repeat(64); },
+    (snapshot) => { snapshot.requestId = "0".repeat(64); },
+    (snapshot) => { snapshot.effectClaims.commentEffect = true; },
+    (snapshot) => { snapshot.snapshotDigest = "0".repeat(64); },
+    (snapshot) => { snapshot.expiresAt = "2026-08-03T10:01:00.000Z"; },
+  ]) {
+    const snapshot = structuredClone(fixture.githubNoEffectSnapshot);
+    mutate(snapshot);
+    assert.throws(() => authenticateSemanticRecoveryGithubNoEffectSnapshot(snapshot, fixture.manifest, { now: fixture.clock() }), /snapshot invalid/u);
+  }
+  const expired = new ProtectedMemoryFilesystem();
+  const lateClock = () => new Date("2026-08-03T10:00:30.000Z");
+  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: expired, reauthenticate: stable, clock: lateClock }).reasonCode, "semantic_native_persistence_github_snapshot_invalid");
+  const commitExpiry = new ProtectedMemoryFilesystem();
+  let ticks = 0;
+  const expiringClock = () => new Date(ticks++ === 0 ? "2026-08-03T10:00:29.000Z" : "2026-08-03T10:00:30.000Z");
+  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: commitExpiry, reauthenticate: stable, clock: expiringClock }).reasonCode, "semantic_native_persistence_github_snapshot_expired_before_commit");
+  assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem: commitExpiry }).reasonCode, "semantic_successor_readback_partial");
 });
 
 test("a commit marker with either predecessor missing is torn and never backfilled", () => {
   for (const missing of ["storagePath", "provenancePath"]) {
     const fixture = persistenceFixture();
     const filesystem = new ProtectedMemoryFilesystem();
-    const authority = () => ({ ok: true, manifestDigest: fixture.manifest.manifestDigest, grantSha256: fixture.grant.sha256, operationId: fixture.manifest.operation.operationId });
+    const authority = () => persistenceAuthority(fixture);
     assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority }).ok, true);
-    const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction);
+    const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction, fixture.githubNoEffectSnapshot);
     filesystem.entries.delete(expected.paths[missing]);
     assert.equal(readbackProtectedSemanticRecoverySuccessor({ ...fixture, filesystem }).reasonCode, "semantic_successor_readback_torn_commit");
     assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority }).reasonCode, "semantic_successor_readback_torn_commit");
@@ -360,9 +397,10 @@ test("a commit marker with either predecessor missing is torn and never backfill
 test("installed producer bundle, fixed runtime and real source identity close the privilege boundary", () => {
   const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
   const persistence = readFileSync(new URL("../lib/semantic-recovery-protected-store.mjs", import.meta.url), "utf8");
-  assert.match(source, /readSemanticRecoverySupportFilesFromGit\(\{ repositoryRoot, producerSourceSha \}\)/u);
-  assert.match(source, /ls-tree", "-rz", "--full-tree", producerSourceSha/u);
-  assert.match(source, /cat-file", "blob", object/u);
+  assert.match(source, /readSemanticRecoverySupportFilesFromGit\(\{[\s\S]*repository: producerSourceContext\.repository,[\s\S]*producerSourceSha/u);
+  assert.match(source, /git\/commits\/\$\{producerSourceSha\}/u);
+  assert.match(source, /git\/trees\/\$\{commit\.tree\.sha\}\?recursive=1/u);
+  assert.match(source, /gitObjectSha1\("blob", bytes\) !== entry\.sha/u);
   assert.doesNotMatch(source, /readSemanticRecoverySupportFiles\(repositoryRoot/u);
   assert.match(source, /--persist-successor/u);
   assert.match(source, /assertInstalledProducerInvocation\(\)/u);
@@ -381,30 +419,47 @@ test("installed producer bundle, fixed runtime and real source identity close th
   const generated = planFixture();
   const encodedPlan = { plan: generated.plan, artifacts: generated.artifacts.map(({ bytes, ...artifact }) => ({ ...artifact, bytesBase64: bytes.toString("base64") })) };
   assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson(encodedPlan)), encodedPlan);
-  assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--authenticate-successor-internal", canonicalJson({ authentication: { ok: false }, construction: null })), { authentication: { ok: false }, construction: null });
+  assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--authenticate-successor-internal", canonicalJson({ authentication: { ok: false }, construction: null, githubNoEffectSnapshot: null })), { authentication: { ok: false }, construction: null, githubNoEffectSnapshot: null });
   assert.throws(() => parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson({ authentication: {}, construction: null })), /unsupported/u);
   assert.match(persistence, /recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?readbackProtectedSemanticRecoverySuccessor/u);
 });
 
-test("producer support bytes come from the authenticated immutable Git commit, not mutable worktree files", () => {
+test("producer support bytes come from authenticated GitHub blobs with recomputed object identities", () => {
   const root = mkdtempSync(path.join(tmpdir(), "settleora-semantic-producer-git-"));
   try {
-    execFileSync("/usr/bin/git", ["init", "-q"], { cwd: root });
-    execFileSync("/usr/bin/git", ["config", "user.email", "fixture@example.invalid"], { cwd: root });
-    execFileSync("/usr/bin/git", ["config", "user.name", "Fixture"], { cwd: root });
-    const source = path.join(root, "tools/auto-runner/semantic-recovery-native-producer.mjs");
-    const support = path.join(root, "tools/auto-runner/lib/support.mjs");
-    mkdirSync(path.dirname(support), { recursive: true });
-    writeFileSync(source, "export const committed = true;\n");
-    writeFileSync(support, "export const support = true;\n");
-    execFileSync("/usr/bin/git", ["add", "tools/auto-runner"], { cwd: root });
-    execFileSync("/usr/bin/git", ["commit", "-qm", "fixture"], { cwd: root });
-    const producerSourceSha = String(execFileSync("/usr/bin/git", ["rev-parse", "HEAD"], { cwd: root })).trim();
-    writeFileSync(source, "export const attackerSelected = true;\n");
-    const files = readSemanticRecoverySupportFilesFromGit({ repositoryRoot: root, producerSourceSha });
+    const producerSourceSha = "a".repeat(40);
+    const treeSha = "b".repeat(40);
+    const sourceBytes = Buffer.from('import "./lib/support.mjs";\nexport const committed = true;\n');
+    const supportBytes = Buffer.from("export const support = true;\n");
+    const sourceSha = gitBlobSha1(sourceBytes);
+    const supportSha = gitBlobSha1(supportBytes);
+    const blobs = new Map([[sourceSha, sourceBytes], [supportSha, supportBytes]]);
+    const command = (_executable, args) => {
+      const route = args[1];
+      if (route.endsWith(`/git/commits/${producerSourceSha}`)) return JSON.stringify({ sha: producerSourceSha, tree: { sha: treeSha } });
+      if (route.endsWith(`/git/trees/${treeSha}?recursive=1`)) return JSON.stringify({
+        sha: treeSha, truncated: false, tree: [
+          { path: "tools/auto-runner/semantic-recovery-native-producer.mjs", mode: "100755", type: "blob", sha: sourceSha, size: sourceBytes.length },
+          { path: "tools/auto-runner/lib/support.mjs", mode: "100644", type: "blob", sha: supportSha, size: supportBytes.length },
+        ],
+      });
+      const oid = route.split("/").at(-1);
+      const bytes = blobs.get(oid);
+      return JSON.stringify({ sha: oid, size: bytes.length, encoding: "base64", content: bytes.toString("base64") });
+    };
+    const files = readSemanticRecoverySupportFilesFromGit({ repositoryRoot: root, repository: "example/repo", producerSourceSha, command });
     const executable = files.find((entry) => entry.source === "tools/auto-runner/semantic-recovery-native-producer.mjs");
-    assert.equal(executable.bytes.toString("utf8"), "export const committed = true;\n");
-    assert.doesNotMatch(executable.bytes.toString("utf8"), /attackerSelected/u);
+    assert.deepEqual(executable.bytes, sourceBytes);
+    const forged = (_executable, args) => {
+      const value = JSON.parse(command(_executable, args));
+      if (args[1].endsWith(`/git/blobs/${sourceSha}`)) {
+        const attackerBytes = Buffer.from(sourceBytes);
+        attackerBytes[attackerBytes.length - 2] ^= 1;
+        return JSON.stringify({ ...value, content: attackerBytes.toString("base64") });
+      }
+      return JSON.stringify(value);
+    };
+    assert.throws(() => readSemanticRecoverySupportFilesFromGit({ repositoryRoot: root, repository: "example/repo", producerSourceSha, command: forged }), /blob identity mismatch/u);
   } finally {
     rmSync(root, { recursive: true });
   }

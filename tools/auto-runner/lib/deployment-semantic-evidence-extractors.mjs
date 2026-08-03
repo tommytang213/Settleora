@@ -18,6 +18,10 @@ import { resumedGitRepositoryAuthorityIsTrusted } from "./preserved-recovery-dep
 import { authenticateAssociatedRecoverableState } from "./recovery-state.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
 
+export const semanticRecoveryGithubNoEffectSnapshotContract = "settleora_semantic_recovery_github_no_effect_snapshot";
+export const semanticRecoveryGithubNoEffectSnapshotVersion = 1;
+export const semanticRecoveryGithubNoEffectSnapshotLifetimeMs = 30_000;
+
 export function collectSemanticDeploymentEvidenceContext({
   projectAuthority,
   repositoryRoot,
@@ -216,12 +220,16 @@ export function createSemanticDeploymentAuthorityReaders({ readAuthorityContext 
   });
 }
 
-export function reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot, manifest, command = defaultCommand } = {}) {
+export function reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot, manifest, command = defaultCommand, now = new Date() } = {}) {
   if (!manifest || typeof manifest !== "object" || !path.isAbsolute(repositoryRoot || "")
       || realpathSync(repositoryRoot) !== repositoryRoot
       || typeof manifest.currentIncident?.path !== "string"
       || !digest64(manifest.currentIncident?.sha256)
-      || !digest64(manifest.claims?.prEvidenceDigest)) {
+      || !digest64(manifest.claims?.prEvidenceDigest)
+      || !digest64(manifest.manifestDigest)
+      || !digest64(manifest.operation?.operationId)
+      || !digest64(manifest.operation?.requestId)
+      || !(now instanceof Date) || !Number.isFinite(now.getTime())) {
     throw new Error("semantic recovery GitHub fence input invalid");
   }
   const incident = authenticateJson(manifest.currentIncident.path);
@@ -242,7 +250,25 @@ export function reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot, m
       || Object.values(fresh.claims).some((effect) => effect !== false)) {
     throw new Error("semantic recovery later GitHub effect detected");
   }
-  return deepFreeze({ ok: true, digest: fresh.digest, reasonCode: "semantic_recovery_github_no_effect_reauthenticated" });
+  const observedAt = now.toISOString();
+  const snapshotCore = {
+    contract: semanticRecoveryGithubNoEffectSnapshotContract,
+    version: semanticRecoveryGithubNoEffectSnapshotVersion,
+    repository: manifest.claims.repository,
+    issueNumber: manifest.claims.issueNumber,
+    branch: manifest.claims.branch,
+    operationId: manifest.operation.operationId,
+    requestId: manifest.operation.requestId,
+    manifestDigest: manifest.manifestDigest,
+    evidenceDigest: fresh.digest,
+    effectClaims: fresh.claims,
+    observedAt,
+    expiresAt: new Date(now.getTime() + semanticRecoveryGithubNoEffectSnapshotLifetimeMs).toISOString(),
+  };
+  return deepFreeze({
+    ...snapshotCore,
+    snapshotDigest: sha256(canonicalJson(snapshotCore)),
+  });
 }
 
 function withAuthorityContext(context, authorityClass, claims) {

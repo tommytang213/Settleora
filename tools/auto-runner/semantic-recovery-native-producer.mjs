@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { userInfo } from "node:os";
 import path from "node:path";
 import { loadDeploymentProjectAuthority } from "./lib/config.mjs";
 import { authenticateSemanticDeploymentEvidencePackage } from "./lib/deployment-semantic-evidence-package.mjs";
@@ -114,7 +115,11 @@ function planInstallFromAuthenticatedSource(request) {
   };
   const producerSourceContext = readAuthorityContext();
   const producerSourceSha = producerSourceContext.candidate?.mainSha;
-  const supportFiles = readSemanticRecoverySupportFilesFromGit({ repositoryRoot, producerSourceSha });
+  const supportFiles = readSemanticRecoverySupportFilesFromGit({
+    repositoryRoot,
+    repository: producerSourceContext.repository,
+    producerSourceSha,
+  });
   const generated = planSemanticRecoveryNativeInstall({
     request,
     authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext }),
@@ -194,12 +199,14 @@ function executeProtectedSuccessorOperation(mode, value) {
     reauthenticate() {
       const freshPacket = authenticate();
       const fresh = freshPacket.authentication;
-      const unchanged = canonicalJson(freshPacket) === canonicalJson(initialPacket);
+      const unchanged = canonicalJson({ authentication: freshPacket.authentication, construction: freshPacket.construction })
+        === canonicalJson({ authentication: initialPacket.authentication, construction: initialPacket.construction });
       return {
         ok: unchanged && fresh.ok === true && fresh.grant?.authorized === true,
         manifestDigest: fresh.manifestDigest,
         grantSha256: fresh.grant?.sha256,
         operationId: fresh.manifest?.operation?.operationId,
+        githubNoEffectSnapshot: freshPacket.githubNoEffectSnapshot,
       };
     },
   });
@@ -213,14 +220,14 @@ function executeSourceAuthentication(value) {
   assertSourceProcessIdentity(sourceIdentity);
   const config = productionRecoveryConfig();
   const authentication = authenticateConfiguredSemanticRecoveryAuthority(config, value.semanticEvidencePacket, value.operationId);
-  if (!authentication.ok || !authentication.grant?.authorized) return { authentication, construction: null };
-  reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: config.repoRoot, manifest: authentication.manifest });
+  if (!authentication.ok || !authentication.grant?.authorized) return { authentication, construction: null, githubNoEffectSnapshot: null };
+  const githubNoEffectSnapshot = reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: config.repoRoot, manifest: authentication.manifest });
   const construction = constructPostIncidentSuccessor({
     manifest: authentication.manifest,
     mutationGeneration: authentication.manifest.lifecycleSuccessor.mutationGeneration,
     operationGrant: authentication.grant,
   });
-  return { authentication, construction };
+  return { authentication, construction, githubNoEffectSnapshot };
 }
 
 function executeSourceGrantPlan(value) {
@@ -290,50 +297,100 @@ export function parseSemanticRecoverySourceProcessResponse(mode, output) {
   try { parsed = JSON.parse(output); } catch { throw new Error("semantic native source authentication response invalid"); }
   if (canonicalJson(parsed) !== output) throw new Error("semantic native source authentication response noncanonical");
   const expected = mode === sourceAuthenticationMode
-    ? ["authentication", "construction"]
+    ? ["authentication", "construction", "githubNoEffectSnapshot"]
     : mode === sourcePlanMode ? ["artifacts", "plan"]
       : ["manifest", "manifestDigest", "ok", "reasonCode"];
   assertExactKeys(parsed, expected);
   return parsed;
 }
 
-export function readSemanticRecoverySupportFilesFromGit({ repositoryRoot, producerSourceSha, command = fixedGitCommand } = {}) {
+export function readSemanticRecoverySupportFilesFromGit({ repositoryRoot, repository, producerSourceSha, command = fixedGitCommand } = {}) {
   if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)
       || realpathSync(repositoryRoot) !== repositoryRoot
+      || !/^[^/\s]+\/[^/\s]+$/u.test(String(repository || ""))
       || !/^[a-f0-9]{40}$/u.test(String(producerSourceSha || ""))) {
     throw new Error("semantic native producer Git source invalid");
   }
   const forbidden = ["GIT_REPLACE_REF_BASE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_DIR", "GIT_WORK_TREE", "GIT_SHALLOW_FILE"];
   if (forbidden.some((key) => process.env[key])) throw new Error("semantic native producer Git environment untrusted");
-  const args = ["--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"];
   const options = {
     cwd: repositoryRoot,
-    env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", GIT_NO_REPLACE_OBJECTS: "1", GIT_OPTIONAL_LOCKS: "0", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" },
+    env: { PATH: "/usr/bin:/bin", HOME: userInfo().homedir, LANG: "C", LC_ALL: "C", GH_PROMPT_DISABLED: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" },
   };
-  const git = (suffix, encoding = "utf8") => command("/usr/bin/git", [...args, ...suffix], { ...options, encoding });
-  if (String(git(["cat-file", "-t", producerSourceSha])).trim() !== "commit") {
+  const github = (route) => {
+    const output = command("/usr/bin/gh", ["api", route], { ...options, encoding: "utf8" });
+    try { return JSON.parse(String(output)); }
+    catch { throw new Error("semantic native producer GitHub response invalid"); }
+  };
+  const commit = github(`repos/${repository}/git/commits/${producerSourceSha}`);
+  if (!plainObject(commit) || commit.sha !== producerSourceSha || !/^[a-f0-9]{40}$/u.test(String(commit.tree?.sha || ""))) {
     throw new Error("semantic native producer Git commit invalid");
   }
-  const records = Buffer.from(git(["ls-tree", "-rz", "--full-tree", producerSourceSha, "--", "tools/auto-runner"], null))
-    .toString("utf8").split("\0").filter(Boolean).map((record) => {
-      const match = /^(100644|100755) blob ([a-f0-9]{40})\t(tools\/auto-runner\/(.+))$/u.exec(record);
-      if (!match) throw new Error("semantic native producer Git tree entry invalid");
-      return { mode: match[1], object: match[2], source: match[3], relative: match[4] };
-    });
-  const selected = records.filter(({ relative }) => {
-    const segments = relative.split("/");
-    return !segments.some((segment) => segment === "test" || segment === "node_modules" || segment.startsWith("."))
-      && (relative.endsWith(".mjs") || relative === "README.md");
-  }).sort((left, right) => left.source.localeCompare(right.source));
-  if (selected.length < 2 || new Set(selected.map(({ source }) => source)).size !== selected.length
-      || !selected.some(({ source }) => source === "tools/auto-runner/semantic-recovery-native-producer.mjs")) {
-    throw new Error("semantic native producer Git support selection invalid");
+  const tree = github(`repos/${repository}/git/trees/${commit.tree.sha}?recursive=1`);
+  if (!plainObject(tree) || tree.sha !== commit.tree.sha || tree.truncated !== false || !Array.isArray(tree.tree)) {
+    throw new Error("semantic native producer Git tree invalid or truncated");
   }
-  return selected.map(({ object, source }) => {
-    const bytes = Buffer.from(git(["cat-file", "blob", object], null));
-    if (bytes.length < 1 || bytes.length > 1024 * 1024) throw new Error("semantic native producer Git blob invalid");
-    return { source, bytes, sha256: sha256(bytes), byteCount: bytes.length, executable: source === "tools/auto-runner/semantic-recovery-native-producer.mjs" };
-  });
+  const bySource = new Map();
+  for (const entry of tree.tree) {
+    if (!plainObject(entry) || typeof entry.path !== "string" || entry.path.startsWith("/")
+        || path.posix.normalize(entry.path) !== entry.path || entry.path.includes("\0")) {
+      throw new Error("semantic native producer Git tree entry invalid");
+    }
+    if (!entry.path.startsWith("tools/auto-runner/")) continue;
+    if (entry.type === "tree" && entry.mode === "040000" && /^[a-f0-9]{40}$/u.test(String(entry.sha || ""))) continue;
+    if (!/^(100644|100755)$/u.test(String(entry.mode || "")) || entry.type !== "blob"
+        || !/^[a-f0-9]{40}$/u.test(String(entry.sha || ""))
+        || !Number.isSafeInteger(entry.size) || entry.size < 1 || entry.size > 1024 * 1024
+        || bySource.has(entry.path)) throw new Error("semantic native producer Git tree entry invalid");
+    bySource.set(entry.path, entry);
+  }
+  const entrySource = "tools/auto-runner/semantic-recovery-native-producer.mjs";
+  const selected = new Map();
+  const pending = [entrySource];
+  while (pending.length > 0) {
+    const source = pending.pop();
+    if (selected.has(source)) continue;
+    const entry = bySource.get(source);
+    if (!entry || !source.endsWith(".mjs")) throw new Error(`semantic native producer Git dependency missing: ${source}`);
+    const blob = github(`repos/${repository}/git/blobs/${entry.sha}`);
+    if (!plainObject(blob) || blob.sha !== entry.sha || blob.encoding !== "base64" || blob.size !== entry.size
+        || typeof blob.content !== "string" || !/^[A-Za-z0-9+/=\r\n]+$/u.test(blob.content)) {
+      throw new Error("semantic native producer Git blob invalid");
+    }
+    const encoded = blob.content.replace(/[\r\n]/gu, "");
+    const bytes = Buffer.from(encoded, "base64");
+    if (bytes.length !== entry.size || bytes.toString("base64") !== encoded
+        || gitObjectSha1("blob", bytes) !== entry.sha) {
+      throw new Error("semantic native producer Git blob identity mismatch");
+    }
+    selected.set(source, { source, bytes, sha256: sha256(bytes), byteCount: bytes.length, executable: source === entrySource });
+    for (const specifier of relativeSupportModuleSpecifiers(bytes)) {
+      const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(source), specifier));
+      if (!dependency.startsWith("tools/auto-runner/") || !dependency.endsWith(".mjs")) {
+        throw new Error("semantic native producer Git dependency invalid");
+      }
+      pending.push(dependency);
+    }
+  }
+  if (selected.size < 2) throw new Error("semantic native producer Git support selection invalid");
+  return [...selected.values()].sort((left, right) => left.source.localeCompare(right.source));
+}
+
+function relativeSupportModuleSpecifiers(bytes) {
+  const text = Buffer.from(bytes).toString("utf8");
+  if (!Buffer.from(text).equals(Buffer.from(bytes))) throw new Error("semantic native producer Git support encoding invalid");
+  const found = new Set();
+  for (const pattern of [
+    /(?:^|\n)\s*(?:import|export)\s+(?:[^"'()]*?\s+from\s+)?["'](\.[^"']+)["']/gu,
+    /\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/gu,
+  ]) {
+    for (const match of text.matchAll(pattern)) found.add(match[1]);
+  }
+  return [...found].sort();
+}
+
+function gitObjectSha1(type, bytes) {
+  return createHash("sha1").update(Buffer.from(`${type} ${bytes.length}\0`)).update(bytes).digest("hex");
 }
 
 function fixedGitCommand(executable, args, options) {
@@ -474,6 +531,7 @@ function assertExactKeys(value, expected) {
   if (!value || typeof value !== "object" || Array.isArray(value)
       || canonicalJson(Object.keys(value).sort()) !== canonicalJson([...expected].sort())) throw new Error("unsupported or missing fields");
 }
+function plainObject(value) { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 function canonicalJson(value) { return JSON.stringify(canonicalize(value)); }
 function canonicalize(value) { if (Array.isArray(value)) return value.map(canonicalize); if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])); return value; }
