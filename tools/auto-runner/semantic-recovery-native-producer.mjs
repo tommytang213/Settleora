@@ -14,6 +14,7 @@ import {
   constructPostIncidentSuccessor,
 } from "./lib/post-incident-successor-recovery.mjs";
 import {
+  normalizeSemanticRecoveryNativeProducerRequest,
   planSemanticRecoveryGrant,
   planSemanticRecoveryNativeInstall,
   readSemanticRecoverySupportFiles,
@@ -30,31 +31,54 @@ import {
 const maximumInputBytes = 8 * 1024 * 1024;
 const fixedNodeRuntimePath = "/usr/bin/node";
 const sourceAuthenticationMode = "--authenticate-successor-internal";
+const sourcePlanMode = "--plan-install-internal";
 const repositoryRoot = realpathSync("/workspace/repos/Settleora");
 const runtimeRoot = "/workspace/auto-runner/runtime";
 const configPath = "/workspace/auto-runner/config/settleora.json";
 const approvedProfilePath = "/workspace/auto-runner/config/settleora-production-approved-20260724-0946.json";
 const healthUnitPath = "/home/tommytang213/.config/systemd/user/settleora-auto-runner-health.service";
-const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor", sourceAuthenticationMode]);
+const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor", sourceAuthenticationMode, sourcePlanMode]);
 
 export async function main(argv = process.argv.slice(2), input = process.stdin) {
   if (argv.length !== 1 || !supportedModes.has(argv[0])) throw new Error("one supported semantic recovery mode is required");
   const request = await readCanonicalInput(input);
   let result;
   if (argv[0] === sourceAuthenticationMode) result = executeSourceAuthentication(request);
+  else if (argv[0] === sourcePlanMode) result = executeSourcePlan(request);
   else if (argv[0] === "--plan-install") result = planInstall(request);
   else if (argv[0] === "--verify-install-plan") result = verifyInstallPackage(request);
   else if (argv[0] === "--plan-grant") result = encodeGrantPlan(planSemanticRecoveryGrant(request));
   else if (argv[0] === "--verify-grant-plan") result = verifyGrantPackage(request);
   else if (argv[0] === "--verify-installed") result = verifyInstalled(request);
   else result = executeProtectedSuccessorOperation(argv[0], request);
-  if (argv[0] !== sourceAuthenticationMode) process.stderr.write(`${summary(argv[0], result)}\n`);
+  if (![sourceAuthenticationMode, sourcePlanMode].includes(argv[0])) process.stderr.write(`${summary(argv[0], result)}\n`);
   process.stdout.write(`${canonicalJson(result)}\n`);
   return result;
 }
 
 function planInstall(request) {
-  const authenticated = authenticateSemanticDeploymentEvidencePackage(request?.source?.deploymentEvidenceDocument);
+  const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
+  const route = semanticRecoveryPlanExecutionRoute();
+  if (route === "installed_root_source_subprocess") {
+    assertInstalledProducerInvocation();
+    const encoded = runSourceProcess(trustedSourceIdentity(), sourcePlanMode, normalized);
+    const decoded = decodeInstallPackage(encoded);
+    if (!verifySemanticRecoveryNativeInstallPlan(decoded).ok) throw new Error("semantic native delegated install plan invalid");
+    return encoded;
+  }
+  return planInstallFromAuthenticatedSource(normalized);
+}
+
+function executeSourcePlan(request) {
+  const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
+  const sourceIdentity = trustedSourceIdentity();
+  assertInstalledProducerInvocation({ rootRequired: false });
+  assertSourceProcessIdentity(sourceIdentity);
+  return planInstallFromAuthenticatedSource(normalized);
+}
+
+function planInstallFromAuthenticatedSource(request) {
+  const authenticated = authenticateSemanticDeploymentEvidencePackage(request.source.deploymentEvidenceDocument);
   if (authenticated.evidence.sha256 !== request.source.sha256) throw new Error("semantic native selected evidence digest mismatch");
   const document = authenticated.document;
   if (document.project?.repositorySlug?.toLowerCase() !== request.repository.toLowerCase()) {
@@ -167,7 +191,12 @@ function executeSourceAuthentication(value) {
 }
 
 function authenticateInSourceProcess(sourceIdentity, value) {
-  const child = spawnSync(fixedNodeRuntimePath, [semanticRecoveryProtectedLayout.producerExecutable, sourceAuthenticationMode], {
+  return runSourceProcess(sourceIdentity, sourceAuthenticationMode, value);
+}
+
+function runSourceProcess(sourceIdentity, mode, value) {
+  if (![sourceAuthenticationMode, sourcePlanMode].includes(mode)) throw new Error("semantic native source subprocess mode invalid");
+  const child = spawnSync(fixedNodeRuntimePath, [semanticRecoveryProtectedLayout.producerExecutable, mode], {
     cwd: "/",
     env: { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
     gid: sourceIdentity.gid,
@@ -224,6 +253,22 @@ export function assertSourceProcessIdentity(sourceIdentity, identity = {}) {
     throw new Error("semantic native source process identity mismatch");
   }
   return true;
+}
+
+export function semanticRecoveryPlanExecutionRoute(identity = {}) {
+  const realUid = identity.realUid ?? process.getuid?.();
+  const effectiveUid = identity.effectiveUid ?? process.geteuid?.();
+  const invocationPath = path.resolve(identity.invocationPath ?? process.argv[1] ?? "");
+  if (realUid === 0 || effectiveUid === 0) {
+    if (realUid !== 0 || effectiveUid !== 0 || invocationPath !== semanticRecoveryProtectedLayout.producerExecutable) {
+      throw new Error("semantic native root planning requires installed producer");
+    }
+    return "installed_root_source_subprocess";
+  }
+  if (!Number.isSafeInteger(realUid) || realUid < 1 || effectiveUid !== realUid) {
+    throw new Error("semantic native planning process identity invalid");
+  }
+  return "unprivileged_source_process";
 }
 
 function assertInstalledProducerInvocation({ rootRequired = true } = {}) {

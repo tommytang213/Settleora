@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { assertSourceProcessIdentity } from "../semantic-recovery-native-producer.mjs";
+import { assertSourceProcessIdentity, semanticRecoveryPlanExecutionRoute } from "../semantic-recovery-native-producer.mjs";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
   deriveSemanticRecoveryOperationRequest,
@@ -281,6 +281,11 @@ test("installed producer bundle, fixed runtime and real source identity close th
   assert.equal(assertSourceProcessIdentity({ uid: 1000, gid: 1000 }, { realUid: 1000, effectiveUid: 1000, realGid: 1000, effectiveGid: 1000 }), true);
   assert.throws(() => assertSourceProcessIdentity({ uid: 1000, gid: 1000 }, { realUid: 0, effectiveUid: 1000, realGid: 0, effectiveGid: 1000 }), /identity mismatch/u);
   assert.throws(() => assertSourceProcessIdentity({ uid: 1000, gid: 1000 }, { realUid: 1000, effectiveUid: 1000, realGid: 0, effectiveGid: 1000 }), /identity mismatch/u);
+  assert.equal(semanticRecoveryPlanExecutionRoute({ realUid: 1000, effectiveUid: 1000, invocationPath: "/workspace/repository/producer.mjs" }), "unprivileged_source_process");
+  assert.equal(semanticRecoveryPlanExecutionRoute({ realUid: 0, effectiveUid: 0, invocationPath: semanticRecoveryProtectedLayout.producerExecutable }), "installed_root_source_subprocess");
+  assert.throws(() => semanticRecoveryPlanExecutionRoute({ realUid: 0, effectiveUid: 0, invocationPath: "/workspace/repository/producer.mjs" }), /requires installed producer/u);
+  assert.throws(() => semanticRecoveryPlanExecutionRoute({ realUid: 0, effectiveUid: 1000, invocationPath: semanticRecoveryProtectedLayout.producerExecutable }), /requires installed producer/u);
+  assert.match(source, /normalizeSemanticRecoveryNativeProducerRequest\(request\)[\s\S]*?authenticateSemanticDeploymentEvidencePackage/u);
   assert.match(persistence, /recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?readbackProtectedSemanticRecoverySuccessor/u);
 });
 

@@ -1813,8 +1813,12 @@ derive every subordinate digest. The fixed layout contains immutable producer
 runtime/policy, exactly eight protected stores, a grants directory, and
 successor incoming/provenance/commit roots. Plan readback requires canonical
 root:root directories and one-link immutable files at the exact paths. A later
-installation must rederive the plan as root; unprivileged planned bytes are not
-authority. Producer installation, one exact grant, root-executed successor
+installation first bootstraps only the exact owner-selected executable/support
+bundle into the protected path, then invokes that installed root-owned producer
+to rederive the complete plan through its real/effective source-UID/GID child
+and requires an exact plan match before completing installation. Root planning
+from a runner-writable repository path is rejected, and unprivileged planned
+bytes alone are not authority. Producer installation, one exact grant, root-executed successor
 persistence, authenticated readback, and any Issue #959 continuation remain
 separate owner gates. A committed successor explicitly reports that it is not
 authorized to continue.

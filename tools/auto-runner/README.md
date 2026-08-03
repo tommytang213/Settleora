@@ -2035,7 +2035,12 @@ adds no listener, service, socket, timer, sudoers rule, credential, arbitrary
 copy, command passthrough, or generic JSON-signing surface. A later authorized
 installer must run the same producer as root, rederive the snapshots from fresh
 domain sources, compare the exact plan, publish without clobber, and verify the
-installed tree. Copying the planner's projected bytes is insufficient. The
+installed tree. The bounded bootstrap copies only the exact owner-selected
+executable/support bundle to its fixed protected path; the installed root-owned
+producer then delegates the full evidence read and plan derivation to a
+closed-environment real/effective source-UID/GID child. Root planning directly
+from a runner-writable checkout is rejected. Copying the planner's projected
+bytes without this installed rederivation is insufficient. The
 unprivileged runner can only read installed root-owned snapshots and, after a
 separately installed grant and root-executed persistence operation,
 authenticate a committed successor; it cannot invoke a privileged mutation.
