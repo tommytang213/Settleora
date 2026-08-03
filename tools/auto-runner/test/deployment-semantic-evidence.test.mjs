@@ -38,7 +38,7 @@ function snapshotFiles(root, relative = "") {
   }).sort((left, right) => left.path.localeCompare(right.path));
 }
 
-function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutator = null } = {}) {
+function makeFixture({ claimOverrides = {}, documentMutator = null, incidentMutator = null, sourceMutator = null } = {}) {
   const root = mkdtempSync(path.join(os.tmpdir(), "settleora-semantic-deploy-"));
   chmodSync(root, 0o700);
   const configRoot = path.join(root, "config");
@@ -116,6 +116,7 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
   incidentState.phase = "stopped";
   incidentState.firstIncompleteAction = "lifecycle_stopped";
   incidentState.nextSafeAction = "lifecycle_stopped";
+  incidentMutator?.(incidentState);
   const bytesByKey = {
     incident: Buffer.from(JSON.stringify(incidentState)),
     associatedRecovery: Buffer.from(JSON.stringify(associatedState)),
@@ -143,10 +144,16 @@ function makeFixture({ claimOverrides = {}, documentMutator = null, sourceMutato
   const projectAuthority = { ...projectAuthorityCore, evidenceDigest: sha256(canonicalJson(projectAuthorityCore)) };
   createCollectorArtifacts({ logsRoot, incidentState, baseSha, headSha, chargeIdentity, chargeId });
   const sourceCommand = createFixtureCommand({ issueNumber: 7, mainSha: baseSha });
-  const extractionContext = collectSemanticDeploymentEvidenceContext({
-    projectAuthority: structuredClone(projectAuthority), repositoryRoot, incidentPath: paths.incident, incidentSha256: digests.incident,
-    associatedRecoveryPath: paths.associatedRecovery, associatedRecoverySha256: digests.associatedRecovery, command: sourceCommand,
-  });
+  let extractionContext;
+  try {
+    extractionContext = collectSemanticDeploymentEvidenceContext({
+      projectAuthority: structuredClone(projectAuthority), repositoryRoot, incidentPath: paths.incident, incidentSha256: digests.incident,
+      associatedRecoveryPath: paths.associatedRecovery, associatedRecoverySha256: digests.associatedRecovery, command: sourceCommand,
+    });
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
   const authorityReaders = createSemanticDeploymentAuthorityReaders();
   const claims = Object.assign({}, ...semanticRecoveryAuthorityClasses.map((authorityClass) => authorityReaders[authorityClass](extractionContext).claims), claimOverrides);
   const targetFields = [
@@ -607,6 +614,11 @@ test("live source revalidation compares complete authority contexts before every
 });
 
 test("GitHub source uses a trusted absolute client and binds exact comment identities and fingerprints", () => {
+  for (const invalidCheckpoint of [null, "not-a-timestamp"]) {
+    assert.throws(() => makeFixture({
+      incidentMutator: (incident) => { incident.timestamps.updatedAt = invalidCheckpoint; },
+    }), /GitHub incident checkpoint invalid/u);
+  }
   const later = makeFixture();
   try {
     const trusted = later.sourceCommand;

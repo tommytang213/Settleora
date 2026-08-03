@@ -725,6 +725,8 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
 }
 
 function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, mainSha, incidentUpdatedAt, command }) {
+  const incidentCheckpointMs = typeof incidentUpdatedAt === "string" ? Date.parse(incidentUpdatedAt) : Number.NaN;
+  if (!Number.isFinite(incidentCheckpointMs)) throw new Error("semantic extraction GitHub incident checkpoint invalid");
   const githubEnvironment = {
     PATH: "/usr/bin:/bin", HOME: userInfo().homedir, LANG: "C", LC_ALL: "C",
     GH_PROMPT_DISABLED: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
@@ -739,7 +741,7 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
       || repositoryRecord.full_name?.toLowerCase() !== repository.toLowerCase() || repositoryRecord.default_branch !== "main"
       || mainRef.ref !== "refs/heads/main" || mainRef.object?.type !== "commit" || mainRef.object?.sha !== mainSha
       || !Array.isArray(issue.comments) || !Number.isFinite(Date.parse(issue.updatedAt))
-      || Date.parse(issue.updatedAt) > Date.parse(incidentUpdatedAt)) throw new Error("semantic extraction later GitHub effect detected");
+      || Date.parse(issue.updatedAt) > incidentCheckpointMs) throw new Error("semantic extraction later GitHub effect detected");
   const comments = issue.comments.map((comment) => ({
     id: String(comment.id || ""),
     author: String(comment.author?.login || ""),
@@ -749,9 +751,9 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
   })).sort((left, right) => left.id.localeCompare(right.id));
   if (new Set(comments.map(({ id }) => id)).size !== comments.length
       || comments.some((comment) => !comment.id || !comment.author || !Number.isFinite(Date.parse(comment.createdAt))
-        || Date.parse(comment.createdAt) > Date.parse(incidentUpdatedAt)
+        || Date.parse(comment.createdAt) > incidentCheckpointMs
         || (comment.updatedAt !== null && (!Number.isFinite(Date.parse(comment.updatedAt))
-          || Date.parse(comment.updatedAt) > Date.parse(incidentUpdatedAt))))) {
+          || Date.parse(comment.updatedAt) > incidentCheckpointMs)))) {
     throw new Error("semantic extraction GitHub comment checkpoint invalid");
   }
   const proof = {

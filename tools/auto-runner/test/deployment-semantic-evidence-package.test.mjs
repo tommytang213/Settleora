@@ -153,11 +153,29 @@ test("no-clobber publication refuses a final directory appearing at commit", () 
     const plan = f.makePlan();
     assert.throws(() => createOrAdoptSemanticDeploymentEvidencePackage(plan, {
       beforePublish: () => mkdirSync(plan.packageRoot, { mode: 0o700 }),
-    }), /no-clobber publication refused/u);
+    }), /final appeared before publication|no-clobber publication refused/u);
     assert.equal(existsSync(plan.incomingRoot), true);
     assert.equal(existsSync(plan.packageRoot), true);
     assert.deepEqual(readdirSync(plan.packageRoot), []);
   } finally { f.cleanup(); }
+});
+
+test("staged members are reauthenticated after the final publication callback", () => {
+  for (const action of ["create", "adopt_incoming"]) {
+    const f = fixture();
+    try {
+      const plan = f.makePlan();
+      if (action === "adopt_incoming") {
+        mkdirSync(plan.incomingRoot, { mode: 0o700 });
+        for (const member of plan.members) writeFileSync(path.join(plan.incomingRoot, member.name), member.bytes, { mode: 0o600 });
+      }
+      assert.throws(() => createOrAdoptSemanticDeploymentEvidencePackage(plan, {
+        beforePublish: () => writeFileSync(path.join(plan.incomingRoot, "deployment-evidence.json"), "{}", { mode: 0o600 }),
+      }), /incoming member changed/u);
+      assert.equal(existsSync(plan.packageRoot), false);
+      assert.equal(existsSync(plan.incomingRoot), true);
+    } finally { f.cleanup(); }
+  }
 });
 
 test("adoption result remains bound to every digest in the planned bytes", () => {

@@ -175,6 +175,8 @@ export function createOrAdoptSemanticDeploymentEvidencePackage(plan, { beforePub
       throw new Error("semantic evidence package incoming changed before adoption");
     }
     beforePublish?.();
+    fsyncExistingPackage(plan.incomingRoot, plan.members);
+    if (pathEntryExists(plan.packageRoot)) throw new Error("semantic evidence package final appeared before incoming publication");
     publishDirectoryNoReplace(plan.incomingRoot, plan.packageRoot);
     fsyncDirectory(plan.configRoot);
     authenticateSemanticDeploymentEvidencePackage(plan.documentPath);
@@ -188,6 +190,8 @@ export function createOrAdoptSemanticDeploymentEvidencePackage(plan, { beforePub
     fsyncDirectory(plan.incomingRoot);
     if (pathEntryExists(plan.packageRoot)) throw new Error("semantic evidence package final appeared before commit");
     beforePublish?.();
+    fsyncExistingPackage(plan.incomingRoot, plan.members);
+    if (pathEntryExists(plan.packageRoot)) throw new Error("semantic evidence package final appeared before publication");
     publishDirectoryNoReplace(plan.incomingRoot, plan.packageRoot);
     fsyncDirectory(plan.configRoot);
   } catch (error) {
