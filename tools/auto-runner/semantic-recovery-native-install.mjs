@@ -480,7 +480,7 @@ function rootSourceReader(mode, value) {
 
 function runIndependentRootReaders(hint, observedAt = new Date().toISOString(), expectedPackage = null) {
   const input = canonicalBytes({ hint, observedAt });
-  const modesToRun = expectedPackage === null ? ["--root-plan-reader-internal", "--root-verify-reader-internal"] : ["--root-verify-reader-internal"];
+  const modesToRun = ["--root-plan-reader-internal", "--root-verify-reader-internal"];
   const outputs = modesToRun.map((mode) => {
     const child = spawnSync(fixedNode, [path.join(authenticatedCheckoutRoot(), "tools/auto-runner/semantic-recovery-native-install.mjs"), mode], {
       cwd: authenticatedCheckoutRoot(),
@@ -493,10 +493,15 @@ function runIndependentRootReaders(hint, observedAt = new Date().toISOString(), 
     if (child.error || child.signal || child.status !== 0 || child.stderr !== "") throw new Error("native install source authority reader blocked");
     return parseCanonicalJson(Buffer.from(child.stdout));
   });
-  if (outputs.length === 2 && !canonicalBytes(outputs[0]).equals(canonicalBytes(outputs[1]))) {
+  return corroborateNativeInstallRootReaderOutputs(outputs, expectedPackage);
+}
+
+export function corroborateNativeInstallRootReaderOutputs(outputs, expectedPackage = null) {
+  if (!Array.isArray(outputs) || outputs.length !== 2
+      || !canonicalBytes(outputs[0]).equals(canonicalBytes(outputs[1]))) {
     throw new Error("native install independent planner/verifier mismatch");
   }
-  if (expectedPackage !== null && !canonicalBytes(outputs[0].package).equals(canonicalBytes(expectedPackage))) {
+  if (expectedPackage !== null && !canonicalBytes(outputs[0].package).equals(canonicalBytes(encodeInstallPackage(expectedPackage)))) {
     throw new Error("native install persisted package no longer corroborated");
   }
   return { ...outputs[0], package: decodeInstallPackage(outputs[0].package) };
@@ -513,7 +518,7 @@ function reconcileRootResult({ hint, receipt, store, filesystem }) {
   if (snapshot.contract !== "settleora_semantic_recovery_native_install_root_plan_snapshot" || snapshot.version !== 1
       || snapshot.observedAt !== journal.observedAt || snapshot.planDigest !== journal.result?.planDigest
       || snapshot.requestDigest !== journal.requestDigest) throw new Error("native install root plan snapshot identity mismatch");
-  const verified = runIndependentRootReaders(hint, snapshot.observedAt, snapshot.package);
+  const verified = runIndependentRootReaders(hint, snapshot.observedAt, decodeInstallPackage(snapshot.package));
   if (journal.result?.planDigest !== verified.planDigest) throw new Error("native install root journal plan identity mismatch");
   const advance = (expectedState, nextState, partial) => {
     journal = transitionNativeInstallJournal({ current: journal, expectedState, nextState, observedAt: new Date().toISOString(), result: journalResult(partial), persist: (value) => persistNativeInstallJournalTransition({ ...value, store }) });

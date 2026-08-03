@@ -34,6 +34,7 @@ import { semanticRecoveryAuthorityClasses } from "./lib/semantic-recovery-author
 
 const maximumInputBytes = 8 * 1024 * 1024;
 const fixedNodeRuntimePath = "/usr/bin/node";
+const fixedPythonRuntimePath = "/usr/bin/python3";
 const sourceAuthenticationMode = "--authenticate-successor-internal";
 const sourcePlanMode = "--plan-install-internal";
 const sourceGrantPlanMode = "--derive-grant-manifest-internal";
@@ -42,6 +43,48 @@ const configPath = "/workspace/auto-runner/config/settleora.json";
 const approvedProfilePath = "/workspace/auto-runner/config/settleora-production-approved-20260724-0946.json";
 const healthUnitPath = "/home/tommytang213/.config/systemd/user/settleora-auto-runner-health.service";
 const deploymentEvidenceDocumentPath = "/workspace/auto-runner/config/settleora-semantic-deployment-evidence-issue-1012/deployment-evidence.json";
+const publicGithubReadProgram = String.raw`
+import http.client
+import json
+import re
+import ssl
+import sys
+
+request = json.loads(sys.stdin.buffer.read(4097).decode("utf-8"))
+if not isinstance(request, dict) or set(request) != {"route"} or not isinstance(request["route"], str):
+    raise RuntimeError("semantic_native_public_github_request_invalid")
+route = request["route"]
+patterns = (
+    r"repos/tommytang213/Settleora",
+    r"repos/tommytang213/Settleora/git/ref/heads/main",
+    r"repos/tommytang213/Settleora/git/matching-refs/heads/[A-Za-z0-9._~%:-]+\?per_page=100&page=[1-9][0-9]*",
+    r"repos/tommytang213/Settleora/pulls\?state=all&head=tommytang213%3A[A-Za-z0-9._~%:-]+&per_page=100&page=[1-9][0-9]*",
+    r"repos/tommytang213/Settleora/issues/1012",
+    r"repos/tommytang213/Settleora/issues/1012/comments\?per_page=100&page=[1-9][0-9]*",
+)
+if not any(re.fullmatch(pattern, route) for pattern in patterns) or ".." in route or "//" in route:
+    raise RuntimeError("semantic_native_public_github_route_invalid")
+connection = http.client.HTTPSConnection("api.github.com", 443, timeout=30, context=ssl.create_default_context())
+try:
+    connection.request("GET", "/" + route, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "settleora-root-native-install-v1",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+    response = connection.getresponse()
+    if response.status != 200 or response.getheader("Location") is not None:
+        raise RuntimeError("semantic_native_public_github_response_refused")
+    length = response.getheader("Content-Length")
+    if length is not None and (not length.isdigit() or int(length) > 4 * 1024 * 1024):
+        raise RuntimeError("semantic_native_public_github_response_oversized")
+    payload = response.read(4 * 1024 * 1024 + 1)
+    if not payload or len(payload) > 4 * 1024 * 1024:
+        raise RuntimeError("semantic_native_public_github_response_oversized")
+    value = json.loads(payload.decode("utf-8"))
+finally:
+    connection.close()
+sys.stdout.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+`;
 const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor", sourceAuthenticationMode, sourcePlanMode, sourceGrantPlanMode]);
 
 export async function main(argv = process.argv.slice(2), input = process.stdin) {
@@ -165,6 +208,11 @@ export function deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ reque
 
 function createRootInstallAuthorityContext() {
   const contextDigests = [];
+  const githubResponses = new Map();
+  const githubRead = (route) => {
+    if (!githubResponses.has(route)) githubResponses.set(route, deepFreeze(readPublicSemanticRecoveryGithubRoute(route)));
+    return structuredClone(githubResponses.get(route));
+  };
   const readAuthorityContext = () => {
     const repositoryRoot = productionRepositoryRoot();
     const projectAuthority = loadDeploymentProjectAuthority({
@@ -203,6 +251,7 @@ function createRootInstallAuthorityContext() {
       incidentSha256: incident.sha256,
       associatedRecoveryPath,
       associatedRecoverySha256,
+      githubRead,
     });
     const context = deepFreeze({ ...collected, deploymentEvidenceDigest: authenticated.evidence.sha256 });
     contextDigests.push(sha256(canonicalJson(context)));
@@ -210,6 +259,25 @@ function createRootInstallAuthorityContext() {
     return context;
   };
   return { repository: "tommytang213/Settleora", readAuthorityContext };
+}
+
+export function readPublicSemanticRecoveryGithubRoute(route, { command = spawnSync } = {}) {
+  if (typeof route !== "string" || route.length < 1 || route.length > 1024 || typeof command !== "function") {
+    throw new Error("semantic native public GitHub read boundary invalid");
+  }
+  const child = command(fixedPythonRuntimePath, ["-I", "-c", publicGithubReadProgram], {
+    input: canonicalJson({ route }),
+    encoding: "utf8",
+    env: { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
+    maxBuffer: 4 * 1024 * 1024 + 1024,
+    timeout: 35_000,
+  });
+  if (!child || child.error || child.signal || child.status !== 0 || child.stderr !== ""
+      || typeof child.stdout !== "string" || Buffer.byteLength(child.stdout) > 4 * 1024 * 1024) {
+    throw new Error("semantic native public GitHub read blocked");
+  }
+  try { return JSON.parse(child.stdout); }
+  catch { throw new Error("semantic native public GitHub response invalid"); }
 }
 
 function authenticateCurrentOwnerFileDigest(file) {

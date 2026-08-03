@@ -1853,7 +1853,12 @@ after its canonical path and owner are authenticated. After staged or adopted
 durability readback, both root readers rerun the complete source and authority
 binding at the publication edge, the controller requires the fresh package to
 remain byte-identical, and the staged or final tree is read back again before a
-journal transition. Root then either adopts an
+journal transition. Both readers always run; the controller compares their
+encoded packages and compares the re-encoded original package rather than
+mixing encoded and decoded representations. GitHub no-effect state is read
+through a fixed public TLS client bound to `api.github.com` and closed routes,
+with no redirects, ambient root CLI configuration, credentials, or route in
+argv/environment. Root then either adopts an
 exact final tree without rewriting it after complete fsync plus repeated
 readback, or stages, fsyncs and publishes
 once with `renameat2(RENAME_NOREPLACE)`. The sealed root remains beneath a
@@ -1871,7 +1876,8 @@ readback prevents an older ambiguous writer from replacing completion. They
 support durable owner-side completion. An exact stranded result temporary is
 authenticated and reused after restart; byte-identical duplicates are safely
 coalesced and directory-fsynced, while conflicting residue is left untouched
-and blocks. Verified installation/adoption
+and blocks. One exact earlier-state temporary is monotonically published and
+read back under its own identity before a later result is appended. Verified installation/adoption
 cannot transition to `blocked`; a final journal or result-publication failure
 permits only exact frozen-package readback, completion, and idempotent result
 adoption. Exclusive root-owned transition

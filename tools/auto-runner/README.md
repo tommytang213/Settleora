@@ -2132,6 +2132,14 @@ The fixed, authenticated repository path is supplied to Git only as the exact
 command-scoped `safe.directory`, so Git's different-owner defense remains
 closed while real-root readers can traverse that one already-verified path.
 Root requires their complete encoded packages to be byte-identical. The
+same two-reader comparison is mandatory again at the publication/adoption edge;
+the original decoded package is canonically re-encoded before comparison.
+GitHub no-effect reads use a fixed source-owned Python TLS client bound to
+`api.github.com`, closed repository/issue/routes, system trust roots, no
+redirects, bounded response bytes, and no `HOME`, CLI configuration, token,
+credential, argv route, or environment authority. Each reader caches only its
+own internally consistent page set; the separately spawned reader and later
+edge pass obtain independent fresh sets. The
 unprivileged plan is never an input. Live publication is reachable only in this root/private-source mode;
 fixture publication uses an injected in-memory filesystem and never selects a
 path.
@@ -2178,7 +2186,9 @@ prevents a delayed ambiguous writer from clobbering a newer verified completion.
 If result transport fails after a temporary is durable, retry authenticates and
 reuses it. The fixed Python boundary coalesces only fully authenticated,
 byte-identical duplicates with a directory fsync after each unlink; conflicting
-temporaries are retained and block publication.
+temporaries are retained and block publication. If the durable journal has
+advanced beyond one exact stranded earlier result, the earlier record is first
+published to its own identity and read back before the later append proceeds.
 The sequence lets the unprivileged coordinator durably complete its journal
 after verified root completion. Once installation
 or adoption is verified, `blocked` is no longer a legal transition: failure of

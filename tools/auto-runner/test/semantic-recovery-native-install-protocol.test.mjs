@@ -32,11 +32,14 @@ import {
 import { independentlyVerifyRootNativeInstallPackage } from "../lib/semantic-recovery-native-install-verifier.mjs";
 import {
   buildFixedNativeInstallRootResult,
+  classifyFixedNativeInstallRootResultTemporaries,
   completeVerifiedNativeInstallResult,
   persistNativeInstallJournalTransition,
   publishOrAdoptVerifiedNativeInstall,
   validateRootResultTransition,
 } from "../lib/semantic-recovery-native-install-publication.mjs";
+import { corroborateNativeInstallRootReaderOutputs } from "../semantic-recovery-native-install.mjs";
+import { readPublicSemanticRecoveryGithubRoute } from "../semantic-recovery-native-producer.mjs";
 import {
   semanticRecoveryAuthorityClasses,
   semanticRecoveryClaimOwnerMatrix,
@@ -533,6 +536,49 @@ test("root results are append-only journal-sequenced monotonic records that reje
     [rootResult("installed_verified", 8), rootResult("completed", 8)],
     [rootResult("installed_verified", 8), rootResult("completed", 9, { sourceCommit: "f".repeat(40) })],
   ]) assert.throws(() => validateRootResultTransition(before, after), /monotonic transition invalid/u);
+});
+
+test("root-result retry publishes an authenticated older state before appending completion", () => {
+  const ambiguous = rootResult("publication_ambiguous", 7);
+  const completed = rootResult("completed", 9, { installedDigest: "4".repeat(64) });
+  assert.deepEqual(classifyFixedNativeInstallRootResultTemporaries(null, completed, [ambiguous]), { action: "publish_prior", index: 0 });
+  assert.deepEqual(classifyFixedNativeInstallRootResultTemporaries(ambiguous, completed, [completed, completed]), { action: "reuse_current", index: 0 });
+  assert.deepEqual(classifyFixedNativeInstallRootResultTemporaries(ambiguous, completed, []), { action: "create", index: null });
+  assert.throws(
+    () => classifyFixedNativeInstallRootResultTemporaries(null, completed, [ambiguous, rootResult("installed_verified", 8)]),
+    /conflicting root result temporary/u,
+  );
+});
+
+test("publication-edge corroboration requires planner and verifier encoded packages and compares decoded expected bytes", () => {
+  const installPackage = installPackageFixture();
+  const encoded = {
+    plan: installPackage.plan,
+    artifacts: installPackage.artifacts.map(({ bytes, ...artifact }) => ({ ...artifact, bytesBase64: bytes.toString("base64") })),
+  };
+  const output = { package: encoded, planDigest: installPackage.plan.planDigest, requestDigest: installPackage.plan.requestDigest, sourceManifestDigest: "5".repeat(64) };
+  const corroborated = corroborateNativeInstallRootReaderOutputs([structuredClone(output), structuredClone(output)], installPackage);
+  assert.equal(Buffer.isBuffer(corroborated.package.artifacts[0].bytes), true);
+  assert.throws(() => corroborateNativeInstallRootReaderOutputs([output], installPackage), /planner\/verifier mismatch/u);
+  const changed = structuredClone(output); changed.planDigest = "6".repeat(64);
+  assert.throws(() => corroborateNativeInstallRootReaderOutputs([output, changed], installPackage), /planner\/verifier mismatch/u);
+});
+
+test("root GitHub reader uses fixed public TLS transport with no HOME, token, config, redirect, or route argv", () => {
+  let captured;
+  const value = readPublicSemanticRecoveryGithubRoute("repos/tommytang213/Settleora", { command(executable, args, options) {
+    captured = { executable, args, options };
+    return { status: 0, signal: null, error: null, stderr: "", stdout: "{\"default_branch\":\"main\"}\n" };
+  } });
+  assert.deepEqual(value, { default_branch: "main" });
+  assert.equal(captured.executable, "/usr/bin/python3");
+  assert.deepEqual(captured.args.slice(0, 2), ["-I", "-c"]);
+  assert.equal(captured.args.includes("repos/tommytang213/Settleora"), false);
+  assert.deepEqual(JSON.parse(captured.options.input), { route: "repos/tommytang213/Settleora" });
+  assert.deepEqual(captured.options.env, { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" });
+  assert.match(captured.args[2], /HTTPSConnection\("api\.github\.com", 443/u);
+  assert.match(captured.args[2], /response\.status != 200/u);
+  assert.throws(() => readPublicSemanticRecoveryGithubRoute("https://attacker.invalid/"), /public GitHub read blocked/u);
 });
 
 test("the production root-result builder emits the exact accepted versioned schema", () => {
