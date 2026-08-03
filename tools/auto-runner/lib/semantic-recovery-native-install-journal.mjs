@@ -182,14 +182,16 @@ export const nativeInstallSudoArgv = Object.freeze([
   nativeInstallTrustedBootstrapPath,
 ]);
 
-export function buildNativeInstallSudoArgv({ sourceCommit, bootstrapBlob, correlation, operationId, ownerJournalDigest, ownerJournalSha256 } = {}) {
-  if (!shaPattern.test(String(sourceCommit || "")) || !shaPattern.test(String(bootstrapBlob || ""))
+export function buildNativeInstallSudoArgv({ handoffMode = "install", sourceCommit, bootstrapBlob, correlation, operationId, ownerJournalDigest, ownerJournalSha256 } = {}) {
+  if (!['install', 'recover_readback'].includes(handoffMode)
+      || !shaPattern.test(String(sourceCommit || "")) || !shaPattern.test(String(bootstrapBlob || ""))
       || !correlationPattern.test(String(correlation || "")) || !digestPattern.test(String(operationId || ""))
       || !digestPattern.test(String(ownerJournalDigest || "")) || !digestPattern.test(String(ownerJournalSha256 || ""))) {
     throw new Error("native install sudo identity invalid");
   }
   return Object.freeze([
     ...nativeInstallSudoArgv,
+    handoffMode,
     sourceCommit,
     bootstrapBlob,
     correlation,
@@ -200,8 +202,9 @@ export function buildNativeInstallSudoArgv({ sourceCommit, bootstrapBlob, correl
 }
 
 export function validateInteractiveSudoBoundary({ argv, env, tty, stdinKind, stdoutKind, stderrKind } = {}) {
-  const expected = Array.isArray(argv) && argv.length === nativeInstallSudoArgv.length + 6
+  const expected = Array.isArray(argv) && argv.length === nativeInstallSudoArgv.length + 7
     ? buildNativeInstallSudoArgv({
+      handoffMode: argv.at(-7),
       sourceCommit: argv.at(-6), bootstrapBlob: argv.at(-5), correlation: argv.at(-4), operationId: argv.at(-3),
       ownerJournalDigest: argv.at(-2), ownerJournalSha256: argv.at(-1),
     })

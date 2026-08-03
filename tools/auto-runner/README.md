@@ -2114,10 +2114,13 @@ Inside root, the controller independently authenticates the complete raw Git
 object closure, materializes the exact support closure, freshly derives the
 closed production request from the fixed deployment-evidence document and
 current runtime/profile/approval/launcher/health/incident/recovery/GitHub
-state. Two separately spawned fixed-source-UID readers execute the same
+state. Two separately spawned real/effective-root readers execute the same
 authenticated root-owned read-only materialization: one runs the planner and
 the other independently reconstructs every request, projection, byte,
 metadata, layout and forbidden-effect field without importing the planner.
+Each root process applies the fixed production source UID/GID only as the
+expected-owner policy used by the existing artifact validators; it never drops
+to that UID, inherits its process authority, or accepts its process output.
 Root requires their complete encoded packages to be byte-identical. The
 unprivileged plan is never an input. Live publication is reachable only in this root/private-source mode;
 fixture publication uses an injected in-memory filesystem and never selects a
@@ -2156,8 +2159,11 @@ original request timestamp/package and freshly rereads all authorities to
 corroborate the exact bytes; it never creates a time-varying replacement plan.
 A crash or lost transport after publication starts permits only that exact
 package plus durable installed-state readback, never replay. A root-owned,
-owner-readable sanitized result record lets the unprivileged coordinator
-durably complete its journal after verified root completion. Once installation
+owner-readable append-only sanitized result sequence is keyed by the journal
+sequence and digest. Exclusive link publication plus monotonic state validation
+prevents a delayed ambiguous writer from clobbering a newer verified completion.
+The sequence lets the unprivileged coordinator durably complete its journal
+after verified root completion. Once installation
 or adoption is verified, `blocked` is no longer a legal transition: failure of
 the final journal or result publication reopens only frozen-package readback,
 completion, and idempotent exact-result adoption. Contradiction or
@@ -2165,6 +2171,15 @@ private-stage residue remains a bounded blocker. Process output is
 represented only by byte counts and SHA-256 digests. Health tokens,
 authorization headers, credentials, raw evidence, logs, and provider payloads
 never enter argv, environment, journals, summaries, or exceptions.
+
+If the first interactive transport is lost after `sudo_started`, `--resume`
+remains readback-only and never repeats sudo. The explicit
+`--recover-interactive-sudo` operator mode is admitted only from that exact
+one-shot owner state. It invokes the fixed bootstrap with the closed
+`recover_readback` selector; root requires the correlated receipt, privileged
+journal, and frozen package to exist, then permits only fresh corroboration,
+installed-state readback, and completion. It cannot create a root journal,
+derive a replacement package, publish, or increment either effect counter.
 
 This offline root-invoked model is the smallest privilege boundary because it
 adds no listener, service, socket, timer, sudoers rule, credential, arbitrary

@@ -20,14 +20,18 @@ block() {
   exit 1
 }
 
-[[ "$#" -eq 6 ]] || block
-source_commit="$1"
-bootstrap_blob="$2"
-task_correlation="$3"
-operation_id="$4"
-owner_journal_digest="$5"
-owner_journal_sha256="$6"
+[[ "$#" -eq 7 ]] || block
+handoff_mode="$1"
+source_commit="$2"
+bootstrap_blob="$3"
+task_correlation="$4"
+operation_id="$5"
+owner_journal_digest="$6"
+owner_journal_sha256="$7"
 
+[[ "$handoff_mode" == install || "$handoff_mode" == recover_readback ]] || block
+controller_mode='--root-bootstrap'
+[[ "$handoff_mode" == install ]] || controller_mode='--root-bootstrap-recover'
 [[ "$source_commit" =~ ^[a-f0-9]{40}$ ]] || block
 [[ "$bootstrap_blob" =~ ^[a-f0-9]{40}$ ]] || block
 [[ "$task_correlation" =~ ^[a-z0-9][a-z0-9._:-]{7,127}$ ]] || block
@@ -40,14 +44,14 @@ owner_journal_sha256="$6"
 [[ "$(/usr/bin/stat -Lc '%F:%u:%g:%a:%h' -- "$trusted_path")" == 'regular file:0:0:555:1' ]] || block
 [[ "$(/usr/bin/git hash-object -- "$trusted_path")" == "$bootstrap_blob" ]] || block
 
-if [[ ! -e /etc/settleora-auto-runner ]]; then
+if [[ "$handoff_mode" == install && ! -e /etc/settleora-auto-runner ]]; then
   /usr/bin/mkdir --mode=0755 /etc/settleora-auto-runner
   /usr/bin/chown 0:0 /etc/settleora-auto-runner
   /usr/bin/chmod 0755 /etc/settleora-auto-runner
   /usr/bin/sync -f /etc
 fi
 [[ "$(/usr/bin/stat -Lc '%F:%u:%g:%a' /etc/settleora-auto-runner)" == 'directory:0:0:755' ]] || block
-if [[ ! -e "$root_state_root" ]]; then
+if [[ "$handoff_mode" == install && ! -e "$root_state_root" ]]; then
   /usr/bin/mkdir --mode=0700 "$root_state_root"
   /usr/bin/chown 0:0 "$root_state_root"
   /usr/bin/chmod 0700 "$root_state_root"
@@ -65,7 +69,7 @@ fi
 if ! /usr/bin/python3 -I - \
   "$owner_journal_root" "$root_state_root" "$repository" "$source_commit" \
   "$bootstrap_blob" "$task_correlation" "$operation_id" \
-  "$owner_journal_digest" "$owner_journal_sha256" <<'PY'
+  "$owner_journal_digest" "$owner_journal_sha256" "$handoff_mode" <<'PY'
 import datetime
 import hashlib
 import json
@@ -128,7 +132,7 @@ def read_root_file(directory_fd, name, maximum):
         os.close(fd)
 
 try:
-    owner_root, root_state, repository, source_commit, bootstrap_blob, correlation, operation_id, owner_digest, owner_sha = sys.argv[1:]
+    owner_root, root_state, repository, source_commit, bootstrap_blob, correlation, operation_id, owner_digest, owner_sha, handoff_mode = sys.argv[1:]
     owner_directory_fd = os.open(owner_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         owner_fd = os.open(f"{operation_id}.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=owner_directory_fd)
@@ -181,7 +185,7 @@ try:
                 present.append(name)
             except FileNotFoundError:
                 pass
-        if len(present) == 0:
+        if len(present) == 0 and handoff_mode == "install":
             nonce = f"{os.getpid()}.{secrets.token_hex(12)}"
             write_root_file(root_directory_fd, f".{operation_id}.owner.{nonce}.tmp", owner_name, owner_bytes)
             write_root_file(root_directory_fd, f".{operation_id}.receipt.{nonce}.tmp", receipt_name, receipt_bytes)
@@ -203,6 +207,13 @@ try:
             raise ValueError("root receipt timestamp invalid") from error
         if parsed_receipt != expected_receipt:
             raise ValueError("root receipt mismatch")
+        if handoff_mode == "recover_readback":
+            for name in (f"{operation_id}.json", f"{operation_id}.package.json"):
+                info = os.stat(name, dir_fd=root_directory_fd, follow_symlinks=False)
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
+                        or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1
+                        or info.st_size < 1 or info.st_size > 32 * 1024 * 1024):
+                    raise ValueError("root recovery artifact unsafe")
         os.fsync(root_directory_fd)
     finally:
         os.close(root_directory_fd)
@@ -233,4 +244,4 @@ trap '/usr/bin/chmod -R 0000 "$checkout_root" 2>/dev/null || true; /usr/bin/rm -
 
 /usr/bin/printf '{"bootstrapBlob":"%s","contract":"settleora_semantic_recovery_native_install_source","repository":"%s","sourceCommit":"%s","taskCorrelation":"%s","version":1}\n' \
   "$bootstrap_blob" "$repository" "$source_commit" "$task_correlation" \
-  | /usr/bin/node "$checkout_root/$controller_path" --root-bootstrap
+  | /usr/bin/node "$checkout_root/$controller_path" "$controller_mode"

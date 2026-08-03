@@ -2,7 +2,8 @@
 """Fixed-purpose Linux renameat2 boundary for native producer publication.
 
 Production accepts exactly one sealed root below a root-only staging container
-and the fixed final root.  The self-test accepts no paths and exists only to exercise the real
+and the fixed final root, or one closed-schema root-result transition inside
+the fixed result directory. The self-test accepts no paths and exists only to exercise the real
 Node/Python transport and kernel primitive without touching the protected root.
 """
 
@@ -20,7 +21,10 @@ import tempfile
 
 FINAL = "/etc/settleora-auto-runner/semantic-recovery-authority"
 PARENT = "/etc/settleora-auto-runner"
+RESULT_ROOT = "/etc/settleora-auto-runner/.semantic-recovery-native-install-results"
 STAGE = re.compile(r"^\.semantic-recovery-authority\.install-[a-z0-9][a-z0-9._:-]{7,127}$")
+RESULT_TEMP = re.compile(r"^\.[a-f0-9]{64}\.[a-f0-9]{24}\.tmp$")
+RESULT_FINAL = re.compile(r"^[a-f0-9]{64}\.[1-9][0-9]*\.[a-f0-9]{64}\.json$")
 AT_FDCWD = -100
 RENAME_NOREPLACE = 1
 LIBC = ctypes.CDLL(None, use_errno=True)
@@ -62,6 +66,27 @@ def production(source: str, destination: str) -> int:
     return 0
 
 
+def root_result(source: str, destination: str) -> int:
+    if os.getuid() != 0 or os.geteuid() != 0 or os.getgid() != 0 or os.getegid() != 0:
+        raise RuntimeError("native_install_root_identity_required")
+    if (os.path.dirname(source) != RESULT_ROOT or os.path.dirname(destination) != RESULT_ROOT
+            or RESULT_TEMP.fullmatch(os.path.basename(source)) is None
+            or RESULT_FINAL.fullmatch(os.path.basename(destination)) is None):
+        raise RuntimeError("native_install_result_fixed_paths_required")
+    directory = os.lstat(RESULT_ROOT)
+    staged = os.lstat(source)
+    if (not stat.S_ISDIR(directory.st_mode) or stat.S_ISLNK(directory.st_mode)
+            or directory.st_uid != 0 or directory.st_gid != 0 or directory.st_mode & 0o022
+            or os.path.realpath(RESULT_ROOT) != RESULT_ROOT
+            or not stat.S_ISREG(staged.st_mode) or stat.S_ISLNK(staged.st_mode)
+            or staged.st_uid != 0 or staged.st_gid != 0 or stat.S_IMODE(staged.st_mode) != 0o444
+            or staged.st_nlink != 1 or staged.st_size < 1 or staged.st_size > 64 * 1024
+            or os.path.realpath(source) != source or os.path.lexists(destination)):
+        raise RuntimeError("native_install_result_publication_boundary_unsafe")
+    rename_noreplace(source, destination)
+    return 0
+
+
 def self_test() -> int:
     payload = sys.stdin.buffer.read(8 * 1024 * 1024 + 1)
     if not payload or len(payload) > 8 * 1024 * 1024:
@@ -91,6 +116,8 @@ def self_test() -> int:
 def main() -> int:
     if sys.argv == [sys.argv[0], "--self-test"]:
         return self_test()
+    if len(sys.argv) == 4 and sys.argv[1] == "--root-result":
+        return root_result(sys.argv[2], sys.argv[3])
     if len(sys.argv) == 3:
         return production(sys.argv[1], sys.argv[2])
     raise RuntimeError("native_install_rename_noreplace_arguments_invalid")

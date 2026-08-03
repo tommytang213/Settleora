@@ -1834,10 +1834,13 @@ disabled redirects/credentials and strict fsck, then recomputes the raw commit,
 every reachable tree and every reachable blob ID. It selects and
 re-materializes only the complete bootstrap/producer dependency closure in a
 second root-owned private directory and rereads every member immediately before
-execution. Separate planner and independent-reconstruction processes run from
-that root-owned read-only closure under the fixed production source UID, each
+execution. Separate planner and independent-reconstruction processes run as
+real/effective root from that root-owned read-only closure, each
 freshly deriving the closed request and all eight authorities; root requires
-their complete packages to match byte-for-byte. Root then either adopts an
+their complete packages to match byte-for-byte. The fixed production source
+UID/GID is used only as an expected-owner validation policy inside those root
+processes, so no same-UID mutable process can alter their memory, projected
+result, supplementary groups, or execution. Root then either adopts an
 exact final tree without rewriting it after complete fsync plus repeated
 readback, or stages, fsyncs and publishes
 once with `renameat2(RENAME_NOREPLACE)`. The sealed root remains beneath a
@@ -1846,8 +1849,13 @@ keeps transport loss ambiguous even when the final tree is exact. Durable
 owner/root journals bind the exact armed transition, persist the verified
 root-derived package, and make `publication_started` ambiguous on process loss.
 Restart uses the original request/package plus fresh authority corroboration
-and exact readback only, never automatic replay. A root-owned sanitized result
-record supports durable owner-side completion. Verified installation/adoption
+and exact readback only, never automatic replay. A recovery-only interactive
+handoff is reachable solely after the original owner journal is durably
+`sudo_started` and the correlated privileged receipt, journal, and package
+already exist; it cannot publish or increment an effect counter. Root-owned
+sanitized results are append-only, journal-sequenced records whose monotonic
+readback prevents an older ambiguous writer from replacing completion. They
+support durable owner-side completion. Verified installation/adoption
 cannot transition to `blocked`; a final journal or result-publication failure
 permits only exact frozen-package readback, completion, and idempotent result
 adoption. Exclusive root-owned transition

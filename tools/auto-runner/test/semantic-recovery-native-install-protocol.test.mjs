@@ -34,6 +34,7 @@ import {
   completeVerifiedNativeInstallResult,
   persistNativeInstallJournalTransition,
   publishOrAdoptVerifiedNativeInstall,
+  validateRootResultTransition,
 } from "../lib/semantic-recovery-native-install-publication.mjs";
 import {
   semanticRecoveryAuthorityClasses,
@@ -481,6 +482,30 @@ test("journal interruption windows, corruption, stale correlation and duplicate 
   }
 });
 
+function rootResult(state, sequence, overrides = {}) {
+  return {
+    contract: "settleora_semantic_recovery_native_install_root_result", version: 2,
+    correlation: journalIdentity.correlation, repository: journalIdentity.repository,
+    sourceCommit: journalIdentity.sourceCommit, operationId: journalIdentity.operationId,
+    state, outcome: state === "completed" ? "completed" : state === "blocked" ? "blocked" : state === "adopted_verified" ? "adopted" : state === "publication_ambiguous" ? "ambiguous" : "verified",
+    reasonCode: `native_install_${state}`, planDigest: "3".repeat(64), installedDigest: state === "publication_ambiguous" ? null : "4".repeat(64),
+    rootJournalDigest: sequence.toString(16).padStart(64, "0"), rootJournalSequence: sequence,
+    ...overrides,
+  };
+}
+
+test("root results are append-only journal-sequenced monotonic records that reject stale or conflicting regressions", () => {
+  assert.equal(validateRootResultTransition(rootResult("publication_ambiguous", 7), rootResult("installed_verified", 8)), true);
+  assert.equal(validateRootResultTransition(rootResult("installed_verified", 8), rootResult("completed", 9)), true);
+  assert.equal(validateRootResultTransition(rootResult("publication_ambiguous", 7), rootResult("completed", 9)), true);
+  for (const [before, after] of [
+    [rootResult("completed", 9), rootResult("publication_ambiguous", 10)],
+    [rootResult("blocked", 5), rootResult("completed", 6)],
+    [rootResult("installed_verified", 8), rootResult("completed", 8)],
+    [rootResult("installed_verified", 8), rootResult("completed", 9, { sourceCommit: "f".repeat(40) })],
+  ]) assert.throws(() => validateRootResultTransition(before, after), /monotonic transition invalid/u);
+});
+
 test("root journal is bound to the exact armed owner transition digest", () => {
   let owner = createNativeInstallJournal(journalIdentity);
   owner = transitionNativeInstallJournal({ current: owner, expectedState: "prepared", nextState: "awaiting_interactive_sudo", observedAt: "2026-08-03T12:00:01.000Z", persist() {} });
@@ -661,6 +686,13 @@ test("real TTY/PAM process outcomes are abstracted and argv/environment/journal 
   assert.equal(sudoArgv.includes("-c"), false);
   assert.equal(sudoArgv.some((entry) => /set -e|git fetch|[\n\r]/u.test(entry)), false);
   assert.equal(validateInteractiveSudoBoundary({ argv: sudoArgv, env: {}, tty: true, stdinKind: "tty_password_only_no_program_bytes", stdoutKind: "bounded_capture", stderrKind: "bounded_capture" }).ok, true);
+  const recoveryArgv = buildNativeInstallSudoArgv({
+    handoffMode: "recover_readback", sourceCommit: "a".repeat(40), bootstrapBlob: "b".repeat(40), correlation: "issue-1012-fixture",
+    operationId: "c".repeat(64), ownerJournalDigest: "d".repeat(64), ownerJournalSha256: "e".repeat(64),
+  });
+  assert.equal(recoveryArgv.at(nativeInstallSudoArgv.length), "recover_readback");
+  assert.equal(validateInteractiveSudoBoundary({ argv: recoveryArgv, env: {}, tty: true, stdinKind: "tty_password_only_no_program_bytes", stdoutKind: "bounded_capture", stderrKind: "bounded_capture" }).ok, true);
+  assert.throws(() => buildNativeInstallSudoArgv({ handoffMode: "publish", sourceCommit: "a".repeat(40), bootstrapBlob: "b".repeat(40), correlation: "issue-1012-fixture", operationId: "c".repeat(64), ownerJournalDigest: "d".repeat(64), ownerJournalSha256: "e".repeat(64) }), /identity invalid/u);
   for (const changed of [
     { argv: [...sudoArgv, secret] }, { env: { TOKEN: secret } }, { tty: false }, { stdinKind: "password_pipe" },
   ]) {
@@ -699,6 +731,10 @@ test("trusted bootstrap records the exact armed receipt before authenticated net
   assert.match(source, /trusted_path='\/usr\/libexec\/settleora-semantic-recovery-native-install-bootstrap'/u);
   assert.match(source, /stat -Lc '%F:%u:%g:%a:%h'/u);
   assert.match(source, /git hash-object -- "\$trusted_path"/u);
+  assert.match(source, /handoff_mode.*recover_readback/u);
+  assert.match(source, /controller_mode='--root-bootstrap-recover'/u);
+  assert.match(source, /operation_id}\.package\.json/u);
+  assert.equal(source.indexOf("root recovery artifact unsafe") < source.indexOf("fetch --quiet"), true);
   assert.equal(source.indexOf("owner_directory_fd = os.open", 0) < source.indexOf("git -c core.hooksPath=/dev/null", 0), true);
   assert.equal(source.indexOf("os.fsync(root_directory_fd)") < source.indexOf("fetch --quiet"), true);
   assert.match(source, /os\.O_RDONLY \| os\.O_NOFOLLOW, dir_fd=owner_directory_fd/u);
@@ -706,6 +742,18 @@ test("trusted bootstrap records the exact armed receipt before authenticated net
   assert.match(source, /os\.fchown\(fd, 0, 0\)[\s\S]*os\.fchmod\(fd, 0o400\)[\s\S]*os\.fsync\(fd\)/u);
   assert.doesNotMatch(source, /cp --no-dereference|chown 0:0 "\$snapshot/u);
   assert.doesNotMatch(source, /^\s*(?:eval|source)\b|\bcurl\b|\bwget\b/mu);
+});
+
+test("authenticated root planners retain OS root while applying the fixed source-owner validation policy", () => {
+  const source = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../semantic-recovery-native-install.mjs"), "utf8");
+  const reader = source.slice(source.indexOf("function runIndependentRootReaders"), source.indexOf("function reconcileRootResult"));
+  assert.doesNotMatch(reader, /\buid:\s*sourceIdentity|\bgid:\s*sourceIdentity/u);
+  assert.match(reader, /HOME:\s*"\/root"/u);
+  const policy = source.slice(source.indexOf("function activateRootAuthorityOwnershipPolicy"), source.indexOf("function assertFixedRootRuntime"));
+  assert.match(policy, /assertFixedRootRuntime\(\)/u);
+  assert.match(policy, /process\.getuid = \(\) => identity\.uid/u);
+  assert.match(source, /existing root journal requires recovery-only handoff/u);
+  assert.match(source, /recovery root journal absent/u);
 });
 
 test("real Python rename_noreplace helper interoperates through stdin using exact package bytes without protected-root access", () => {
