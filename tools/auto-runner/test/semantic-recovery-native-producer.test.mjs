@@ -435,6 +435,42 @@ test("out-of-order successor residue is never rebound to a later GitHub snapshot
     "semantic_successor_readback_publication_order_conflict",
   );
   assert.equal(incomingOnly.exists(incomingPath), true);
+
+  const allIncoming = new ProtectedMemoryFilesystem();
+  allIncoming.ensureDirectory(semanticRecoveryProtectedLayout.successorsRoot, { uid: 0, mode: 0o755 });
+  allIncoming.ensureDirectory(semanticRecoveryProtectedLayout.successorIncomingRoot, { uid: 0, mode: 0o755 });
+  allIncoming.ensureDirectory(semanticRecoveryProtectedLayout.successorProvenanceRoot, { uid: 0, mode: 0o755 });
+  allIncoming.ensureDirectory(semanticRecoveryProtectedLayout.successorCommitsRoot, { uid: 0, mode: 0o755 });
+  const allIncomingPaths = [
+    [expected.paths.provenancePath, expected.provenance],
+    [expected.paths.storagePath, expected.successor],
+    [expected.paths.commitPath, expected.commit],
+  ].map(([finalPath, document]) => {
+    const incoming = `${semanticRecoveryProtectedLayout.successorIncomingRoot}/${path.posix.basename(finalPath)}.${sha256(finalPath).slice(0, 16)}.incoming`;
+    allIncoming.writeExclusive(incoming, Buffer.from(canonicalJson(document)), { uid: 0, mode: 0o444 });
+    return incoming;
+  });
+  assert.equal(
+    persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: allIncoming, reauthenticate: authority }).reasonCode,
+    "semantic_native_persistence_publication_residue_conflict",
+  );
+  assert.equal(allIncomingPaths.every((incoming) => allIncoming.exists(incoming)), true);
+
+  const successorHardlinkShapeWithoutProvenance = new ProtectedMemoryFilesystem();
+  successorHardlinkShapeWithoutProvenance.ensureDirectory(semanticRecoveryProtectedLayout.successorsRoot, { uid: 0, mode: 0o755 });
+  successorHardlinkShapeWithoutProvenance.ensureDirectory(semanticRecoveryProtectedLayout.successorIncomingRoot, { uid: 0, mode: 0o755 });
+  successorHardlinkShapeWithoutProvenance.ensureDirectory(semanticRecoveryProtectedLayout.successorProvenanceRoot, { uid: 0, mode: 0o755 });
+  successorHardlinkShapeWithoutProvenance.ensureDirectory(semanticRecoveryProtectedLayout.successorCommitsRoot, { uid: 0, mode: 0o755 });
+  const successorIncoming = `${semanticRecoveryProtectedLayout.successorIncomingRoot}/${path.posix.basename(expected.paths.storagePath)}.${sha256(expected.paths.storagePath).slice(0, 16)}.incoming`;
+  const successorBytes = Buffer.from(canonicalJson(expected.successor));
+  successorHardlinkShapeWithoutProvenance.writeExclusive(expected.paths.storagePath, successorBytes, { uid: 0, mode: 0o444 });
+  successorHardlinkShapeWithoutProvenance.writeExclusive(successorIncoming, successorBytes, { uid: 0, mode: 0o444 });
+  assert.equal(
+    persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: successorHardlinkShapeWithoutProvenance, reauthenticate: authority }).reasonCode,
+    "semantic_successor_readback_publication_order_conflict",
+  );
+  assert.equal(successorHardlinkShapeWithoutProvenance.exists(expected.paths.storagePath), true);
+  assert.equal(successorHardlinkShapeWithoutProvenance.exists(successorIncoming), true);
 });
 
 test("installed producer bundle, fixed runtime and real source identity close the privilege boundary", () => {
@@ -470,6 +506,8 @@ test("installed producer bundle, fixed runtime and real source identity close th
   assert.match(persistence, /opened\.dev !== incoming\.dev[\s\S]*?incoming\.ino !== final\.ino[\s\S]*?opened\.nlink !== 2/u);
   assert.match(persistence, /linkSync\(incomingPath, finalPath\);\s*fsyncDirectory\(path\.posix\.dirname\(finalPath\)\);\s*unlinkSync\(incomingPath\);\s*fsyncDirectory\(path\.posix\.dirname\(incomingPath\)\)/u);
   assert.match(persistence, /authenticated\.bytes\.equals\(expectedBytes\)[\s\S]*?fsyncDirectory\(path\.posix\.dirname\(finalPath\)\);\s*unlinkSync\(incomingPath\);\s*fsyncDirectory\(path\.posix\.dirname\(incomingPath\)\)/u);
+  assert.match(persistence, /assertExactInterruptedPublicationState\(expected\);[\s\S]*?recoverExactInterruptedHardLink/u);
+  assert.match(persistence, /contiguous[\s\S]*?prefix[\s\S]*?one in-flight/u);
 });
 
 test("producer support bytes come from authenticated GitHub blobs with recomputed object identities", () => {

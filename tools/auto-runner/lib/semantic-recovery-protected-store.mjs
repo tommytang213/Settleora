@@ -255,10 +255,10 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
   let expected;
   try { expected = expectedPersistenceRecords(manifest, grant, construction, githubNoEffectSnapshot); }
   catch { return failed("semantic_native_persistence_identity_invalid"); }
-  if (!filesystem) {
-    try { recoverExactInterruptedPublicationSet(expected); }
-    catch { return failed("semantic_native_persistence_publication_residue_conflict"); }
-  }
+  try {
+    assertExactInterruptedPublicationState(expected, { filesystem });
+    if (!filesystem) recoverExactInterruptedPublicationSet(expected);
+  } catch { return failed("semantic_native_persistence_publication_residue_conflict"); }
   const recoveredReadback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem });
   if (recoveredReadback.ok) return { ...recoveredReadback, reasonCode: "semantic_recovery_successor_adopted" };
   if (!["semantic_successor_not_persisted", "semantic_successor_readback_partial", "semantic_successor_readback_incoming_residue"].includes(recoveredReadback.reasonCode)) {
@@ -597,6 +597,10 @@ function authenticateExactInterruptedHardLink(incomingPath, finalPath) {
 }
 
 function recoverExactInterruptedPublicationSet(expected) {
+  // Authenticate the complete state before unlinking any exact hard-link
+  // residue. A contradictory later record must leave every earlier name
+  // untouched for operator inspection.
+  assertExactInterruptedPublicationState(expected);
   for (const [finalPath, document] of [
     [expected.paths.provenancePath, expected.provenance],
     [expected.paths.storagePath, expected.successor],
@@ -604,6 +608,60 @@ function recoverExactInterruptedPublicationSet(expected) {
   ]) {
     const incomingPath = incomingPathFor(finalPath);
     recoverExactInterruptedHardLink(incomingPath, finalPath, Buffer.from(canonicalJson(document)));
+  }
+}
+
+function assertExactInterruptedPublicationState(expected, { filesystem = null } = {}) {
+  const states = [];
+  for (const [finalPath, document] of [
+    [expected.paths.provenancePath, expected.provenance],
+    [expected.paths.storagePath, expected.successor],
+    [expected.paths.commitPath, expected.commit],
+  ]) {
+    const incomingPath = incomingPathFor(finalPath);
+    const finalPresent = filesystem ? filesystem.exists(finalPath) : existsSync(finalPath);
+    const incomingPresent = filesystem ? filesystem.exists(incomingPath) : existsSync(incomingPath);
+    const expectedBytes = Buffer.from(canonicalJson(document));
+    if (finalPresent && incomingPresent) {
+      // The test adapter intentionally cannot claim hard-link identity. In
+      // production, only the exact two-name inode created by link(2) is a
+      // recoverable post-publication/pre-unlink state.
+      if (filesystem) throw new Error("semantic protected publication residue conflict");
+      const authenticated = authenticateExactInterruptedHardLink(incomingPath, finalPath);
+      if (!authenticated.bytes.equals(expectedBytes)) throw new Error("semantic protected publication residue changed");
+      states.push("published_with_incoming");
+      continue;
+    }
+    if (finalPresent || incomingPresent) {
+      const selectedPath = finalPresent ? finalPath : incomingPath;
+      const authenticated = authenticateProtectedJson(selectedPath, { filesystem });
+      if (canonicalJson(authenticated.document) !== expectedBytes.toString("utf8")) {
+        throw new Error("semantic protected publication residue changed");
+      }
+      states.push(finalPresent ? "published" : "incoming");
+      continue;
+    }
+    states.push("absent");
+  }
+
+  // Crash-safe publication has exactly one legal ordering: a contiguous
+  // prefix of fully published records, optionally followed by one in-flight
+  // record, followed only by absent records. This rejects preassembled
+  // incoming sets and all later-record-before-predecessor states.
+  let prefixComplete = true;
+  let inFlightSeen = false;
+  for (const state of states) {
+    if (prefixComplete && state === "published") continue;
+    if (prefixComplete && !inFlightSeen && (state === "incoming" || state === "published_with_incoming")) {
+      prefixComplete = false;
+      inFlightSeen = true;
+      continue;
+    }
+    if (state === "absent") {
+      prefixComplete = false;
+      continue;
+    }
+    throw new Error("semantic protected publication order conflict");
   }
 }
 
