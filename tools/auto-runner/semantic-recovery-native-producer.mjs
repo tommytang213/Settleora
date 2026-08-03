@@ -209,11 +209,17 @@ function runSourceProcess(sourceIdentity, mode, value) {
   if (child.error || child.status !== 0 || child.signal || child.stderr !== "") {
     throw new Error("semantic native source authentication subprocess failed");
   }
-  const output = child.stdout.trimEnd();
+  return parseSemanticRecoverySourceProcessResponse(mode, child.stdout.trimEnd());
+}
+
+export function parseSemanticRecoverySourceProcessResponse(mode, output) {
+  if (![sourceAuthenticationMode, sourcePlanMode].includes(mode) || typeof output !== "string" || output.length > maximumInputBytes) {
+    throw new Error("semantic native source authentication response invalid");
+  }
   let parsed;
   try { parsed = JSON.parse(output); } catch { throw new Error("semantic native source authentication response invalid"); }
   if (canonicalJson(parsed) !== output) throw new Error("semantic native source authentication response noncanonical");
-  assertExactKeys(parsed, ["authentication", "construction"]);
+  assertExactKeys(parsed, mode === sourceAuthenticationMode ? ["authentication", "construction"] : ["artifacts", "plan"]);
   return parsed;
 }
 

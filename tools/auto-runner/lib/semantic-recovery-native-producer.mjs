@@ -75,10 +75,11 @@ export function planSemanticRecoveryNativeInstall({
     throw new Error("semantic native producer request stale");
   }
   const requestDigest = sha256(canonicalJson(normalized));
-  const normalizedSupport = supportFiles.map(normalizeSupportFile).sort((left, right) => left.source.localeCompare(right.source));
-  if (normalizedSupport.length < 2 || new Set(normalizedSupport.map((entry) => entry.source)).size !== normalizedSupport.length) {
+  const availableSupport = supportFiles.map(normalizeSupportFile).sort((left, right) => left.source.localeCompare(right.source));
+  if (new Set(availableSupport.map((entry) => entry.source)).size !== availableSupport.length) {
     throw new Error("semantic native producer support manifest invalid");
   }
+  const normalizedSupport = selectRequiredSupportFiles(availableSupport);
   const producerBundleDigest = sha256(canonicalJson(normalizedSupport.map(({ source, sha256: digest, byteCount }) => ({ source, sha256: digest, byteCount }))));
   const projections = [];
   for (const authorityClass of semanticRecoveryAuthorityClasses) {
@@ -258,6 +259,7 @@ export function verifySemanticRecoveryNativeInstallPlan({ plan, artifacts } = {}
           || !Buffer.isBuffer(artifact.bytes) || artifact.bytes.length !== artifact.byteCount
           || sha256(artifact.bytes) !== artifact.sha256;
       })) throw new Error("semantic native install artifacts invalid");
+    validateInstallArtifactContents(plan, artifacts);
     return { ok: true, reasonCode: "semantic_native_install_plan_verified", planDigest: plan.planDigest };
   } catch {
     return { ok: false, reasonCode: "semantic_native_install_plan_invalid" };
@@ -384,10 +386,17 @@ function validateInstallPlanStructure(plan) {
       || plan.claimOwnerMatrix?.digest !== semanticRecoveryClaimOwnerMatrixDigest
       || plan.verifierSet?.version !== semanticRecoveryVerifierSetVersion
       || plan.verifierSet?.digest !== semanticRecoveryVerifierSetDigest) throw new Error("semantic native install contract identity invalid");
-  if (plan.directories.some((entry) => entry.uid !== 0 || entry.gid !== 0 || entry.mode !== 0o755
-    || (entry.destination !== semanticRecoveryProtectedLayout.root && !entry.destination.startsWith(`${semanticRecoveryProtectedLayout.root}/`)))) throw new Error("semantic native install directory invalid");
-  if (plan.files.some((entry) => entry.uid !== 0 || entry.gid !== 0 || ![0o444, 0o555].includes(entry.mode)
-    || !entry.destination.startsWith(`${semanticRecoveryProtectedLayout.root}/`) || !isDigest(entry.sha256))) throw new Error("semantic native install file invalid");
+  if (plan.directories.some((entry) => {
+    assertExactKeys(entry, ["destination", "gid", "kind", "mode", "uid"]);
+    return entry.kind !== "directory" || entry.uid !== 0 || entry.gid !== 0 || entry.mode !== 0o755
+      || (entry.destination !== semanticRecoveryProtectedLayout.root && !entry.destination.startsWith(`${semanticRecoveryProtectedLayout.root}/`));
+  })) throw new Error("semantic native install directory invalid");
+  if (plan.files.some((entry) => {
+    assertExactKeys(entry, ["byteCount", "destination", "gid", "kind", "mode", "sha256", "source", "uid"]);
+    return entry.uid !== 0 || entry.gid !== 0 || ![0o444, 0o555].includes(entry.mode)
+      || !Number.isSafeInteger(entry.byteCount) || entry.byteCount < 1
+      || !entry.destination.startsWith(`${semanticRecoveryProtectedLayout.root}/`) || !isDigest(entry.sha256);
+  })) throw new Error("semantic native install file invalid");
   if (new Set(plan.files.map((entry) => entry.destination)).size !== plan.files.length
       || new Set(plan.directories.map((entry) => entry.destination)).size !== plan.directories.length
       || new Set(plan.sourceDescriptors.map((entry) => entry.store.sha256)).size !== semanticRecoveryAuthorityClasses.length) throw new Error("semantic native install independence invalid");
@@ -395,12 +404,175 @@ function validateInstallPlanStructure(plan) {
   if (plan.files.some((entry) => !directorySet.has(path.posix.dirname(entry.destination)))) {
     throw new Error("semantic native install file parent missing");
   }
+  const runtimeFiles = plan.files.filter((entry) => entry.kind === "producer_runtime");
+  if (runtimeFiles.length < 2 || runtimeFiles.some((entry) => entry.source === null || !supportSourcePattern.test(entry.source)
+      || entry.destination !== path.posix.join(semanticRecoveryProtectedLayout.producerRoot, path.posix.relative("tools/auto-runner", entry.source))
+      || entry.mode !== (entry.source === "tools/auto-runner/semantic-recovery-native-producer.mjs" ? 0o555 : 0o444))
+      || runtimeFiles.filter((entry) => entry.destination === semanticRecoveryProtectedLayout.producerExecutable).length !== 1
+      || new Set(runtimeFiles.map((entry) => entry.source)).size !== runtimeFiles.length) {
+    throw new Error("semantic native producer runtime set invalid");
+  }
+  const computedBundleDigest = sha256(canonicalJson(runtimeFiles
+    .map(({ source, sha256: digest, byteCount }) => ({ source, sha256: digest, byteCount }))
+    .sort((left, right) => left.source.localeCompare(right.source))));
+  if (plan.producerBundleDigest !== computedBundleDigest) throw new Error("semantic native producer bundle digest invalid");
+  const exactSingletons = [
+    ["producer_policy", semanticRecoveryProtectedLayout.producerPolicy],
+    ["install_manifest", semanticRecoveryProtectedLayout.installManifest],
+  ];
+  for (const [kind, destination] of exactSingletons) {
+    const matches = plan.files.filter((entry) => entry.kind === kind && entry.destination === destination && entry.source === null && entry.mode === 0o444);
+    if (matches.length !== 1 || plan.files.some((entry) => entry.kind === kind && entry !== matches[0])) throw new Error("semantic native singleton file set invalid");
+  }
+  if (plan.files.some((entry) => !["producer_runtime", "producer_policy", "authority_store", "install_manifest"].includes(entry.kind))) {
+    throw new Error("semantic native install file kind invalid");
+  }
+  const expectedStorePaths = new Set(semanticRecoveryAuthorityClasses.map(semanticRecoveryProtectedStorePath));
+  const storeFiles = plan.files.filter((entry) => entry.kind === "authority_store");
+  if (storeFiles.length !== semanticRecoveryAuthorityClasses.length
+      || storeFiles.some((entry) => entry.source !== null || entry.mode !== 0o444 || !expectedStorePaths.has(entry.destination))) {
+    throw new Error("semantic native authority store set invalid");
+  }
+  const expectedDirectories = new Set([
+    semanticRecoveryProtectedLayout.root,
+    semanticRecoveryProtectedLayout.producerRoot,
+    semanticRecoveryProtectedLayout.storesRoot,
+    semanticRecoveryProtectedLayout.grantsRoot,
+    semanticRecoveryProtectedLayout.successorsRoot,
+    semanticRecoveryProtectedLayout.successorIncomingRoot,
+    semanticRecoveryProtectedLayout.successorProvenanceRoot,
+    semanticRecoveryProtectedLayout.successorCommitsRoot,
+  ]);
+  for (const file of plan.files) {
+    let cursor = path.posix.dirname(file.destination);
+    while (cursor === semanticRecoveryProtectedLayout.root || cursor.startsWith(`${semanticRecoveryProtectedLayout.root}/`)) {
+      expectedDirectories.add(cursor);
+      if (cursor === semanticRecoveryProtectedLayout.root) break;
+      cursor = path.posix.dirname(cursor);
+    }
+  }
+  if (canonicalJson([...directorySet].sort()) !== canonicalJson([...expectedDirectories].sort())) throw new Error("semantic native directory set incomplete");
+  if (plan.sourceDescriptors.length !== semanticRecoveryAuthorityClasses.length
+      || new Set(plan.sourceDescriptors.map((entry) => entry.authorityClass)).size !== semanticRecoveryAuthorityClasses.length) {
+    throw new Error("semantic native source descriptor set invalid");
+  }
   for (const authorityClass of semanticRecoveryAuthorityClasses) {
     const descriptor = plan.sourceDescriptors.find((entry) => entry.authorityClass === authorityClass);
     const definition = semanticRecoveryVerifierSet.verifiers[authorityClass];
+    assertExactKeys(descriptor, ["authorityClass", "store"]);
+    assertExactKeys(descriptor.store, ["kind", "path", "role", "sha256"]);
+    const storeFile = storeFiles.find((entry) => entry.destination === semanticRecoveryProtectedStorePath(authorityClass));
     if (!descriptor || descriptor.store.path !== semanticRecoveryProtectedStorePath(authorityClass)
-        || descriptor.store.kind !== definition.storeKind || descriptor.store.role !== `${authorityClass}_authority`) throw new Error("semantic native source descriptor invalid");
+        || descriptor.store.kind !== definition.storeKind || descriptor.store.role !== `${authorityClass}_authority`
+        || descriptor.store.sha256 !== storeFile?.sha256) throw new Error("semantic native source descriptor invalid");
   }
+  if (plan.summary?.directoryCount !== plan.directories.length || plan.summary?.fileCount !== plan.files.length
+      || plan.summary?.authorityClassCount !== semanticRecoveryAuthorityClasses.length || plan.summary?.grantsInstalled !== 0
+      || plan.summary?.successorsCreated !== 0 || plan.summary?.servicesEnabled !== 0) throw new Error("semantic native install summary invalid");
+}
+
+function validateInstallArtifactContents(plan, artifacts) {
+  const byPath = new Map(artifacts.map((entry) => [entry.destination, entry]));
+  const runtimeFiles = plan.files.filter((entry) => entry.kind === "producer_runtime");
+  const selectedRuntime = selectRequiredSupportFiles(runtimeFiles.map((entry) => ({
+    source: entry.source,
+    bytes: byPath.get(entry.destination)?.bytes,
+    sha256: entry.sha256,
+    byteCount: entry.byteCount,
+    executable: entry.destination === semanticRecoveryProtectedLayout.producerExecutable,
+  })));
+  if (canonicalJson(selectedRuntime.map((entry) => entry.source)) !== canonicalJson(runtimeFiles.map((entry) => entry.source).sort())) {
+    throw new Error("semantic native producer dependency closure invalid");
+  }
+  const policy = {
+    contract: "settleora_semantic_recovery_native_policy", version: 1,
+    allowedAction: semanticRecoveryAllowedAction, repository: plan.request.repository,
+    requestDigest: plan.requestDigest, producerBundleDigest: plan.producerBundleDigest,
+    claimOwnerMatrix: plan.claimOwnerMatrix, verifierSet: plan.verifierSet,
+    layout: semanticRecoveryProtectedLayout, processModel: "root_invoked_offline_no_network_listener",
+  };
+  assertExactArtifactBytes(byPath.get(semanticRecoveryProtectedLayout.producerPolicy), canonicalBytes(policy));
+  const manifestDocument = structuredClone(plan);
+  delete manifestDocument.planDigest;
+  manifestDocument.files = manifestDocument.files.filter((entry) => entry.kind !== "install_manifest");
+  const { installManifestDigest, ...manifestCore } = manifestDocument;
+  if (installManifestDigest !== sha256(canonicalJson(manifestCore))) throw new Error("semantic native install manifest digest invalid");
+  assertExactArtifactBytes(byPath.get(semanticRecoveryProtectedLayout.installManifest), canonicalBytes(manifestDocument));
+  const sourceDocuments = [];
+  for (const authorityClass of semanticRecoveryAuthorityClasses) {
+    const descriptor = plan.sourceDescriptors.find((entry) => entry.authorityClass === authorityClass);
+    const definition = semanticRecoveryVerifierSet.verifiers[authorityClass];
+    const artifact = byPath.get(descriptor.store.path);
+    const document = parseCanonicalArtifact(artifact.bytes);
+    assertExactKeys(document, ["authorityClass", "claims", "contract", "expiresAt", "producer", "provenanceIdentity", "repository", "requestDigest", "sourceEvidenceDigest", "store", "version"]);
+    assertExactKeys(document.producer, ["bundleDigest", "id", "version"]);
+    assertExactKeys(document.store, ["kind", "role"]);
+    if (document.contract !== nativeSemanticSourceContract || document.version !== nativeSemanticSourceVersion
+        || document.authorityClass !== authorityClass || document.repository !== plan.request.repository
+        || document.requestDigest !== plan.requestDigest || document.expiresAt !== plan.request.expiresAt
+        || document.producer.id !== definition.id || document.producer.version !== definition.version
+        || document.producer.bundleDigest !== plan.producerBundleDigest || document.store.kind !== definition.storeKind
+        || document.store.role !== `${authorityClass}_authority` || !plainObject(document.claims)
+        || !isDigest(document.provenanceIdentity)
+        || document.sourceEvidenceDigest !== sha256(canonicalJson({ authorityClass, provenanceIdentity: document.provenanceIdentity }))) {
+      throw new Error("semantic native authority store content invalid");
+    }
+    sourceDocuments.push({ authorityClass, claims: document.claims });
+  }
+  if (!applySemanticRecoveryClaimOwnerMatrix(sourceDocuments).ok) throw new Error("semantic native authority store matrix invalid");
+}
+
+function assertExactArtifactBytes(artifact, expected) {
+  if (!artifact || !Buffer.isBuffer(artifact.bytes) || !artifact.bytes.equals(expected)
+      || artifact.byteCount !== expected.length || artifact.sha256 !== sha256(expected)) throw new Error("semantic native bound artifact content invalid");
+}
+
+function parseCanonicalArtifact(bytes) {
+  if (!Buffer.isBuffer(bytes)) throw new Error("semantic native artifact bytes invalid");
+  const text = bytes.toString("utf8");
+  if (!Buffer.from(text).equals(bytes)) throw new Error("semantic native artifact encoding invalid");
+  let document;
+  try { document = JSON.parse(text); } catch { throw new Error("semantic native artifact JSON invalid"); }
+  if (canonicalJson(document) !== text) throw new Error("semantic native artifact JSON noncanonical");
+  return document;
+}
+
+function selectRequiredSupportFiles(available) {
+  const bySource = new Map(available.map((entry) => [entry.source, entry]));
+  const entrySource = "tools/auto-runner/semantic-recovery-native-producer.mjs";
+  if (!bySource.has(entrySource)) throw new Error("semantic native producer entrypoint missing");
+  const required = new Set();
+  const pending = [entrySource];
+  while (pending.length > 0) {
+    const source = pending.pop();
+    if (required.has(source)) continue;
+    const file = bySource.get(source);
+    if (!file || !source.endsWith(".mjs")) throw new Error("semantic native producer dependency missing");
+    required.add(source);
+    for (const specifier of relativeModuleSpecifiers(file.bytes)) {
+      const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(source), specifier));
+      if (!supportSourcePattern.test(dependency) || !dependency.endsWith(".mjs") || !bySource.has(dependency)) {
+        throw new Error("semantic native producer dependency invalid or missing");
+      }
+      pending.push(dependency);
+    }
+  }
+  const selected = [...required].sort().map((source) => bySource.get(source));
+  if (selected.length < 2) throw new Error("semantic native producer dependency closure incomplete");
+  return selected;
+}
+
+function relativeModuleSpecifiers(bytes) {
+  const text = Buffer.from(bytes).toString("utf8");
+  if (!Buffer.from(text).equals(Buffer.from(bytes))) throw new Error("semantic native support encoding invalid");
+  const found = new Set();
+  for (const pattern of [
+    /(?:^|\n)\s*(?:import|export)\s+(?:[^"'()]*?\s+from\s+)?["'](\.[^"']+)["']/g,
+    /\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g,
+  ]) {
+    for (const match of text.matchAll(pattern)) found.add(match[1]);
+  }
+  return [...found].sort();
 }
 function validateGrantPlanningManifest(manifest) {
   if (!plainObject(manifest) || manifest.sourceAuthority !== "production"

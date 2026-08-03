@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { assertSourceProcessIdentity, semanticRecoveryPlanExecutionRoute } from "../semantic-recovery-native-producer.mjs";
+import { assertSourceProcessIdentity, parseSemanticRecoverySourceProcessResponse, semanticRecoveryPlanExecutionRoute } from "../semantic-recovery-native-producer.mjs";
 import {
   applySemanticRecoveryClaimOwnerMatrix,
   deriveSemanticRecoveryOperationRequest,
@@ -75,7 +75,9 @@ function planFixture() {
     return { authorityClass, repository: claims.repository, claims: ownedClaims(authorityClass), provenanceIdentity: sha256(`native:${authorityClass}:${context.generation}`) };
   }]));
   const supportFiles = ["tools/auto-runner/semantic-recovery-native-producer.mjs", "tools/auto-runner/lib/semantic-recovery-native-producer.mjs"].map((source) => {
-    const bytes = Buffer.from(`support:${source}`);
+    const bytes = Buffer.from(source === "tools/auto-runner/semantic-recovery-native-producer.mjs"
+      ? 'import "./lib/semantic-recovery-native-producer.mjs";'
+      : "export {};");
     return { source, bytes, byteCount: bytes.length, sha256: sha256(bytes), executable: source === "tools/auto-runner/semantic-recovery-native-producer.mjs" };
   });
   const value = planSemanticRecoveryNativeInstall({
@@ -164,6 +166,23 @@ test("planner closes request, path, command, environment, expiry and store-indep
   const { planDigest: ignored, ...core } = duplicate;
   duplicate.planDigest = sha256(canonicalJson(core));
   assert.equal(verifySemanticRecoveryNativeInstallPlan({ plan: duplicate, artifacts: deps.artifacts }).ok, false);
+  for (const select of [
+    (entry) => entry.kind === "producer_policy",
+    (entry) => entry.destination === semanticRecoveryProtectedLayout.producerExecutable,
+  ]) {
+    const omitted = structuredClone(deps);
+    const removed = omitted.plan.files.find(select);
+    omitted.plan.files = omitted.plan.files.filter((entry) => entry !== removed);
+    omitted.artifacts = omitted.artifacts.filter((entry) => entry.destination !== removed.destination);
+    const { planDigest: staleDigest, ...omittedCore } = omitted.plan;
+    omitted.plan.planDigest = sha256(canonicalJson(omittedCore));
+    assert.equal(verifySemanticRecoveryNativeInstallPlan(omitted).ok, false);
+  }
+  const unboundBundle = structuredClone(deps);
+  unboundBundle.plan.producerBundleDigest = "0".repeat(64);
+  const { planDigest: staleBundleDigest, ...unboundBundleCore } = unboundBundle.plan;
+  unboundBundle.plan.planDigest = sha256(canonicalJson(unboundBundleCore));
+  assert.equal(verifySemanticRecoveryNativeInstallPlan(unboundBundle).ok, false);
 });
 
 test("protected source readers reject descriptor, class, producer, store, metadata and ambiguity drift", () => {
@@ -286,6 +305,11 @@ test("installed producer bundle, fixed runtime and real source identity close th
   assert.throws(() => semanticRecoveryPlanExecutionRoute({ realUid: 0, effectiveUid: 0, invocationPath: "/workspace/repository/producer.mjs" }), /requires installed producer/u);
   assert.throws(() => semanticRecoveryPlanExecutionRoute({ realUid: 0, effectiveUid: 1000, invocationPath: semanticRecoveryProtectedLayout.producerExecutable }), /requires installed producer/u);
   assert.match(source, /normalizeSemanticRecoveryNativeProducerRequest\(request\)[\s\S]*?authenticateSemanticDeploymentEvidencePackage/u);
+  const generated = planFixture();
+  const encodedPlan = { plan: generated.plan, artifacts: generated.artifacts.map(({ bytes, ...artifact }) => ({ ...artifact, bytesBase64: bytes.toString("base64") })) };
+  assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson(encodedPlan)), encodedPlan);
+  assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--authenticate-successor-internal", canonicalJson({ authentication: { ok: false }, construction: null })), { authentication: { ok: false }, construction: null });
+  assert.throws(() => parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson({ authentication: {}, construction: null })), /unsupported/u);
   assert.match(persistence, /recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?readbackProtectedSemanticRecoverySuccessor/u);
 });
 
