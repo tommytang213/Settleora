@@ -1,5 +1,73 @@
 # Issue Progress Ledger
 
+### Issue #1012 — existing semantic-evidence package authenticated and corrected runtime deployed (2026-08-03)
+
+- Exact final `main` `d510af578be21b2f5fefd53c90c76d6980523e60`
+  was deployed through one bounded atomic runtime exchange. The new installed
+  tuple is source `d510af578be21b2f5fefd53c90c76d6980523e60`, bundle
+  `36ebe8030db223998fe8a10de29f6ff41e022e1059a4dbebfb16e18cda887a27`,
+  file-list
+  `821845ecd417c2376b648d4de92b47b019838a587226319f576eac55142f1011`,
+  and 105 files. The exact prior installed tuple remains the one-depth rollback:
+  source `ca4e7982d28a595b0f1c9d3c1bb355f26da8d667`, bundle
+  `9a55383aada89bd71b05101bb834e78cce826cf40fc7a5d58f15cd22298e6e76`,
+  file-list
+  `8bea673bef5cb6d7040ec8ae33716c0518197b2465dac792005df7126cd31ace`,
+  and 100 files. No rollback was invoked.
+- Source-owned tooling authenticated and read-only adopted the retained strict
+  10-member evidence package. The one non-mutating plan selected exact
+  `adopt_final`, and its complete machine-derived identity set matched the
+  package byte-for-byte: aggregate
+  `19e80131f8b8f3829454eb4cb6c95c8922d862aa46410495a12575aecce465e4`,
+  package-manifest
+  `7892d90d525eaa2249e7709d1934e421ed7c20277c82c17ee692a13f15b290bd`,
+  member-manifest
+  `8eff48268a9766b8284045190de92fb015523e50f32a9f487882b28d9dcc1caa`,
+  source/artifact manifests
+  `c703ef3d35b653aed713ea7dd280b03852918ddfcde4f5927457f95180174e97` /
+  `807d6c94c255aaada8e62bd665da6b55cd8b04a39c48fe59e95810570089308f`,
+  semantic manifest/evidence
+  `2d649bea337f1e0bd705451e935dbb66b17d3393c950690e34d85eda25031e12` /
+  `768cffede4985339478a52f4a6a8b36db4d2f5159880254f5ddd945e3048f09f`,
+  and allowed action `runtime_deployment_quiescence_only`. The package,
+  incident, and associated-recovery bytes remained immutable.
+- Two canonical deployment dry-runs matched on every deterministic field at
+  canonical hash
+  `2516b0d901ef522d2a218eee6a8e5d650eaaf16a2302e0e82ee4f29774fbcf8b`;
+  only source-owned `generatedAt` differed. The stable launcher remains
+  `0f7de5e3d2ce6b359e68ad844b98a8f3872b745fc5a7f8af73a44c9467897bce`,
+  and the new approval sidecar is
+  `622e71485f3cd4c7cc320ce7c26fa44643eb035e3735c3601f44dcb3b1fd9633`.
+  Config changed only at `/runtimeBundleDigest`, with file SHA-256
+  `756db1bf8d62b1fb52e95b629c5ce627513f5b464199a878064d8f67be9b36c1`
+  becoming
+  `42deb0a322a5a2b9cf79d141b885ec41e6582e60fe0562fbaf0ef621692c1c8a`.
+  The approved profile and health-unit bytes remained unchanged.
+- The unchanged loopback health unit completed its sole bounded stop/start
+  cycle and returned HTTP `200`, `status=healthy`, and `mode=idle` with one
+  valid new-runtime consumer and zero restarts. Focused package/evidence/
+  recovery/quiescence/runtime/config/systemd tests passed `313/313`;
+  external-runtime preflight/readiness each returned 27 pass, 2 warnings, and
+  0 failures; doctor, docs, scaffold, diff, and npm audit validation passed,
+  with zero dependency vulnerabilities and zero open code, secret, or
+  Dependabot alerts.
+- Keep Issue #1012 `OPEN` with `manual-gate`. The exact next separate gate is
+  **protected native-producer/control-root/grant installation**, bound to the
+  new live runtime/config/profile/approval/launcher/health state. It must not
+  create or adopt a semantic successor or continue Issue #959 unless separately
+  authorized. Issues #959, #740, #359, #357, and #999 and the preserved Issue
+  #959 recovery remained unchanged; the preserved product candidate gained no
+  remote branch or PR.
+- No protected root/grant/producer/successor, runner or supervisor submission,
+  queue activation, product, API/OpenAPI, auth/session/security, storage,
+  settlement/money, schema/migration, Docker/deployment-infrastructure, secret,
+  exposure, package-mutation, branch deletion, or worktree cleanup effect
+  occurred. This mechanically generated docs-only checkpoint records completed
+  evidence and grants no operational authority or change to policy,
+  permissions, security contracts, deployment configuration, or product scope.
+- Issue #1012 deployment checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5162625248`.
+
 ### Issues #1012/#959/#740/#359/#357/#999 and PR #1039 — semantic evidence package and associated-recovery source repair merged (2026-08-03)
 
 - PR #1039 merged normally with exact-head protection from authorized base
