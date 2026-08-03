@@ -16,6 +16,7 @@ import {
   semanticRecoveryVerifierSetDigest,
   semanticRecoveryVerifierSetVersion,
 } from "./semantic-recovery-authority.mjs";
+import { semanticRecoveryProtectedLayout } from "./semantic-recovery-protected-store.mjs";
 
 export const semanticRecoveryContract = "post_incident_semantic_successor";
 export const semanticRecoveryVersion = 1;
@@ -286,12 +287,13 @@ export function executeConfiguredSemanticRecoverySuccessor(config, packet, opera
     operationGrant: fresh.grant,
   });
   if (!construction.ok) return construction;
-  // Only a future protected native producer may rederive and persist this
-  // exact successor while holding its no-effect generation/CAS fence and
+  // Only the separately installed, root-invoked native producer may rederive
+  // and persist this exact successor while holding its no-effect fence and
   // descriptor-relative storage authority. The runner supplies no callback,
-  // path operation, or mutation capability. The source-owned producer slot is
-  // deliberately unavailable in this runtime.
-  return requestSourceOwnedSemanticRecoveryPersistence(registry, fresh.manifest, fresh.grant);
+  // path operation, or mutation capability. With installation absent, the
+  // production registry still fails closed; with it present, this call can
+  // only authenticate/adopt an exact already committed readback.
+  return requestSourceOwnedSemanticRecoveryPersistence(registry, fresh.manifest, fresh.grant, construction);
 }
 
 export function constructPostIncidentSuccessor({ manifest, mutationGeneration, operationGrant }) {
@@ -541,7 +543,7 @@ function canonicalConfiguredSuccessorRoot(config) {
   if (!config || typeof config.logsRoot !== "string" || !path.isAbsolute(config.logsRoot)) throw new Error("semantic successor logs root invalid");
   const lexicalLogsRoot = path.resolve(config.logsRoot);
   if (realpathSync(lexicalLogsRoot) !== lexicalLogsRoot) throw new Error("semantic successor logs root noncanonical");
-  return path.join(lexicalLogsRoot, "recovery-successors");
+  return semanticRecoveryProtectedLayout.successorsRoot;
 }
 function canonicalExistingPath(value) {
   const resolved = path.resolve(value);

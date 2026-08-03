@@ -1963,9 +1963,14 @@ owned verifier authenticates its canonical bounded store and derives the
 normalized result. Its provenance identity is derived from the authenticated
 producer/store/path/digest identity rather than copied from an evidence
 envelope. A runner-owned worktree cannot independently authenticate
-repository/Git provenance because the runner user can replace its Git metadata;
-that class therefore also requires a separately protected native producer and
-remains unavailable in production until one is deployed. Ordinary launch and
+repository/Git provenance because the runner user can replace its Git metadata.
+The source-owned offline native producer in
+`semantic-recovery-native-producer.mjs` therefore performs a fresh domain read
+for each class and plans eight distinct root-owned snapshots. Those snapshots
+become production authority only after a later root-invoked installation
+reruns the closed readers, publishes the exact plan, and passes protected
+readback; bytes emitted by an unprivileged planning run have no authority.
+Ordinary launch and
 later safety-critical Git calls use a fixed executable, pinned Git directory,
 common directory, worktree and index identities, and a closed Git environment.
 The complete admitted tuple is retained for both control-plane and adopted task
@@ -1987,15 +1992,53 @@ Launch
 cleanliness compares raw tracked bytes to index objects without invoking
 filters and rejects unsafe Git-dir attributes, active Git-dir excludes, non-
 allowlisted configuration, and hidden index flags. Lifecycle and logical-task-
-budget files and local Git objects remain inputs to future protected producers,
-but same-UID stores are not independent authority. Every closed registry slot
-requires a separately deployed native domain producer.
-Until those producers exist, their production verifiers reject even canonical,
-owner-only, correctly class-tagged JSON: runner-owned envelopes are not
-producer identity and cannot supply claims or provenance. Tests use explicit
-synthetic adapters, but startup cannot select them. Missing store-specific
-producer support therefore remains fail-closed and is not simulated to make a
-production incident reachable.
+budget files and local Git objects remain domain inputs, but same-UID stores are
+not independent authority. The native producer authenticates them together
+with source-owned cross-domain invariants and freezes each projection beneath
+a different fixed protected path. Repository Git is reread from the clean
+canonical repository plus remote/default-branch evidence; lifecycle, budget,
+intent, supervisor, and incident readers each bind their own task, claim,
+charge, run-role, counter, and effect records; projection/deployment binds the
+installed runtime, profile, approval, launcher, health, and incident posture;
+GitHub no-effect uses authenticated paginated exact-target readback and a
+bounded freshness window. Each output retains the existing verifier
+ID/version/store kind and only matrix-owned claims. Equal bytes, reused
+provenance, request/bundle/expiry disagreement, foreign claims, or cross-owner
+contradiction fail closed.
+
+The fixed future layout contains `producer/` for the root-owned executable,
+immutable module bundle and canonical policy; exactly eight
+`stores/<authority-class>.json` snapshots; one exact
+`grants/<operation-id>.json`; `successors/`, `successors/incoming/`,
+`successors/provenance/`, and `successors/commits/`; and
+`install-manifest.json` for exact plan-versus-install readback. Every ancestor
+and directory must be canonical, root:root, non-symlinked, and not group/world
+writable. Protected files are bounded immutable producer bytes or canonical
+JSON, root:root, one-link, and exact mode `0444` (`0555` only for the producer
+entry point). Extra or missing store names, link or realpath changes,
+ownership/mode drift, stale snapshots, and byte/digest drift fail closed.
+
+The manual command has five canonical-stdin, non-mutating modes:
+`--plan-install`, `--verify-install-plan`, `--plan-grant`,
+`--verify-grant-plan`, and `--verify-installed`. Canonical machine JSON goes to
+stdout and a bounded high-level summary goes to stderr. The closed install
+request selects one authenticated deployment-evidence document and digest,
+repository, validity interval of at most 15 minutes, exact installed-runtime
+tuple, and the sole operation `install_native_semantic_recovery_producer`.
+Unknown fields and alternate operations, commands, paths, environment, or
+output roots are rejected. The plan derives subordinate digests, enumerates
+future files and directories, reports zero service effects, and keeps producer
+installation, grant installation, and successor execution distinct.
+
+This offline root-invoked model is the smallest privilege boundary because it
+adds no listener, service, socket, timer, sudoers rule, credential, arbitrary
+copy, command passthrough, or generic JSON-signing surface. A later authorized
+installer must run the same producer as root, rederive the snapshots from fresh
+domain sources, compare the exact plan, publish without clobber, and verify the
+installed tree. Copying the planner's projected bytes is insufficient. The
+unprivileged runner can only read installed root-owned snapshots and, after a
+separately installed grant and root-executed persistence operation,
+authenticate a committed successor; it cannot invoke a privileged mutation.
 
 Claim ownership is also source-owned and immutable. The versioned matrix and
 its deterministic digest name every required domain owner. Repository identity
@@ -2037,18 +2080,20 @@ every evidence source path/role/digest/provenance identity, bound artifact and
 run identity, predecessor and incident, PR evidence, runtime identities,
 counters, one-shot/no-effect posture, lifecycle generation, forbidden writes,
 request/action, and the successor key plus exact successor, prepared-provenance,
-and final-commit paths under the canonical operational logs root. Startup discovery and authoritative reload
+and final-commit paths under the fixed protected successor root. Startup discovery and authoritative reload
 use the same registry. Immediately before persistence, production
 reauthenticates all sources, bound artifacts, runtime claims, manifest, and the
-same exact grant. Persistence additionally requires a source-owned GitHub no-
-effect generation/CAS producer to hold its root-grant-bound fence for the
-complete native operation; that producer is currently unavailable. Any
-later effect or drift therefore fails closed. The successor cannot
+same exact grant. Persistence additionally requires a fresh source-owned
+reauthentication of all eight stores, bound artifacts, runtime tuple, grant,
+and GitHub no-effect fence immediately before the complete root-executed
+operation. Any later effect or drift therefore fails closed. The successor cannot
 alias the predecessor/incident key. The runner accepts no persistence callback
 and contains no semantic-successor pathname writer; its ordinary recovery
-writer refuses every write while the incident contract is configured. A future
-protected producer must own descriptor-relative operations under the fixed
-`recovery-successors` destination. Prepared provenance and successor files
+writer refuses every write while the incident contract is configured. The
+installed producer owns only descriptor-relative operations under the fixed
+protected `successors` destination. It stages canonical bytes, fsyncs each
+record, publishes without clobber, fsyncs parent directories, and writes the
+commit marker last. Prepared provenance and successor files
 become accepted only through a final immutable commit marker binding both
 digests. Every pre-commit crash point is inert and exact-repeat resumable, while
 a commit without both exact prepared records is rejected as torn. The created
@@ -2058,8 +2103,14 @@ handoff.
 Repository source defines this contract only. It does not create the `/etc`
 root, install a grant, deploy a producer/runtime, or execute a live successor.
 Those are separate manual operations. Native producer installation is also a
-separate deployment gate. Without every native producer and the real root-
-owned grant, production remains unreachable before successor persistence.
+separate deployment gate. The required sequence is source merge, separate
+producer/root installation authorization and verified install, separate exact
+grant/successor authorization, root-executed persistence and authenticated
+readback, then another explicit decision about Issue #959 continuation.
+Persistence returns `authorizedToContinue=false`; it never submits work or
+changes the incident, predecessor, lifecycle, budget, intent, or Issue #959.
+Without the installed producer root and real grant, production remains
+unreachable before successor persistence.
 Tests use synthetic metadata adapters and never inspect or mutate the live
 `/etc` root.
 

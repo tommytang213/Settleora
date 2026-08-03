@@ -1783,15 +1783,16 @@ verifier set, manifest, and grant immediately before distinct-successor
 persistence. Semantic recovery bypasses ordinary charge reconciliation, and
 the ordinary recovery writer refuses every write while an authenticated
 overwrite incident is configured. The runner exposes no persistence callback
-or pathname writer for a semantic successor. A future protected native producer
-must own descriptor-relative storage plus the fixed grant-bound three-record
-commit protocol; the pure source evaluator accepts no torn pair. Seven domain
-producer interfaces, including independently protected lifecycle and logical-
-task-budget attestation, remain deliberately unavailable
-to production until separately deployed native producers exist; runner-owned
-class-tagged JSON is rejected. The unavailable GitHub no-effect producer must
-also hold a root-grant-bound generation/CAS fence across its complete native
-operation. External Git `fetch`, `push`, and `ls-remote` likewise require a
+or pathname writer for a semantic successor. The source-owned native producer
+now defines the fixed root-owned stores and grant-bound three-record commit
+protocol, but production selects them only when the protected installation is
+actually present and authentic. Until that later installation, all eight
+production slots still reject class-tagged JSON and persistence remains
+unavailable. Each installed store is a distinct fresh projection from its own
+domain reader with the existing verifier ID/version/store kind and only
+matrix-owned claims. The GitHub no-effect projection binds authenticated
+paginated exact-target readback, freshness, and the no-effect fence for the
+complete operation. External Git `fetch`, `push`, and `ls-remote` likewise require a
 separately deployed protected transport producer: a runner-owned temporary Git
 directory cannot stop a same-UID configuration race, so production rejects the
 operation before spawning Git. Repository-bound GitHub API reads provide the
@@ -1803,6 +1804,20 @@ fails closed. Repository source does not install these producers, the
 protected root, or a live grant; installation, deployment, successor creation/
 adoption, and any later product-task continuation remain separate manual
 operations.
+
+The future privilege model is an offline root-invoked executable with no
+network listener or ambient runner mutation authority. Its canonical-stdin
+`--plan-install`, `--verify-install-plan`, `--plan-grant`,
+`--verify-grant-plan`, and `--verify-installed` modes are non-mutating and
+derive every subordinate digest. The fixed layout contains immutable producer
+runtime/policy, exactly eight protected stores, a grants directory, and
+successor incoming/provenance/commit roots. Plan readback requires canonical
+root:root directories and one-link immutable files at the exact paths. A later
+installation must rederive the plan as root; unprivileged planned bytes are not
+authority. Producer installation, one exact grant, root-executed successor
+persistence, authenticated readback, and any Issue #959 continuation remain
+separate owner gates. A committed successor explicitly reports that it is not
+authorized to continue.
 
 Deployment quiescence has a distinct read-only corroboration path for this
 incident class. Its manual-only preparer derives one deterministic package
