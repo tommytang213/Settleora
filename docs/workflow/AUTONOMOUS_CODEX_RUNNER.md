@@ -1852,7 +1852,10 @@ new complete authority authentication before idempotent adoption.
 An interrupted hard-link publication is reconciled before strict readback only
 when the incoming and final canonical names prove the same root-owned inode,
 exact two-link metadata, and expected bytes. The final and incoming directories
-are fsynced on the respective link and unlink boundaries.
+are fsynced on the respective link and unlink boundaries. Once the exact commit
+final link is durable, a retry with fresh current authority may remove only its
+authenticated incoming name and adopt the historical committed bytes after the
+snapshot window; no pre-commit prefix receives that exception.
 The installed exact root-owned executable alone also exposes the closed
 `--persist-successor` and `--readback-successor` operations. Persistence
 requires real/effective UID 0 at the fixed canonical executable path and the

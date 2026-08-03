@@ -242,6 +242,12 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
   if (!["semantic_successor_not_persisted", "semantic_successor_readback_partial", "semantic_successor_readback_incoming_residue", "semantic_successor_readback_authentication_failed"].includes(initialReadback.reasonCode)) {
     return initialReadback;
   }
+  try {
+    const committedResidue = recoverExactCommittedPublicationResidue({
+      manifest, grant, construction, identity, filesystem,
+    });
+    if (committedResidue?.ok) return { ...committedResidue, reasonCode: "semantic_recovery_successor_adopted" };
+  } catch { return failed("semantic_native_persistence_publication_residue_conflict"); }
   let githubNoEffectSnapshot;
   try {
     githubNoEffectSnapshot = selectSemanticRecoveryGithubNoEffectSnapshot({
@@ -257,7 +263,7 @@ export function persistExactSemanticRecoverySuccessorFromNativeProducer({
   catch { return failed("semantic_native_persistence_identity_invalid"); }
   try {
     assertExactInterruptedPublicationState(expected, { filesystem });
-    if (!filesystem) recoverExactInterruptedPublicationSet(expected);
+    recoverExactInterruptedPublicationSet(expected, { filesystem });
   } catch { return failed("semantic_native_persistence_publication_residue_conflict"); }
   const recoveredReadback = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem });
   if (recoveredReadback.ok) return { ...recoveredReadback, reasonCode: "semantic_recovery_successor_adopted" };
@@ -562,16 +568,47 @@ function publishRecordNoClobber(finalPath, document, { filesystem }) {
   fsyncDirectory(path.posix.dirname(incomingPath));
 }
 
-function recoverExactInterruptedHardLink(incomingPath, finalPath, expectedBytes) {
-  if (!existsSync(incomingPath) || !existsSync(finalPath)) return;
-  const authenticated = authenticateExactInterruptedHardLink(incomingPath, finalPath);
+function recoverExactInterruptedHardLink(incomingPath, finalPath, expectedBytes, { filesystem = null } = {}) {
+  const incomingPresent = filesystem ? filesystem.exists(incomingPath) : existsSync(incomingPath);
+  const finalPresent = filesystem ? filesystem.exists(finalPath) : existsSync(finalPath);
+  if (!incomingPresent || !finalPresent) return;
+  const authenticated = authenticateExactInterruptedHardLink(incomingPath, finalPath, { filesystem });
   if (!authenticated.bytes.equals(expectedBytes)) throw new Error("semantic protected publication residue changed");
+  if (filesystem) {
+    if (typeof filesystem.unlinkExactHardLink !== "function") throw new Error("semantic protected filesystem adapter invalid");
+    filesystem.fsync(path.posix.dirname(finalPath));
+    filesystem.unlinkExactHardLink(incomingPath, finalPath);
+    filesystem.fsync(path.posix.dirname(incomingPath));
+    return;
+  }
   fsyncDirectory(path.posix.dirname(finalPath));
   unlinkSync(incomingPath);
   fsyncDirectory(path.posix.dirname(incomingPath));
 }
 
-function authenticateExactInterruptedHardLink(incomingPath, finalPath) {
+function authenticateExactInterruptedHardLink(incomingPath, finalPath, { filesystem = null } = {}) {
+  if (filesystem) {
+    assertFilesystemAdapter(filesystem);
+    assertProtectedPath(incomingPath, filesystem);
+    assertProtectedPath(finalPath, filesystem);
+    const incoming = filesystem.inspect(incomingPath);
+    const final = filesystem.inspect(finalPath);
+    const incomingBytes = Buffer.from(filesystem.read(incomingPath));
+    const finalBytes = Buffer.from(filesystem.read(finalPath));
+    const incomingAfter = filesystem.inspect(incomingPath);
+    const finalAfter = filesystem.inspect(finalPath);
+    if (!incoming || !final || incoming.type !== "file" || final.type !== "file"
+        || incoming.symlink === true || final.symlink === true || incoming.uid !== 0 || incoming.gid !== 0
+        || final.uid !== 0 || final.gid !== 0 || incoming.mode !== expectedFileMode || final.mode !== expectedFileMode
+        || incoming.nlink !== 2 || final.nlink !== 2 || !incoming.inode || incoming.inode !== final.inode
+        || incoming.size < 1 || incoming.size > maximumJsonBytes || incoming.size !== final.size
+        || canonicalJson(incoming) !== canonicalJson(incomingAfter) || canonicalJson(final) !== canonicalJson(finalAfter)
+        || !incomingBytes.equals(finalBytes) || incomingBytes.length !== incoming.size || !isUtf8(incomingBytes)
+        || filesystem.realpath(incomingPath) !== incomingPath || filesystem.realpath(finalPath) !== finalPath) {
+      throw new Error("semantic protected publication residue conflict");
+    }
+    return { path: finalPath, document: parseCanonicalJson(incomingBytes), sha256: sha256(incomingBytes), byteCount: incomingBytes.length, bytes: incomingBytes };
+  }
   assertProtectedPath(incomingPath);
   assertProtectedPath(finalPath);
   const fd = openSync(incomingPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
@@ -596,18 +633,18 @@ function authenticateExactInterruptedHardLink(incomingPath, finalPath) {
   } finally { closeSync(fd); }
 }
 
-function recoverExactInterruptedPublicationSet(expected) {
+function recoverExactInterruptedPublicationSet(expected, { filesystem = null } = {}) {
   // Authenticate the complete state before unlinking any exact hard-link
   // residue. A contradictory later record must leave every earlier name
   // untouched for operator inspection.
-  assertExactInterruptedPublicationState(expected);
+  assertExactInterruptedPublicationState(expected, { filesystem });
   for (const [finalPath, document] of [
     [expected.paths.provenancePath, expected.provenance],
     [expected.paths.storagePath, expected.successor],
     [expected.paths.commitPath, expected.commit],
   ]) {
     const incomingPath = incomingPathFor(finalPath);
-    recoverExactInterruptedHardLink(incomingPath, finalPath, Buffer.from(canonicalJson(document)));
+    recoverExactInterruptedHardLink(incomingPath, finalPath, Buffer.from(canonicalJson(document)), { filesystem });
   }
 }
 
@@ -623,11 +660,7 @@ function assertExactInterruptedPublicationState(expected, { filesystem = null } 
     const incomingPresent = filesystem ? filesystem.exists(incomingPath) : existsSync(incomingPath);
     const expectedBytes = Buffer.from(canonicalJson(document));
     if (finalPresent && incomingPresent) {
-      // The test adapter intentionally cannot claim hard-link identity. In
-      // production, only the exact two-name inode created by link(2) is a
-      // recoverable post-publication/pre-unlink state.
-      if (filesystem) throw new Error("semantic protected publication residue conflict");
-      const authenticated = authenticateExactInterruptedHardLink(incomingPath, finalPath);
+      const authenticated = authenticateExactInterruptedHardLink(incomingPath, finalPath, { filesystem });
       if (!authenticated.bytes.equals(expectedBytes)) throw new Error("semantic protected publication residue changed");
       states.push("published_with_incoming");
       continue;
@@ -663,6 +696,25 @@ function assertExactInterruptedPublicationState(expected, { filesystem = null } 
     }
     throw new Error("semantic protected publication order conflict");
   }
+  return states;
+}
+
+function recoverExactCommittedPublicationResidue({ manifest, grant, construction, identity, filesystem }) {
+  const existingProvenance = readOptionalProtectedPublicationJson(identity.paths.provenancePath, { filesystem });
+  const historicalSnapshot = existingProvenance?.document?.githubNoEffectSnapshot;
+  if (!historicalSnapshot) return null;
+  authenticateSemanticRecoveryGithubNoEffectSnapshot(historicalSnapshot, manifest, { requireFresh: false });
+  const expected = expectedPersistenceRecords(manifest, grant, construction, historicalSnapshot);
+  const states = assertExactInterruptedPublicationState(expected, { filesystem });
+  if (canonicalJson(states) !== canonicalJson(["published", "published", "published_with_incoming"])) return null;
+  // The commit's final link and containing-directory fsync made this operation
+  // durable before the crash. After fresh current authority reauthentication,
+  // removing only its exact second name is cleanup of an already committed
+  // operation, so the historical no-effect snapshot need not still be fresh.
+  recoverExactInterruptedPublicationSet(expected, { filesystem });
+  const recovered = readbackProtectedSemanticRecoverySuccessor({ manifest, grant, construction, filesystem });
+  if (!recovered.ok) throw new Error("semantic committed publication residue readback failed");
+  return recovered;
 }
 
 function incomingPathFor(finalPath) {

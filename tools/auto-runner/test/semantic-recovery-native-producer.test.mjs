@@ -113,6 +113,21 @@ class ProtectedMemoryFilesystem {
   writeExclusive(target, bytes, { uid = 0, mode = 0o444 } = {}) { if (this.exists(target)) throw new Error("exists"); this.entries.set(target, { bytes: Buffer.from(bytes), metadata: { type: "file", symlink: false, uid, gid: 0, mode, nlink: 1, size: bytes.length, generation: 1 }, realpath: target }); }
   fsync() {}
   publishNoClobber(incoming, final) { if (this.exists(final)) throw new Error("exists"); const value = this.entries.get(incoming); this.entries.set(final, { bytes: Buffer.from(value.bytes), metadata: { ...value.metadata }, realpath: final }); this.entries.delete(incoming); }
+  makeExactInterruptedHardLink(final, incoming) {
+    const value = this.entries.get(final);
+    if (!value?.bytes || this.entries.has(incoming)) throw new Error("hardlink fixture invalid");
+    const inode = `fixture-inode-${this.entries.size}`;
+    value.metadata = { ...value.metadata, inode, nlink: 2 };
+    this.entries.set(incoming, { bytes: Buffer.from(value.bytes), metadata: { ...value.metadata }, realpath: incoming });
+  }
+  unlinkExactHardLink(incoming, final) {
+    const incomingValue = this.entries.get(incoming);
+    const finalValue = this.entries.get(final);
+    if (!incomingValue || !finalValue || incomingValue.metadata.inode !== finalValue.metadata.inode) throw new Error("hardlink fixture invalid");
+    this.entries.delete(incoming);
+    finalValue.metadata = { ...finalValue.metadata, nlink: 1 };
+    delete finalValue.metadata.inode;
+  }
   installPlan(generated) { for (const directory of generated.plan.directories) this.ensureDirectory(directory.destination, directory); for (const artifact of generated.artifacts) this.writeExclusive(artifact.destination, artifact.bytes || Buffer.from(`support:${artifact.source}`), artifact); }
   mutate(target, fields) { const value = this.entries.get(target); value.metadata = { ...value.metadata, ...fields }; }
   replace(target, document) { const value = this.entries.get(target); value.bytes = Buffer.from(canonicalJson(document)); value.metadata.size = value.bytes.length; value.metadata.generation += 1; }
@@ -410,6 +425,43 @@ test("a commit marker with either predecessor missing is torn and never backfill
   }
 });
 
+test("a durably linked commit residue adopts after historical snapshot expiry but an uncommitted prefix does not", () => {
+  const fixture = persistenceFixture();
+  const filesystem = new ProtectedMemoryFilesystem();
+  const authority = () => persistenceAuthority(fixture);
+  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem, reauthenticate: authority }).ok, true);
+  const expected = expectedPersistenceRecords(fixture.manifest, fixture.grant, fixture.construction, fixture.githubNoEffectSnapshot);
+  const commitIncoming = `${semanticRecoveryProtectedLayout.successorIncomingRoot}/${path.posix.basename(expected.paths.commitPath)}.${sha256(expected.paths.commitPath).slice(0, 16)}.incoming`;
+  filesystem.makeExactInterruptedHardLink(expected.paths.commitPath, commitIncoming);
+  const renewedCore = {
+    ...fixture.githubNoEffectSnapshot,
+    observedAt: "2026-08-03T10:01:00.000Z",
+    expiresAt: "2026-08-03T10:01:30.000Z",
+  };
+  delete renewedCore.snapshotDigest;
+  const renewedSnapshot = { ...renewedCore, snapshotDigest: sha256(canonicalJson(renewedCore)) };
+  const renewedAuthority = () => persistenceAuthority(fixture, { githubNoEffectSnapshot: renewedSnapshot });
+  const adopted = persistExactSemanticRecoverySuccessorFromNativeProducer({
+    ...fixture, filesystem, reauthenticate: renewedAuthority, clock: () => new Date("2026-08-03T10:01:01.000Z"),
+  });
+  assert.equal(adopted.reasonCode, "semantic_recovery_successor_adopted");
+  assert.equal(adopted.githubNoEffectSnapshotDigest, fixture.githubNoEffectSnapshot.snapshotDigest);
+  assert.equal(filesystem.exists(commitIncoming), false);
+
+  const uncommitted = new ProtectedMemoryFilesystem();
+  assert.equal(persistExactSemanticRecoverySuccessorFromNativeProducer({ ...fixture, filesystem: uncommitted, reauthenticate: authority }).ok, true);
+  const successorIncoming = `${semanticRecoveryProtectedLayout.successorIncomingRoot}/${path.posix.basename(expected.paths.storagePath)}.${sha256(expected.paths.storagePath).slice(0, 16)}.incoming`;
+  uncommitted.entries.delete(expected.paths.commitPath);
+  uncommitted.makeExactInterruptedHardLink(expected.paths.storagePath, successorIncoming);
+  assert.equal(
+    persistExactSemanticRecoverySuccessorFromNativeProducer({
+      ...fixture, filesystem: uncommitted, reauthenticate: renewedAuthority, clock: () => new Date("2026-08-03T10:01:01.000Z"),
+    }).reasonCode,
+    "semantic_native_persistence_github_snapshot_invalid",
+  );
+  assert.equal(uncommitted.exists(successorIncoming), true);
+});
+
 test("out-of-order successor residue is never rebound to a later GitHub snapshot", () => {
   const fixture = persistenceFixture();
   const filesystem = new ProtectedMemoryFilesystem();
@@ -500,14 +552,15 @@ test("installed producer bundle, fixed runtime and real source identity close th
   assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson(encodedPlan)), encodedPlan);
   assert.deepEqual(parseSemanticRecoverySourceProcessResponse("--authenticate-successor-internal", canonicalJson({ authentication: { ok: false }, construction: null, githubNoEffectSnapshot: null })), { authentication: { ok: false }, construction: null, githubNoEffectSnapshot: null });
   assert.throws(() => parseSemanticRecoverySourceProcessResponse("--plan-install-internal", canonicalJson({ authentication: {}, construction: null })), /unsupported/u);
-  assert.match(persistence, /const initialReadback = readbackProtectedSemanticRecoverySuccessor[\s\S]*?semantic_successor_readback_authentication_failed[\s\S]*?expected = expectedPersistenceRecords[\s\S]*?recoverExactInterruptedPublicationSet\(expected\)[\s\S]*?const recoveredReadback = readbackProtectedSemanticRecoverySuccessor/u);
+  assert.match(persistence, /const initialReadback = readbackProtectedSemanticRecoverySuccessor[\s\S]*?recoverExactCommittedPublicationResidue[\s\S]*?expected = expectedPersistenceRecords[\s\S]*?recoverExactInterruptedPublicationSet\(expected, \{ filesystem \}\)[\s\S]*?const recoveredReadback = readbackProtectedSemanticRecoverySuccessor/u);
   assert.match(persistence, /finalPresent && incomingPresent[\s\S]*?authenticateExactInterruptedHardLink\(incomingPath, finalPath\)/u);
-  assert.match(persistence, /authenticateExactInterruptedHardLink\(incomingPath, finalPath\);\s*if \(!authenticated\.bytes\.equals\(expectedBytes\)\)/u);
+  assert.match(persistence, /authenticateExactInterruptedHardLink\(incomingPath, finalPath, \{ filesystem \}\);\s*if \(!authenticated\.bytes\.equals\(expectedBytes\)\)/u);
   assert.match(persistence, /opened\.dev !== incoming\.dev[\s\S]*?incoming\.ino !== final\.ino[\s\S]*?opened\.nlink !== 2/u);
   assert.match(persistence, /linkSync\(incomingPath, finalPath\);\s*fsyncDirectory\(path\.posix\.dirname\(finalPath\)\);\s*unlinkSync\(incomingPath\);\s*fsyncDirectory\(path\.posix\.dirname\(incomingPath\)\)/u);
   assert.match(persistence, /authenticated\.bytes\.equals\(expectedBytes\)[\s\S]*?fsyncDirectory\(path\.posix\.dirname\(finalPath\)\);\s*unlinkSync\(incomingPath\);\s*fsyncDirectory\(path\.posix\.dirname\(incomingPath\)\)/u);
-  assert.match(persistence, /assertExactInterruptedPublicationState\(expected\);[\s\S]*?recoverExactInterruptedHardLink/u);
+  assert.match(persistence, /assertExactInterruptedPublicationState\(expected, \{ filesystem \}\);[\s\S]*?recoverExactInterruptedHardLink/u);
   assert.match(persistence, /contiguous[\s\S]*?prefix[\s\S]*?one in-flight/u);
+  assert.match(persistence, /published_with_incoming[\s\S]*?already committed[\s\S]*?historical no-effect snapshot need not still be fresh/u);
 });
 
 test("producer support bytes come from authenticated GitHub blobs with recomputed object identities", () => {
