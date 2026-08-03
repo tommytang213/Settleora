@@ -11,6 +11,7 @@ import {
 } from "./lib/deployment-semantic-evidence-extractors.mjs";
 import {
   authenticateConfiguredSemanticRecoveryAuthority,
+  buildSemanticRecoveryManifest,
   constructPostIncidentSuccessor,
 } from "./lib/post-incident-successor-recovery.mjs";
 import {
@@ -47,7 +48,7 @@ export async function main(argv = process.argv.slice(2), input = process.stdin) 
   else if (argv[0] === sourcePlanMode) result = executeSourcePlan(request);
   else if (argv[0] === "--plan-install") result = planInstall(request);
   else if (argv[0] === "--verify-install-plan") result = verifyInstallPackage(request);
-  else if (argv[0] === "--plan-grant") result = encodeGrantPlan(planSemanticRecoveryGrant(request));
+  else if (argv[0] === "--plan-grant") result = planGrantFromInstalled(request);
   else if (argv[0] === "--verify-grant-plan") result = verifyGrantPackage(request);
   else if (argv[0] === "--verify-installed") result = verifyInstalled(request);
   else result = executeProtectedSuccessorOperation(argv[0], request);
@@ -133,6 +134,27 @@ function verifyGrantPackage(value) {
   return verifySemanticRecoveryGrantPlan({ plan: value.plan, artifact: { ...artifact, bytes: decodeCanonicalBase64(bytesBase64) } });
 }
 
+function planGrantFromInstalled(value) {
+  assertExactKeys(value, ["installPackage", "operationId", "semanticEvidencePacket"]);
+  if (!/^[a-f0-9]{64}$/u.test(String(value.operationId || ""))) {
+    throw new Error("semantic native grant operation selector invalid");
+  }
+  assertInstalledProducerInvocation();
+  const filesystem = realFilesystem();
+  const decoded = decodeInstallPackage(value.installPackage);
+  if (!verifySemanticRecoveryNativeInstallPlan(decoded).ok
+      || !verifyInstalledSemanticRecoveryNativeProducer({ plan: decoded.plan, filesystem }).ok) {
+    throw new Error("semantic native grant planning requires exact installed producer readback");
+  }
+  const config = productionRecoveryConfig();
+  const corroboration = buildSemanticRecoveryManifest(value.semanticEvidencePacket, { config });
+  if (!corroboration?.ok || !corroboration.manifest
+      || corroboration.manifest.operation?.operationId !== value.operationId) {
+    throw new Error("semantic native grant planning authority invalid");
+  }
+  return encodeGrantPlan(planSemanticRecoveryGrant({ manifest: corroboration.manifest }));
+}
+
 function verifyInstalled(value) {
   const decoded = decodeInstallPackage(value);
   const planned = verifySemanticRecoveryNativeInstallPlan(decoded);
@@ -178,8 +200,7 @@ function executeSourceAuthentication(value) {
   const sourceIdentity = trustedSourceIdentity();
   assertInstalledProducerInvocation({ rootRequired: false });
   assertSourceProcessIdentity(sourceIdentity);
-  const authority = loadDeploymentProjectAuthority({ configPath, approvedProfilePath, repoRoot: repositoryRoot, runtimeRoot, healthUnitPath, allowRuntimeBootstrap: false });
-  const config = { repoRoot: repositoryRoot, logsRoot: authority.logsRoot, repositorySlug: authority.repositorySlug };
+  const config = productionRecoveryConfig();
   const authentication = authenticateConfiguredSemanticRecoveryAuthority(config, value.semanticEvidencePacket, value.operationId);
   if (!authentication.ok || !authentication.grant?.authorized) return { authentication, construction: null };
   const construction = constructPostIncidentSuccessor({
@@ -188,6 +209,18 @@ function executeSourceAuthentication(value) {
     operationGrant: authentication.grant,
   });
   return { authentication, construction };
+}
+
+function productionRecoveryConfig() {
+  const authority = loadDeploymentProjectAuthority({
+    configPath,
+    approvedProfilePath,
+    repoRoot: repositoryRoot,
+    runtimeRoot,
+    healthUnitPath,
+    allowRuntimeBootstrap: false,
+  });
+  return { repoRoot: repositoryRoot, logsRoot: authority.logsRoot, repositorySlug: authority.repositorySlug };
 }
 
 function authenticateInSourceProcess(sourceIdentity, value) {

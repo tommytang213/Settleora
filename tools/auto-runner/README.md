@@ -2029,6 +2029,13 @@ Unknown fields and alternate operations, commands, paths, environment, or
 output roots are rejected. The plan derives subordinate digests, enumerates
 future files and directories, reports zero service effects, and keeps producer
 installation, grant installation, and successor execution distinct.
+Grant planning is available only through the exact installed root-owned
+producer. Its closed request supplies the previously verified install package,
+one exact operation selector, and the semantic evidence packet; the producer
+reauthenticates the installed tree and all eight protected stores, derives the
+operation manifest itself, and only then emits the fixed-path grant bytes. A
+caller-supplied manifest, self-digested substitute package, or installed-tree
+drift cannot produce a grant plan.
 
 This offline root-invoked model is the smallest privilege boundary because it
 adds no listener, service, socket, timer, sudoers rule, credential, arbitrary

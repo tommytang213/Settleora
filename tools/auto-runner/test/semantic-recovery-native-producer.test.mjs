@@ -256,6 +256,17 @@ test("grant plan preserves one exact fixed-path read-only operation and excludes
   assert.throws(() => planSemanticRecoveryGrant({ manifest: forged }), /digest/u);
 });
 
+test("production grant planning is closed behind installed readback and manifest derivation", () => {
+  const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
+  const planner = source.slice(source.indexOf("function planGrantFromInstalled"), source.indexOf("function verifyInstalled"));
+  assert.match(planner, /assertExactKeys\(value, \["installPackage", "operationId", "semanticEvidencePacket"\]\)/u);
+  assert.match(planner, /assertInstalledProducerInvocation\(\)/u);
+  assert.match(planner, /verifySemanticRecoveryNativeInstallPlan\(decoded\)[\s\S]*verifyInstalledSemanticRecoveryNativeProducer/u);
+  assert.match(planner, /buildSemanticRecoveryManifest\(value\.semanticEvidencePacket, \{ config \}\)/u);
+  assert.match(planner, /corroboration\.manifest\.operation\?\.operationId !== value\.operationId/u);
+  assert.doesNotMatch(planner, /planSemanticRecoveryGrant\(value\)/u);
+});
+
 test("protected persistence reauthenticates, publishes once, adopts exact bytes, and never authorizes continuation", () => {
   const fixture = persistenceFixture();
   const filesystem = new ProtectedMemoryFilesystem();

@@ -1822,6 +1822,13 @@ bytes alone are not authority. Producer installation, one exact grant, root-exec
 persistence, authenticated readback, and any Issue #959 continuation remain
 separate owner gates. A committed successor explicitly reports that it is not
 authorized to continue.
+The grant planner is not an offline arbitrary-manifest encoder. It runs only
+from the installed root-owned producer, verifies the supplied exact install
+package against the complete installed tree, authenticates all eight stores
+and the closed semantic packet, derives the exact operation manifest, and then
+plans the one fixed grant path. Unknown fields, caller-supplied manifests,
+self-consistent substitute packages, and any installed-byte drift fail before
+grant bytes are emitted.
 The installed exact root-owned executable alone also exposes the closed
 `--persist-successor` and `--readback-successor` operations. Persistence
 requires real/effective UID 0 at the fixed canonical executable path and the
