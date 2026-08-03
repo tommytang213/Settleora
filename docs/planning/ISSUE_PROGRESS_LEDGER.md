@@ -1,5 +1,54 @@
 # Issue Progress Ledger
 
+### Issue #1012 and PR #1042 — production-native semantic recovery producer source merged (2026-08-03)
+
+- PR #1042 merged once by normal expected-head GitHub merge commit from exact
+  authorized base `126855ace3393cbf675e890d673a9fb47d2498d1` and exact
+  source head `106ea4bac5c4efd2b4cdd2e836ccfd039cbc0072` as merge
+  `18681ac1c12139df96f616463692f18fcf4e2029`. Its ordered parents are
+  the authorized base and source head, with no third parent, and its tree is
+  the exact source tree `a7f79f57e89ebd23870ce1caf558e269b7c79620`.
+- The exact source candidate retained raw base-to-head diff SHA-256
+  `47011740b1e8a3f15f09f7f9b8050eb1181baca0a55a22382c209d0b456b96bd`
+  and canonical changed-path manifest digest
+  `51a8ff5b869494b8a5094f6f10c68bf3193dacb1cc36a8042d030b714ce98356`.
+  It comprised 21 commits and exactly 12 authorized workflow/auto-runner
+  source and focused-test paths, with 3,111 additions and 85 deletions.
+- The merged source defines an offline native semantic-recovery producer and
+  operator plan, eight independent protected authority-store projections,
+  closed one-operation grant planning and authentication, crash-safe protected
+  successor persistence, authenticated readback/adoption, and production
+  wiring that remains fail-closed and inactive until a later protected
+  installation. It grants no present operational authority.
+- Exact-head and merged-main validation passed dependency installation,
+  doctor, zero-vulnerability root and web-user audits, changed-module syntax
+  `10/10`, production-module imports `5/5`, focused semantic producer/grant/
+  persistence/readback/recovery/security/production-wiring tests `214/214`,
+  the complete auto-runner suite `1,410/1,410`, docs, scaffold, diff, scope,
+  and all linked-worktree clean guards. Fresh exact-head Gemini
+  `strong_independent` and local Codex reviews passed with no findings, and
+  exact-head GitHub Codex found no major issues.
+- All 12 source-head checks passed; all six review threads were resolved with
+  zero unresolved findings. All nine applicable merged-main jobs passed,
+  including CodeQL, Semgrep, Trivy, Scaffold Validation, and the policy-owned
+  API image workflow. Open code-scanning, secret-scanning, and Dependabot
+  alerts remained `0/0/0`.
+- Keep Issue #1012 `OPEN` with `manual-gate`. The protected control root,
+  native producer, operation grant, and semantic successor remain absent and
+  uninstalled. The exact next separate gate is **high-level owner
+  authorization for protected native-producer/control-root installation
+  only**; it must not install a grant, create, persist, adopt, or read back a
+  successor, continue Issue #959, deploy, submit runner/supervisor work, or
+  activate the queue.
+- No deployment, runtime/config/profile/approval/launcher/health mutation,
+  Issue #959 continuation, queue/submission/product/API/auth/storage/money/
+  schema change, secret or exposure change, or branch/worktree cleanup
+  occurred. This mechanically generated docs-only checkpoint changes no
+  policy, permission, security contract, product scope, or operational
+  authority.
+- Issue #1012 source-merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5166991106`.
+
 ### Issue #1012 — existing semantic-evidence package authenticated and corrected runtime deployed (2026-08-03)
 
 - Exact final `main` `d510af578be21b2f5fefd53c90c76d6980523e60`
