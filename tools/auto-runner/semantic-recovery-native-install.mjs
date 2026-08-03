@@ -360,16 +360,19 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
       planDigest: verified.planDigest,
     });
 
-    const finalAuthority = runIndependentRootReaders(hint, verified.package.plan.request.observedAt, verified.package);
-    if (finalAuthority.sourceManifestDigest !== verified.sourceManifestDigest
-        || finalAuthority.requestDigest !== verified.requestDigest || finalAuthority.planDigest !== verified.planDigest) {
-      throw new Error("native install final source authority changed before publication");
-    }
     const published = publishOrAdoptVerifiedNativeInstall({
       installPackage: verified.package,
       correlation: hint.taskCorrelation,
       filesystem,
       journal: { transition(expectedState, nextState, partial) { advanceRoot(expectedState, nextState, partial); } },
+      reauthenticate() {
+        const finalAuthority = runIndependentRootReaders(hint, verified.package.plan.request.observedAt, verified.package);
+        if (finalAuthority.sourceManifestDigest !== verified.sourceManifestDigest
+            || finalAuthority.requestDigest !== verified.requestDigest || finalAuthority.planDigest !== verified.planDigest) {
+          throw new Error("native install final source authority changed at publication edge");
+        }
+        return finalAuthority.package;
+      },
     });
     const completed = completeVerifiedNativeInstallResult({
       journal,

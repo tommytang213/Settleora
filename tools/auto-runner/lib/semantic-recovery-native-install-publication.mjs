@@ -36,6 +36,7 @@ export const nativeInstallRootResultVersion = 2;
 const correlationPattern = /^[a-z0-9][a-z0-9._:-]{7,127}$/u;
 const digestPattern = /^[a-f0-9]{64}$/u;
 const shaPattern = /^[a-f0-9]{40}$/u;
+const rootResultTemporaryPattern = /^\.([a-f0-9]{64})\.[a-f0-9]{24}\.tmp$/u;
 
 export function buildFixedNativeInstallRootResult({ correlation, repository, sourceCommit, journal } = {}) {
   validateNativeInstallJournal(journal);
@@ -68,7 +69,7 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
   ensureRootResultDirectory();
   const finalName = `${value.operationId}.${value.rootJournalSequence}.${value.rootJournalDigest}.json`;
   const finalPath = path.join(nativeInstallRootResultRoot, finalName);
-  const temporary = path.join(nativeInstallRootResultRoot, `.${value.operationId}.${randomBytes(12).toString("hex")}.tmp`);
+  let temporary;
   const bytes = canonicalBytes(value);
   const existing = readFixedNativeInstallRootResult(value.operationId);
   if (existing && existing.rootJournalSequence > value.rootJournalSequence) {
@@ -86,21 +87,36 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
     fsyncDirectory(nativeInstallRootResultRoot);
     return adopted;
   }
-  const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o400);
-  try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
-  chownSync(temporary, 0, 0);
-  chmodSync(temporary, 0o444);
-  fsyncFile(temporary);
+  const reusable = readdirSync(nativeInstallRootResultRoot).map((name) => {
+    const match = rootResultTemporaryPattern.exec(name);
+    if (!match) return null;
+    const candidate = path.join(nativeInstallRootResultRoot, name);
+    const staged = readFixedNativeInstallRootResultFile(candidate, match[1]);
+    if (!canonicalBytes(staged).equals(bytes)) throw new Error("native install conflicting root result temporary refused");
+    return candidate;
+  }).filter(Boolean).sort();
+  if (reusable.length > 0) {
+    temporary = reusable[0];
+  } else {
+    temporary = path.join(nativeInstallRootResultRoot, `.${value.operationId}.${randomBytes(12).toString("hex")}.tmp`);
+    const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o400);
+    try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+    chownSync(temporary, 0, 0);
+    chmodSync(temporary, 0o444);
+    fsyncFile(temporary);
+  }
   try {
     renameNoReplace(temporary, finalPath);
   } catch (error) {
     if (!existsSync(finalPath)) throw error;
     const raced = readFixedNativeInstallRootResultFile(finalPath, value.operationId);
     if (!canonicalBytes(raced).equals(bytes)) throw error;
-    const staged = lstatSync(temporary);
-    if (!staged.isFile() || staged.isSymbolicLink() || staged.uid !== 0 || staged.gid !== 0 || staged.nlink !== 1
-        || (staged.mode & 0o7777) !== 0o444 || realpathSync(temporary) !== temporary || !readFileSync(temporary).equals(bytes)) throw error;
-    unlinkSync(temporary);
+    if (existsSync(temporary)) {
+      const staged = lstatSync(temporary);
+      if (!staged.isFile() || staged.isSymbolicLink() || staged.uid !== 0 || staged.gid !== 0 || staged.nlink !== 1
+          || (staged.mode & 0o7777) !== 0o444 || realpathSync(temporary) !== temporary || !readFileSync(temporary).equals(bytes)) throw error;
+      unlinkSync(temporary);
+    }
   }
   fsyncDirectory(nativeInstallRootResultRoot);
   const readback = readFixedNativeInstallRootResult(value.operationId);
@@ -274,9 +290,9 @@ export function completeVerifiedNativeInstallResult({
  * adapter below has only the fixed protected root; tests inject an in-memory
  * implementation. No caller can select an arbitrary publication destination.
  */
-export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlation, filesystem, journal } = {}) {
+export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlation, filesystem, journal, reauthenticate } = {}) {
   if (!verifySemanticRecoveryNativeInstallPlan(installPackage).ok || !correlationPattern.test(String(correlation || ""))
-      || !filesystem || !journal || typeof journal.transition !== "function") {
+      || !filesystem || !journal || typeof journal.transition !== "function" || typeof reauthenticate !== "function") {
     throw new Error("native install publication dependencies invalid");
   }
   assertPublicationFilesystem(filesystem);
@@ -288,6 +304,9 @@ export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlatio
     filesystem.fsyncInstalled(installPackage.plan);
     const durable = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() });
     if (!durable.ok) throw new Error("native install adopted state changed during durability readback");
+    assertFreshRootInstallPackage(installPackage, reauthenticate());
+    const edgeReadback = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() });
+    if (!edgeReadback.ok) throw new Error("native install adopted state changed at authority edge");
     journal.transition("root_plan_verified", "adopted_verified", {
       outcome: "adopted",
       reasonCode: "native_install_exact_state_adopted",
@@ -322,6 +341,9 @@ export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlatio
   filesystem.fsyncPublicationParent();
   const staged = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.stageView(stage) });
   if (!staged.ok) throw new Error("native install staged readback invalid");
+  assertFreshRootInstallPackage(installPackage, reauthenticate());
+  const edgeReadback = verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.stageView(stage) });
+  if (!edgeReadback.ok) throw new Error("native install staged state changed at authority edge");
   journal.transition("root_plan_verified", "publication_intent_durable", {
     outcome: "none",
     reasonCode: "native_install_publication_intent_durable",
@@ -367,6 +389,13 @@ export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlatio
       installedDigest: installedIdentity(installPackage.plan),
     });
     return { ok: true, adopted: false, installed: true, reasonCode: "native_install_ambiguous_publication_verified", planDigest: installPackage.plan.planDigest };
+  }
+}
+
+function assertFreshRootInstallPackage(expected, fresh) {
+  if (!fresh || !verifySemanticRecoveryNativeInstallPlan(fresh).ok
+      || !canonicalBytes(fresh).equals(canonicalBytes(expected))) {
+    throw new Error("native install root authority changed at publication edge");
   }
 }
 

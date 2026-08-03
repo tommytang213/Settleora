@@ -359,41 +359,67 @@ function publicationJournal() {
   let state = "root_plan_verified";
   return { transitions, transition(expected, next) { assert.equal(state, expected); transitions.push(`${expected}->${next}`); state = next; } };
 }
+function freshAuthority(installPackage) { return () => installPackage; }
 
 test("exact fixture installation fsyncs every created file/directory and both publication boundaries before verified completion", () => {
   const installPackage = installPackageFixture();
   const filesystem = new PublicationMemoryFilesystem();
   const journal = publicationJournal();
-  const result = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal });
+  const result = publishOrAdoptVerifiedNativeInstall({
+    installPackage, correlation: "issue-1012-fixture", filesystem, journal,
+    reauthenticate() { filesystem.events.push("authority-edge"); return installPackage; },
+  });
   assert.equal(result.installed, true);
   assert.equal(verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() }).ok, true);
   assert.equal(filesystem.events.filter((entry) => entry.startsWith("fsync-file:")).length, installPackage.artifacts.length);
   assert.equal(filesystem.events.filter((entry) => entry.startsWith("fsync-dir:")).length >= (installPackage.plan.directories.length - 1) * 2 + installPackage.artifacts.length + 1, true);
+  assert.equal(filesystem.events.indexOf("authority-edge") > filesystem.events.indexOf("fsync-parent"), true);
+  assert.equal(filesystem.events.indexOf("authority-edge") < filesystem.events.indexOf("rename-noreplace"), true);
   assert.equal(filesystem.events.at(-2), "fsync-parent");
   assert.equal(filesystem.events.at(-1), "fsync-ancestor");
   assert.deepEqual(journal.transitions, ["root_plan_verified->publication_intent_durable", "publication_intent_durable->publication_started", "publication_started->installed_verified"]);
 });
 
+test("publication-edge root reauthentication is mandatory and changed authority blocks before intent or rename", () => {
+  const installPackage = installPackageFixture();
+  const filesystem = new PublicationMemoryFilesystem();
+  const journal = publicationJournal();
+  assert.throws(() => publishOrAdoptVerifiedNativeInstall({
+    installPackage,
+    correlation: "issue-1012-fixture",
+    filesystem,
+    journal,
+    reauthenticate: freshAuthority(rebindInstallPackage(installPackage, ({ artifacts }) => { artifacts.at(-1).bytes[0] ^= 0xff; })),
+  }), /authority changed at publication edge/u);
+  assert.equal(filesystem.events.includes("rename-noreplace"), false);
+  assert.deepEqual(journal.transitions, []);
+  assert.equal(filesystem.stageExists("stage"), true);
+});
+
 test("exact existing installation adopts without rewrite while conflict and residue remain untouched", () => {
   const installPackage = installPackageFixture();
   const filesystem = new PublicationMemoryFilesystem();
-  publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal: publicationJournal() });
+  publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal: publicationJournal(), reauthenticate: freshAuthority(installPackage) });
   const before = canonicalJson([...filesystem.final].map(([target, entry]) => [target, entry.metadata, entry.bytes?.toString("base64")]));
   filesystem.events.length = 0;
   const journal = publicationJournal();
-  const adopted = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal });
+  const adopted = publishOrAdoptVerifiedNativeInstall({
+    installPackage, correlation: "issue-1012-fixture", filesystem, journal,
+    reauthenticate() { filesystem.events.push("authority-edge"); return installPackage; },
+  });
   assert.equal(adopted.adopted, true);
   assert.equal(canonicalJson([...filesystem.final].map(([target, entry]) => [target, entry.metadata, entry.bytes?.toString("base64")])), before);
   assert.equal(filesystem.events[0], "authority");
   assert.equal(filesystem.events.filter((entry) => entry.startsWith("fsync-installed-file:")).length, installPackage.plan.files.length);
   assert.equal(filesystem.events.filter((entry) => entry.startsWith("fsync-installed-dir:")).length, installPackage.plan.directories.length);
+  assert.equal(filesystem.events.indexOf("authority-edge") > filesystem.events.lastIndexOf("fsync-ancestor"), true);
   assert.deepEqual(journal.transitions, ["root_plan_verified->adopted_verified"]);
   const conflict = new PublicationMemoryFilesystem(); conflict.final = new Map([[semanticRecoveryProtectedLayout.root, directory()], [`${semanticRecoveryProtectedLayout.root}/extra`, file(Buffer.from("x"))]]);
   const conflictBefore = canonicalJson([...conflict.final]);
-  assert.throws(() => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem: conflict, journal: publicationJournal() }), /conflicts/u);
+  assert.throws(() => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem: conflict, journal: publicationJournal(), reauthenticate: freshAuthority(installPackage) }), /conflicts/u);
   assert.equal(canonicalJson([...conflict.final]), conflictBefore);
   const residue = new PublicationMemoryFilesystem(); residue.residue = true;
-  assert.throws(() => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem: residue, journal: publicationJournal() }), /residue/u);
+  assert.throws(() => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem: residue, journal: publicationJournal(), reauthenticate: freshAuthority(installPackage) }), /residue/u);
   assert.equal(residue.stage, null);
 });
 
@@ -426,7 +452,7 @@ test("deep path, forbidden-effect and installed metadata fixtures reach their sp
   ];
   for (const [name, mutate, detail] of mutations) {
     const filesystem = new PublicationMemoryFilesystem();
-    publishOrAdoptVerifiedNativeInstall({ installPackage: original, correlation: "issue-1012-fixture", filesystem, journal: publicationJournal() });
+    publishOrAdoptVerifiedNativeInstall({ installPackage: original, correlation: "issue-1012-fixture", filesystem, journal: publicationJournal(), reauthenticate: freshAuthority(original) });
     const target = original.plan.files[0].destination;
     mutate(filesystem.final.get(target));
     const result = verifyInstalledSemanticRecoveryNativeProducer({ plan: original.plan, filesystem: filesystem.finalView() });
@@ -608,7 +634,7 @@ test("lost rename transport with surviving private container stays ambiguous and
   };
   const journal = publicationJournal();
   assert.throws(
-    () => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal }),
+    () => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal, reauthenticate: freshAuthority(installPackage) }),
     /transport ambiguous/u,
   );
   assert.equal(calls, 1);
@@ -634,7 +660,7 @@ test("a post-rename durability failure is recorded ambiguous and reconciles by e
   const originalPublish = filesystem.publishNoReplace.bind(filesystem);
   filesystem.publishNoReplace = function publishOnce() { publications += 1; originalPublish(); };
   const journal = publicationJournal();
-  const result = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal });
+  const result = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal, reauthenticate: freshAuthority(installPackage) });
   assert.equal(result.reasonCode, "native_install_ambiguous_publication_verified");
   assert.equal(publications, 1);
   assert.deepEqual(journal.transitions, [
@@ -667,6 +693,7 @@ test("verified completion journal and result failures resume by readback without
     correlation: durable.correlation,
     filesystem,
     journal: { transition(expectedState, nextState, result) { advance(expectedState, nextState, emptyResult(result.reasonCode, result)); } },
+    reauthenticate: freshAuthority(installPackage),
   });
   assert.equal(durable.state, "installed_verified");
   const completion = { reasonCode: "native_install_completed", requestDigest: installPackage.plan.requestDigest, sourceManifestDigest: "2".repeat(64), planDigest: installPackage.plan.planDigest };
@@ -794,7 +821,8 @@ test("authenticated root planners retain OS root while applying the fixed source
   assert.match(policy, /process\.getuid = \(\) => identity\.uid/u);
   assert.match(source, /existing root journal requires recovery-only handoff/u);
   assert.match(source, /recovery root journal absent/u);
-  assert.equal(source.indexOf("const finalAuthority = runIndependentRootReaders") < source.indexOf("const published = publishOrAdoptVerifiedNativeInstall"), true);
+  assert.equal(source.indexOf("const finalAuthority = runIndependentRootReaders") > source.indexOf("const published = publishOrAdoptVerifiedNativeInstall"), true);
+  assert.match(source, /reauthenticate\(\)[\s\S]*runIndependentRootReaders/u);
   const producer = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../semantic-recovery-native-producer.mjs"), "utf8");
   assert.match(producer, /initial\.candidate\?\.mainSha !== producerSourceSha/u);
   assert.match(producer, /final\.candidate\?\.mainSha !== producerSourceSha/u);

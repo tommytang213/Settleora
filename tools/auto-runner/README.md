@@ -2139,9 +2139,11 @@ path.
 New installation uses one root-only `0700` staging container with a sealed child
 on the same filesystem, exact plan-listed members, exclusive/no-follow
 creation, exact metadata, file fsync, every descendant directory fsync, staged
-readback, and the source-owned Python
+readback, a new complete two-reader root-authority derivation at the publication
+edge, a second staged readback, and the source-owned Python
 `renameat2(RENAME_NOREPLACE)` helper. It then fsyncs the protected parent and
-ancestor and performs complete final readback. The helper admits only the
+ancestor and performs complete final readback. The helper fsyncs both source
+and destination directories around the cross-directory rename and admits only the
 fixed final root and the correlation-bound child. A normal rename removes the
 empty private container before completion. If transport is lost and either the
 child or container remains, even an exact final readback stays
@@ -2149,7 +2151,8 @@ child or container remains, even an exact final readback stays
 residue. An exact existing final
 tree is adopted without rewrite only after every installed file, descendant
 directory, protected parent and ancestor is fsynced and a second complete
-readback succeeds; partial, extra, stale, or conflicting state is left
+readback succeeds, followed by the same fresh root-authority derivation and a
+final edge readback; partial, extra, stale, or conflicting state is left
 untouched. Grants and all successor subdirectories must be empty.
 
 Owner-only and root-only canonical journals use atomic temporary write, file
@@ -2172,6 +2175,10 @@ package plus durable installed-state readback, never replay. A root-owned,
 owner-readable append-only sanitized result sequence is keyed by the journal
 sequence and digest. Exclusive link publication plus monotonic state validation
 prevents a delayed ambiguous writer from clobbering a newer verified completion.
+If result transport fails after a temporary is durable, retry authenticates and
+reuses it. The fixed Python boundary coalesces only fully authenticated,
+byte-identical duplicates with a directory fsync after each unlink; conflicting
+temporaries are retained and block publication.
 The sequence lets the unprivileged coordinator durably complete its journal
 after verified root completion. Once installation
 or adoption is verified, `blocked` is no longer a legal transition: failure of

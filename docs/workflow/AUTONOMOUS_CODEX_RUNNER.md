@@ -1849,9 +1849,11 @@ UID/GID is used only as an expected-owner validation policy inside those root
 processes, so no same-UID mutable process can alter their memory, projected
 result, supplementary groups, or execution. The one fixed expected-owner
 repository is passed to Git through an exact command-scoped `safe.directory`
-after its canonical path and owner are authenticated. The independent verifier
-reruns the complete source and authority binding immediately before
-publication. Root then either adopts an
+after its canonical path and owner are authenticated. After staged or adopted
+durability readback, both root readers rerun the complete source and authority
+binding at the publication edge, the controller requires the fresh package to
+remain byte-identical, and the staged or final tree is read back again before a
+journal transition. Root then either adopts an
 exact final tree without rewriting it after complete fsync plus repeated
 readback, or stages, fsyncs and publishes
 once with `renameat2(RENAME_NOREPLACE)`. The sealed root remains beneath a
@@ -1866,7 +1868,10 @@ handoff is reachable solely after the original owner journal is durably
 already exist; it cannot publish or increment an effect counter. Root-owned
 sanitized results are append-only, journal-sequenced records whose monotonic
 readback prevents an older ambiguous writer from replacing completion. They
-support durable owner-side completion. Verified installation/adoption
+support durable owner-side completion. An exact stranded result temporary is
+authenticated and reused after restart; byte-identical duplicates are safely
+coalesced and directory-fsynced, while conflicting residue is left untouched
+and blocks. Verified installation/adoption
 cannot transition to `blocked`; a final journal or result-publication failure
 permits only exact frozen-package readback, completion, and idempotent result
 adoption. Exclusive root-owned transition
