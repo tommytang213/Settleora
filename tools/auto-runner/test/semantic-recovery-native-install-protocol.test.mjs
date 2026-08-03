@@ -825,5 +825,16 @@ test("real Python rename_noreplace helper interoperates through stdin using exac
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stderr, "");
   assert.deepEqual(JSON.parse(result.stdout), { byteCount: packageBytes.length, reasonCode: "native_install_python_rename_noreplace_verified", sha256: sha256(packageBytes) });
-  assert.equal(readFileSync(helper).includes(Buffer.from("RENAME_NOREPLACE = 1")), true);
+  const helperSource = readFileSync(helper, "utf8");
+  const installerSource = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../semantic-recovery-native-install.mjs"), "utf8");
+  const publicationSource = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../lib/semantic-recovery-native-install-publication.mjs"), "utf8");
+  assert.match(helperSource, /RENAME_NOREPLACE = 1/u);
+  assert.match(helperSource, /sys\.argv == \[sys\.argv\[0\], "--publish-root"\]/u);
+  assert.match(helperSource, /sys\.argv == \[sys\.argv\[0\], "--root-result"\]/u);
+  assert.doesNotMatch(helperSource, /sys\.argv\[[1-9][0-9]*\]/u);
+  assert.doesNotMatch(helperSource, /AT_FDCWD/u);
+  assert.match(helperSource, /os\.listdir\(parent_fd\)/u);
+  assert.match(helperSource, /os\.listdir\(directory_fd\)/u);
+  assert.doesNotMatch(installerSource, /helper,[^\n]*stage, finalRoot/u);
+  assert.doesNotMatch(publicationSource, /new RegExp/u);
 });

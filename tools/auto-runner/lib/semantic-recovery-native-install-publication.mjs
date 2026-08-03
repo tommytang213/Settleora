@@ -115,14 +115,23 @@ export function readFixedNativeInstallRootResult(operationId) {
   assertRootDirectory("/etc");
   assertRootDirectory("/etc/settleora-auto-runner");
   assertRootDirectory(nativeInstallRootResultRoot);
-  const escaped = operationId.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const pattern = new RegExp(`^${escaped}\\.([0-9]+)\\.([a-f0-9]{64})\\.json$`, "u");
-  const names = readdirSync(nativeInstallRootResultRoot).filter((name) => pattern.test(name)).sort();
+  const prefix = `${operationId}.`;
+  const suffix = ".json";
+  const entries = readdirSync(nativeInstallRootResultRoot).map((name) => {
+    if (!name.startsWith(prefix) || !name.endsWith(suffix)) return null;
+    const identity = name.slice(prefix.length, -suffix.length);
+    const separator = identity.indexOf(".");
+    if (separator < 1 || separator !== identity.lastIndexOf(".")) return null;
+    const sequence = identity.slice(0, separator);
+    const digest = identity.slice(separator + 1);
+    if (!/^[1-9][0-9]*$/u.test(sequence) || !digestPattern.test(digest)) return null;
+    return { name, sequence, digest };
+  }).filter(Boolean).sort((left, right) => left.name.localeCompare(right.name));
+  const names = entries.map(({ name }) => name);
   if (names.length === 0) return null;
-  const results = names.map((name) => {
-    const match = pattern.exec(name);
+  const results = entries.map(({ name, sequence, digest }) => {
     const value = readFixedNativeInstallRootResultFile(path.join(nativeInstallRootResultRoot, name), operationId);
-    if (String(value.rootJournalSequence) !== match[1] || value.rootJournalDigest !== match[2]) {
+    if (String(value.rootJournalSequence) !== sequence || value.rootJournalDigest !== digest) {
       throw new Error("native install root result filename identity mismatch");
     }
     return value;
