@@ -782,7 +782,7 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   };
 }
 
-function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, mainSha, incidentUpdatedAt, command, githubRead }) {
+function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, mainSha, incidentUpdatedAt, command, githubRead = null }) {
   const incidentCheckpointMs = typeof incidentUpdatedAt === "string" ? Date.parse(incidentUpdatedAt) : Number.NaN;
   if (!Number.isFinite(incidentCheckpointMs)) throw new Error("semantic extraction GitHub incident checkpoint invalid");
   const githubEnvironment = {
