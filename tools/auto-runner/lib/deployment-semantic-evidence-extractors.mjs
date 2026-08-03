@@ -18,6 +18,10 @@ import { resumedGitRepositoryAuthorityIsTrusted } from "./preserved-recovery-dep
 import { authenticateAssociatedRecoverableState } from "./recovery-state.mjs";
 import { loadSessionLifecycleForRecovery } from "./session-lifecycle.mjs";
 
+export const semanticRecoveryGithubNoEffectSnapshotContract = "settleora_semantic_recovery_github_no_effect_snapshot";
+export const semanticRecoveryGithubNoEffectSnapshotVersion = 1;
+export const semanticRecoveryGithubNoEffectSnapshotLifetimeMs = 30_000;
+
 export function collectSemanticDeploymentEvidenceContext({
   projectAuthority,
   repositoryRoot,
@@ -213,6 +217,57 @@ export function createSemanticDeploymentAuthorityReaders({ readAuthorityContext 
     github_no_effect: (context) => withAuthorityContext(read(context), "github_no_effect", (owned) => ({
       repository: owned.repository, prEvidenceDigest: owned.github.digest, ...externalNoEffectClaims(owned),
     })),
+  });
+}
+
+export function reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot, manifest, command = defaultCommand, now = new Date() } = {}) {
+  if (!manifest || typeof manifest !== "object" || !path.isAbsolute(repositoryRoot || "")
+      || realpathSync(repositoryRoot) !== repositoryRoot
+      || typeof manifest.currentIncident?.path !== "string"
+      || !digest64(manifest.currentIncident?.sha256)
+      || !digest64(manifest.claims?.prEvidenceDigest)
+      || !digest64(manifest.manifestDigest)
+      || !digest64(manifest.operation?.operationId)
+      || !digest64(manifest.operation?.requestId)
+      || !(now instanceof Date) || !Number.isFinite(now.getTime())) {
+    throw new Error("semantic recovery GitHub fence input invalid");
+  }
+  const incident = authenticateJson(manifest.currentIncident.path);
+  if (incident.sha256 !== manifest.currentIncident.sha256
+      || typeof incident.value?.timestamps?.updatedAt !== "string") {
+    throw new Error("semantic recovery GitHub fence incident invalid");
+  }
+  const fresh = readGithubNoEffect({
+    repositoryRoot,
+    repository: manifest.claims.repository,
+    issueNumber: manifest.claims.issueNumber,
+    branch: manifest.claims.branch,
+    mainSha: null,
+    incidentUpdatedAt: incident.value.timestamps.updatedAt,
+    command,
+  });
+  if (fresh.digest !== manifest.claims.prEvidenceDigest
+      || Object.values(fresh.claims).some((effect) => effect !== false)) {
+    throw new Error("semantic recovery later GitHub effect detected");
+  }
+  const observedAt = now.toISOString();
+  const snapshotCore = {
+    contract: semanticRecoveryGithubNoEffectSnapshotContract,
+    version: semanticRecoveryGithubNoEffectSnapshotVersion,
+    repository: manifest.claims.repository,
+    issueNumber: manifest.claims.issueNumber,
+    branch: manifest.claims.branch,
+    operationId: manifest.operation.operationId,
+    requestId: manifest.operation.requestId,
+    manifestDigest: manifest.manifestDigest,
+    evidenceDigest: fresh.digest,
+    effectClaims: fresh.claims,
+    observedAt,
+    expiresAt: new Date(now.getTime() + semanticRecoveryGithubNoEffectSnapshotLifetimeMs).toISOString(),
+  };
+  return deepFreeze({
+    ...snapshotCore,
+    snapshotDigest: sha256(canonicalJson(snapshotCore)),
   });
 }
 
@@ -734,12 +789,29 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
   const gh = (args) => command("/usr/bin/gh", args, { cwd: repositoryRoot, encoding: "utf8", env: githubEnvironment });
   const repositoryRecord = JSON.parse(String(gh(["api", `repos/${repository}`])) || "{}");
   const mainRef = JSON.parse(String(gh(["api", `repos/${repository}/git/ref/heads/main`])) || "{}");
-  const remoteRefs = JSON.parse(String(gh(["api", `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`])) || "[]");
-  const prs = JSON.parse(String(gh(["pr", "list", "--repo", repository, "--state", "all", "--head", branch, "--json", "number,state,headRefOid,mergedAt,updatedAt"])) || "[]");
-  const issue = JSON.parse(String(gh(["issue", "view", String(issueNumber), "--repo", repository, "--json", "number,state,updatedAt,comments"])) || "{}");
+  const remoteRefs = readGithubPages(gh, `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`, "refs");
+  const owner = repository.split("/")[0];
+  const prs = readGithubPages(gh, `repos/${repository}/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}`, "pulls")
+    .map((pr) => ({ number: pr.number, state: pr.state, headRefOid: pr.head?.sha, mergedAt: pr.merged_at, updatedAt: pr.updated_at }));
+  const issueRecord = JSON.parse(String(gh(["api", `repos/${repository}/issues/${issueNumber}`])) || "{}");
+  const issueComments = readGithubPages(gh, `repos/${repository}/issues/${issueNumber}/comments`, "comments");
+  const issue = {
+    number: issueRecord.number,
+    state: issueRecord.state === "open" ? "OPEN" : issueRecord.state === "closed" ? "CLOSED" : null,
+    updatedAt: issueRecord.updated_at,
+    comments: issueComments.map((comment) => ({
+      id: comment.id,
+      author: { login: comment.user?.login },
+      body: comment.body,
+      createdAt: comment.created_at,
+      updatedAt: comment.updated_at,
+    })),
+  };
+  const observedMainSha = mainRef.object?.sha;
   if (!Array.isArray(remoteRefs) || remoteRefs.length !== 0 || prs.length !== 0 || issue.number !== issueNumber || issue.state !== "OPEN"
       || repositoryRecord.full_name?.toLowerCase() !== repository.toLowerCase() || repositoryRecord.default_branch !== "main"
-      || mainRef.ref !== "refs/heads/main" || mainRef.object?.type !== "commit" || mainRef.object?.sha !== mainSha
+      || mainRef.ref !== "refs/heads/main" || mainRef.object?.type !== "commit" || !/^[a-f0-9]{40}$/u.test(String(observedMainSha || ""))
+      || (mainSha !== null && observedMainSha !== mainSha)
       || !Array.isArray(issue.comments) || !Number.isFinite(Date.parse(issue.updatedAt))
       || Date.parse(issue.updatedAt) > incidentCheckpointMs) throw new Error("semantic extraction later GitHub effect detected");
   const comments = issue.comments.map((comment) => ({
@@ -757,7 +829,7 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
     throw new Error("semantic extraction GitHub comment checkpoint invalid");
   }
   const proof = {
-    repository: { fullName: repositoryRecord.full_name, defaultBranch: repositoryRecord.default_branch, mainSha },
+    repository: { fullName: repositoryRecord.full_name, defaultBranch: repositoryRecord.default_branch, mainSha: observedMainSha },
     remoteHead: null,
     prs: [],
     issue: {
@@ -778,6 +850,18 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
     },
     evidence: [{ path: `github://${repository}/issues/${issueNumber}`, sha256: digest, identity: "authenticated_gh_cli_read" }],
   };
+}
+
+function readGithubPages(gh, route, label) {
+  const separator = route.includes("?") ? "&" : "?";
+  const records = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const value = JSON.parse(String(gh(["api", `${route}${separator}per_page=100&page=${page}`])) || "null");
+    if (!Array.isArray(value) || value.length > 100) throw new Error(`semantic extraction GitHub ${label} page invalid`);
+    records.push(...value);
+    if (value.length < 100) return records;
+  }
+  throw new Error(`semantic extraction GitHub ${label} pagination bound exceeded`);
 }
 
 function parseWorktreeRecords(output) {

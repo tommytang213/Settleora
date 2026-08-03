@@ -9,6 +9,7 @@ import { inspectSemanticIncidentForDeployment } from "../lib/deployment-semantic
 import {
   collectSemanticDeploymentEvidenceContext,
   createSemanticDeploymentAuthorityReaders,
+  reauthenticateSemanticRecoveryGithubNoEffect,
 } from "../lib/deployment-semantic-evidence-extractors.mjs";
 import { chargeAcceptedLogicalTask, logicalTaskChargeIdentity } from "../lib/logical-task-budget.mjs";
 import { authenticateAssociatedRecoverableState, createInitialRecoveryState } from "../lib/recovery-state.mjs";
@@ -432,18 +433,16 @@ function createFixtureCommand({ issueNumber, mainSha }) {
     if (joined === "api repos/example/repo/git/ref/heads/main") {
       return JSON.stringify({ ref: "refs/heads/main", object: { type: "commit", sha: mainSha } });
     }
-    if (joined.includes("git/matching-refs/heads/")) return "[]";
-    if (joined.startsWith("pr list ")) return "[]";
-    if (joined.startsWith("issue view ")) {
-      return JSON.stringify({
-        number: issueNumber,
-        state: "OPEN",
-        updatedAt: "2020-01-01T00:00:00.000Z",
-        comments: [{
-          id: "comment-fixture", author: { login: "fixture-owner" }, body: "checkpoint",
-          createdAt: "2020-01-01T00:00:00.000Z", updatedAt: null,
-        }],
-      });
+    if (joined.includes("git/matching-refs/heads/") && joined.endsWith("per_page=100&page=1")) return "[]";
+    if (joined.includes("repos/example/repo/pulls?state=all&head=") && joined.endsWith("per_page=100&page=1")) return "[]";
+    if (joined === `api repos/example/repo/issues/${issueNumber}`) {
+      return JSON.stringify({ number: issueNumber, state: "open", updated_at: "2020-01-01T00:00:00.000Z" });
+    }
+    if (joined === `api repos/example/repo/issues/${issueNumber}/comments?per_page=100&page=1`) {
+      return JSON.stringify([{
+        id: "comment-fixture", user: { login: "fixture-owner" }, body: "checkpoint",
+        created_at: "2020-01-01T00:00:00.000Z", updated_at: null,
+      }]);
     }
     throw new Error(`unexpected fixture command: ${executable} ${joined}`);
   };
@@ -474,6 +473,109 @@ test("semantic overwrite incident is admitted only for deterministic read-only d
     assert.equal(canonicalQuiescence.semanticEvidenceDigest, first.evidenceDigest);
   } finally { fixture.cleanup(); }
 });
+
+test("semantic GitHub no-effect fence is freshly requeried and exact-digest bound", () => {
+  const fixture = makeFixture();
+  try {
+    const manifest = semanticGithubManifest(fixture);
+    const snapshot = reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command: fixture.sourceCommand, now: new Date("2026-08-03T10:00:00.000Z") });
+    assert.equal(snapshot.contract, "settleora_semantic_recovery_github_no_effect_snapshot");
+    assert.equal(snapshot.operationId, manifest.operation.operationId);
+    assert.equal(snapshot.manifestDigest, manifest.manifestDigest);
+    assert.equal(snapshot.observedAt, "2026-08-03T10:00:00.000Z");
+    assert.equal(snapshot.expiresAt, "2026-08-03T10:00:30.000Z");
+    assert.equal(Object.values(snapshot.effectClaims).every((effect) => effect === false), true);
+    const laterBranch = (executable, args, options) => {
+      if (executable === "/usr/bin/gh" && args.join(" ").includes("git/matching-refs/heads/")) {
+        return JSON.stringify([{ ref: `refs/heads/${fixture.claims.branch}`, object: { type: "commit", sha: fixture.claims.headSha } }]);
+      }
+      return fixture.sourceCommand(executable, args, options);
+    };
+    assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({ repositoryRoot: fixture.repositoryRoot, manifest, command: laterBranch }), /later GitHub effect/u);
+  } finally { fixture.cleanup(); }
+});
+
+test("semantic GitHub no-effect fence reads every bounded page for refs, pull requests, and comments", () => {
+  for (const route of ["matching-refs", "pulls", "comments"]) {
+    const fixture = makeFixture();
+    try {
+      const manifest = semanticGithubManifest(fixture);
+      const calls = [];
+      const secondPageEffect = (executable, args, options) => {
+        const joined = args.join(" ");
+        const selected = route === "matching-refs"
+          ? joined.includes("git/matching-refs/heads/")
+          : route === "pulls"
+            ? joined.includes("repos/example/repo/pulls?")
+            : joined.includes(`/issues/${fixture.claims.issueNumber}/comments?`);
+        if (executable === "/usr/bin/gh" && selected && joined.includes("per_page=100&page=")) {
+          calls.push(joined);
+          if (joined.endsWith("page=1")) {
+            return JSON.stringify(Array.from({ length: 100 }, (_, index) => githubPageRecord(route, index, fixture)));
+          }
+          if (joined.endsWith("page=2")) return JSON.stringify([githubPageRecord(route, 100, fixture, true)]);
+        }
+        return fixture.sourceCommand(executable, args, options);
+      };
+      assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({
+        repositoryRoot: fixture.repositoryRoot,
+        manifest,
+        command: secondPageEffect,
+      }), /(?:later GitHub effect|GitHub comment checkpoint invalid)/u, route);
+      assert.equal(calls.length, 2, route);
+      assert.match(calls[1], /page=2$/u, route);
+    } finally { fixture.cleanup(); }
+  }
+});
+
+test("semantic GitHub no-effect pagination fails closed at the page bound", () => {
+  const fixture = makeFixture();
+  try {
+    const calls = [];
+    const endlessRefs = (executable, args, options) => {
+      const joined = args.join(" ");
+      if (executable === "/usr/bin/gh" && joined.includes("git/matching-refs/heads/") && joined.includes("per_page=100&page=")) {
+        calls.push(joined);
+        return JSON.stringify(Array.from({ length: 100 }, (_, index) => githubPageRecord("matching-refs", index, fixture)));
+      }
+      return fixture.sourceCommand(executable, args, options);
+    };
+    assert.throws(() => reauthenticateSemanticRecoveryGithubNoEffect({
+      repositoryRoot: fixture.repositoryRoot,
+      manifest: semanticGithubManifest(fixture),
+      command: endlessRefs,
+    }), /GitHub refs pagination bound exceeded/u);
+    assert.equal(calls.length, 100);
+    assert.match(calls.at(-1), /page=100$/u);
+  } finally { fixture.cleanup(); }
+});
+
+function semanticGithubManifest(fixture) {
+  return {
+    manifestDigest: "a".repeat(64),
+    operation: { operationId: "b".repeat(64), requestId: "c".repeat(64) },
+    currentIncident: { path: fixture.paths.incident, sha256: sha256(readFileSync(fixture.paths.incident)) },
+    claims: {
+      repository: fixture.claims.repository,
+      issueNumber: fixture.claims.issueNumber,
+      branch: fixture.claims.branch,
+      prEvidenceDigest: fixture.claims.prEvidenceDigest,
+    },
+  };
+}
+
+function githubPageRecord(route, index, fixture, later = false) {
+  if (route === "matching-refs") {
+    return { ref: `refs/heads/${fixture.claims.branch}-${index}`, object: { type: "commit", sha: fixture.claims.headSha } };
+  }
+  if (route === "pulls") {
+    return { number: index + 1, state: "open", head: { sha: fixture.claims.headSha }, merged_at: null, updated_at: "2020-01-01T00:00:00.000Z" };
+  }
+  return {
+    id: `comment-${index}`, user: { login: "fixture-owner" }, body: later ? "later" : "checkpoint",
+    created_at: later ? "2030-01-01T00:00:00.000Z" : "2020-01-01T00:00:00.000Z", updated_at: null,
+  };
+}
 
 test("deployment-only semantic evidence accepts read-only service mode but rejects writable artifacts", () => {
   const fixture = makeFixture();
@@ -602,7 +704,7 @@ test("live source revalidation compares complete authority contexts before every
         transientInstalled = true;
       }
       const result = trusted(executable, args, options);
-      if (executable === "/usr/bin/gh" && args.join(" ").startsWith("issue view ")) {
+      if (executable === "/usr/bin/gh" && args.join(" ").includes(`/issues/${fixture.claims.issueNumber}/comments?`)) {
         completeCollections += 1;
         if (completeCollections === 2 && transientInstalled) writeFileSync(lifecyclePath, originalBytes, { mode: 0o600 });
       }
@@ -624,13 +726,13 @@ test("GitHub source uses a trusted absolute client and binds exact comment ident
     const trusted = later.sourceCommand;
     later.sourceCommand = (executable, args, options) => {
       const result = trusted(executable, args, options);
-      if (!args.join(" ").startsWith("issue view ")) return result;
-      const issue = JSON.parse(result);
-      issue.comments.push({
-        id: "later-comment", author: { login: "fixture-owner" }, body: "later",
-        createdAt: "2030-01-01T00:00:00.000Z", updatedAt: null,
+      if (!args.join(" ").includes(`/issues/${later.claims.issueNumber}/comments?`)) return result;
+      const comments = JSON.parse(result);
+      comments.push({
+        id: "later-comment", user: { login: "fixture-owner" }, body: "later",
+        created_at: "2030-01-01T00:00:00.000Z", updated_at: null,
       });
-      return JSON.stringify(issue);
+      return JSON.stringify(comments);
     };
     assert.equal(inspect(later).reasonCode, "semantic_deployment_live_source_revalidation_failed");
   } finally { later.cleanup(); }
@@ -639,10 +741,10 @@ test("GitHub source uses a trusted absolute client and binds exact comment ident
     const trusted = fingerprint.sourceCommand;
     fingerprint.sourceCommand = (executable, args, options) => {
       const result = trusted(executable, args, options);
-      if (!args.join(" ").startsWith("issue view ")) return result;
-      const issue = JSON.parse(result);
-      issue.comments[0].body = "changed checkpoint";
-      return JSON.stringify(issue);
+      if (!args.join(" ").includes(`/issues/${fingerprint.claims.issueNumber}/comments?`)) return result;
+      const comments = JSON.parse(result);
+      comments[0].body = "changed checkpoint";
+      return JSON.stringify(comments);
     };
     assert.equal(inspect(fingerprint).reasonCode, "semantic_deployment_live_source_claim_drift");
   } finally { fingerprint.cleanup(); }

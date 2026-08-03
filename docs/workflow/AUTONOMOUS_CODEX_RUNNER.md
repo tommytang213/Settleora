@@ -1783,15 +1783,16 @@ verifier set, manifest, and grant immediately before distinct-successor
 persistence. Semantic recovery bypasses ordinary charge reconciliation, and
 the ordinary recovery writer refuses every write while an authenticated
 overwrite incident is configured. The runner exposes no persistence callback
-or pathname writer for a semantic successor. A future protected native producer
-must own descriptor-relative storage plus the fixed grant-bound three-record
-commit protocol; the pure source evaluator accepts no torn pair. Seven domain
-producer interfaces, including independently protected lifecycle and logical-
-task-budget attestation, remain deliberately unavailable
-to production until separately deployed native producers exist; runner-owned
-class-tagged JSON is rejected. The unavailable GitHub no-effect producer must
-also hold a root-grant-bound generation/CAS fence across its complete native
-operation. External Git `fetch`, `push`, and `ls-remote` likewise require a
+or pathname writer for a semantic successor. The source-owned native producer
+now defines the fixed root-owned stores and grant-bound three-record commit
+protocol, but production selects them only when the protected installation is
+actually present and authentic. Until that later installation, all eight
+production slots still reject class-tagged JSON and persistence remains
+unavailable. Each installed store is a distinct fresh projection from its own
+domain reader with the existing verifier ID/version/store kind and only
+matrix-owned claims. The GitHub no-effect projection binds authenticated
+paginated exact-target readback, freshness, and the no-effect fence for the
+complete operation. External Git `fetch`, `push`, and `ls-remote` likewise require a
 separately deployed protected transport producer: a runner-owned temporary Git
 directory cannot stop a same-UID configuration race, so production rejects the
 operation before spawning Git. Repository-bound GitHub API reads provide the
@@ -1803,6 +1804,68 @@ fails closed. Repository source does not install these producers, the
 protected root, or a live grant; installation, deployment, successor creation/
 adoption, and any later product-task continuation remain separate manual
 operations.
+
+The future privilege model is an offline root-invoked executable with no
+network listener or ambient runner mutation authority. Its canonical-stdin
+`--plan-install`, `--verify-install-plan`, `--plan-grant`,
+`--verify-grant-plan`, and `--verify-installed` modes are non-mutating and
+derive every subordinate digest. The fixed layout contains immutable producer
+runtime/policy, exactly eight protected stores, a grants directory, and
+successor incoming/provenance/commit roots. Plan readback requires canonical
+root:root directories and one-link immutable files at the exact paths. A later
+installation first bootstraps only executable/support bytes read from immutable
+Git blob objects at the exact authenticated canonical-main SHA frozen in the
+plan and policy. The source-UID-writable worktree is never the bundle byte
+source, and the full authority context is reread after artifact derivation.
+The installer then publishes only the exact owner-selected executable/support
+bundle into the protected path, then invokes that installed root-owned producer
+to rederive the complete plan through its real/effective source-UID/GID child
+and requires an exact plan match before completing installation. Root planning
+from a runner-writable repository path is rejected, and unprivileged planned
+bytes alone are not authority. Producer installation, one exact grant, root-executed successor
+persistence, authenticated readback, and any Issue #959 continuation remain
+separate owner gates. A committed successor explicitly reports that it is not
+authorized to continue.
+The grant planner is not an offline arbitrary-manifest encoder. It runs only
+from the installed root-owned producer, verifies the supplied exact install
+package against the complete installed tree, authenticates all eight stores
+and the closed semantic packet in the real/effective source-UID/GID child,
+derives the exact operation manifest there, and then plans the one fixed grant
+path in the root parent. Unknown fields, caller-supplied manifests,
+self-consistent substitute packages, and any installed-byte drift fail before
+grant bytes are emitted.
+Live production paths are resolved only by live operator modes, never during
+module import. Native executable/support bytes come from authenticated GitHub
+Git-data commit/tree/blob responses at the exact canonical-main SHA; the tree
+must be complete and every blob object ID is recomputed from its bytes, so a
+writable local worktree or object database cannot select installed code. Grant
+planning and persistence requery the authenticated paginated GitHub
+exact-target no-effect source rather than trusting only the installed store.
+The final pre-write query produces a canonical 30-second source-owned snapshot
+bound to repository, issue, branch, manifest, request, and operation. The
+adapter checks its local freshness again immediately before the atomic commit
+marker and binds the snapshot/digest into provenance and commit readback. This
+uses the contract's protected-snapshot option instead of claiming an impossible
+atomic CAS between GitHub and a local filesystem; exact uncommitted bytes remain
+fail-closed after expiry, while an already exact committed successor requires a
+new complete authority authentication before idempotent adoption.
+An interrupted hard-link publication is reconciled before strict readback only
+when the incoming and final canonical names prove the same root-owned inode,
+exact two-link metadata, and expected bytes. The final and incoming directories
+are fsynced on the respective link and unlink boundaries. Once the exact commit
+final link is durable, a retry with fresh current authority may remove only its
+authenticated incoming name and adopt the historical committed bytes after the
+snapshot window; no pre-commit prefix receives that exception.
+The installed exact root-owned executable alone also exposes the closed
+`--persist-successor` and `--readback-successor` operations. Persistence
+requires real/effective UID 0 at the fixed canonical executable path and the
+fixed root-owned `/usr/bin/node` interpreter (never PATH-based shebang
+resolution). It spawns a closed-environment child with both real/effective UID
+and GID set to the authenticated config owner for fresh domain-artifact
+authentication. The root parent receives only canonical bounded authority and
+construction data, repeats the child authentication immediately before the
+write, and alone performs bounded protected publication. The runner has no
+invocation or path-selection capability for this offline operator action.
 
 Deployment quiescence has a distinct read-only corroboration path for this
 incident class. Its manual-only preparer derives one deterministic package

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   closeSync,
   constants as fsConstants,
+  existsSync,
   fstatSync,
   lstatSync,
   openSync,
@@ -11,8 +12,12 @@ import {
   realpathSync,
 } from "node:fs";
 import path from "node:path";
+import {
+  authenticateNativeSemanticRecoveryStore,
+  semanticRecoveryProtectedRoot,
+} from "./semantic-recovery-protected-store.mjs";
 
-export const semanticRecoveryProtectedControlRoot = "/etc/settleora-auto-runner/semantic-recovery-authority";
+export const semanticRecoveryProtectedControlRoot = semanticRecoveryProtectedRoot;
 export const semanticRecoveryGrantContract = "settleora_semantic_recovery_operation_grant";
 export const semanticRecoveryGrantSchemaVersion = 1;
 export const semanticRecoveryAllowedAction = "create_or_adopt_semantic_recovery_successor";
@@ -137,7 +142,7 @@ export function createProductionSemanticRecoveryVerifierRegistry(config) {
   const registry = createRegistry(
     "production",
     (authorityClass, descriptor) => verifyProductionSource(config, authorityClass, descriptor),
-    () => { throw new Error("semantic recovery protected persistence producer unavailable"); },
+    () => { throw new Error("semantic recovery requires installed root producer invocation"); },
   );
   validatedRegistries.add(registry);
   return registry;
@@ -245,6 +250,10 @@ export function authenticateSemanticRecoverySources(sourceDescriptors, registry)
 function assertIndependentSemanticRecoverySources(verified) {
   const provenanceIdentities = new Set();
   const canonicalStoreOrigins = new Set();
+  const storeDigests = new Set();
+  const nativeRequestDigests = new Set();
+  const nativeProducerBundleDigests = new Set();
+  const nativeExpirations = new Set();
   for (const source of verified) {
     if (provenanceIdentities.has(source.provenanceIdentity)) {
       throw new Error("semantic source provenance is not independent");
@@ -256,6 +265,17 @@ function assertIndependentSemanticRecoverySources(verified) {
       throw new Error("semantic source store origin is not independent");
     }
     canonicalStoreOrigins.add(source.store.path);
+    if (storeDigests.has(source.store.sha256)) {
+      throw new Error("semantic source store bytes are not independent");
+    }
+    storeDigests.add(source.store.sha256);
+    if (source.nativeRequestDigest) nativeRequestDigests.add(source.nativeRequestDigest);
+    if (source.nativeProducerBundleDigest) nativeProducerBundleDigests.add(source.nativeProducerBundleDigest);
+    if (source.nativeExpiresAt) nativeExpirations.add(source.nativeExpiresAt);
+  }
+  if (nativeRequestDigests.size > 1) throw new Error("semantic native source snapshot request disagreement");
+  if (nativeProducerBundleDigests.size > 1 || nativeExpirations.size > 1) {
+    throw new Error("semantic native source snapshot producer disagreement");
   }
 }
 
@@ -449,14 +469,14 @@ export function isValidatedSemanticRecoveryGrant(grant) {
   return validatedGrants.has(grant);
 }
 
-export function requestSourceOwnedSemanticRecoveryPersistence(registry, manifest, grant) {
+export function requestSourceOwnedSemanticRecoveryPersistence(registry, manifest, grant, construction) {
   if (!validatedRegistries.has(registry) || registry?.authority !== "production"
     || !validatedGrants.has(grant) || grant?.synthetic === true
     || manifest?.sourceAuthority !== "production" || manifest?.manifestDigest !== grant?.manifestDigest) {
     return failed("semantic_recovery_persistence_fence_authority_invalid");
   }
   try {
-    return registry.persistExactSemanticSuccessor(manifest, grant);
+    return registry.persistExactSemanticSuccessor(manifest, grant, construction);
   } catch {
     return failed("semantic_recovery_persistence_fence_unavailable");
   }
@@ -472,16 +492,31 @@ function createRegistry(authority, reader, persistExactSemanticSuccessor = null)
       const result = reader(authorityClass, descriptor);
       return normalizeVerifiedRecord(authorityClass, result, verifierDefinitions[authorityClass]);
     },
-    persistExactSemanticSuccessor(manifest, grant) {
+    persistExactSemanticSuccessor(manifest, grant, construction) {
       if (typeof persistExactSemanticSuccessor !== "function") throw new Error("semantic protected persistence unsupported");
-      return persistExactSemanticSuccessor(manifest, grant);
+      return persistExactSemanticSuccessor(manifest, grant, construction);
     },
   });
 }
 
 function verifyProductionSource(config, authorityClass, descriptor) {
-  void config;
-  return rejectUnavailableProductionProducer(authorityClass, descriptor);
+  if (!existsSync(semanticRecoveryProtectedControlRoot)) {
+    return rejectUnavailableProductionProducer(authorityClass, descriptor);
+  }
+  const repository = config?.repositorySlug;
+  if (typeof repository !== "string" || !/^[^/\s]+\/[^/\s]+$/u.test(repository)) {
+    throw new Error("semantic production repository identity invalid");
+  }
+  const result = authenticateNativeSemanticRecoveryStore({
+    authorityClass,
+    descriptor,
+    definition: verifierDefinitions[authorityClass],
+    repository,
+  });
+  if (Object.keys(result.claims).some((claim) => !ownedClaimsFor(authorityClass).includes(claim))) {
+    throw new Error("semantic native source emitted foreign claim");
+  }
+  return result;
 }
 
 // These classes require a source-owned native producer/readback that the
@@ -512,6 +547,9 @@ function normalizeVerifiedRecord(authorityClass, record, definition) {
     verifier: { id: definition.id, version: definition.version },
     store: { kind: definition.storeKind, path: path.resolve(record.store.path), role: record.store.role, sha256: record.store.sha256, byteCount: record.store.byteCount },
     provenanceIdentity: record.provenanceIdentity,
+    ...(isDigest(record.requestDigest) ? { nativeRequestDigest: record.requestDigest } : {}),
+    ...(isDigest(record.producerBundleDigest) ? { nativeProducerBundleDigest: record.producerBundleDigest } : {}),
+    ...(typeof record.expiresAt === "string" ? { nativeExpiresAt: record.expiresAt } : {}),
     claims: Object.fromEntries(Object.entries(record.claims).sort(([left], [right]) => left.localeCompare(right))),
   });
 }
@@ -523,7 +561,7 @@ function authenticateGrantFromProductionFilesystem(grantPath, operationId) {
   for (const lexical of lexicalProtectedGrantChain(grantPath)) {
     const stat = lstatSync(lexical);
     const isGrant = lexical === grantPath;
-    if (stat.isSymbolicLink() || stat.uid !== 0 || (isGrant ? !stat.isFile() : !stat.isDirectory())
+    if (stat.isSymbolicLink() || stat.uid !== 0 || stat.gid !== 0 || (isGrant ? !stat.isFile() : !stat.isDirectory())
       || (isGrant ? ((stat.mode & 0o7777) !== 0o444 || stat.nlink !== 1) : ((stat.mode & 0o022) !== 0))) throw new Error("semantic grant metadata unsafe");
     if (realpathSync(lexical) !== lexical) throw new Error("semantic grant canonical path mismatch");
   }

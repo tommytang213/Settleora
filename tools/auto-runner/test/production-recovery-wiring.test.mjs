@@ -938,10 +938,10 @@ test("both startup discovery paths use the same source-owned semantic authority 
   assert.match(recovery, /createProductionSemanticRecoveryVerifierRegistry\(adapters\.config\)/);
   assert.match(recovery, /const fresh = authenticateConfiguredWithRegistry/);
   assert.match(recovery, /fresh\.grant\.sha256 !== initial\.grant\.sha256/);
-  assert.match(recovery, /requestSourceOwnedSemanticRecoveryPersistence\(registry, fresh\.manifest, fresh\.grant\)/u);
+  assert.match(recovery, /requestSourceOwnedSemanticRecoveryPersistence\(registry, fresh\.manifest, fresh\.grant, construction\)/u);
   assert.doesNotMatch(recovery, /persistOrAdoptPostIncidentSuccessor|atomicJsonNoReplace/u);
   assert.doesNotMatch(authority, /typeof persist(?:\s|[),;])|withPersistenceFence/u);
-  assert.match(authority, /semanticRecoveryProtectedControlRoot = "\/etc\/settleora-auto-runner\/semantic-recovery-authority"/);
+  assert.match(authority, /semanticRecoveryProtectedControlRoot = semanticRecoveryProtectedRoot/);
   assert.match(authority, /semanticRecoveryGrantPath\(operationId\)/);
   assert.doesNotMatch(source, /authenticateSourceProvenance/);
 });

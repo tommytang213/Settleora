@@ -101,11 +101,11 @@ function grantFilesystem(document, mutation = {}) {
   const grantPath = semanticRecoveryGrantPath(operationId);
   const bytes = Buffer.from(JSON.stringify(canonicalize(document)));
   const metadata = new Map([
-    ["/etc", { type: "directory", symlink: false, uid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
-    ["/etc/settleora-auto-runner", { type: "directory", symlink: false, uid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
-    [semanticRecoveryProtectedControlRoot, { type: "directory", symlink: false, uid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
-    [`${semanticRecoveryProtectedControlRoot}/grants`, { type: "directory", symlink: false, uid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
-    [grantPath, { type: "file", symlink: false, uid: 0, mode: 0o444, nlink: 1, size: bytes.length, generation: 1 }],
+    ["/etc", { type: "directory", symlink: false, uid: 0, gid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
+    ["/etc/settleora-auto-runner", { type: "directory", symlink: false, uid: 0, gid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
+    [semanticRecoveryProtectedControlRoot, { type: "directory", symlink: false, uid: 0, gid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
+    [`${semanticRecoveryProtectedControlRoot}/grants`, { type: "directory", symlink: false, uid: 0, gid: 0, mode: 0o755, nlink: 2, size: 0, generation: 1 }],
+    [grantPath, { type: "file", symlink: false, uid: 0, gid: 0, mode: 0o444, nlink: 1, size: bytes.length, generation: 1 }],
   ]);
   for (const [target, fields] of Object.entries(mutation.metadata || {})) metadata.set(target, { ...metadata.get(target), ...fields });
   let inspections = 0;
@@ -138,7 +138,9 @@ test("matrix and verifier set are deterministic source-owned contracts", () => {
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.originalRunnerRunId.required, ["lifecycle", "supervisor_child_run"]);
   assert.deepEqual(semanticRecoveryClaimOwnerMatrix.successorEligible.required, ["lifecycle", "projection_deployment"]);
   const authoritySource = readFileSync(new URL("../lib/semantic-recovery-authority.mjs", import.meta.url), "utf8");
-  assert.match(authoritySource, /void config;[\s\S]*?rejectUnavailableProductionProducer\(authorityClass, descriptor\)/u);
+  assert.match(authoritySource, /verifyProductionSource\(config, authorityClass, descriptor\)/u);
+  assert.match(authoritySource, /authenticateNativeSemanticRecoveryStore/u);
+  assert.match(authoritySource, /rejectUnavailableProductionProducer\(authorityClass, descriptor\)/u);
   assert.doesNotMatch(authoritySource, /verifyLifecycleSource|verifyLogicalTaskBudgetSource|\.semanticRecoveryAuthority/u);
 });
 
@@ -158,6 +160,7 @@ test("production repository provenance requires a separately protected native pr
     const registry = createProductionSemanticRecoveryVerifierRegistry({ repoRoot: root, logsRoot: root, repositorySlug: "example/repo" });
     const descriptor = { authorityClass: "repository_git", store: { kind: "repository_git_store", path: root, role: "candidate_repository", sha256: "0".repeat(64) } };
     assert.throws(() => registry.verify("repository_git", descriptor), /semantic source producer unavailable: repository_git/u);
+    assert.throws(() => registry.persistExactSemanticSuccessor({}, {}, {}), /installed root producer invocation/u);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -362,7 +365,7 @@ test("synthetic verifier and filesystem adapters cannot construct or persist a s
   const persistenceSource = readFileSync(new URL("../lib/post-incident-successor-recovery.mjs", import.meta.url), "utf8");
   const authoritySource = readFileSync(new URL("../lib/semantic-recovery-authority.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(persistenceSource, /persistOrAdoptPostIncidentSuccessor|atomicJsonNoReplace|linkSync|renameSync/u);
-  assert.match(persistenceSource, /requestSourceOwnedSemanticRecoveryPersistence\(registry, fresh\.manifest, fresh\.grant\)/u);
+  assert.match(persistenceSource, /requestSourceOwnedSemanticRecoveryPersistence\(registry, fresh\.manifest, fresh\.grant, construction\)/u);
   assert.doesNotMatch(authoritySource, /persistExactSemanticSuccessor\(manifest, grant, persist\)|typeof persist(?:\s|[),;])/u);
   assert.doesNotMatch(persistenceSource, /postIncidentSuccessorRoot/u);
 });
