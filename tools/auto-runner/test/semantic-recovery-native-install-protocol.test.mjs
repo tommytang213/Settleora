@@ -733,7 +733,7 @@ test("trusted bootstrap records the exact armed receipt before authenticated net
   assert.match(source, /git hash-object -- "\$trusted_path"/u);
   assert.match(source, /handoff_mode.*recover_readback/u);
   assert.match(source, /controller_mode='--root-bootstrap-recover'/u);
-  assert.match(source, /operation_id}\.package\.json/u);
+  assert.match(source, /operation_id\}\.package\.json/u);
   assert.equal(source.indexOf("root recovery artifact unsafe") < source.indexOf("fetch --quiet"), true);
   assert.equal(source.indexOf("owner_directory_fd = os.open", 0) < source.indexOf("git -c core.hooksPath=/dev/null", 0), true);
   assert.equal(source.indexOf("os.fsync(root_directory_fd)") < source.indexOf("fetch --quiet"), true);
