@@ -157,9 +157,9 @@ export function planSemanticRecoveryNativeInstall({
     const role = `${projection.authorityClass}_authority`;
     const document = {
       authorityClass: projection.authorityClass,
+      capturedAt: normalized.observedAt,
       claims: projection.claims,
       contract: nativeSemanticSourceContract,
-      expiresAt: normalized.expiresAt,
       producer: { id: definition.id, version: definition.version, bundleDigest: producerBundleDigest },
       provenanceIdentity: projection.provenanceIdentity,
       repository: normalized.repository,
@@ -536,12 +536,12 @@ function validateInstallArtifactContents(plan, artifacts) {
     const definition = semanticRecoveryVerifierSet.verifiers[authorityClass];
     const artifact = byPath.get(descriptor.store.path);
     const document = parseCanonicalArtifact(artifact.bytes);
-    assertExactKeys(document, ["authorityClass", "claims", "contract", "expiresAt", "producer", "provenanceIdentity", "repository", "requestDigest", "sourceEvidenceDigest", "store", "version"]);
+    assertExactKeys(document, ["authorityClass", "capturedAt", "claims", "contract", "producer", "provenanceIdentity", "repository", "requestDigest", "sourceEvidenceDigest", "store", "version"]);
     assertExactKeys(document.producer, ["bundleDigest", "id", "version"]);
     assertExactKeys(document.store, ["kind", "role"]);
     if (document.contract !== nativeSemanticSourceContract || document.version !== nativeSemanticSourceVersion
         || document.authorityClass !== authorityClass || document.repository !== plan.request.repository
-        || document.requestDigest !== plan.requestDigest || document.expiresAt !== plan.request.expiresAt
+        || document.requestDigest !== plan.requestDigest || document.capturedAt !== plan.request.observedAt
         || document.producer.id !== definition.id || document.producer.version !== definition.version
         || document.producer.bundleDigest !== plan.producerBundleDigest || document.store.kind !== definition.storeKind
         || document.store.role !== `${authorityClass}_authority` || !plainObject(document.claims)

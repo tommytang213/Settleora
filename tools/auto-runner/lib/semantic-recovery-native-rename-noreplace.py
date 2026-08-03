@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """Fixed-purpose Linux renameat2 boundary for native producer publication.
 
-Production accepts exactly one root-owned staging directory and the fixed final
-root.  The self-test accepts no paths and exists only to exercise the real
+Production accepts exactly one sealed root below a root-only staging container
+and the fixed final root.  The self-test accepts no paths and exists only to exercise the real
 Node/Python transport and kernel primitive without touching the protected root.
 """
 
@@ -42,14 +42,21 @@ def rename_noreplace(source: str, destination: str) -> None:
 def production(source: str, destination: str) -> int:
     if os.getuid() != 0 or os.geteuid() != 0 or os.getgid() != 0 or os.getegid() != 0:
         raise RuntimeError("native_install_root_identity_required")
-    if destination != FINAL or os.path.dirname(source) != PARENT or STAGE.fullmatch(os.path.basename(source)) is None:
+    container = os.path.dirname(source)
+    if (destination != FINAL or os.path.basename(source) != "root"
+            or os.path.dirname(container) != PARENT or STAGE.fullmatch(os.path.basename(container)) is None):
         raise RuntimeError("native_install_fixed_paths_required")
     parent = os.lstat(PARENT)
+    private_container = os.lstat(container)
     staged = os.lstat(source)
     if (not stat.S_ISDIR(parent.st_mode) or stat.S_ISLNK(parent.st_mode) or parent.st_uid != 0 or parent.st_gid != 0
             or parent.st_mode & 0o022 or os.path.realpath(PARENT) != PARENT
+            or not stat.S_ISDIR(private_container.st_mode) or stat.S_ISLNK(private_container.st_mode)
+            or private_container.st_uid != 0 or private_container.st_gid != 0
+            or stat.S_IMODE(private_container.st_mode) != 0o700 or os.path.realpath(container) != container
+            or os.listdir(container) != ["root"]
             or not stat.S_ISDIR(staged.st_mode) or stat.S_ISLNK(staged.st_mode) or staged.st_uid != 0 or staged.st_gid != 0
-            or os.path.realpath(source) != source or os.path.lexists(destination)):
+            or stat.S_IMODE(staged.st_mode) != 0o755 or os.path.realpath(source) != source or os.path.lexists(destination)):
         raise RuntimeError("native_install_publication_boundary_unsafe")
     rename_noreplace(source, destination)
     return 0

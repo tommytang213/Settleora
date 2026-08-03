@@ -21,7 +21,7 @@ export const nativeInstallJournalStates = Object.freeze([
 const transitions = Object.freeze({
   prepared: ["awaiting_interactive_sudo", "blocked"],
   awaiting_interactive_sudo: ["sudo_started", "blocked"],
-  sudo_started: ["root_authority_rederived", "blocked"],
+  sudo_started: ["root_authority_rederived", "completed", "blocked"],
   root_authority_rederived: ["root_plan_verified", "blocked"],
   root_plan_verified: ["publication_intent_durable", "adopted_verified", "blocked"],
   publication_intent_durable: ["publication_started", "blocked"],
@@ -39,9 +39,10 @@ const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const correlationPattern = /^[a-z0-9][a-z0-9._:-]{7,127}$/u;
 const reasonPattern = /^[a-z0-9][a-z0-9_]{2,127}$/u;
 
-export function createNativeInstallJournal({ correlation, repository, sourceCommit, operationId, requestDigest = null, observedAt } = {}) {
+export function createNativeInstallJournal({ correlation, repository, sourceCommit, operationId, ownerTransitionDigest = null, requestDigest = null, observedAt } = {}) {
   if (!correlationPattern.test(String(correlation || "")) || !repositoryPattern.test(String(repository || ""))
       || !shaPattern.test(String(sourceCommit || "")) || !digestPattern.test(String(operationId || ""))
+      || (ownerTransitionDigest !== null && !digestPattern.test(String(ownerTransitionDigest)))
       || (requestDigest !== null && !digestPattern.test(String(requestDigest))) || !validTimestamp(observedAt)) {
     throw new Error("native install journal identity invalid");
   }
@@ -53,6 +54,7 @@ export function createNativeInstallJournal({ correlation, repository, sourceComm
     sourceCommit,
     requestDigest,
     operationId,
+    ownerTransitionDigest,
     state: "prepared",
     previousState: null,
     sequence: 0,
@@ -81,6 +83,7 @@ export function transitionNativeInstallJournal({ current, expectedState, nextSta
     sourceCommit: current.sourceCommit,
     requestDigest: normalizedResult?.requestDigest ?? current.requestDigest,
     operationId: current.operationId,
+    ownerTransitionDigest: current.ownerTransitionDigest,
     state: nextState,
     previousState: current.state,
     sequence: current.sequence + 1,
@@ -101,12 +104,13 @@ export function transitionNativeInstallJournal({ current, expectedState, nextSta
 export function validateNativeInstallJournal(value) {
   assertExactKeys(value, [
     "contract", "correlation", "journalDigest", "observedAt", "operationId", "previousState", "publicationAttemptCount",
-    "repository", "requestDigest", "result", "sequence", "sourceCommit", "state", "sudoAttemptCount", "updatedAt", "version",
+    "ownerTransitionDigest", "repository", "requestDigest", "result", "sequence", "sourceCommit", "state", "sudoAttemptCount", "updatedAt", "version",
   ]);
   const { journalDigest: digest, ...core } = value;
   if (value.contract !== nativeInstallJournalContract || value.version !== nativeInstallJournalVersion
       || !correlationPattern.test(String(value.correlation || "")) || !repositoryPattern.test(String(value.repository || ""))
       || !shaPattern.test(String(value.sourceCommit || "")) || !digestPattern.test(String(value.operationId || ""))
+      || (value.ownerTransitionDigest !== null && !digestPattern.test(String(value.ownerTransitionDigest)))
       || (value.requestDigest !== null && !digestPattern.test(String(value.requestDigest)))
       || !nativeInstallJournalStates.includes(value.state)
       || (value.previousState !== null && !nativeInstallJournalStates.includes(value.previousState))
@@ -133,6 +137,7 @@ export function correlateNativeInstallJournals({ ownerJournal, rootJournal } = {
   validateNativeInstallJournal(rootJournal);
   const fields = ["correlation", "repository", "sourceCommit", "operationId"];
   if (fields.some((field) => ownerJournal[field] !== rootJournal[field])
+      || rootJournal.ownerTransitionDigest !== ownerJournal.journalDigest
       || (ownerJournal.requestDigest !== null && rootJournal.requestDigest !== null && ownerJournal.requestDigest !== rootJournal.requestDigest)) {
     throw new Error("native install journals do not correlate");
   }
@@ -168,37 +173,38 @@ export function resumeNativeInstallProtocol({ ownerJournal, rootJournal = null, 
   return { action: "block", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_restart_blocked" };
 }
 
-export const nativeInstallRootBootstrapLiteral = String.raw`set -euo pipefail
-[[ "$#" -eq 3 && "$1" =~ ^[a-f0-9]{40}$ && "$2" =~ ^[a-f0-9]{40}$ && "$3" =~ ^[a-z0-9][a-z0-9._:-]{7,127}$ ]] || exit 64
-d=$(/usr/bin/mktemp -d /var/tmp/settleora-native-install-git.XXXXXXXXXXXX)
-trap '/usr/bin/chmod -R 0000 "$d" 2>/dev/null || true; /usr/bin/rm -rf -- "$d"' EXIT HUP INT TERM
-/usr/bin/chown 0:0 "$d" && /usr/bin/chmod 0700 "$d"
-/usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= -c http.followRedirects=false -c transfer.fsckObjects=true -c fetch.fsckObjects=true -C "$d" init --quiet
-/usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= -c http.followRedirects=false -c transfer.fsckObjects=true -c fetch.fsckObjects=true -C "$d" fetch --quiet --no-tags --depth=1 https://github.com/tommytang213/Settleora.git "$1"
-[[ "$(/usr/bin/git -C "$d" rev-parse 'FETCH_HEAD^{commit}')" == "$1" ]] || exit 65
-/usr/bin/git -C "$d" remote add origin https://github.com/tommytang213/Settleora.git
-/usr/bin/git -C "$d" checkout --quiet --detach FETCH_HEAD
-p=tools/auto-runner/semantic-recovery-native-install-bootstrap.sh
-[[ "$(/usr/bin/git -C "$d" rev-parse "$1:$p")" == "$2" && "$(/usr/bin/git -C "$d" hash-object "$p")" == "$2" ]] || exit 66
-/usr/bin/chown -R 0:0 "$d" && /usr/bin/chmod -R go-rwx "$d"
-/usr/bin/bash "$d/$p" "$d" "$1" "$2" "$3"`;
+export const nativeInstallTrustedBootstrapPath = "/usr/libexec/settleora-semantic-recovery-native-install-bootstrap";
 
 export const nativeInstallSudoArgv = Object.freeze([
   "/usr/bin/sudo", "--", "/usr/bin/env", "-i",
   "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",
   "HOME=/root", "LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin", "TZ=UTC",
-  "/usr/bin/bash", "-c", nativeInstallRootBootstrapLiteral, "settleora-native-install-bootstrap",
+  nativeInstallTrustedBootstrapPath,
 ]);
 
-export function buildNativeInstallSudoArgv({ sourceCommit, bootstrapBlob, correlation } = {}) {
+export function buildNativeInstallSudoArgv({ sourceCommit, bootstrapBlob, correlation, operationId, ownerJournalDigest, ownerJournalSha256 } = {}) {
   if (!shaPattern.test(String(sourceCommit || "")) || !shaPattern.test(String(bootstrapBlob || ""))
-      || !correlationPattern.test(String(correlation || ""))) throw new Error("native install sudo identity invalid");
-  return Object.freeze([...nativeInstallSudoArgv, sourceCommit, bootstrapBlob, correlation]);
+      || !correlationPattern.test(String(correlation || "")) || !digestPattern.test(String(operationId || ""))
+      || !digestPattern.test(String(ownerJournalDigest || "")) || !digestPattern.test(String(ownerJournalSha256 || ""))) {
+    throw new Error("native install sudo identity invalid");
+  }
+  return Object.freeze([
+    ...nativeInstallSudoArgv,
+    sourceCommit,
+    bootstrapBlob,
+    correlation,
+    operationId,
+    ownerJournalDigest,
+    ownerJournalSha256,
+  ]);
 }
 
 export function validateInteractiveSudoBoundary({ argv, env, tty, stdinKind, stdoutKind, stderrKind } = {}) {
-  const expected = Array.isArray(argv) && argv.length === nativeInstallSudoArgv.length + 3
-    ? buildNativeInstallSudoArgv({ sourceCommit: argv.at(-3), bootstrapBlob: argv.at(-2), correlation: argv.at(-1) })
+  const expected = Array.isArray(argv) && argv.length === nativeInstallSudoArgv.length + 6
+    ? buildNativeInstallSudoArgv({
+      sourceCommit: argv.at(-6), bootstrapBlob: argv.at(-5), correlation: argv.at(-4), operationId: argv.at(-3),
+      ownerJournalDigest: argv.at(-2), ownerJournalSha256: argv.at(-1),
+    })
     : null;
   if (canonicalJson(argv) !== canonicalJson(expected) || canonicalJson(env) !== "{}" || tty !== true
       || stdinKind !== "tty_password_only_no_program_bytes" || stdoutKind !== "bounded_capture" || stderrKind !== "bounded_capture") {

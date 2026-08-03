@@ -5,6 +5,7 @@ import {
   closeSync,
   constants,
   existsSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -13,6 +14,7 @@ import {
   readdirSync,
   realpathSync,
   renameSync,
+  rmdirSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -26,8 +28,90 @@ import { validateNativeInstallJournal } from "./semantic-recovery-native-install
 
 export const nativeInstallOwnerJournalRoot = "/workspace/logs/auto-runner/Settleora/manual-root-install-journals";
 export const nativeInstallRootJournalRoot = "/etc/settleora-auto-runner/.semantic-recovery-native-install-journals";
+export const nativeInstallRootResultRoot = "/etc/settleora-auto-runner/.semantic-recovery-native-install-results";
 
 const correlationPattern = /^[a-z0-9][a-z0-9._:-]{7,127}$/u;
+const digestPattern = /^[a-f0-9]{64}$/u;
+const shaPattern = /^[a-f0-9]{40}$/u;
+
+export function publishFixedNativeInstallRootResult(value) {
+  if (process.getuid?.() !== 0 || process.geteuid?.() !== 0) throw new Error("native install root result writer identity invalid");
+  validateFixedNativeInstallRootResult(value);
+  ensureRootResultDirectory();
+  const finalPath = path.join(nativeInstallRootResultRoot, `${value.operationId}.json`);
+  const temporary = path.join(nativeInstallRootResultRoot, `.${value.operationId}.${randomBytes(12).toString("hex")}.tmp`);
+  const bytes = canonicalBytes(value);
+  const fd = openSync(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o400);
+  try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+  chownSync(temporary, 0, 0);
+  chmodSync(temporary, 0o444);
+  fsyncFile(temporary);
+  renameSync(temporary, finalPath);
+  fsyncDirectory(nativeInstallRootResultRoot);
+  const readback = readFixedNativeInstallRootResult(value.operationId);
+  if (!readback || !canonicalBytes(readback).equals(bytes)) throw new Error("native install root result readback failed");
+  return readback;
+}
+
+export function readFixedNativeInstallRootResult(operationId) {
+  if (!digestPattern.test(String(operationId || ""))) throw new Error("native install root result selector invalid");
+  if (!existsSync(nativeInstallRootResultRoot)) return null;
+  assertRootDirectory("/etc");
+  assertRootDirectory("/etc/settleora-auto-runner");
+  assertRootDirectory(nativeInstallRootResultRoot);
+  const finalPath = path.join(nativeInstallRootResultRoot, `${operationId}.json`);
+  if (!existsSync(finalPath)) return null;
+  const fd = openSync(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let bytes;
+  try {
+    const first = fstatSync(fd);
+    const pathname = lstatSync(finalPath);
+    if (!first.isFile() || first.isSymbolicLink() || first.uid !== 0 || first.gid !== 0 || first.nlink !== 1
+        || (first.mode & 0o7777) !== 0o444 || realpathSync(finalPath) !== finalPath || first.size < 1 || first.size > 64 * 1024
+        || fileIdentity(first) !== fileIdentity(pathname)) throw new Error("native install root result file unsafe");
+    bytes = readFileSync(fd);
+    const second = fstatSync(fd);
+    const final = lstatSync(finalPath);
+    if (fileIdentity(first) !== fileIdentity(second) || fileIdentity(first) !== fileIdentity(final) || bytes.length !== first.size) {
+      throw new Error("native install root result changed during read");
+    }
+  } finally { closeSync(fd); }
+  const value = parseCanonicalJson(bytes);
+  validateFixedNativeInstallRootResult(value);
+  if (value.operationId !== operationId) throw new Error("native install root result identity mismatch");
+  return value;
+}
+
+function validateFixedNativeInstallRootResult(value) {
+  assertExactKeys(value, [
+    "contract", "correlation", "installedDigest", "operationId", "outcome", "planDigest", "reasonCode", "repository",
+    "rootJournalDigest", "sourceCommit", "state", "version",
+  ]);
+  if (value.contract !== "settleora_semantic_recovery_native_install_root_result" || value.version !== 1
+      || !correlationPattern.test(String(value.correlation || "")) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(String(value.repository || ""))
+      || !shaPattern.test(String(value.sourceCommit || "")) || !digestPattern.test(String(value.operationId || ""))
+      || !digestPattern.test(String(value.rootJournalDigest || ""))
+      || !["publication_ambiguous", "installed_verified", "adopted_verified", "blocked", "completed"].includes(value.state)
+      || !/^(ambiguous|verified|adopted|blocked|completed)$/u.test(String(value.outcome || ""))
+      || !/^[a-z0-9][a-z0-9_]{2,127}$/u.test(String(value.reasonCode || ""))
+      || ["planDigest", "installedDigest"].some((field) => value[field] !== null && !digestPattern.test(String(value[field])))) {
+    throw new Error("native install root result invalid");
+  }
+  return value;
+}
+
+function ensureRootResultDirectory() {
+  const parent = "/etc/settleora-auto-runner";
+  assertRootDirectory("/etc");
+  assertRootDirectory(parent);
+  if (!existsSync(nativeInstallRootResultRoot)) {
+    mkdirSync(nativeInstallRootResultRoot, { mode: 0o755 });
+    chownSync(nativeInstallRootResultRoot, 0, 0);
+    chmodSync(nativeInstallRootResultRoot, 0o755);
+    fsyncDirectory(parent);
+  }
+  assertRootDirectory(nativeInstallRootResultRoot);
+}
 
 export function verifyDurableInstalledNativeInstall({ installPackage, filesystem } = {}) {
   if (!verifySemanticRecoveryNativeInstallPlan(installPackage).ok || !filesystem) throw new Error("native install durable readback dependencies invalid");
@@ -87,6 +171,9 @@ export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlatio
     filesystem.fsyncFile(stage, relative);
     filesystem.fsyncDirectory(stage, path.posix.dirname(relative));
   }
+  // The sealed root becomes 0755 only while its containing directory remains
+  // root-only 0700. Uncommitted authority bytes are never enumerable by an
+  // unprivileged process.
   filesystem.sealStage(stage, 0o755, 0, 0);
   filesystem.fsyncDirectory(stage, ".");
   filesystem.fsyncPublicationParent();
@@ -104,6 +191,7 @@ export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlatio
   });
   try {
     filesystem.publishNoReplace(stage);
+    filesystem.finalizePublishedStage(stage);
   } catch {
     const ambiguousReadback = filesystem.finalExists()
       ? verifyInstalledSemanticRecoveryNativeProducer({ plan: installPackage.plan, filesystem: filesystem.finalView() })
@@ -113,7 +201,9 @@ export function publishOrAdoptVerifiedNativeInstall({ installPackage, correlatio
       reasonCode: "native_install_publication_transport_ambiguous",
       planDigest: installPackage.plan.planDigest,
     });
-    if (!ambiguousReadback.ok) throw new Error("native install publication transport ambiguous");
+    if (!ambiguousReadback.ok || filesystem.stageExists(stage) || filesystem.stageResidueExists(stage)) {
+      throw new Error("native install publication transport ambiguous");
+    }
     filesystem.fsyncPublicationParent();
     filesystem.fsyncPublicationAncestor();
     journal.transition("publication_ambiguous", "installed_verified", {
@@ -187,6 +277,7 @@ export function createFixedNativeInstallJournalStore({ scope, correlation, opera
   ensurePrivateDirectory(root, expectedUid, expectedGid, scope);
   const selector = operationId;
   const finalPath = path.join(root, `${selector}.json`);
+  const packagePath = path.join(root, `${selector}.package.json`);
   return {
     path: finalPath,
     exists: () => existsSync(finalPath),
@@ -226,6 +317,24 @@ export function createFixedNativeInstallJournalStore({ scope, correlation, opera
       chmodSync(finalPath, 0o600);
       fsyncFile(finalPath);
       fsyncDirectory(root);
+    },
+    writePlanSnapshot(bytes) {
+      if (scope !== "root" || !Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > 32 * 1024 * 1024
+          || existsSync(packagePath)) throw new Error("native install root plan snapshot write invalid");
+      const fd = openSync(packagePath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+      try { writeFileSync(fd, bytes); fsyncSync(fd); } finally { closeSync(fd); }
+      chownSync(packagePath, 0, 0);
+      chmodSync(packagePath, 0o600);
+      fsyncFile(packagePath);
+      fsyncDirectory(root);
+      if (!readFileSync(packagePath).equals(bytes)) throw new Error("native install root plan snapshot readback failed");
+    },
+    readPlanSnapshot() {
+      if (scope !== "root" || !existsSync(packagePath)) return null;
+      assertPrivateRegularFile(packagePath, 0, 0);
+      const bytes = readFileSync(packagePath);
+      if (bytes.length < 1 || bytes.length > 32 * 1024 * 1024) throw new Error("native install root plan snapshot invalid");
+      return Buffer.from(bytes);
     },
     writeExclusive(bytes) {
       const temporary = path.join(root, `.${selector}.${randomBytes(12).toString("hex")}.tmp`);
@@ -270,7 +379,11 @@ export function createLiveNativeInstallFilesystem({ renameNoReplace } = {}) {
     finalExists: () => existsSync(protectedRoot),
     assertNoPublicationResidue(correlation) {
       if (!existsSync(publicationParent)) return;
-      const expected = new Set([path.posix.basename(protectedRoot), path.posix.basename(nativeInstallRootJournalRoot)]);
+      const expected = new Set([
+        path.posix.basename(protectedRoot),
+        path.posix.basename(nativeInstallRootJournalRoot),
+        path.posix.basename(nativeInstallRootResultRoot),
+      ]);
       for (const name of readdirSync(publicationParent)) {
         if (name.startsWith(`.semantic-recovery-authority.install-${correlation}`) || name.startsWith(".semantic-recovery-authority.retired-")
             || name.startsWith(".semantic-recovery-authority.backup-") || (!expected.has(name) && name.includes("semantic-recovery-authority"))) {
@@ -285,10 +398,17 @@ export function createLiveNativeInstallFilesystem({ renameNoReplace } = {}) {
         chmodSync(publicationParent, 0o755);
         fsyncDirectory(publicationAncestor);
       }
-      const stage = path.posix.join(publicationParent, `.semantic-recovery-authority.install-${correlation}`);
+      const container = path.posix.join(publicationParent, `.semantic-recovery-authority.install-${correlation}`);
+      mkdirSync(container, { mode: 0o700 });
+      chownSync(container, 0, 0);
+      chmodSync(container, 0o700);
+      fsyncDirectory(publicationParent);
+      const stage = path.posix.join(container, "root");
       mkdirSync(stage, { mode });
       chownSync(stage, uid, gid);
       chmodSync(stage, mode);
+      fsyncDirectory(stage);
+      fsyncDirectory(container);
       return stage;
     },
     createDirectory(stage, relative, mode, uid, gid) {
@@ -326,6 +446,17 @@ export function createLiveNativeInstallFilesystem({ renameNoReplace } = {}) {
     stageView: (stage) => createMappedReadOnlyFilesystem(stage),
     finalView: () => createMappedReadOnlyFilesystem(protectedRoot),
     publishNoReplace(stage) { renameNoReplace(stage, protectedRoot); },
+    stageExists: (stage) => existsSync(stage),
+    stageResidueExists: (stage) => existsSync(path.posix.dirname(stage)),
+    finalizePublishedStage(stage) {
+      const container = path.posix.dirname(stage);
+      if (existsSync(stage) || path.posix.dirname(container) !== publicationParent
+          || !path.posix.basename(container).startsWith(".semantic-recovery-authority.install-")) {
+        throw new Error("native install published stage cleanup boundary invalid");
+      }
+      rmdirSync(container);
+      fsyncDirectory(publicationParent);
+    },
   };
 }
 
@@ -354,6 +485,7 @@ function assertPublicationFilesystem(value) {
   for (const method of [
     "assertAuthorityBoundary", "finalExists", "assertNoPublicationResidue", "createStage", "createDirectory", "createFile",
     "fsyncFile", "fsyncDirectory", "fsyncInstalled", "fsyncPublicationParent", "fsyncPublicationAncestor", "sealStage", "stageView", "finalView", "publishNoReplace",
+    "stageExists", "stageResidueExists", "finalizePublishedStage",
   ]) if (typeof value[method] !== "function") throw new Error(`native install filesystem capability missing: ${method}`);
 }
 function relativeProtectedPath(target) {
@@ -383,6 +515,7 @@ function assertWithinStage(stage, target) {
   }
 }
 function installedIdentity(plan) { return createHash("sha256").update(canonicalBytes({ planDigest: plan.planDigest, files: plan.files, directories: plan.directories })).digest("hex"); }
+function fileIdentity(value) { return `${value.dev}:${value.ino}:${value.size}:${value.mtimeMs}:${value.ctimeMs}:${value.mode}:${value.uid}:${value.gid}:${value.nlink}`; }
 function depth(target) { return target.split("/").length; }
 function ensurePrivateDirectory(target, uid, gid, scope) {
   const parent = path.dirname(target);

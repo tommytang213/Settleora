@@ -2016,7 +2016,12 @@ and directory must be canonical, root:root, non-symlinked, and not group/world
 writable. Protected files are bounded immutable producer bytes or canonical
 JSON, root:root, one-link, and exact mode `0444` (`0555` only for the producer
 entry point). Extra or missing store names, link or realpath changes,
-ownership/mode drift, stale snapshots, and byte/digest drift fail closed.
+ownership/mode drift, a future-dated capture, and byte/digest drift fail closed.
+The eight stores are immutable installation-time captures, not short-lived
+operation grants: their `capturedAt` is retained indefinitely so the no-clobber
+producer installation remains usable. Every later grant/successor operation is
+still separately gated and freshly reauthenticates the exact GitHub no-effect
+state; installation never creates that grant.
 
 The installed producer has five canonical-stdin, non-mutating modes:
 `--plan-install`, `--verify-install-plan`, `--plan-grant`,
@@ -2072,31 +2077,38 @@ complete authority authentication.
 
 The source-owned first-install controller is
 `semantic-recovery-native-install.mjs`. Its unprivileged interface accepts only
-the versioned repository/source/correlation hint and can prepare, arm exactly
-one interactive-sudo attempt, or inspect the owner journal. It accepts no plan,
-manifest, store bytes, verifier result, helper digest, path list, command,
-environment, or effect. Arming durably advances the owner-only journal to
-`sudo_started` before the owner invokes sudo, so cancellation, EOF, timeout, or
-process loss cannot silently authorize a second sudo attempt.
+the versioned repository/source/bootstrap-blob/correlation hint and can prepare,
+run exactly one interactive-sudo handoff, or inspect the owner journal. It
+accepts no plan, manifest, store bytes, verifier result, helper digest, path
+list, command, environment, or effect. Arming durably advances the owner-only
+journal to `sudo_started` and then invokes the one fixed bootstrap argv on
+`/dev/tty`, so cancellation, EOF, timeout, or process loss cannot silently
+authorize a second sudo attempt.
 
 The later owner-authorized bootstrap is the reviewed source at
-`semantic-recovery-native-install-bootstrap.sh`, but it is deliberately not the
-first root-executed code. The owner must independently open the exact merged
-commit on GitHub, verify the repository, commit and bootstrap blob OID, and type
-the closed `nativeInstallRootBootstrapLiteral` plus those identities through a
-real TTY. That fixed system-tool-only literal is the manual trust root. It uses
-absolute `/usr/bin/git`, `/usr/bin/bash`, and `/usr/bin/env`
-paths, an empty/sanitized environment, HTTPS origin
+`semantic-recovery-native-install-bootstrap.sh`. Before the handoff can be run,
+those exact bytes must already have been installed as root:root, one-link mode
+`0555` at
+`/usr/libexec/settleora-semantic-recovery-native-install-bootstrap` through a
+separate authenticated OS/administrator channel. Installing that prerequisite
+is not part of this protocol and is not performed by this source task. The
+fixed root-owned path—not a checkout, clipboard, shell literal, stdin program,
+or caller-selected executable—is the first root-executed code. Sudo receives
+only the exact commit/blob/correlation/operation and owner-journal digest
+scalars. The bootstrap verifies its own Git blob OID and metadata before any
+network access, freezes the exact armed owner journal as a root-owned receipt,
+and then uses absolute system-tool paths, a sanitized environment, HTTPS origin
 `https://github.com/tommytang213/Settleora.git`, disabled redirects and
 credentials, strict object fsck, a unique root-owned `0700` temporary checkout,
-and the exact immutable commit. It verifies that the fetched second-stage
-bootstrap is the selected tree member and that its recomputed raw blob ID
-matches before executing any repository byte. A later separately authorized
-handoff must bind the literal's closed source/blob/correlation arguments to the
-exact merged head and present the full argv for owner review. Sudo stdin is
-reserved for the real TTY/PAM exchange and never contains program bytes.
-Piping a bootstrap from a mutable checkout, accepting a local helper hash, or
-using `sudo node /mutable/path` is prohibited.
+and the exact immutable commit. It verifies that the fetched bootstrap is the
+selected tree member, that its recomputed raw blob ID matches, and that it is
+byte-identical to the fixed installed bootstrap before executing any fetched
+repository byte. A later separately authorized prerequisite-install task must
+bind the helper to the exact merged head; the handoff must present the full
+scalar-only argv for owner review. Sudo stdin is reserved for the real TTY/PAM
+exchange and never contains program bytes. Piping or typing a bootstrap, using
+`bash -c`, accepting a local helper hash, or using `sudo node /mutable/path` is
+prohibited.
 
 Inside root, the controller independently authenticates the complete raw Git
 object closure, materializes the exact support closure, freshly derives the
@@ -2111,12 +2123,17 @@ unprivileged plan is never an input. Live publication is reachable only in this 
 fixture publication uses an injected in-memory filesystem and never selects a
 path.
 
-New installation uses one root-owned sibling stage, exact plan-listed members,
-exclusive/no-follow creation, exact metadata, file fsync, every descendant
-directory fsync, staged readback, and the source-owned Python
+New installation uses one root-only `0700` staging container with a sealed child
+on the same filesystem, exact plan-listed members, exclusive/no-follow
+creation, exact metadata, file fsync, every descendant directory fsync, staged
+readback, and the source-owned Python
 `renameat2(RENAME_NOREPLACE)` helper. It then fsyncs the protected parent and
 ancestor and performs complete final readback. The helper admits only the
-fixed final root and a correlation-bound sibling stage. An exact existing final
+fixed final root and the correlation-bound child. A normal rename removes the
+empty private container before completion. If transport is lost and either the
+child or container remains, even an exact final readback stays
+`publication_ambiguous`; the protocol neither reports success nor cleans the
+residue. An exact existing final
 tree is adopted without rewrite only after every installed file, descendant
 directory, protected parent and ancestor is fsynced and a second complete
 readback succeeds; partial, extra, stale, or conflicting state is left
@@ -2124,16 +2141,24 @@ untouched. Grants and all successor subdirectories must be empty.
 
 Owner-only and root-only canonical journals use atomic temporary write, file
 fsync, rename, directory fsync, and an exclusive immutable transition claim
-bound to the exact previous digest and next sequence. Both journal names are
+bound to the exact previous digest and next sequence. The root bootstrap writes
+a root-owned receipt and frozen owner-journal copy before source acquisition;
+the privileged journal binds the exact owner `sudo_started` transition digest.
+Both journal names are
 bound to repository/source/operation—not the caller-selected correlation—so a
 fresh correlation cannot reset the one-shot sudo/publication counters. States are `prepared`,
 `awaiting_interactive_sudo`, `sudo_started`, `root_authority_rederived`,
 `root_plan_verified`, `publication_intent_durable`, `publication_started`,
 `publication_ambiguous`, `installed_verified`, `adopted_verified`, `blocked`,
-and `completed`. A crash or lost transport after publication starts permits
-only a fresh two-reader plan reconstruction followed by exact durable
-installed-state readback, never replay. An exact final readback may adopt the
-result; contradiction remains a bounded blocker. Process output is
+and `completed`. Before publication, root also persists the complete verified
+package in the root-only journal directory. Restart reconstruction uses that
+original request timestamp/package and freshly rereads all authorities to
+corroborate the exact bytes; it never creates a time-varying replacement plan.
+A crash or lost transport after publication starts permits only that exact
+package plus durable installed-state readback, never replay. A root-owned,
+owner-readable sanitized result record lets the unprivileged coordinator
+durably complete its journal after verified root completion. Contradiction or
+private-stage residue remains a bounded blocker. Process output is
 represented only by byte counts and SHA-256 digests. Health tokens,
 authorization headers, credentials, raw evidence, logs, and provider payloads
 never enter argv, environment, journals, summaries, or exceptions.

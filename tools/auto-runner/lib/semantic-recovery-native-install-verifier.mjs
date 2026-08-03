@@ -96,9 +96,9 @@ export function independentlyVerifyRootNativeInstallPackage({ installPackage, au
     const role = `${authorityClass}_authority`;
     const document = {
       authorityClass,
+      capturedAt: normalizedRequest.observedAt,
       claims: projection.claims,
       contract: nativeSemanticSourceContract,
-      expiresAt: normalizedRequest.expiresAt,
       producer: { id: definition.id, version: definition.version, bundleDigest: producerBundleDigest },
       provenanceIdentity: projection.provenanceIdentity,
       repository: normalizedRequest.repository,

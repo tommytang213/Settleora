@@ -18,7 +18,9 @@ import {
 import {
   createNativeInstallJournal,
   buildNativeInstallSudoArgv,
+  correlateNativeInstallJournals,
   nativeInstallSudoArgv,
+  nativeInstallTrustedBootstrapPath,
   nativeInstallOperationIdentity,
   resumeNativeInstallProtocol,
   sanitizeNativeInstallProcessResult,
@@ -50,6 +52,7 @@ const hint = (overrides = {}) => ({
   version: 1,
   repository: "example/repo",
   sourceCommit: "0".repeat(40),
+  bootstrapBlob: "1".repeat(40),
   taskCorrelation: "issue-1012-fixture",
   ...overrides,
 });
@@ -90,7 +93,7 @@ function gitFixture(overrides = {}) {
   const rootTree = buildTree();
   const commitBytes = Buffer.from(`tree ${rootTree}\nauthor Fixture <fixture@example.invalid> 0 +0000\ncommitter Fixture <fixture@example.invalid> 0 +0000\n\nfixture\n`);
   const commit = put("commit", commitBytes);
-  const selectedHint = hint({ sourceCommit: commit, ...(overrides.hint || {}) });
+  const selectedHint = hint({ sourceCommit: commit, bootstrapBlob: blobOids.get(nativeInstallBootstrapScript), ...(overrides.hint || {}) });
   const objectReader = {
     resolveRepository: () => ({ repository: overrides.repository || selectedHint.repository, commit: overrides.commit || commit, transport: overrides.transport || "authenticated_github_https" }),
     readObject(oid) {
@@ -256,11 +259,11 @@ test("root operation identity cannot be reset by selecting a fresh owner correla
 });
 
 class PublicationMemoryFilesystem {
-  constructor() { this.final = null; this.stage = null; this.events = []; this.residue = false; }
+  constructor() { this.final = null; this.stage = null; this.events = []; this.residue = false; this.stageResidue = false; }
   assertAuthorityBoundary() { this.events.push("authority"); }
   finalExists() { return this.final !== null; }
-  assertNoPublicationResidue() { if (this.residue) throw new Error("residue"); }
-  createStage(correlation, mode, uid, gid) { this.events.push(`stage:${correlation}`); this.stage = new Map(); this.stage.set(semanticRecoveryProtectedLayout.root, directory(mode, uid, gid)); return "stage"; }
+  assertNoPublicationResidue() { if (this.residue || this.stageResidue) throw new Error("residue"); }
+  createStage(correlation, mode, uid, gid) { this.events.push(`stage:${correlation}`); this.stage = new Map(); this.stageResidue = true; this.stage.set(semanticRecoveryProtectedLayout.root, directory(mode, uid, gid)); return "stage"; }
   createDirectory(_stage, relative, mode, uid, gid) { const target = path.posix.join(semanticRecoveryProtectedLayout.root, relative); this.stage.set(target, directory(mode, uid, gid)); this.events.push(`mkdir:${relative}`); }
   createFile(_stage, relative, bytes, mode, uid, gid) { const target = path.posix.join(semanticRecoveryProtectedLayout.root, relative); this.stage.set(target, file(bytes, mode, uid, gid)); this.events.push(`write:${relative}`); }
   sealStage(_stage, mode, uid, gid) { assert.equal(this.stage.get(semanticRecoveryProtectedLayout.root).metadata.mode, 0o700); this.stage.set(semanticRecoveryProtectedLayout.root, directory(mode, uid, gid)); this.events.push("seal-stage"); }
@@ -276,6 +279,9 @@ class PublicationMemoryFilesystem {
   stageView() { return view(this.stage); }
   finalView() { return view(this.final); }
   publishNoReplace() { if (this.final) throw new Error("exists"); this.events.push("rename-noreplace"); this.final = this.stage; this.stage = null; }
+  stageExists() { return this.stage !== null; }
+  stageResidueExists() { return this.stageResidue; }
+  finalizePublishedStage() { if (this.stage !== null) throw new Error("stage present"); this.stageResidue = false; this.events.push("finalize-stage"); }
 }
 function directory(mode = 0o755, uid = 0, gid = 0) { return { metadata: { type: "directory", symlink: false, uid, gid, mode, nlink: 2, size: 0 }, bytes: null }; }
 function file(bytes, mode = 0o444, uid = 0, gid = 0) { return { metadata: { type: "file", symlink: false, uid, gid, mode, nlink: 1, size: bytes.length }, bytes: Buffer.from(bytes) }; }
@@ -430,6 +436,16 @@ test("journal interruption windows, corruption, stale correlation and duplicate 
   assert.throws(() => resumeNativeInstallProtocol({ ownerJournal: sudo, rootJournal: wrong }), /correlate/u);
 });
 
+test("root journal is bound to the exact armed owner transition digest", () => {
+  let owner = createNativeInstallJournal(journalIdentity);
+  owner = transitionNativeInstallJournal({ current: owner, expectedState: "prepared", nextState: "awaiting_interactive_sudo", observedAt: "2026-08-03T12:00:01.000Z", persist() {} });
+  owner = transitionNativeInstallJournal({ current: owner, expectedState: "awaiting_interactive_sudo", nextState: "sudo_started", observedAt: "2026-08-03T12:00:02.000Z", result: emptyResult("native_install_sudo_started"), persist() {} });
+  const root = createNativeInstallJournal({ ...journalIdentity, ownerTransitionDigest: owner.journalDigest, observedAt: "2026-08-03T12:00:02.000Z" });
+  assert.equal(correlateNativeInstallJournals({ ownerJournal: owner, rootJournal: root }).ok, true);
+  const wrong = createNativeInstallJournal({ ...journalIdentity, ownerTransitionDigest: "f".repeat(64), observedAt: "2026-08-03T12:00:02.000Z" });
+  assert.throws(() => correlateNativeInstallJournals({ ownerJournal: owner, rootJournal: wrong }), /correlate/u);
+});
+
 test("restart before every journal boundary never duplicates sudo or publication and only ambiguity permits readback", () => {
   const steps = [
     ["prepared", "awaiting_interactive_sudo", null],
@@ -487,7 +503,7 @@ test("publication transport ambiguity always selects exact readback and never au
   assert.equal(adopted.action, "adopt_verified_result");
 });
 
-test("lost rename transport adopts exact final readback and never invokes publication twice", () => {
+test("lost rename transport with surviving private container stays ambiguous and never reports success", () => {
   const installPackage = installPackageFixture();
   const filesystem = new PublicationMemoryFilesystem();
   let calls = 0;
@@ -498,21 +514,29 @@ test("lost rename transport adopts exact final readback and never invokes public
     throw new Error("transport lost");
   };
   const journal = publicationJournal();
-  const result = publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal });
-  assert.equal(result.reasonCode, "native_install_ambiguous_publication_verified");
+  assert.throws(
+    () => publishOrAdoptVerifiedNativeInstall({ installPackage, correlation: "issue-1012-fixture", filesystem, journal }),
+    /transport ambiguous/u,
+  );
   assert.equal(calls, 1);
   assert.deepEqual(journal.transitions, [
     "root_plan_verified->publication_intent_durable",
     "publication_intent_durable->publication_started",
     "publication_started->publication_ambiguous",
-    "publication_ambiguous->installed_verified",
   ]);
+  assert.equal(filesystem.stageResidue, true);
 });
 
 test("real TTY/PAM process outcomes are abstracted and argv/environment/journal evidence contain digests only", () => {
   const secret = "health-token-super-secret";
-  const sudoArgv = buildNativeInstallSudoArgv({ sourceCommit: "a".repeat(40), bootstrapBlob: "b".repeat(40), correlation: "issue-1012-fixture" });
+  const sudoArgv = buildNativeInstallSudoArgv({
+    sourceCommit: "a".repeat(40), bootstrapBlob: "b".repeat(40), correlation: "issue-1012-fixture",
+    operationId: "c".repeat(64), ownerJournalDigest: "d".repeat(64), ownerJournalSha256: "e".repeat(64),
+  });
   assert.deepEqual(sudoArgv.slice(0, nativeInstallSudoArgv.length), nativeInstallSudoArgv);
+  assert.equal(nativeInstallSudoArgv.at(-1), nativeInstallTrustedBootstrapPath);
+  assert.equal(sudoArgv.includes("-c"), false);
+  assert.equal(sudoArgv.some((entry) => /set -e|git fetch|[\n\r]/u.test(entry)), false);
   assert.equal(validateInteractiveSudoBoundary({ argv: sudoArgv, env: {}, tty: true, stdinKind: "tty_password_only_no_program_bytes", stdoutKind: "bounded_capture", stderrKind: "bounded_capture" }).ok, true);
   for (const changed of [
     { argv: [...sudoArgv, secret] }, { env: { TOKEN: secret } }, { tty: false }, { stdinKind: "password_pipe" },
@@ -520,16 +544,18 @@ test("real TTY/PAM process outcomes are abstracted and argv/environment/journal 
     assert.throws(() => validateInteractiveSudoBoundary({ argv: sudoArgv, env: {}, tty: true, stdinKind: "tty_password_only_no_program_bytes", stdoutKind: "bounded_capture", stderrKind: "bounded_capture", ...changed }), /boundary invalid/u);
   }
   for (const fixture of [
-    { status: 0, signal: null, timedOut: false, processLost: false },
-    { status: 1, signal: null, timedOut: false, processLost: false },
-    { status: 130, signal: null, timedOut: false, processLost: false },
-    { status: null, signal: null, timedOut: false, processLost: true },
-    { status: null, signal: "SIGTERM", timedOut: true, processLost: false },
+    { name: "success", status: 0, signal: null, timedOut: false, processLost: false },
+    { name: "pam_refusal", status: 1, signal: null, timedOut: false, processLost: false },
+    { name: "cancellation", status: 130, signal: null, timedOut: false, processLost: false },
+    { name: "tty_eof", status: 2, signal: null, timedOut: false, processLost: false },
+    { name: "process_loss", status: null, signal: null, timedOut: false, processLost: true },
+    { name: "timeout", status: null, signal: "SIGTERM", timedOut: true, processLost: false },
   ]) {
-    const result = sanitizeNativeInstallProcessResult({ ...fixture, stdout: secret, stderr: secret });
+    const { name, ...processFixture } = fixture;
+    const result = sanitizeNativeInstallProcessResult({ ...processFixture, stdout: secret, stderr: secret });
     assert.doesNotMatch(canonicalJson(result), /health-token|super-secret/u);
-    assert.equal(result.stdoutSha256, sha256(secret));
-    assert.equal(result.stderrSha256, sha256(secret));
+    assert.equal(result.stdoutSha256, sha256(secret), name);
+    assert.equal(result.stderrSha256, sha256(secret), name);
   }
   const process = sanitizeNativeInstallProcessResult({ status: 1, signal: null, timedOut: false, processLost: false, stdout: secret, stderr: secret });
   const armed = transitionNativeInstallJournal({
@@ -543,6 +569,16 @@ test("real TTY/PAM process outcomes are abstracted and argv/environment/journal 
   for (const evidence of [sudoArgv, {}, process, journal, resumeNativeInstallProtocol({ ownerJournal: journal, processEvidence: { correlation: journal.correlation, active: false } })]) {
     assert.doesNotMatch(canonicalJson(evidence), /health-token|super-secret/u);
   }
+});
+
+test("trusted bootstrap records the exact armed receipt before authenticated network acquisition", () => {
+  const source = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../semantic-recovery-native-install-bootstrap.sh"), "utf8");
+  assert.match(source, /trusted_path='\/usr\/libexec\/settleora-semantic-recovery-native-install-bootstrap'/u);
+  assert.match(source, /stat -Lc '%F:%u:%g:%a:%h'/u);
+  assert.match(source, /git hash-object -- "\$trusted_path"/u);
+  assert.equal(source.indexOf("owner_snapshot=", 0) < source.indexOf("git -c core.hooksPath=/dev/null", 0), true);
+  assert.equal(source.indexOf("sync -f \"$root_state_root\"") < source.indexOf("fetch --quiet"), true);
+  assert.doesNotMatch(source, /^\s*(?:eval|source)\b|\bcurl\b|\bwget\b/mu);
 });
 
 test("real Python rename_noreplace helper interoperates through stdin using exact package bytes without protected-root access", () => {

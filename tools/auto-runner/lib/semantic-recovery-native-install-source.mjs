@@ -22,9 +22,10 @@ const maximumTreeEntries = 100_000;
 const maximumAggregateBytes = 512 * 1024 * 1024;
 
 export function normalizeNativeInstallSourceHint(value) {
-  assertExactKeys(value, ["contract", "repository", "sourceCommit", "taskCorrelation", "version"]);
+  assertExactKeys(value, ["bootstrapBlob", "contract", "repository", "sourceCommit", "taskCorrelation", "version"]);
   if (value.contract !== nativeInstallSourceContract || value.version !== nativeInstallSourceVersion
       || !repositoryPattern.test(String(value.repository || "")) || !oidPattern.test(String(value.sourceCommit || ""))
+      || !oidPattern.test(String(value.bootstrapBlob || ""))
       || !correlationPattern.test(String(value.taskCorrelation || ""))) {
     throw new Error("native install source hint invalid");
   }
@@ -103,6 +104,9 @@ export function authenticateNativeInstallGitSource({ hint, objectReader } = {}) 
 
   const required = selectExecutableClosure(files, nativeInstallBootstrapEntrypoint);
   if (!files.has(nativeInstallBootstrapScript)) throw new Error("native install owner bootstrap script missing");
+  if (files.get(nativeInstallBootstrapScript).oid !== normalized.bootstrapBlob) {
+    throw new Error("native install trusted bootstrap blob mismatch");
+  }
   required.add(nativeInstallBootstrapScript);
   if (!files.has(nativeInstallRenameNoReplaceHelper)) throw new Error("native install rename_noreplace helper missing");
   required.add(nativeInstallRenameNoReplaceHelper);
@@ -125,6 +129,7 @@ export function authenticateNativeInstallGitSource({ hint, objectReader } = {}) 
   const objectManifest = [...objects.values()].map(({ oid, type, bytes }) => ({ oid, type, byteCount: bytes.length }))
     .sort((left, right) => left.oid.localeCompare(right.oid));
   const sourceManifest = {
+    bootstrapBlob: normalized.bootstrapBlob,
     contract: nativeInstallSourceContract,
     version: nativeInstallSourceVersion,
     repository: normalized.repository,
@@ -149,13 +154,14 @@ export function verifyAuthenticatedNativeInstallSource(value) {
     assertExactKeys(value, ["manifest", "supportFiles"]);
     const manifest = value.manifest;
     assertExactKeys(manifest, [
-      "blobCount", "contract", "objectCount", "objects", "repository", "rootTree", "sourceCommit",
+      "blobCount", "bootstrapBlob", "contract", "objectCount", "objects", "repository", "rootTree", "sourceCommit",
       "sourceManifestDigest", "support", "taskCorrelation", "traversedEntryCount", "treeCount", "version",
     ]);
     const { sourceManifestDigest, ...core } = manifest;
     if (manifest.contract !== nativeInstallSourceContract || manifest.version !== nativeInstallSourceVersion
         || !repositoryPattern.test(manifest.repository) || !oidPattern.test(manifest.sourceCommit)
-        || !oidPattern.test(manifest.rootTree) || sourceManifestDigest !== sha256(canonicalJson(core))
+        || !oidPattern.test(manifest.rootTree) || !oidPattern.test(manifest.bootstrapBlob)
+        || sourceManifestDigest !== sha256(canonicalJson(core))
         || !correlationPattern.test(String(manifest.taskCorrelation || ""))
         || !Number.isSafeInteger(manifest.traversedEntryCount) || manifest.traversedEntryCount < 1
         || !Array.isArray(manifest.objects) || manifest.objectCount !== manifest.objects.length
@@ -171,7 +177,8 @@ export function verifyAuthenticatedNativeInstallSource(value) {
         || !manifest.objects.some((entry) => entry.oid === manifest.rootTree && entry.type === "tree")
         || !Array.isArray(value.supportFiles) || canonicalJson(value.supportFiles.map(stripBytes)) !== canonicalJson(manifest.support)
         || value.supportFiles.length < 2 || !value.supportFiles.some((entry) => entry.source === nativeInstallBootstrapEntrypoint)
-        || !value.supportFiles.some((entry) => entry.source === nativeInstallProducerEntrypoint)) {
+        || !value.supportFiles.some((entry) => entry.source === nativeInstallProducerEntrypoint)
+        || value.supportFiles.find((entry) => entry.source === nativeInstallBootstrapScript)?.gitBlobOid !== manifest.bootstrapBlob) {
       throw new Error("native install authenticated source invalid");
     }
     for (const member of value.supportFiles) {
