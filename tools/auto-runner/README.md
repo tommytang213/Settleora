@@ -2193,7 +2193,9 @@ prevents a delayed ambiguous writer from clobbering a newer verified completion.
 If result transport fails after a temporary is durable, retry authenticates and
 reuses it. The fixed Python boundary coalesces only fully authenticated,
 byte-identical duplicates with a directory fsync after each unlink; conflicting
-temporaries are retained and block publication. If the durable journal has
+temporaries are retained and block publication. Its sole scalar selector is the
+validated operation digest, and temporaries for every other operation remain
+untouched. If the durable journal has
 advanced beyond one exact stranded earlier result, the earlier record is first
 published to its own identity and read back before the later append proceeds.
 Journal, snapshot, claim, and recognized result-temporary names are linked only

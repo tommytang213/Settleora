@@ -564,15 +564,20 @@ function reconcileRootResult({ hint, receipt, store, filesystem }) {
 function liveFilesystem(materializedRoot) {
   const helper = path.join(materializedRoot, nativeInstallRenameNoReplaceHelper);
   return createLiveNativeInstallFilesystem({ renameNoReplace(stage, finalRoot, kind = "protected_root") {
+    let operationId = null;
     if (kind === "root_result") {
-      if (path.dirname(stage) !== nativeInstallRootResultRoot || path.dirname(finalRoot) !== nativeInstallRootResultRoot) {
+      const temporary = /^\.([a-f0-9]{64})\.[a-f0-9]{24}\.tmp$/u.exec(path.basename(stage));
+      operationId = temporary?.[1] || null;
+      if (path.dirname(stage) !== nativeInstallRootResultRoot || path.dirname(finalRoot) !== nativeInstallRootResultRoot
+          || operationId === null || !path.basename(finalRoot).startsWith(`${operationId}.`)) {
         throw new Error("native install root result helper paths invalid");
       }
     } else if (finalRoot !== semanticRecoveryProtectedLayout.root
         || path.basename(stage) !== "root" || path.dirname(path.dirname(stage)) !== path.dirname(finalRoot)) {
       throw new Error("native install protected-root helper paths invalid");
     }
-    const child = spawnSync(fixedPython, ["-I", helper, kind === "root_result" ? "--root-result" : "--publish-root"], { cwd: "/", env: { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" }, encoding: "utf8", maxBuffer: 64 * 1024, timeout: 30_000 });
+    const helperArguments = kind === "root_result" ? ["-I", helper, "--root-result", operationId] : ["-I", helper, "--publish-root"];
+    const child = spawnSync(fixedPython, helperArguments, { cwd: "/", env: { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" }, encoding: "utf8", maxBuffer: 64 * 1024, timeout: 30_000 });
     if (child.error || child.signal || child.status !== 0 || child.stdout !== "" || child.stderr !== "") throw new Error("native install rename_noreplace helper blocked");
   } });
 }

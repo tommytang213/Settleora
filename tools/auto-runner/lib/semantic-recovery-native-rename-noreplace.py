@@ -146,8 +146,13 @@ def read_root_result_temporary(directory_fd: int, source_name: str,
     return payload, destination_name
 
 
-def publish_root_result_at(directory_fd: int, expected_uid: int, expected_gid: int) -> tuple[str, bytes]:
-    temporary_names = sorted(name for name in os.listdir(directory_fd) if RESULT_TEMP.fullmatch(name) is not None)
+def publish_root_result_at(directory_fd: int, expected_uid: int, expected_gid: int,
+                           operation_id: str) -> tuple[str, bytes]:
+    if DIGEST.fullmatch(operation_id) is None:
+        raise RuntimeError("native_install_result_operation_invalid")
+    prefix = f".{operation_id}."
+    temporary_names = sorted(name for name in os.listdir(directory_fd)
+                             if name.startswith(prefix) and RESULT_TEMP.fullmatch(name) is not None)
     if not temporary_names:
         raise RuntimeError("native_install_result_publication_boundary_unsafe")
     authenticated = [read_root_result_temporary(directory_fd, name, expected_uid, expected_gid)
@@ -167,7 +172,7 @@ def publish_root_result_at(directory_fd: int, expected_uid: int, expected_gid: i
     return destination_name, payload
 
 
-def root_result() -> int:
+def root_result(operation_id: str) -> int:
     if os.getuid() != 0 or os.geteuid() != 0 or os.getgid() != 0 or os.getegid() != 0:
         raise RuntimeError("native_install_root_identity_required")
     directory_fd = os.open(RESULT_ROOT, DIRECTORY_FLAGS)
@@ -175,7 +180,7 @@ def root_result() -> int:
         assert_root_directory(os.fstat(directory_fd))
         if os.path.realpath(RESULT_ROOT) != RESULT_ROOT:
             raise RuntimeError("native_install_result_publication_boundary_unsafe")
-        publish_root_result_at(directory_fd, 0, 0)
+        publish_root_result_at(directory_fd, 0, 0, operation_id)
     finally:
         os.close(directory_fd)
     return 0
@@ -241,8 +246,24 @@ def self_test() -> int:
                     finally:
                         os.close(temporary_fd)
                     os.chmod(temporary_name, 0o444, dir_fd=results_fd, follow_symlinks=False)
-                result_name, published_payload = publish_root_result_at(results_fd, os.getuid(), os.getgid())
-                if published_payload != result_payload or os.listdir(results_fd) != [result_name]:
+                other_value = dict(result_value, operationId="d" * 64, rootJournalDigest="e" * 64)
+                other_name = f'.{other_value["operationId"]}.{"5" * 24}.tmp'
+                other_fd = os.open(other_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                   0o400, dir_fd=results_fd)
+                try:
+                    os.write(other_fd, canonical_json(other_value))
+                    os.fsync(other_fd)
+                finally:
+                    os.close(other_fd)
+                os.chmod(other_name, 0o444, dir_fd=results_fd, follow_symlinks=False)
+                other_before = os.stat(other_name, dir_fd=results_fd, follow_symlinks=False)
+                result_name, published_payload = publish_root_result_at(
+                    results_fd, os.getuid(), os.getgid(), result_value["operationId"])
+                other_after = os.stat(other_name, dir_fd=results_fd, follow_symlinks=False)
+                if (published_payload != result_payload
+                        or sorted(os.listdir(results_fd)) != sorted([result_name, other_name])
+                        or not stat_matches(other_before, other_after)
+                        or read_root_result_temporary(results_fd, other_name, os.getuid(), os.getgid())[0] != canonical_json(other_value)):
                     raise RuntimeError("native_install_result_coalescing_self_test_failed")
             finally:
                 os.close(results_fd)
@@ -263,7 +284,7 @@ def self_test() -> int:
                     os.chmod(temporary_name, 0o444, dir_fd=conflict_fd, follow_symlinks=False)
                 conflict_names = sorted(os.listdir(conflict_fd))
                 try:
-                    publish_root_result_at(conflict_fd, os.getuid(), os.getgid())
+                    publish_root_result_at(conflict_fd, os.getuid(), os.getgid(), result_value["operationId"])
                     raise RuntimeError("native_install_result_conflict_self_test_failed")
                 except RuntimeError as error:
                     if str(error) != "native_install_result_temporary_conflict":
@@ -286,8 +307,8 @@ def self_test() -> int:
 def main() -> int:
     if sys.argv == [sys.argv[0], "--self-test"]:
         return self_test()
-    if sys.argv == [sys.argv[0], "--root-result"]:
-        return root_result()
+    if len(sys.argv) == 3 and sys.argv[1] == "--root-result" and DIGEST.fullmatch(sys.argv[2]) is not None:
+        return root_result(sys.argv[2])
     if sys.argv == [sys.argv[0], "--publish-root"]:
         return production()
     raise RuntimeError("native_install_rename_noreplace_arguments_invalid")

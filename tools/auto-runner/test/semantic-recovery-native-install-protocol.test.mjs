@@ -956,8 +956,10 @@ test("real Python rename_noreplace helper interoperates through stdin using exac
   const publicationSource = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../lib/semantic-recovery-native-install-publication.mjs"), "utf8");
   assert.match(helperSource, /RENAME_NOREPLACE = 1/u);
   assert.match(helperSource, /sys\.argv == \[sys\.argv\[0\], "--publish-root"\]/u);
-  assert.match(helperSource, /sys\.argv == \[sys\.argv\[0\], "--root-result"\]/u);
-  assert.doesNotMatch(helperSource, /sys\.argv\[[1-9][0-9]*\]/u);
+  assert.match(helperSource, /sys\.argv\[1\] == "--root-result"[\s\S]*DIGEST\.fullmatch\(sys\.argv\[2\]\)/u);
+  assert.match(helperSource, /name\.startswith\(prefix\)[\s\S]*RESULT_TEMP\.fullmatch/u);
+  assert.match(helperSource, /other_before[\s\S]*other_after[\s\S]*stat_matches\(other_before, other_after\)/u);
+  assert.doesNotMatch(helperSource, /sys\.argv\[[3-9][0-9]*\]/u);
   assert.doesNotMatch(helperSource, /AT_FDCWD/u);
   assert.match(helperSource, /os\.listdir\(parent_fd\)/u);
   assert.match(helperSource, /os\.listdir\(directory_fd\)/u);

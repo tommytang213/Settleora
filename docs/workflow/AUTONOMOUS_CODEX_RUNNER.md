@@ -1881,8 +1881,9 @@ sanitized results are append-only, journal-sequenced records whose monotonic
 readback prevents an older ambiguous writer from replacing completion. They
 support durable owner-side completion. An exact stranded result temporary is
 authenticated and reused after restart; byte-identical duplicates are safely
-coalesced and directory-fsynced, while conflicting residue is left untouched
-and blocks. One exact earlier-state temporary is monotonically published and
+coalesced and directory-fsynced only within the validated operation digest,
+while other-operation or conflicting residue is left untouched and blocks.
+One exact earlier-state temporary is monotonically published and
 read back under its own identity before a later result is appended. Canonical
 journal, snapshot, claim, and recognized result-temporary names appear only
 after complete bytes/metadata/file fsync in an ignored staging namespace; an
