@@ -1910,8 +1910,9 @@ controller flow accepts both completed and readback-required outcomes from the
 single arm call and proceeds to `--resume` without a second sudo attempt.
 Complete manual-root handoff packages are generated only by the repository-owned
 `generate-semantic-recovery-native-install-handoff.mjs` command. That
-generation-only boundary independently authenticates the exact clean Git
-branch/commit/tree against the fixed public GitHub HTTPS branch with a read-only
+generation-only boundary independently authenticates the exact clean
+`tommytang213/Settleora:main` commit/tree against the fixed public GitHub HTTPS
+branch with a read-only
 credential-free remote proof, authenticates the complete object graph, reuses
 the native-install closure selector, creates fresh identities, validates canonical cross-bindings, and
 atomically publishes one private no-clobber package. It does not enter any
@@ -1920,6 +1921,9 @@ complete-package generation, protocol preparation, interactive execution,
 installed readback, and Issue #959 continuation are distinct gates. The future
 operator must independently recompute the published Windows launcher SHA-256;
 retained handoffs are evidence and are never replay inputs.
+The source-owned Windows launcher passes `-F none` to disable ambient user and
+system OpenSSH configuration, preventing host redirection or proxy-command
+injection.
 Root-process exceptions are projected only into allowlisted
 `native_install_root_*` reason codes; raw exception text, tracebacks, paths,
 headers, credentials, and provider payloads never cross the root/controller

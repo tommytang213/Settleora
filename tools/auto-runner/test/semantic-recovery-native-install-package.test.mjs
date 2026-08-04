@@ -56,7 +56,7 @@ function generate(overrides = {}) {
   const handoffRoot = overrides.handoffRoot || fixtureRoot();
   const calls = [];
   const result = generateNativeInstallHandoffPackage({
-    repositoryRoot, handoffRoot, repository: "tommytang213/Settleora", branch: "main", sourceCommit: fixture.commit,
+    repositoryRoot, handoffRoot, repository: overrides.repository || "tommytang213/Settleora", branch: overrides.branch || "main", sourceCommit: fixture.commit,
     sourceTree: fixture.rootTree, remoteHost: overrides.remoteHost || "operator@settleora.example", remoteHandoffRoot: "/srv/settleora/manual-root-handoffs",
     clock: overrides.clock || (() => new Date("2026-08-05T01:56:00.000Z")), random: overrides.random || seededRandom(),
     sourceAuthenticator: (request) => { calls.push(request); return fixture.authenticated; }, filesystem: overrides.filesystem, fault: overrides.fault,
@@ -106,6 +106,7 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   assert.match(launcher, /StandardInput\.Close\(\)/u);
   assert.match(launcher, /execute_stdin_must_remain_interactive/u);
   assert.match(launcher, /if \(\$Phase -eq '--preflight'\) \{ '-T' \} else \{ '-tt' \}/u);
+  assert.match(launcher, /\$args=@\(\$ttyOption,'-F','none','-o','BatchMode=yes'/u);
   assert.match(launcher, /'ForwardX11=no',\$RemoteHost,\$RemoteEntrypoint,\$Phase/u);
   assert.doesNotMatch(launcher, /'--',\$RemoteHost/u);
   assert.match(launcher, /controller_output_not_exact_canonical_record/u);
@@ -181,6 +182,8 @@ test("unsafe destination roots, traversal metadata and malformed entropy fail be
   const safe = fixtureRoot();
   assert.throws(() => generate({ handoffRoot: safe, random: () => Buffer.alloc(1) }), /entropy invalid/u);
   assert.throws(() => generate({ remoteHost: "-F@settleora.example" }), /generation request invalid/u);
+  assert.throws(() => generate({ repository: "fork/Settleora" }), /generation request invalid/u);
+  assert.throws(() => generate({ branch: "feature/unreviewed" }), /generation request invalid/u);
 });
 
 test("publisher is atomic no-clobber and never replaces a pre-existing final directory", () => {
@@ -222,6 +225,8 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     if (base.has(key)) return base.get(key);
     throw new Error("object read reached");
   } });
+  assert.throws(() => authenticateRepositoryNativeInstallSource({ ...request, repository: "fork/Settleora" }), /canonical source/u);
+  assert.throws(() => authenticateRepositoryNativeInstallSource({ ...request, branch: "feature/unreviewed" }), /canonical source/u);
   for (const [override, pattern] of [
     [{ "rev-parse --is-shallow-repository": "true\n" }, /incomplete/u],
     [{ "-c core.fsmonitor=false -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all": "?? unexpected.mjs\n" }, /dirty/u],

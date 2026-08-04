@@ -20,10 +20,10 @@ export const nativeInstallPackageContract = "settleora_semantic_recovery_native_
 export const nativeInstallPackageVersion = 1;
 export const nativeInstallPackageMaximumFiles = 128;
 export const nativeInstallPackageMaximumBytes = 32 * 1024 * 1024;
+const canonicalRepository = "tommytang213/Settleora";
+const canonicalSourceBranch = "main";
 const digestPattern = /^[a-f0-9]{64}$/u;
 const oidPattern = /^[a-f0-9]{40}$/u;
-const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
-const branchPattern = /^(?:main|[A-Za-z0-9][A-Za-z0-9._/-]{0,126}[A-Za-z0-9])$/u;
 const hostPattern = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}@[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/u;
 const absoluteRemotePathPattern = /^\/[A-Za-z0-9._/-]{1,511}$/u;
 const identifierPattern = /^[a-f0-9]{64}$/u;
@@ -212,7 +212,7 @@ export function validateNativeInstallHandoffPackage(directory, { filesystem = cr
   for (const scalar of [manifest.contentManifestDigest, manifest.controllerClosureDigest, manifest.descriptorDigest,
     manifest.handoffId, manifest.handoffIdentityDigest, manifest.operationId, manifest.packageAggregateDigest,
     manifest.remoteEntrypointSha256, manifest.windowsLauncherSha256]) if (!digestPattern.test(String(scalar || ""))) throw new Error("handoff package digest invalid");
-  if (!repositoryPattern.test(manifest.repository) || !branchPattern.test(manifest.sourceBranch)
+  if (manifest.repository !== canonicalRepository || manifest.sourceBranch !== canonicalSourceBranch
       || !oidPattern.test(manifest.sourceCommit) || !oidPattern.test(manifest.sourceTree) || !safeRelativePath(manifest.windowsLauncherPath)) {
     throw new Error("handoff package source identity invalid");
   }
@@ -288,6 +288,7 @@ export function validateNativeInstallHandoffPackage(directory, { filesystem = cr
 }
 
 export function authenticateRepositoryNativeInstallSource(request, { command = runCommand } = {}) {
+  if (request.repository !== canonicalRepository || request.branch !== canonicalSourceBranch) throw new Error("handoff canonical source authority required");
   const root = request.repositoryRoot;
   assertSafeRepositoryRoot(root);
   const env = trustedGitEnvironment();
@@ -417,7 +418,7 @@ function Read-CanonicalSingleRecord { param([string]$Value,[string]$ExpectedPhas
 }
 function Invoke-Phase { param([string]$Phase,[bool]$Capture)
   $ttyOption = if ($Phase -eq '--preflight') { '-T' } else { '-tt' }
-  $args=@($ttyOption,'-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ForwardAgent=no','-o','ForwardX11=no',$RemoteHost,$RemoteEntrypoint,$Phase,$OperationId,$ChallengeId,$DescriptorSha256,$ContentManifestSha256,$HandoffIdentitySha256,$RemoteEntrypointSha256)
+  $args=@($ttyOption,'-F','none','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ForwardAgent=no','-o','ForwardX11=no',$RemoteHost,$RemoteEntrypoint,$Phase,$OperationId,$ChallengeId,$DescriptorSha256,$ContentManifestSha256,$HandoffIdentitySha256,$RemoteEntrypointSha256)
   $info=New-SshProcessStartInfo (Resolve-TrustedLocations) $args $Capture
   $process=[Diagnostics.Process]::new(); $process.StartInfo=$info
   if ($Phase -eq '--preflight') { Start-SshPreflightProcess $process } else { Assert-SshExecuteRemainsInteractive $process; if (-not $process.Start()) { throw 'execute_process_start_failed' } }
@@ -504,7 +505,7 @@ function normalizeGenerationRequest(value) {
   assertExactKeys(value, ["branch", "handoffRoot", "remoteHandoffRoot", "remoteHost", "repository", "repositoryRoot", "sourceCommit", "sourceTree"]);
   const normalized = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, String(child || "")]));
   if (!path.isAbsolute(normalized.repositoryRoot) || !path.isAbsolute(normalized.handoffRoot)
-      || !repositoryPattern.test(normalized.repository) || !branchPattern.test(normalized.branch)
+      || normalized.repository !== canonicalRepository || normalized.branch !== canonicalSourceBranch
       || !oidPattern.test(normalized.sourceCommit) || !oidPattern.test(normalized.sourceTree)
       || !hostPattern.test(normalized.remoteHost) || !absoluteRemotePathPattern.test(normalized.remoteHandoffRoot)
       || normalized.remoteHandoffRoot.includes("..") || normalized.remoteHandoffRoot.endsWith("/")) throw new Error("handoff generation request invalid");

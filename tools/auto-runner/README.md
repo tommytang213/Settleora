@@ -2251,8 +2251,10 @@ npm run generate:native-install-handoff -- \
 ```
 
 `generate-semantic-recovery-native-install-handoff.mjs` independently requires
-a clean, non-shallow checkout whose `HEAD`, local branch ref, fetched
-`origin/<branch>`, commit tree, and HTTPS origin match those exact inputs. It
+a clean, non-shallow checkout of the fixed `tommytang213/Settleora:main`
+authority whose `HEAD`, local `main` ref, fetched `origin/main`, commit tree,
+and HTTPS origin match those exact inputs. Forks and non-main branches are never
+valid package source. It
 also performs one read-only, credential-free `git ls-remote` against the fixed
 literal GitHub HTTPS repository/branch and requires that GitHub advertise the
 exact commit before local object bytes gain source authority. It then rehashes
@@ -2282,6 +2284,11 @@ execution. A later manual gate must separately authorize transfer and the
 preflight/one-sudo execution; installed readback and any Issue #959 continuation
 remain still-later gates. Never replay or adapt a retained handoff, even when
 its files validate under an older contract.
+
+The generated Windows launcher passes `-F none` to Windows OpenSSH, so neither
+user nor system SSH configuration can redirect the fixed destination or invoke
+an ambient proxy command. The remaining SSH options are source-owned literals;
+the launcher does not execute during generation or validation.
 
 Root subprocess failures cross process boundaries only as fixed allowlisted
 `native_install_root_*` reason codes. Public GitHub transport can therefore
