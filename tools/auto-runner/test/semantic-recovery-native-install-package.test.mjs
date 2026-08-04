@@ -43,10 +43,8 @@ function gitFixture() {
   const rootTree = tree();
   const commit = put("commit", Buffer.from(`tree ${rootTree}\nauthor Fixture <fixture@example.invalid> 0 +0000\ncommitter Fixture <fixture@example.invalid> 0 +0000\n\nfixture\n`));
   const hint = { bootstrapBlob: blobs.get(nativeInstallBootstrapScript), contract: "settleora_semantic_recovery_native_install_source", repository: "tommytang213/Settleora", sourceCommit: commit, taskCorrelation: "issue-1012-package-fixture", version: 1 };
-  return {
-    authenticated: authenticateNativeInstallGitSource({ hint, objectReader: { resolveRepository: () => ({ commit, repository: hint.repository, transport: "authenticated_github_https" }), readObject: (oid) => objects.get(oid) } }),
-    commit, rootTree,
-  };
+  const objectReader = { resolveRepository: () => ({ commit, repository: hint.repository, transport: "authenticated_github_https" }), readObject: (oid) => objects.get(oid) };
+  return { authenticated: authenticateNativeInstallGitSource({ hint, objectReader }), commit, hint, objectReader, rootTree };
 }
 
 function fixtureRoot() { const root = mkdtempSync(path.join(tmpdir(), "settleora-handoff-test-")); roots.add(root); chmodSync(root, 0o700); return root; }
@@ -59,7 +57,10 @@ function generate(overrides = {}) {
     repositoryRoot: overrides.repositoryRoot || repositoryRoot, handoffRoot, repository: overrides.repository || "tommytang213/Settleora", branch: overrides.branch || "main", sourceCommit: fixture.commit,
     sourceTree: fixture.rootTree, remoteHost: overrides.remoteHost || "operator@settleora.example", remoteHandoffRoot: overrides.remoteHandoffRoot || "/srv/settleora/manual-root-handoffs",
     clock: overrides.clock || (() => new Date("2026-08-05T01:56:00.000Z")), random: overrides.random || seededRandom(),
-    sourceAuthenticator: (request) => { calls.push(request); return fixture.authenticated; }, filesystem: overrides.filesystem, fault: overrides.fault,
+    sourceAuthenticator: (request, { taskCorrelation }) => {
+      calls.push(request);
+      return authenticateNativeInstallGitSource({ hint: { ...fixture.hint, taskCorrelation }, objectReader: fixture.objectReader });
+    }, filesystem: overrides.filesystem, fault: overrides.fault,
   });
   return { calls, fixture, handoffRoot, result };
 }

@@ -81,10 +81,11 @@ export function generateNativeInstallHandoffPackage({
 
   filesystem.assertDestinationRoot(request.handoffRoot);
   if (filesystem.exists(finalDirectory) || filesystem.exists(stagingDirectory)) throw new Error("handoff destination already exists");
-  const authenticatedSource = sourceAuthenticator(request);
+  const authenticatedSource = sourceAuthenticator(request, { taskCorrelation: correlationId });
   const sourceVerification = verifyAuthenticatedNativeInstallSource(authenticatedSource);
   if (!sourceVerification.ok || authenticatedSource.manifest.repository.toLowerCase() !== request.repository.toLowerCase()
-      || authenticatedSource.manifest.sourceCommit !== request.sourceCommit || authenticatedSource.manifest.rootTree !== request.sourceTree) {
+      || authenticatedSource.manifest.sourceCommit !== request.sourceCommit || authenticatedSource.manifest.rootTree !== request.sourceTree
+      || authenticatedSource.manifest.taskCorrelation !== correlationId) {
     throw new Error("handoff authenticated source binding invalid");
   }
   const closure = authenticatedSource.supportFiles.map((entry) => ({
@@ -264,6 +265,7 @@ export function validateNativeInstallHandoffPackage(directory, { filesystem = cr
       || descriptor.handoffId !== identity.handoffId || descriptor.operationId !== identity.operationId
       || descriptor.repository !== identity.repository || descriptor.sourceBranch !== identity.sourceBranch
       || descriptor.sourceCommit !== identity.sourceCommit || descriptor.sourceTree !== identity.sourceTree
+      || !digestPattern.test(String(descriptor.sourceManifestDigest || ""))
       || descriptor.expectedPreflightMode !== "read_only_preflight" || descriptor.expectedExecutionMode !== "execute_once_then_readback_only") {
     throw new Error("handoff descriptor cross-binding invalid");
   }
@@ -278,6 +280,14 @@ export function validateNativeInstallHandoffPackage(directory, { filesystem = cr
       || canonicalJson(content.packageAllowlist) !== canonicalJson(manifest.allowlist)
       || canonicalJson(content.members) !== canonicalJson(manifest.members.filter((entry) => !["content-manifest.json", manifest.windowsLauncherPath].includes(entry.path)))) {
     throw new Error("handoff content manifest cross-binding invalid");
+  }
+  const sourceHintBytes = filesystem.readFile(directory, "source-hint.json", 64 * 1024, 0o600);
+  const sourceHint = parseCanonicalJson(sourceHintBytes);
+  assertExactKeys(sourceHint, ["bootstrapBlob", "contract", "repository", "sourceCommit", "taskCorrelation", "version"]);
+  if (sourceHint.contract !== "settleora_semantic_recovery_native_install_source" || sourceHint.version !== 1
+      || !oidPattern.test(String(sourceHint.bootstrapBlob || "")) || sourceHint.repository !== descriptor.repository
+      || sourceHint.sourceCommit !== descriptor.sourceCommit || sourceHint.taskCorrelation !== descriptor.correlationId) {
+    throw new Error("handoff source hint cross-binding invalid");
   }
   const launcherBytes = filesystem.readFile(directory, manifest.windowsLauncherPath, 2 * 1024 * 1024, 0o600);
   const remoteBytes = filesystem.readFile(directory, "remote-entrypoint.sh", 2 * 1024 * 1024, 0o500);
@@ -301,7 +311,7 @@ export function validateNativeInstallHandoffPackage(directory, { filesystem = cr
   return deepFreeze({ ...summary, packageManifestDigest: sha256(manifestBytes) });
 }
 
-export function authenticateRepositoryNativeInstallSource(request, { command = runCommand, generatorSourceVerifier = verifyNativeInstallGeneratorSourceFiles } = {}) {
+export function authenticateRepositoryNativeInstallSource(request, { command = runCommand, generatorSourceVerifier = verifyNativeInstallGeneratorSourceFiles, taskCorrelation } = {}) {
   if (request.repository !== canonicalRepository || request.branch !== canonicalSourceBranch) throw new Error("handoff canonical source authority required");
   const root = request.repositoryRoot;
   assertSafeRepositoryRoot(root);
@@ -357,7 +367,7 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
   return authenticateNativeInstallGitSource({
     hint: {
       bootstrapBlob: bootstrapOid, contract: "settleora_semantic_recovery_native_install_source", repository: request.repository,
-      sourceCommit: request.sourceCommit, taskCorrelation: `handoff-source-${request.sourceCommit.slice(0, 16)}`, version: 1,
+      sourceCommit: request.sourceCommit, taskCorrelation, version: 1,
     },
     objectReader: {
       resolveRepository: () => ({ commit: request.sourceCommit, repository: request.repository, transport: "authenticated_github_https" }),
