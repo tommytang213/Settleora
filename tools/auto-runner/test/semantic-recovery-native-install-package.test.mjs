@@ -310,6 +310,8 @@ test("loaded generator, publisher, authentication and renderer bytes bind to exa
   const generatorBytes = readFileSync(generator, "utf8");
   assert.doesNotMatch(generatorBytes, /from "\.\/lib\//u);
   assert.match(generatorBytes, /process\.argv\[1\] !== "-"/u);
+  assert.ok(generatorBytes.indexOf("assertSafeLocalGitConfiguration(git)") < generatorBytes.indexOf('git(["status"'));
+  assert.match(generatorBytes, /url\\\.\[\^\\0\]\*\\\.insteadof/u);
   const direct = spawnSync("/usr/bin/node", [generator], { encoding: "utf8" });
   assert.equal(direct.status, 1);
   assert.match(direct.stderr, /authenticated Git blob/u);

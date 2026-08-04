@@ -57,6 +57,7 @@ function materializeAuthenticatedRuntime(request) {
     GIT_TERMINAL_PROMPT: "0", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin",
   };
   const git = (args, encoding = "utf8") => run("/usr/bin/git", ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "http.extraHeader=", "-C", request.repositoryRoot, ...args], { cwd: "/", env, encoding });
+  assertSafeLocalGitConfiguration(git);
   if (git(["rev-parse", "--is-shallow-repository"]).trim() !== "false"
       || git(["rev-parse", "HEAD^{commit}"]).trim() !== request.sourceCommit
       || git(["symbolic-ref", "--short", "HEAD"]).trim() !== request.branch
@@ -82,6 +83,26 @@ function materializeAuthenticatedRuntime(request) {
   } catch (error) {
     rmSync(runtimeRoot, { recursive: true });
     throw error;
+  }
+}
+
+function assertSafeLocalGitConfiguration(git) {
+  const unsafe = /(?:^|\0)(?:core\.(?:worktree|hookspath|attributesfile|fsmonitor|sshcommand)|include(?:if\.[^\0]*)?\.path|filter\.[^\0]*\.(?:clean|smudge|process|required)|diff\.[^\0]*\.(?:command|textconv)|merge\.[^\0]*\.driver|url\.[^\0]*\.insteadof|http\.[^\0]*\.extraheader|remote\.[^\0]*\.(?:uploadpack|receivepack))\n/iu;
+  const local = git(["config", "--local", "--no-includes", "--null", "--list"]);
+  if (unsafe.test(local)) throw new Error("generator unsafe local Git configuration");
+  const values = local.split("\0").filter(Boolean).flatMap((entry) => {
+    const separator = entry.indexOf("\n");
+    const key = (separator >= 0 ? entry.slice(0, separator) : entry).toLowerCase();
+    return key === "extensions.worktreeconfig" ? [separator >= 0 ? entry.slice(separator + 1).toLowerCase() : ""] : [];
+  });
+  const trueValues = new Set(["", "true", "yes", "on", "1"]);
+  const falseValues = new Set(["false", "no", "off", "0"]);
+  if (values.length > 1 || values.some((value) => !trueValues.has(value) && !falseValues.has(value))) {
+    throw new Error("generator unsafe Git worktree configuration extension");
+  }
+  if (values.length === 1 && trueValues.has(values[0])) {
+    const worktree = git(["config", "--worktree", "--no-includes", "--null", "--list"]);
+    if (unsafe.test(worktree)) throw new Error("generator unsafe Git worktree configuration");
   }
 }
 
