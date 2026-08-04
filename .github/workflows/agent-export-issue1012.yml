@@ -38,12 +38,12 @@ jobs:
             44592d6fc4e77b9402c56a07ed576b8eb39e847e1ae058c04aa62d2dddcef64c
             8a80ea7fa148aaee82e9e846b8fc274656973c89b4145050068b1e51d234adbf
           )
-          for index in $(seq -w 0 7); do
+          for numeric in {0..7}; do
+            printf -v index '%02d' "$numeric"
             file="$root/part-$index"
             actual="$(sha256sum "$file" | cut -d' ' -f1)"
-            expected_index=$((10#$index))
             printf 'CHUNK_%s_SHA256=%s\n' "$index" "$actual"
-            test "$actual" = "${expected[$expected_index]}"
+            test "$actual" = "${expected[$numeric]}"
           done
           payload="$RUNNER_TEMP/issue1012-repair.patch.gz.b64"
           cat "$root"/part-* > "$payload"
