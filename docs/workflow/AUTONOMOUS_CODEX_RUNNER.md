@@ -1917,7 +1917,9 @@ credential-free remote proof, authenticates the complete object graph, reuses
 the native-install closure selector, and requires that exact checkout to contain
 the running generator/package/render modules. It creates fresh identities, validates canonical cross-bindings, and
 atomically publishes one private no-clobber package. It does not enter any
-controller mode or create owner/root protocol state. Fragment rendering,
+controller mode or create owner/root protocol state. Its canonical remote root
+is limited to 460 ASCII characters so every derived launcher path remains
+within the 512-character SSH-argument bound. Fragment rendering,
 complete-package generation, protocol preparation, interactive execution,
 installed readback, and Issue #959 continuation are distinct gates. The future
 operator must independently recompute the published Windows launcher SHA-256;

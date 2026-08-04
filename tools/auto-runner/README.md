@@ -2258,7 +2258,9 @@ those parents can process loader variables before the clean child exists:
 a clean, non-shallow checkout of the fixed `tommytang213/Settleora:main`
 authority whose `HEAD`, local `main` ref, fetched `origin/main`, commit tree,
 and HTTPS origin match those exact inputs. Forks and non-main branches are never
-valid package source. The supplied repository root must also be the canonical
+valid package source. The canonical remote handoff root is limited to 460 ASCII
+characters so the derived handoff directory and `remote-entrypoint.sh` remain
+within the Windows launcher's 512-character SSH-argument contract. The supplied repository root must also be the canonical
 real root containing the running generator/package/render modules, so generated
 launcher and entrypoint code cannot come from a different checkout. It
 also performs one read-only, credential-free `git ls-remote` against the fixed

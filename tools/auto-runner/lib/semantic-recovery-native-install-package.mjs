@@ -27,6 +27,10 @@ const digestPattern = /^[a-f0-9]{64}$/u;
 const oidPattern = /^[a-f0-9]{40}$/u;
 const hostPattern = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}@[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/u;
 const absoluteRemotePathPattern = /^\/[A-Za-z0-9._/-]{1,511}$/u;
+const launcherScalarMaximumLength = 512;
+const handoffKeyLength = "20260805-0156-0123456789abcdef".length;
+const remoteEntrypointName = "remote-entrypoint.sh";
+const remoteHandoffRootMaximumLength = launcherScalarMaximumLength - handoffKeyLength - remoteEntrypointName.length - 2;
 const identifierPattern = /^[a-f0-9]{64}$/u;
 const timestampKeyPattern = /^20[0-9]{6}-[0-9]{4}$/u;
 const resultKeys = [
@@ -527,6 +531,7 @@ function normalizeGenerationRequest(value) {
       || normalized.repository !== canonicalRepository || normalized.branch !== canonicalSourceBranch
       || !oidPattern.test(normalized.sourceCommit) || !oidPattern.test(normalized.sourceTree)
       || !hostPattern.test(normalized.remoteHost) || !absoluteRemotePathPattern.test(normalized.remoteHandoffRoot)
+      || normalized.remoteHandoffRoot.length > remoteHandoffRootMaximumLength
       || path.posix.normalize(normalized.remoteHandoffRoot) !== normalized.remoteHandoffRoot
       || normalized.remoteHandoffRoot.includes("..") || normalized.remoteHandoffRoot.endsWith("/")) throw new Error("handoff generation request invalid");
   return deepFreeze(normalized);

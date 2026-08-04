@@ -194,6 +194,11 @@ test("unsafe destination roots, traversal metadata and malformed entropy fail be
   assert.throws(() => generate({ repositoryRoot: fixtureRoot() }), /generation request invalid/u);
   assert.throws(() => generate({ remoteHandoffRoot: "/srv//settleora/handoffs" }), /generation request invalid/u);
   assert.throws(() => generate({ remoteHandoffRoot: "/srv/./settleora/handoffs" }), /generation request invalid/u);
+  const maximumRemoteRoot = `/${"a".repeat(459)}`;
+  const bounded = generate({ remoteHandoffRoot: maximumRemoteRoot });
+  const boundedLauncher = readFileSync(path.join(bounded.result.finalHandoffDirectory, bounded.result.windowsLauncherPath), "utf8");
+  assert.match(boundedLauncher, new RegExp(`${maximumRemoteRoot}/${path.basename(bounded.result.finalHandoffDirectory)}/remote-entrypoint\\.sh`, "u"));
+  assert.throws(() => generate({ remoteHandoffRoot: `/${"a".repeat(460)}` }), /generation request invalid/u);
 });
 
 test("publisher is atomic no-clobber and never replaces a pre-existing final directory", () => {
