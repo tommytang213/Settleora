@@ -292,8 +292,10 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
   assertSafeRepositoryRoot(root);
   const env = trustedGitEnvironment();
   const git = (args, encoding = "utf8") => command("/usr/bin/git", args, { cwd: root, env, encoding });
+  const localConfig = git(["config", "--local", "--includes=false", "--null", "--list"]);
+  if (/(?:^|\0)(?:core\.(?:hookspath|attributesfile|fsmonitor|sshcommand)|include(?:if\.[^\0]*)?\.path|filter\.[^\0]*\.(?:clean|smudge|process|required)|diff\.[^\0]*\.(?:command|textconv)|merge\.[^\0]*\.driver|url\.[^\0]*\.insteadof|http\.[^\0]*\.extraheader|remote\.[^\0]*\.(?:uploadpack|receivepack))\n/iu.test(localConfig)) throw new Error("handoff unsafe Git configuration");
   if (git(["rev-parse", "--is-shallow-repository"]).trim() !== "false") throw new Error("handoff source history incomplete");
-  if (git(["status", "--porcelain=v1", "--untracked-files=all"]).length !== 0) throw new Error("handoff source worktree dirty");
+  if (git(["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "status", "--porcelain=v1", "--untracked-files=all"]).length !== 0) throw new Error("handoff source worktree dirty");
   const head = git(["rev-parse", "HEAD^{commit}"]).trim();
   const localBranch = git(["symbolic-ref", "--short", "HEAD"]).trim();
   const localRef = git(["rev-parse", `refs/heads/${request.branch}^{commit}`]).trim();
@@ -309,8 +311,6 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
     if (existsSync(target)) throw new Error("handoff Git alternate authority forbidden");
   }
   if (git(["for-each-ref", "refs/replace", "--format=%(refname)"]).trim() !== "") throw new Error("handoff Git replace authority forbidden");
-  const localConfig = git(["config", "--local", "--null", "--list"]);
-  if (/(?:^|\0)(?:core\.(?:hookspath|attributesfile|fsmonitor|sshcommand)|url\.[^\0]*\.insteadof|http\.[^\0]*\.extraheader|remote\.[^\0]*\.(?:uploadpack|receivepack))\n/iu.test(localConfig)) throw new Error("handoff unsafe Git configuration");
   const bootstrapOid = git(["rev-parse", `${request.sourceCommit}:${nativeInstallBootstrapScript}`]).trim();
   return authenticateNativeInstallGitSource({
     hint: {

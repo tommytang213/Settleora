@@ -205,11 +205,12 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
   const commit = "a".repeat(40); const tree = "b".repeat(40);
   const request = { repositoryRoot: root, repository: "tommytang213/Settleora", branch: "main", sourceCommit: commit, sourceTree: tree };
   const base = new Map([
-    ["rev-parse --is-shallow-repository", "false\n"], ["status --porcelain=v1 --untracked-files=all", ""],
+    ["config --local --includes=false --null --list", ""], ["rev-parse --is-shallow-repository", "false\n"],
+    ["-c core.fsmonitor=false -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all", ""],
     ["rev-parse HEAD^{commit}", `${commit}\n`], ["symbolic-ref --short HEAD", "main\n"],
     ["rev-parse refs/heads/main^{commit}", `${commit}\n`], ["rev-parse refs/remotes/origin/main^{commit}", `${commit}\n`],
     [`rev-parse ${commit}^{tree}`, `${tree}\n`], ["remote get-url origin", "https://github.com/tommytang213/Settleora.git\n"],
-    ["rev-parse --git-common-dir", ".git\n"], ["for-each-ref refs/replace --format=%(refname)", ""], ["config --local --null --list", ""],
+    ["rev-parse --git-common-dir", ".git\n"], ["for-each-ref refs/replace --format=%(refname)", ""],
   ]);
   const attempt = (override) => authenticateRepositoryNativeInstallSource(request, { command: (_exe, args) => {
     const key = args.join(" ");
@@ -219,14 +220,23 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
   } });
   for (const [override, pattern] of [
     [{ "rev-parse --is-shallow-repository": "true\n" }, /incomplete/u],
-    [{ "status --porcelain=v1 --untracked-files=all": "?? unexpected.mjs\n" }, /dirty/u],
+    [{ "-c core.fsmonitor=false -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all": "?? unexpected.mjs\n" }, /dirty/u],
     [{ "symbolic-ref --short HEAD": "other\n" }, /binding/u],
     [{ "rev-parse refs/remotes/origin/main^{commit}": `${"c".repeat(40)}\n` }, /binding/u],
     [{ [`rev-parse ${commit}^{tree}`]: `${"d".repeat(40)}\n` }, /binding/u],
     [{ "remote get-url origin": "file:///tmp/repo\n" }, /binding/u],
     [{ "for-each-ref refs/replace --format=%(refname)": "refs/replace/a\n" }, /replace/u],
-    [{ "config --local --null --list": "core.hooksPath\n/tmp/hooks\0" }, /unsafe/u],
+    [{ "config --local --includes=false --null --list": "core.hooksPath\n/tmp/hooks\0" }, /unsafe/u],
+    [{ "config --local --includes=false --null --list": "core.fsmonitor\n/tmp/repo-selected-executable\0" }, /unsafe/u],
   ]) assert.throws(() => attempt(override), pattern);
+  let worktreeCommandReached = false;
+  assert.throws(() => authenticateRepositoryNativeInstallSource(request, { command: (_exe, args) => {
+    const key = args.join(" ");
+    if (key.includes(" status ")) worktreeCommandReached = true;
+    if (key === "config --local --includes=false --null --list") return "core.fsmonitor\n/tmp/repo-selected-executable\0";
+    return base.get(key) || "";
+  } }), /unsafe/u);
+  assert.equal(worktreeCommandReached, false);
 });
 
 function readFileNames(root) { return spawnSync("/usr/bin/find", [root, "-mindepth", "1", "-maxdepth", "1", "-printf", "%f\\n"], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean); }
