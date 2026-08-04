@@ -263,8 +263,8 @@ export function recoverNativeInstallRootResultNoReplaceLinks({
     throw new Error("native install root result link recovery boundary invalid");
   }
   assertOwnedResultDirectory(root, expectedUid, expectedGid);
-  const pairs = inspectNativeInstallRootResultLinkPairs({ root, operationId, expectedUid, expectedGid });
-  for (const pair of pairs) {
+  const links = inspectNativeInstallRootResultLinks({ root, operationId, expectedUid, expectedGid });
+  for (const pair of links.publicationPairs) {
     unlinkSync(pair.temporary);
     fsyncDirectory(root);
     const completed = lstatSync(pair.finalPath);
@@ -275,7 +275,18 @@ export function recoverNativeInstallRootResultNoReplaceLinks({
       throw new Error("native install root result link recovery failed");
     }
   }
-  return Object.freeze({ recovered: pairs.length });
+  for (const pair of links.atomicPairs) {
+    unlinkSync(pair.staging);
+    fsyncDirectory(root);
+    const completed = lstatSync(pair.temporary);
+    if (completed.dev !== pair.dev || completed.ino !== pair.ino || completed.nlink !== 1
+        || !canonicalBytes(readNativeInstallRootResultFile(
+          pair.temporary, operationId, expectedUid, expectedGid,
+        )).equals(canonicalBytes(pair.value))) {
+      throw new Error("native install root result atomic link recovery failed");
+    }
+  }
+  return Object.freeze({ recovered: links.publicationPairs.length + links.atomicPairs.length });
 }
 
 export function readFixedNativeInstallRootResultTemporary(operationId) {
@@ -284,19 +295,37 @@ export function readFixedNativeInstallRootResultTemporary(operationId) {
   assertRootDirectory("/etc");
   assertRootDirectory("/etc/settleora-auto-runner");
   assertRootDirectory(nativeInstallRootResultRoot);
-  const pairs = inspectNativeInstallRootResultLinkPairs({
-    root: nativeInstallRootResultRoot, operationId, expectedUid: 0, expectedGid: 0,
+  return readNativeInstallRootResultTemporaryFromDirectory({
+    root: nativeInstallRootResultRoot,
+    operationId,
+    expectedUid: 0,
+    expectedGid: 0,
   });
-  const linkedByTemporary = new Map(pairs.map((pair) => [pair.temporary, pair]));
+}
+
+export function readNativeInstallRootResultTemporaryFromDirectory({
+  root, operationId, expectedUid, expectedGid,
+} = {}) {
+  if (!digestPattern.test(String(operationId || "")) || !Number.isSafeInteger(expectedUid) || expectedUid < 0
+      || !Number.isSafeInteger(expectedGid) || expectedGid < 0) {
+    throw new Error("native install root result temporary read boundary invalid");
+  }
+  assertOwnedResultDirectory(root, expectedUid, expectedGid);
+  const links = inspectNativeInstallRootResultLinks({ root, operationId, expectedUid, expectedGid });
+  const linkedTemporaries = new Set([
+    ...links.publicationPairs.map((pair) => pair.temporary),
+    ...links.atomicPairs.map((pair) => pair.temporary),
+  ]);
   const prefix = `.${operationId}.`;
-  const entries = readdirSync(nativeInstallRootResultRoot)
+  const entries = readdirSync(root)
     .filter((name) => name.startsWith(prefix) && rootResultTemporaryPattern.test(name))
     .sort();
   if (entries.length === 0) return null;
   const results = entries.map((name) => {
-    const target = path.join(nativeInstallRootResultRoot, name);
-    const pair = linkedByTemporary.get(target);
-    return readNativeInstallRootResultFile(target, operationId, 0, 0, pair ? [2] : [1]);
+    const target = path.join(root, name);
+    return readNativeInstallRootResultFile(
+      target, operationId, expectedUid, expectedGid, linkedTemporaries.has(target) ? [2] : [1],
+    );
   }).sort((left, right) => left.rootJournalSequence - right.rootJournalSequence
     || left.rootJournalDigest.localeCompare(right.rootJournalDigest));
   const bySequence = new Map();
@@ -318,9 +347,9 @@ export function readFixedNativeInstallRootResult(operationId) {
   assertRootDirectory("/etc");
   assertRootDirectory("/etc/settleora-auto-runner");
   assertRootDirectory(nativeInstallRootResultRoot);
-  const linkedFinals = new Set(inspectNativeInstallRootResultLinkPairs({
+  const linkedFinals = new Set(inspectNativeInstallRootResultLinks({
     root: nativeInstallRootResultRoot, operationId, expectedUid: 0, expectedGid: 0,
-  }).map((pair) => path.basename(pair.finalPath)));
+  }).publicationPairs.map((pair) => path.basename(pair.finalPath)));
   const prefix = `${operationId}.`;
   const suffix = ".json";
   const entries = readdirSync(nativeInstallRootResultRoot).map((name) => {
@@ -345,9 +374,10 @@ export function readFixedNativeInstallRootResult(operationId) {
   return results.at(-1);
 }
 
-function inspectNativeInstallRootResultLinkPairs({ root, operationId, expectedUid, expectedGid }) {
+function inspectNativeInstallRootResultLinks({ root, operationId, expectedUid, expectedGid }) {
   const prefix = `.${operationId}.`;
-  const pairs = [];
+  const publicationPairs = [];
+  const atomicPairs = [];
   for (const name of readdirSync(root).filter((entry) => entry.startsWith(prefix) && rootResultTemporaryPattern.test(entry)).sort()) {
     const temporary = path.join(root, name);
     const staged = lstatSync(temporary);
@@ -355,9 +385,6 @@ function inspectNativeInstallRootResultLinkPairs({ root, operationId, expectedUi
     if (staged.nlink !== 2) throw new Error("native install root result linked temporary unsafe");
     const value = readNativeInstallRootResultFile(temporary, operationId, expectedUid, expectedGid, [2]);
     const finalPath = path.join(root, `${value.operationId}.${value.rootJournalSequence}.${value.rootJournalDigest}.json`);
-    if (!existsSync(finalPath)) throw new Error("native install root result linked final absent");
-    const final = lstatSync(finalPath);
-    const finalValue = readNativeInstallRootResultFile(finalPath, operationId, expectedUid, expectedGid, [2]);
     const names = readdirSync(root).filter((candidate) => {
       const target = path.join(root, candidate);
       try {
@@ -365,14 +392,33 @@ function inspectNativeInstallRootResultLinkPairs({ root, operationId, expectedUi
         return info.dev === staged.dev && info.ino === staged.ino;
       } catch { return false; }
     }).sort();
-    if (final.dev !== staged.dev || final.ino !== staged.ino || final.nlink !== 2
-        || canonicalBytes(finalValue).equals(canonicalBytes(value)) === false
-        || JSON.stringify(names) !== JSON.stringify([path.basename(temporary), path.basename(finalPath)].sort())) {
+    const finalName = path.basename(finalPath);
+    if (names.includes(finalName)) {
+      const final = lstatSync(finalPath);
+      const finalValue = readNativeInstallRootResultFile(finalPath, operationId, expectedUid, expectedGid, [2]);
+      if (final.dev !== staged.dev || final.ino !== staged.ino || final.nlink !== 2
+          || canonicalBytes(finalValue).equals(canonicalBytes(value)) === false
+          || JSON.stringify(names) !== JSON.stringify([path.basename(temporary), finalName].sort())) {
+        throw new Error("native install root result linked pair unsafe");
+      }
+      publicationPairs.push({ temporary, finalPath, value, dev: staged.dev, ino: staged.ino });
+      continue;
+    }
+    const atomicPrefix = atomicControlPrefix(temporary);
+    const stagingName = names.find((candidate) => candidate !== path.basename(temporary));
+    if (names.length !== 2 || typeof stagingName !== "string" || !stagingName.startsWith(atomicPrefix)
+        || !/^[a-f0-9]{24}\.partial$/u.test(stagingName.slice(atomicPrefix.length))) {
       throw new Error("native install root result linked pair unsafe");
     }
-    pairs.push({ temporary, finalPath, value, dev: staged.dev, ino: staged.ino });
+    atomicPairs.push({
+      temporary,
+      staging: path.join(root, stagingName),
+      value,
+      dev: staged.dev,
+      ino: staged.ino,
+    });
   }
-  return pairs;
+  return Object.freeze({ publicationPairs, atomicPairs });
 }
 
 function assertOwnedResultDirectory(root, expectedUid, expectedGid) {

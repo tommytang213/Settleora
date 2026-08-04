@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, linkSync, lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -39,6 +39,7 @@ import {
   persistNativeInstallJournalTransition,
   publishNativeInstallRootResultNoReplace,
   publishOrAdoptVerifiedNativeInstall,
+  readNativeInstallRootResultTemporaryFromDirectory,
   recoverNativeInstallRootResultNoReplaceLinks,
   selectFixedNativeInstallRootResultObservation,
   validateRootResultTransition,
@@ -635,6 +636,38 @@ test("root-result publication uses an atomic same-directory no-clobber link and 
     assert.equal(existsSync(stranded), false);
     assert.equal(lstatSync(laterFinal).nlink, 1);
     assert.equal(readFileSync(laterFinal).equals(laterBytes), true);
+
+    const atomicValue = rootResult("blocked", 5, {
+      reasonCode: "native_install_root_operation_blocked",
+      planDigest: null,
+      installedDigest: null,
+      rootJournalDigest: "e".repeat(64),
+    });
+    const atomicBytes = Buffer.from(`${canonicalJson(atomicValue)}\n`);
+    const atomicTemporary = path.join(root, `.${atomicValue.operationId}.${"4".repeat(24)}.tmp`);
+    const atomicPrefix = `..atomic-${sha256(path.basename(atomicTemporary)).slice(0, 32)}-`;
+    const atomicStaging = path.join(root, `${atomicPrefix}${"5".repeat(24)}.partial`);
+    writeFileSync(atomicStaging, atomicBytes, { mode: 0o444 });
+    chmodSync(atomicStaging, 0o444);
+    linkSync(atomicStaging, atomicTemporary);
+    assert.equal(lstatSync(atomicStaging).nlink, 2);
+    assert.deepEqual(readNativeInstallRootResultTemporaryFromDirectory({
+      root,
+      operationId: atomicValue.operationId,
+      expectedUid: process.getuid(),
+      expectedGid: process.getgid(),
+    }), atomicValue);
+    assert.equal(existsSync(atomicStaging), true);
+    assert.deepEqual(recoverNativeInstallRootResultNoReplaceLinks({
+      root,
+      operationId: atomicValue.operationId,
+      expectedUid: process.getuid(),
+      expectedGid: process.getgid(),
+    }), { recovered: 1 });
+    assert.equal(existsSync(atomicStaging), false);
+    assert.equal(existsSync(atomicTemporary), true);
+    assert.equal(lstatSync(atomicTemporary).nlink, 1);
+    unlinkSync(atomicTemporary);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
