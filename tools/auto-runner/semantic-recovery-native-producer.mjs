@@ -1,7 +1,7 @@
 #!/usr/bin/node
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { closeSync, constants as fsConstants, fstatSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { loadDeploymentProjectAuthority } from "./lib/config.mjs";
@@ -29,9 +29,12 @@ import {
   readbackProtectedSemanticRecoverySuccessor,
   semanticRecoveryProtectedLayout,
 } from "./lib/semantic-recovery-protected-store.mjs";
+import { listRecoverableRecoveryStates } from "./lib/recovery-state.mjs";
+import { semanticRecoveryAuthorityClasses } from "./lib/semantic-recovery-authority.mjs";
 
 const maximumInputBytes = 8 * 1024 * 1024;
 const fixedNodeRuntimePath = "/usr/bin/node";
+const fixedPythonRuntimePath = "/usr/bin/python3";
 const sourceAuthenticationMode = "--authenticate-successor-internal";
 const sourcePlanMode = "--plan-install-internal";
 const sourceGrantPlanMode = "--derive-grant-manifest-internal";
@@ -39,6 +42,59 @@ const runtimeRoot = "/workspace/auto-runner/runtime";
 const configPath = "/workspace/auto-runner/config/settleora.json";
 const approvedProfilePath = "/workspace/auto-runner/config/settleora-production-approved-20260724-0946.json";
 const healthUnitPath = "/home/tommytang213/.config/systemd/user/settleora-auto-runner-health.service";
+const deploymentEvidenceDocumentPath = "/workspace/auto-runner/config/settleora-semantic-deployment-evidence-issue-1012/deployment-evidence.json";
+const publicGithubReadProgram = String.raw`
+import http.client
+import json
+import re
+import ssl
+import sys
+
+request = json.loads(sys.stdin.buffer.read(4097).decode("utf-8"))
+if (not isinstance(request, dict) or set(request) != {"minimumRateRemaining", "route"}
+        or not isinstance(request["route"], str) or not isinstance(request["minimumRateRemaining"], int)
+        or isinstance(request["minimumRateRemaining"], bool)
+        or request["minimumRateRemaining"] < 0 or request["minimumRateRemaining"] > 60):
+    raise RuntimeError("semantic_native_public_github_request_invalid")
+route = request["route"]
+minimum_rate_remaining = request["minimumRateRemaining"]
+patterns = (
+    r"repos/tommytang213/Settleora",
+    r"repos/tommytang213/Settleora/git/ref/heads/main",
+    r"repos/tommytang213/Settleora/git/matching-refs/heads/[A-Za-z0-9._~%:-]+\?per_page=100&page=[1-9][0-9]*",
+    r"repos/tommytang213/Settleora/pulls\?state=all&head=tommytang213%3A[A-Za-z0-9._~%:-]+&per_page=100&page=[1-9][0-9]*",
+    r"repos/tommytang213/Settleora/issues/1012",
+    r"repos/tommytang213/Settleora/issues/1012/comments\?per_page=100&page=[1-9][0-9]*",
+)
+if not any(re.fullmatch(pattern, route) for pattern in patterns) or ".." in route or "//" in route:
+    raise RuntimeError("semantic_native_public_github_route_invalid")
+connection = http.client.HTTPSConnection("api.github.com", 443, timeout=30, context=ssl.create_default_context())
+try:
+    connection.request("GET", "/" + route, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "settleora-root-native-install-v1",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+    response = connection.getresponse()
+    if response.status != 200 or response.getheader("Location") is not None:
+        raise RuntimeError("semantic_native_public_github_response_refused")
+    rate_limit = response.getheader("X-RateLimit-Limit")
+    rate_remaining = response.getheader("X-RateLimit-Remaining")
+    if (rate_limit is None or not rate_limit.isdigit() or int(rate_limit) < 60
+            or rate_remaining is None or not rate_remaining.isdigit()
+            or int(rate_remaining) < minimum_rate_remaining):
+        raise RuntimeError("semantic_native_public_github_rate_budget_refused")
+    length = response.getheader("Content-Length")
+    if length is not None and (not length.isdigit() or int(length) > 4 * 1024 * 1024):
+        raise RuntimeError("semantic_native_public_github_response_oversized")
+    payload = response.read(4 * 1024 * 1024 + 1)
+    if not payload or len(payload) > 4 * 1024 * 1024:
+        raise RuntimeError("semantic_native_public_github_response_oversized")
+    value = json.loads(payload.decode("utf-8"))
+finally:
+    connection.close()
+sys.stdout.write(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+`;
 const supportedModes = new Set(["--plan-install", "--verify-install-plan", "--plan-grant", "--verify-grant-plan", "--verify-installed", "--persist-successor", "--readback-successor", sourceAuthenticationMode, sourcePlanMode, sourceGrantPlanMode]);
 
 export async function main(argv = process.argv.slice(2), input = process.stdin) {
@@ -83,54 +139,195 @@ function executeSourcePlan(request) {
 function planInstallFromAuthenticatedSource(request) {
   const repositoryRoot = productionRepositoryRoot();
   const authenticated = authenticateSemanticDeploymentEvidencePackage(request.source.deploymentEvidenceDocument);
-  if (authenticated.evidence.sha256 !== request.source.sha256) throw new Error("semantic native selected evidence digest mismatch");
-  const document = authenticated.document;
-  if (document.project?.repositorySlug?.toLowerCase() !== request.repository.toLowerCase()) {
-    throw new Error("semantic native selected repository mismatch");
+  const context = createRootInstallAuthorityContext({ authenticated, repositoryRoot, repository: request.repository });
+  const producerSourceSha = context.readAuthorityContext().candidate?.mainSha;
+  const supportFiles = readSemanticRecoverySupportFilesFromGit({ repositoryRoot, repository: context.repository, producerSourceSha });
+  return encodeInstallPackage(deriveSemanticRecoveryNativeInstallPackageFromRoot({ request, repositoryRoot, producerSourceSha, supportFiles, authenticated }));
+}
+
+export function deriveSemanticRecoveryNativeProducerRequestFromRoot({ now = new Date(), githubRead = null } = {}) {
+  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+    throw new Error("semantic native root request derivation boundary invalid");
   }
-  const projectRequest = {
-    configPath: document.config.path,
-    approvedProfilePath: document.approvedProfile.path,
-    repoRoot: repositoryRoot,
-    runtimeRoot,
-    healthUnitPath: document.healthUnit.path,
-    allowRuntimeBootstrap: false,
-  };
-  const selectors = {
-    incidentPath: document.authenticatedProvenance.incidentArtifact.path,
-    incidentSha256: document.authenticatedProvenance.incidentArtifact.sha256,
-    associatedRecoveryPath: document.associatedRecovery.path,
-    associatedRecoverySha256: document.associatedRecovery.sha256,
-  };
+  const context = createRootInstallAuthorityContext({ githubRead });
+  const authorityContext = context.readAuthorityContext();
+  const authority = authorityContext.projectAuthority;
+  return normalizeSemanticRecoveryNativeProducerRequest({
+    contract: "settleora_semantic_recovery_native_producer_request",
+    version: 1,
+    operation: "install_native_semantic_recovery_producer",
+    repository: authority.repositorySlug,
+    observedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 15 * 60 * 1000).toISOString(),
+    source: { deploymentEvidenceDocument: deploymentEvidenceDocumentPath, sha256: authorityContext.deploymentEvidenceDigest },
+    runtime: {
+      sourceSha: authority.runtimeSourceSha,
+      bundleDigest: authority.runtimeBundleDigest,
+      manifestDigest: authority.artifacts.runtimeManifest.sha256,
+      profileDigest: authority.artifacts.approvedProfile.sha256,
+      approvalDigest: authority.artifacts.runtimeApproval.sha256,
+      launcherDigest: authority.artifacts.runtimeLauncher.sha256,
+      healthUnitDigest: authority.artifacts.healthUnit.sha256,
+    },
+  });
+}
+
+export function deriveSemanticRecoveryNativeInstallPackageFromRoot({
+  request,
+  producerSourceSha,
+  supportFiles,
+  githubRead = null,
+  verificationNow = new Date(),
+} = {}) {
+  const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
+  if (!/^[a-f0-9]{40}$/u.test(String(producerSourceSha || "")) || !Array.isArray(supportFiles)) {
+    throw new Error("semantic native root package derivation boundary invalid");
+  }
+  if (!(verificationNow instanceof Date) || !Number.isFinite(verificationNow.getTime())) {
+    throw new Error("semantic native root package verification time invalid");
+  }
+  const context = createRootInstallAuthorityContext({ githubRead });
+  const initial = context.readAuthorityContext();
+  if (initial.deploymentEvidenceDigest !== normalized.source.sha256 || initial.repository !== normalized.repository
+      || initial.candidate?.mainSha !== producerSourceSha) {
+    throw new Error("semantic native selected evidence digest mismatch");
+  }
+  const generated = planSemanticRecoveryNativeInstall({
+    request: normalized,
+    authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext: context.readAuthorityContext }),
+    readAuthorityContext: context.readAuthorityContext,
+    producerSourceSha,
+    supportFiles,
+    now: verificationNow,
+  });
+  const final = context.readAuthorityContext();
+  if (final.candidate?.mainSha !== producerSourceSha) throw new Error("semantic native selected source changed during planning");
+  const verified = verifySemanticRecoveryNativeInstallPlan(generated);
+  if (!verified.ok) throw new Error("semantic native generated install plan did not verify");
+  return generated;
+}
+
+export function deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot({ request, githubRead = null } = {}) {
+  const normalized = normalizeSemanticRecoveryNativeProducerRequest(request);
+  const context = createRootInstallAuthorityContext({ githubRead });
+  const readers = createSemanticDeploymentAuthorityReaders({ readAuthorityContext: context.readAuthorityContext });
+  const projections = semanticRecoveryAuthorityClasses.map((authorityClass) => readers[authorityClass](context.readAuthorityContext(authorityClass)));
+  const final = context.readAuthorityContext();
+  if (final.deploymentEvidenceDigest !== normalized.source.sha256 || final.repository !== normalized.repository) {
+    throw new Error("semantic native independent authority projection drift");
+  }
+  if (!/^[a-f0-9]{40}$/u.test(String(final.candidate?.mainSha || ""))) {
+    throw new Error("semantic native independent source authority unavailable");
+  }
+  return { request: normalized, projections, sourceCommit: final.candidate.mainSha };
+}
+
+function createRootInstallAuthorityContext({ githubRead = null } = {}) {
   const contextDigests = [];
+  const boundedGithubRead = githubRead || createPublicSemanticRecoveryGithubSnapshotReader();
+  if (typeof boundedGithubRead !== "function") throw new Error("semantic native public GitHub snapshot reader invalid");
   const readAuthorityContext = () => {
-    const context = collectSemanticDeploymentEvidenceContext({
-      projectAuthority: loadDeploymentProjectAuthority(projectRequest),
-      repositoryRoot,
-      ...selectors,
+    const repositoryRoot = productionRepositoryRoot();
+    const projectAuthority = loadDeploymentProjectAuthority({
+      configPath,
+      approvedProfilePath,
+      repoRoot: repositoryRoot,
+      runtimeRoot,
+      healthUnitPath,
+      allowRuntimeBootstrap: false,
     });
+    const incident = projectAuthority.configuredPostIncidentRecovery?.authenticatedProvenance?.incidentArtifact;
+    if (!incident || !path.isAbsolute(incident.path || "") || !/^[a-f0-9]{64}$/u.test(String(incident.sha256 || ""))) {
+      throw new Error("semantic native fixed incident selector unavailable");
+    }
+    const recoverable = listRecoverableRecoveryStates({ logsRoot: projectAuthority.logsRoot, repositorySlug: projectAuthority.repositorySlug });
+    if (recoverable.length !== 1 || !path.isAbsolute(recoverable[0].statePath || "")) {
+      throw new Error("semantic native associated recovery discovery ambiguous");
+    }
+    const associatedRecoveryPath = recoverable[0].statePath;
+    const associatedRecoverySha256 = authenticateCurrentOwnerFileDigest(associatedRecoveryPath);
+    const authenticated = authenticateSemanticDeploymentEvidencePackage(deploymentEvidenceDocumentPath);
+    const document = authenticated.document;
+    if (document.project?.repositorySlug?.toLowerCase() !== projectAuthority.repositorySlug.toLowerCase()
+        || document.config?.path !== configPath || document.approvedProfile?.path !== approvedProfilePath
+        || document.healthUnit?.path !== healthUnitPath
+        || document.authenticatedProvenance?.incidentArtifact?.path !== incident.path
+        || document.authenticatedProvenance?.incidentArtifact?.sha256 !== incident.sha256
+        || document.associatedRecovery?.path !== associatedRecoveryPath
+        || document.associatedRecovery?.sha256 !== associatedRecoverySha256) {
+      throw new Error("semantic native deployment evidence does not corroborate fixed discovery");
+    }
+    const collected = collectSemanticDeploymentEvidenceContext({
+      projectAuthority,
+      repositoryRoot,
+      incidentPath: incident.path,
+      incidentSha256: incident.sha256,
+      associatedRecoveryPath,
+      associatedRecoverySha256,
+      githubRead: boundedGithubRead,
+    });
+    const context = deepFreeze({ ...collected, deploymentEvidenceDigest: authenticated.evidence.sha256 });
     contextDigests.push(sha256(canonicalJson(context)));
     if (new Set(contextDigests).size !== 1) throw new Error("semantic native authority changed between independent reads");
     return context;
   };
-  const producerSourceContext = readAuthorityContext();
-  const producerSourceSha = producerSourceContext.candidate?.mainSha;
-  const supportFiles = readSemanticRecoverySupportFilesFromGit({
-    repositoryRoot,
-    repository: producerSourceContext.repository,
-    producerSourceSha,
+  return { repository: "tommytang213/Settleora", readAuthorityContext };
+}
+
+export function createPublicSemanticRecoveryGithubSnapshotReader({ minimumRateRemaining = 0, read = readPublicSemanticRecoveryGithubRoute } = {}) {
+  if (!Number.isSafeInteger(minimumRateRemaining) || minimumRateRemaining < 0 || minimumRateRemaining > 60
+      || typeof read !== "function") throw new Error("semantic native public GitHub snapshot boundary invalid");
+  const responses = new Map();
+  return (route) => {
+    if (!responses.has(route)) {
+      const response = read(route, { minimumRateRemaining });
+      // The root installation protocol reserves a fixed six authenticated
+      // requests for each independent authority snapshot. A full REST page
+      // would require another request to prove completeness, so refuse it
+      // before publication rather than consume the recovery reservation.
+      if (Array.isArray(response) && response.length === 100) {
+        throw new Error("semantic native public GitHub paginated snapshot unsupported");
+      }
+      responses.set(route, deepFreeze(response));
+    }
+    return structuredClone(responses.get(route));
+  };
+}
+
+export function readPublicSemanticRecoveryGithubRoute(route, { command = spawnSync, minimumRateRemaining = 0 } = {}) {
+  if (typeof route !== "string" || route.length < 1 || route.length > 1024 || typeof command !== "function"
+      || !Number.isSafeInteger(minimumRateRemaining) || minimumRateRemaining < 0 || minimumRateRemaining > 60) {
+    throw new Error("semantic native public GitHub read boundary invalid");
+  }
+  const child = command(fixedPythonRuntimePath, ["-I", "-c", publicGithubReadProgram], {
+    input: canonicalJson({ minimumRateRemaining, route }),
+    encoding: "utf8",
+    env: { LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
+    maxBuffer: 4 * 1024 * 1024 + 1024,
+    timeout: 35_000,
   });
-  const generated = planSemanticRecoveryNativeInstall({
-    request,
-    authorityReaders: createSemanticDeploymentAuthorityReaders({ readAuthorityContext }),
-    readAuthorityContext,
-    producerSourceSha,
-    supportFiles,
-  });
-  readAuthorityContext();
-  const verified = verifySemanticRecoveryNativeInstallPlan(generated);
-  if (!verified.ok) throw new Error("semantic native generated install plan did not verify");
-  return encodeInstallPackage(generated);
+  if (!child || child.error || child.signal || child.status !== 0 || child.stderr !== ""
+      || typeof child.stdout !== "string" || Buffer.byteLength(child.stdout) > 4 * 1024 * 1024) {
+    throw new Error("semantic native public GitHub read blocked");
+  }
+  try { return JSON.parse(child.stdout); }
+  catch { throw new Error("semantic native public GitHub response invalid"); }
+}
+
+function authenticateCurrentOwnerFileDigest(file) {
+  if (path.resolve(file) !== file || realpathSync(file) !== file) throw new Error("semantic native discovered file path invalid");
+  const fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const first = fstatSync(fd);
+    const bytes = readFileSync(fd);
+    const second = fstatSync(fd);
+    if (!first.isFile() || first.nlink !== 1 || first.uid !== process.getuid?.() || (first.mode & 0o077) !== 0
+        || first.dev !== second.dev || first.ino !== second.ino || first.size !== second.size
+        || first.mtimeMs !== second.mtimeMs || first.ctimeMs !== second.ctimeMs || bytes.length !== first.size) {
+      throw new Error("semantic native discovered file changed");
+    }
+    return sha256(bytes);
+  } finally { closeSync(fd); }
 }
 
 function verifyInstallPackage(value) {
@@ -535,6 +732,13 @@ function plainObject(value) { return Boolean(value) && typeof value === "object"
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 function canonicalJson(value) { return JSON.stringify(canonicalize(value)); }
 function canonicalize(value) { if (Array.isArray(value)) return value.map(canonicalize); if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])])); return value; }
+function deepFreeze(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((error) => {

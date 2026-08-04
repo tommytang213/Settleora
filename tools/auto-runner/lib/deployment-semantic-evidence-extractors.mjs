@@ -30,6 +30,7 @@ export function collectSemanticDeploymentEvidenceContext({
   associatedRecoveryPath,
   associatedRecoverySha256,
   command = defaultCommand,
+  githubRead = null,
 } = {}) {
   if (!projectAuthority || repositoryRoot !== projectAuthority.repoRoot) throw new Error("semantic extraction project authority invalid");
   const association = authenticateAssociatedRecoverableState({
@@ -95,6 +96,7 @@ export function collectSemanticDeploymentEvidenceContext({
     mainSha: candidate.mainSha,
     incidentUpdatedAt: incident.timestamps.updatedAt,
     command,
+    githubRead,
   });
   const predecessor = runArtifacts.failed.iteration.value.recovery?.terminalDerivativeProjection;
   const formerRootSha256 = predecessor?.boundArtifacts?.find((artifact) => artifact.role === "rawRecovery")?.sha256;
@@ -654,6 +656,7 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   const safeGitArguments = [
     "--no-replace-objects", "-c", "core.hooksPath=/dev/null",
     "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
+    "-c", `safe.directory=${repositoryRoot}`,
   ];
   const git = (args, encoding = "utf8") => command("/usr/bin/git", [...safeGitArguments, ...args], {
     cwd: repositoryRoot, encoding, env: gitEnvironment,
@@ -779,22 +782,25 @@ function authenticateRepositoryCandidate({ repositoryRoot, repository, branch, b
   };
 }
 
-function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, mainSha, incidentUpdatedAt, command }) {
+function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, mainSha, incidentUpdatedAt, command, githubRead = null }) {
   const incidentCheckpointMs = typeof incidentUpdatedAt === "string" ? Date.parse(incidentUpdatedAt) : Number.NaN;
   if (!Number.isFinite(incidentCheckpointMs)) throw new Error("semantic extraction GitHub incident checkpoint invalid");
   const githubEnvironment = {
     PATH: "/usr/bin:/bin", HOME: userInfo().homedir, LANG: "C", LC_ALL: "C",
     GH_PROMPT_DISABLED: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1",
   };
-  const gh = (args) => command("/usr/bin/gh", args, { cwd: repositoryRoot, encoding: "utf8", env: githubEnvironment });
-  const repositoryRecord = JSON.parse(String(gh(["api", `repos/${repository}`])) || "{}");
-  const mainRef = JSON.parse(String(gh(["api", `repos/${repository}/git/ref/heads/main`])) || "{}");
-  const remoteRefs = readGithubPages(gh, `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`, "refs");
+  if (githubRead !== null && typeof githubRead !== "function") throw new Error("semantic extraction GitHub reader invalid");
+  const read = githubRead || ((route) => JSON.parse(String(command("/usr/bin/gh", ["api", route], {
+    cwd: repositoryRoot, encoding: "utf8", env: githubEnvironment,
+  })) || "{}"));
+  const repositoryRecord = read(`repos/${repository}`);
+  const mainRef = read(`repos/${repository}/git/ref/heads/main`);
+  const remoteRefs = readGithubPages(read, `repos/${repository}/git/matching-refs/heads/${encodeURIComponent(branch)}`, "refs");
   const owner = repository.split("/")[0];
-  const prs = readGithubPages(gh, `repos/${repository}/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}`, "pulls")
+  const prs = readGithubPages(read, `repos/${repository}/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}`, "pulls")
     .map((pr) => ({ number: pr.number, state: pr.state, headRefOid: pr.head?.sha, mergedAt: pr.merged_at, updatedAt: pr.updated_at }));
-  const issueRecord = JSON.parse(String(gh(["api", `repos/${repository}/issues/${issueNumber}`])) || "{}");
-  const issueComments = readGithubPages(gh, `repos/${repository}/issues/${issueNumber}/comments`, "comments");
+  const issueRecord = read(`repos/${repository}/issues/${issueNumber}`);
+  const issueComments = readGithubPages(read, `repos/${repository}/issues/${issueNumber}/comments`, "comments");
   const issue = {
     number: issueRecord.number,
     state: issueRecord.state === "open" ? "OPEN" : issueRecord.state === "closed" ? "CLOSED" : null,
@@ -848,15 +854,15 @@ function readGithubNoEffect({ repositoryRoot, repository, issueNumber, branch, m
       issueEffect: issue.state !== "OPEN",
       productEffect: false,
     },
-    evidence: [{ path: `github://${repository}/issues/${issueNumber}`, sha256: digest, identity: "authenticated_gh_cli_read" }],
+    evidence: [{ path: `github://${repository}/issues/${issueNumber}`, sha256: digest, identity: githubRead ? "authenticated_public_github_https_read" : "authenticated_gh_cli_read" }],
   };
 }
 
-function readGithubPages(gh, route, label) {
+function readGithubPages(read, route, label) {
   const separator = route.includes("?") ? "&" : "?";
   const records = [];
   for (let page = 1; page <= 100; page += 1) {
-    const value = JSON.parse(String(gh(["api", `${route}${separator}per_page=100&page=${page}`])) || "null");
+    const value = read(`${route}${separator}per_page=100&page=${page}`);
     if (!Array.isArray(value) || value.length > 100) throw new Error(`semantic extraction GitHub ${label} page invalid`);
     records.push(...value);
     if (value.length < 100) return records;

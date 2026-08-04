@@ -35,7 +35,7 @@ export const semanticRecoveryProtectedLayout = deepFreeze({
 });
 
 export const nativeSemanticSourceContract = "settleora_semantic_recovery_native_source";
-export const nativeSemanticSourceVersion = 1;
+export const nativeSemanticSourceVersion = 2;
 export const nativeSemanticPersistenceContract = "settleora_semantic_recovery_native_persistence";
 export const nativeSemanticPersistenceVersion = 1;
 export const semanticRecoveryGithubNoEffectSnapshotContract = "settleora_semantic_recovery_github_no_effect_snapshot";
@@ -90,7 +90,7 @@ export function authenticateNativeSemanticRecoveryStore({
   }
   const document = authenticated.document;
   assertExactKeys(document, [
-    "authorityClass", "claims", "contract", "expiresAt", "producer",
+    "authorityClass", "capturedAt", "claims", "contract", "producer",
     "provenanceIdentity", "repository", "requestDigest", "sourceEvidenceDigest",
     "store", "version",
   ]);
@@ -110,9 +110,9 @@ export function authenticateNativeSemanticRecoveryStore({
       || !isDigest(document.requestDigest)
       || !isDigest(document.sourceEvidenceDigest)
       || document.sourceEvidenceDigest !== sha256(canonicalJson({ authorityClass, provenanceIdentity: document.provenanceIdentity }))
-      || !validTimestamp(document.expiresAt)
-      || Date.parse(document.expiresAt) <= now.getTime()) {
-    throw new Error("semantic native source document invalid or stale");
+      || !validTimestamp(document.capturedAt)
+      || Date.parse(document.capturedAt) > now.getTime() + 30_000) {
+    throw new Error("semantic native source document invalid");
   }
   return deepFreeze({
     claims: structuredClone(document.claims),
@@ -127,7 +127,7 @@ export function authenticateNativeSemanticRecoveryStore({
     nativeProvenanceIdentity: document.provenanceIdentity,
     requestDigest: document.requestDigest,
     producerBundleDigest: document.producer.bundleDigest,
-    expiresAt: document.expiresAt,
+    capturedAt: document.capturedAt,
     store: {
       kind: definition.storeKind,
       path: expectedPath,

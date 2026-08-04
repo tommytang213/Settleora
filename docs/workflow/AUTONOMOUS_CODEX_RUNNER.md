@@ -1812,17 +1812,91 @@ network listener or ambient runner mutation authority. Its canonical-stdin
 derive every subordinate digest. The fixed layout contains immutable producer
 runtime/policy, exactly eight protected stores, a grants directory, and
 successor incoming/provenance/commit roots. Plan readback requires canonical
-root:root directories and one-link immutable files at the exact paths. A later
-installation first bootstraps only executable/support bytes read from immutable
+root:root directories and one-link immutable files at the exact paths. The
+eight stores are durable `capturedAt` authority snapshots, not expiring grants;
+later grant and persistence operations remain absent until separately
+authorized and freshly reauthenticate their exact GitHub no-effect boundary. A
+later installation first bootstraps only executable/support bytes read from immutable
 Git blob objects at the exact authenticated canonical-main SHA frozen in the
 plan and policy. The source-UID-writable worktree is never the bundle byte
 source, and the full authority context is reread after artifact derivation.
-The installer then publishes only the exact owner-selected executable/support
-bundle into the protected path, then invokes that installed root-owned producer
-to rederive the complete plan through its real/effective source-UID/GID child
-and requires an exact plan match before completing installation. Root planning
-from a runner-writable repository path is rejected, and unprivileged planned
-bytes alone are not authority. Producer installation, one exact grant, root-executed successor
+The source-owned root-authoritative controller instead requires a separately
+authenticated administrator/OS channel to preinstall the exact reviewed
+bootstrap bytes as root:root, one-link mode `0555` at the fixed
+`/usr/libexec/settleora-semantic-recovery-native-install-bootstrap` path. The
+interactive handoff invokes only that root-owned path with closed scalar
+repository/commit/blob/correlation/journal identities; no shell literal,
+clipboard program, mutable checkout, or stdin program crosses sudo. The fixed
+bootstrap verifies its own Git blob identity, opens/creates every privileged
+journal ancestor descriptor-relatively with no-follow metadata checks, and
+freezes the armed owner transition inside one atomically published root-owned
+receipt before network
+access. Root then fetches
+the canonical `refs/heads/main` ref into a private object database with fixed
+tools and a sanitized environment, disabled redirects/credentials and strict
+fsck. The unprivileged commit is only an expected hint: root refuses unless it
+equals fetched main and the later fresh local/GitHub authority. Before Node
+starts, the trusted bootstrap rejects every non-regular tree member,
+recomputes every blob ID, and materializes the auto-runner bytes directly from
+raw authenticated blobs; no Git checkout member is executed. Root then
+recomputes the raw commit, every reachable tree and every reachable blob ID and
+re-materializes only the complete bootstrap/producer dependency closure in a
+second root-owned private directory and rereads every member immediately before
+execution. Separate planner and independent-reconstruction processes run as
+real/effective root from that root-owned read-only closure, each
+freshly deriving the closed request and all eight authorities; root requires
+their complete packages to match byte-for-byte. The fixed production source
+UID/GID is used only as an expected-owner validation policy inside those root
+processes, so no same-UID mutable process can alter their memory, projected
+result, supplementary groups, or execution. The one fixed expected-owner
+repository is passed to Git through an exact command-scoped `safe.directory`
+after its canonical path and owner are authenticated. After staged or adopted
+durability readback, both root readers rerun the complete source and authority
+binding at the publication edge, the controller requires the fresh package to
+remain byte-identical, and the staged or final tree is read back again before a
+journal transition. Both readers always run; the controller compares their
+encoded packages and compares the re-encoded original package rather than
+mixing encoded and decoded representations. GitHub no-effect state is read
+through a fixed public TLS client bound to `api.github.com` and closed routes,
+with no redirects, ambient root CLI configuration, credentials, or route in
+argv/environment. One cache is shared only within a reader's request and
+package/projection derivation; other readers and passes remain fresh. Authenticated
+rate-limit headers enforce phase floors that reserve the edge and one complete
+readback before one-shot publication. A full 100-record REST page is rejected
+before publication so pagination cannot consume that fixed recovery reserve.
+Root then either adopts an
+exact final tree without rewriting it after complete fsync plus repeated
+readback, or stages, fsyncs and publishes
+once with `renameat2(RENAME_NOREPLACE)`. The sealed root remains beneath a
+root-only staging container until rename; surviving child/container residue
+keeps transport loss ambiguous even when the final tree is exact. Durable
+owner/root journals bind the exact armed transition, persist the verified
+root-derived package, and make `publication_started` ambiguous on process loss.
+Restart uses the original request/package plus fresh authority corroboration
+and exact readback only, never automatic replay. A recovery-only interactive
+handoff is reachable solely after the original owner journal is durably
+`sudo_started` and the correlated privileged receipt, journal, and package
+already exist; it cannot publish or increment an effect counter. Root-owned
+sanitized results are append-only, journal-sequenced records whose monotonic
+readback prevents an older ambiguous writer from replacing completion. They
+support durable owner-side completion. An exact stranded result temporary is
+authenticated and reused after restart; byte-identical duplicates are safely
+coalesced and directory-fsynced only within the validated operation digest,
+while other-operation or conflicting residue is left untouched and blocks.
+One exact earlier-state temporary is monotonically published and
+read back under its own identity before a later result is appended. Canonical
+journal, snapshot, claim, and recognized result-temporary names appear only
+after complete bytes/metadata/file fsync in an ignored staging namespace; an
+inode-bound no-clobber link recovery finishes the narrow link/unlink crash
+window. Readback-only recovery verifies the frozen request at its authenticated
+historical snapshot clock while freshly rereading current authority, so expiry
+cannot turn exact installed readback into replay. Verified installation/adoption
+cannot transition to `blocked`; a final journal or result-publication failure
+permits only exact frozen-package readback, completion, and idempotent result
+adoption. Exclusive root-owned transition
+claims and a repository/source operation identity prevent
+concurrent or fresh-correlation reset. Root planning from a runner-writable repository path is
+rejected, and unprivileged planned bytes alone are not authority. Producer installation, one exact grant, root-executed successor
 persistence, authenticated readback, and any Issue #959 continuation remain
 separate owner gates. A committed successor explicitly reports that it is not
 authorized to continue.

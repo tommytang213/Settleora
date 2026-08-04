@@ -255,8 +255,10 @@ test("protected source readers reject descriptor, class, producer, store, metada
     const filesystem = new ProtectedMemoryFilesystem(); filesystem.installPlan(generated); filesystem.mutate(original.store.path, fields);
     assert.throws(() => authenticate(filesystem));
   }
-  const stale = new ProtectedMemoryFilesystem(); stale.installPlan(generated);
-  assert.throws(() => authenticate(stale, original, new Date("2026-08-03T12:11:00.000Z")), /stale/u);
+  const durable = new ProtectedMemoryFilesystem(); durable.installPlan(generated);
+  assert.deepEqual(authenticate(durable, original, new Date("2036-08-03T12:11:00.000Z")).claims, ownedClaims(original.authorityClass));
+  const future = new ProtectedMemoryFilesystem(); future.installPlan(generated);
+  assert.throws(() => authenticate(future, original, new Date("2026-08-03T11:59:00.000Z")), /invalid/u);
   const ambiguous = new ProtectedMemoryFilesystem(); ambiguous.installPlan(generated); ambiguous.writeExclusive(`${semanticRecoveryProtectedLayout.storesRoot}/extra.json`, Buffer.from("{}"), { uid: 0, mode: 0o444 });
   assert.throws(() => authenticate(ambiguous), /ambiguous/u);
   const copied = new ProtectedMemoryFilesystem(); copied.installPlan(generated);
@@ -528,7 +530,7 @@ test("out-of-order successor residue is never rebound to a later GitHub snapshot
 test("installed producer bundle, fixed runtime and real source identity close the privilege boundary", () => {
   const source = readFileSync(new URL("../semantic-recovery-native-producer.mjs", import.meta.url), "utf8");
   const persistence = readFileSync(new URL("../lib/semantic-recovery-protected-store.mjs", import.meta.url), "utf8");
-  assert.match(source, /readSemanticRecoverySupportFilesFromGit\(\{[\s\S]*repository: producerSourceContext\.repository,[\s\S]*producerSourceSha/u);
+  assert.match(source, /const producerSourceSha = context\.readAuthorityContext\(\)\.candidate\?\.mainSha;[\s\S]*readSemanticRecoverySupportFilesFromGit\(\{ repositoryRoot, repository: context\.repository, producerSourceSha \}\)/u);
   assert.match(source, /git\/commits\/\$\{producerSourceSha\}/u);
   assert.match(source, /git\/trees\/\$\{commit\.tree\.sha\}\?recursive=1/u);
   assert.match(source, /gitObjectSha1\("blob", bytes\) !== entry\.sha/u);
