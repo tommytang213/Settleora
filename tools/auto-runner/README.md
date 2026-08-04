@@ -2260,9 +2260,12 @@ authority whose `HEAD`, local `main` ref, fetched `origin/main`, commit tree,
 and HTTPS origin match those exact inputs. Forks and non-main branches are never
 valid package source. The canonical remote handoff root is limited to 460 ASCII
 characters so the derived handoff directory and `remote-entrypoint.sh` remain
-within the Windows launcher's 512-character SSH-argument contract. The supplied repository root must also be the canonical
-real root containing the running generator/package/render modules, so generated
-launcher and entrypoint code cannot come from a different checkout. It
+within the Windows launcher's 512-character SSH-argument contract. The supplied
+repository root must also be the canonical real root containing the running
+generator/package/render modules. Their loaded JavaScript, diagnostics, and
+publisher-helper bytes are independently rehashed against their exact commit
+blobs before rendering, so Git stat-cache metadata cannot substitute for byte
+authentication. It
 also performs one read-only, credential-free `git ls-remote` against the fixed
 literal GitHub HTTPS repository/branch and requires that GitHub advertise the
 exact commit before local object bytes gain source authority. It then rehashes
@@ -2274,7 +2277,7 @@ fsyncs and independently validates it; and publishes once with Linux
 `renameat2(RENAME_NOREPLACE)`. It never invokes SSH, sudo, the controller, an
 owner/root journal, `--prepare`, `--arm-interactive-sudo`, `--resume`, a grant,
 a successor, a service, a runner, or a queue.
-The generated remote entrypoint applies the same closed environment and fixed
+The generated remote entrypoint starts under fixed `/usr/bin/bash` and applies the same closed environment and fixed
 `/usr/bin/node` interpreter to every later controller invocation, preventing
 SSH-provided Node loader variables from preloading code before the authenticated
 controller closure.

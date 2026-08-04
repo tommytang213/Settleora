@@ -12,7 +12,7 @@ import {
 } from "../lib/semantic-recovery-native-install-source.mjs";
 import {
   assertCanonicalGenerationResult, authenticateRepositoryNativeInstallSource, createNativeInstallPackageFilesystem, generateNativeInstallHandoffPackage,
-  nativeInstallPackageContract, validateNativeInstallHandoffPackage,
+  nativeInstallPackageContract, validateNativeInstallHandoffPackage, verifyNativeInstallGeneratorSourceFiles,
 } from "../lib/semantic-recovery-native-install-package.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -114,6 +114,8 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   assert.doesNotMatch(launcher, /ConvertFrom-Json/u);
   assert.doesNotMatch(launcher, /--arm-interactive-sudo/u);
   const remote = readFileSync(path.join(result.finalHandoffDirectory, "remote-entrypoint.sh"), "utf8");
+  assert.match(remote, /^#!\/usr\/bin\/bash\n/u);
+  assert.doesNotMatch(remote, /^#!\/usr\/bin\/env bash/u);
   assert.equal((remote.match(/--arm-interactive-sudo/gu) || []).length, 2);
   assert.match(remote, /awaiting_readback_only_resume/u);
   assert.match(remote, /validate_installed_readback\(\)\{ emit native_install_execute_requires_installed_readback; exit 75; \}/u);
@@ -236,7 +238,7 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     ["-c credential.helper= -c http.extraHeader= ls-remote --exit-code https://github.com/tommytang213/Settleora.git refs/heads/main", `${commit}\trefs/heads/main\n`],
     ["rev-parse --git-common-dir", ".git\n"], ["for-each-ref refs/replace --format=%(refname)", ""],
   ]);
-  const attempt = (override) => authenticateRepositoryNativeInstallSource(request, { command: (_exe, args) => {
+  const attempt = (override) => authenticateRepositoryNativeInstallSource(request, { generatorSourceVerifier: () => true, command: (_exe, args) => {
     const key = args.join(" ");
     if (Object.hasOwn(override, key)) return override[key];
     if (base.has(key)) return base.get(key);
@@ -264,13 +266,23 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     [{ "ls-files -v -z": "S package.json\0H tools/auto-runner/semantic-recovery-native-install-bootstrap.sh\0" }, /hidden Git index/u],
   ]) assert.throws(() => attempt(override), pattern);
   let worktreeCommandReached = false;
-  assert.throws(() => authenticateRepositoryNativeInstallSource(request, { command: (_exe, args) => {
+  assert.throws(() => authenticateRepositoryNativeInstallSource(request, { generatorSourceVerifier: () => true, command: (_exe, args) => {
     const key = args.join(" ");
     if (key.includes(" status ")) worktreeCommandReached = true;
     if (key === "config --local --no-includes --null --list") return "core.fsmonitor\n/tmp/repo-selected-executable\0";
     return base.get(key) || "";
   } }), /unsafe/u);
   assert.equal(worktreeCommandReached, false);
+});
+
+test("loaded generator, publisher, authentication and renderer bytes bind to exact Git blobs independent of status cache", () => {
+  const resolveBlobOid = (source) => spawnSync("/usr/bin/git", ["-C", repositoryRoot, "rev-parse", `HEAD:${source}`], { encoding: "utf8" }).stdout.trim();
+  assert.equal(verifyNativeInstallGeneratorSourceFiles({ root: repositoryRoot, resolveBlobOid }), true);
+  let first = true;
+  assert.throws(() => verifyNativeInstallGeneratorSourceFiles({
+    root: repositoryRoot,
+    resolveBlobOid(source) { if (first) { first = false; return "0".repeat(40); } return resolveBlobOid(source); },
+  }), /Git binding invalid/u);
 });
 
 function readFileNames(root) { return spawnSync("/usr/bin/find", [root, "-mindepth", "1", "-maxdepth", "1", "-printf", "%f\\n"], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean); }

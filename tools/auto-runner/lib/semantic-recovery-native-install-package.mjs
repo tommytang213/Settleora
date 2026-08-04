@@ -1,13 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
-  chmodSync, closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync,
+  chmodSync, closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync,
   readdirSync, realpathSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   authenticateNativeInstallGitSource,
+  gitObjectOid,
   nativeInstallBootstrapScript,
   verifyAuthenticatedNativeInstallSource,
 } from "./semantic-recovery-native-install-source.mjs";
@@ -31,6 +32,14 @@ const launcherScalarMaximumLength = 512;
 const handoffKeyLength = "20260805-0156-0123456789abcdef".length;
 const remoteEntrypointName = "remote-entrypoint.sh";
 const remoteHandoffRootMaximumLength = launcherScalarMaximumLength - handoffKeyLength - remoteEntrypointName.length - 2;
+const generatorSourceFiles = Object.freeze([
+  Object.freeze({ mode: 0o644, source: "tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs" }),
+  Object.freeze({ mode: 0o755, source: "tools/auto-runner/lib/semantic-recovery-native-handoff-rename-noreplace.py" }),
+  Object.freeze({ mode: 0o644, source: "tools/auto-runner/lib/semantic-recovery-native-install-diagnostics.mjs" }),
+  Object.freeze({ mode: 0o644, source: "tools/auto-runner/lib/semantic-recovery-native-install-handoff.mjs" }),
+  Object.freeze({ mode: 0o644, source: "tools/auto-runner/lib/semantic-recovery-native-install-package.mjs" }),
+  Object.freeze({ mode: 0o644, source: "tools/auto-runner/lib/semantic-recovery-native-install-source.mjs" }),
+]);
 const identifierPattern = /^[a-f0-9]{64}$/u;
 const timestampKeyPattern = /^20[0-9]{6}-[0-9]{4}$/u;
 const resultKeys = [
@@ -292,7 +301,7 @@ export function validateNativeInstallHandoffPackage(directory, { filesystem = cr
   return deepFreeze({ ...summary, packageManifestDigest: sha256(manifestBytes) });
 }
 
-export function authenticateRepositoryNativeInstallSource(request, { command = runCommand } = {}) {
+export function authenticateRepositoryNativeInstallSource(request, { command = runCommand, generatorSourceVerifier = verifyNativeInstallGeneratorSourceFiles } = {}) {
   if (request.repository !== canonicalRepository || request.branch !== canonicalSourceBranch) throw new Error("handoff canonical source authority required");
   const root = request.repositoryRoot;
   assertSafeRepositoryRoot(root);
@@ -340,6 +349,10 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
     if (existsSync(target)) throw new Error("handoff Git alternate authority forbidden");
   }
   if (git(["for-each-ref", "refs/replace", "--format=%(refname)"]).trim() !== "") throw new Error("handoff Git replace authority forbidden");
+  generatorSourceVerifier({
+    root,
+    resolveBlobOid(source) { return git(["rev-parse", `${request.sourceCommit}:${source}`]).trim(); },
+  });
   const bootstrapOid = git(["rev-parse", `${request.sourceCommit}:${nativeInstallBootstrapScript}`]).trim();
   return authenticateNativeInstallGitSource({
     hint: {
@@ -355,6 +368,32 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
       },
     },
   });
+}
+
+export function verifyNativeInstallGeneratorSourceFiles({ root, resolveBlobOid } = {}) {
+  if (root !== moduleRepositoryRoot || typeof resolveBlobOid !== "function") throw new Error("handoff generator source verifier invalid");
+  const uid = process.getuid?.();
+  const gid = process.getgid?.();
+  for (const entry of generatorSourceFiles) {
+    const target = path.join(root, entry.source);
+    const before = lstatSync(target);
+    if (!before.isFile() || before.isSymbolicLink() || before.uid !== uid || before.gid !== gid || before.nlink !== 1
+        || (before.mode & 0o7777) !== entry.mode || realpathSync(target) !== target) throw new Error("handoff generator source metadata invalid");
+    const fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let bytes;
+    try {
+      const held = fstatSync(fd);
+      bytes = readFileSync(fd);
+      const after = fstatSync(fd);
+      if (held.dev !== after.dev || held.ino !== after.ino || held.size !== after.size || held.mtimeMs !== after.mtimeMs || held.ctimeMs !== after.ctimeMs) {
+        throw new Error("handoff generator source changed during authentication");
+      }
+    } finally { closeSync(fd); }
+    const current = lstatSync(target);
+    if (current.dev !== before.dev || current.ino !== before.ino || current.size !== bytes.length
+        || gitObjectOid("blob", bytes) !== resolveBlobOid(entry.source)) throw new Error("handoff generator source Git binding invalid");
+  }
+  return true;
 }
 
 export function createNativeInstallPackageFilesystem({ publisherPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "semantic-recovery-native-handoff-rename-noreplace.py") } = {}) {
@@ -457,7 +496,7 @@ Invoke-Phase '--execute' $false
 
 function renderRemoteEntrypoint({ descriptor, descriptorDigest, identityDigest }) {
   const controller = renderNativeInstallRemoteControllerFlowSource();
-  return `#!/usr/bin/env bash\nset -eEuo pipefail\nIFS=$'\\n\\t'\numask 077\n` + String.raw`fail(){ /usr/bin/printf '%s\n' "$1" >&2; exit 1; }
+  return `#!/usr/bin/bash\nset -eEuo pipefail\nIFS=$'\\n\\t'\numask 077\n` + String.raw`fail(){ /usr/bin/printf '%s\n' "$1" >&2; exit 1; }
 [ "$#" -eq 7 ] || fail remote_arguments_invalid
 PHASE="$1"; OPERATION_ID="$2"; CHALLENGE_ID="$3"; DESCRIPTOR_DIGEST="$4"; CONTENT_DIGEST="$5"; IDENTITY_DIGEST="$6"; EXPECTED_SELF_DIGEST="$7"
 PACKAGE_ROOT=$(/usr/bin/readlink -f -- "$(/usr/bin/dirname -- "$0")")

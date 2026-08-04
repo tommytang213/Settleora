@@ -1915,7 +1915,9 @@ generation-only boundary independently authenticates the exact clean
 branch with a read-only
 credential-free remote proof, authenticates the complete object graph, reuses
 the native-install closure selector, and requires that exact checkout to contain
-the running generator/package/render modules. It creates fresh identities, validates canonical cross-bindings, and
+the running generator/package/render modules. Those loaded modules, diagnostics,
+and publisher-helper bytes are rehashed against their exact commit blobs before
+rendering, independently of Git's stat cache. It creates fresh identities, validates canonical cross-bindings, and
 atomically publishes one private no-clobber package. It does not enter any
 controller mode or create owner/root protocol state. Its canonical remote root
 is limited to 460 ASCII characters so every derived launcher path remains
@@ -1928,7 +1930,7 @@ The authoritative command invokes absolute `/usr/bin/env -i` and
 `/usr/bin/node` directly with a minimal clean environment before loading the
 generator. It is never routed through npm, an executable shebang, or an ambient
 Node command;
-the generated remote entrypoint uses the same fixed clean interpreter boundary
+the generated remote entrypoint starts with fixed `/usr/bin/bash` and uses the same fixed clean interpreter boundary
 for every future controller call. npm path injection, inherited Node loader
 options, and SSH-provided Node loader variables therefore cannot preload either
 boundary.
