@@ -728,6 +728,12 @@ test("source-owned handoff accepts readback-required arm results without a secon
   }), {
     action: "block", sudoAllowed: false, terminal: true, rootFailureReasonCode: "native_install_root_github_rate_budget_refused",
   });
+  assert.deepEqual(decideNativeInstallHandoffControllerStep({
+    mode: "resume",
+    result: { reasonCode: "native_install_result_requires_readback", sudoAttemptCount: 1 },
+  }), {
+    action: "validate_installed_readback", sudoAllowed: false, terminal: false,
+  });
   assert.throws(() => decideNativeInstallHandoffControllerStep({
     mode: "resume",
     result: { reasonCode: "native_install_root_result_blocked", sudoAttemptCount: 1, rootFailureReasonCode: "native_install_root_secret_token_exposed" },
@@ -943,7 +949,10 @@ test("restart before every journal boundary never duplicates sudo or publication
   }
   assert.equal(journal.sudoAttemptCount, 1);
   assert.equal(journal.publicationAttemptCount, 1);
-  assert.equal(resumeNativeInstallProtocol({ ownerJournal: journal }).action, "readback_only");
+  const resume = resumeNativeInstallProtocol({ ownerJournal: journal });
+  assert.equal(resume.action, "readback_only");
+  assert.equal(resume.reasonCode, "native_install_result_requires_readback");
+  assert.equal(resume.sudoAttemptCount, 1);
 });
 
 test("publication transport ambiguity always selects exact readback and never automatic replay", () => {
@@ -963,9 +972,13 @@ test("publication transport ambiguity always selects exact readback and never au
     journal = transitionNativeInstallJournal({ current: journal, expectedState, nextState, observedAt: new Date(Date.parse(journalIdentity.observedAt) + (index + 1) * 1000).toISOString(), result, persist() {} });
   }
   const action = resumeNativeInstallProtocol({ ownerJournal: journal });
-  assert.deepEqual(action, { action: "readback_only", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_publication_ambiguous" });
+  assert.deepEqual(action, {
+    action: "readback_only", mutationAllowed: false, sudoAllowed: false,
+    reasonCode: "native_install_publication_ambiguous", sudoAttemptCount: 1,
+  });
   const adopted = resumeNativeInstallProtocol({ ownerJournal: journal, installedReadback: { ok: true, planDigest: "3".repeat(64) } });
   assert.equal(adopted.action, "adopt_verified_result");
+  assert.equal(adopted.sudoAttemptCount, 1);
 });
 
 test("lost rename transport with surviving private container stays ambiguous and never reports success", () => {

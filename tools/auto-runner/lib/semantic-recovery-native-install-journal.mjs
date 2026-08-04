@@ -150,13 +150,13 @@ export function resumeNativeInstallProtocol({ ownerJournal, rootJournal = null, 
   const authoritative = rootJournal || ownerJournal;
   const installed = installedReadback?.ok === true && installedReadback.planDigest === authoritative.result?.planDigest;
   if (installed) {
-    return { action: "adopt_verified_result", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_exact_readback_outranks_journal" };
+    return { action: "adopt_verified_result", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_exact_readback_outranks_journal", sudoAttemptCount: ownerJournal.sudoAttemptCount };
   }
   if (["publication_started", "publication_ambiguous"].includes(authoritative.state)) {
-    return { action: "readback_only", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_publication_ambiguous" };
+    return { action: "readback_only", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_publication_ambiguous", sudoAttemptCount: ownerJournal.sudoAttemptCount };
   }
   if (["installed_verified", "adopted_verified", "completed"].includes(authoritative.state)) {
-    return { action: "readback_only", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_result_requires_readback" };
+    return { action: "readback_only", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_result_requires_readback", sudoAttemptCount: ownerJournal.sudoAttemptCount };
   }
   if (authoritative.state === "sudo_started") {
     const live = processEvidence?.correlation === authoritative.correlation && processEvidence?.active === true;
@@ -165,12 +165,13 @@ export function resumeNativeInstallProtocol({ ownerJournal, rootJournal = null, 
       mutationAllowed: false,
       sudoAllowed: false,
       reasonCode: live ? "native_install_root_process_active" : "native_install_root_process_ambiguous",
+      sudoAttemptCount: ownerJournal.sudoAttemptCount,
     };
   }
   if (authoritative.state === "awaiting_interactive_sudo" && authoritative.sudoAttemptCount === 0) {
-    return { action: "interactive_sudo_once", mutationAllowed: false, sudoAllowed: true, reasonCode: "native_install_sudo_not_started" };
+    return { action: "interactive_sudo_once", mutationAllowed: false, sudoAllowed: true, reasonCode: "native_install_sudo_not_started", sudoAttemptCount: ownerJournal.sudoAttemptCount };
   }
-  return { action: "block", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_restart_blocked" };
+  return { action: "block", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_restart_blocked", sudoAttemptCount: ownerJournal.sudoAttemptCount };
 }
 
 export const nativeInstallTrustedBootstrapPath = "/usr/libexec/settleora-semantic-recovery-native-install-bootstrap";
