@@ -2236,7 +2236,10 @@ then always enters `--resume` without another sudo attempt. Unexpected reason
 codes remain fail-closed.
 
 The authoritative complete-package generator is separate from those fragment
-renderers:
+renderers. The npm script immediately enters a closed environment through the
+absolute `/usr/bin/env` and `/usr/bin/node` executables, so npm's temporary
+`node_modules/.bin` path and inherited Node loader variables cannot select or
+preload generator code:
 
 ```bash
 npm run generate:native-install-handoff -- \
@@ -2268,6 +2271,10 @@ fsyncs and independently validates it; and publishes once with Linux
 `renameat2(RENAME_NOREPLACE)`. It never invokes SSH, sudo, the controller, an
 owner/root journal, `--prepare`, `--arm-interactive-sudo`, `--resume`, a grant,
 a successor, a service, a runner, or a queue.
+The generated remote entrypoint applies the same closed environment and fixed
+`/usr/bin/node` interpreter to every later controller invocation, preventing
+SSH-provided Node loader variables from preloading code before the authenticated
+controller closure.
 
 The package contains the source-owned Windows launcher, remote entrypoint,
 execution descriptor, handoff identity, source hint, content and package

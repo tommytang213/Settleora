@@ -1922,6 +1922,12 @@ complete-package generation, protocol preparation, interactive execution,
 installed readback, and Issue #959 continuation are distinct gates. The future
 operator must independently recompute the published Windows launcher SHA-256;
 retained handoffs are evidence and are never replay inputs.
+The stable npm command enters through absolute `/usr/bin/env` and
+`/usr/bin/node` with a minimal clean environment before loading the generator;
+the generated remote entrypoint uses the same fixed clean interpreter boundary
+for every future controller call. npm path injection, inherited Node loader
+options, and SSH-provided Node loader variables therefore cannot preload either
+boundary.
 The source-owned Windows launcher passes `-F none` to disable ambient user and
 system OpenSSH configuration, preventing host redirection or proxy-command
 injection.

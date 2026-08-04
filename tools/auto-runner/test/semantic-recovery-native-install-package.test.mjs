@@ -123,6 +123,8 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   assert.match(remote, /package_hardlink_residue/u);
   assert.match(remote, /package_special_residue/u);
   assert.match(remote, /package_directory_residue/u);
+  assert.match(remote, /run_immutable_controller\(\)\{ \/usr\/bin\/env -i HOME=\/nonexistent LANG=C LC_ALL=C PATH=\/usr\/bin:\/bin TZ=UTC \/usr\/bin\/node /u);
+  assert.doesNotMatch(remote, /run_immutable_controller\(\)\{ \/usr\/bin\/node /u);
   assert.match(remote, /--preflight\) emit native_install_preflight_verified/u);
   assert.match(remote, /\*\) fail remote_phase_invalid/u);
   const syntax = spawnSync("/usr/bin/bash", ["-n", path.join(result.finalHandoffDirectory, "remote-entrypoint.sh")], { encoding: "utf8" });
@@ -130,6 +132,8 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
 });
 
 test("generation never invokes controller, SSH, sudo, network, runtime or protected paths", () => {
+  const rootPackage = JSON.parse(readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
+  assert.equal(rootPackage.scripts["generate:native-install-handoff"], "/usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TZ=UTC /usr/bin/node tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs");
   const before = process.env.PATH;
   const { result } = generate();
   assert.equal(process.env.PATH, before);

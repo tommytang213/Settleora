@@ -505,7 +505,7 @@ esac
 CLAIM="$PACKAGE_ROOT/.execution-claim-$OPERATION_ID"
 ( set -C; : > "$CLAIM" ) 2>/dev/null || fail remote_replay_or_ambiguous_execution
 /usr/bin/chmod 600 "$CLAIM"; /usr/bin/sync -f "$CLAIM"; /usr/bin/sync -f "$PACKAGE_ROOT"
-run_immutable_controller(){ /usr/bin/node "$PACKAGE_ROOT/controller/tools/auto-runner/semantic-recovery-native-install.mjs" "$@" < "$PACKAGE_ROOT/source-hint.json"; }
+run_immutable_controller(){ /usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TZ=UTC /usr/bin/node "$PACKAGE_ROOT/controller/tools/auto-runner/semantic-recovery-native-install.mjs" "$@" < "$PACKAGE_ROOT/source-hint.json"; }
 validate_controller_json(){ local value="$1" expected="$2" canonical; [ "$(/usr/bin/printf '%s' "$value" | /usr/bin/wc -c)" -le 4096 ] || fail controller_output_oversized; canonical=$(/usr/bin/printf '%s' "$value" | /usr/bin/jq -ceS .) || fail controller_output_invalid; [ "$canonical" = "$value" ] || fail controller_output_noncanonical; [ "$(/usr/bin/printf '%s' "$value" | /usr/bin/jq -er .reasonCode)" = "$expected" ] || fail controller_output_reason_mismatch; }
 verify_all_held_locks(){ :; }
 absence_gate_pre_arm(){ :; }
