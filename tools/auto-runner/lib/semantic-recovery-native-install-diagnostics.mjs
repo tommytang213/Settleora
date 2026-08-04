@@ -77,7 +77,10 @@ export function classifyNativeInstallRootFailure(error) {
 export function classifyNativeInstallRootReaderProcess(child) {
   if (child?.error?.code === "ETIMEDOUT") return "native_install_root_authority_reader_timeout";
   if (!child || child.error || child.signal) return "native_install_root_authority_reader_process_unavailable";
-  const stderr = typeof child.stderr === "string" && Buffer.byteLength(child.stderr) <= 64 * 1024 ? child.stderr : "";
+  if (typeof child.stderr !== "string" || Buffer.byteLength(child.stderr) > 64 * 1024) {
+    return "native_install_root_authority_reader_stderr_refused";
+  }
+  const stderr = child.stderr;
   const match = /^native installation blocked: ([a-z0-9_]+)\n$/u.exec(stderr);
   if (match && isNativeInstallRootFailureReasonCode(match[1])) return match[1];
   if (child.status !== 0) return "native_install_root_authority_reader_failed";

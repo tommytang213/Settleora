@@ -298,7 +298,10 @@ export function classifyPublicSemanticRecoveryGithubProcessFailure(child) {
   if (!child || typeof child !== "object") return "semantic_native_public_github_process_unavailable";
   if (child.error?.code === "ETIMEDOUT") return "semantic_native_public_github_timeout";
   if (child.error || child.signal) return "semantic_native_public_github_process_unavailable";
-  const stderr = typeof child.stderr === "string" && Buffer.byteLength(child.stderr) <= 64 * 1024 ? child.stderr : "";
+  if (typeof child.stderr !== "string" || Buffer.byteLength(child.stderr) > 64 * 1024) {
+    return "semantic_native_public_github_stderr_refused";
+  }
+  const stderr = child.stderr;
   const match = /RuntimeError: (semantic_native_public_github_(?:request_invalid|route_invalid|response_refused|rate_budget_refused|response_oversized))\s*$/u.exec(stderr);
   if (match) return match[1];
   if (child.status !== 0) return "semantic_native_public_github_process_failed";

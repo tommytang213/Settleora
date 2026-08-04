@@ -696,6 +696,14 @@ test("root failure diagnostics preserve only fixed allowlisted reason codes", ()
     status: 1, signal: null, error: null, stdout: "",
     stderr: "native installation blocked: native_install_root_secret_token_exposed\n",
   }), "native_install_root_authority_reader_failed");
+  for (const stderr of [Buffer.alloc(0), "x".repeat(64 * 1024 + 1)]) {
+    assert.equal(classifyNativeInstallRootReaderProcess({
+      status: 0, signal: null, error: null, stdout: "{}\n", stderr,
+    }), "native_install_root_authority_reader_stderr_refused");
+    assert.equal(classifyPublicSemanticRecoveryGithubProcessFailure({
+      status: 0, signal: null, error: null, stdout: "{}", stderr,
+    }), "semantic_native_public_github_stderr_refused");
+  }
   const secret = "Bearer fake-health-token";
   const classified = classifyNativeInstallRootFailure(new Error(secret));
   assert.equal(classified, "native_install_root_operation_blocked");
