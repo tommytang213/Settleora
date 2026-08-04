@@ -106,6 +106,8 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   assert.match(launcher, /StandardInput\.Close\(\)/u);
   assert.match(launcher, /execute_stdin_must_remain_interactive/u);
   assert.match(launcher, /if \(\$Phase -eq '--preflight'\) \{ '-T' \} else \{ '-tt' \}/u);
+  assert.match(launcher, /'ForwardX11=no',\$RemoteHost,\$RemoteEntrypoint,\$Phase/u);
+  assert.doesNotMatch(launcher, /'--',\$RemoteHost/u);
   assert.match(launcher, /controller_output_not_exact_canonical_record/u);
   assert.match(launcher, /\$Value -cne \$expected/u);
   assert.doesNotMatch(launcher, /ConvertFrom-Json/u);
