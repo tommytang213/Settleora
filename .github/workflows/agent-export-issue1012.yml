@@ -1,0 +1,34 @@
+name: Agent export Issue 1012 checkout
+
+on:
+  push:
+    branches:
+      - agent/issue-1012-manual-root-handoff-repair-20260804
+    paths:
+      - .github/workflows/agent-export-issue1012.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Archive checkout including Git metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -C "$GITHUB_WORKSPACE" -czf "$RUNNER_TEMP/Settleora-issue1012-checkout.tar.gz" .
+
+      - name: Upload checkout archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: Settleora-issue1012-checkout
+          path: ${{ runner.temp }}/Settleora-issue1012-checkout.tar.gz
+          if-no-files-found: error
+          retention-days: 1
