@@ -509,6 +509,7 @@ function normalizeGenerationRequest(value) {
       || normalized.repository !== canonicalRepository || normalized.branch !== canonicalSourceBranch
       || !oidPattern.test(normalized.sourceCommit) || !oidPattern.test(normalized.sourceTree)
       || !hostPattern.test(normalized.remoteHost) || !absoluteRemotePathPattern.test(normalized.remoteHandoffRoot)
+      || path.posix.normalize(normalized.remoteHandoffRoot) !== normalized.remoteHandoffRoot
       || normalized.remoteHandoffRoot.includes("..") || normalized.remoteHandoffRoot.endsWith("/")) throw new Error("handoff generation request invalid");
   return deepFreeze(normalized);
 }
