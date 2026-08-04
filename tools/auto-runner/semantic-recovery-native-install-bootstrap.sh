@@ -29,9 +29,8 @@ operation_id="$5"
 owner_journal_digest="$6"
 owner_journal_sha256="$7"
 
-[[ "$handoff_mode" == install || "$handoff_mode" == recover_readback ]] || block
+[[ "$handoff_mode" == install ]] || block
 controller_mode='--root-bootstrap'
-[[ "$handoff_mode" == install ]] || controller_mode='--root-bootstrap-recover'
 [[ "$source_commit" =~ ^[a-f0-9]{40}$ ]] || block
 [[ "$bootstrap_blob" =~ ^[a-f0-9]{40}$ ]] || block
 [[ "$task_correlation" =~ ^[a-z0-9][a-z0-9._:-]{7,127}$ ]] || block
@@ -226,13 +225,6 @@ try:
                     raise ValueError("root receipt timestamp invalid") from error
                 if parsed_receipt != expected_receipt:
                     raise ValueError("root receipt mismatch")
-                if handoff_mode == "recover_readback":
-                    for name in (f"{operation_id}.json", f"{operation_id}.package.json"):
-                        info = os.stat(name, dir_fd=root_directory_fd, follow_symlinks=False)
-                        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
-                                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1
-                                or info.st_size < 1 or info.st_size > 32 * 1024 * 1024):
-                            raise ValueError("root recovery artifact unsafe")
                 os.fsync(root_directory_fd)
             finally:
                 os.close(root_directory_fd)

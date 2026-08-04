@@ -2188,16 +2188,22 @@ corroborate the exact bytes; it never creates a time-varying replacement plan.
 A crash or lost transport after publication starts permits only that exact
 package plus durable installed-state readback, never replay. A root-owned,
 owner-readable append-only sanitized result sequence is keyed by the journal
-sequence and digest. Exclusive link publication plus monotonic state validation
-prevents a delayed ambiguous writer from clobbering a newer verified completion.
-If result transport fails after a temporary is durable, retry authenticates and
-reuses it. The fixed Python boundary coalesces only fully authenticated,
-byte-identical duplicates with a directory fsync after each unlink; conflicting
-temporaries are retained and block publication. Its sole scalar selector is the
-validated operation digest, and temporaries for every other operation remain
-untouched. If the durable journal has
-advanced beyond one exact stranded earlier result, the earlier record is first
-published to its own identity and read back before the later append proceeds.
+sequence and digest. Result records use an atomic same-directory hard link from
+the authenticated `0444` temporary to the journal-derived final name, followed
+by directory fsync, inode/link-count readback, temporary unlink, another fsync,
+and canonical final readback. This provides no-clobber publication without a
+second interpreter boundary; the Python `renameat2` helper remains exclusive to
+the protected directory publication. If result transport fails after a
+temporary is durable, retry authenticates and reuses it. Fully authenticated,
+byte-identical duplicates are coalesced with a directory fsync after each
+unlink; conflicting temporaries remain untouched and block publication.
+Readback-only owner resume may inspect one exact authenticated stranded result
+temporary only to report its bounded state/reason. A blocked temporary is never
+promoted to installation success, while any non-blocked temporary requires a
+separate manual recovery gate. Temporaries for every other operation remain
+untouched. If the durable journal has advanced beyond one exact stranded
+earlier result, the earlier record is first published to its own identity and
+read back before the later append proceeds.
 Journal, snapshot, claim, and recognized result-temporary names are linked only
 from fully written, metadata-finalized, fsynced files in an ignored staging
 namespace. An exact crash between the no-clobber link and staging unlink is
@@ -2215,14 +2221,34 @@ represented only by byte counts and SHA-256 digests. Health tokens,
 authorization headers, credentials, raw evidence, logs, and provider payloads
 never enter argv, environment, journals, summaries, or exceptions.
 
+The source-owned handoff fragments are rendered only through
+`node tools/auto-runner/render-semantic-recovery-native-install-handoff.mjs`
+with either `--windows-ssh-coordinator` or `--remote-controller-flow`. The
+Windows OpenSSH fragment keeps the environment sanitized but restores the
+independently canonicalized `ProgramData` directory required by Windows
+OpenSSH. Preflight redirects and closes stdin immediately after process start
+so a forced TTY cannot echo queued console input into canonical JSON; execute
+keeps stdin attached to the real TTY for the one PAM password exchange. The
+remote flow accepts both
+`native_install_interactive_handoff_completed` and
+`native_install_interactive_handoff_requires_readback` from the one arm call,
+then always enters `--resume` without another sudo attempt. Unexpected reason
+codes remain fail-closed.
+
+Root subprocess failures cross process boundaries only as fixed allowlisted
+`native_install_root_*` reason codes. Public GitHub transport can therefore
+distinguish bounded rate-budget, response, timeout, route, and process classes
+without retaining traceback text, paths, credentials, headers, payloads, or raw
+stdout/stderr. A durably blocked root result is returned through successful
+controller transport as `native_install_root_result_blocked`; transport success
+never changes the blocked installation outcome.
+
 If the first interactive transport is lost after `sudo_started`, `--resume`
-remains readback-only and never repeats sudo. The explicit
-`--recover-interactive-sudo` operator mode is admitted only from that exact
-one-shot owner state. It invokes the fixed bootstrap with the closed
-`recover_readback` selector; root requires the correlated receipt, privileged
-journal, and frozen package to exist, then permits only fresh corroboration,
-installed-state readback, and completion. It cannot create a root journal,
-derive a replacement package, publish, or increment either effect counter.
+remains readback-only and never repeats sudo. The controller, bootstrap, and
+sudo-argv builders expose no recovery-sudo mode: once `sudoAttemptCount` reaches
+one, every later automatic or source-owned path has `sudoAllowed: false`.
+Absent, temporary, blocked, or publication-ambiguous root results therefore
+stop at a separate manual recovery gate rather than replaying privilege.
 
 This offline root-invoked model is the smallest privilege boundary because it
 adds no listener, service, socket, timer, sudoers rule, credential, arbitrary

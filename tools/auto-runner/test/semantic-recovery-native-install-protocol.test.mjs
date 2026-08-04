@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, lstatSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -36,11 +37,25 @@ import {
   classifyFixedNativeInstallRootResultTemporaries,
   completeVerifiedNativeInstallResult,
   persistNativeInstallJournalTransition,
+  publishNativeInstallRootResultNoReplace,
   publishOrAdoptVerifiedNativeInstall,
+  readNativeInstallRootResultTemporaryFromDirectory,
+  recoverNativeInstallRootResultNoReplaceLinks,
+  selectFixedNativeInstallRootResultObservation,
   validateRootResultTransition,
 } from "../lib/semantic-recovery-native-install-publication.mjs";
+import {
+  decideNativeInstallHandoffControllerStep,
+  renderNativeInstallRemoteControllerFlowSource,
+  renderNativeInstallWindowsSshCoordinatorSource,
+} from "../lib/semantic-recovery-native-install-handoff.mjs";
+import {
+  classifyNativeInstallRootFailure,
+  classifyNativeInstallRootReaderProcess,
+} from "../lib/semantic-recovery-native-install-diagnostics.mjs";
 import { corroborateNativeInstallRootReaderOutputs } from "../semantic-recovery-native-install.mjs";
 import {
+  classifyPublicSemanticRecoveryGithubProcessFailure,
   createPublicSemanticRecoveryGithubSnapshotReader,
   readPublicSemanticRecoveryGithubRoute,
 } from "../semantic-recovery-native-producer.mjs";
@@ -77,9 +92,10 @@ function gitFixture(overrides = {}) {
     return oid;
   };
   const files = new Map(Object.entries({
-    [nativeInstallBootstrapEntrypoint]: 'import "./semantic-recovery-native-producer.mjs";\n',
+    [nativeInstallBootstrapEntrypoint]: 'import "./semantic-recovery-native-producer.mjs";\nimport "./lib/semantic-recovery-native-install-diagnostics.mjs";\n',
     [nativeInstallProducerEntrypoint]: 'import "./lib/producer-support.mjs";\n',
     "tools/auto-runner/lib/producer-support.mjs": "export const fixture = true;\n",
+    "tools/auto-runner/lib/semantic-recovery-native-install-diagnostics.mjs": "export const fixtureDiagnostic = true;\n",
     [nativeInstallRenameNoReplaceHelper]: "# fixture helper\n",
     [nativeInstallBootstrapScript]: "#!/usr/bin/bash\nexit 1\n",
     "unrelated/complete-tree-proof.txt": "unrelated blob is still authenticated\n",
@@ -122,7 +138,7 @@ test("root source authentication rehashes commit, every tree and every blob befo
   const authenticated = authenticateNativeInstallGitSource({ hint: fixture.hint, objectReader: fixture.objectReader });
   assert.equal(authenticated.manifest.objectCount, fixture.objects.size);
   assert.equal(authenticated.manifest.blobCount, fixture.blobOids.size);
-  assert.equal(authenticated.manifest.support.length, 5);
+  assert.equal(authenticated.manifest.support.length, 6);
   assert.equal(authenticated.manifest.support.some((entry) => entry.source === "unrelated/complete-tree-proof.txt"), false);
   assert.equal(verifyAuthenticatedNativeInstallSource(authenticated).ok, true);
   assert.equal(authenticated.supportFiles.every((entry) => entry.gitBlobOid === gitObjectOid("blob", entry.bytes)), true);
@@ -542,6 +558,244 @@ test("root results are append-only journal-sequenced monotonic records that reje
   ]) assert.throws(() => validateRootResultTransition(before, after), /monotonic transition invalid/u);
 });
 
+test("root-result publication uses an atomic same-directory no-clobber link and recovers an exact post-link crash", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "settleora-root-result-"));
+  try {
+    const value = rootResult("blocked", 3, {
+      reasonCode: "native_install_root_github_rate_budget_refused",
+      planDigest: null,
+      installedDigest: null,
+    });
+    const bytes = Buffer.from(`${canonicalJson(value)}\n`);
+    const temporary = path.join(root, `.${value.operationId}.${"1".repeat(24)}.tmp`);
+    const finalPath = path.join(root, `${value.operationId}.${value.rootJournalSequence}.${value.rootJournalDigest}.json`);
+    writeFileSync(temporary, bytes, { mode: 0o444 });
+    chmodSync(temporary, 0o444);
+    const published = publishNativeInstallRootResultNoReplace({
+      temporary,
+      finalPath,
+      bytes,
+      operationId: value.operationId,
+      expectedUid: process.getuid(),
+      expectedGid: process.getgid(),
+    });
+    assert.deepEqual(published, value);
+    assert.equal(existsSync(temporary), false);
+    assert.equal(readFileSync(finalPath).equals(bytes), true);
+    assert.equal(lstatSync(finalPath).nlink, 1);
+
+    const duplicate = path.join(root, `.${value.operationId}.${"2".repeat(24)}.tmp`);
+    writeFileSync(duplicate, bytes, { mode: 0o444 });
+    chmodSync(duplicate, 0o444);
+    assert.deepEqual(publishNativeInstallRootResultNoReplace({
+      temporary: duplicate,
+      finalPath,
+      bytes,
+      operationId: value.operationId,
+      expectedUid: process.getuid(),
+      expectedGid: process.getgid(),
+    }), value);
+    assert.equal(existsSync(duplicate), false);
+
+    const later = rootResult("blocked", 4, {
+      reasonCode: "native_install_root_authority_evidence_refused",
+      planDigest: null,
+      installedDigest: null,
+      rootJournalDigest: "d".repeat(64),
+    });
+    const laterBytes = Buffer.from(`${canonicalJson(later)}\n`);
+    const stranded = path.join(root, `.${later.operationId}.${"3".repeat(24)}.tmp`);
+    const laterFinal = path.join(root, `${later.operationId}.${later.rootJournalSequence}.${later.rootJournalDigest}.json`);
+    writeFileSync(stranded, laterBytes, { mode: 0o444 });
+    chmodSync(stranded, 0o444);
+    assert.throws(() => publishNativeInstallRootResultNoReplace({
+      temporary: stranded,
+      finalPath: laterFinal,
+      bytes: laterBytes,
+      operationId: later.operationId,
+      expectedUid: process.getuid(),
+      expectedGid: process.getgid(),
+      linkNoReplace(source, destination) {
+        linkSync(source, destination);
+        const error = new Error("injected post-link transport loss");
+        error.code = "EIO";
+        throw error;
+      },
+    }), /no-clobber publication failed/u);
+    assert.equal(existsSync(stranded), true);
+    assert.equal(existsSync(laterFinal), true);
+    assert.equal(lstatSync(stranded).nlink, 2);
+    assert.equal(lstatSync(laterFinal).nlink, 2);
+
+    assert.deepEqual(recoverNativeInstallRootResultNoReplaceLinks({
+      root,
+      operationId: later.operationId,
+      expectedUid: process.getuid(),
+      expectedGid: process.getgid(),
+    }), { recovered: 1 });
+    assert.equal(existsSync(stranded), false);
+    assert.equal(lstatSync(laterFinal).nlink, 1);
+    assert.equal(readFileSync(laterFinal).equals(laterBytes), true);
+
+    const atomicValue = rootResult("blocked", 5, {
+      reasonCode: "native_install_root_operation_blocked",
+      planDigest: null,
+      installedDigest: null,
+      rootJournalDigest: "e".repeat(64),
+    });
+    const atomicBytes = Buffer.from(`${canonicalJson(atomicValue)}\n`);
+    const atomicTemporary = path.join(root, `.${atomicValue.operationId}.${"4".repeat(24)}.tmp`);
+    const atomicPrefix = `..atomic-${sha256(path.basename(atomicTemporary)).slice(0, 32)}-`;
+    const atomicStaging = path.join(root, `${atomicPrefix}${"5".repeat(24)}.partial`);
+    writeFileSync(atomicStaging, atomicBytes, { mode: 0o444 });
+    chmodSync(atomicStaging, 0o444);
+    linkSync(atomicStaging, atomicTemporary);
+    assert.equal(lstatSync(atomicStaging).nlink, 2);
+    assert.deepEqual(readNativeInstallRootResultTemporaryFromDirectory({
+      root,
+      operationId: atomicValue.operationId,
+      expectedUid: process.getuid(),
+      expectedGid: process.getgid(),
+    }), atomicValue);
+    assert.equal(existsSync(atomicStaging), true);
+    assert.deepEqual(recoverNativeInstallRootResultNoReplaceLinks({
+      root,
+      operationId: atomicValue.operationId,
+      expectedUid: process.getuid(),
+      expectedGid: process.getgid(),
+    }), { recovered: 1 });
+    assert.equal(existsSync(atomicStaging), false);
+    assert.equal(existsSync(atomicTemporary), true);
+    assert.equal(lstatSync(atomicTemporary).nlink, 1);
+    unlinkSync(atomicTemporary);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("root failure diagnostics preserve only fixed allowlisted reason codes", () => {
+  const pythonFailure = {
+    status: 1,
+    signal: null,
+    error: null,
+    stdout: "",
+    stderr: "Traceback (most recent call last):\nRuntimeError: semantic_native_public_github_rate_budget_refused\n",
+  };
+  assert.equal(classifyPublicSemanticRecoveryGithubProcessFailure(pythonFailure), "semantic_native_public_github_rate_budget_refused");
+  assert.throws(() => readPublicSemanticRecoveryGithubRoute("repos/tommytang213/Settleora", {
+    minimumRateRemaining: 30,
+    command: () => pythonFailure,
+  }), /semantic_native_public_github_rate_budget_refused/u);
+  assert.equal(classifyNativeInstallRootFailure(new Error("semantic_native_public_github_rate_budget_refused")), "native_install_root_github_rate_budget_refused");
+  assert.equal(classifyNativeInstallRootReaderProcess({
+    status: 1, signal: null, error: null, stdout: "",
+    stderr: "native installation blocked: native_install_root_github_rate_budget_refused\n",
+  }), "native_install_root_github_rate_budget_refused");
+  assert.equal(classifyNativeInstallRootFailure(new Error("native_install_root_secret_token_exposed")), "native_install_root_operation_blocked");
+  assert.equal(classifyNativeInstallRootReaderProcess({
+    status: 1, signal: null, error: null, stdout: "",
+    stderr: "native installation blocked: native_install_root_secret_token_exposed\n",
+  }), "native_install_root_authority_reader_failed");
+  for (const stderr of [Buffer.alloc(0), "x".repeat(64 * 1024 + 1)]) {
+    assert.equal(classifyNativeInstallRootReaderProcess({
+      status: 0, signal: null, error: null, stdout: "{}\n", stderr,
+    }), "native_install_root_authority_reader_stderr_refused");
+    assert.equal(classifyPublicSemanticRecoveryGithubProcessFailure({
+      status: 0, signal: null, error: null, stdout: "{}", stderr,
+    }), "semantic_native_public_github_stderr_refused");
+  }
+  const secret = "Bearer fake-health-token";
+  const classified = classifyNativeInstallRootFailure(new Error(secret));
+  assert.equal(classified, "native_install_root_operation_blocked");
+  assert.doesNotMatch(classified, /secret|Bearer|token/u);
+});
+
+test("source-owned handoff accepts readback-required arm results without a second sudo attempt", () => {
+  for (const reasonCode of ["native_install_interactive_handoff_completed", "native_install_interactive_handoff_requires_readback"]) {
+    assert.deepEqual(decideNativeInstallHandoffControllerStep({ mode: "arm", result: { reasonCode, sudoAttemptCount: 1 } }), {
+      action: "resume_readback_only", sudoAllowed: false, terminal: false,
+    });
+  }
+  assert.throws(() => decideNativeInstallHandoffControllerStep({
+    mode: "arm", result: { reasonCode: "native_install_unexpected", sudoAttemptCount: 1 },
+  }), /reason mismatch/u);
+  assert.throws(() => decideNativeInstallHandoffControllerStep({
+    mode: "arm", result: { reasonCode: "native_install_interactive_handoff_requires_readback", sudoAttemptCount: 2 },
+  }), /sudo attempt identity/u);
+  assert.deepEqual(decideNativeInstallHandoffControllerStep({
+    mode: "resume",
+    result: { reasonCode: "native_install_root_result_blocked", sudoAttemptCount: 1, rootFailureReasonCode: "native_install_root_github_rate_budget_refused" },
+  }), {
+    action: "block", sudoAllowed: false, terminal: true, rootFailureReasonCode: "native_install_root_github_rate_budget_refused",
+  });
+  assert.deepEqual(decideNativeInstallHandoffControllerStep({
+    mode: "resume",
+    result: { reasonCode: "native_install_result_requires_readback", sudoAttemptCount: 1 },
+  }), {
+    action: "validate_installed_readback", sudoAllowed: false, terminal: false,
+  });
+  assert.throws(() => decideNativeInstallHandoffControllerStep({
+    mode: "resume",
+    result: { reasonCode: "native_install_root_result_blocked", sudoAttemptCount: 1, rootFailureReasonCode: "native_install_root_secret_token_exposed" },
+  }), /root failure reason invalid/u);
+});
+
+test("generated Windows OpenSSH coordinator restores only validated ProgramData and closes preflight stdin", () => {
+  const source = renderNativeInstallWindowsSshCoordinatorSource();
+  assert.match(source, /CommonApplicationData/u);
+  assert.match(source, /ConvertTo-CanonicalTrustedDrivePath \$programData 'ssh_programdata'/u);
+  assert.match(source, /EnvironmentVariables\.Clear\(\)/u);
+  assert.match(source, /EnvironmentVariables\['ProgramData'\] = \$programData/u);
+  assert.match(source, /RedirectStandardInput = \$true[\s\S]*StandardInput\.Close\(\)/u);
+  assert.match(source, /execute_stdin_must_remain_interactive/u);
+  assert.doesNotMatch(source, /GetEnvironmentVariables\(|EnvironmentVariables\['APPDATA'\]|EnvironmentVariables\['SSH_AUTH_SOCK'\]/u);
+});
+
+test("generated remote handoff flow resumes both valid arm outcomes and contains one arm invocation", () => {
+  const source = renderNativeInstallRemoteControllerFlowSource();
+  assert.match(source, /native_install_interactive_handoff_completed\|native_install_interactive_handoff_requires_readback/u);
+  assert.match(source, /run_immutable_controller --resume/u);
+  assert.match(source, /native_install_root_result_blocked\|native_install_root_result_requires_recovery/u);
+  assert.match(source, /native_install_root_github_rate_budget_refused/u);
+  assert.match(source, /persist_result BLOCKED "\$FAILURE_REASON" "\$admin_outcome" "\$resume_reason" false/u);
+  assert.equal((source.match(/run_immutable_controller --arm-interactive-sudo/gu) || []).length, 1);
+  assert.doesNotMatch(source, /--recover-interactive-sudo|rawSensitiveOutputRetained":true/u);
+});
+
+
+test("closed handoff renderer CLI emits only the selected source-owned fragment", () => {
+  const renderer = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../render-semantic-recovery-native-install-handoff.mjs");
+  const windows = spawnSync(process.execPath, [renderer, "--windows-ssh-coordinator"], { encoding: "utf8" });
+  assert.equal(windows.status, 0, windows.stderr);
+  assert.match(windows.stdout, /EnvironmentVariables\['ProgramData'\]/u);
+  assert.equal(windows.stderr, "");
+  const remote = spawnSync(process.execPath, [renderer, "--remote-controller-flow"], { encoding: "utf8" });
+  assert.equal(remote.status, 0, remote.stderr);
+  assert.match(remote.stdout, /native_install_interactive_handoff_requires_readback/u);
+  const invalid = spawnSync(process.execPath, [renderer, "--arbitrary"], { encoding: "utf8" });
+  assert.notEqual(invalid.status, 0);
+  assert.equal(invalid.stdout, "");
+});
+
+
+test("root-result observation prefers the latest monotonic final or temporary state and rejects conflicts", () => {
+  const ambiguous = rootResult("publication_ambiguous", 7);
+  const verified = rootResult("installed_verified", 8);
+  const completed = rootResult("completed", 9);
+  assert.deepEqual(selectFixedNativeInstallRootResultObservation(null, ambiguous), { value: ambiguous, publication: "temporary" });
+  assert.deepEqual(selectFixedNativeInstallRootResultObservation(verified, null), { value: verified, publication: "final" });
+  assert.deepEqual(selectFixedNativeInstallRootResultObservation(ambiguous, verified), { value: verified, publication: "temporary" });
+  assert.deepEqual(selectFixedNativeInstallRootResultObservation(completed, verified), { value: completed, publication: "final" });
+  assert.throws(() => selectFixedNativeInstallRootResultObservation(
+    rootResult("blocked", 5, { planDigest: null, installedDigest: null }),
+    completed,
+  ), /monotonic transition invalid/u);
+  assert.throws(() => selectFixedNativeInstallRootResultObservation(
+    verified,
+    structuredClone({ ...verified, reasonCode: "native_install_changed" }),
+  ), /observation conflict/u);
+});
+
 test("root-result retry publishes an authenticated older state before appending completion", () => {
   const ambiguous = rootResult("publication_ambiguous", 7);
   const completed = rootResult("completed", 9, { installedDigest: "4".repeat(64) });
@@ -594,7 +848,7 @@ test("root GitHub reader uses fixed public TLS transport with no HOME, token, co
   assert.match(captured.args[2], /HTTPSConnection\("api\.github\.com", 443/u);
   assert.match(captured.args[2], /response\.status != 200/u);
   assert.match(captured.args[2], /X-RateLimit-Remaining/u);
-  assert.throws(() => readPublicSemanticRecoveryGithubRoute("https://attacker.invalid/"), /public GitHub read blocked/u);
+  assert.throws(() => readPublicSemanticRecoveryGithubRoute("https://attacker.invalid/"), /semantic_native_public_github_route_invalid/u);
 });
 
 test("one root reader reuses one rate-reserved GitHub snapshot while separate readers remain independent", () => {
@@ -695,7 +949,10 @@ test("restart before every journal boundary never duplicates sudo or publication
   }
   assert.equal(journal.sudoAttemptCount, 1);
   assert.equal(journal.publicationAttemptCount, 1);
-  assert.equal(resumeNativeInstallProtocol({ ownerJournal: journal }).action, "readback_only");
+  const resume = resumeNativeInstallProtocol({ ownerJournal: journal });
+  assert.equal(resume.action, "readback_only");
+  assert.equal(resume.reasonCode, "native_install_result_requires_readback");
+  assert.equal(resume.sudoAttemptCount, 1);
 });
 
 test("publication transport ambiguity always selects exact readback and never automatic replay", () => {
@@ -715,9 +972,13 @@ test("publication transport ambiguity always selects exact readback and never au
     journal = transitionNativeInstallJournal({ current: journal, expectedState, nextState, observedAt: new Date(Date.parse(journalIdentity.observedAt) + (index + 1) * 1000).toISOString(), result, persist() {} });
   }
   const action = resumeNativeInstallProtocol({ ownerJournal: journal });
-  assert.deepEqual(action, { action: "readback_only", mutationAllowed: false, sudoAllowed: false, reasonCode: "native_install_publication_ambiguous" });
+  assert.deepEqual(action, {
+    action: "readback_only", mutationAllowed: false, sudoAllowed: false,
+    reasonCode: "native_install_publication_ambiguous", sudoAttemptCount: 1,
+  });
   const adopted = resumeNativeInstallProtocol({ ownerJournal: journal, installedReadback: { ok: true, planDigest: "3".repeat(64) } });
   assert.equal(adopted.action, "adopt_verified_result");
+  assert.equal(adopted.sudoAttemptCount, 1);
 });
 
 test("lost rename transport with surviving private container stays ambiguous and never reports success", () => {
@@ -834,12 +1095,10 @@ test("real TTY/PAM process outcomes are abstracted and argv/environment/journal 
   assert.equal(sudoArgv.includes("-c"), false);
   assert.equal(sudoArgv.some((entry) => /set -e|git fetch|[\n\r]/u.test(entry)), false);
   assert.equal(validateInteractiveSudoBoundary({ argv: sudoArgv, env: {}, tty: true, stdinKind: "tty_password_only_no_program_bytes", stdoutKind: "bounded_capture", stderrKind: "bounded_capture" }).ok, true);
-  const recoveryArgv = buildNativeInstallSudoArgv({
+  assert.throws(() => buildNativeInstallSudoArgv({
     handoffMode: "recover_readback", sourceCommit: "a".repeat(40), bootstrapBlob: "b".repeat(40), correlation: "issue-1012-fixture",
     operationId: "c".repeat(64), ownerJournalDigest: "d".repeat(64), ownerJournalSha256: "e".repeat(64),
-  });
-  assert.equal(recoveryArgv.at(nativeInstallSudoArgv.length), "recover_readback");
-  assert.equal(validateInteractiveSudoBoundary({ argv: recoveryArgv, env: {}, tty: true, stdinKind: "tty_password_only_no_program_bytes", stdoutKind: "bounded_capture", stderrKind: "bounded_capture" }).ok, true);
+  }), /identity invalid/u);
   assert.throws(() => buildNativeInstallSudoArgv({ handoffMode: "publish", sourceCommit: "a".repeat(40), bootstrapBlob: "b".repeat(40), correlation: "issue-1012-fixture", operationId: "c".repeat(64), ownerJournalDigest: "d".repeat(64), ownerJournalSha256: "e".repeat(64) }), /identity invalid/u);
   for (const changed of [
     { argv: [...sudoArgv, secret] }, { env: { TOKEN: secret } }, { tty: false }, { stdinKind: "password_pipe" },
@@ -879,10 +1138,8 @@ test("trusted bootstrap records the exact armed receipt before authenticated net
   assert.match(source, /trusted_path='\/usr\/libexec\/settleora-semantic-recovery-native-install-bootstrap'/u);
   assert.match(source, /stat -Lc '%F:%u:%g:%a:%h'/u);
   assert.match(source, /git hash-object -- "\$trusted_path"/u);
-  assert.match(source, /handoff_mode.*recover_readback/u);
-  assert.match(source, /controller_mode='--root-bootstrap-recover'/u);
-  assert.match(source, /operation_id\}\.package\.json/u);
-  assert.equal(source.indexOf("root recovery artifact unsafe") < source.indexOf("fetch --quiet"), true);
+  assert.match(source, /\[\[ "\$handoff_mode" == install \]\] \|\| block/u);
+  assert.doesNotMatch(source, /recover_readback|root-bootstrap-recover|root-recovery-internal/u);
   assert.equal(source.indexOf("owner_directory_fd = os.open", 0) < source.indexOf("git -c core.hooksPath=/dev/null", 0), true);
   assert.equal(source.indexOf("os.fsync(root_directory_fd)") < source.indexOf("fetch --quiet"), true);
   assert.match(source, /os\.O_RDONLY \| os\.O_NOFOLLOW, dir_fd=owner_directory_fd/u);
@@ -918,7 +1175,7 @@ test("authenticated root planners retain OS root while applying the fixed source
   assert.match(policy, /assertFixedRootRuntime\(\)/u);
   assert.match(policy, /process\.getuid = \(\) => identity\.uid/u);
   assert.match(source, /existing root journal requires recovery-only handoff/u);
-  assert.match(source, /recovery root journal absent/u);
+  assert.doesNotMatch(source, /--recover-interactive-sudo|--root-bootstrap-recover|--root-recovery-internal/u);
   assert.equal(source.indexOf("const finalAuthority = runIndependentRootReaders") > source.indexOf("const published = publishOrAdoptVerifiedNativeInstall"), true);
   assert.match(source, /reauthenticate\(\)[\s\S]*runIndependentRootReaders/u);
   const producer = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../semantic-recovery-native-producer.mjs"), "utf8");
@@ -956,13 +1213,15 @@ test("real Python rename_noreplace helper interoperates through stdin using exac
   const publicationSource = readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), "../lib/semantic-recovery-native-install-publication.mjs"), "utf8");
   assert.match(helperSource, /RENAME_NOREPLACE = 1/u);
   assert.match(helperSource, /sys\.argv == \[sys\.argv\[0\], "--publish-root"\]/u);
-  assert.match(helperSource, /sys\.argv\[1\] == "--root-result"[\s\S]*DIGEST\.fullmatch\(sys\.argv\[2\]\)/u);
-  assert.match(helperSource, /name\.startswith\(prefix\)[\s\S]*RESULT_TEMP\.fullmatch/u);
-  assert.match(helperSource, /other_before[\s\S]*other_after[\s\S]*stat_matches\(other_before, other_after\)/u);
+  assert.doesNotMatch(helperSource, /--root-result|RESULT_ROOT|RESULT_TEMP/u);
   assert.doesNotMatch(helperSource, /sys\.argv\[[3-9][0-9]*\]/u);
   assert.doesNotMatch(helperSource, /AT_FDCWD/u);
   assert.match(helperSource, /os\.listdir\(parent_fd\)/u);
   assert.match(helperSource, /os\.listdir\(directory_fd\)/u);
   assert.doesNotMatch(installerSource, /helper,[^\n]*stage, finalRoot/u);
+  assert.match(installerSource, /spawnSync\(fixedPython, \["-I", helper, "--publish-root"\]/u);
+  assert.match(publicationSource, /linkNoReplace = linkSync/u);
+  assert.match(publicationSource, /linkNoReplace\(temporary, finalPath\)/u);
+  assert.match(publicationSource, /recoverNativeInstallRootResultNoReplaceLinks/u);
   assert.doesNotMatch(publicationSource, /new RegExp/u);
 });

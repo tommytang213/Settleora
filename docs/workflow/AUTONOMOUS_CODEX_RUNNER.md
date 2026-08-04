@@ -1873,16 +1873,24 @@ keeps transport loss ambiguous even when the final tree is exact. Durable
 owner/root journals bind the exact armed transition, persist the verified
 root-derived package, and make `publication_started` ambiguous on process loss.
 Restart uses the original request/package plus fresh authority corroboration
-and exact readback only, never automatic replay. A recovery-only interactive
-handoff is reachable solely after the original owner journal is durably
-`sudo_started` and the correlated privileged receipt, journal, and package
-already exist; it cannot publish or increment an effect counter. Root-owned
+and exact readback only, never automatic replay. After the one permitted sudo
+attempt starts, no source-owned recovery-sudo route remains. An absent or
+ambiguous result requires a separate manual recovery gate; automatic and
+source-owned continuations remain readback-only. Root-owned
 sanitized results are append-only, journal-sequenced records whose monotonic
 readback prevents an older ambiguous writer from replacing completion. They
-support durable owner-side completion. An exact stranded result temporary is
-authenticated and reused after restart; byte-identical duplicates are safely
-coalesced and directory-fsynced only within the validated operation digest,
-while other-operation or conflicting residue is left untouched and blocks.
+support durable owner-side completion. Each result final is created by an
+atomic same-directory no-clobber hard link from the authenticated `0444`
+temporary, followed by inode/link-count checks, fsync, temporary unlink, and
+canonical final readback. The Python `renameat2` helper remains scoped to the
+protected directory publication rather than becoming a second failure boundary
+for result files. An exact stranded result temporary is authenticated and
+reused after restart; byte-identical duplicates are safely coalesced and
+directory-fsynced only within the validated operation digest, while
+other-operation or conflicting residue is left untouched and blocks. Owner
+resume may read one exact stranded temporary only to surface a bounded blocked
+reason or require a separate manual recovery gate; it cannot treat temporary
+evidence as installed success.
 One exact earlier-state temporary is monotonically published and
 read back under its own identity before a later result is appended. Canonical
 journal, snapshot, claim, and recognized result-temporary names appear only
@@ -1893,7 +1901,17 @@ historical snapshot clock while freshly rereading current authority, so expiry
 cannot turn exact installed readback into replay. Verified installation/adoption
 cannot transition to `blocked`; a final journal or result-publication failure
 permits only exact frozen-package readback, completion, and idempotent result
-adoption. Exclusive root-owned transition
+adoption. Manual handoff source is rendered from the repository-owned closed
+fragments. Its Windows OpenSSH coordinator restores only independently
+canonicalized `ProgramData` after clearing the ambient environment, closes
+preflight stdin to prevent forced-TTY console bytes from contaminating
+canonical JSON, and leaves execute stdin attached to the real TTY. Its remote
+controller flow accepts both completed and readback-required outcomes from the
+single arm call and proceeds to `--resume` without a second sudo attempt.
+Root-process exceptions are projected only into allowlisted
+`native_install_root_*` reason codes; raw exception text, tracebacks, paths,
+headers, credentials, and provider payloads never cross the root/controller
+boundary. Exclusive root-owned transition
 claims and a repository/source operation identity prevent
 concurrent or fresh-correlation reset. Root planning from a runner-writable repository path is
 rejected, and unprivileged planned bytes alone are not authority. Producer installation, one exact grant, root-executed successor
