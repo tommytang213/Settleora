@@ -56,7 +56,7 @@ function generate(overrides = {}) {
   const handoffRoot = overrides.handoffRoot || fixtureRoot();
   const calls = [];
   const result = generateNativeInstallHandoffPackage({
-    repositoryRoot, handoffRoot, repository: overrides.repository || "tommytang213/Settleora", branch: overrides.branch || "main", sourceCommit: fixture.commit,
+    repositoryRoot: overrides.repositoryRoot || repositoryRoot, handoffRoot, repository: overrides.repository || "tommytang213/Settleora", branch: overrides.branch || "main", sourceCommit: fixture.commit,
     sourceTree: fixture.rootTree, remoteHost: overrides.remoteHost || "operator@settleora.example", remoteHandoffRoot: "/srv/settleora/manual-root-handoffs",
     clock: overrides.clock || (() => new Date("2026-08-05T01:56:00.000Z")), random: overrides.random || seededRandom(),
     sourceAuthenticator: (request) => { calls.push(request); return fixture.authenticated; }, filesystem: overrides.filesystem, fault: overrides.fault,
@@ -184,6 +184,7 @@ test("unsafe destination roots, traversal metadata and malformed entropy fail be
   assert.throws(() => generate({ remoteHost: "-F@settleora.example" }), /generation request invalid/u);
   assert.throws(() => generate({ repository: "fork/Settleora" }), /generation request invalid/u);
   assert.throws(() => generate({ branch: "feature/unreviewed" }), /generation request invalid/u);
+  assert.throws(() => generate({ repositoryRoot: fixtureRoot() }), /generation request invalid/u);
 });
 
 test("publisher is atomic no-clobber and never replaces a pre-existing final directory", () => {

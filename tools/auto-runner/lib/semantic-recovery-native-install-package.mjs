@@ -22,6 +22,7 @@ export const nativeInstallPackageMaximumFiles = 128;
 export const nativeInstallPackageMaximumBytes = 32 * 1024 * 1024;
 const canonicalRepository = "tommytang213/Settleora";
 const canonicalSourceBranch = "main";
+const moduleRepositoryRoot = path.resolve(path.dirname(realpathSync(fileURLToPath(import.meta.url))), "../../..");
 const digestPattern = /^[a-f0-9]{64}$/u;
 const oidPattern = /^[a-f0-9]{40}$/u;
 const hostPattern = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}@[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/u;
@@ -504,7 +505,7 @@ emit native_install_execute_completed
 function normalizeGenerationRequest(value) {
   assertExactKeys(value, ["branch", "handoffRoot", "remoteHandoffRoot", "remoteHost", "repository", "repositoryRoot", "sourceCommit", "sourceTree"]);
   const normalized = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, String(child || "")]));
-  if (!path.isAbsolute(normalized.repositoryRoot) || !path.isAbsolute(normalized.handoffRoot)
+  if (!path.isAbsolute(normalized.repositoryRoot) || normalized.repositoryRoot !== moduleRepositoryRoot || !path.isAbsolute(normalized.handoffRoot)
       || normalized.repository !== canonicalRepository || normalized.branch !== canonicalSourceBranch
       || !oidPattern.test(normalized.sourceCommit) || !oidPattern.test(normalized.sourceTree)
       || !hostPattern.test(normalized.remoteHost) || !absoluteRemotePathPattern.test(normalized.remoteHandoffRoot)

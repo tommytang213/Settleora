@@ -1914,7 +1914,8 @@ generation-only boundary independently authenticates the exact clean
 `tommytang213/Settleora:main` commit/tree against the fixed public GitHub HTTPS
 branch with a read-only
 credential-free remote proof, authenticates the complete object graph, reuses
-the native-install closure selector, creates fresh identities, validates canonical cross-bindings, and
+the native-install closure selector, and requires that exact checkout to contain
+the running generator/package/render modules. It creates fresh identities, validates canonical cross-bindings, and
 atomically publishes one private no-clobber package. It does not enter any
 controller mode or create owner/root protocol state. Fragment rendering,
 complete-package generation, protocol preparation, interactive execution,
