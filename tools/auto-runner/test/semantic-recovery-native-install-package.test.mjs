@@ -216,6 +216,7 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
   const base = new Map([
     ["config --local --no-includes --null --list", ""], ["rev-parse --is-shallow-repository", "false\n"],
     ["rev-parse --show-toplevel", `${root}\n`],
+    ["ls-files -v -z", "H package.json\0H tools/auto-runner/semantic-recovery-native-install-bootstrap.sh\0"],
     ["-c core.fsmonitor=false -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all", ""],
     ["rev-parse HEAD^{commit}", `${commit}\n`], ["symbolic-ref --short HEAD", "main\n"],
     ["rev-parse refs/heads/main^{commit}", `${commit}\n`], ["rev-parse refs/remotes/origin/main^{commit}", `${commit}\n`],
@@ -245,6 +246,8 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     [{ "config --local --no-includes --null --list": "core.worktree\n/tmp/other\0" }, /unsafe/u],
     [{ "rev-parse --show-toplevel": "/tmp/other\n" }, /worktree root/u],
     [{ "config --local --no-includes --null --list": "extensions.worktreeConfig\ntrue\0", "config --worktree --no-includes --null --list": "core.worktree\n/tmp/other\0" }, /worktree configuration/u],
+    [{ "ls-files -v -z": "h package.json\0H tools/auto-runner/semantic-recovery-native-install-bootstrap.sh\0" }, /hidden Git index/u],
+    [{ "ls-files -v -z": "S package.json\0H tools/auto-runner/semantic-recovery-native-install-bootstrap.sh\0" }, /hidden Git index/u],
   ]) assert.throws(() => attempt(override), pattern);
   let worktreeCommandReached = false;
   assert.throws(() => authenticateRepositoryNativeInstallSource(request, { command: (_exe, args) => {

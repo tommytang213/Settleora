@@ -303,6 +303,10 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
   }
   if (git(["rev-parse", "--show-toplevel"]).trim() !== root) throw new Error("handoff Git worktree root mismatch");
   if (git(["rev-parse", "--is-shallow-repository"]).trim() !== "false") throw new Error("handoff source history incomplete");
+  const indexEntries = git(["ls-files", "-v", "-z"]);
+  if (indexEntries.length === 0 || indexEntries.split("\0").some((entry) => entry !== "" && !entry.startsWith("H "))) {
+    throw new Error("handoff hidden Git index state forbidden");
+  }
   if (git(["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "status", "--porcelain=v1", "--untracked-files=all"]).length !== 0) throw new Error("handoff source worktree dirty");
   const head = git(["rev-parse", "HEAD^{commit}"]).trim();
   const localBranch = git(["symbolic-ref", "--short", "HEAD"]).trim();
