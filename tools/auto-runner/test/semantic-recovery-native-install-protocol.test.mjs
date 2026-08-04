@@ -663,7 +663,7 @@ test("root failure diagnostics preserve only fixed allowlisted reason codes", ()
     status: 1, signal: null, error: null, stdout: "",
     stderr: "native installation blocked: native_install_root_secret_token_exposed\n",
   }), "native_install_root_authority_reader_failed");
-  const secret = "Bearer super-secret-health-token";
+  const secret = "Bearer fake-health-token";
   const classified = classifyNativeInstallRootFailure(new Error(secret));
   assert.equal(classified, "native_install_root_operation_blocked");
   assert.doesNotMatch(classified, /secret|Bearer|token/u);
