@@ -1873,10 +1873,10 @@ keeps transport loss ambiguous even when the final tree is exact. Durable
 owner/root journals bind the exact armed transition, persist the verified
 root-derived package, and make `publication_started` ambiguous on process loss.
 Restart uses the original request/package plus fresh authority corroboration
-and exact readback only, never automatic replay. A recovery-only interactive
-handoff is reachable solely after the original owner journal is durably
-`sudo_started` and the correlated privileged receipt, journal, and package
-already exist; it cannot publish or increment an effect counter. Root-owned
+and exact readback only, never automatic replay. After the one permitted sudo
+attempt starts, no source-owned recovery-sudo route remains. An absent or
+ambiguous result requires a separate manual recovery gate; automatic and
+source-owned continuations remain readback-only. Root-owned
 sanitized results are append-only, journal-sequenced records whose monotonic
 readback prevents an older ambiguous writer from replacing completion. They
 support durable owner-side completion. Each result final is created by an
