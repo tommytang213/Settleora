@@ -1,5 +1,59 @@
 # Issue Progress Ledger
 
+### Issue #1012 and PR #1044 — root-authoritative native installation protocol source merged (2026-08-04)
+
+- PR #1044 merged once by normal expected-head GitHub merge commit from exact
+  authorized base `ac5d5075249010f77c85eb7e7d4b68e91bf99e87` and exact
+  source head `1cfba4b6f799b1b0e0430796b4dd5442857eb0db` as merge
+  `dc6393e49e48f1934310c58daacb71706466b598`. Its ordered parents are
+  the authorized base and source head, with no third parent, and its tree is
+  the exact source tree `3a21817cc89f63440fce1438f3d458b706d25911`.
+- The exact source candidate retained raw base-to-head diff SHA-256
+  `3f0a81138f32cd179a55defee9da081c294976be5f09f05056d65a52e5c66611`
+  and sorted 16-path manifest SHA-256
+  `5bcc4b950bc17f02b44ed30991b19af78fb7cbed8a7c7ef522506419b658c92f`.
+  It comprised 19 commits and exactly 16 authorized workflow/auto-runner
+  source, helper, and focused-test paths, with 4,812 additions and 111
+  deletions.
+- The merged source defines a root-authoritative first-install protocol: a
+  future fixed trusted bootstrap authenticates the selected canonical GitHub
+  commit and complete selected tree/blob closure, materializes only
+  authenticated bytes into a root-owned immutable private source closure,
+  then requires independent root planner/verifier derivation and a
+  publication-edge reread. Unprivileged projected plans, stores, manifests,
+  paths, verifier results, checkout bytes, and helper transport are not
+  authority. Publication is atomic no-clobber; exact adoption and ambiguous
+  publication use complete installed-state readback; pre-publication failure
+  is durably blocked without replay.
+- Exact-head and merged-main validation passed dependency installation,
+  doctor, zero-vulnerability root and web-user audits, bootstrap/Python/Node
+  syntax and import checks, focused recovery/security tests `131/131`, the
+  complete auto-runner suite `1,443/1,443`, docs, scaffold, diff, scope,
+  identity, and all linked-worktree clean guards. Fresh exact-head Gemini
+  `strong_independent` and local Codex reviews passed with zero material
+  findings, and exact-head GitHub Codex found no major issue.
+- All 12 source-head checks passed; all 12 review threads were resolved with
+  zero unresolved actionable findings. All nine applicable merged-main jobs
+  passed, including CodeQL, Semgrep, Trivy, Scaffold Validation, and the
+  policy-owned API image workflow. Open code-scanning, secret-scanning, and
+  Dependabot alerts remained `0/0/0`; GitHub deployments remained zero.
+- Keep Issue #1012 `OPEN` with `manual-gate`. The protected parent/root,
+  bootstrap, control-root/native producer, operation grant, and semantic
+  successor remain absent and uninstalled. The exact next separate gate is
+  **manual-root bootstrap/control-root installation handoff from exact merged
+  source `dc6393e49e48f1934310c58daacb71706466b598`** under fresh owner
+  authorization. It must not install a grant, create, persist, adopt, or read
+  back a successor, continue Issue #959, deploy or roll back runtime, submit
+  runner/supervisor work, or activate the queue unless separately authorized.
+- No sudo/root action, installation, deployment, runtime/config/profile/
+  approval/launcher/health mutation, Issue #959 continuation, queue/submission,
+  product/API/auth/storage/money/schema change, secret or exposure change, or
+  branch/worktree cleanup occurred. This mechanically generated docs-only
+  checkpoint changes no policy, permission, security contract, product scope,
+  or operational authority.
+- Issue #1012 source-merge checkpoint:
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5173559197`.
+
 ### Issue #1012 and PR #1042 — production-native semantic recovery producer source merged (2026-08-03)
 
 - PR #1042 merged once by normal expected-head GitHub merge commit from exact
