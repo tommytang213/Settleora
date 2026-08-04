@@ -477,7 +477,7 @@ function normalizeGenerationRequest(value) {
 }
 function fileRecord(entry) { return { byteCount: entry.bytes.length, mode: entry.mode.toString(8).padStart(4, "0"), path: entry.path, sha256: sha256(entry.bytes) }; }
 function comparePath(left, right) { return left.path < right.path ? -1 : left.path > right.path ? 1 : 0; }
-function timestampKeyFromDate(value) { return value.toISOString().replace(/[-:]/gu, "").slice(0, 8) + "-" + value.toISOString().slice(11, 16).replace(":", ""); }
+function timestampKeyFromDate(value) { const hkt = new Date(value.getTime() + 8 * 60 * 60 * 1000).toISOString(); return hkt.replace(/[-:]/gu, "").slice(0, 8) + "-" + hkt.slice(11, 16).replace(":", ""); }
 function randomHex(random, size, label) { const bytes = Buffer.from(random(size)); if (bytes.length !== size) throw new Error(`handoff ${label} entropy invalid`); return bytes.toString("hex"); }
 function parseCanonicalJson(bytes) { const text = Buffer.from(bytes).toString("utf8"); if (!Buffer.from(text).equals(Buffer.from(bytes))) throw new Error("handoff JSON encoding invalid"); let value; try { value = JSON.parse(text); } catch { throw new Error("handoff JSON invalid"); } if (!canonicalBytes(value).equals(Buffer.from(bytes))) throw new Error("handoff JSON noncanonical"); return value; }
 function canonicalBytes(value) { return Buffer.from(`${canonicalJson(value)}\n`); }

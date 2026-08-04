@@ -74,6 +74,9 @@ test("deterministic injected generation emits a complete canonical package with 
   assert.equal(validation.packageAggregateDigest, first.result.packageAggregateDigest);
   assert.equal(validation.packageManifestDigest, first.result.packageManifestDigest);
   const manifest = JSON.parse(readFileSync(path.join(first.result.finalHandoffDirectory, "package-manifest.json"), "utf8"));
+  const identity = JSON.parse(readFileSync(path.join(first.result.finalHandoffDirectory, "handoff-identity.json"), "utf8"));
+  assert.equal(identity.timestampKey, "20260805-0956");
+  assert.notEqual(identity.timestampKey, "20260804-1825");
   assert.equal(manifest.contract, nativeInstallPackageContract);
   assert.deepEqual(manifest.allowlist, [...manifest.allowlist].sort());
   assert.equal(new Set(manifest.members.map((entry) => entry.path)).size, manifest.members.length);
