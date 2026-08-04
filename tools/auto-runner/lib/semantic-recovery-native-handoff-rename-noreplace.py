@@ -38,6 +38,10 @@ def main() -> int:
             if code in (errno.EEXIST, errno.ENOTEMPTY):
                 raise RuntimeError("handoff_publication_destination_exists")
             raise RuntimeError("handoff_publication_rename_failed")
+        # This bounded marker is written immediately after the only state-changing
+        # syscall. A parent that observes it must classify every later failure as
+        # ambiguous rather than cleaning or retrying the now-published package.
+        os.write(1, b"handoff_publication_renamed\n")
         final_fd = LIBC.openat(parent_fd, os.fsencode(final), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
         if final_fd < 0:
             raise RuntimeError("handoff_publication_final_open_failed")

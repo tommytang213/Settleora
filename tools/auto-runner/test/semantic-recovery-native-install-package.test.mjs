@@ -59,7 +59,7 @@ function generate(overrides = {}) {
     repositoryRoot, handoffRoot, repository: "tommytang213/Settleora", branch: "main", sourceCommit: fixture.commit,
     sourceTree: fixture.rootTree, remoteHost: "operator@settleora.example", remoteHandoffRoot: "/srv/settleora/manual-root-handoffs",
     clock: overrides.clock || (() => new Date("2026-08-05T01:56:00.000Z")), random: overrides.random || seededRandom(),
-    sourceAuthenticator: (request) => { calls.push(request); return fixture.authenticated; }, fault: overrides.fault,
+    sourceAuthenticator: (request) => { calls.push(request); return fixture.authenticated; }, filesystem: overrides.filesystem, fault: overrides.fault,
   });
   return { calls, fixture, handoffRoot, result };
 }
@@ -110,6 +110,7 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   const remote = readFileSync(path.join(result.finalHandoffDirectory, "remote-entrypoint.sh"), "utf8");
   assert.equal((remote.match(/--arm-interactive-sudo/gu) || []).length, 2);
   assert.match(remote, /awaiting_readback_only_resume/u);
+  assert.match(remote, /validate_installed_readback\(\)\{ emit native_install_execute_requires_installed_readback; exit 75; \}/u);
   assert.match(remote, /--preflight\) emit native_install_preflight_verified/u);
   assert.match(remote, /\*\) fail remote_phase_invalid/u);
   const syntax = spawnSync("/usr/bin/bash", ["-n", path.join(result.finalHandoffDirectory, "remote-entrypoint.sh")], { encoding: "utf8" });
@@ -179,6 +180,15 @@ test("publisher is atomic no-clobber and never replaces a pre-existing final dir
   const filesystem = createNativeInstallPackageFilesystem();
   assert.throws(() => filesystem.publishNoReplace({ parent, stagingName: stage, finalName: final }), /publication failed/u);
   assert.equal(lstatSync(path.join(parent, final)).isDirectory(), true);
+});
+
+test("publisher transport failure after the rename marker is classified as ambiguous and retains evidence", () => {
+  const parent = fixtureRoot();
+  const helper = path.join(fixtureRoot(), "publisher.py");
+  writeFileSync(helper, "#!/usr/bin/python3\nimport os, sys\nbase = '/proc/self/fd/3/'\nos.rename(base + sys.argv[2], base + sys.argv[3])\nos.write(1, b'handoff_publication_renamed\\n')\nraise SystemExit(1)\n", { mode: 0o700 });
+  const filesystem = createNativeInstallPackageFilesystem({ publisherPath: helper });
+  assert.throws(() => generate({ handoffRoot: parent, filesystem }), /handoff publication ambiguous/u);
+  assert.equal(readFileNames(parent).filter((name) => !name.startsWith(".")).length, 1);
 });
 
 test("production source admission rejects shallow, dirty, branch/ref/tree/origin, replace and unsafe-config drift before reading objects", () => {

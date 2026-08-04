@@ -177,8 +177,9 @@ export function generateNativeInstallHandoffPackage({
     fault("after-publication", { stagingDirectory, finalDirectory });
     validateNativeInstallHandoffPackage(finalDirectory, { filesystem, expected: { ...summary, packageManifestDigest } });
   } catch (error) {
-    if (!published && filesystem.isOwnedUnpublishedStage(stagingDirectory)) filesystem.removeOwnedStage(stagingDirectory);
-    if (published) throw new Error(`handoff publication ambiguous: ${boundedError(error)}`);
+    const publicationAmbiguous = published || error?.publicationMayHaveOccurred === true;
+    if (!publicationAmbiguous && filesystem.isOwnedUnpublishedStage(stagingDirectory)) filesystem.removeOwnedStage(stagingDirectory);
+    if (publicationAmbiguous) throw new Error(`handoff publication ambiguous: ${boundedError(error)}`);
     throw error;
   }
   return deepFreeze({
@@ -348,7 +349,12 @@ export function createNativeInstallPackageFilesystem({ publisherPath = path.join
         const child = spawnSync("/usr/bin/python3", [publisherPath, "--publish-fd3", stagingName, finalName], {
           cwd: "/", env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe", parentFd], encoding: "utf8", maxBuffer: 16 * 1024, timeout: 30_000,
         });
-        if (child.status !== 0 || child.error || child.stdout !== "") throw new Error("handoff atomic publication failed");
+        const publicationMarker = "handoff_publication_renamed\n";
+        if (child.status !== 0 || child.error || child.stdout !== publicationMarker) {
+          const error = new Error("handoff atomic publication failed");
+          if (child.stdout?.startsWith(publicationMarker)) error.publicationMayHaveOccurred = true;
+          throw error;
+        }
       } finally { closeSync(parentFd); }
     },
     fsyncDirectory,
@@ -454,7 +460,7 @@ run_immutable_controller(){ /usr/bin/node "$PACKAGE_ROOT/controller/tools/auto-r
 validate_controller_json(){ local value="$1" expected="$2" canonical; [ "$(/usr/bin/printf '%s' "$value" | /usr/bin/wc -c)" -le 4096 ] || fail controller_output_oversized; canonical=$(/usr/bin/printf '%s' "$value" | /usr/bin/jq -ceS .) || fail controller_output_invalid; [ "$canonical" = "$value" ] || fail controller_output_noncanonical; [ "$(/usr/bin/printf '%s' "$value" | /usr/bin/jq -er .reasonCode)" = "$expected" ] || fail controller_output_reason_mismatch; }
 verify_all_held_locks(){ :; }
 absence_gate_pre_arm(){ :; }
-validate_installed_readback(){ :; }
+validate_installed_readback(){ emit native_install_execute_requires_installed_readback; exit 75; }
 persist_result(){ return 1; }
 run_execute(){
   local admin_outcome=not_started resume_reason=not_started LAST_PROTECTED_OUTCOME=not_started FAILURE_REASON=none
