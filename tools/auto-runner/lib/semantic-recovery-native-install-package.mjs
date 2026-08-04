@@ -311,7 +311,7 @@ export function validateNativeInstallHandoffPackage(directory, { filesystem = cr
   return deepFreeze({ ...summary, packageManifestDigest: sha256(manifestBytes) });
 }
 
-export function authenticateRepositoryNativeInstallSource(request, { command = runCommand, generatorSourceVerifier = verifyNativeInstallGeneratorSourceFiles, taskCorrelation } = {}) {
+export function authenticateRepositoryNativeInstallSource(request, { command = runCommand, generatorSourceVerifier, taskCorrelation } = {}) {
   if (request.repository !== canonicalRepository || request.branch !== canonicalSourceBranch) throw new Error("handoff canonical source authority required");
   const root = request.repositoryRoot;
   assertSafeRepositoryRoot(root);
@@ -359,10 +359,13 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
     if (existsSync(target)) throw new Error("handoff Git alternate authority forbidden");
   }
   if (git(["for-each-ref", "refs/replace", "--format=%(refname)"]).trim() !== "") throw new Error("handoff Git replace authority forbidden");
-  generatorSourceVerifier({
-    root,
-    resolveBlobOid(source) { return git(["rev-parse", `${request.sourceCommit}:${source}`]).trim(); },
-  });
+  if (generatorSourceVerifier !== undefined) {
+    generatorSourceVerifier({ root, resolveBlobOid(source) { return git(["rev-parse", `${request.sourceCommit}:${source}`]).trim(); } });
+  } else if (moduleRepositoryRoot === root) {
+    throw new Error("handoff authenticated private generator runtime required");
+  } else {
+    assertPrivateGeneratorRuntime(moduleRepositoryRoot);
+  }
   const bootstrapOid = git(["rev-parse", `${request.sourceCommit}:${nativeInstallBootstrapScript}`]).trim();
   return authenticateNativeInstallGitSource({
     hint: {
@@ -381,14 +384,14 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
 }
 
 export function verifyNativeInstallGeneratorSourceFiles({ root, resolveBlobOid } = {}) {
-  if (root !== moduleRepositoryRoot || typeof resolveBlobOid !== "function") throw new Error("handoff generator source verifier invalid");
+  if (typeof root !== "string" || typeof resolveBlobOid !== "function") throw new Error("handoff generator source verifier invalid");
   const uid = process.getuid?.();
   const gid = process.getgid?.();
   for (const entry of generatorSourceFiles) {
     const target = path.join(root, entry.source);
     const before = lstatSync(target);
     if (!before.isFile() || before.isSymbolicLink() || before.uid !== uid || before.gid !== gid || before.nlink !== 1
-        || (before.mode & 0o111) !== (entry.mode & 0o111) || (before.mode & 0o002) !== 0
+        || (before.mode & 0o100) !== (entry.mode & 0o100) || (before.mode & 0o022) !== 0
         || realpathSync(target) !== target) throw new Error("handoff generator source metadata invalid");
     const fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW);
     let bytes;
@@ -396,7 +399,8 @@ export function verifyNativeInstallGeneratorSourceFiles({ root, resolveBlobOid }
       const held = fstatSync(fd);
       bytes = readFileSync(fd);
       const after = fstatSync(fd);
-      if (held.dev !== after.dev || held.ino !== after.ino || held.size !== after.size || held.mtimeMs !== after.mtimeMs || held.ctimeMs !== after.ctimeMs) {
+      if (held.dev !== before.dev || held.ino !== before.ino || held.dev !== after.dev || held.ino !== after.ino
+          || held.size !== after.size || held.mtimeMs !== after.mtimeMs || held.ctimeMs !== after.ctimeMs) {
         throw new Error("handoff generator source changed during authentication");
       }
     } finally { closeSync(fd); }
@@ -410,6 +414,7 @@ export function verifyNativeInstallGeneratorSourceFiles({ root, resolveBlobOid }
 export function createNativeInstallPackageFilesystem({ publisherPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "semantic-recovery-native-handoff-rename-noreplace.py") } = {}) {
   const uid = process.getuid?.();
   const gid = process.getgid?.();
+  const publisherDigest = sha256(readStableExecutable(publisherPath, uid, gid));
   return {
     exists: existsSync,
     assertDestinationRoot: (target) => assertSafeDestinationRoot(target, uid, gid),
@@ -425,9 +430,14 @@ export function createNativeInstallPackageFilesystem({ publisherPath = path.join
     fsyncTree(root) { fsyncTree(root); },
     publishNoReplace({ parent, stagingName, finalName }) {
       const parentFd = openSync(parent, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      const publisherFd = openSync(publisherPath, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
-        const child = spawnSync("/usr/bin/python3", [publisherPath, "--publish-fd3", stagingName, finalName], {
-          cwd: "/", env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe", parentFd], encoding: "utf8", maxBuffer: 16 * 1024, timeout: 30_000,
+        const held = fstatSync(publisherFd);
+        const currentBytes = readFileSync(publisherFd);
+        const after = fstatSync(publisherFd);
+        if (held.dev !== after.dev || held.ino !== after.ino || held.size !== after.size || sha256(currentBytes) !== publisherDigest) throw new Error("handoff publisher changed");
+        const child = spawnSync("/usr/bin/python3", ["/proc/self/fd/4", "--publish-fd3", stagingName, finalName], {
+          cwd: "/", env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe", parentFd, publisherFd], encoding: "utf8", maxBuffer: 16 * 1024, timeout: 30_000,
         });
         const publicationMarker = "handoff_publication_renamed\n";
         if (child.status !== 0 || child.error || child.stdout !== publicationMarker) {
@@ -435,7 +445,7 @@ export function createNativeInstallPackageFilesystem({ publisherPath = path.join
           if (child.stdout?.startsWith(publicationMarker)) error.publicationMayHaveOccurred = true;
           throw error;
         }
-      } finally { closeSync(parentFd); }
+      } finally { closeSync(publisherFd); closeSync(parentFd); }
     },
     fsyncDirectory,
     isOwnedUnpublishedStage(target) { try { assertOwnedDirectory(target, uid, gid, 0o700); return path.basename(target).startsWith(".settleora-native-handoff."); } catch { return false; } },
@@ -574,10 +584,49 @@ emit native_install_execute_completed
 `;
 }
 
+function assertPrivateGeneratorRuntime(root) {
+  const uid = process.getuid?.();
+  const gid = process.getgid?.();
+  assertOwnedDirectory(root, uid, gid, 0o700);
+  for (const entry of generatorSourceFiles) {
+    const target = path.join(root, entry.source);
+    const info = lstatSync(target);
+    const expectedMode = entry.mode & 0o111 ? 0o500 : 0o400;
+    if (!info.isFile() || info.isSymbolicLink() || info.uid !== uid || info.gid !== gid || info.nlink !== 1
+        || (info.mode & 0o7777) !== expectedMode || realpathSync(target) !== target) {
+      throw new Error("handoff authenticated generator runtime unsafe");
+    }
+    let cursor = path.dirname(target);
+    while (cursor !== root) {
+      assertOwnedDirectory(cursor, uid, gid, 0o700);
+      cursor = path.dirname(cursor);
+    }
+  }
+}
+
+function readStableExecutable(target, uid, gid) {
+  const before = lstatSync(target);
+  if (!before.isFile() || before.isSymbolicLink() || before.uid !== uid || before.gid !== gid || before.nlink !== 1
+      || (before.mode & 0o111) === 0 || (before.mode & 0o022) !== 0 || realpathSync(target) !== target) {
+    throw new Error("handoff publisher unsafe");
+  }
+  const fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const held = fstatSync(fd);
+    const bytes = readFileSync(fd);
+    const after = fstatSync(fd);
+    const current = lstatSync(target);
+    if (held.dev !== before.dev || held.ino !== before.ino || held.dev !== after.dev || held.ino !== after.ino
+        || held.size !== bytes.length || held.size !== after.size || held.mtimeMs !== after.mtimeMs || held.ctimeMs !== after.ctimeMs
+        || current.dev !== before.dev || current.ino !== before.ino) throw new Error("handoff publisher changed during authentication");
+    return bytes;
+  } finally { closeSync(fd); }
+}
+
 function normalizeGenerationRequest(value) {
   assertExactKeys(value, ["branch", "handoffRoot", "remoteHandoffRoot", "remoteHost", "repository", "repositoryRoot", "sourceCommit", "sourceTree"]);
   const normalized = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, String(child || "")]));
-  if (!path.isAbsolute(normalized.repositoryRoot) || normalized.repositoryRoot !== moduleRepositoryRoot || !path.isAbsolute(normalized.handoffRoot)
+  if (!path.isAbsolute(normalized.repositoryRoot) || !path.isAbsolute(normalized.handoffRoot)
       || normalized.repository !== canonicalRepository || normalized.branch !== canonicalSourceBranch
       || !oidPattern.test(normalized.sourceCommit) || !oidPattern.test(normalized.sourceTree)
       || !hostPattern.test(normalized.remoteHost) || !absoluteRemotePathPattern.test(normalized.remoteHandoffRoot)

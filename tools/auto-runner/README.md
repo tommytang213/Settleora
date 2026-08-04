@@ -2236,14 +2236,17 @@ then always enters `--resume` without another sudo attempt. Unexpected reason
 codes remain fail-closed.
 
 The authoritative complete-package generator is separate from those fragment
-renderers. The authoritative invocation directly enters a closed environment
-through the absolute `/usr/bin/env` and `/usr/bin/node` executables. It must not
+renderers. The authoritative invocation directly enters closed environments
+through the absolute `/usr/bin/env`, `/usr/bin/git`, and `/usr/bin/node` executables. It must not
 be routed through npm, an executable shebang, or an ambient Node command because
 those parents can process loader variables before the clean child exists:
 
 ```bash
+/usr/bin/env -i GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1 LANG=C LC_ALL=C PATH=/usr/bin:/bin \
+  /usr/bin/git -c core.hooksPath=/dev/null -C /absolute/authenticated/Settleora \
+  show <exact-40-hex-main-commit>:tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs | \
 /usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TZ=UTC \
-  /usr/bin/node /absolute/authenticated/Settleora/tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs \
+  /usr/bin/node --input-type=module - \
   --repository-root /absolute/authenticated/Settleora \
   --handoff-root /absolute/private/output-root \
   --repository tommytang213/Settleora \
@@ -2254,18 +2257,22 @@ those parents can process loader variables before the clean child exists:
   --remote-handoff-root /absolute/remote/handoff-root
 ```
 
-`generate-semantic-recovery-native-install-handoff.mjs` independently requires
+The fixed Git-to-Node pipe is part of the authoritative command: direct pathname
+execution is refused. It evaluates the bootstrap only after fixed Git has read
+that exact blob with replace objects disabled. The bootstrap independently requires
 a clean, non-shallow checkout of the fixed `tommytang213/Settleora:main`
 authority whose `HEAD`, local `main` ref, fetched `origin/main`, commit tree,
 and HTTPS origin match those exact inputs. Forks and non-main branches are never
-valid package source. The canonical remote handoff root is limited to 460 ASCII
+valid package source. Before importing any repository module, it materializes
+the generator, package, renderer, authentication, diagnostics, and publisher
+blobs from that exact commit into a private `0400`/`0500` runtime. Publication
+reopens the helper through a held descriptor and rechecks its digest at the
+rename edge. The canonical remote handoff root is limited to 460 ASCII
 characters so the derived handoff directory and `remote-entrypoint.sh` remain
 within the Windows launcher's 512-character SSH-argument contract. The supplied
-repository root must also be the canonical real root containing the running
-generator/package/render modules. Their loaded JavaScript, diagnostics, and
-publisher-helper bytes are independently rehashed against their exact commit
-blobs before rendering, so Git stat-cache metadata cannot substitute for byte
-authentication. It
+repository root must also be the canonical real source root. No module from its
+group-writable checkout paths is evaluated as generation authority. Git stat-cache
+metadata therefore cannot substitute for byte authentication. It
 also performs one read-only, credential-free `git ls-remote` against the fixed
 literal GitHub HTTPS repository/branch and requires that GitHub advertise the
 exact commit before local object bytes gain source authority. It then rehashes

@@ -1909,15 +1909,17 @@ canonical JSON, and leaves execute stdin attached to the real TTY. Its remote
 controller flow accepts both completed and readback-required outcomes from the
 single arm call and proceeds to `--resume` without a second sudo attempt.
 Complete manual-root handoff packages are generated only by the repository-owned
-`generate-semantic-recovery-native-install-handoff.mjs` command. That
-generation-only boundary independently authenticates the exact clean
+`generate-semantic-recovery-native-install-handoff.mjs` command, loaded through
+fixed `/usr/bin/git show <commit>:<generator-path>` with replace objects disabled
+and piped to fixed `/usr/bin/node --input-type=module -`. Direct checkout-path
+execution is refused. That generation-only boundary independently authenticates the exact clean
 `tommytang213/Settleora:main` commit/tree against the fixed public GitHub HTTPS
 branch with a read-only
 credential-free remote proof, authenticates the complete object graph, reuses
-the native-install closure selector, and requires that exact checkout to contain
-the running generator/package/render modules. Those loaded modules, diagnostics,
-and publisher-helper bytes are rehashed against their exact commit blobs before
-rendering, independently of Git's stat cache. It creates fresh identities, validates canonical cross-bindings, and
+the native-install closure selector, and materializes the generator/package/render,
+authentication, diagnostics, and publisher-helper blobs into a private `0400`/`0500`
+runtime before importing them. The publisher is later invoked through a held
+descriptor after an edge digest check. It creates fresh identities, validates canonical cross-bindings, and
 atomically publishes one private no-clobber package. It does not enter any
 controller mode or create owner/root protocol state. Its canonical remote root
 is limited to 460 ASCII characters so every derived launcher path remains
@@ -1926,9 +1928,10 @@ complete-package generation, protocol preparation, interactive execution,
 installed readback, and Issue #959 continuation are distinct gates. The future
 operator must independently recompute the published Windows launcher SHA-256;
 retained handoffs are evidence and are never replay inputs.
-The authoritative command invokes absolute `/usr/bin/env -i` and
-`/usr/bin/node` directly with a minimal clean environment before loading the
-generator. It is never routed through npm, an executable shebang, or an ambient
+The authoritative command invokes absolute `/usr/bin/env -i`, `/usr/bin/git`, and
+`/usr/bin/node` directly with minimal clean environments before loading the
+generator blob. It is never routed through npm, an executable shebang, a mutable
+checkout module, or an ambient
 Node command;
 the generated remote entrypoint starts with fixed `/usr/bin/bash` and uses the same fixed clean interpreter boundary
 for every future controller call. npm path injection, inherited Node loader

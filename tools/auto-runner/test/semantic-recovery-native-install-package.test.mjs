@@ -194,7 +194,10 @@ test("unsafe destination roots, traversal metadata and malformed entropy fail be
   assert.throws(() => generate({ remoteHost: "-F@settleora.example" }), /generation request invalid/u);
   assert.throws(() => generate({ repository: "fork/Settleora" }), /generation request invalid/u);
   assert.throws(() => generate({ branch: "feature/unreviewed" }), /generation request invalid/u);
-  assert.throws(() => generate({ repositoryRoot: fixtureRoot() }), /generation request invalid/u);
+  assert.throws(() => authenticateRepositoryNativeInstallSource({
+    repositoryRoot: fixtureRoot(), repository: "tommytang213/Settleora", branch: "main",
+    sourceCommit: "a".repeat(40), sourceTree: "b".repeat(40),
+  }), /Git|repository root/u);
   assert.throws(() => generate({ remoteHandoffRoot: "/srv//settleora/handoffs" }), /generation request invalid/u);
   assert.throws(() => generate({ remoteHandoffRoot: "/srv/./settleora/handoffs" }), /generation request invalid/u);
   const maximumRemoteRoot = `/${"a".repeat(459)}`;
@@ -277,13 +280,39 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
 });
 
 test("loaded generator, publisher, authentication and renderer bytes bind to exact Git blobs independent of status cache", () => {
-  const resolveBlobOid = (source) => spawnSync("/usr/bin/git", ["-C", repositoryRoot, "rev-parse", `HEAD:${source}`], { encoding: "utf8" }).stdout.trim();
-  assert.equal(verifyNativeInstallGeneratorSourceFiles({ root: repositoryRoot, resolveBlobOid }), true);
+  const privateRuntime = fixtureRoot();
+  const sources = [
+    ["tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs", 0o400],
+    ["tools/auto-runner/lib/semantic-recovery-native-handoff-rename-noreplace.py", 0o500],
+    ["tools/auto-runner/lib/semantic-recovery-native-install-diagnostics.mjs", 0o400],
+    ["tools/auto-runner/lib/semantic-recovery-native-install-handoff.mjs", 0o400],
+    ["tools/auto-runner/lib/semantic-recovery-native-install-package.mjs", 0o400],
+    ["tools/auto-runner/lib/semantic-recovery-native-install-source.mjs", 0o400],
+  ];
+  const oids = new Map();
+  for (const [source, mode] of sources) {
+    const bytes = readFileSync(path.join(repositoryRoot, source));
+    const target = path.join(privateRuntime, source);
+    mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    for (let cursor = path.dirname(target); cursor !== privateRuntime; cursor = path.dirname(cursor)) chmodSync(cursor, 0o700);
+    writeFileSync(target, bytes, { mode }); chmodSync(target, mode);
+    oids.set(source, gitObjectOid("blob", bytes));
+  }
+  const resolveBlobOid = (source) => oids.get(source);
+  assert.equal(verifyNativeInstallGeneratorSourceFiles({ root: privateRuntime, resolveBlobOid }), true);
   let first = true;
   assert.throws(() => verifyNativeInstallGeneratorSourceFiles({
-    root: repositoryRoot,
+    root: privateRuntime,
     resolveBlobOid(source) { if (first) { first = false; return "0".repeat(40); } return resolveBlobOid(source); },
   }), /Git binding invalid/u);
+  assert.throws(() => verifyNativeInstallGeneratorSourceFiles({ root: repositoryRoot, resolveBlobOid }), /metadata invalid/u);
+  const generator = path.join(repositoryRoot, "tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs");
+  const generatorBytes = readFileSync(generator, "utf8");
+  assert.doesNotMatch(generatorBytes, /from "\.\/lib\//u);
+  assert.match(generatorBytes, /process\.argv\[1\] !== "-"/u);
+  const direct = spawnSync("/usr/bin/node", [generator], { encoding: "utf8" });
+  assert.equal(direct.status, 1);
+  assert.match(direct.stderr, /authenticated Git blob/u);
 });
 
 function readFileNames(root) { return spawnSync("/usr/bin/find", [root, "-mindepth", "1", "-maxdepth", "1", "-printf", "%f\\n"], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean); }
