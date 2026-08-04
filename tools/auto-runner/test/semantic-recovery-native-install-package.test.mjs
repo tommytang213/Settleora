@@ -102,6 +102,7 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   assert.match(launcher, /EnvironmentVariables\['ProgramData'\] = \$programData/u);
   assert.match(launcher, /StandardInput\.Close\(\)/u);
   assert.match(launcher, /execute_stdin_must_remain_interactive/u);
+  assert.match(launcher, /if \(\$Phase -eq '--preflight'\) \{ '-T' \} else \{ '-tt' \}/u);
   assert.doesNotMatch(launcher, /--arm-interactive-sudo/u);
   const remote = readFileSync(path.join(result.finalHandoffDirectory, "remote-entrypoint.sh"), "utf8");
   assert.equal((remote.match(/--arm-interactive-sudo/gu) || []).length, 2);

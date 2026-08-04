@@ -397,7 +397,8 @@ function Read-CanonicalSingleRecord { param([string]$Value,[string]$ExpectedPhas
   return $record
 }
 function Invoke-Phase { param([string]$Phase,[bool]$Capture)
-  $args=@('-T','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ForwardAgent=no','-o','ForwardX11=no','--',$RemoteHost,$RemoteEntrypoint,$Phase,$OperationId,$ChallengeId,$DescriptorSha256,$ContentManifestSha256,$HandoffIdentitySha256,$RemoteEntrypointSha256)
+  $ttyOption = if ($Phase -eq '--preflight') { '-T' } else { '-tt' }
+  $args=@($ttyOption,'-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ForwardAgent=no','-o','ForwardX11=no','--',$RemoteHost,$RemoteEntrypoint,$Phase,$OperationId,$ChallengeId,$DescriptorSha256,$ContentManifestSha256,$HandoffIdentitySha256,$RemoteEntrypointSha256)
   $info=New-SshProcessStartInfo (Resolve-TrustedLocations) $args $Capture
   $process=[Diagnostics.Process]::new(); $process.StartInfo=$info
   if ($Phase -eq '--preflight') { Start-SshPreflightProcess $process } else { Assert-SshExecuteRemainsInteractive $process; if (-not $process.Start()) { throw 'execute_process_start_failed' } }
