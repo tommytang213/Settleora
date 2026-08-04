@@ -106,11 +106,20 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   assert.match(launcher, /StandardInput\.Close\(\)/u);
   assert.match(launcher, /execute_stdin_must_remain_interactive/u);
   assert.match(launcher, /if \(\$Phase -eq '--preflight'\) \{ '-T' \} else \{ '-tt' \}/u);
+  assert.match(launcher, /controller_output_not_exact_canonical_record/u);
+  assert.match(launcher, /\$Value -cne \$expected/u);
+  assert.doesNotMatch(launcher, /ConvertFrom-Json/u);
   assert.doesNotMatch(launcher, /--arm-interactive-sudo/u);
   const remote = readFileSync(path.join(result.finalHandoffDirectory, "remote-entrypoint.sh"), "utf8");
   assert.equal((remote.match(/--arm-interactive-sudo/gu) || []).length, 2);
   assert.match(remote, /awaiting_readback_only_resume/u);
   assert.match(remote, /validate_installed_readback\(\)\{ emit native_install_execute_requires_installed_readback; exit 75; \}/u);
+  assert.match(remote, /remote_package_root_unsafe/u);
+  assert.match(remote, /remote_package_ancestor_mode_unsafe/u);
+  assert.match(remote, /package_symlink_residue/u);
+  assert.match(remote, /package_hardlink_residue/u);
+  assert.match(remote, /package_special_residue/u);
+  assert.match(remote, /package_directory_residue/u);
   assert.match(remote, /--preflight\) emit native_install_preflight_verified/u);
   assert.match(remote, /\*\) fail remote_phase_invalid/u);
   const syntax = spawnSync("/usr/bin/bash", ["-n", path.join(result.finalHandoffDirectory, "remote-entrypoint.sh")], { encoding: "utf8" });
@@ -182,10 +191,10 @@ test("publisher is atomic no-clobber and never replaces a pre-existing final dir
   assert.equal(lstatSync(path.join(parent, final)).isDirectory(), true);
 });
 
-test("publisher transport failure after the rename marker is classified as ambiguous and retains evidence", () => {
+test("publisher transport failure after rename stays ambiguous even when the marker is lost", () => {
   const parent = fixtureRoot();
   const helper = path.join(fixtureRoot(), "publisher.py");
-  writeFileSync(helper, "#!/usr/bin/python3\nimport os, sys\nbase = '/proc/self/fd/3/'\nos.rename(base + sys.argv[2], base + sys.argv[3])\nos.write(1, b'handoff_publication_renamed\\n')\nraise SystemExit(1)\n", { mode: 0o700 });
+  writeFileSync(helper, "#!/usr/bin/python3\nimport os, sys\nbase = '/proc/self/fd/3/'\nos.rename(base + sys.argv[2], base + sys.argv[3])\nraise SystemExit(1)\n", { mode: 0o700 });
   const filesystem = createNativeInstallPackageFilesystem({ publisherPath: helper });
   assert.throws(() => generate({ handoffRoot: parent, filesystem }), /handoff publication ambiguous/u);
   assert.equal(readFileNames(parent).filter((name) => !name.startsWith(".")).length, 1);

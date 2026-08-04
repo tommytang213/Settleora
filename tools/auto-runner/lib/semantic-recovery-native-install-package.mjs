@@ -177,7 +177,8 @@ export function generateNativeInstallHandoffPackage({
     fault("after-publication", { stagingDirectory, finalDirectory });
     validateNativeInstallHandoffPackage(finalDirectory, { filesystem, expected: { ...summary, packageManifestDigest } });
   } catch (error) {
-    const publicationAmbiguous = published || error?.publicationMayHaveOccurred === true;
+    const publicationAmbiguous = published || error?.publicationMayHaveOccurred === true
+      || filesystem.isPublicationAmbiguous({ stagingDirectory, finalDirectory });
     if (!publicationAmbiguous && filesystem.isOwnedUnpublishedStage(stagingDirectory)) filesystem.removeOwnedStage(stagingDirectory);
     if (publicationAmbiguous) throw new Error(`handoff publication ambiguous: ${boundedError(error)}`);
     throw error;
@@ -359,6 +360,11 @@ export function createNativeInstallPackageFilesystem({ publisherPath = path.join
     },
     fsyncDirectory,
     isOwnedUnpublishedStage(target) { try { assertOwnedDirectory(target, uid, gid, 0o700); return path.basename(target).startsWith(".settleora-native-handoff."); } catch { return false; } },
+    isPublicationAmbiguous({ stagingDirectory, finalDirectory }) {
+      // The root is an already validated private same-owner directory. Cleanup is
+      // safe only while the exact stage still exists and the exact final does not.
+      return existsSync(finalDirectory) || !existsSync(stagingDirectory);
+    },
     removeOwnedStage(target) { rmSync(target, { recursive: true }); fsyncDirectory(path.dirname(target)); },
     assertPublishedDirectory(target) { assertOwnedDirectory(target, uid, gid, 0o700); },
     listFiles(root) { return listRelativeFiles(root); },
@@ -399,11 +405,10 @@ function Resolve-TrustedLocations {
   return [pscustomobject]@{WindowsRoot=$windowsRoot;SystemDirectory=$systemDirectory;OpenSshDirectory=$openSshDirectory;SshExecutable=$ssh}
 }
 ` + coordinator + String.raw`
-function Read-CanonicalSingleRecord { param([string]$Value,[string]$ExpectedPhase)
-  if ($Value.Length -gt 4096 -or $Value -match "[\r\n].+" ) { throw 'controller_output_not_single_record' }
-  $record=$Value | ConvertFrom-Json
-  if ($record.contract -ne 'settleora_native_install_remote_result' -or $record.version -ne 1 -or $record.phase -ne $ExpectedPhase -or $record.operationId -ne $OperationId -or $record.challengeId -ne $ChallengeId) { throw 'controller_output_identity_mismatch' }
-  return $record
+function Read-CanonicalSingleRecord { param([string]$Value,[string]$ExpectedPhase,[string]$ExpectedReason)
+  $expected='{"challengeId":"' + $ChallengeId + '","contract":"settleora_native_install_remote_result","operationId":"' + $OperationId + '","phase":"' + $ExpectedPhase + '","reasonCode":"' + $ExpectedReason + '","version":1}' + [char]10
+  if ($Value.Length -gt 4096 -or $Value -cne $expected) { throw 'controller_output_not_exact_canonical_record' }
+  return [pscustomobject]@{reasonCode=$ExpectedReason}
 }
 function Invoke-Phase { param([string]$Phase,[bool]$Capture)
   $ttyOption = if ($Phase -eq '--preflight') { '-T' } else { '-tt' }
@@ -413,7 +418,7 @@ function Invoke-Phase { param([string]$Phase,[bool]$Capture)
   if ($Phase -eq '--preflight') { Start-SshPreflightProcess $process } else { Assert-SshExecuteRemainsInteractive $process; if (-not $process.Start()) { throw 'execute_process_start_failed' } }
   if ($Capture) { $stdout=$process.StandardOutput.ReadToEnd(); $stderr=$process.StandardError.ReadToEnd() }
   $process.WaitForExit(); if ($process.ExitCode -ne 0) { throw ($Phase + '_failed') }
-  if ($Capture) { return Read-CanonicalSingleRecord $stdout $Phase }
+  if ($Capture) { return Read-CanonicalSingleRecord $stdout $Phase 'native_install_preflight_verified' }
 }
 $preflight=Invoke-Phase '--preflight' $true
 if ($preflight.reasonCode -ne 'native_install_preflight_verified') { throw 'preflight_reason_mismatch' }
@@ -427,6 +432,16 @@ function renderRemoteEntrypoint({ descriptor, descriptorDigest, identityDigest }
 [ "$#" -eq 7 ] || fail remote_arguments_invalid
 PHASE="$1"; OPERATION_ID="$2"; CHALLENGE_ID="$3"; DESCRIPTOR_DIGEST="$4"; CONTENT_DIGEST="$5"; IDENTITY_DIGEST="$6"; EXPECTED_SELF_DIGEST="$7"
 PACKAGE_ROOT=$(/usr/bin/readlink -f -- "$(/usr/bin/dirname -- "$0")")
+[ "$PACKAGE_ROOT" = '${descriptor.remoteHandoffDirectory}' ] || fail remote_package_path_changed
+[ "$(/usr/bin/readlink -f -- "$0")" = "$PACKAGE_ROOT/remote-entrypoint.sh" ] || fail remote_entrypoint_path_changed
+[ "$(/usr/bin/stat -c '%u:%g:%a' "$PACKAGE_ROOT")" = "$(/usr/bin/id -u):$(/usr/bin/id -g):700" ] || fail remote_package_root_unsafe
+ancestor="$PACKAGE_ROOT"
+while [ "$ancestor" != / ]; do
+  ancestor_mode=$(/usr/bin/stat -c '%a' "$ancestor"); ancestor_uid=$(/usr/bin/stat -c '%u' "$ancestor")
+  [ "$ancestor_uid" = 0 ] || [ "$ancestor_uid" = "$(/usr/bin/id -u)" ] || fail remote_package_ancestor_owner_unsafe
+  (( (8#$ancestor_mode & 8#22) == 0 )) || fail remote_package_ancestor_mode_unsafe
+  ancestor=$(/usr/bin/dirname -- "$ancestor")
+done
 [ "$OPERATION_ID" = '${descriptor.operationId}' ] && [ "$CHALLENGE_ID" = '${descriptor.challengeId}' ] || fail remote_identity_mismatch
 [ "$DESCRIPTOR_DIGEST" = '${descriptorDigest}' ] && [ "$IDENTITY_DIGEST" = '${identityDigest}' ] || fail remote_binding_mismatch
 [ "$(/usr/bin/sha256sum "$0" | /usr/bin/cut -d' ' -f1)" = "$EXPECTED_SELF_DIGEST" ] || fail remote_entrypoint_changed
@@ -435,10 +450,19 @@ PACKAGE_ROOT=$(/usr/bin/readlink -f -- "$(/usr/bin/dirname -- "$0")")
 [ "$(/usr/bin/sha256sum "$PACKAGE_ROOT/content-manifest.json" | /usr/bin/cut -d' ' -f1)" = "$CONTENT_DIGEST" ] || fail content_manifest_changed
 verify_package(){
   /usr/bin/jq -e --arg op "$OPERATION_ID" '.contract=="settleora_native_install_content_manifest" and .version==1 and .operationId==$op and (.packageAllowlist|type=="array")' "$PACKAGE_ROOT/content-manifest.json" >/dev/null || fail content_manifest_invalid
+  [ -z "$(/usr/bin/find "$PACKAGE_ROOT" -type l -print -quit)" ] || fail package_symlink_residue
+  [ -z "$(/usr/bin/find "$PACKAGE_ROOT" -type f -links +1 -print -quit)" ] || fail package_hardlink_residue
+  [ -z "$(/usr/bin/find "$PACKAGE_ROOT" ! -type d ! -type f -print -quit)" ] || fail package_special_residue
   actual=$(/usr/bin/find "$PACKAGE_ROOT" -type f -printf '%P\n' | /usr/bin/sort)
   expected=$(/usr/bin/jq -r '.packageAllowlist[]' "$PACKAGE_ROOT/content-manifest.json")
   [ "$actual" = "$expected" ] || fail package_allowlist_changed
   package_uid=$(/usr/bin/stat -c '%u' "$PACKAGE_ROOT"); package_gid=$(/usr/bin/stat -c '%g' "$PACKAGE_ROOT")
+  expected_directories=$(/usr/bin/jq -r '.packageAllowlist[]' "$PACKAGE_ROOT/content-manifest.json" | /usr/bin/awk -F/ '{path=""; for(i=1;i<NF;i++){path=(path==""?$i:path "/" $i); print path}}' | /usr/bin/sort -u)
+  actual_directories=$(/usr/bin/find "$PACKAGE_ROOT" -mindepth 1 -type d -printf '%P\n' | /usr/bin/sort)
+  [ "$actual_directories" = "$expected_directories" ] || fail package_directory_residue
+  while IFS= read -r directory; do
+    [ -z "$directory" ] || [ "$(/usr/bin/stat -c '%u:%g:%a' "$PACKAGE_ROOT/$directory")" = "$package_uid:$package_gid:700" ] || fail package_directory_metadata_changed
+  done <<< "$expected_directories"
   while IFS=$'\t' read -r member digest size mode; do
     case "$member" in /*|*..*|*\\*) fail manifest_path_invalid;; esac
     target="$PACKAGE_ROOT/$member"; [ -f "$target" ] && [ ! -L "$target" ] || fail package_member_unsafe
