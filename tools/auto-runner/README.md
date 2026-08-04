@@ -2235,6 +2235,51 @@ remote flow accepts both
 then always enters `--resume` without another sudo attempt. Unexpected reason
 codes remain fail-closed.
 
+The authoritative complete-package generator is separate from those fragment
+renderers:
+
+```bash
+npm run generate:native-install-handoff -- \
+  --repository-root /absolute/authenticated/Settleora \
+  --handoff-root /absolute/private/output-root \
+  --repository tommytang213/Settleora \
+  --branch main \
+  --commit <exact-40-hex-main-commit> \
+  --tree <exact-40-hex-main-tree> \
+  --remote-host <bounded-user-at-host> \
+  --remote-handoff-root /absolute/remote/handoff-root
+```
+
+`generate-semantic-recovery-native-install-handoff.mjs` independently requires
+a clean, non-shallow checkout whose `HEAD`, local branch ref, fetched
+`origin/<branch>`, commit tree, and HTTPS origin match those exact inputs. It
+then rehashes the complete Git object graph and uses the existing native-install
+source-closure selector for the controller/bootstrap/support bytes. The command
+creates fresh operation, correlation, challenge, handoff, and staging
+identities; writes a closed package in a private same-parent staging directory;
+fsyncs and independently validates it; and publishes once with Linux
+`renameat2(RENAME_NOREPLACE)`. It never invokes SSH, sudo, the controller, an
+owner/root journal, `--prepare`, `--arm-interactive-sudo`, `--resume`, a grant,
+a successor, a service, a runner, or a queue.
+
+The package contains the source-owned Windows launcher, remote entrypoint,
+execution descriptor, handoff identity, source hint, content and package
+manifests, bounded generation summary, and exact authenticated controller
+closure. Canonical JSON is sorted, UTF-8, and newline-terminated. The content
+manifest fixes the exact package allowlist; the package manifest binds every
+immutable member's SHA-256, byte length, and mode plus all source and protocol
+identities. The generation result reports the package aggregate,
+descriptor/content/identity/package-manifest digests, and detached Windows
+launcher SHA-256. Before transfer or execution, recompute the launcher SHA-256
+independently from its published bytes and compare it to that detached result;
+an embedded digest is corroboration, not independent proof.
+
+Package generation is not fragment rendering, protocol preparation, or
+execution. A later manual gate must separately authorize transfer and the
+preflight/one-sudo execution; installed readback and any Issue #959 continuation
+remain still-later gates. Never replay or adapt a retained handoff, even when
+its files validate under an older contract.
+
 Root subprocess failures cross process boundaries only as fixed allowlisted
 `native_install_root_*` reason codes. Public GitHub transport can therefore
 distinguish bounded rate-budget, response, timeout, route, and process classes
