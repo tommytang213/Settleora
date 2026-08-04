@@ -305,13 +305,15 @@ test("loaded generator, publisher, authentication and renderer bytes bind to exa
     root: privateRuntime,
     resolveBlobOid(source) { if (first) { first = false; return "0".repeat(40); } return resolveBlobOid(source); },
   }), /Git binding invalid/u);
-  assert.throws(() => verifyNativeInstallGeneratorSourceFiles({ root: repositoryRoot, resolveBlobOid }), /metadata invalid/u);
+  chmodSync(path.join(privateRuntime, sources[0][0]), 0o420);
+  assert.throws(() => verifyNativeInstallGeneratorSourceFiles({ root: privateRuntime, resolveBlobOid }), /metadata invalid/u);
   const generator = path.join(repositoryRoot, "tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs");
   const generatorBytes = readFileSync(generator, "utf8");
   assert.doesNotMatch(generatorBytes, /from "\.\/lib\//u);
   assert.match(generatorBytes, /process\.argv\[1\] !== "-"/u);
   assert.ok(generatorBytes.indexOf("assertSafeLocalGitConfiguration(git)") < generatorBytes.indexOf('git(["status"'));
   assert.match(generatorBytes, /url\\\.\[\^\\0\]\*\\\.insteadof/u);
+  assert.match(readFileSync(path.join(repositoryRoot, "tools/auto-runner/README.md"), "utf8"), /set -o pipefail\n\/usr\/bin\/env -i GIT_CONFIG_GLOBAL=/u);
   const direct = spawnSync("/usr/bin/node", [generator], { encoding: "utf8" });
   assert.equal(direct.status, 1);
   assert.match(direct.stderr, /authenticated Git blob/u);

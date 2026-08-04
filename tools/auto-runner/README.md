@@ -2242,6 +2242,7 @@ be routed through npm, an executable shebang, or an ambient Node command because
 those parents can process loader variables before the clean child exists:
 
 ```bash
+set -o pipefail
 /usr/bin/env -i GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1 LANG=C LC_ALL=C PATH=/usr/bin:/bin \
   /usr/bin/git -c core.hooksPath=/dev/null -C /absolute/authenticated/Settleora \
   show <exact-40-hex-main-commit>:tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs | \
@@ -2257,8 +2258,10 @@ those parents can process loader variables before the clean child exists:
   --remote-handoff-root /absolute/remote/handoff-root
 ```
 
-The fixed Git-to-Node pipe is part of the authoritative command: direct pathname
-execution is refused. It evaluates the bootstrap only after fixed Git has read
+Run the complete block in Bash. `pipefail` is part of the authoritative command
+and prevents a failed Git blob read from being hidden by the Node side of the
+pipeline. Direct pathname execution is refused. The fixed Git-to-Node pipe
+evaluates the bootstrap only after fixed Git has read
 that exact blob with replace objects disabled. The bootstrap independently requires
 a clean, non-shallow checkout of the fixed `tommytang213/Settleora:main`
 authority whose `HEAD`, local `main` ref, fetched `origin/main`, commit tree,

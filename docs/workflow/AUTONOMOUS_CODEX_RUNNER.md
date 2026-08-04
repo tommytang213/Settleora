@@ -1911,7 +1911,8 @@ single arm call and proceeds to `--resume` without a second sudo attempt.
 Complete manual-root handoff packages are generated only by the repository-owned
 `generate-semantic-recovery-native-install-handoff.mjs` command, loaded through
 fixed `/usr/bin/git show <commit>:<generator-path>` with replace objects disabled
-and piped to fixed `/usr/bin/node --input-type=module -`. Direct checkout-path
+and piped to fixed `/usr/bin/node --input-type=module -` from Bash with
+`set -o pipefail`, so a failed blob read cannot be masked. Direct checkout-path
 execution is refused. That generation-only boundary independently authenticates the exact clean
 `tommytang213/Settleora:main` commit/tree against the fixed public GitHub HTTPS
 branch with a read-only
