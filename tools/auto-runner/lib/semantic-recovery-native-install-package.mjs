@@ -292,7 +292,7 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
   assertSafeRepositoryRoot(root);
   const env = trustedGitEnvironment();
   const git = (args, encoding = "utf8") => command("/usr/bin/git", args, { cwd: root, env, encoding });
-  const localConfig = git(["config", "--local", "--includes=false", "--null", "--list"]);
+  const localConfig = git(["config", "--local", "--no-includes", "--null", "--list"]);
   if (/(?:^|\0)(?:core\.(?:hookspath|attributesfile|fsmonitor|sshcommand)|include(?:if\.[^\0]*)?\.path|filter\.[^\0]*\.(?:clean|smudge|process|required)|diff\.[^\0]*\.(?:command|textconv)|merge\.[^\0]*\.driver|url\.[^\0]*\.insteadof|http\.[^\0]*\.extraheader|remote\.[^\0]*\.(?:uploadpack|receivepack))\n/iu.test(localConfig)) throw new Error("handoff unsafe Git configuration");
   if (git(["rev-parse", "--is-shallow-repository"]).trim() !== "false") throw new Error("handoff source history incomplete");
   if (git(["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "status", "--porcelain=v1", "--untracked-files=all"]).length !== 0) throw new Error("handoff source worktree dirty");

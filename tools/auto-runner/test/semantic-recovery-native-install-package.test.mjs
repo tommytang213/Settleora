@@ -205,7 +205,7 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
   const commit = "a".repeat(40); const tree = "b".repeat(40);
   const request = { repositoryRoot: root, repository: "tommytang213/Settleora", branch: "main", sourceCommit: commit, sourceTree: tree };
   const base = new Map([
-    ["config --local --includes=false --null --list", ""], ["rev-parse --is-shallow-repository", "false\n"],
+    ["config --local --no-includes --null --list", ""], ["rev-parse --is-shallow-repository", "false\n"],
     ["-c core.fsmonitor=false -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all", ""],
     ["rev-parse HEAD^{commit}", `${commit}\n`], ["symbolic-ref --short HEAD", "main\n"],
     ["rev-parse refs/heads/main^{commit}", `${commit}\n`], ["rev-parse refs/remotes/origin/main^{commit}", `${commit}\n`],
@@ -226,14 +226,14 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     [{ [`rev-parse ${commit}^{tree}`]: `${"d".repeat(40)}\n` }, /binding/u],
     [{ "remote get-url origin": "file:///tmp/repo\n" }, /binding/u],
     [{ "for-each-ref refs/replace --format=%(refname)": "refs/replace/a\n" }, /replace/u],
-    [{ "config --local --includes=false --null --list": "core.hooksPath\n/tmp/hooks\0" }, /unsafe/u],
-    [{ "config --local --includes=false --null --list": "core.fsmonitor\n/tmp/repo-selected-executable\0" }, /unsafe/u],
+    [{ "config --local --no-includes --null --list": "core.hooksPath\n/tmp/hooks\0" }, /unsafe/u],
+    [{ "config --local --no-includes --null --list": "core.fsmonitor\n/tmp/repo-selected-executable\0" }, /unsafe/u],
   ]) assert.throws(() => attempt(override), pattern);
   let worktreeCommandReached = false;
   assert.throws(() => authenticateRepositoryNativeInstallSource(request, { command: (_exe, args) => {
     const key = args.join(" ");
     if (key.includes(" status ")) worktreeCommandReached = true;
-    if (key === "config --local --includes=false --null --list") return "core.fsmonitor\n/tmp/repo-selected-executable\0";
+    if (key === "config --local --no-includes --null --list") return "core.fsmonitor\n/tmp/repo-selected-executable\0";
     return base.get(key) || "";
   } }), /unsafe/u);
   assert.equal(worktreeCommandReached, false);
