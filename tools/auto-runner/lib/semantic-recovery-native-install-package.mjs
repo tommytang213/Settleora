@@ -24,7 +24,7 @@ const digestPattern = /^[a-f0-9]{64}$/u;
 const oidPattern = /^[a-f0-9]{40}$/u;
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const branchPattern = /^(?:main|[A-Za-z0-9][A-Za-z0-9._/-]{0,126}[A-Za-z0-9])$/u;
-const hostPattern = /^[A-Za-z0-9._-]{1,64}@[A-Za-z0-9.-]{1,253}$/u;
+const hostPattern = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}@[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/u;
 const absoluteRemotePathPattern = /^\/[A-Za-z0-9._/-]{1,511}$/u;
 const identifierPattern = /^[a-f0-9]{64}$/u;
 const timestampKeyPattern = /^20[0-9]{6}-[0-9]{4}$/u;
@@ -305,6 +305,11 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
   if (head !== request.sourceCommit || localBranch !== request.branch || localRef !== request.sourceCommit
       || remoteRef !== request.sourceCommit || tree !== request.sourceTree
       || remote !== `https://github.com/${request.repository}.git`) throw new Error("handoff exact Git source binding mismatch");
+  const remoteBranchRef = `refs/heads/${request.branch}`;
+  const advertised = command("/usr/bin/git", ["-c", "credential.helper=", "-c", "http.extraHeader=", "ls-remote", "--exit-code", remote, remoteBranchRef], {
+    cwd: "/", env, encoding: "utf8",
+  });
+  if (advertised !== `${request.sourceCommit}\t${remoteBranchRef}\n`) throw new Error("handoff GitHub branch authentication mismatch");
   const gitDir = git(["rev-parse", "--git-common-dir"]).trim();
   const absoluteGitDir = path.resolve(root, gitDir);
   for (const target of [path.join(absoluteGitDir, "shallow"), path.join(absoluteGitDir, "info/grafts"), path.join(absoluteGitDir, "objects/info/alternates")]) {

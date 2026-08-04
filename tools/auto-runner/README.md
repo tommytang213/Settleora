@@ -2253,7 +2253,10 @@ npm run generate:native-install-handoff -- \
 `generate-semantic-recovery-native-install-handoff.mjs` independently requires
 a clean, non-shallow checkout whose `HEAD`, local branch ref, fetched
 `origin/<branch>`, commit tree, and HTTPS origin match those exact inputs. It
-then rehashes the complete Git object graph and uses the existing native-install
+also performs one read-only, credential-free `git ls-remote` against the fixed
+literal GitHub HTTPS repository/branch and requires that GitHub advertise the
+exact commit before local object bytes gain source authority. It then rehashes
+the complete Git object graph and uses the existing native-install
 source-closure selector for the controller/bootstrap/support bytes. The command
 creates fresh operation, correlation, challenge, handoff, and staging
 identities; writes a closed package in a private same-parent staging directory;

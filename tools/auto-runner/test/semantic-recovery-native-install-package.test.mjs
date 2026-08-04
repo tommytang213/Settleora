@@ -57,7 +57,7 @@ function generate(overrides = {}) {
   const calls = [];
   const result = generateNativeInstallHandoffPackage({
     repositoryRoot, handoffRoot, repository: "tommytang213/Settleora", branch: "main", sourceCommit: fixture.commit,
-    sourceTree: fixture.rootTree, remoteHost: "operator@settleora.example", remoteHandoffRoot: "/srv/settleora/manual-root-handoffs",
+    sourceTree: fixture.rootTree, remoteHost: overrides.remoteHost || "operator@settleora.example", remoteHandoffRoot: "/srv/settleora/manual-root-handoffs",
     clock: overrides.clock || (() => new Date("2026-08-05T01:56:00.000Z")), random: overrides.random || seededRandom(),
     sourceAuthenticator: (request) => { calls.push(request); return fixture.authenticated; }, filesystem: overrides.filesystem, fault: overrides.fault,
   });
@@ -180,6 +180,7 @@ test("unsafe destination roots, traversal metadata and malformed entropy fail be
   assert.throws(() => generate({ handoffRoot: unsafe }), /destination|directory unsafe/u);
   const safe = fixtureRoot();
   assert.throws(() => generate({ handoffRoot: safe, random: () => Buffer.alloc(1) }), /entropy invalid/u);
+  assert.throws(() => generate({ remoteHost: "-F@settleora.example" }), /generation request invalid/u);
 });
 
 test("publisher is atomic no-clobber and never replaces a pre-existing final directory", () => {
@@ -212,6 +213,7 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     ["rev-parse HEAD^{commit}", `${commit}\n`], ["symbolic-ref --short HEAD", "main\n"],
     ["rev-parse refs/heads/main^{commit}", `${commit}\n`], ["rev-parse refs/remotes/origin/main^{commit}", `${commit}\n`],
     [`rev-parse ${commit}^{tree}`, `${tree}\n`], ["remote get-url origin", "https://github.com/tommytang213/Settleora.git\n"],
+    ["-c credential.helper= -c http.extraHeader= ls-remote --exit-code https://github.com/tommytang213/Settleora.git refs/heads/main", `${commit}\trefs/heads/main\n`],
     ["rev-parse --git-common-dir", ".git\n"], ["for-each-ref refs/replace --format=%(refname)", ""],
   ]);
   const attempt = (override) => authenticateRepositoryNativeInstallSource(request, { command: (_exe, args) => {
@@ -227,6 +229,7 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     [{ "rev-parse refs/remotes/origin/main^{commit}": `${"c".repeat(40)}\n` }, /binding/u],
     [{ [`rev-parse ${commit}^{tree}`]: `${"d".repeat(40)}\n` }, /binding/u],
     [{ "remote get-url origin": "file:///tmp/repo\n" }, /binding/u],
+    [{ "-c credential.helper= -c http.extraHeader= ls-remote --exit-code https://github.com/tommytang213/Settleora.git refs/heads/main": `${"c".repeat(40)}\trefs/heads/main\n` }, /GitHub branch/u],
     [{ "for-each-ref refs/replace --format=%(refname)": "refs/replace/a\n" }, /replace/u],
     [{ "config --local --no-includes --null --list": "core.hooksPath\n/tmp/hooks\0" }, /unsafe/u],
     [{ "config --local --no-includes --null --list": "core.fsmonitor\n/tmp/repo-selected-executable\0" }, /unsafe/u],
