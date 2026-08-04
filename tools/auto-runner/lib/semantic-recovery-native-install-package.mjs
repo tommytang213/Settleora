@@ -297,7 +297,14 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
   const unsafeConfigPattern = /(?:^|\0)(?:core\.(?:worktree|hookspath|attributesfile|fsmonitor|sshcommand)|include(?:if\.[^\0]*)?\.path|filter\.[^\0]*\.(?:clean|smudge|process|required)|diff\.[^\0]*\.(?:command|textconv)|merge\.[^\0]*\.driver|url\.[^\0]*\.insteadof|http\.[^\0]*\.extraheader|remote\.[^\0]*\.(?:uploadpack|receivepack))\n/iu;
   const localConfig = git(["config", "--local", "--no-includes", "--null", "--list"]);
   if (unsafeConfigPattern.test(localConfig)) throw new Error("handoff unsafe Git configuration");
-  if (/(?:^|\0)extensions\.worktreeconfig\ntrue\0/iu.test(localConfig)) {
+  const worktreeConfigValues = localConfig.split("\0").filter(Boolean).flatMap((entry) => {
+    const separator = entry.indexOf("\n");
+    return separator >= 0 && entry.slice(0, separator).toLowerCase() === "extensions.worktreeconfig" ? [entry.slice(separator + 1).toLowerCase()] : [];
+  });
+  if (worktreeConfigValues.length > 1 || worktreeConfigValues.some((value) => !["", "true", "yes", "on", "1", "false", "no", "off", "0"].includes(value))) {
+    throw new Error("handoff unsafe Git worktree configuration extension");
+  }
+  if (worktreeConfigValues.length === 1 && ["", "true", "yes", "on", "1"].includes(worktreeConfigValues[0])) {
     const worktreeConfig = git(["config", "--worktree", "--no-includes", "--null", "--list"]);
     if (unsafeConfigPattern.test(worktreeConfig)) throw new Error("handoff unsafe Git worktree configuration");
   }
