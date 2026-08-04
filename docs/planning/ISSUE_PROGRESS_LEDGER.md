@@ -1,5 +1,85 @@
 # Issue Progress Ledger
 
+### Issue #1012 and PR #1046 — manual-root handoff source repair merged (2026-08-05)
+
+- PR #1046, `fix(auto-runner): repair Issue #1012 manual-root handoff`,
+  repaired the failed manual-root installation handoff while preserving the
+  one-shot privilege boundary, readback-only recovery, bounded diagnostics,
+  no-clobber publication, and fail-closed state transitions. It merged once by
+  normal GitHub merge commit from exact source base
+  `70e072a425a5dad7f51fe77a8be00479380f4c00`, exact source head
+  `b0b9c59ef042fbd93d564c60611256e734d56dee`, and exact source tree
+  `c3b1b63153eba2151569f40b61caa89af8b41ef9` as merge
+  `75f1ecc791291d1ad7dc40a0058d69db5a3a3d53`. Its ordered parents are
+  the exact source base and head, with no third parent, and its merge tree is
+  the exact source tree.
+- The exact source candidate retained raw base-to-head binary diff SHA-256
+  `47c2fd2493f1defff3afd6da8b469527f8ca65fb164d6ee3913b5ab48d9b363e`
+  and sorted changed-path manifest SHA-256
+  `37fdc7af9ee38c66c34da0d8e6578a79646b2023e397b532107efaeb5d95ef26`.
+  It changed exactly 12 paths with 1,001 additions and 351 deletions:
+  `docs/workflow/AUTONOMOUS_CODEX_RUNNER.md`, `tools/auto-runner/README.md`,
+  `tools/auto-runner/lib/semantic-recovery-native-install-diagnostics.mjs`,
+  `tools/auto-runner/lib/semantic-recovery-native-install-handoff.mjs`,
+  `tools/auto-runner/lib/semantic-recovery-native-install-journal.mjs`,
+  `tools/auto-runner/lib/semantic-recovery-native-install-publication.mjs`,
+  `tools/auto-runner/lib/semantic-recovery-native-rename-noreplace.py`,
+  `tools/auto-runner/render-semantic-recovery-native-install-handoff.mjs`,
+  `tools/auto-runner/semantic-recovery-native-install-bootstrap.sh`,
+  `tools/auto-runner/semantic-recovery-native-install.mjs`,
+  `tools/auto-runner/semantic-recovery-native-producer.mjs`, and
+  `tools/auto-runner/test/semantic-recovery-native-install-protocol.test.mjs`.
+- The repaired source restores only independently canonicalized `ProgramData`
+  to the sanitized Windows OpenSSH child, closes preflight stdin while keeping
+  the real execute TTY for the sole sudo exchange, accepts both valid arm
+  outcomes into readback-only `--resume`, permanently removes recovery-sudo
+  after `sudoAttemptCount` reaches one, bounds root failure projection, hardens
+  append-only/no-clobber result publication and exact stranded-temporary
+  readback, and includes every imported production module in the authenticated
+  Git source closure. Temporary evidence cannot become installed success.
+- Complete exact-head DevBox validation passed: `npm ci`; `npm run doctor`
+  with Node `22.23.1`, npm `10.9.8`, and .NET SDK `9.0.119`; root and web-user
+  npm audits with zero vulnerabilities; changed MJS syntax `8/8` and production
+  imports `7/7`; bootstrap shell and Python compile checks; both rendered
+  handoff modes and rendered-shell syntax; focused native-install protocol/
+  producer tests `55/55`; complete auto-runner tests `1,450/1,450`; docs and
+  scaffold validation; diff, exact 12-path scope, authenticated source-closure,
+  candidate/canonical, and all 97 linked-worktree clean guards.
+- Fresh exact-candidate Gemini `strong_independent` passed with zero findings.
+  Fresh local Codex returned `APPROVE — no material findings`. Exact-head
+  GitHub Codex reviewed `b0b9c59ef0` and found no major issues. All 11 required
+  CodeQL, Semgrep, Trivy, and Scaffold Validation checks/scanners passed; all
+  six review threads were resolved with zero unresolved; open code-scanning,
+  secret-scanning, and Dependabot alerts remained `0/0/0`.
+- The failed handoff
+  `/workspace/logs/auto-runner/Settleora/manual-root-handoffs/20260804-1825`
+  and operation
+  `054edadcb40c71dcf9d4b2a8e5bae634605f08c6d1d8610a25f52e3d392f29c5`
+  remain immutable and unreplayed. Owner state remains `sudo_started` with
+  `sudoAttemptCount: 1`; the root result/journal remains blocked with a
+  temporary result present, final result absent, and `planDigest: null` /
+  `installedDigest: null`. The 30-file handoff aggregate remains
+  `658f1b4b0ec25e25c85ef7846436e2782aafb35978f43fb99c2306441b218ffa`,
+  the three-file owner-control aggregate remains
+  `cdcd922b75337d3f1028eeb995bd4d66005418c67cf30dbe281cf7869b6800cb`,
+  and the root temporary-result SHA-256 remains
+  `1c01eaaccca53a946c405d1362a3122b35bd726abc129cd34d5a92500ad8ed03`.
+- Keep Issue #1012 `OPEN` with `manual-gate`; this source merge and planning
+  hygiene do not complete it. Issue #959 remains `OPEN`, untouched, and not
+  continued. No sudo, install, deployment, grant, semantic successor, handoff
+  generation/execution/replay, queue activation, runner/supervisor submission,
+  product effect, or runtime/config/profile/service/API/OpenAPI/auth/storage/
+  privacy/money/schema/CI-platform change occurred.
+- Remaining gates are separate and ordered: (1) merge this focused post-merge
+  hygiene PR; (2) generate a fresh handoff from repaired merged
+  `main`, with a new operation ID, launcher, manifest, descriptor, and
+  independently supplied SHA-256; (3) separately authorize and execute exactly
+  one installation/sudo handoff; (4) verify canonical installed readback and
+  health; and (5) only after installation succeeds, separately authorize any
+  preserved Issue #959 continuation.
+- Issue #1012 merge checkpoint (do not duplicate):
+  `https://github.com/tommytang213/Settleora/issues/1012#issuecomment-5182166733`.
+
 ### Issue #1012 and PR #1044 — root-authoritative native installation protocol source merged (2026-08-04)
 
 - PR #1044 merged once by normal expected-head GitHub merge commit from exact
