@@ -1,9 +1,9 @@
 name: Agent export Issue 1012 checkout
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/issue-1012-manual-root-handoff-repair-20260804
+      - main
     paths:
       - .github/workflows/agent-export-issue1012.yml
 
