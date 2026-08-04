@@ -343,10 +343,13 @@ export function createNativeInstallPackageFilesystem({ publisherPath = path.join
     },
     fsyncTree(root) { fsyncTree(root); },
     publishNoReplace({ parent, stagingName, finalName }) {
-      const child = spawnSync("/usr/bin/python3", [publisherPath, "--publish", parent, stagingName, finalName], {
-        cwd: "/", env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" }, encoding: "utf8", maxBuffer: 16 * 1024, timeout: 30_000,
-      });
-      if (child.status !== 0 || child.error || child.stdout !== "") throw new Error("handoff atomic publication failed");
+      const parentFd = openSync(parent, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      try {
+        const child = spawnSync("/usr/bin/python3", [publisherPath, "--publish-fd3", stagingName, finalName], {
+          cwd: "/", env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" }, stdio: ["ignore", "pipe", "pipe", parentFd], encoding: "utf8", maxBuffer: 16 * 1024, timeout: 30_000,
+        });
+        if (child.status !== 0 || child.error || child.stdout !== "") throw new Error("handoff atomic publication failed");
+      } finally { closeSync(parentFd); }
     },
     fsyncDirectory,
     isOwnedUnpublishedStage(target) { try { assertOwnedDirectory(target, uid, gid, 0o700); return path.basename(target).startsWith(".settleora-native-handoff."); } catch { return false; } },

@@ -16,13 +16,12 @@ STAGE = re.compile(r"^\.settleora-native-handoff\.[A-Za-z0-9._-]{16,200}\.stage$
 
 
 def main() -> int:
-    if len(sys.argv) != 5 or sys.argv[1] != "--publish":
+    if len(sys.argv) != 4 or sys.argv[1] != "--publish-fd3":
         raise RuntimeError("handoff_publication_arguments_invalid")
-    parent, stage, final = sys.argv[2:]
-    if not os.path.isabs(parent) or os.path.realpath(parent) != parent or not STAGE.fullmatch(stage) or not NAME.fullmatch(final):
+    stage, final = sys.argv[2:]
+    if not STAGE.fullmatch(stage) or not NAME.fullmatch(final):
         raise RuntimeError("handoff_publication_path_invalid")
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    parent_fd = os.open(parent, flags)
+    parent_fd = 3
     try:
         parent_stat = os.fstat(parent_fd)
         if not stat.S_ISDIR(parent_stat.st_mode) or parent_stat.st_uid != os.getuid() or parent_stat.st_gid != os.getgid() or parent_stat.st_mode & 0o022:
