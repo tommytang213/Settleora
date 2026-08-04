@@ -378,7 +378,8 @@ export function verifyNativeInstallGeneratorSourceFiles({ root, resolveBlobOid }
     const target = path.join(root, entry.source);
     const before = lstatSync(target);
     if (!before.isFile() || before.isSymbolicLink() || before.uid !== uid || before.gid !== gid || before.nlink !== 1
-        || (before.mode & 0o7777) !== entry.mode || realpathSync(target) !== target) throw new Error("handoff generator source metadata invalid");
+        || (before.mode & 0o111) !== (entry.mode & 0o111) || (before.mode & 0o002) !== 0
+        || realpathSync(target) !== target) throw new Error("handoff generator source metadata invalid");
     const fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW);
     let bytes;
     try {
