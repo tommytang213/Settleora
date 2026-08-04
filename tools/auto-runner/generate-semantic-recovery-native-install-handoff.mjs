@@ -1,4 +1,3 @@
-#!/usr/bin/node
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import {

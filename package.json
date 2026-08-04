@@ -14,7 +14,6 @@
     "validate:theme-tokens": "node tools/validate-theme-tokens.mjs",
     "validate:openapi": "redocly lint packages/contracts/openapi/settleora.v1.yaml",
     "generate:clients": "node tools/generate-clients.mjs",
-    "generate:native-install-handoff": "/usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TZ=UTC /usr/bin/node tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs",
     "validate:clients": "node tools/validate-clients.mjs",
     "validate:api": "dotnet test services/api/Settleora.Api.sln",
     "validate:api-local": "node tools/doctor-validation.mjs && dotnet test services/api/Settleora.Api.sln",

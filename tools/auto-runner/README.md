@@ -2236,13 +2236,14 @@ then always enters `--resume` without another sudo attempt. Unexpected reason
 codes remain fail-closed.
 
 The authoritative complete-package generator is separate from those fragment
-renderers. The npm script immediately enters a closed environment through the
-absolute `/usr/bin/env` and `/usr/bin/node` executables, so npm's temporary
-`node_modules/.bin` path and inherited Node loader variables cannot select or
-preload generator code:
+renderers. The authoritative invocation directly enters a closed environment
+through the absolute `/usr/bin/env` and `/usr/bin/node` executables. It must not
+be routed through npm, an executable shebang, or an ambient Node command because
+those parents can process loader variables before the clean child exists:
 
 ```bash
-npm run generate:native-install-handoff -- \
+/usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TZ=UTC \
+  /usr/bin/node /absolute/authenticated/Settleora/tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs \
   --repository-root /absolute/authenticated/Settleora \
   --handoff-root /absolute/private/output-root \
   --repository tommytang213/Settleora \

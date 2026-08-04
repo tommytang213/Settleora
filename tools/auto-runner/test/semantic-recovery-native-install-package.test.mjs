@@ -133,7 +133,10 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
 
 test("generation never invokes controller, SSH, sudo, network, runtime or protected paths", () => {
   const rootPackage = JSON.parse(readFileSync(path.join(repositoryRoot, "package.json"), "utf8"));
-  assert.equal(rootPackage.scripts["generate:native-install-handoff"], "/usr/bin/env -i HOME=/nonexistent LANG=C LC_ALL=C PATH=/usr/bin:/bin TZ=UTC /usr/bin/node tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs");
+  assert.equal(rootPackage.scripts["generate:native-install-handoff"], undefined);
+  const generatorPath = path.join(repositoryRoot, "tools/auto-runner/generate-semantic-recovery-native-install-handoff.mjs");
+  assert.equal(lstatSync(generatorPath).mode & 0o111, 0);
+  assert.doesNotMatch(readFileSync(generatorPath, "utf8"), /^#!/u);
   const before = process.env.PATH;
   const { result } = generate();
   assert.equal(process.env.PATH, before);
