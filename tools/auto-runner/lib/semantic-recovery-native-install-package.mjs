@@ -299,7 +299,8 @@ export function authenticateRepositoryNativeInstallSource(request, { command = r
   if (unsafeConfigPattern.test(localConfig)) throw new Error("handoff unsafe Git configuration");
   const worktreeConfigValues = localConfig.split("\0").filter(Boolean).flatMap((entry) => {
     const separator = entry.indexOf("\n");
-    return separator >= 0 && entry.slice(0, separator).toLowerCase() === "extensions.worktreeconfig" ? [entry.slice(separator + 1).toLowerCase()] : [];
+    const key = (separator >= 0 ? entry.slice(0, separator) : entry).toLowerCase();
+    return key === "extensions.worktreeconfig" ? [separator >= 0 ? entry.slice(separator + 1).toLowerCase() : ""] : [];
   });
   if (worktreeConfigValues.length > 1 || worktreeConfigValues.some((value) => !["", "true", "yes", "on", "1", "false", "no", "off", "0"].includes(value))) {
     throw new Error("handoff unsafe Git worktree configuration extension");

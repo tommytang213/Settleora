@@ -245,7 +245,7 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     [{ "config --local --no-includes --null --list": "core.fsmonitor\n/tmp/repo-selected-executable\0" }, /unsafe/u],
     [{ "config --local --no-includes --null --list": "core.worktree\n/tmp/other\0" }, /unsafe/u],
     [{ "rev-parse --show-toplevel": "/tmp/other\n" }, /worktree root/u],
-    ...["", "true", "yes", "on", "1"].map((value) => [{ "config --local --no-includes --null --list": `extensions.worktreeConfig\n${value}\0`, "config --worktree --no-includes --null --list": "core.worktree\n/tmp/other\0" }, /worktree configuration/u]),
+    ...[null, "", "true", "yes", "on", "1"].map((value) => [{ "config --local --no-includes --null --list": value === null ? "extensions.worktreeConfig\0" : `extensions.worktreeConfig\n${value}\0`, "config --worktree --no-includes --null --list": "core.worktree\n/tmp/other\0" }, /worktree configuration/u]),
     [{ "config --local --no-includes --null --list": "extensions.worktreeConfig\nmaybe\0" }, /worktree configuration extension/u],
     [{ "config --local --no-includes --null --list": "extensions.worktreeConfig\ntrue\0extensions.worktreeConfig\nfalse\0" }, /worktree configuration extension/u],
     [{ "ls-files -v -z": "h package.json\0H tools/auto-runner/semantic-recovery-native-install-bootstrap.sh\0" }, /hidden Git index/u],
