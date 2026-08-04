@@ -215,6 +215,7 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
   const request = { repositoryRoot: root, repository: "tommytang213/Settleora", branch: "main", sourceCommit: commit, sourceTree: tree };
   const base = new Map([
     ["config --local --no-includes --null --list", ""], ["rev-parse --is-shallow-repository", "false\n"],
+    ["rev-parse --show-toplevel", `${root}\n`],
     ["-c core.fsmonitor=false -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all", ""],
     ["rev-parse HEAD^{commit}", `${commit}\n`], ["symbolic-ref --short HEAD", "main\n"],
     ["rev-parse refs/heads/main^{commit}", `${commit}\n`], ["rev-parse refs/remotes/origin/main^{commit}", `${commit}\n`],
@@ -241,6 +242,9 @@ test("production source admission rejects shallow, dirty, branch/ref/tree/origin
     [{ "for-each-ref refs/replace --format=%(refname)": "refs/replace/a\n" }, /replace/u],
     [{ "config --local --no-includes --null --list": "core.hooksPath\n/tmp/hooks\0" }, /unsafe/u],
     [{ "config --local --no-includes --null --list": "core.fsmonitor\n/tmp/repo-selected-executable\0" }, /unsafe/u],
+    [{ "config --local --no-includes --null --list": "core.worktree\n/tmp/other\0" }, /unsafe/u],
+    [{ "rev-parse --show-toplevel": "/tmp/other\n" }, /worktree root/u],
+    [{ "config --local --no-includes --null --list": "extensions.worktreeConfig\ntrue\0", "config --worktree --no-includes --null --list": "core.worktree\n/tmp/other\0" }, /worktree configuration/u],
   ]) assert.throws(() => attempt(override), pattern);
   let worktreeCommandReached = false;
   assert.throws(() => authenticateRepositoryNativeInstallSource(request, { command: (_exe, args) => {
