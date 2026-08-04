@@ -65,11 +65,16 @@ export function buildFixedNativeInstallRootResult({ correlation, repository, sou
   return Object.freeze(value);
 }
 
-export function publishFixedNativeInstallRootResult(value, { renameNoReplace } = {}) {
+export function publishFixedNativeInstallRootResult(value) {
   if (process.getuid?.() !== 0 || process.geteuid?.() !== 0) throw new Error("native install root result writer identity invalid");
-  if (typeof renameNoReplace !== "function") throw new Error("native install root result no-replace capability required");
   validateFixedNativeInstallRootResult(value);
   ensureRootResultDirectory();
+  recoverNativeInstallRootResultNoReplaceLinks({
+    root: nativeInstallRootResultRoot,
+    operationId: value.operationId,
+    expectedUid: 0,
+    expectedGid: 0,
+  });
   const finalName = `${value.operationId}.${value.rootJournalSequence}.${value.rootJournalDigest}.json`;
   const finalPath = path.join(nativeInstallRootResultRoot, finalName);
   let temporary;
@@ -108,19 +113,18 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
     const prior = temporaryRecords[temporaryDisposition.index];
     const priorName = `${prior.staged.operationId}.${prior.staged.rootJournalSequence}.${prior.staged.rootJournalDigest}.json`;
     const priorPath = path.join(nativeInstallRootResultRoot, priorName);
-    publishRootResultTemporary({
+    publishNativeInstallRootResultNoReplace({
       temporary: prior.candidate,
       finalPath: priorPath,
       bytes: canonicalBytes(prior.staged),
       operationId: prior.staged.operationId,
-      renameNoReplace,
     });
     fsyncDirectory(nativeInstallRootResultRoot);
     const priorReadback = readFixedNativeInstallRootResult(value.operationId);
     if (!priorReadback || !canonicalBytes(priorReadback).equals(canonicalBytes(prior.staged))) {
       throw new Error("native install prior root result readback failed");
     }
-    return publishFixedNativeInstallRootResult(value, { renameNoReplace });
+    return publishFixedNativeInstallRootResult(value);
   }
   if (temporaryDisposition.action === "reuse_current") {
     temporary = temporaryRecords[temporaryDisposition.index].candidate;
@@ -128,7 +132,7 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
     temporary = path.join(nativeInstallRootResultRoot, `.${value.operationId}.${randomBytes(12).toString("hex")}.tmp`);
     writeAtomicNoClobberFile({ root: nativeInstallRootResultRoot, finalPath: temporary, bytes, uid: 0, gid: 0, mode: 0o444 });
   }
-  publishRootResultTemporary({ temporary, finalPath, bytes, operationId: value.operationId, renameNoReplace });
+  publishNativeInstallRootResultNoReplace({ temporary, finalPath, bytes, operationId: value.operationId });
   fsyncDirectory(nativeInstallRootResultRoot);
   const readback = readFixedNativeInstallRootResult(value.operationId);
   if (!readback || readback.rootJournalSequence !== value.rootJournalSequence
@@ -138,6 +142,30 @@ export function publishFixedNativeInstallRootResult(value, { renameNoReplace } =
   for (const { candidate } of duplicateResidue) unlinkSync(candidate);
   if (duplicateResidue.length > 0) fsyncDirectory(nativeInstallRootResultRoot);
   return readback;
+}
+
+export function selectFixedNativeInstallRootResultObservation(finalValue, temporaryValue) {
+  if (finalValue !== null) validateFixedNativeInstallRootResult(finalValue);
+  if (temporaryValue !== null) validateFixedNativeInstallRootResult(temporaryValue);
+  if (finalValue === null && temporaryValue === null) return Object.freeze({ value: null, publication: null });
+  if (finalValue === null) return Object.freeze({ value: temporaryValue, publication: "temporary" });
+  if (temporaryValue === null) return Object.freeze({ value: finalValue, publication: "final" });
+  const identityFields = ["contract", "correlation", "operationId", "repository", "sourceCommit", "version"];
+  if (identityFields.some((field) => finalValue[field] !== temporaryValue[field])) {
+    throw new Error("native install root result observation identity conflict");
+  }
+  if (finalValue.rootJournalSequence === temporaryValue.rootJournalSequence) {
+    if (!canonicalBytes(finalValue).equals(canonicalBytes(temporaryValue))) {
+      throw new Error("native install root result observation conflict");
+    }
+    return Object.freeze({ value: finalValue, publication: "final" });
+  }
+  if (finalValue.rootJournalSequence < temporaryValue.rootJournalSequence) {
+    validateRootResultTransition(finalValue, temporaryValue);
+    return Object.freeze({ value: temporaryValue, publication: "temporary" });
+  }
+  validateRootResultTransition(temporaryValue, finalValue);
+  return Object.freeze({ value: finalValue, publication: "final" });
 }
 
 export function classifyFixedNativeInstallPublishedResidue(finalValue, temporaryValues) {
@@ -165,20 +193,123 @@ export function classifyFixedNativeInstallRootResultTemporaries(existing, curren
   return Object.freeze({ action: "publish_prior", index: 0 });
 }
 
-function publishRootResultTemporary({ temporary, finalPath, bytes, operationId, renameNoReplace }) {
-  try {
-    renameNoReplace(temporary, finalPath);
-  } catch (error) {
-    if (!existsSync(finalPath)) throw error;
-    const raced = readFixedNativeInstallRootResultFile(finalPath, operationId);
-    if (!canonicalBytes(raced).equals(bytes)) throw error;
+export function publishNativeInstallRootResultNoReplace({
+  temporary, finalPath, bytes, operationId, expectedUid = 0, expectedGid = 0, linkNoReplace = linkSync,
+} = {}) {
+  const root = path.dirname(temporary);
+  if (root !== path.dirname(finalPath) || !Buffer.isBuffer(bytes) || !digestPattern.test(String(operationId || ""))
+      || !Number.isSafeInteger(expectedUid) || expectedUid < 0 || !Number.isSafeInteger(expectedGid) || expectedGid < 0
+      || typeof linkNoReplace !== "function") {
+    throw new Error("native install root result no-clobber boundary invalid");
+  }
+  assertOwnedResultDirectory(root, expectedUid, expectedGid);
+  const temporaryMatch = rootResultTemporaryPattern.exec(path.basename(temporary));
+  const value = parseCanonicalJson(bytes);
+  validateFixedNativeInstallRootResult(value);
+  const expectedFinalName = `${value.operationId}.${value.rootJournalSequence}.${value.rootJournalDigest}.json`;
+  if (!temporaryMatch || temporaryMatch[1] !== operationId || value.operationId !== operationId
+      || path.basename(finalPath) !== expectedFinalName || !existsSync(temporary)) {
+    throw new Error("native install root result no-clobber boundary invalid");
+  }
+  const validateTemporary = () => {
+    const stagedValue = readNativeInstallRootResultFile(temporary, operationId, expectedUid, expectedGid);
+    const staged = lstatSync(temporary);
+    if (!canonicalBytes(stagedValue).equals(bytes)) throw new Error("native install root result temporary unsafe");
+    return staged;
+  };
+  const adoptExactFinal = () => {
+    const raced = readNativeInstallRootResultFile(finalPath, operationId, expectedUid, expectedGid);
+    if (!canonicalBytes(raced).equals(bytes)) throw new Error("native install root result identity conflict");
     if (existsSync(temporary)) {
-      const staged = lstatSync(temporary);
-      if (!staged.isFile() || staged.isSymbolicLink() || staged.uid !== 0 || staged.gid !== 0 || staged.nlink !== 1
-          || (staged.mode & 0o7777) !== 0o444 || realpathSync(temporary) !== temporary || !readFileSync(temporary).equals(bytes)) throw error;
+      validateTemporary();
       unlinkSync(temporary);
+      fsyncDirectory(root);
+    }
+    return raced;
+  };
+  if (existsSync(finalPath)) return adoptExactFinal();
+  const before = validateTemporary();
+  try {
+    linkNoReplace(temporary, finalPath);
+  } catch (error) {
+    if (error?.code === "EEXIST" && existsSync(finalPath)) return adoptExactFinal();
+    throw new Error("native install root result no-clobber publication failed", { cause: error });
+  }
+  fsyncDirectory(root);
+  const linkedSource = lstatSync(temporary);
+  const linkedFinal = lstatSync(finalPath);
+  if (linkedSource.dev !== before.dev || linkedSource.ino !== before.ino || linkedSource.nlink !== 2
+      || linkedFinal.dev !== before.dev || linkedFinal.ino !== before.ino || linkedFinal.nlink !== 2
+      || !canonicalBytes(readNativeInstallRootResultFile(
+        finalPath, operationId, expectedUid, expectedGid, [2],
+      )).equals(bytes)) {
+    throw new Error("native install root result no-clobber readback failed");
+  }
+  unlinkSync(temporary);
+  fsyncDirectory(root);
+  const completed = lstatSync(finalPath);
+  if (completed.dev !== before.dev || completed.ino !== before.ino || completed.nlink !== 1
+      || !canonicalBytes(readNativeInstallRootResultFile(finalPath, operationId, expectedUid, expectedGid)).equals(bytes)) {
+    throw new Error("native install root result no-clobber completion failed");
+  }
+  return parseCanonicalJson(bytes);
+}
+
+export function recoverNativeInstallRootResultNoReplaceLinks({
+  root, operationId, expectedUid = 0, expectedGid = 0,
+} = {}) {
+  if (!digestPattern.test(String(operationId || "")) || !Number.isSafeInteger(expectedUid) || expectedUid < 0
+      || !Number.isSafeInteger(expectedGid) || expectedGid < 0) {
+    throw new Error("native install root result link recovery boundary invalid");
+  }
+  assertOwnedResultDirectory(root, expectedUid, expectedGid);
+  const pairs = inspectNativeInstallRootResultLinkPairs({ root, operationId, expectedUid, expectedGid });
+  for (const pair of pairs) {
+    unlinkSync(pair.temporary);
+    fsyncDirectory(root);
+    const completed = lstatSync(pair.finalPath);
+    if (completed.dev !== pair.dev || completed.ino !== pair.ino || completed.nlink !== 1
+        || !canonicalBytes(readNativeInstallRootResultFile(
+          pair.finalPath, operationId, expectedUid, expectedGid,
+        )).equals(canonicalBytes(pair.value))) {
+      throw new Error("native install root result link recovery failed");
     }
   }
+  return Object.freeze({ recovered: pairs.length });
+}
+
+export function readFixedNativeInstallRootResultTemporary(operationId) {
+  if (!digestPattern.test(String(operationId || ""))) throw new Error("native install root result temporary selector invalid");
+  if (!existsSync(nativeInstallRootResultRoot)) return null;
+  assertRootDirectory("/etc");
+  assertRootDirectory("/etc/settleora-auto-runner");
+  assertRootDirectory(nativeInstallRootResultRoot);
+  const pairs = inspectNativeInstallRootResultLinkPairs({
+    root: nativeInstallRootResultRoot, operationId, expectedUid: 0, expectedGid: 0,
+  });
+  const linkedByTemporary = new Map(pairs.map((pair) => [pair.temporary, pair]));
+  const prefix = `.${operationId}.`;
+  const entries = readdirSync(nativeInstallRootResultRoot)
+    .filter((name) => name.startsWith(prefix) && rootResultTemporaryPattern.test(name))
+    .sort();
+  if (entries.length === 0) return null;
+  const results = entries.map((name) => {
+    const target = path.join(nativeInstallRootResultRoot, name);
+    const pair = linkedByTemporary.get(target);
+    return readNativeInstallRootResultFile(target, operationId, 0, 0, pair ? [2] : [1]);
+  }).sort((left, right) => left.rootJournalSequence - right.rootJournalSequence
+    || left.rootJournalDigest.localeCompare(right.rootJournalDigest));
+  const bySequence = new Map();
+  for (const result of results) {
+    const existing = bySequence.get(result.rootJournalSequence);
+    if (existing && !canonicalBytes(existing).equals(canonicalBytes(result))) {
+      throw new Error("native install conflicting root result temporary refused");
+    }
+    bySequence.set(result.rootJournalSequence, result);
+  }
+  const distinct = [...bySequence.values()].sort((left, right) => left.rootJournalSequence - right.rootJournalSequence);
+  for (let index = 1; index < distinct.length; index += 1) validateRootResultTransition(distinct[index - 1], distinct[index]);
+  return distinct.at(-1);
 }
 
 export function readFixedNativeInstallRootResult(operationId) {
@@ -187,10 +318,13 @@ export function readFixedNativeInstallRootResult(operationId) {
   assertRootDirectory("/etc");
   assertRootDirectory("/etc/settleora-auto-runner");
   assertRootDirectory(nativeInstallRootResultRoot);
+  const linkedFinals = new Set(inspectNativeInstallRootResultLinkPairs({
+    root: nativeInstallRootResultRoot, operationId, expectedUid: 0, expectedGid: 0,
+  }).map((pair) => path.basename(pair.finalPath)));
   const prefix = `${operationId}.`;
   const suffix = ".json";
   const entries = readdirSync(nativeInstallRootResultRoot).map((name) => {
-    if (!name.startsWith(prefix) || !name.endsWith(suffix)) return null;
+    if (linkedFinals.has(name) || !name.startsWith(prefix) || !name.endsWith(suffix)) return null;
     const identity = name.slice(prefix.length, -suffix.length);
     const separator = identity.indexOf(".");
     if (separator < 1 || separator !== identity.lastIndexOf(".")) return null;
@@ -199,8 +333,7 @@ export function readFixedNativeInstallRootResult(operationId) {
     if (!/^[1-9][0-9]*$/u.test(sequence) || !digestPattern.test(digest)) return null;
     return { name, sequence, digest };
   }).filter(Boolean).sort((left, right) => left.name.localeCompare(right.name));
-  const names = entries.map(({ name }) => name);
-  if (names.length === 0) return null;
+  if (entries.length === 0) return null;
   const results = entries.map(({ name, sequence, digest }) => {
     const value = readFixedNativeInstallRootResultFile(path.join(nativeInstallRootResultRoot, name), operationId);
     if (String(value.rootJournalSequence) !== sequence || value.rootJournalDigest !== digest) {
@@ -212,14 +345,56 @@ export function readFixedNativeInstallRootResult(operationId) {
   return results.at(-1);
 }
 
-function readFixedNativeInstallRootResultFile(finalPath, operationId) {
+function inspectNativeInstallRootResultLinkPairs({ root, operationId, expectedUid, expectedGid }) {
+  const prefix = `.${operationId}.`;
+  const pairs = [];
+  for (const name of readdirSync(root).filter((entry) => entry.startsWith(prefix) && rootResultTemporaryPattern.test(entry)).sort()) {
+    const temporary = path.join(root, name);
+    const staged = lstatSync(temporary);
+    if (staged.nlink === 1) continue;
+    if (staged.nlink !== 2) throw new Error("native install root result linked temporary unsafe");
+    const value = readNativeInstallRootResultFile(temporary, operationId, expectedUid, expectedGid, [2]);
+    const finalPath = path.join(root, `${value.operationId}.${value.rootJournalSequence}.${value.rootJournalDigest}.json`);
+    if (!existsSync(finalPath)) throw new Error("native install root result linked final absent");
+    const final = lstatSync(finalPath);
+    const finalValue = readNativeInstallRootResultFile(finalPath, operationId, expectedUid, expectedGid, [2]);
+    const names = readdirSync(root).filter((candidate) => {
+      const target = path.join(root, candidate);
+      try {
+        const info = lstatSync(target);
+        return info.dev === staged.dev && info.ino === staged.ino;
+      } catch { return false; }
+    }).sort();
+    if (final.dev !== staged.dev || final.ino !== staged.ino || final.nlink !== 2
+        || canonicalBytes(finalValue).equals(canonicalBytes(value)) === false
+        || JSON.stringify(names) !== JSON.stringify([path.basename(temporary), path.basename(finalPath)].sort())) {
+      throw new Error("native install root result linked pair unsafe");
+    }
+    pairs.push({ temporary, finalPath, value, dev: staged.dev, ino: staged.ino });
+  }
+  return pairs;
+}
+
+function assertOwnedResultDirectory(root, expectedUid, expectedGid) {
+  if (typeof root !== "string" || path.resolve(root) !== root || !existsSync(root) || realpathSync(root) !== root) {
+    throw new Error("native install root result directory boundary invalid");
+  }
+  const info = lstatSync(root);
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== expectedUid || info.gid !== expectedGid
+      || (info.mode & 0o022) !== 0) {
+    throw new Error("native install root result directory boundary invalid");
+  }
+}
+
+function readNativeInstallRootResultFile(finalPath, operationId, expectedUid, expectedGid, allowedLinks = [1]) {
   const fd = openSync(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
   let bytes;
   try {
     const first = fstatSync(fd);
     const pathname = lstatSync(finalPath);
-    if (!first.isFile() || first.isSymbolicLink() || first.uid !== 0 || first.gid !== 0 || first.nlink !== 1
-        || (first.mode & 0o7777) !== 0o444 || realpathSync(finalPath) !== finalPath || first.size < 1 || first.size > 64 * 1024
+    if (!first.isFile() || first.isSymbolicLink() || first.uid !== expectedUid || first.gid !== expectedGid
+        || !allowedLinks.includes(first.nlink) || (first.mode & 0o7777) !== 0o444
+        || realpathSync(finalPath) !== finalPath || first.size < 1 || first.size > 64 * 1024
         || fileIdentity(first) !== fileIdentity(pathname)) throw new Error("native install root result file unsafe");
     bytes = readFileSync(fd);
     const second = fstatSync(fd);
@@ -232,6 +407,9 @@ function readFixedNativeInstallRootResultFile(finalPath, operationId) {
   validateFixedNativeInstallRootResult(value);
   if (value.operationId !== operationId) throw new Error("native install root result identity mismatch");
   return value;
+}
+function readFixedNativeInstallRootResultFile(finalPath, operationId) {
+  return readNativeInstallRootResultFile(finalPath, operationId, 0, 0);
 }
 
 function validateFixedNativeInstallRootResult(value) {
@@ -581,7 +759,6 @@ export function createLiveNativeInstallFilesystem({ renameNoReplace } = {}) {
   const publicationAncestor = path.posix.dirname(publicationParent);
   if (typeof renameNoReplace !== "function") throw new Error("native install rename_noreplace capability required");
   return {
-    publishRootResultNoReplace(source, destination) { renameNoReplace(source, destination, "root_result"); },
     assertAuthorityBoundary() {
       for (const target of ["/etc", publicationAncestor]) assertRootDirectory(target);
       if (existsSync(publicationParent)) assertRootDirectory(publicationParent);

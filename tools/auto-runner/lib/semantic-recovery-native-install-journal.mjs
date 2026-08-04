@@ -183,7 +183,7 @@ export const nativeInstallSudoArgv = Object.freeze([
 ]);
 
 export function buildNativeInstallSudoArgv({ handoffMode = "install", sourceCommit, bootstrapBlob, correlation, operationId, ownerJournalDigest, ownerJournalSha256 } = {}) {
-  if (!['install', 'recover_readback'].includes(handoffMode)
+  if (handoffMode !== "install"
       || !shaPattern.test(String(sourceCommit || "")) || !shaPattern.test(String(bootstrapBlob || ""))
       || !correlationPattern.test(String(correlation || "")) || !digestPattern.test(String(operationId || ""))
       || !digestPattern.test(String(ownerJournalDigest || "")) || !digestPattern.test(String(ownerJournalSha256 || ""))) {

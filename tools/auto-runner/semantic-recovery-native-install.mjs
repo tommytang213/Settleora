@@ -17,6 +17,10 @@ import {
 } from "./lib/semantic-recovery-native-install-source.mjs";
 import { independentlyVerifyRootNativeInstallPackage } from "./lib/semantic-recovery-native-install-verifier.mjs";
 import {
+  classifyNativeInstallRootFailure,
+  classifyNativeInstallRootReaderProcess,
+} from "./lib/semantic-recovery-native-install-diagnostics.mjs";
+import {
   buildNativeInstallSudoArgv,
   createNativeInstallJournal,
   nativeInstallOperationIdentity,
@@ -36,6 +40,8 @@ import {
   publishFixedNativeInstallRootResult,
   publishOrAdoptVerifiedNativeInstall,
   readFixedNativeInstallRootResult,
+  readFixedNativeInstallRootResultTemporary,
+  selectFixedNativeInstallRootResultObservation,
   nativeInstallRootJournalRoot,
   verifyDurableInstalledNativeInstall,
 } from "./lib/semantic-recovery-native-install-publication.mjs";
@@ -52,8 +58,8 @@ const fixedPython = "/usr/bin/python3";
 const authorityDocumentName = ".native-install-source-authority.json";
 const maximumInputBytes = 64 * 1024;
 const modes = new Set([
-  "--prepare", "--arm-interactive-sudo", "--recover-interactive-sudo", "--resume",
-  "--root-bootstrap", "--root-bootstrap-recover", "--root-authority-internal", "--root-recovery-internal",
+  "--prepare", "--arm-interactive-sudo", "--resume",
+  "--root-bootstrap", "--root-authority-internal",
   "--root-plan-reader-internal", "--root-verify-reader-internal",
 ]);
 
@@ -64,10 +70,9 @@ export async function main(argv = process.argv.slice(2), input = process.stdin) 
   const hint = normalizeNativeInstallSourceHint(value);
   if (argv[0] === "--prepare") return prepare(hint);
   if (argv[0] === "--arm-interactive-sudo") return armInteractiveSudo(hint);
-  if (argv[0] === "--recover-interactive-sudo") return recoverInteractiveSudo(hint);
   if (argv[0] === "--resume") return resume(hint);
-  if (["--root-bootstrap", "--root-bootstrap-recover"].includes(argv[0])) return rootBootstrap(hint, { recoveryOnly: argv[0] === "--root-bootstrap-recover" });
-  return rootAuthority(hint, { recoveryOnly: argv[0] === "--root-recovery-internal" });
+  if (argv[0] === "--root-bootstrap") return rootBootstrap(hint);
+  return rootAuthority(hint);
 }
 
 function armInteractiveSudo(hint) {
@@ -154,63 +159,6 @@ function armInteractiveSudo(hint) {
   });
 }
 
-function recoverInteractiveSudo(hint) {
-  assertUnprivilegedOwner();
-  verifyTrustedBootstrapPrerequisite(hint);
-  const operationId = operationIdentity(hint);
-  const store = createFixedNativeInstallJournalStore({ scope: "owner", correlation: hint.taskCorrelation, operationId });
-  let journal = store.read();
-  validateNativeInstallJournal(journal);
-  assertHintCorrelation(hint, journal);
-  if (journal.state !== "sudo_started" || journal.sudoAttemptCount !== 1) {
-    throw new Error("native install recovery handoff state invalid");
-  }
-  const already = readFixedNativeInstallRootResult(operationId);
-  if (already?.state === "completed") return resume(hint);
-  const ownerJournalBytes = readFileSync(store.path);
-  const sudoArgv = buildNativeInstallSudoArgv({
-    handoffMode: "recover_readback",
-    sourceCommit: hint.sourceCommit,
-    bootstrapBlob: hint.bootstrapBlob,
-    correlation: hint.taskCorrelation,
-    operationId,
-    ownerJournalDigest: journal.journalDigest,
-    ownerJournalSha256: sha256(ownerJournalBytes),
-  });
-  validateInteractiveSudoBoundary({
-    argv: sudoArgv, env: {}, tty: realTtyAvailable(), stdinKind: "tty_password_only_no_program_bytes",
-    stdoutKind: "bounded_capture", stderrKind: "bounded_capture",
-  });
-  const tty = openSync("/dev/tty", constants.O_RDWR | constants.O_NOFOLLOW);
-  let child;
-  try {
-    child = spawnSync(sudoArgv[0], sudoArgv.slice(1), {
-      cwd: "/", env: {}, stdio: [tty, "pipe", "pipe"], encoding: "utf8",
-      maxBuffer: 64 * 1024, timeout: 10 * 60 * 1000,
-    });
-  } finally { closeSync(tty); }
-  const process = sanitizeNativeInstallProcessResult({
-    status: child.status, signal: child.signal, stdout: child.stdout || "", stderr: child.stderr || "",
-    timedOut: child.error?.code === "ETIMEDOUT", processLost: Boolean(child.error && child.error.code !== "ETIMEDOUT"),
-  });
-  const rootResult = readFixedNativeInstallRootResult(operationId);
-  if (rootResult?.state === "completed" && rootResult.correlation === journal.correlation
-      && rootResult.repository.toLowerCase() === journal.repository.toLowerCase()
-      && rootResult.sourceCommit === journal.sourceCommit && child.status === 0 && child.signal === null && !child.error) {
-    journal = transitionNativeInstallJournal({
-      current: journal, expectedState: "sudo_started", nextState: "completed", observedAt: new Date().toISOString(),
-      result: journalResult({ outcome: "completed", reasonCode: "native_install_recovery_result_durably_read", planDigest: rootResult.planDigest, installedDigest: rootResult.installedDigest, process }),
-      persist: (value) => persistNativeInstallJournalTransition({ ...value, store }),
-    });
-  }
-  return writeResult({
-    ok: journal.state === "completed",
-    reasonCode: journal.state === "completed" ? "native_install_recovery_handoff_completed" : "native_install_recovery_handoff_blocked",
-    correlation: journal.correlation, sourceCommit: journal.sourceCommit, sudoAttemptCount: journal.sudoAttemptCount,
-    process, nextAction: journal.state === "completed" ? "none" : "bounded_manual_review_no_replay",
-  });
-}
-
 function prepare(hint) {
   assertUnprivilegedOwner();
   verifyTrustedBootstrapPrerequisite(hint);
@@ -248,9 +196,51 @@ function resume(hint) {
   validateNativeInstallJournal(journal);
   assertHintCorrelation(hint, journal);
   const rootResult = readFixedNativeInstallRootResult(journal.operationId);
-  if (journal.state === "sudo_started" && rootResult?.state === "completed"
-      && rootResult.correlation === journal.correlation && rootResult.repository.toLowerCase() === journal.repository.toLowerCase()
-      && rootResult.sourceCommit === journal.sourceCommit) {
+  const temporaryRootResult = readFixedNativeInstallRootResultTemporary(journal.operationId);
+  const observation = selectFixedNativeInstallRootResultObservation(rootResult, temporaryRootResult);
+  const observedRootResult = observation.value;
+  if (observedRootResult !== null && (observedRootResult.correlation !== journal.correlation
+      || observedRootResult.repository.toLowerCase() !== journal.repository.toLowerCase()
+      || observedRootResult.sourceCommit !== journal.sourceCommit)) {
+    throw new Error("native install root result correlation mismatch");
+  }
+  if (observedRootResult === null && journal.state === "sudo_started") {
+    return writeResult({
+      ok: false,
+      reasonCode: "native_install_root_result_requires_recovery",
+      rootFailureReasonCode: "native_install_root_result_readback_failed",
+      resultPublication: "absent",
+      correlation: journal.correlation,
+      sourceCommit: journal.sourceCommit,
+      sudoAttemptCount: journal.sudoAttemptCount,
+      nextAction: "separate_manual_recovery_gate_no_automatic_sudo",
+    });
+  }
+  if (observedRootResult?.state === "blocked") {
+    return writeResult({
+      ok: false,
+      reasonCode: "native_install_root_result_blocked",
+      rootFailureReasonCode: observedRootResult.reasonCode,
+      resultPublication: observation.publication,
+      correlation: journal.correlation,
+      sourceCommit: journal.sourceCommit,
+      sudoAttemptCount: journal.sudoAttemptCount,
+      nextAction: "bounded_source_repair_no_replay",
+    });
+  }
+  if (observedRootResult?.state === "publication_ambiguous" || (temporaryRootResult !== null && observedRootResult.state !== "blocked")) {
+    return writeResult({
+      ok: false,
+      reasonCode: "native_install_root_result_requires_recovery",
+      rootFailureReasonCode: "native_install_root_result_publication_failed",
+      resultPublication: observation.publication,
+      correlation: journal.correlation,
+      sourceCommit: journal.sourceCommit,
+      sudoAttemptCount: journal.sudoAttemptCount,
+      nextAction: "separate_manual_recovery_gate_no_automatic_sudo",
+    });
+  }
+  if (journal.state === "sudo_started" && rootResult?.state === "completed") {
     journal = transitionNativeInstallJournal({
       current: journal,
       expectedState: "sudo_started",
@@ -263,7 +253,7 @@ function resume(hint) {
   return writeResult({ ...resumeNativeInstallProtocol({ ownerJournal: journal }), correlation: journal.correlation, sourceCommit: journal.sourceCommit, rootResult });
 }
 
-function rootBootstrap(hint, { recoveryOnly = false } = {}) {
+function rootBootstrap(hint) {
   assertRootBootstrapBoundary();
   loadRootReceipt(hint);
   const checkoutRoot = authenticatedCheckoutRoot();
@@ -277,7 +267,7 @@ function rootBootstrap(hint, { recoveryOnly = false } = {}) {
   const entrypoint = path.join(materializedRoot, "tools/auto-runner/semantic-recovery-native-install.mjs");
   let child;
   try {
-    child = spawnSync(fixedNode, [entrypoint, recoveryOnly ? "--root-recovery-internal" : "--root-authority-internal"], {
+    child = spawnSync(fixedNode, [entrypoint, "--root-authority-internal"], {
       cwd: materializedRoot,
       env: { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
       input: canonicalBytes(hint),
@@ -299,7 +289,7 @@ function rootBootstrap(hint, { recoveryOnly = false } = {}) {
   return writeResult(result);
 }
 
-function rootAuthority(hint, { recoveryOnly = false } = {}) {
+function rootAuthority(hint) {
   assertRootMaterializedBoundary();
   const materializedRoot = authenticatedCheckoutRoot();
   loadMaterializedSource(hint);
@@ -307,10 +297,6 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
   const operationId = operationIdentity(hint);
   const store = createFixedNativeInstallJournalStore({ scope: "root", correlation: hint.taskCorrelation, operationId });
   const filesystem = liveFilesystem(materializedRoot);
-  if (recoveryOnly) {
-    if (!store.exists()) throw new Error("native install recovery root journal absent");
-    return reconcileRootResult({ hint, receipt, store, filesystem });
-  }
   if (store.exists()) throw new Error("native install existing root journal requires recovery-only handoff");
   let journal = createNativeInstallJournal({
     correlation: hint.taskCorrelation,
@@ -389,7 +375,7 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
         if (current.journalDigest !== journal.journalDigest) throw new Error("native install verified completion journal changed");
         return advanceRoot(expectedState, nextState, result);
       },
-      publishResult: (current) => publishRootResult(hint, current, filesystem),
+      publishResult: (current) => publishRootResult(hint, current),
     });
     journal = completed.journal;
     return writeResult({
@@ -403,7 +389,8 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
       installed: published.installed,
       adopted: published.adopted,
     });
-  } catch {
+  } catch (error) {
+    const rootFailureReasonCode = classifyNativeInstallRootFailure(error);
     try { journal = store.read(); } catch { /* Preserve the last authenticated in-process state. */ }
     if (["installed_verified", "adopted_verified", "completed"].includes(journal.state)) {
       try { return reconcileRootResult({ hint, receipt, store, filesystem }); }
@@ -430,7 +417,7 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
       try {
         advanceRoot(journal.state, "blocked", {
           outcome: "blocked",
-          reasonCode: "native_install_root_operation_blocked",
+          reasonCode: rootFailureReasonCode,
           requestDigest: journal.requestDigest,
           sourceManifestDigest: journal.result?.sourceManifestDigest,
           planDigest: journal.result?.planDigest,
@@ -442,8 +429,28 @@ function rootAuthority(hint, { recoveryOnly = false } = {}) {
         try { journal = store.read(); } catch { /* Preserve bounded failure below. */ }
       }
     }
-    if (["publication_ambiguous", "blocked"].includes(journal.state)) publishRootResult(hint, journal, filesystem);
-    throw new Error("native install root operation blocked");
+    if (["publication_ambiguous", "blocked"].includes(journal.state)) publishRootResult(hint, journal);
+    if (journal.state === "blocked") {
+      return writeResult({
+        ok: false,
+        reasonCode: "native_install_root_result_blocked",
+        rootFailureReasonCode: journal.result?.reasonCode || rootFailureReasonCode,
+        correlation: hint.taskCorrelation,
+        sourceCommit: hint.sourceCommit,
+        operationId,
+      });
+    }
+    if (journal.state === "publication_ambiguous") {
+      return writeResult({
+        ok: false,
+        reasonCode: "native_install_root_result_requires_recovery",
+        rootFailureReasonCode,
+        correlation: hint.taskCorrelation,
+        sourceCommit: hint.sourceCommit,
+        operationId,
+      });
+    }
+    throw new Error(rootFailureReasonCode);
   }
 }
 
@@ -507,7 +514,8 @@ function runIndependentRootReaders(hint, observedAt = new Date().toISOString(), 
       maxBuffer: 32 * 1024 * 1024,
       timeout: 5 * 60 * 1000,
     });
-    if (child.error || child.signal || child.status !== 0 || child.stderr !== "") throw new Error("native install source authority reader blocked");
+    const failureReason = classifyNativeInstallRootReaderProcess(child);
+    if (failureReason !== null) throw new Error(failureReason);
     return parseCanonicalJson(Buffer.from(child.stdout));
   });
   return corroborateNativeInstallRootReaderOutputs(outputs, expectedPackage);
@@ -555,7 +563,7 @@ function reconcileRootResult({ hint, receipt, store, filesystem }) {
       if (current.journalDigest !== journal.journalDigest) throw new Error("native install reconciliation journal changed");
       return advance(expectedState, nextState, result);
     },
-    publishResult: (current) => publishRootResult(hint, current, filesystem),
+    publishResult: (current) => publishRootResult(hint, current),
   });
   journal = completed.journal;
   return writeResult({ ok: true, reasonCode: "native_install_existing_result_reconciled", correlation: hint.taskCorrelation, sourceCommit: hint.sourceCommit, planDigest: verified.planDigest, installed: true, adopted: false });
@@ -563,22 +571,21 @@ function reconcileRootResult({ hint, receipt, store, filesystem }) {
 
 function liveFilesystem(materializedRoot) {
   const helper = path.join(materializedRoot, nativeInstallRenameNoReplaceHelper);
-  return createLiveNativeInstallFilesystem({ renameNoReplace(stage, finalRoot, kind = "protected_root") {
-    let operationId = null;
-    if (kind === "root_result") {
-      const temporary = /^\.([a-f0-9]{64})\.[a-f0-9]{24}\.tmp$/u.exec(path.basename(stage));
-      operationId = temporary?.[1] || null;
-      if (path.dirname(stage) !== nativeInstallRootResultRoot || path.dirname(finalRoot) !== nativeInstallRootResultRoot
-          || operationId === null || !path.basename(finalRoot).startsWith(`${operationId}.`)) {
-        throw new Error("native install root result helper paths invalid");
-      }
-    } else if (finalRoot !== semanticRecoveryProtectedLayout.root
+  return createLiveNativeInstallFilesystem({ renameNoReplace(stage, finalRoot) {
+    if (finalRoot !== semanticRecoveryProtectedLayout.root
         || path.basename(stage) !== "root" || path.dirname(path.dirname(stage)) !== path.dirname(finalRoot)) {
       throw new Error("native install protected-root helper paths invalid");
     }
-    const helperArguments = kind === "root_result" ? ["-I", helper, "--root-result", operationId] : ["-I", helper, "--publish-root"];
-    const child = spawnSync(fixedPython, helperArguments, { cwd: "/", env: { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" }, encoding: "utf8", maxBuffer: 64 * 1024, timeout: 30_000 });
-    if (child.error || child.signal || child.status !== 0 || child.stdout !== "" || child.stderr !== "") throw new Error("native install rename_noreplace helper blocked");
+    const child = spawnSync(fixedPython, ["-I", helper, "--publish-root"], {
+      cwd: "/",
+      env: { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
+      encoding: "utf8",
+      maxBuffer: 64 * 1024,
+      timeout: 30_000,
+    });
+    if (child.error || child.signal || child.status !== 0 || child.stdout !== "" || child.stderr !== "") {
+      throw new Error("native install rename_noreplace helper blocked");
+    }
   } });
 }
 
@@ -760,13 +767,13 @@ function loadRootReceipt(hint) {
   }
   return receipt;
 }
-function publishRootResult(hint, journal, filesystem) {
+function publishRootResult(hint, journal) {
   return publishFixedNativeInstallRootResult(buildFixedNativeInstallRootResult({
     correlation: hint.taskCorrelation,
     repository: hint.repository,
     sourceCommit: hint.sourceCommit,
     journal,
-  }), { renameNoReplace: filesystem.publishRootResultNoReplace });
+  }));
 }
 async function readCanonicalInput(stream) {
   const chunks = [];
@@ -818,7 +825,9 @@ function assertExactKeys(value, expected) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((error) => {
-    process.stderr.write(`native installation blocked: ${error.message}\n`);
+    const rootMode = String(process.argv[2] || "").startsWith("--root");
+    const reason = rootMode ? classifyNativeInstallRootFailure(error) : error.message;
+    process.stderr.write(`native installation blocked: ${reason}\n`);
     process.exitCode = 1;
   });
 }

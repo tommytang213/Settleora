@@ -294,6 +294,21 @@ export function createPublicSemanticRecoveryGithubSnapshotReader({ minimumRateRe
   };
 }
 
+export function classifyPublicSemanticRecoveryGithubProcessFailure(child) {
+  if (!child || typeof child !== "object") return "semantic_native_public_github_process_unavailable";
+  if (child.error?.code === "ETIMEDOUT") return "semantic_native_public_github_timeout";
+  if (child.error || child.signal) return "semantic_native_public_github_process_unavailable";
+  const stderr = typeof child.stderr === "string" && Buffer.byteLength(child.stderr) <= 64 * 1024 ? child.stderr : "";
+  const match = /RuntimeError: (semantic_native_public_github_(?:request_invalid|route_invalid|response_refused|rate_budget_refused|response_oversized))\s*$/u.exec(stderr);
+  if (match) return match[1];
+  if (child.status !== 0) return "semantic_native_public_github_process_failed";
+  if (stderr !== "") return "semantic_native_public_github_stderr_refused";
+  if (typeof child.stdout !== "string" || Buffer.byteLength(child.stdout) > 4 * 1024 * 1024) {
+    return "semantic_native_public_github_response_oversized";
+  }
+  return null;
+}
+
 export function readPublicSemanticRecoveryGithubRoute(route, { command = spawnSync, minimumRateRemaining = 0 } = {}) {
   if (typeof route !== "string" || route.length < 1 || route.length > 1024 || typeof command !== "function"
       || !Number.isSafeInteger(minimumRateRemaining) || minimumRateRemaining < 0 || minimumRateRemaining > 60) {
@@ -306,10 +321,8 @@ export function readPublicSemanticRecoveryGithubRoute(route, { command = spawnSy
     maxBuffer: 4 * 1024 * 1024 + 1024,
     timeout: 35_000,
   });
-  if (!child || child.error || child.signal || child.status !== 0 || child.stderr !== ""
-      || typeof child.stdout !== "string" || Buffer.byteLength(child.stdout) > 4 * 1024 * 1024) {
-    throw new Error("semantic native public GitHub read blocked");
-  }
+  const failureReason = classifyPublicSemanticRecoveryGithubProcessFailure(child);
+  if (failureReason !== null) throw new Error(failureReason);
   try { return JSON.parse(child.stdout); }
   catch { throw new Error("semantic native public GitHub response invalid"); }
 }
