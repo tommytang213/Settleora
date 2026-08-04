@@ -26,7 +26,10 @@ def main() -> int:
         parent_stat = os.fstat(parent_fd)
         if not stat.S_ISDIR(parent_stat.st_mode) or parent_stat.st_uid != os.getuid() or parent_stat.st_gid != os.getgid() or parent_stat.st_mode & 0o022:
             raise RuntimeError("handoff_publication_parent_unsafe")
-        stage_stat = os.stat(stage, dir_fd=parent_fd, follow_symlinks=False)
+        stage_fd = LIBC.openat(parent_fd, os.fsencode(stage), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        if stage_fd < 0:
+            raise RuntimeError("handoff_publication_stage_open_failed")
+        stage_stat = os.fstat(stage_fd)
         if not stat.S_ISDIR(stage_stat.st_mode) or stage_stat.st_uid != os.getuid() or stage_stat.st_gid != os.getgid() or stat.S_IMODE(stage_stat.st_mode) != 0o700:
             raise RuntimeError("handoff_publication_stage_unsafe")
         result = LIBC.renameat2(parent_fd, os.fsencode(stage), parent_fd, os.fsencode(final), RENAME_NOREPLACE)
@@ -35,7 +38,17 @@ def main() -> int:
             if code in (errno.EEXIST, errno.ENOTEMPTY):
                 raise RuntimeError("handoff_publication_destination_exists")
             raise RuntimeError("handoff_publication_rename_failed")
+        final_fd = LIBC.openat(parent_fd, os.fsencode(final), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        if final_fd < 0:
+            raise RuntimeError("handoff_publication_final_open_failed")
+        try:
+            final_stat = os.fstat(final_fd)
+            if (final_stat.st_dev, final_stat.st_ino) != (stage_stat.st_dev, stage_stat.st_ino):
+                raise RuntimeError("handoff_publication_identity_changed")
+        finally:
+            os.close(final_fd)
         os.fsync(parent_fd)
+        os.close(stage_fd)
     finally:
         os.close(parent_fd)
     return 0
