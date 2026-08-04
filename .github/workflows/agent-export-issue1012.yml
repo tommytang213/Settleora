@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/agent-export-issue1012.yml
-      - .github/agent-issue1012-repair.patch.gz.b64
+      - .github/issue1012-payload/**
 
 permissions:
   contents: write
@@ -27,10 +27,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          payload='.github/agent-issue1012-repair.patch.gz.b64'
-          test "$(sha256sum "$payload" | cut -d' ' -f1)" = '0c6ac8e7d4cab3764912315f4c6ccae3c0ccd5a60bc62e59081edcf3253bc3f3'
+          root='.github/issue1012-payload'
+          expected=(
+            1aac9a3f613d7d7c2ac2299fed79f232bd797247294c964153c31ff0221652a5
+            34c1f9c32730e3c23a2e60fec0650a92d9ebb40b11f985b1588526c68ca028c5
+            353a6e06e46a25f0054dc4466015cc3871e3c139dbacd0b6dbf8f97931a673bd
+            2a08848ec3476f13a4367ffcf60e17f23f8a06a4285b8bc3c2a173a4113cd11d
+            21c74a7e14936a3148aa4e2930c4b71c066fec05ebf6e8e32eb6c58176f58798
+            51db4c71fa4cd9aec4e94febb87fe164f4a16726494c7f9a05bb2fb17bc66489
+            44592d6fc4e77b9402c56a07ed576b8eb39e847e1ae058c04aa62d2dddcef64c
+            8a80ea7fa148aaee82e9e846b8fc274656973c89b4145050068b1e51d234adbf
+          )
+          for index in $(seq -w 0 7); do
+            file="$root/part-$index"
+            actual="$(sha256sum "$file" | cut -d' ' -f1)"
+            expected_index=$((10#$index))
+            printf 'CHUNK_%s_SHA256=%s\n' "$index" "$actual"
+            test "$actual" = "${expected[$expected_index]}"
+          done
+          payload="$RUNNER_TEMP/issue1012-repair.patch.gz.b64"
+          cat "$root"/part-* > "$payload"
+          payload_sha="$(sha256sum "$payload" | cut -d' ' -f1)"
+          printf 'PAYLOAD_SHA256=%s\n' "$payload_sha"
+          test "$payload_sha" = '0c6ac8e7d4cab3764912315f4c6ccae3c0ccd5a60bc62e59081edcf3253bc3f3'
           base64 --decode "$payload" | gzip --decompress > "$RUNNER_TEMP/issue1012-repair.patch"
-          test "$(sha256sum "$RUNNER_TEMP/issue1012-repair.patch" | cut -d' ' -f1)" = 'ff874f8d5eaf477c0b3fa79f8c18d41ff91d24d1e8c2a3af78dc9bcf381523be'
+          patch_sha="$(sha256sum "$RUNNER_TEMP/issue1012-repair.patch" | cut -d' ' -f1)"
+          printf 'PATCH_SHA256=%s\n' "$patch_sha"
+          test "$patch_sha" = 'ff874f8d5eaf477c0b3fa79f8c18d41ff91d24d1e8c2a3af78dc9bcf381523be'
           git apply --check "$RUNNER_TEMP/issue1012-repair.patch"
           git apply --index "$RUNNER_TEMP/issue1012-repair.patch"
           git config user.name 'tommytang213'
