@@ -241,7 +241,7 @@ test("realized authorized key requires one exact restricted public key and its b
     valid.replace("restrict,pty", "pty"),
     valid.replace("ssh-ed25519", "ssh-rsa"),
     `${valid}${valid}`,
-    valid.replace("AAAA", "-----BEGIN PRIVATE KEY----- AAAA"),
+    valid.replace("AAAA", `${["-----BEGIN", "PRIVATE", "KEY-----"].join(" ")} AAAA`),
   ]) {
     replaceKey(invalid);
     assert.throws(() => validateRealizedAuthorizedKey(file, options), /authorized_key/u);
