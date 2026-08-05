@@ -2,7 +2,8 @@ import { closeSync, constants, openSync, readFileSync, realpathSync } from "node
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  authenticateTrustedSshPackage, closeAuthenticatedPackage, consumeTrustedSshOperation, parseTrustedSshCommand, trustedSshPaths,
+  authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage,
+  consumeTrustedSshOperation, parseTrustedSshCommand, trustedSshPaths,
 } from "./lib/trusted-ssh-boundary.mjs";
 
 export function runTrustedSshRootGate({
@@ -14,6 +15,7 @@ export function runTrustedSshRootGate({
   expectedPackageUid = 0,
   claimRoot = trustedSshPaths.operationClaims,
   claimConsumer = consumeTrustedSshOperation,
+  bootstrapAuthenticator = authenticateInstalledBoundaryArtifact,
   executor = executeFixedRootBootstrap,
 } = {}) {
   if (argv.length !== 2 || !/^[1-9][0-9]{0,9}$/u.test(argv[0]) || !/^[1-9][0-9]{0,9}$/u.test(argv[1])
@@ -34,11 +36,16 @@ export function runTrustedSshRootGate({
     expectedUid: expectedPackageUid,
   });
   try {
+    bootstrapAuthenticator({
+      expectedInstalledPath: trustedSshPaths.rootBootstrapModule,
+      expectedName: "settleora-authenticated-root-bootstrap.mjs",
+      file: trustedSshPaths.rootBootstrapModule,
+    });
     claimConsumer({
       claimRoot, expectedClaimGid, expectedClaimUid, handoffKey: request.handoffKey, operationId: request.operationId,
     });
     return executor({
-      argv: [trustedSshPaths.rootBootstrap],
+      argv: [trustedSshPaths.rootBootstrap, "--disable-proto=throw", trustedSshPaths.rootBootstrapModule],
       env: Object.freeze({ HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/sbin:/usr/bin:/sbin:/bin", TZ: "UTC" }),
       executable: trustedSshPaths.rootBootstrap,
       packageDirectoryFd: authenticated.directoryFd,

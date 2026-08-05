@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  authenticateTrustedSshPackage, closeAuthenticatedPackage, createTrustedSshInstallationPlan,
+  authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage, createTrustedSshInstallationPlan,
   consumeTrustedSshOperation, parseTrustedSshCommand, renderTrustedSshFixtures, reserveTrustedSshOperation,
   trustedSshPackageContract, trustedSshPaths,
   validateEffectiveSshdOutput, validateNativeStaticExecutable, validateRealizedAuthorizedKey, validateTrustedSshFixtures,
@@ -17,6 +17,7 @@ import {
 } from "../trusted-ssh-boundary/lib/trusted-ssh-boundary.mjs";
 import { runTrustedSshDispatcher } from "../trusted-ssh-boundary/settleora-trusted-ssh-dispatcher.mjs";
 import { runTrustedSshRootGate } from "../trusted-ssh-boundary/settleora-trusted-ssh-root-gate.mjs";
+import { runAuthenticatedRootBootstrap } from "../trusted-ssh-boundary/settleora-authenticated-root-bootstrap.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 const sourceRoot = path.join(repositoryRoot, "tools/auto-runner/trusted-ssh-boundary");
@@ -164,16 +165,58 @@ test("fd gate executes only the held entrypoint with a clean environment and pre
 
 test("fixed no-argument root gate independently authenticates the exact package and operation", () => withFixture((fixture) => {
   const packageRoot = path.join(fixture, "handoffs"); mkdirSync(packageRoot, { mode: 0o700 }); createPackage(packageRoot);
-  let observed;
+  let observed; const order = [];
   const result = runTrustedSshRootGate({
     argv: [String(process.getuid()), String(process.getgid())], cwd: path.join(packageRoot, key), handoffRoot: packageRoot,
-    uid: 0, euid: 0, expectedPackageUid: process.getuid(), claimConsumer: () => ({ sudoAttemptCount: 1 }),
-    executor(value) { observed = value; return { reasonCode: "mock_root_gate_complete" }; },
+    uid: 0, euid: 0, expectedPackageUid: process.getuid(), claimConsumer: () => { order.push("claim"); return { sudoAttemptCount: 1 }; },
+    bootstrapAuthenticator: () => { order.push("bootstrap"); return { reasonCode: "fixture_bootstrap_verified" }; },
+    executor(value) { order.push("exec"); observed = value; return { reasonCode: "mock_root_gate_complete" }; },
   });
   assert.equal(result.reasonCode, "mock_root_gate_complete");
-  assert.deepEqual(observed.argv, [trustedSshPaths.rootBootstrap]);
+  assert.deepEqual(observed.argv, [trustedSshPaths.rootBootstrap, "--disable-proto=throw", trustedSshPaths.rootBootstrapModule]);
   assert.deepEqual(observed.env, { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/sbin:/usr/bin:/sbin:/bin", TZ: "UTC" });
+  assert.deepEqual(order, ["bootstrap", "claim", "exec"]);
   assert.throws(() => runTrustedSshRootGate({ cwd: path.join(packageRoot, key), handoffRoot: packageRoot, argv: ["/bin/sh"], uid: 0, euid: 0 }), /identity/u);
+}));
+
+test("installed bootstrap authentication binds root-owned ancestry, mode and digest", () => withFixture((fixture) => {
+  const directory = path.join(fixture, "installed"); mkdirSync(directory, { mode: 0o700 });
+  const file = path.join(directory, "settleora-authenticated-root-bootstrap.mjs");
+  const manifestFile = path.join(directory, "artifact-manifest.json");
+  const bytes = Buffer.from("export const fixture = true;\n");
+  writeFileSync(file, bytes, { mode: 0o444 }); chmodSync(file, 0o444);
+  const manifest = [{ byteCount: bytes.length, installedPath: file, mode: "0444",
+    name: "settleora-authenticated-root-bootstrap.mjs", sha256: sha256(bytes) }];
+  writeFileSync(manifestFile, `${canonicalJson(manifest)}\n`, { mode: 0o400 }); chmodSync(manifestFile, 0o400);
+  const options = {
+    expectedGid: process.getgid(), expectedInstalledPath: file,
+    expectedName: "settleora-authenticated-root-bootstrap.mjs", expectedUid: process.getuid(),
+    file, manifestFile, ancestryValidator() {},
+  };
+  assert.equal(authenticateInstalledBoundaryArtifact(options).reasonCode, "trusted_ssh_installed_artifact_verified");
+  chmodSync(file, 0o644); writeFileSync(file, Buffer.concat([bytes, Buffer.from("x")])); chmodSync(file, 0o444);
+  assert.throws(() => authenticateInstalledBoundaryArtifact(options), /digest/u);
+}));
+
+test("authenticated root bootstrap revalidates package and consumed receipt before the bounded integration contract", () => withFixture((fixture) => {
+  const packageRoot = path.join(fixture, "handoffs"); mkdirSync(packageRoot, { mode: 0o700 }); createPackage(packageRoot);
+  let observed;
+  const result = runAuthenticatedRootBootstrap({
+    argv: [], cwd: path.join(packageRoot, key), handoffRoot: packageRoot, uid: 0, euid: 0,
+    expectedPackageUid: process.getuid(),
+    receiptValidator: ({ handoffKey, operationId }) => {
+      assert.equal(handoffKey, key); assert.equal(operationId, operation);
+      return { sudoAttemptCount: 1 };
+    },
+    integrationExecutor(value) { observed = value; return { reasonCode: "fixture_root_protocol_complete" }; },
+  });
+  assert.equal(result.reasonCode, "fixture_root_protocol_complete");
+  assert.deepEqual(observed.executeFlow, ["prepare", "arm-interactive-sudo-once", "resume-readback-only"]);
+  assert.equal(observed.sudoAttemptCount, 1);
+  assert.throws(() => runAuthenticatedRootBootstrap({
+    argv: [], cwd: path.join(packageRoot, key), handoffRoot: packageRoot, uid: 0, euid: 0,
+    expectedPackageUid: process.getuid(), receiptValidator: () => ({ sudoAttemptCount: 2 }),
+  }), /receipt/u);
 }));
 
 test("operation claim reservation and root consumption enforce one fail-closed sudo execution", () => withFixture((fixture) => {
@@ -257,6 +300,7 @@ test("effective sshd validator rejects every security regression and accepts the
   assert.deepEqual(validateEffectiveSshdOutput(exact), { ok: true, reasonCode: "trusted_ssh_effective_sshd_verified" });
   for (const [name, value] of [
     ["permituserenvironment", "yes"], ["permituserrc", "yes"], ["passwordauthentication", "yes"],
+    ["authorizedkeyscommand", "/usr/local/bin/alternate-key-authority"],
     ["pubkeyacceptedalgorithms", "ssh-rsa"],
     ["disableforwarding", "no"], ["allowtcpforwarding", "yes"], ["authorizedkeysfile", ".ssh/authorized_keys"],
     ["permittty", "no"], ["forcecommand", "internal-sftp"],
@@ -384,15 +428,17 @@ function planArgs(built) {
     dispatcherModule: path.join(sourceRoot, "settleora-trusted-ssh-dispatcher.mjs"), fdExec: built.fdExec,
     generatedAt: "2026-08-05T01:25:00Z", nativeShell: built.entry, operatorKeyFingerprint: fingerprint,
     rootGate: built.rootGate, rootGateModule: path.join(sourceRoot, "settleora-trusted-ssh-root-gate.mjs"),
+    rootBootstrapModule: path.join(sourceRoot, "settleora-authenticated-root-bootstrap.mjs"),
     repositoryRoot,
     sourceCommit: "d".repeat(40), sourceTree: "e".repeat(40),
     supportLibrary: path.join(sourceRoot, "lib/trusted-ssh-boundary.mjs"),
-    sourceClosureAuthenticator: ({ dispatcherModule, fdExec, nativeShell, rootGate, rootGateModule, supportLibrary }) => ({ artifactBytes: {
+    sourceClosureAuthenticator: ({ dispatcherModule, fdExec, nativeShell, rootGate, rootGateModule, rootBootstrapModule, supportLibrary }) => ({ artifactBytes: {
       "settleora-trusted-ssh-entry": readFileSync(nativeShell),
       "settleora-trusted-ssh-dispatcher.mjs": readFileSync(dispatcherModule),
       "settleora-trusted-ssh-fd-exec": readFileSync(fdExec),
       "settleora-root-gate": readFileSync(rootGate),
       "settleora-trusted-ssh-root-gate.mjs": readFileSync(rootGateModule),
+      "settleora-authenticated-root-bootstrap.mjs": readFileSync(rootBootstrapModule),
       "trusted-ssh-boundary.mjs": readFileSync(supportLibrary),
     } }),
     sourceIdentityReader: () => ({ commit: "d".repeat(40), tree: "e".repeat(40) }),
@@ -426,6 +472,7 @@ function effectiveSshd() {
     "authenticationmethods publickey", "passwordauthentication no", "kbdinteractiveauthentication no", "pubkeyauthentication yes",
     "pubkeyacceptedalgorithms sk-ssh-ed25519@openssh.com,ssh-ed25519",
     `authorizedkeysfile ${trustedSshPaths.authorizedKeys}`, "permituserenvironment no", "permituserrc no", "disableforwarding yes",
+    "authorizedkeyscommand none",
     "allowagentforwarding no", "allowtcpforwarding no", "x11forwarding no", "permittunnel no", "gatewayports no",
     "permittty yes", "forcecommand settleora-handoff-v1", "",
   ].join("\n");

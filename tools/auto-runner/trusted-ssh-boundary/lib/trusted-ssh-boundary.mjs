@@ -12,6 +12,7 @@ export const trustedSshPackageContract = "settleora_trusted_ssh_handoff_package_
 export const trustedSshPaths = Object.freeze({
   account: "settleora_handoff",
   authorizedKeys: "/etc/settleora/trusted-ssh/authorized_keys",
+  closureManifest: "/etc/settleora/trusted-ssh/artifact-manifest.json",
   dispatcherModule: "/opt/settleora/trusted-ssh/lib/settleora-trusted-ssh-dispatcher.mjs",
   fdExec: "/opt/settleora/trusted-ssh/bin/settleora-trusted-ssh-fd-exec",
   handoffRoot: "/var/lib/settleora/trusted-ssh/handoffs",
@@ -24,7 +25,8 @@ export const trustedSshPaths = Object.freeze({
   rootGate: "/opt/settleora/trusted-ssh/bin/settleora-root-gate",
   rootGateModule: "/opt/settleora/trusted-ssh/lib/settleora-trusted-ssh-root-gate.mjs",
   supportLibrary: "/opt/settleora/trusted-ssh/lib/trusted-ssh-boundary.mjs",
-  rootBootstrap: "/opt/settleora/trusted-ssh/bin/settleora-authenticated-root-bootstrap",
+  rootBootstrap: "/usr/bin/node",
+  rootBootstrapModule: "/opt/settleora/trusted-ssh/lib/settleora-authenticated-root-bootstrap.mjs",
   sshdDropIn: "/etc/ssh/sshd_config.d/90-settleora-trusted-ssh.conf",
   sudoers: "/etc/sudoers.d/settleora-trusted-ssh",
 });
@@ -108,6 +110,27 @@ export function consumeTrustedSshOperation({
   return Object.freeze({ path: receiptPath, reasonCode: "trusted_ssh_operation_consumed", sudoAttemptCount: 1 });
 }
 
+export function validateTrustedSshConsumedReceipt({
+  claimRoot = trustedSshPaths.operationClaims, handoffKey, operationId,
+  expectedRootUid = 0, expectedRootGid = 0,
+} = {}) {
+  if (!keyPattern.test(String(handoffKey || "")) || !digestPattern.test(String(operationId || ""))) {
+    throw new Error("trusted_ssh_receipt_identity_invalid");
+  }
+  const consumed = path.join(claimRoot, "consumed");
+  assertOperationDirectory(consumed, expectedRootUid, expectedRootGid, 0o700);
+  const receipt = parseCanonicalJson(readBoundedRegular(
+    path.join(consumed, `${operationId}.json`), expectedRootUid, 4096, 0o400, expectedRootGid,
+  ));
+  assertExactKeys(receipt, ["claimSha256", "contract", "handoffKey", "operationId", "sudoAttemptCount", "version"]);
+  if (receipt.contract !== "settleora_trusted_ssh_operation_consumed_v1" || receipt.version !== 1
+      || receipt.handoffKey !== handoffKey || receipt.operationId !== operationId
+      || receipt.sudoAttemptCount !== 1 || !digestPattern.test(receipt.claimSha256)) {
+    throw new Error("trusted_ssh_receipt_invalid");
+  }
+  return Object.freeze({ reasonCode: "trusted_ssh_operation_receipt_verified", sudoAttemptCount: 1 });
+}
+
 export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
   if (!fingerprintPattern.test(String(operatorKeyFingerprint || ""))) {
     throw new Error("trusted_ssh_operator_fingerprint_invalid");
@@ -122,6 +145,7 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
     "    PasswordAuthentication no",
     "    KbdInteractiveAuthentication no",
     `    AuthorizedKeysFile ${trustedSshPaths.authorizedKeys}`,
+    "    AuthorizedKeysCommand none",
     "    PermitUserRC no",
     "    DisableForwarding yes",
     "    AllowAgentForwarding no",
@@ -157,7 +181,7 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
 }
 
 export function createTrustedSshInstallationPlan({
-  outputRoot, sourceCommit, sourceTree, nativeShell, dispatcherModule, fdExec, rootGate, rootGateModule, supportLibrary,
+  outputRoot, sourceCommit, sourceTree, nativeShell, dispatcherModule, fdExec, rootGate, rootGateModule, rootBootstrapModule, supportLibrary,
   operatorKeyFingerprint, generatedAt, repositoryRoot = null, sourceIdentityReader = readGitSourceIdentity,
   sourceClosureAuthenticator = authenticatePlanSourceClosure,
   faultAt = null,
@@ -172,7 +196,7 @@ export function createTrustedSshInstallationPlan({
     throw new Error("trusted_ssh_plan_source_identity_invalid");
   }
   const sourceClosureBinding = sourceClosureAuthenticator({
-    dispatcherModule, fdExec, nativeShell, outputRoot, repositoryRoot, rootGate, rootGateModule,
+    dispatcherModule, fdExec, nativeShell, outputRoot, repositoryRoot, rootGate, rootGateModule, rootBootstrapModule,
     sourceCommit, sourceTree, supportLibrary,
   });
   const inputSpecs = [
@@ -181,6 +205,7 @@ export function createTrustedSshInstallationPlan({
     ["settleora-trusted-ssh-fd-exec", fdExec, "0555", trustedSshPaths.fdExec],
     ["settleora-root-gate", rootGate, "0555", trustedSshPaths.rootGate],
     ["settleora-trusted-ssh-root-gate.mjs", rootGateModule, "0444", trustedSshPaths.rootGateModule],
+    ["settleora-authenticated-root-bootstrap.mjs", rootBootstrapModule, "0444", trustedSshPaths.rootBootstrapModule],
     ["trusted-ssh-boundary.mjs", supportLibrary, "0444", trustedSshPaths.supportLibrary],
   ];
   const inputs = inputSpecs.map(([name, source, mode, installedPath]) => {
@@ -241,6 +266,7 @@ export function createTrustedSshInstallationPlan({
       atomicInstallOrder: [
         "verify-owner-decisions-and-backup-current-files",
         "install-root-owned-artifact-closure-to-temporary-sibling-paths",
+        "install-root-owned-artifact-manifest-for-runtime-bootstrap-verification",
         "verify-static-shell-and-all-digests",
         "realize-one-restricted-operator-key-and-verify-its-bound-fingerprint",
         "publish-authorized-key-and-sudoers-files",
@@ -347,6 +373,7 @@ export function validateTrustedSshInstallationPlan(root, {
   }
   const { planDigest, ...planCore } = plan;
   const expectedArtifacts = [
+    ["settleora-authenticated-root-bootstrap.mjs", trustedSshPaths.rootBootstrapModule, "0444"],
     ["settleora-root-gate", trustedSshPaths.rootGate, "0555"],
     ["settleora-trusted-ssh-dispatcher.mjs", trustedSshPaths.dispatcherModule, "0444"],
     ["settleora-trusted-ssh-entry", trustedSshPaths.loginShell, "0555"],
@@ -431,6 +458,7 @@ export function validateTrustedSshFixtures(root, {
     "AuthenticationMethods publickey", "PasswordAuthentication no", "KbdInteractiveAuthentication no",
     `PubkeyAcceptedAlgorithms ${allowedKeyAlgorithms.join(",")}`,
     `AuthorizedKeysFile ${trustedSshPaths.authorizedKeys}`, "PermitUserEnvironment no", "PermitUserRC no",
+    "AuthorizedKeysCommand none",
     "DisableForwarding yes", "AllowAgentForwarding no", "AllowTcpForwarding no", "X11Forwarding no",
     "PermitTunnel no", "GatewayPorts no", "PermitTTY yes", "ForceCommand settleora-handoff-v1",
   ]) if (!sshd.includes(required)) throw new Error("trusted_ssh_sshd_fixture_invalid");
@@ -481,6 +509,35 @@ export function validateRealizedAuthorizedKey(file, {
   });
 }
 
+export function authenticateInstalledBoundaryArtifact({
+  file, manifestFile = trustedSshPaths.closureManifest, expectedName,
+  expectedInstalledPath = file, expectedUid = 0, expectedGid = 0,
+  ancestryValidator = assertTrustedDirectoryChain,
+} = {}) {
+  if (file !== expectedInstalledPath || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(String(expectedName || ""))) {
+    throw new Error("trusted_ssh_installed_artifact_identity_invalid");
+  }
+  ancestryValidator(path.dirname(manifestFile), expectedUid);
+  ancestryValidator(path.dirname(file), expectedUid);
+  const manifest = parseCanonicalJson(readBoundedRegular(manifestFile, expectedUid, 4 * 1024 * 1024, 0o400, expectedGid));
+  if (!Array.isArray(manifest) || manifest.length < 1 || manifest.length > 32) {
+    throw new Error("trusted_ssh_installed_artifact_manifest_invalid");
+  }
+  const matches = manifest.filter((entry) => entry?.name === expectedName);
+  if (matches.length !== 1) throw new Error("trusted_ssh_installed_artifact_manifest_invalid");
+  const entry = matches[0];
+  assertExactKeys(entry, ["byteCount", "installedPath", "mode", "name", "sha256"]);
+  if (entry.installedPath !== expectedInstalledPath || entry.mode !== "0444" || !digestPattern.test(entry.sha256)
+      || !Number.isSafeInteger(entry.byteCount) || entry.byteCount < 1 || entry.byteCount > 16 * 1024 * 1024) {
+    throw new Error("trusted_ssh_installed_artifact_manifest_invalid");
+  }
+  const bytes = readBoundedRegular(file, expectedUid, 16 * 1024 * 1024, 0o444, expectedGid);
+  if (bytes.length !== entry.byteCount || sha256(bytes) !== entry.sha256) {
+    throw new Error("trusted_ssh_installed_artifact_digest_invalid");
+  }
+  return Object.freeze({ name: expectedName, reasonCode: "trusted_ssh_installed_artifact_verified", sha256: entry.sha256 });
+}
+
 export function validateEffectiveSshdOutput(text) {
   const values = new Map(String(text).trim().split("\n").map((line) => {
     const index = line.indexOf(" ");
@@ -490,7 +547,7 @@ export function validateEffectiveSshdOutput(text) {
     ["authenticationmethods", "publickey"], ["passwordauthentication", "no"],
     ["kbdinteractiveauthentication", "no"], ["pubkeyauthentication", "yes"],
     ["pubkeyacceptedalgorithms", allowedKeyAlgorithms.join(",")],
-    ["authorizedkeysfile", trustedSshPaths.authorizedKeys], ["permituserenvironment", "no"],
+    ["authorizedkeysfile", trustedSshPaths.authorizedKeys], ["authorizedkeyscommand", "none"], ["permituserenvironment", "no"],
     ["permituserrc", "no"], ["disableforwarding", "yes"], ["allowagentforwarding", "no"],
     ["allowtcpforwarding", "no"], ["x11forwarding", "no"], ["permittunnel", "no"],
     ["gatewayports", "no"], ["permittty", "yes"], ["forcecommand", "settleora-handoff-v1"],
@@ -700,12 +757,13 @@ function authenticatedArtifactRecord({ bytes, installedPath, mode, name, source 
 
 function authenticatePlanSourceClosure({
   dispatcherModule, fdExec, nativeShell, outputRoot, repositoryRoot, rootGate, rootGateModule,
-  sourceCommit, sourceTree, supportLibrary,
+  rootBootstrapModule, sourceCommit, sourceTree, supportLibrary,
 }) {
   const root = realpathSync(repositoryRoot);
   const sources = [
     ["tools/auto-runner/trusted-ssh-boundary/settleora-trusted-ssh-dispatcher.mjs", dispatcherModule],
     ["tools/auto-runner/trusted-ssh-boundary/settleora-trusted-ssh-root-gate.mjs", rootGateModule],
+    ["tools/auto-runner/trusted-ssh-boundary/settleora-authenticated-root-bootstrap.mjs", rootBootstrapModule],
     ["tools/auto-runner/trusted-ssh-boundary/lib/trusted-ssh-boundary.mjs", supportLibrary],
   ];
   const artifactBytes = {};
@@ -716,6 +774,7 @@ function authenticatePlanSourceClosure({
       throw new Error("trusted_ssh_source_module_binding_invalid");
     }
     const artifactName = relative.endsWith("settleora-trusted-ssh-dispatcher.mjs") ? "settleora-trusted-ssh-dispatcher.mjs"
+      : relative.endsWith("settleora-authenticated-root-bootstrap.mjs") ? "settleora-authenticated-root-bootstrap.mjs"
       : relative.endsWith("settleora-trusted-ssh-root-gate.mjs") ? "settleora-trusted-ssh-root-gate.mjs" : "trusted-ssh-boundary.mjs";
     artifactBytes[artifactName] = bytes;
   }

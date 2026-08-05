@@ -153,7 +153,8 @@ Use one dedicated non-product account named `settleora_handoff` with:
 - no unrestricted administrator-group membership.
 
 The authorized-key template uses `restrict,pty`. The sshd match repeats the
-forwarding prohibitions and uses `ForceCommand settleora-handoff-v1` to ensure
+forwarding prohibitions, sets `AuthorizedKeysCommand none` so no inherited
+external authorization source can admit a second key, and uses `ForceCommand settleora-handoff-v1` to ensure
 subsystem and shell requests cannot bypass parsing. Neither layer substitutes
 for the native login shell.
 
@@ -223,6 +224,17 @@ existing prepare, one-arm, readback-only resume sequence. Drift, residue,
 replay evidence, malformed output, path/link/owner/mode change, or a second
 sudo attempt fails closed.
 
+Before consuming the claim, the root-gate module authenticates the installed
+`settleora-authenticated-root-bootstrap.mjs` against the root-owned installed
+artifact manifest, including exact path, ancestry, owner, group, mode, byte
+count, and digest. It then executes fixed `/usr/bin/node` with that fixed module
+and a clean environment. The module independently reauthenticates the complete
+package and root-only consumed receipt and exposes only the fixed
+`prepare`, `arm-interactive-sudo-once`, `resume-readback-only` integration
+envelope. Its default implementation fails closed until the separately reviewed
+PR #1048 integration supplies the authenticated protocol implementation; no
+unreviewed or path-selected bootstrap can run.
+
 ## Sudo and PTY model
 
 The canonical sudoers fixture is narrow:
@@ -258,7 +270,7 @@ authentication file, dispatcher closure, validator, or sudo gate.
 
 `generate-trusted-ssh-boundary-plan.mjs` writes only to a caller-supplied,
 existing, owner-private output root. It binds the claimed commit/tree to a clean
-checkout, reads the three JavaScript modules as exact Git blobs, rebuilds the
+checkout, reads all four JavaScript modules as exact Git blobs, rebuilds the
 three native artifacts from exact Git blobs with fixed compiler arguments, and
 rejects supplied artifacts that are not byte-identical. It then emits canonical
 fixtures and an installation/rollback plan, reserves the final directory
@@ -292,7 +304,8 @@ Deployment is a later manual gate. Before any reload, an owner must:
 4. install and independently hash the root-owned artifact closure through
    temporary sibling paths;
 5. realize exactly one restricted public-key line, validate its exact
-   fingerprint, and validate the sudoers fragment with `visudo`;
+   fingerprint, prove effective `AuthorizedKeysCommand none`, and validate the
+   sudoers fragment with `visudo`;
 6. add the shell only after its static and freestanding identity is verified;
 7. create the locked dedicated account, set the fixed shell, then manually
    provision the one key and sudo factor;

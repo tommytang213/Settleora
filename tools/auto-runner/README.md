@@ -2399,6 +2399,7 @@ The source-owned generator is generation-only:
   --fd-exec /absolute/private/build/settleora-trusted-ssh-fd-exec \
   --root-gate /absolute/private/build/settleora-root-gate \
   --root-gate-module /absolute/source/settleora-trusted-ssh-root-gate.mjs \
+  --root-bootstrap-module /absolute/source/settleora-authenticated-root-bootstrap.mjs \
   --support-library /absolute/source/lib/trusted-ssh-boundary.mjs \
   --operator-key-fingerprint SHA256:<owner-supplied-fingerprint> \
   --generated-at <injected-UTC-second>
@@ -2413,7 +2414,12 @@ account, password, SSH, sudo, sshd, PAM, service, deployment, native-install,
 runner, or handoff operations. The emitted authorized-key content is a
 placeholder template and contains no key bytes. Before later publication, the
 read-only realized-key validator requires one exact `restrict,pty` allowed-key
-line and verifies its SHA-256 fingerprint. The plan validator is also fixture/
+line and verifies its SHA-256 fingerprint. The Match contract also requires
+effective `AuthorizedKeysCommand none`, preventing a global alternate key
+provider from bypassing that one-key boundary. The root gate authenticates the
+installed root-bootstrap module against the root-owned artifact manifest before
+claim consumption; the module then reauthenticates the package and consumed
+receipt before exposing the fixed later PR #1048 integration envelope. The plan validator is also fixture/
 private-root-only in source-development tasks:
 
 ```bash

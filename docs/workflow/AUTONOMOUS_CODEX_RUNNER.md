@@ -2110,10 +2110,13 @@ The inactive source contract in
 `docs/architecture/TRUSTED_SSH_ENTRY_BOUNDARY.md` therefore requires a
 dedicated account with a freestanding static root-owned native login shell, root-owned
 authorization/dispatcher closure, public-key-only SSH authentication,
-forwarding disabled, and PTY retained only for one password-requiring fixed
+an effective `AuthorizedKeysCommand none`, forwarding disabled, and PTY retained only for one password-requiring fixed
 sudo gate. Exact source-blob rebuild binding, descriptor-relative recursive
 package validation, and an exclusive pending/consumed operation claim enforce
-the authenticated closure and one-attempt transition. `ForceCommand` remains defense in depth and a subsystem/request
+the authenticated closure and one-attempt transition. The installed
+root-bootstrap module is digest-checked against a root-owned artifact manifest
+before claim consumption and independently checks the package plus consumed
+receipt. `ForceCommand` remains defense in depth and a subsystem/request
 normalizer; it is not treated as the pre-shell boundary.
 
 Repository source and tests may generate and validate plans only under a
