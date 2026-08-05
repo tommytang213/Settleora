@@ -429,13 +429,13 @@ test("installed authority collector binds complete private sudoers, NSS and tran
     assert.throws(() => collectTrustedSshInstalledAuthority({ ...options, expectedSourceDigests: withDefault }), reason);
     rmSync(target);
   }
-  for (const passwd of [
+  for (const invalidAccountDatabase of [
     `${trustedSshPaths.account}:x:0:12345:Settleora trusted SSH handoff:${trustedSshPaths.home}:${trustedSshPaths.loginShell}\n`,
     `${files["/etc/passwd"]}duplicate:x:12345:54321:Duplicate:/nonexistent:/usr/sbin/nologin\n`,
   ]) {
-    const target = path.join(fixture, "etc/passwd"); writeFileSync(target, passwd, { mode: 0o600 });
+    const target = path.join(fixture, "etc/passwd"); writeFileSync(target, invalidAccountDatabase, { mode: 0o600 });
     assert.throws(() => collectTrustedSshInstalledAuthority({
-      ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/passwd": sha256(passwd) },
+      ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/passwd": sha256(invalidAccountDatabase) },
     }), /account/u);
   }
   writeFileSync(path.join(fixture, "etc/passwd"), files["/etc/passwd"], { mode: 0o600 });
