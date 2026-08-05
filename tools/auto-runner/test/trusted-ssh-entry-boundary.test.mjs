@@ -597,11 +597,16 @@ test("installation plan is deterministic, complete, private-root-only and never 
     passwd: "exactly-one-files-source", shadow: "exactly-one-files-source",
     sudoers: "exactly-one-files-source",
   });
-  for (const modulePath of [
-    trustedSshPaths.dispatcherModule, trustedSshPaths.pamPreauthModule,
-    trustedSshPaths.rootGateModule, trustedSshPaths.rootBootstrapModule,
+  for (const [sourceName, modulePath] of [
+    ["settleora-trusted-ssh-dispatcher.mjs", trustedSshPaths.dispatcherModule],
+    ["settleora-trusted-ssh-pam-preauth.mjs", trustedSshPaths.pamPreauthModule],
+    ["settleora-trusted-ssh-root-gate.mjs", trustedSshPaths.rootGateModule],
+    ["settleora-authenticated-root-bootstrap.mjs", trustedSshPaths.rootBootstrapModule],
   ]) {
-    assert.equal(path.posix.resolve(path.posix.dirname(modulePath), "lib/trusted-ssh-boundary.mjs"), trustedSshPaths.supportLibrary);
+    const source = readFileSync(path.join(sourceRoot, sourceName), "utf8");
+    const relativeImport = /from "(\.\/lib\/trusted-ssh-boundary\.mjs)";/u.exec(source)?.[1];
+    assert.equal(typeof relativeImport, "string", sourceName);
+    assert.equal(path.posix.resolve(path.posix.dirname(modulePath), relativeImport), trustedSshPaths.supportLibrary);
   }
   assert.deepEqual(plan.runtimeRequirements.node, {
     executable: "/usr/bin/node", maximumExclusive: "23.0.0", minimum: "22.15.0",
