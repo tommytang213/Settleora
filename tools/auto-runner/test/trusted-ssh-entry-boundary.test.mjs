@@ -468,6 +468,17 @@ test("installed authority collector binds complete private sudoers, NSS and tran
     ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/sudoers": sha256(escapingRoot) },
   }), /path/u);
   writeFileSync(path.join(fixture, "etc/sudoers"), files["/etc/sudoers"], { mode: 0o600 });
+  const commentedIncludeRoot = "#includedir /etc/sudoers.d # settleora trusted closure\n";
+  writeFileSync(path.join(fixture, "etc/sudoers"), commentedIncludeRoot, { mode: 0o600 });
+  assert.equal(collectTrustedSshInstalledAuthority({
+    ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/sudoers": sha256(commentedIncludeRoot) },
+  }).sources.some((source) => source.path === trustedSshPaths.sudoers), true);
+  const malformedIncludeRoot = "#includedir /etc/sudoers.d trailing-authority\n";
+  writeFileSync(path.join(fixture, "etc/sudoers"), malformedIncludeRoot, { mode: 0o600 });
+  assert.throws(() => collectTrustedSshInstalledAuthority({
+    ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/sudoers": sha256(malformedIncludeRoot) },
+  }), /sudo_include/u);
+  writeFileSync(path.join(fixture, "etc/sudoers"), files["/etc/sudoers"], { mode: 0o600 });
   for (const activeUnmodeledName of ["_evil", "-evil"]) {
     const target = path.join(fixture, "etc/sudoers.d", activeUnmodeledName);
     writeFileSync(target, `${trustedSshPaths.account} ALL=(root) NOPASSWD: /bin/bash\n`, { mode: 0o600 });

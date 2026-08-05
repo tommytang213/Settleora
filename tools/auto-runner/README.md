@@ -2440,7 +2440,8 @@ The installed sudo authority collector rejects every unmodeled includedir
 entry, sudo alias, numeric UID/GID binding, and run-as group instead of silently
 excluding authority that sudo would load. Defaults and rule-user binding shapes
 are validated before applicability, so command scopes and netgroups also fail
-closed.
+closed. Include directives with valid trailing comments are captured, while
+malformed directive-like lines are rejected before conversion.
 
 The password prompt is bounded before authentication, not merely after the
 sudo command starts. A root-owned freestanding PAM pre-auth helper consumes the

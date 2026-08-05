@@ -350,6 +350,8 @@ before deciding which authority applies to the account. Any run-as group field
 is rejected rather than normalized into the fixed root-user-only rule. Defaults
 and rule user bindings are shape-checked before applicability, so command,
 host, run-as, netgroup, negated, or other unmodeled bindings cannot disappear.
+Sudo include directives are parsed before conversion, including valid trailing
+comments; malformed directive-like lines fail instead of reaching cvtsudoers.
 
 ## Deployment, lockout avoidance, and rollback
 

@@ -800,8 +800,9 @@ function collectSudoersClosure(name, snapshotRoot, readSource, seen = new Set())
   const text = readSource(name);
   const chunks = [];
   for (const line of text.split("\n")) {
-    const include = /^\s*[@#]include\s+([^\s]+)\s*$/u.exec(line);
-    const includeDir = /^\s*[@#]includedir\s+([^\s]+)\s*$/u.exec(line);
+    const include = /^\s*[@#]include\s+([^\s#]+)(?:\s+#.*)?\s*$/u.exec(line);
+    const includeDir = /^\s*[@#]includedir\s+([^\s#]+)(?:\s+#.*)?\s*$/u.exec(line);
+    const directiveLike = /^\s*[@#]include(?:dir)?\b/u.test(line);
     if (include) chunks.push(collectSudoersClosure(include[1], snapshotRoot, readSource, seen));
     else if (includeDir) {
       assertCanonicalSnapshotSourceName(includeDir[1]);
@@ -812,7 +813,8 @@ function collectSudoersClosure(name, snapshotRoot, readSource, seen = new Set())
         throw new Error("trusted_ssh_installed_authority_sudo_include_invalid");
       }
       for (const entry of entries) chunks.push(collectSudoersClosure(`${includeDir[1]}/${entry}`, snapshotRoot, readSource, seen));
-    } else chunks.push(line);
+    } else if (directiveLike) throw new Error("trusted_ssh_installed_authority_sudo_include_invalid");
+    else chunks.push(line);
   }
   return chunks.join("\n");
 }
