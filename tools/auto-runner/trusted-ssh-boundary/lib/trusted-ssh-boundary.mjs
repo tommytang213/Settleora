@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import {
-  closeSync, constants, fchmodSync, fchownSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync,
-  readFileSync, readSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync,
+  chmodSync, closeSync, constants, fchmodSync, fchownSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync,
+  readFileSync, readSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync,
   mkdtempSync,
 } from "node:fs";
 import path from "node:path";
@@ -19,6 +19,7 @@ export const trustedSshPaths = Object.freeze({
   home: "/var/lib/settleora/trusted-ssh/home",
   operationClaims: "/var/lib/settleora/trusted-ssh/operation-claims",
   operationClaimsConsumed: "/var/lib/settleora/trusted-ssh/operation-claims/consumed",
+  operationClaimsEntered: "/var/lib/settleora/trusted-ssh/operation-claims/entered",
   operationClaimsPending: "/var/lib/settleora/trusted-ssh/operation-claims/pending",
   pamPreauth: "/opt/settleora/trusted-ssh/bin/settleora-sudo-preauth",
   pamPreauthModule: "/opt/settleora/trusted-ssh/lib/settleora-trusted-ssh-pam-preauth.mjs",
@@ -134,6 +135,44 @@ export function validateTrustedSshConsumedReceipt({
   return Object.freeze({ reasonCode: "trusted_ssh_operation_receipt_verified", sudoAttemptCount: 1 });
 }
 
+export function enterTrustedSshRootGate({
+  claimRoot = trustedSshPaths.operationClaims, handoffKey, operationId,
+  expectedRootUid = 0, expectedRootGid = 0,
+} = {}) {
+  validateTrustedSshConsumedReceipt({ claimRoot, handoffKey, operationId, expectedRootUid, expectedRootGid });
+  const consumed = path.join(claimRoot, "consumed");
+  const entered = path.join(claimRoot, "entered");
+  assertOperationDirectory(entered, expectedRootUid, expectedRootGid, 0o700);
+  const source = path.join(consumed, `${operationId}.json`);
+  const target = path.join(entered, `${operationId}.json`);
+  linkSync(source, target);
+  unlinkSync(source);
+  fsyncDirectory(consumed);
+  fsyncDirectory(entered);
+  return validateTrustedSshEnteredReceipt({ claimRoot, handoffKey, operationId, expectedRootUid, expectedRootGid });
+}
+
+export function validateTrustedSshEnteredReceipt({
+  claimRoot = trustedSshPaths.operationClaims, handoffKey, operationId,
+  expectedRootUid = 0, expectedRootGid = 0,
+} = {}) {
+  if (!keyPattern.test(String(handoffKey || "")) || !digestPattern.test(String(operationId || ""))) {
+    throw new Error("trusted_ssh_entered_receipt_identity_invalid");
+  }
+  const entered = path.join(claimRoot, "entered");
+  assertOperationDirectory(entered, expectedRootUid, expectedRootGid, 0o700);
+  const receipt = parseCanonicalJson(readBoundedRegular(
+    path.join(entered, `${operationId}.json`), expectedRootUid, 4096, 0o400, expectedRootGid,
+  ));
+  assertExactKeys(receipt, ["claimSha256", "contract", "handoffKey", "operationId", "sudoAttemptCount", "version"]);
+  if (receipt.contract !== "settleora_trusted_ssh_operation_consumed_v1" || receipt.version !== 1
+      || receipt.handoffKey !== handoffKey || receipt.operationId !== operationId
+      || receipt.sudoAttemptCount !== 1 || !digestPattern.test(receipt.claimSha256)) {
+    throw new Error("trusted_ssh_entered_receipt_invalid");
+  }
+  return Object.freeze({ reasonCode: "trusted_ssh_root_gate_entered", sudoAttemptCount: 1 });
+}
+
 export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
   if (!fingerprintPattern.test(String(operatorKeyFingerprint || ""))) {
     throw new Error("trusted_ssh_operator_fingerprint_invalid");
@@ -149,6 +188,9 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
     "    KbdInteractiveAuthentication no",
     `    AuthorizedKeysFile ${trustedSshPaths.authorizedKeys}`,
     "    AuthorizedKeysCommand none",
+    "    TrustedUserCAKeys none",
+    "    AuthorizedPrincipalsFile none",
+    "    AuthorizedPrincipalsCommand none",
     "    PermitUserRC no",
     "    DisableForwarding yes",
     "    AllowAgentForwarding no",
@@ -162,7 +204,7 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
     "",
   ].join("\n");
   const sudoers = [
-    `Defaults:${trustedSshPaths.account} env_reset,use_pty,!set_home,!preserve_groups,timestamp_timeout=0,passwd_tries=1,pam_service=settleora-handoff-sudo`,
+    `Defaults:${trustedSshPaths.account} env_reset,use_pty,!set_home,!preserve_groups,!rootpw,!targetpw,!runaspw,timestamp_timeout=0,passwd_tries=1,pam_service=settleora-handoff-sudo`,
     `Defaults:${trustedSshPaths.account} secure_path=/usr/sbin:/usr/bin:/sbin:/bin`,
     `${trustedSshPaths.account} ALL=(root) PASSWD: ${trustedSshPaths.rootGate} ""`,
     "",
@@ -179,17 +221,27 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
     "session include common-session-noninteractive",
     "",
   ].join("\n");
-  const effectiveSudoPolicy = `${canonicalJson({
+  const sudoAuthorityObservation = `${canonicalJson({
     account: trustedSshPaths.account,
-    accountGroups: [trustedSshPaths.account],
-    authenticationRequired: true,
-    exemptGroup: null,
-    pamService: "settleora-handoff-sudo",
-    passwordTries: 1,
-    rules: [{ arguments: [], command: trustedSshPaths.rootGate, host: "ALL", runAs: ["root"], tags: ["PASSWD"] }],
-    sourceCoverage: "all-sudoers-includes-and-group-membership",
+    accountGroups: [{ name: trustedSshPaths.account, source: "nss-primary-group" }],
+    defaults: [
+      ["env_reset", true], ["use_pty", true], ["set_home", false], ["preserve_groups", false],
+      ["rootpw", false], ["targetpw", false], ["runaspw", false], ["timestamp_timeout", 0],
+      ["passwd_tries", 1], ["pam_service", "settleora-handoff-sudo"],
+      ["secure_path", "/usr/sbin:/usr/bin:/sbin:/bin"],
+    ].map(([name, value]) => ({ name, origin: { kind: "user", selector: trustedSshPaths.account, source: trustedSshPaths.sudoers }, value })),
+    rules: [{
+      arguments: [], command: trustedSshPaths.rootGate, host: "ALL",
+      origin: { kind: "user", selector: trustedSshPaths.account, source: trustedSshPaths.sudoers },
+      runAs: ["root"], tags: ["PASSWD"],
+    }],
+    sourceClosure: {
+      allIncludesResolved: true, allMatchingGroupsResolved: true,
+      files: ["/etc/sudoers", trustedSshPaths.sudoers], roots: ["/etc/sudoers"], sudoLlComplete: true,
+    },
     version: 1,
   })}\n`;
+  const effectiveSudoPolicy = `${canonicalJson(deriveEffectiveSudoPolicy(sudoAuthorityObservation))}\n`;
   return Object.freeze({
     authorizedKeys,
     group: `${trustedSshPaths.account}:x:__DEDICATED_GID__:\n`,
@@ -200,6 +252,7 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
     shells: `${trustedSshPaths.loginShell}\n`,
     sshd,
     sudoers,
+    sudoAuthorityObservation,
   });
 }
 
@@ -266,6 +319,7 @@ export function createTrustedSshInstallationPlan({
       "shadow.template": fixtures.shadow,
       "shells.append": fixtures.shells,
       "sshd-match.conf": fixtures.sshd,
+      "sudo-authority-observation.json": fixtures.sudoAuthorityObservation,
       "sudoers": fixtures.sudoers,
     }).sort(([left], [right]) => left.localeCompare(right));
     for (const [name, bytes] of fixtureEntries) writePrivate(path.join(stageRoot, "fixtures", name), bytes);
@@ -289,6 +343,7 @@ export function createTrustedSshInstallationPlan({
         { group: "settleora_handoff", mode: "0710", owner: "root", path: trustedSshPaths.operationClaims },
         { group: "settleora_handoff", mode: "1730", owner: "root", path: trustedSshPaths.operationClaimsPending },
         { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsConsumed },
+        { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsEntered },
         { group: "settleora_handoff", mode: "0750", owner: "root", path: trustedSshPaths.handoffRoot },
         { group: "root", mode: "0755", owner: "root", path: path.dirname(trustedSshPaths.authorizedKeys) },
       ],
@@ -317,7 +372,7 @@ export function createTrustedSshInstallationPlan({
         "effective-dedicated-user-config-is-key-only-and-forwarding-disabled",
         "preflight-is-non-mutating",
         "execute-has-pty-and-exactly-one-password-requiring-sudo-gate",
-        "pam-preauth-consumes-one-shot-before-the-only-password-prompt",
+        "pam-preauth-consumes-one-shot-before-the-only-password-prompt-and-root-gate-enters-once",
         "existing-tommytang213-session-and-login-shell-remain-unchanged",
       ],
       manualDecisions: [
@@ -345,7 +400,7 @@ export function createTrustedSshInstallationPlan({
       sudoValidation: [
         `/usr/bin/sudo -ll -U ${trustedSshPaths.account}`,
         `/usr/bin/getent group ${trustedSshPaths.account}`,
-        "normalize-all-includes-groups-exempt-group-pam-service-password-tries-and-rules-to-effective-sudo-policy-v1",
+        "normalize-complete-sudo-source-provenance-groups-password-owner-timestamp-pam-and-rules-to-effective-sudo-policy-v1",
       ],
       sudo: { attempts: 1, command: `${trustedSshPaths.rootGate} (no arguments)`, requiresAuthentication: true },
       version: 1,
@@ -427,7 +482,7 @@ export function validateTrustedSshInstallationPlan(root, {
       || canonicalJson(plan.sudoValidation) !== canonicalJson([
         `/usr/bin/sudo -ll -U ${trustedSshPaths.account}`,
         `/usr/bin/getent group ${trustedSshPaths.account}`,
-        "normalize-all-includes-groups-exempt-group-pam-service-password-tries-and-rules-to-effective-sudo-policy-v1",
+        "normalize-complete-sudo-source-provenance-groups-password-owner-timestamp-pam-and-rules-to-effective-sudo-policy-v1",
       ])
       || canonicalJson(artifacts.map(({ installedPath, mode, name }) => [name, installedPath, mode]).sort()) !== canonicalJson(expectedArtifacts)
       || plan.source?.repository !== "tommytang213/Settleora" || !oidPattern.test(plan.source?.commit) || !oidPattern.test(plan.source?.tree)
@@ -438,6 +493,7 @@ export function validateTrustedSshInstallationPlan(root, {
         { group: "settleora_handoff", mode: "0710", owner: "root", path: trustedSshPaths.operationClaims },
         { group: "settleora_handoff", mode: "1730", owner: "root", path: trustedSshPaths.operationClaimsPending },
         { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsConsumed },
+        { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsEntered },
         { group: "settleora_handoff", mode: "0750", owner: "root", path: trustedSshPaths.handoffRoot },
         { group: "root", mode: "0755", owner: "root", path: path.dirname(trustedSshPaths.authorizedKeys) },
       ]) || plan.rollbackOrder.length < 6 || plan.atomicInstallOrder.length < 8) {
@@ -489,6 +545,7 @@ export function validateTrustedSshFixtures(root, {
   const sudoers = fixture("sudoers");
   const pam = fixture("pam-service");
   const effectiveSudoPolicy = fixture("effective-sudo-policy.json");
+  const sudoAuthorityObservation = fixture("sudo-authority-observation.json");
   const passwd = fixture("passwd.template");
   const group = fixture("group.template");
   const shadow = fixture("shadow.template");
@@ -500,13 +557,14 @@ export function validateTrustedSshFixtures(root, {
     "passwd.template": expectedFixtures.passwd, "shadow.template": expectedFixtures.shadow,
     "pam-service": expectedFixtures.pam, "shells.append": expectedFixtures.shells,
     "sshd-match.conf": expectedFixtures.sshd, sudoers: expectedFixtures.sudoers,
+    "sudo-authority-observation.json": expectedFixtures.sudoAuthorityObservation,
   };
   for (const [name, bytes] of Object.entries(exact)) if (fixture(name) !== bytes) throw new Error("trusted_ssh_fixture_bytes_invalid");
   for (const required of [
     "AuthenticationMethods publickey", "PasswordAuthentication no", "KbdInteractiveAuthentication no",
     `PubkeyAcceptedAlgorithms ${allowedKeyAlgorithms.join(",")}`,
     `AuthorizedKeysFile ${trustedSshPaths.authorizedKeys}`, "PermitUserEnvironment no", "PermitUserRC no",
-    "AuthorizedKeysCommand none",
+    "AuthorizedKeysCommand none", "TrustedUserCAKeys none", "AuthorizedPrincipalsFile none", "AuthorizedPrincipalsCommand none",
     "DisableForwarding yes", "AllowAgentForwarding no", "AllowTcpForwarding no", "X11Forwarding no",
     "PermitTunnel no", "GatewayPorts no", "PermitTTY yes", "ForceCommand settleora-handoff-v1",
   ]) if (!sshd.includes(required)) throw new Error("trusted_ssh_sshd_fixture_invalid");
@@ -523,6 +581,9 @@ export function validateTrustedSshFixtures(root, {
   }
   if (pam !== `auth requisite pam_exec.so quiet seteuid ${trustedSshPaths.pamPreauth}\nauth include common-auth\naccount include common-account\nsession include common-session-noninteractive\n`) {
     throw new Error("trusted_ssh_pam_fixture_invalid");
+  }
+  if (`${canonicalJson(deriveEffectiveSudoPolicy(sudoAuthorityObservation))}\n` !== effectiveSudoPolicy) {
+    throw new Error("trusted_ssh_effective_sudo_policy_derivation_invalid");
   }
   validateEffectiveSudoPolicy(effectiveSudoPolicy);
   const fields = passwd.trim().split(":");
@@ -601,6 +662,7 @@ export function validateEffectiveSshdOutput(text) {
     ["kbdinteractiveauthentication", "no"], ["pubkeyauthentication", "yes"],
     ["pubkeyacceptedalgorithms", allowedKeyAlgorithms.join(",")],
     ["authorizedkeysfile", trustedSshPaths.authorizedKeys], ["authorizedkeyscommand", "none"], ["permituserenvironment", "no"],
+    ["trustedusercakeys", "none"], ["authorizedprincipalsfile", "none"], ["authorizedprincipalscommand", "none"],
     ["permituserrc", "no"], ["disableforwarding", "yes"], ["allowagentforwarding", "no"],
     ["allowtcpforwarding", "no"], ["x11forwarding", "no"], ["permittunnel", "no"],
     ["gatewayports", "no"], ["permittty", "yes"], ["forcecommand", "settleora-handoff-v1"],
@@ -609,17 +671,55 @@ export function validateEffectiveSshdOutput(text) {
   return Object.freeze({ ok: true, reasonCode: "trusted_ssh_effective_sshd_verified" });
 }
 
+export function deriveEffectiveSudoPolicy(text) {
+  const observation = parseCanonicalJson(Buffer.from(String(text)));
+  assertExactKeys(observation, ["account", "accountGroups", "defaults", "rules", "sourceClosure", "version"]);
+  assertExactKeys(observation.sourceClosure, ["allIncludesResolved", "allMatchingGroupsResolved", "files", "roots", "sudoLlComplete"]);
+  if (observation.version !== 1 || observation.account !== trustedSshPaths.account
+      || canonicalJson(observation.accountGroups) !== canonicalJson([{ name: trustedSshPaths.account, source: "nss-primary-group" }])
+      || observation.sourceClosure.allIncludesResolved !== true || observation.sourceClosure.allMatchingGroupsResolved !== true
+      || observation.sourceClosure.sudoLlComplete !== true
+      || canonicalJson(observation.sourceClosure.roots) !== canonicalJson(["/etc/sudoers"])
+      || canonicalJson(observation.sourceClosure.files) !== canonicalJson(["/etc/sudoers", trustedSshPaths.sudoers])) {
+    throw new Error("trusted_ssh_sudo_authority_observation_invalid");
+  }
+  const expectedOrigin = { kind: "user", selector: trustedSshPaths.account, source: trustedSshPaths.sudoers };
+  const expectedDefaults = [
+    ["env_reset", true], ["use_pty", true], ["set_home", false], ["preserve_groups", false],
+    ["rootpw", false], ["targetpw", false], ["runaspw", false], ["timestamp_timeout", 0],
+    ["passwd_tries", 1], ["pam_service", "settleora-handoff-sudo"],
+    ["secure_path", "/usr/sbin:/usr/bin:/sbin:/bin"],
+  ].map(([name, value]) => ({ name, origin: expectedOrigin, value }));
+  const expectedObservedRule = {
+    arguments: [], command: trustedSshPaths.rootGate, host: "ALL", origin: expectedOrigin, runAs: ["root"], tags: ["PASSWD"],
+  };
+  if (canonicalJson(observation.defaults) !== canonicalJson(expectedDefaults)
+      || canonicalJson(observation.rules) !== canonicalJson([expectedObservedRule])) {
+    throw new Error("trusted_ssh_sudo_authority_observation_invalid");
+  }
+  return Object.freeze({
+    account: trustedSshPaths.account, accountGroups: [trustedSshPaths.account], authenticationRequired: true,
+    exemptGroup: null, pamService: "settleora-handoff-sudo", passwordOwner: "invoking-user", passwordTries: 1,
+    rules: [{ arguments: [], command: trustedSshPaths.rootGate, host: "ALL", runAs: ["root"], tags: ["PASSWD"] }],
+    sourceClosure: observation.sourceClosure, timestampTimeout: 0, version: 1,
+  });
+}
+
 export function validateEffectiveSudoPolicy(text) {
   const policy = parseCanonicalJson(Buffer.from(String(text)));
-  assertExactKeys(policy, ["account", "accountGroups", "authenticationRequired", "exemptGroup", "pamService", "passwordTries", "rules", "sourceCoverage", "version"]);
+  assertExactKeys(policy, ["account", "accountGroups", "authenticationRequired", "exemptGroup", "pamService", "passwordOwner", "passwordTries", "rules", "sourceClosure", "timestampTimeout", "version"]);
   const expectedRule = {
     arguments: [], command: trustedSshPaths.rootGate, host: "ALL", runAs: ["root"], tags: ["PASSWD"],
   };
   if (policy.version !== 1 || policy.account !== trustedSshPaths.account
       || canonicalJson(policy.accountGroups) !== canonicalJson([trustedSshPaths.account])
       || policy.authenticationRequired !== true || policy.exemptGroup !== null
-      || policy.pamService !== "settleora-handoff-sudo" || policy.passwordTries !== 1
-      || policy.sourceCoverage !== "all-sudoers-includes-and-group-membership"
+      || policy.pamService !== "settleora-handoff-sudo" || policy.passwordOwner !== "invoking-user"
+      || policy.passwordTries !== 1 || policy.timestampTimeout !== 0
+      || canonicalJson(policy.sourceClosure) !== canonicalJson({
+        allIncludesResolved: true, allMatchingGroupsResolved: true,
+        files: ["/etc/sudoers", trustedSshPaths.sudoers], roots: ["/etc/sudoers"], sudoLlComplete: true,
+      })
       || canonicalJson(policy.rules) !== canonicalJson([expectedRule])) {
     throw new Error("trusted_ssh_effective_sudo_policy_invalid");
   }
@@ -650,15 +750,23 @@ export function validatePlatformFixtureSyntax(root) {
   const sudoers = path.join(root, "fixtures", "sudoers");
   const sshd = path.join(root, "fixtures", "sshd-match.conf");
   spawnTool("/usr/sbin/visudo", ["-cf", sudoers]);
-  const effective = spawnSync("/usr/sbin/sshd", ["-T", "-f", sshd, "-C", `user=${trustedSshPaths.account},host=localhost,addr=127.0.0.1`], {
-    encoding: "utf8", env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/sbin:/usr/bin:/sbin:/bin" },
-  });
-  if (effective.status === 0) validateEffectiveSshdOutput(effective.stdout);
-  else if (effective.status !== 1 || !/no hostkeys available/u.test(effective.stderr)
-      || /Directive .* not allowed|Bad configuration option|keyword.*unknown/iu.test(effective.stderr)) {
-    throw new Error("trusted_ssh_sshd_fixture_platform_invalid");
+  const keyRoot = mkdtempSync("/tmp/settleora-sshd-fixture-");
+  try {
+    chmodSync(keyRoot, 0o700);
+    const keyFile = path.join(keyRoot, "host-rsa-key");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    writeFileSync(keyFile, privateKey.export({ format: "pem", type: "pkcs1" }), { mode: 0o600 });
+    const config = path.join(keyRoot, "sshd_config");
+    writeFileSync(config, `HostKey ${keyFile}\nUsePAM yes\n${readFileSync(sshd, "utf8")}`, { mode: 0o600 });
+    const effective = spawnSync("/usr/sbin/sshd", ["-T", "-f", config, "-C", `user=${trustedSshPaths.account},host=localhost,addr=127.0.0.1`], {
+      encoding: "utf8", env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/sbin:/usr/bin:/sbin:/bin" },
+    });
+    if (effective.status !== 0) throw new Error("trusted_ssh_sshd_fixture_platform_invalid");
+    validateEffectiveSshdOutput(effective.stdout);
+  } finally {
+    rmSync(keyRoot, { force: true, recursive: true });
   }
-  return Object.freeze({ inspected: true, sshd: effective.status === 0 ? "effective_verified" : "parsed_hostkeys_unavailable", sudoers: "parsed" });
+  return Object.freeze({ inspected: true, sshd: "effective_verified", sudoers: "parsed" });
 }
 
 export function authenticateTrustedSshPackage({ root, handoffKey, operationId, expectedUid = 0, validateAncestors = expectedUid === 0 } = {}) {

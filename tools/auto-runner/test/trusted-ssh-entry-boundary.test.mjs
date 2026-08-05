@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import {
   chmodSync, closeSync, constants, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync,
   renameSync, rmSync, symlinkSync, writeFileSync,
@@ -10,7 +10,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage, createTrustedSshInstallationPlan,
-  consumeTrustedSshOperation, parseTrustedSshCommand, renderTrustedSshFixtures, reserveTrustedSshOperation,
+  consumeTrustedSshOperation, deriveEffectiveSudoPolicy, enterTrustedSshRootGate, parseTrustedSshCommand, renderTrustedSshFixtures, reserveTrustedSshOperation,
   trustedSshPackageContract, trustedSshPaths,
   validateEffectiveSshdOutput, validateEffectiveSudoPolicy, validateNativeStaticExecutable, validateRealizedAuthorizedKey, validateTrustedSshFixtures,
   validateTrustedSshInstallationPlan,
@@ -169,14 +169,14 @@ test("fixed no-argument root gate independently authenticates the exact package 
   let observed; const order = [];
   const result = runTrustedSshRootGate({
     argv: [String(process.getuid()), String(process.getgid())], cwd: path.join(packageRoot, key), handoffRoot: packageRoot,
-    uid: 0, euid: 0, expectedPackageUid: process.getuid(), receiptValidator: () => { order.push("receipt"); return { sudoAttemptCount: 1 }; },
+    uid: 0, euid: 0, expectedPackageUid: process.getuid(), gateEnterer: () => { order.push("enter"); return { sudoAttemptCount: 1 }; },
     bootstrapAuthenticator: () => { order.push("bootstrap"); return { reasonCode: "fixture_bootstrap_verified" }; },
     executor(value) { order.push("exec"); observed = value; return { reasonCode: "mock_root_gate_complete" }; },
   });
   assert.equal(result.reasonCode, "mock_root_gate_complete");
   assert.deepEqual(observed.argv, [trustedSshPaths.rootBootstrap, "--disable-proto=throw", trustedSshPaths.rootBootstrapModule]);
   assert.deepEqual(observed.env, { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/sbin:/usr/bin:/sbin:/bin", TZ: "UTC" });
-  assert.deepEqual(order, ["bootstrap", "receipt", "exec"]);
+  assert.deepEqual(order, ["bootstrap", "enter", "exec"]);
   assert.throws(() => runTrustedSshRootGate({ cwd: path.join(packageRoot, key), handoffRoot: packageRoot, argv: ["/bin/sh"], uid: 0, euid: 0 }), /identity/u);
 }));
 
@@ -199,7 +199,7 @@ test("installed bootstrap authentication binds root-owned ancestry, mode and dig
   assert.throws(() => authenticateInstalledBoundaryArtifact(options), /digest/u);
 }));
 
-test("authenticated root bootstrap revalidates package and consumed receipt before the bounded integration contract", () => withFixture((fixture) => {
+test("authenticated root bootstrap revalidates package and entered receipt before the bounded integration contract", () => withFixture((fixture) => {
   const packageRoot = path.join(fixture, "handoffs"); mkdirSync(packageRoot, { mode: 0o700 }); createPackage(packageRoot);
   let observed;
   const result = runAuthenticatedRootBootstrap({
@@ -221,6 +221,9 @@ test("authenticated root bootstrap revalidates package and consumed receipt befo
 }));
 
 test("PAM pre-auth consumes the durable one-shot before a password prompt and rejects a second invocation", () => withFixture((fixture) => {
+  const nativeSource = readFileSync(path.join(sourceRoot, "native/settleora-trusted-ssh-pam-preauth.c"), "utf8");
+  assert.match(nativeSource, /text_equal\(pam_ruser, ACCOUNT\).*text_equal\(pam_user, ACCOUNT\).*text_equal\(pam_type, "auth"\)/su);
+  assert.doesNotMatch(nativeSource, /text_equal\(pam_user, "root"\)/u);
   const packageRoot = path.join(fixture, "handoffs"); mkdirSync(packageRoot, { mode: 0o700 }); createPackage(packageRoot);
   let consumed = false; let promptCount = 0;
   const invoke = () => {
@@ -240,18 +243,25 @@ test("PAM pre-auth consumes the durable one-shot before a password prompt and re
   }), /identity_invalid/u);
 }));
 
-test("operation claim reservation and root consumption enforce one fail-closed sudo execution", () => withFixture((fixture) => {
+test("operation claim reservation, consumption and root entry enforce one fail-closed sudo execution", () => withFixture((fixture) => {
   const uid = process.getuid(); const gid = process.getgid();
   const claimRoot = path.join(fixture, "claims");
   mkdirSync(claimRoot, { mode: 0o710 }); chmodSync(claimRoot, 0o710);
   mkdirSync(path.join(claimRoot, "pending"), { mode: 0o1730 }); chmodSync(path.join(claimRoot, "pending"), 0o1730);
   mkdirSync(path.join(claimRoot, "consumed"), { mode: 0o700 }); chmodSync(path.join(claimRoot, "consumed"), 0o700);
+  mkdirSync(path.join(claimRoot, "entered"), { mode: 0o700 }); chmodSync(path.join(claimRoot, "entered"), 0o700);
   const reserved = reserveTrustedSshOperation({ claimRoot, handoffKey: key, operationId: operation, expectedRootUid: uid, expectedAccountGid: gid });
   assert.equal(reserved.reasonCode, "trusted_ssh_operation_reserved");
   assert.throws(() => reserveTrustedSshOperation({ claimRoot, handoffKey: key, operationId: operation, expectedRootUid: uid, expectedAccountGid: gid }));
   const consumed = consumeTrustedSshOperation({ claimRoot, handoffKey: key, operationId: operation,
     expectedClaimUid: uid, expectedClaimGid: gid, expectedRootUid: uid, expectedRootGid: gid });
   assert.equal(consumed.sudoAttemptCount, 1);
+  const entered = enterTrustedSshRootGate({ claimRoot, handoffKey: key, operationId: operation,
+    expectedRootUid: uid, expectedRootGid: gid });
+  assert.equal(entered.sudoAttemptCount, 1);
+  assert.equal(existsSync(path.join(claimRoot, "consumed", `${operation}.json`)), false);
+  assert.throws(() => enterTrustedSshRootGate({ claimRoot, handoffKey: key, operationId: operation,
+    expectedRootUid: uid, expectedRootGid: gid }));
   assert.throws(() => consumeTrustedSshOperation({ claimRoot, handoffKey: key, operationId: operation,
     expectedClaimUid: uid, expectedClaimGid: gid, expectedRootUid: uid, expectedRootGid: gid }));
 }));
@@ -341,6 +351,8 @@ test("effective sshd validator rejects every security regression and accepts the
   for (const [name, value] of [
     ["permituserenvironment", "yes"], ["permituserrc", "yes"], ["passwordauthentication", "yes"],
     ["authorizedkeyscommand", "/usr/local/bin/alternate-key-authority"],
+    ["trustedusercakeys", "/etc/ssh/ca.pub"], ["authorizedprincipalsfile", ".ssh/authorized_principals"],
+    ["authorizedprincipalscommand", "/usr/local/bin/principals"],
     ["pubkeyacceptedalgorithms", "ssh-rsa"],
     ["disableforwarding", "no"], ["allowtcpforwarding", "yes"], ["authorizedkeysfile", ".ssh/authorized_keys"],
     ["permittty", "no"], ["forcecommand", "internal-sftp"],
@@ -348,31 +360,45 @@ test("effective sshd validator rejects every security regression and accepts the
 });
 
 test("effective sudo projection rejects global, group, exempt, passwordless and extra-command authority", () => {
-  const exact = JSON.parse(renderTrustedSshFixtures({ operatorKeyFingerprint: fingerprint }).effectiveSudoPolicy);
+  const fixtures = renderTrustedSshFixtures({ operatorKeyFingerprint: fingerprint });
+  const exact = JSON.parse(fixtures.effectiveSudoPolicy);
+  assert.deepEqual(deriveEffectiveSudoPolicy(fixtures.sudoAuthorityObservation), exact);
   assert.equal(validateEffectiveSudoPolicy(`${canonicalJson(exact)}\n`).ok, true);
   const mutations = [
     { ...exact, exemptGroup: "sudo" },
     { ...exact, accountGroups: [trustedSshPaths.account, "sudo"] },
     { ...exact, authenticationRequired: false },
     { ...exact, passwordTries: 3 },
+    { ...exact, passwordOwner: "root" },
+    { ...exact, timestampTimeout: 5 },
     { ...exact, rules: [...exact.rules, { arguments: [], command: "/bin/bash", host: "ALL", runAs: ["root"], tags: ["PASSWD"] }] },
     { ...exact, rules: [{ ...exact.rules[0], tags: ["NOPASSWD"] }] },
   ];
   for (const policy of mutations) assert.throws(() => validateEffectiveSudoPolicy(`${canonicalJson(policy)}\n`), /sudo_policy/u);
+  const observation = JSON.parse(fixtures.sudoAuthorityObservation);
+  for (const mutation of [
+    { ...observation, sourceClosure: { ...observation.sourceClosure, allIncludesResolved: false } },
+    { ...observation, accountGroups: [...observation.accountGroups, { name: "sudo", source: "nss-supplementary-group" }] },
+    { ...observation, defaults: observation.defaults.map((entry) => entry.name === "timestamp_timeout" ? { ...entry, value: 5 } : entry) },
+    { ...observation, defaults: observation.defaults.map((entry) => entry.name === "rootpw" ? { ...entry, value: true } : entry) },
+    { ...observation, rules: [...observation.rules, { ...observation.rules[0], command: "/bin/bash" }] },
+  ]) assert.throws(() => deriveEffectiveSudoPolicy(`${canonicalJson(mutation)}\n`), /sudo_authority/u);
 });
 
-test("installed sshd and visudo parse generated configuration where unprivileged platform limits permit", () => withFixture((fixture) => {
+test("installed sshd and visudo fully parse generated configuration using a disposable fixture host key", () => withFixture((fixture) => {
   const rendered = renderTrustedSshFixtures({ operatorKeyFingerprint: fingerprint });
   const config = path.join(fixture, "sshd_config");
   const sudoers = path.join(fixture, "sudoers");
-  writeFileSync(config, `UsePAM yes\n${rendered.sshd}`);
+  const keyFile = path.join(fixture, "host-rsa-key");
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  writeFileSync(keyFile, privateKey.export({ format: "pem", type: "pkcs1" }), { mode: 0o600 });
+  writeFileSync(config, `HostKey ${keyFile}\nUsePAM yes\n${rendered.sshd}`);
   writeFileSync(sudoers, rendered.sudoers);
   const sudoCheck = spawnSync("/usr/sbin/visudo", ["-cf", sudoers], { encoding: "utf8" });
   assert.equal(sudoCheck.status, 0, sudoCheck.stderr);
   const sshdCheck = spawnSync("/usr/sbin/sshd", ["-T", "-f", config, "-C", "user=settleora_handoff,host=localhost,addr=127.0.0.1"], { encoding: "utf8" });
-  assert.notEqual(sshdCheck.status, 0);
-  assert.match(sshdCheck.stderr, /no hostkeys available/u);
-  assert.doesNotMatch(sshdCheck.stderr, /Directive .* not allowed|Bad configuration option|keyword.*unknown/iu);
+  assert.equal(sshdCheck.status, 0, sshdCheck.stderr);
+  assert.deepEqual(validateEffectiveSshdOutput(sshdCheck.stdout), { ok: true, reasonCode: "trusted_ssh_effective_sshd_verified" });
 }));
 
 test("installation plan is deterministic, complete, private-root-only and never mutates live security paths", () => withFixture((fixture) => {
@@ -514,7 +540,7 @@ function effectiveSshd() {
     "authenticationmethods publickey", "passwordauthentication no", "kbdinteractiveauthentication no", "pubkeyauthentication yes",
     "pubkeyacceptedalgorithms sk-ssh-ed25519@openssh.com,ssh-ed25519",
     `authorizedkeysfile ${trustedSshPaths.authorizedKeys}`, "permituserenvironment no", "permituserrc no", "disableforwarding yes",
-    "authorizedkeyscommand none",
+    "authorizedkeyscommand none", "trustedusercakeys none", "authorizedprincipalsfile none", "authorizedprincipalscommand none",
     "allowagentforwarding no", "allowtcpforwarding no", "x11forwarding no", "permittunnel no", "gatewayports no",
     "permittty yes", "forcecommand settleora-handoff-v1", "",
   ].join("\n");

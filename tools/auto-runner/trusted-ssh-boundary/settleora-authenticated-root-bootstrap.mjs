@@ -3,14 +3,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   authenticateTrustedSshPackage, closeAuthenticatedPackage, parseTrustedSshCommand,
-  trustedSshPaths, validateTrustedSshConsumedReceipt,
+  trustedSshPaths, validateTrustedSshEnteredReceipt,
 } from "./lib/trusted-ssh-boundary.mjs";
 
 export function runAuthenticatedRootBootstrap({
   argv = process.argv.slice(2), cwd = process.cwd(), uid = process.getuid?.(), euid = process.geteuid?.(),
   handoffRoot = trustedSshPaths.handoffRoot, claimRoot = trustedSshPaths.operationClaims,
   expectedPackageUid = 0, packageAuthenticator = authenticateTrustedSshPackage,
-  receiptValidator = validateTrustedSshConsumedReceipt, integrationExecutor = unavailableIntegration,
+  receiptValidator = validateTrustedSshEnteredReceipt, integrationExecutor = unavailableIntegration,
 } = {}) {
   if (argv.length !== 0 || uid !== 0 || euid !== 0) throw new Error("trusted_ssh_root_bootstrap_identity_invalid");
   const canonicalCwd = realpathSync(cwd);

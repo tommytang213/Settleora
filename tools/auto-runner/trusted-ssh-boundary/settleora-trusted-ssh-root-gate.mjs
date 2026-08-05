@@ -3,7 +3,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage,
-  parseTrustedSshCommand, trustedSshPaths, validateTrustedSshConsumedReceipt,
+  enterTrustedSshRootGate, parseTrustedSshCommand, trustedSshPaths,
 } from "./lib/trusted-ssh-boundary.mjs";
 
 export function runTrustedSshRootGate({
@@ -14,7 +14,7 @@ export function runTrustedSshRootGate({
   euid = process.geteuid?.(),
   expectedPackageUid = 0,
   claimRoot = trustedSshPaths.operationClaims,
-  receiptValidator = validateTrustedSshConsumedReceipt,
+  gateEnterer = enterTrustedSshRootGate,
   bootstrapAuthenticator = authenticateInstalledBoundaryArtifact,
   executor = executeFixedRootBootstrap,
 } = {}) {
@@ -41,7 +41,7 @@ export function runTrustedSshRootGate({
       expectedName: "settleora-authenticated-root-bootstrap.mjs",
       file: trustedSshPaths.rootBootstrapModule,
     });
-    const receipt = receiptValidator({ claimRoot, handoffKey: request.handoffKey, operationId: request.operationId });
+    const receipt = gateEnterer({ claimRoot, handoffKey: request.handoffKey, operationId: request.operationId });
     if (receipt.sudoAttemptCount !== 1) throw new Error("trusted_ssh_root_gate_receipt_invalid");
     return executor({
       argv: [trustedSshPaths.rootBootstrap, "--disable-proto=throw", trustedSshPaths.rootBootstrapModule],

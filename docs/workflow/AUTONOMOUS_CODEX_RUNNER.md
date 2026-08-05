@@ -2110,7 +2110,8 @@ The inactive source contract in
 `docs/architecture/TRUSTED_SSH_ENTRY_BOUNDARY.md` therefore requires a
 dedicated account with a freestanding static root-owned native login shell, root-owned
 authorization/dispatcher closure, public-key-only SSH authentication,
-an effective `AuthorizedKeysCommand none`, forwarding disabled, and PTY retained only for one password-requiring fixed
+an effective `AuthorizedKeysCommand none`, no certificate/principal authority,
+forwarding disabled, and PTY retained only for one password-requiring fixed
 sudo gate. Exact source-blob rebuild binding, descriptor-relative recursive
 package validation, and an exclusive pending/consumed operation claim enforce
 the authenticated closure and one-attempt transition. The installed
@@ -2118,8 +2119,11 @@ root-bootstrap module is digest-checked against a root-owned artifact manifest
 before claim consumption. A dedicated PAM service invokes a freestanding
 pre-auth helper to consume the one-shot before `common-auth`; `passwd_tries=1`
 bounds the admitted invocation to one prompt, and complete effective sudo
-authority must contain no other user/group/exempt route. The post-auth gate and
-bootstrap independently check the package plus consumed receipt. `ForceCommand` remains defense in depth and a subsystem/request
+authority must contain no other user/group/exempt route, must use invoking-user
+password ownership and zero timestamp timeout, and must retain exact source
+provenance. The post-auth gate atomically moves the consumed receipt to a
+root-only entered state exactly once; bootstrap independently checks the
+package plus entered receipt. `ForceCommand` remains defense in depth and a subsystem/request
 normalizer; it is not treated as the pre-shell boundary.
 
 Repository source and tests may generate and validate plans only under a

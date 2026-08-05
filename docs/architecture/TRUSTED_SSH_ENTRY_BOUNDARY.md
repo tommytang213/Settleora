@@ -234,8 +234,11 @@ Before consuming the claim, the root-gate module authenticates the installed
 `settleora-authenticated-root-bootstrap.mjs` against the root-owned installed
 artifact manifest, including exact path, ancestry, owner, group, mode, byte
 count, and digest. It then executes fixed `/usr/bin/node` with that fixed module
-and a clean environment. The module independently reauthenticates the complete
-package and root-only consumed receipt and exposes only the fixed
+and a clean environment. Before that exec, the root gate atomically hard-links
+the consumed receipt to a root-only entered directory and unlinks the consumed
+name. This no-clobber transition admits the root gate exactly once even if an
+unexpected sudo timestamp were available. The module independently
+reauthenticates the complete package and root-only entered receipt and exposes only the fixed
 `prepare`, `arm-interactive-sudo-once`, `resume-readback-only` integration
 envelope. Its default implementation fails closed until the separately reviewed
 PR #1048 integration supplies the authenticated protocol implementation; no
@@ -246,7 +249,7 @@ unreviewed or path-selected bootstrap can run.
 The canonical sudoers fixture is narrow:
 
 ```sudoers
-Defaults:settleora_handoff env_reset,use_pty,!set_home,!preserve_groups,timestamp_timeout=0,passwd_tries=1,pam_service=settleora-handoff-sudo
+Defaults:settleora_handoff env_reset,use_pty,!set_home,!preserve_groups,!rootpw,!targetpw,!runaspw,timestamp_timeout=0,passwd_tries=1,pam_service=settleora-handoff-sudo
 Defaults:settleora_handoff secure_path=/usr/sbin:/usr/bin:/sbin:/bin
 settleora_handoff ALL=(root) PASSWD: /opt/settleora/trusted-ssh/bin/settleora-root-gate ""
 ```
@@ -269,17 +272,19 @@ auth requisite pam_exec.so quiet seteuid /opt/settleora/trusted-ssh/bin/settleor
 auth include common-auth
 ```
 
-The static pre-auth helper validates the exact PAM user/type, replaces its
+The static pre-auth helper validates `PAM_USER` and `PAM_RUSER` as the invoking
+dedicated account (sudo's ordinary password-owner model), validates the exact PAM type, replaces its
 environment before fixed Node execution, reauthenticates the package and
 installed bootstrap, and atomically consumes the pending operation. Failure or
 replay stops before `common-auth`; `passwd_tries=1` bounds the admitted
 invocation to one prompt. The post-authentication root gate accepts only the
-already consumed root-owned receipt. Installing this dedicated PAM service is
+already consumed root-owned receipt and moves it to entered exactly once. Installing this dedicated PAM service is
 a later explicit owner security decision; this PR does not touch live PAM.
 
 The future installed validator must normalize the account's complete effective
 sudo authority across every include, user/group match, `exempt_group`, PAM
-service, password-tries setting, and command specification. It accepts exactly
+service, password-owner flags, zero timestamp timeout, password-tries setting,
+source provenance, and command specification. It accepts exactly
 one authenticated no-argument root-gate rule, the dedicated account's own
 group only, no exempt group, and no global/group/alternate command route.
 
@@ -292,16 +297,18 @@ dedicated account. Package files may be root-owned with a dedicated read-only
 group, but must never be account-writable, symlinks, or unexpected hard links.
 The operation-claim root is root-owned `0710`, its pending directory is
 root-owned/dedicated-group `1730`, and its consumed directory is root-only
-`0700`; an account-created claim becomes root-owned before a consumed receipt
-is published. The account must not be able to change its shell, home authority,
+`0700`, and its entered directory is separately root-only `0700`; an
+account-created claim becomes root-owned before a consumed receipt is
+published, then a successful root entry moves that authority exactly once.
+The account must not be able to change its shell, home authority,
 authentication file, dispatcher closure, validator, or sudo gate.
 
 ## Inactive generation and validation
 
 `generate-trusted-ssh-boundary-plan.mjs` writes only to a caller-supplied,
 existing, owner-private output root. It binds the claimed commit/tree to a clean
-checkout, reads all four JavaScript modules as exact Git blobs, rebuilds the
-three native artifacts from exact Git blobs with fixed compiler arguments, and
+checkout, reads all five JavaScript modules as exact Git blobs, rebuilds the
+four native artifacts from exact Git blobs with fixed compiler arguments, and
 rejects supplied artifacts that are not byte-identical. It then emits canonical
 fixtures and an installation/rollback plan, reserves the final directory
 without overwrite, moves the staged closure into it, and writes the completion
@@ -315,11 +322,10 @@ rollback completeness, and absence of general-shell routes. Its realized-key
 validator accepts exactly one `restrict,pty` Ed25519 or security-key Ed25519
 public-key line, verifies root ownership/mode/ancestry, and uses
 `ssh-keygen -lf -E sha256` to compare the realized key with the owner-approved
-fingerprint. On this DevBox, unprivileged
-`sshd -T -f <fixture>` parses the fixture through all directives but cannot
-complete effective output because the root-only system host keys are not
-readable and no credential is generated for tests. Deterministic effective-
-configuration assertions cover the complete dedicated-user projection;
+fingerprint. On this DevBox, unprivileged `sshd -T -f <fixture>` uses a
+disposable RSA host key generated only inside a private temporary fixture and
+validates the complete effective dedicated-user projection, including the
+absence of alternate certificate/principal authority;
 `visudo -cf` parses the exact sudoers fixture successfully.
 
 ## Deployment, lockout avoidance, and rollback
@@ -334,7 +340,8 @@ Deployment is a later manual gate. Before any reload, an owner must:
 4. install and independently hash the root-owned artifact closure through
    temporary sibling paths;
 5. realize exactly one restricted public-key line, validate its exact
-   fingerprint, prove effective `AuthorizedKeysCommand none`, and validate the
+   fingerprint, prove effective `AuthorizedKeysCommand none`,
+   `TrustedUserCAKeys none`, and no principals file/command, and validate the
    sudoers fragment with `visudo`, the dedicated PAM service before use, and
    the complete normalized effective sudo policy;
 6. add the shell only after its static and freestanding identity is verified;

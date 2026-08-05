@@ -4,9 +4,15 @@
 #define SETTLEORA_SYS_GETEUID 107L
 #define SETTLEORA_SYS_EXECVE 59L
 #define SETTLEORA_SYS_EXIT 60L
+#ifndef NODE
 #define NODE "/usr/bin/node"
+#endif
+#ifndef MODULE
 #define MODULE "/opt/settleora/trusted-ssh/lib/settleora-trusted-ssh-pam-preauth.mjs"
+#endif
+#ifndef ACCOUNT
 #define ACCOUNT "settleora_handoff"
+#endif
 
 typedef __SIZE_TYPE__ settleora_size_t;
 
@@ -87,7 +93,7 @@ __attribute__((used, noreturn)) static void preauth_main(long argc, char **argv,
   (void)argv;
   if (argc != 1L || uid == 0UL || syscall0(SETTLEORA_SYS_GETEUID) != 0L
       || pam_ruser == (const char *)0 || pam_user == (const char *)0 || pam_type == (const char *)0
-      || !text_equal(pam_ruser, ACCOUNT) || !text_equal(pam_user, "root") || !text_equal(pam_type, "auth")) fail_closed(70);
+      || !text_equal(pam_ruser, ACCOUNT) || !text_equal(pam_user, ACCOUNT) || !text_equal(pam_type, "auth")) fail_closed(70);
   clean_argv[0] = (char *)NODE;
   clean_argv[1] = (char *)"--disable-proto=throw";
   clean_argv[2] = (char *)MODULE;

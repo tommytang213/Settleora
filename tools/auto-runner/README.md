@@ -2418,9 +2418,11 @@ placeholder template and contains no key bytes. Before later publication, the
 read-only realized-key validator requires one exact `restrict,pty` allowed-key
 line and verifies its SHA-256 fingerprint. The Match contract also requires
 effective `AuthorizedKeysCommand none`, preventing a global alternate key
-provider from bypassing that one-key boundary. The PAM pre-auth helper authenticates the
+provider from bypassing that one-key boundary; certificate and principal
+authority are also explicitly disabled. The PAM pre-auth helper authenticates the
 installed root-bootstrap module against the root-owned artifact manifest before
-claim consumption; the post-auth root gate and bootstrap then reauthenticate the package and consumed
+claim consumption; the post-auth root gate atomically moves that receipt to a
+root-only entered state exactly once, and the bootstrap reauthenticates the package and entered
 receipt before exposing the fixed later PR #1048 integration envelope. The plan validator is also fixture/
 private-root-only in source-development tasks:
 
@@ -2434,8 +2436,9 @@ sudo command starts. A root-owned freestanding PAM pre-auth helper consumes the
 one-shot claim before the dedicated service includes `common-auth`, and the
 sudoers contract sets `passwd_tries=1`. Replay therefore fails before a second
 prompt. The private fixtures also carry a closed normalized effective-sudo
-projection; later installation must derive it from every sudoers include,
-group match, exempt group, PAM setting, and command rule. Live PAM/sudoers
+projection and its structured source observation; later installation must derive it from every sudoers include,
+group match, exempt group, PAM setting, password-owner flag, timestamp setting,
+command rule, and exact source provenance. Live PAM/sudoers
 installation remains a separate explicit owner gate.
 
 The stable future integration envelope is
