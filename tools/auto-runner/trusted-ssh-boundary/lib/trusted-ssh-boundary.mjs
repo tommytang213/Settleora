@@ -933,6 +933,7 @@ function normalizeCollectedSudoPolicy(policy, groups) {
   if (defaults.has("exempt_group") || canonicalJson(groups) !== canonicalJson([trustedSshPaths.account]) || rules.length !== 1
       || canonicalJson(rules[0].host) !== canonicalJson([{ hostname: "ALL" }])
       || canonicalJson(rules[0].command.runasusers) !== canonicalJson([{ username: "root" }])
+      || Object.hasOwn(rules[0].command, "runasgroups")
       || canonicalJson(rules[0].command.Options) !== canonicalJson([{ authenticate: true }])
       || canonicalJson(rules[0].item) !== canonicalJson({ command: `${trustedSshPaths.rootGate} \"\"` })) {
     throw new Error("trusted_ssh_installed_authority_rule_invalid");

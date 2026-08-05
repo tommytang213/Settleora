@@ -242,6 +242,13 @@ test("PAM pre-auth consumes the durable one-shot before a password prompt and re
   invoke();
   assert.throws(invoke, /already_consumed/u);
   assert.equal(promptCount, 1);
+  let consumedWithoutRuntime = false;
+  assert.throws(() => runTrustedSshPamPreauth({
+    argv: [String(process.getuid()), String(process.getgid())], cwd: path.join(packageRoot, key), handoffRoot: packageRoot,
+    uid: process.getuid(), euid: 0, expectedPackageUid: process.getuid(), bootstrapAuthenticator() {},
+    claimConsumer() { consumedWithoutRuntime = true; }, runtimeVersion: "22.14.0", runtimeExecve: undefined,
+  }), /node_runtime/u);
+  assert.equal(consumedWithoutRuntime, false);
   assert.throws(() => runTrustedSshPamPreauth({
     argv: [String(process.getuid()), String(process.getgid())], cwd: path.join(packageRoot, key), handoffRoot: packageRoot,
     uid: process.getuid(), gid: process.getgid() + 1, euid: 0,
@@ -485,6 +492,11 @@ test("installed authority collector binds complete private sudoers, NSS and tran
       ...options, expectedSourceDigests: { ...expectedSourceDigests, [trustedSshPaths.sudoers]: sha256(numeric) },
     }), /sudo_numeric_identity/u);
   }
+  const runAsGroup = rendered.sudoers.replace("ALL=(root) ", "ALL=(root:ALL) ");
+  writeFileSync(path.join(fixture, "etc/sudoers.d/settleora-trusted-ssh"), runAsGroup, { mode: 0o600 });
+  assert.throws(() => collectTrustedSshInstalledAuthority({
+    ...options, expectedSourceDigests: { ...expectedSourceDigests, [trustedSshPaths.sudoers]: sha256(runAsGroup) },
+  }), /rule/u);
 }));
 
 test("installed sshd and visudo fully parse generated configuration using a disposable fixture host key", () => withFixture((fixture) => {

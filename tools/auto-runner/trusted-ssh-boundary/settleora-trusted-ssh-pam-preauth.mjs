@@ -2,7 +2,7 @@ import { closeSync, constants, openSync, readFileSync, realpathSync } from "node
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage,
+  assertTrustedSshNodeRuntime, authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage,
   consumeTrustedSshOperation, parseTrustedSshCommand, trustedSshPaths,
 } from "./lib/trusted-ssh-boundary.mjs";
 
@@ -11,11 +11,13 @@ export function runTrustedSshPamPreauth({
   euid = process.geteuid?.(),
   handoffRoot = trustedSshPaths.handoffRoot, expectedPackageUid = 0, claimRoot = trustedSshPaths.operationClaims,
   bootstrapAuthenticator = authenticateInstalledBoundaryArtifact, claimConsumer = consumeTrustedSshOperation,
+  runtimeVersion = process.versions.node, runtimeExecve = process.execve,
 } = {}) {
   if (argv.length !== 2 || !/^[1-9][0-9]{0,9}$/u.test(argv[0]) || !/^[1-9][0-9]{0,9}$/u.test(argv[1])
       || uid !== Number.parseInt(argv[0], 10) || gid !== Number.parseInt(argv[1], 10) || euid !== 0) {
     throw new Error("trusted_ssh_pam_preauth_identity_invalid");
   }
+  assertTrustedSshNodeRuntime(runtimeVersion, runtimeExecve);
   const canonicalCwd = realpathSync(cwd);
   const handoffKey = path.basename(canonicalCwd);
   if (path.dirname(canonicalCwd) !== path.resolve(handoffRoot)) throw new Error("trusted_ssh_pam_preauth_path_invalid");

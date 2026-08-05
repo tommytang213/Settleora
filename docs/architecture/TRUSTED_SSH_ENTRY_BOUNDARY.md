@@ -340,12 +340,14 @@ absence of alternate certificate/principal authority;
 The boundary runtime is narrower than the repository's general Node 22 range:
 the fixed root-owned `/usr/bin/node` must be `>=22.15.0 <23.0.0` and expose
 `process.execve`. The plan and validator bind that requirement, and the root
-gate checks it before authenticating or consuming an operation receipt. An
+gate and PAM pre-auth module both check it before authenticating or consuming
+an operation receipt. An
 older or API-incomplete runtime therefore fails without burning the one-shot.
 The installed-authority collector also fails closed on every unmodeled
 `@includedir` entry (including sudo-active names beginning with `_` or `-`) and
-on any sudo alias representation; it never filters either out before deciding
-which authority applies to the account.
+on any sudo alias or numeric UID/GID representation; it never filters them out
+before deciding which authority applies to the account. Any run-as group field
+is rejected rather than normalized into the fixed root-user-only rule.
 
 ## Deployment, lockout avoidance, and rollback
 
