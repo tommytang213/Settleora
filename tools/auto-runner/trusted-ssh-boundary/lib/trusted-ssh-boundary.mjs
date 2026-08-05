@@ -770,7 +770,7 @@ export function collectTrustedSshInstalledAuthority({
     throw new Error("trusted_ssh_installed_authority_nss_invalid");
   }
   if (pamFiles[0]?.path !== trustedSshPaths.pamService
-      || pamFiles[0].bytes !== renderTrustedSshFixtures({ operatorKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }).pam) {
+      || pamFiles[0].bytes !== renderTrustedSshFixtures({ operatorKeyFingerprint: syntheticOperatorFingerprint() }).pam) {
     throw new Error("trusted_ssh_installed_authority_pam_invalid");
   }
   return Object.freeze({
@@ -903,8 +903,10 @@ function normalizeCollectedSudoPolicy(policy, groups) {
       || canonicalJson(rules[0].item) !== canonicalJson({ command: `${trustedSshPaths.rootGate} \"\"` })) {
     throw new Error("trusted_ssh_installed_authority_rule_invalid");
   }
-  return deriveEffectiveSudoPolicy(renderTrustedSshFixtures({ operatorKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }).sudoAuthorityObservation);
+  return deriveEffectiveSudoPolicy(renderTrustedSshFixtures({ operatorKeyFingerprint: syntheticOperatorFingerprint() }).sudoAuthorityObservation);
 }
+
+function syntheticOperatorFingerprint() { return `SHA256:${"A".repeat(43)}`; }
 
 export function validateNativeStaticExecutable(executable) {
   const file = spawnTool("/usr/bin/file", ["-b", executable]);

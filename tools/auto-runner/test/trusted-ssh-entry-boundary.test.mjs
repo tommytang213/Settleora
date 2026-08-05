@@ -26,7 +26,7 @@ const compilerFlags = ["-std=c17", "-O2", "-Wall", "-Wextra", "-Werror", "-pedan
 const entryCompilerFlags = ["-std=c17", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic", "-nostdlib", "-static", "-fno-stack-protector", "-fno-builtin", "-fno-pie", "-no-pie"];
 const key = "20260805-0925-0123456789abcdef";
 const operation = "a".repeat(64);
-const fingerprint = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const fingerprint = `SHA256:${"A".repeat(43)}`;
 
 test("native shell and fd gate compile warning-free as static ELF without loader dependencies", () => withFixture((fixture) => {
   const built = buildNative(fixture);
@@ -592,7 +592,14 @@ function effectiveSshd() {
   ].join("\n");
 }
 
-function replaceEffective(text, name, value) { return text.replace(new RegExp(`^${name} .*$`, "mu"), `${name} ${value}`); }
+function replaceEffective(text, name, value) {
+  const prefix = `${name} `;
+  const lines = text.split("\n");
+  const index = lines.findIndex((line) => line.startsWith(prefix));
+  assert.notEqual(index, -1);
+  lines[index] = `${name} ${value}`;
+  return lines.join("\n");
+}
 function withFixture(callback) { const root = mkdtempSync(path.join(os.tmpdir(), "settleora-trusted-ssh-test-")); chmodSync(root, 0o700); try { return callback(root); } finally { rmSync(root, { recursive: true, force: true }); } }
 function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 function canonicalJson(value) { return JSON.stringify(canonicalize(value)); }
