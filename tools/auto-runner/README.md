@@ -2455,8 +2455,12 @@ source's ownership, mode, link count, size, and approved digest plus the exact
 installed `cvtsudoers` digest. Later installation must derive the policy from
 that closed source set and reject any extra source, group match, exempt group,
 PAM setting, password-owner flag, timestamp setting, security-default drift, or
-command rule. Live snapshot collection and PAM/sudoers
-installation remains a separate explicit owner gate.
+command rule. NSS accepts exactly one local-files source for each passwd,
+group, sudoers, and initgroups database. PAM include/substack lines may
+carry trailing comments, but every directive-like line outside the closed
+grammar fails rather than disappearing from the captured closure. Live
+snapshot collection and PAM/sudoers installation remains a separate explicit
+owner gate.
 
 The stable future integration envelope is
 `settleora_trusted_ssh_handoff_package_v1`. Draft PR #1048 must remain

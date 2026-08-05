@@ -294,6 +294,16 @@ password-tries setting, security default, source provenance, and command
 specification. It accepts exactly
 one authenticated no-argument root-gate rule, the dedicated account's own
 group only, no exempt group, and no global/group/alternate command route.
+NSS parsing requires exactly one `files` source for each `passwd`, `group`,
+`initgroups`, and `sudoers` database; missing, duplicate, or external sources
+fail closed. PAM closure parsing
+captures valid `include`/`substack` directives with trailing comments and
+rejects every directive-like line outside the modeled grammar.
+The inspected DevBox currently uses `files systemd` for passwd/group, so a
+future deployment cannot pass this proof as-is. The inactive plan records an
+explicit manual stop: choose and review a local-only NSS closure or an equally
+strong source-complete alternative without changing existing developer access.
+This PR neither chooses that live-system tradeoff nor edits NSS configuration.
 This collector is source-only in this PR and tests only caller-owned private
 snapshot roots; collecting and approving a live installed snapshot remains a
 later manual security gate.

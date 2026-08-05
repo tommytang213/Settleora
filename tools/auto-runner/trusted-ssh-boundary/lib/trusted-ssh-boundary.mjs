@@ -329,7 +329,7 @@ export function createTrustedSshInstallationPlan({
     const artifactManifest = inputs.map(({ bytes: _bytes, source: _source, ...artifact }) => artifact);
     const planCore = {
       account: {
-        gidPolicy: "owner-selects-unused-system-gid-at-manual-gate",
+        gidPolicy: "owner-selects-unused-exclusive-system-gid-at-manual-gate",
         home: trustedSshPaths.home,
         loginShell: trustedSshPaths.loginShell,
         name: trustedSshPaths.account,
@@ -349,6 +349,7 @@ export function createTrustedSshInstallationPlan({
       ],
       atomicInstallOrder: [
         "verify-owner-decisions-and-backup-current-files",
+        "prove-local-only-nss-authority-or-stop-for-separate-manual-decision",
         "install-root-owned-artifact-closure-to-temporary-sibling-paths",
         "install-root-owned-artifact-manifest-for-runtime-bootstrap-verification",
         "verify-static-shell-and-all-digests",
@@ -377,6 +378,7 @@ export function createTrustedSshInstallationPlan({
       ],
       manualDecisions: [
         "dedicated UID and GID",
+        "local-only passwd-group-sudoers-initgroups NSS closure or separately reviewed equivalent",
         "one operator public key and exact SHA256 fingerprint",
         "dedicated account sudo password or separately approved authentication factor",
         "dedicated PAM pre-auth service installation and rollback approval",
@@ -390,6 +392,12 @@ export function createTrustedSshInstallationPlan({
           requiredApi: "process.execve",
           verifyBeforeOperationClaim: true,
         },
+      },
+      nssAuthority: {
+        group: "exactly-one-files-source",
+        initgroups: "exactly-one-files-source",
+        passwd: "exactly-one-files-source",
+        sudoers: "exactly-one-files-source",
       },
       proposedPaths: trustedSshPaths,
       rollbackOrder: [
@@ -409,6 +417,7 @@ export function createTrustedSshInstallationPlan({
       sudoValidation: [
         `/usr/bin/sudo -ll -U ${trustedSshPaths.account}`,
         `/usr/bin/getent group ${trustedSshPaths.account}`,
+        "capture-and-validate-complete-passwd-group-initgroups-sudoers-nss-source-policy",
         "normalize-complete-sudo-source-provenance-groups-password-owner-timestamp-pam-and-rules-to-effective-sudo-policy-v1",
       ],
       sudo: { attempts: 1, command: `${trustedSshPaths.rootGate} (no arguments)`, requiresAuthentication: true },
@@ -491,8 +500,14 @@ export function validateTrustedSshInstallationPlan(root, {
       || canonicalJson(plan.sudoValidation) !== canonicalJson([
         `/usr/bin/sudo -ll -U ${trustedSshPaths.account}`,
         `/usr/bin/getent group ${trustedSshPaths.account}`,
+        "capture-and-validate-complete-passwd-group-initgroups-sudoers-nss-source-policy",
         "normalize-complete-sudo-source-provenance-groups-password-owner-timestamp-pam-and-rules-to-effective-sudo-policy-v1",
       ])
+      || plan.account?.gidPolicy !== "owner-selects-unused-exclusive-system-gid-at-manual-gate"
+      || canonicalJson(plan.nssAuthority) !== canonicalJson({
+        group: "exactly-one-files-source", initgroups: "exactly-one-files-source",
+        passwd: "exactly-one-files-source", sudoers: "exactly-one-files-source",
+      })
       || canonicalJson(plan.runtimeRequirements) !== canonicalJson({ node: {
         executable: trustedSshPaths.rootBootstrap, maximumExclusive: "23.0.0", minimum: "22.15.0",
         requiredApi: "process.execve", verifyBeforeOperationClaim: true,
@@ -779,9 +794,7 @@ export function collectTrustedSshInstalledAuthority({
     throw new Error("trusted_ssh_installed_authority_source_digest_invalid");
   }
   const normalized = normalizeCollectedSudoPolicy(sudoPolicy, account.groups);
-  if (!/^passwd:\s+files\s*$/mu.test(nsswitch) || !/^group:\s+files\s*$/mu.test(nsswitch)) {
-    throw new Error("trusted_ssh_installed_authority_nss_invalid");
-  }
+  assertTrustedSshNsswitch(nsswitch);
   if (pamFiles[0]?.path !== trustedSshPaths.pamService
       || pamFiles[0].bytes !== renderTrustedSshFixtures({ operatorKeyFingerprint: syntheticOperatorFingerprint() }).pam) {
     throw new Error("trusted_ssh_installed_authority_pam_invalid");
@@ -826,10 +839,28 @@ function collectPamClosure(service, readSource, seen = new Set()) {
   const bytes = readSource(name);
   const result = [{ bytes, path: name }];
   for (const line of bytes.split("\n")) {
-    const include = /^\s*(?:(?:auth|account|password|session)\s+(?:include|substack)|@include)\s+([A-Za-z0-9_-]+)\s*$/u.exec(line);
+    const include = /^\s*(?:(?:auth|account|password|session)\s+(?:include|substack)|@include)\s+([A-Za-z0-9_-]+)(?:\s+#.*)?\s*$/u.exec(line);
+    const directiveLike = /^\s*(?:(?:auth|account|password|session)\s+(?:include|substack)\b|@include\b)/u.test(line);
     if (include) result.push(...collectPamClosure(include[1], readSource, seen));
+    else if (directiveLike) throw new Error("trusted_ssh_installed_authority_pam_include_invalid");
   }
   return result;
+}
+
+function assertTrustedSshNsswitch(value) {
+  const relevant = new Map(["passwd", "group", "initgroups", "sudoers"].map((name) => [name, []]));
+  for (const rawLine of value.split("\n")) {
+    const line = rawLine.replace(/#.*$/u, "").trim();
+    if (line === "") continue;
+    const match = /^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*?)\s*$/u.exec(line);
+    if (!match) throw new Error("trusted_ssh_installed_authority_nss_invalid");
+    if (relevant.has(match[1])) relevant.get(match[1]).push(match[2]);
+  }
+  for (const name of ["passwd", "group", "initgroups", "sudoers"]) {
+    if (canonicalJson(relevant.get(name)) !== canonicalJson(["files"])) {
+      throw new Error("trusted_ssh_installed_authority_nss_invalid");
+    }
+  }
 }
 
 function parseSnapshotAccount(passwd, group) {

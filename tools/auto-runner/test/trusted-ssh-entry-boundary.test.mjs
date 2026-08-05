@@ -412,9 +412,9 @@ test("installed authority collector binds complete private sudoers, NSS and tran
     "/etc/sudoers.d/settleora-trusted-ssh": rendered.sudoers,
     "/etc/passwd": `${trustedSshPaths.account}:x:12345:12345:Settleora trusted SSH handoff:${trustedSshPaths.home}:${trustedSshPaths.loginShell}\n`,
     "/etc/group": `${trustedSshPaths.account}:x:12345:\n`,
-    "/etc/nsswitch.conf": "passwd: files\ngroup: files\n",
+    "/etc/nsswitch.conf": "passwd: files\ngroup: files\ninitgroups: files\nsudoers: files\n",
     "/etc/pam.d/settleora-handoff-sudo": rendered.pam,
-    "/etc/pam.d/common-auth": "@include common-auth-local\nauth required pam_unix.so\n",
+    "/etc/pam.d/common-auth": "@include common-auth-local # bounded local include\nauth required pam_unix.so\n",
     "/etc/pam.d/common-auth-local": "auth required pam_deny.so\n",
     "/etc/pam.d/common-account": "account required pam_unix.so\n",
     "/etc/pam.d/common-session-noninteractive": "session required pam_unix.so\n",
@@ -472,6 +472,24 @@ test("installed authority collector binds complete private sudoers, NSS and tran
     }), /groups/u);
   }
   writeFileSync(path.join(fixture, "etc/group"), files["/etc/group"], { mode: 0o600 });
+  for (const invalidNsswitch of [
+    "passwd: files\npasswd: files\ngroup: files\n",
+    "passwd: files\ngroup: files\ninitgroups: files sss\n",
+    "passwd: files\ngroup: files\nsudoers: files sss\n",
+    "passwd: files\ngroup: files\nsudoers: files\nsudoers: files\n",
+  ]) {
+    writeFileSync(path.join(fixture, "etc/nsswitch.conf"), invalidNsswitch, { mode: 0o600 });
+    assert.throws(() => collectTrustedSshInstalledAuthority({
+      ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/nsswitch.conf": sha256(invalidNsswitch) },
+    }), /nss/u);
+  }
+  writeFileSync(path.join(fixture, "etc/nsswitch.conf"), files["/etc/nsswitch.conf"], { mode: 0o600 });
+  const malformedPamInclude = "@include common-auth-local trailing-token\nauth required pam_unix.so\n";
+  writeFileSync(path.join(fixture, "etc/pam.d/common-auth"), malformedPamInclude, { mode: 0o600 });
+  assert.throws(() => collectTrustedSshInstalledAuthority({
+    ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/pam.d/common-auth": sha256(malformedPamInclude) },
+  }), /pam_include/u);
+  writeFileSync(path.join(fixture, "etc/pam.d/common-auth"), files["/etc/pam.d/common-auth"], { mode: 0o600 });
   const escapingRoot = "@includedir /etc/sudoers.d/../../outside\n";
   writeFileSync(path.join(fixture, "etc/sudoers"), escapingRoot, { mode: 0o600 });
   assert.throws(() => collectTrustedSshInstalledAuthority({
@@ -554,7 +572,11 @@ test("installation plan is deterministic, complete, private-root-only and never 
   const plan = JSON.parse(readFileSync(path.join(first.root, "installation-plan.json"), "utf8"));
   assert.equal(plan.rollbackOrder.length >= 6, true);
   assert.equal(plan.atomicInstallOrder.length >= 8, true);
-  assert.equal(plan.manualDecisions.length, 5);
+  assert.equal(plan.manualDecisions.length, 6);
+  assert.deepEqual(plan.nssAuthority, {
+    group: "exactly-one-files-source", initgroups: "exactly-one-files-source",
+    passwd: "exactly-one-files-source", sudoers: "exactly-one-files-source",
+  });
   assert.deepEqual(plan.runtimeRequirements.node, {
     executable: "/usr/bin/node", maximumExclusive: "23.0.0", minimum: "22.15.0",
     requiredApi: "process.execve", verifyBeforeOperationClaim: true,
