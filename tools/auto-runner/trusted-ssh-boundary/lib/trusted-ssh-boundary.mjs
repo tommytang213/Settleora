@@ -903,7 +903,7 @@ function assertCanonicalSnapshotSourceName(value) {
 }
 
 function normalizeCollectedSudoPolicy(policy, groups) {
-  assertNoSudoAliases(policy);
+  assertNoUnmodeledSudoIdentities(policy);
   const applies = (binding = []) => binding.length === 0 || binding.some((entry) => entry.username === trustedSshPaths.account
     || entry.usergroup === trustedSshPaths.account || entry.username === "ALL");
   const exactAccountBinding = [{ username: trustedSshPaths.account }];
@@ -940,9 +940,9 @@ function normalizeCollectedSudoPolicy(policy, groups) {
   return deriveEffectiveSudoPolicy(renderTrustedSshFixtures({ operatorKeyFingerprint: syntheticOperatorFingerprint() }).sudoAuthorityObservation);
 }
 
-function assertNoSudoAliases(value) {
+function assertNoUnmodeledSudoIdentities(value) {
   if (Array.isArray(value)) {
-    for (const entry of value) assertNoSudoAliases(entry);
+    for (const entry of value) assertNoUnmodeledSudoIdentities(entry);
     return;
   }
   if (!value || typeof value !== "object") return;
@@ -950,7 +950,10 @@ function assertNoSudoAliases(value) {
     if (/(?:^|_)aliases$/iu.test(name) || /alias$/iu.test(name)) {
       throw new Error("trusted_ssh_installed_authority_sudo_alias_invalid");
     }
-    assertNoSudoAliases(entry);
+    if (name === "userid" || name === "usergid") {
+      throw new Error("trusted_ssh_installed_authority_sudo_numeric_identity_invalid");
+    }
+    assertNoUnmodeledSudoIdentities(entry);
   }
 }
 

@@ -475,6 +475,16 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   assert.throws(() => collectTrustedSshInstalledAuthority({
     ...options, expectedSourceDigests: { ...expectedSourceDigests, [trustedSshPaths.sudoers]: sha256(aliased) },
   }), /sudo_alias/u);
+  for (const numericIdentity of ["#12345", "%#12345"]) {
+    const numeric = [
+      `${numericIdentity} ALL=(root) NOPASSWD: /bin/bash`,
+      rendered.sudoers.trim(), "",
+    ].join("\n");
+    writeFileSync(path.join(fixture, "etc/sudoers.d/settleora-trusted-ssh"), numeric, { mode: 0o600 });
+    assert.throws(() => collectTrustedSshInstalledAuthority({
+      ...options, expectedSourceDigests: { ...expectedSourceDigests, [trustedSshPaths.sudoers]: sha256(numeric) },
+    }), /sudo_numeric_identity/u);
+  }
 }));
 
 test("installed sshd and visudo fully parse generated configuration using a disposable fixture host key", () => withFixture((fixture) => {
