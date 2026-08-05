@@ -64,7 +64,7 @@ export function reserveTrustedSshOperation({
   }
   assertOperationDirectory(claimRoot, expectedRootUid, expectedAccountGid, 0o710);
   const pending = path.join(claimRoot, "pending");
-  assertOperationDirectory(pending, expectedRootUid, expectedAccountGid, 0o1730);
+  assertOperationDirectory(pending, expectedRootUid, expectedAccountGid, 0o1770);
   const claim = { contract: "settleora_trusted_ssh_operation_claim_v1", handoffKey, operationId, version: 1 };
   const target = path.join(pending, `${operationId}.json`);
   writeExactFile(target, `${canonicalJson(claim)}\n`, 0o440);
@@ -83,7 +83,7 @@ export function consumeTrustedSshOperation({
   assertOperationDirectory(claimRoot, expectedRootUid, expectedClaimGid, 0o710);
   const pending = path.join(claimRoot, "pending");
   const consumed = path.join(claimRoot, "consumed");
-  assertOperationDirectory(pending, expectedRootUid, expectedClaimGid, 0o1730);
+  assertOperationDirectory(pending, expectedRootUid, expectedClaimGid, 0o1770);
   assertOperationDirectory(consumed, expectedRootUid, expectedRootGid, 0o700);
   const pendingPath = path.join(pending, `${operationId}.json`);
   const fd = openSync(pendingPath, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -341,7 +341,7 @@ export function createTrustedSshInstallationPlan({
       authorityPaths: [
         { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh" },
         { group: "settleora_handoff", mode: "0710", owner: "root", path: trustedSshPaths.operationClaims },
-        { group: "settleora_handoff", mode: "1730", owner: "root", path: trustedSshPaths.operationClaimsPending },
+        { group: "settleora_handoff", mode: "1770", owner: "root", path: trustedSshPaths.operationClaimsPending },
         { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsConsumed },
         { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsEntered },
         { group: "settleora_handoff", mode: "0750", owner: "root", path: trustedSshPaths.handoffRoot },
@@ -504,7 +504,7 @@ export function validateTrustedSshInstallationPlan(root, {
       || canonicalJson(plan.authorityPaths) !== canonicalJson([
         { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh" },
         { group: "settleora_handoff", mode: "0710", owner: "root", path: trustedSshPaths.operationClaims },
-        { group: "settleora_handoff", mode: "1730", owner: "root", path: trustedSshPaths.operationClaimsPending },
+        { group: "settleora_handoff", mode: "1770", owner: "root", path: trustedSshPaths.operationClaimsPending },
         { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsConsumed },
         { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsEntered },
         { group: "settleora_handoff", mode: "0750", owner: "root", path: trustedSshPaths.handoffRoot },
@@ -839,12 +839,14 @@ function parseSnapshotAccount(passwd, group) {
   const fields = rows[0];
   if (fields.length !== 7 || !/^[1-9][0-9]{0,9}$/u.test(fields[2]) || !/^[1-9][0-9]{0,9}$/u.test(fields[3])
       || passwdRows.filter((candidate) => candidate[2] === fields[2]).length !== 1
+      || passwdRows.filter((candidate) => candidate[3] === fields[3]).length !== 1
       || fields[5] !== trustedSshPaths.home || fields[6] !== trustedSshPaths.loginShell) {
     throw new Error("trusted_ssh_installed_authority_account_invalid");
   }
   const groupRows = group.trim().split("\n").filter(Boolean).map((line) => line.split(":"));
   const primaryGroups = groupRows.filter((parts) => parts[2] === fields[3]);
   if (primaryGroups.length !== 1 || primaryGroups[0].length !== 4 || primaryGroups[0][0] !== trustedSshPaths.account
+      || primaryGroups[0][3] !== ""
       || groupRows.filter((parts) => parts[0] === trustedSshPaths.account).length !== 1) {
     throw new Error("trusted_ssh_installed_authority_groups_invalid");
   }

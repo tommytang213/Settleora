@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import {
-  chmodSync, closeSync, constants, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync,
+  chmodSync, closeSync, constants, cpSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync,
   renameSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -259,7 +259,8 @@ test("operation claim reservation, consumption and root entry enforce one fail-c
   const uid = process.getuid(); const gid = process.getgid();
   const claimRoot = path.join(fixture, "claims");
   mkdirSync(claimRoot, { mode: 0o710 }); chmodSync(claimRoot, 0o710);
-  mkdirSync(path.join(claimRoot, "pending"), { mode: 0o1730 }); chmodSync(path.join(claimRoot, "pending"), 0o1730);
+  mkdirSync(path.join(claimRoot, "pending"), { mode: 0o1770 }); chmodSync(path.join(claimRoot, "pending"), 0o1770);
+  assert.equal(lstatSync(path.join(claimRoot, "pending")).mode & 0o070, 0o070, "claim group needs read/search/write so directory fsync can open it");
   mkdirSync(path.join(claimRoot, "consumed"), { mode: 0o700 }); chmodSync(path.join(claimRoot, "consumed"), 0o700);
   mkdirSync(path.join(claimRoot, "entered"), { mode: 0o700 }); chmodSync(path.join(claimRoot, "entered"), 0o700);
   const reserved = reserveTrustedSshOperation({ claimRoot, handoffKey: key, operationId: operation, expectedRootUid: uid, expectedAccountGid: gid });
@@ -284,7 +285,7 @@ test("concurrent pre-auth consumers permit exactly one transition before any pro
   const uid = process.getuid(); const gid = process.getgid();
   const claimRoot = path.join(fixture, "claims");
   mkdirSync(claimRoot, { mode: 0o710 }); chmodSync(claimRoot, 0o710);
-  mkdirSync(path.join(claimRoot, "pending"), { mode: 0o1730 }); chmodSync(path.join(claimRoot, "pending"), 0o1730);
+  mkdirSync(path.join(claimRoot, "pending"), { mode: 0o1770 }); chmodSync(path.join(claimRoot, "pending"), 0o1770);
   mkdirSync(path.join(claimRoot, "consumed"), { mode: 0o700 }); chmodSync(path.join(claimRoot, "consumed"), 0o700);
   reserveTrustedSshOperation({ claimRoot, handoffKey: key, operationId: operation, expectedRootUid: uid, expectedAccountGid: gid });
   const moduleUrl = new URL("../trusted-ssh-boundary/lib/trusted-ssh-boundary.mjs", import.meta.url).href;
@@ -445,6 +446,7 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   for (const invalidAccountDatabase of [
     `${trustedSshPaths.account}:x:0:12345:Settleora trusted SSH handoff:${trustedSshPaths.home}:${trustedSshPaths.loginShell}\n`,
     `${files["/etc/passwd"]}duplicate:x:12345:54321:Duplicate:/nonexistent:/usr/sbin/nologin\n`,
+    `${files["/etc/passwd"]}shared-primary-group:x:54321:12345:Shared group:/nonexistent:/usr/sbin/nologin\n`,
   ]) {
     const target = path.join(fixture, "etc/passwd"); writeFileSync(target, invalidAccountDatabase, { mode: 0o600 });
     assert.throws(() => collectTrustedSshInstalledAuthority({
@@ -455,6 +457,7 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   for (const invalidGroup of [
     `${trustedSshPaths.account}:x:0:\n`,
     `${files["/etc/group"]}duplicate:x:12345:\n`,
+    `${trustedSshPaths.account}:x:12345:other-account\n`,
   ]) {
     writeFileSync(path.join(fixture, "etc/group"), invalidGroup, { mode: 0o600 });
     assert.throws(() => collectTrustedSshInstalledAuthority({

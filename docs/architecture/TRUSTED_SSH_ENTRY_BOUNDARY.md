@@ -137,7 +137,8 @@ trust/configuration surface for the existing daemon.
 
 Use one dedicated non-product account named `settleora_handoff` with:
 
-- an owner-selected unused system UID/GID;
+- an owner-selected unused system UID/GID, with the GID exclusive to this
+  account as both a primary and supplementary membership boundary;
 - home `/var/lib/settleora/trusted-ssh/home`, not writable as authority;
 - login shell `/opt/settleora/trusted-ssh/bin/settleora-trusted-ssh-entry`;
 - one root-owned authorized-keys file at
@@ -305,10 +306,15 @@ fragment, and package publication root are root-owned and not writable by the
 dedicated account. Package files may be root-owned with a dedicated read-only
 group, but must never be account-writable, symlinks, or unexpected hard links.
 The operation-claim root is root-owned `0710`, its pending directory is
-root-owned/dedicated-group `1730`, and its consumed directory is root-only
+root-owned/dedicated-group `1770`, and its consumed directory is root-only
 `0700`, and its entered directory is separately root-only `0700`; an
 account-created claim becomes root-owned before a consumed receipt is
 published, then a successful root entry moves that authority exactly once.
+The pending directory grants the exclusive dedicated group read permission so
+the account can open and `fsync` the directory after exclusive claim creation;
+the validator rejects any other passwd primary-GID user or supplementary
+member of that group. Claim names and bytes are bounded protocol identities,
+not password or key material.
 The account must not be able to change its shell, home authority,
 authentication file, dispatcher closure, validator, or sudo gate.
 
