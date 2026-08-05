@@ -61,7 +61,8 @@ In scope:
 
 Trusted:
 
-- the kernel's ELF loader and the measured static native login-shell artifact;
+- the kernel's ELF loader and measured freestanding native artifacts whose
+  `_start` implementations issue syscalls directly without a libc startup;
 - root-owned path ancestry and installed artifact/configuration closure;
 - the fixed root-owned `/usr/bin/node`, `/usr/bin/bash`, and their system loader
   closure after the native shell has cleared environment;
@@ -90,9 +91,11 @@ too late when Bash can act before it.
 
 ### Dedicated account with a root-owned native login shell
 
-Selected. The dedicated account's configured shell is a small, statically
-linked ELF binary. It has no script shebang, ELF interpreter, or `DT_NEEDED`
-entry. On the verified OpenSSH invocation, it accepts only:
+Selected. The dedicated account's configured shell is a small, freestanding,
+statically linked ELF binary. Its own `_start` reads the initial process stack
+and issues Linux syscalls directly: no script shebang, ELF interpreter,
+`DT_NEEDED`, libc startup, locale/catalog initialization, or tunables parser
+runs before its checks. On the verified OpenSSH invocation, it accepts only:
 
 ```text
 argv[0] = settleora-trusted-ssh-entry
@@ -196,6 +199,11 @@ the exact authenticated executable member. This boundary will then use the
 same complete package closure; it will not import retained `20260804-1825`
 bytes or trust a summary/path hint.
 
+Nested package members are allowed only through the manifest's bounded
+component grammar. Each component is walked beneath a held directory
+descriptor with `O_DIRECTORY|O_NOFOLLOW`; the validator compares the complete
+recursive file/directory set and never accepts a client filesystem path.
+
 The dispatcher retains the authenticated entrypoint file descriptor. It passes
 that descriptor as fd 3 to a fixed static root-owned helper. The helper
 revalidates normalized identity and descriptor metadata, clears `FD_CLOEXEC`,
@@ -204,9 +212,16 @@ clean environment. There is no TOCTOU-prone reopening of the package path.
 
 The root gate and later PR #1048 integration must independently reauthenticate
 the complete package and exact operation. Preflight cannot write protocol
-state. Execute may reach only the existing prepare, one-arm, readback-only
-resume sequence. Drift, residue, replay evidence, malformed output, path/link/
-owner/mode change, or a second sudo attempt fails closed.
+state. Before invoking the package entrypoint, execute atomically reserves one
+account-owned, non-writable operation claim with `O_EXCL`. The syscall-only
+native sudo gate validates the invoking UID/GID and passes those normalized
+integers—not command text—to its fixed Node module. That module takes the claim
+root-owned, then exclusively publishes a root-owned consumed receipt with
+`sudoAttemptCount: 1` before root bootstrap. A repeated or ambiguous operation
+therefore cannot reach a second privileged attempt. Execute may reach only the
+existing prepare, one-arm, readback-only resume sequence. Drift, residue,
+replay evidence, malformed output, path/link/owner/mode change, or a second
+sudo attempt fails closed.
 
 ## Sudo and PTY model
 
@@ -228,28 +243,37 @@ provisioned and never recorded. The root gate must preserve and enforce
 
 ## Trust roots and ownership
 
-All installed ancestors, native binaries, dispatcher module, fd helper, root
-gate, package validator, sshd drop-in, authorized keys, sudoers fragment, and
-package publication root are root-owned and not writable by the dedicated
-account. Package files may be root-owned with a dedicated read-only group, but
-must never be account-writable, symlinks, or unexpected hard links. The account
-must not be able to change its shell, home authority, authentication file,
-dispatcher closure, validator, or sudo gate.
+All installed ancestors, native binaries, dispatcher module, support library,
+fd helper, root gate, package validator, sshd drop-in, authorized keys, sudoers
+fragment, and package publication root are root-owned and not writable by the
+dedicated account. Package files may be root-owned with a dedicated read-only
+group, but must never be account-writable, symlinks, or unexpected hard links.
+The operation-claim root is root-owned `0710`, its pending directory is
+root-owned/dedicated-group `1730`, and its consumed directory is root-only
+`0700`; an account-created claim becomes root-owned before a consumed receipt
+is published. The account must not be able to change its shell, home authority,
+authentication file, dispatcher closure, validator, or sudo gate.
 
 ## Inactive generation and validation
 
 `generate-trusted-ssh-boundary-plan.mjs` writes only to a caller-supplied,
-existing, owner-private output root. It hashes caller-supplied built artifacts,
-emits canonical fixtures and an installation/rollback plan, independently
-binds the claimed commit/tree to a clean checkout, reserves the final directory
+existing, owner-private output root. It binds the claimed commit/tree to a clean
+checkout, reads the three JavaScript modules as exact Git blobs, rebuilds the
+three native artifacts from exact Git blobs with fixed compiler arguments, and
+rejects supplied artifacts that are not byte-identical. It then emits canonical
+fixtures and an installation/rollback plan, reserves the final directory
 without overwrite, moves the staged closure into it, and writes the completion
 marker last. A crash after reservation leaves invalid blocking residue rather
 than an apparently complete plan or a clobbered destination.
 It has no user, sshd, sudo, service, runtime, or live-path mutation function.
 
 `validate-trusted-ssh-boundary.mjs` is read-only. It validates the private plan,
-artifact closure, static ELF identity, configuration contracts, rollback
-completeness, and absence of general-shell routes. On this DevBox, unprivileged
+artifact closure, static/freestanding ELF identity, configuration contracts,
+rollback completeness, and absence of general-shell routes. Its realized-key
+validator accepts exactly one `restrict,pty` Ed25519 or security-key Ed25519
+public-key line, verifies root ownership/mode/ancestry, and uses
+`ssh-keygen -lf -E sha256` to compare the realized key with the owner-approved
+fingerprint. On this DevBox, unprivileged
 `sshd -T -f <fixture>` parses the fixture through all directives but cannot
 complete effective output because the root-only system host keys are not
 readable and no credential is generated for tests. Deterministic effective-
@@ -267,8 +291,9 @@ Deployment is a later manual gate. Before any reload, an owner must:
    state;
 4. install and independently hash the root-owned artifact closure through
    temporary sibling paths;
-5. install authorization files and validate them with `visudo`;
-6. add the shell only after its static identity is verified;
+5. realize exactly one restricted public-key line, validate its exact
+   fingerprint, and validate the sudoers fragment with `visudo`;
+6. add the shell only after its static and freestanding identity is verified;
 7. create the locked dedicated account, set the fixed shell, then manually
    provision the one key and sudo factor;
 8. publish the sshd match, run `sshd -t` and exact-user `sshd -T -C`, and prove
@@ -293,8 +318,8 @@ provider payload. Failure messages are deterministic and bounded.
 
 ## Consequences and remaining manual gates
 
-The design proves the first account-level executable is a static root-owned
-native binary and preserves the one-prompt PTY requirement. It adds a dedicated
+The design proves the first account-level executable is a freestanding static
+root-owned native binary and preserves the one-prompt PTY requirement. It adds a dedicated
 account and a small root-owned artifact/configuration closure that must be
 operated carefully. It does not make PR #1048 mergeable by itself: this PR must
 first merge, then the boundary must be separately installed and verified, and

@@ -8,7 +8,7 @@ function parse(argv) {
     }
     options[argv[index]] = argv[index + 1];
   }
-  const expected = ["--dispatcher-module", "--fd-exec", "--generated-at", "--native-shell", "--operator-key-fingerprint", "--output-root", "--repository-root", "--root-gate", "--root-gate-module", "--source-commit", "--source-tree"];
+  const expected = ["--dispatcher-module", "--fd-exec", "--generated-at", "--native-shell", "--operator-key-fingerprint", "--output-root", "--repository-root", "--root-gate", "--root-gate-module", "--source-commit", "--source-tree", "--support-library"];
   if (Object.keys(options).sort().join("\n") !== expected.sort().join("\n")) throw new Error("trusted_ssh_plan_arguments_invalid");
   return options;
 }
@@ -27,6 +27,7 @@ try {
     rootGateModule: options["--root-gate-module"],
     sourceCommit: options["--source-commit"],
     sourceTree: options["--source-tree"],
+    supportLibrary: options["--support-library"],
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 } catch {

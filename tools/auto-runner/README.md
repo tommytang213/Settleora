@@ -2376,7 +2376,9 @@ commands through the configured login shell with `-c`; client-side `env -i`
 cannot prevent a Bash startup hook from running before that point.
 
 The selected future boundary uses a dedicated account whose login shell is the
-statically linked `settleora-trusted-ssh-entry` ELF. `ForceCommand
+freestanding statically linked `settleora-trusted-ssh-entry` ELF. Its `_start`
+uses syscalls directly, so libc tunables or other libc startup processing cannot
+precede its validation. `ForceCommand
 settleora-handoff-v1` normalizes shell/command/subsystem requests but is not the
 pre-shell trust boundary. The native shell accepts only the exact installed
 OpenSSH `shell -c` argv shape and the version-1 `preflight` or `execute`
@@ -2397,17 +2399,22 @@ The source-owned generator is generation-only:
   --fd-exec /absolute/private/build/settleora-trusted-ssh-fd-exec \
   --root-gate /absolute/private/build/settleora-root-gate \
   --root-gate-module /absolute/source/settleora-trusted-ssh-root-gate.mjs \
+  --support-library /absolute/source/lib/trusted-ssh-boundary.mjs \
   --operator-key-fingerprint SHA256:<owner-supplied-fingerprint> \
   --generated-at <injected-UTC-second>
 ```
 
 The generator independently reads `HEAD` and `HEAD^{tree}` from that clean
-checkout and rejects caller identities that differ. It writes only beneath the
-existing owner-private output root. It does not run
+checkout, authenticates JavaScript inputs as exact Git blobs, rebuilds native
+inputs from exact Git blobs with fixed compiler arguments, and rejects caller
+identities or artifacts that differ. It writes only beneath the existing
+owner-private output root. It does not run
 account, password, SSH, sudo, sshd, PAM, service, deployment, native-install,
 runner, or handoff operations. The emitted authorized-key content is a
-placeholder template and contains no key bytes. The plan validator is also
-fixture/private-root-only in source-development tasks:
+placeholder template and contains no key bytes. Before later publication, the
+read-only realized-key validator requires one exact `restrict,pty` allowed-key
+line and verifies its SHA-256 fingerprint. The plan validator is also fixture/
+private-root-only in source-development tasks:
 
 ```bash
 /usr/bin/node tools/auto-runner/trusted-ssh-boundary/validate-trusted-ssh-boundary.mjs \

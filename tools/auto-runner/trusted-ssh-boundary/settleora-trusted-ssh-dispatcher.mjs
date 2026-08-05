@@ -2,13 +2,15 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  authenticateTrustedSshPackage, closeAuthenticatedPackage, parseTrustedSshCommand, trustedSshPaths,
+  authenticateTrustedSshPackage, closeAuthenticatedPackage, parseTrustedSshCommand, reserveTrustedSshOperation, trustedSshPaths,
 } from "./lib/trusted-ssh-boundary.mjs";
 
 export function runTrustedSshDispatcher({
   argv = process.argv.slice(2),
   handoffRoot = trustedSshPaths.handoffRoot,
   expectedUid = 0,
+  claimRoot = trustedSshPaths.operationClaims,
+  claimReserver = reserveTrustedSshOperation,
   executor = executeHeldEntrypoint,
 } = {}) {
   if (!Array.isArray(argv) || argv.length !== 3) throw new Error("trusted_ssh_dispatch_argv_invalid");
@@ -20,6 +22,7 @@ export function runTrustedSshDispatcher({
     expectedUid,
   });
   try {
+    if (request.mode === "execute") claimReserver({ claimRoot, handoffKey: request.handoffKey, operationId: request.operationId });
     return executor({
       argv: [trustedSshPaths.fdExec, request.mode, request.handoffKey, request.operationId],
       entrypointFd: authenticated.entrypointFd,

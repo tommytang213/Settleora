@@ -2108,10 +2108,12 @@ authority.
 
 The inactive source contract in
 `docs/architecture/TRUSTED_SSH_ENTRY_BOUNDARY.md` therefore requires a
-dedicated account with a static root-owned native login shell, root-owned
+dedicated account with a freestanding static root-owned native login shell, root-owned
 authorization/dispatcher closure, public-key-only SSH authentication,
 forwarding disabled, and PTY retained only for one password-requiring fixed
-sudo gate. `ForceCommand` remains defense in depth and a subsystem/request
+sudo gate. Exact source-blob rebuild binding, descriptor-relative recursive
+package validation, and an exclusive pending/consumed operation claim enforce
+the authenticated closure and one-attempt transition. `ForceCommand` remains defense in depth and a subsystem/request
 normalizer; it is not treated as the pre-shell boundary.
 
 Repository source and tests may generate and validate plans only under a
