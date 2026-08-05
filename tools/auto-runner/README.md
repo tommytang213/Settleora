@@ -2431,6 +2431,14 @@ private-root-only in source-development tasks:
   /absolute/owner-private/fixture-root/trusted-ssh-boundary-plan-v1
 ```
 
+This boundary specifically requires fixed `/usr/bin/node` `>=22.15.0 <23.0.0`
+with `process.execve`, even though other runner surfaces retain the broader
+approved Node 22 range. The generated plan and read-only validator bind this
+floor, and the root gate verifies it before consuming the one-shot receipt.
+The installed sudo authority collector rejects every unmodeled includedir
+entry and every sudo alias instead of silently excluding authority that sudo
+would load.
+
 The password prompt is bounded before authentication, not merely after the
 sudo command starts. A root-owned freestanding PAM pre-auth helper consumes the
 one-shot claim before the dedicated service includes `common-auth`, and the

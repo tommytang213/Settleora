@@ -2,7 +2,7 @@ import { closeSync, constants, openSync, readFileSync, realpathSync } from "node
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage,
+  assertTrustedSshNodeRuntime, authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage,
   enterTrustedSshRootGate, parseTrustedSshCommand, trustedSshPaths,
 } from "./lib/trusted-ssh-boundary.mjs";
 
@@ -17,9 +17,12 @@ export function runTrustedSshRootGate({
   gateEnterer = enterTrustedSshRootGate,
   bootstrapAuthenticator = authenticateInstalledBoundaryArtifact,
   executor = executeFixedRootBootstrap,
+  runtimeVersion = process.versions.node,
+  runtimeExecve = process.execve,
 } = {}) {
   if (argv.length !== 2 || !/^[1-9][0-9]{0,9}$/u.test(argv[0]) || !/^[1-9][0-9]{0,9}$/u.test(argv[1])
       || uid !== 0 || euid !== 0) throw new Error("trusted_ssh_root_gate_identity_invalid");
+  assertTrustedSshNodeRuntime(runtimeVersion, runtimeExecve);
   const expectedClaimUid = Number.parseInt(argv[0], 10);
   const expectedClaimGid = Number.parseInt(argv[1], 10);
   const canonicalCwd = realpathSync(cwd);
@@ -47,14 +50,15 @@ export function runTrustedSshRootGate({
       argv: [trustedSshPaths.rootBootstrap, "--disable-proto=throw", trustedSshPaths.rootBootstrapModule],
       env: Object.freeze({ HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/sbin:/usr/bin:/sbin:/bin", TZ: "UTC" }),
       executable: trustedSshPaths.rootBootstrap,
+      execve: runtimeExecve,
       packageDirectoryFd: authenticated.directoryFd,
     });
   } finally { closeAuthenticatedPackage(authenticated); }
 }
 
-function executeFixedRootBootstrap({ executable, argv, env, packageDirectoryFd }) {
+function executeFixedRootBootstrap({ executable, argv, env, packageDirectoryFd, execve }) {
   if (!Number.isInteger(packageDirectoryFd)) throw new Error("trusted_ssh_root_gate_descriptor_invalid");
-  process.execve(executable, argv, env);
+  execve(executable, argv, env);
 }
 
 try {

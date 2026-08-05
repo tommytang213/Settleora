@@ -337,6 +337,16 @@ validates the complete effective dedicated-user projection, including the
 absence of alternate certificate/principal authority;
 `visudo -cf` parses the exact sudoers fixture successfully.
 
+The boundary runtime is narrower than the repository's general Node 22 range:
+the fixed root-owned `/usr/bin/node` must be `>=22.15.0 <23.0.0` and expose
+`process.execve`. The plan and validator bind that requirement, and the root
+gate checks it before authenticating or consuming an operation receipt. An
+older or API-incomplete runtime therefore fails without burning the one-shot.
+The installed-authority collector also fails closed on every unmodeled
+`@includedir` entry (including sudo-active names beginning with `_` or `-`) and
+on any sudo alias representation; it never filters either out before deciding
+which authority applies to the account.
+
 ## Deployment, lockout avoidance, and rollback
 
 Deployment is a later manual gate. Before any reload, an owner must:
@@ -348,18 +358,20 @@ Deployment is a later manual gate. Before any reload, an owner must:
    state;
 4. install and independently hash the root-owned artifact closure through
    temporary sibling paths;
-5. realize exactly one restricted public-key line, validate its exact
+5. prove `/usr/bin/node` is `>=22.15.0 <23.0.0` and exposes `process.execve`
+   before any operation claim can be reserved or consumed;
+6. realize exactly one restricted public-key line, validate its exact
    fingerprint, prove effective `AuthorizedKeysCommand none`,
    `TrustedUserCAKeys none`, and no principals file/command, and validate the
    sudoers fragment with `visudo`, the dedicated PAM service before use, and
    the complete normalized effective sudo policy;
-6. add the shell only after its static and freestanding identity is verified;
-7. create the locked dedicated account, set the fixed shell, then manually
+7. add the shell only after its static and freestanding identity is verified;
+8. create the locked dedicated account, set the fixed shell, then manually
    provision the one key and sudo factor;
-8. publish the sshd match, run `sshd -t` and exact-user `sshd -T -C`, and prove
+9. publish the sshd match, run `sshd -t` and exact-user `sshd -T -C`, and prove
    existing `tommytang213` effective behavior is unchanged;
-9. test denial and recovery from a second session before any reload decision;
-10. obtain explicit owner authorization for the reload and installed protocol
+10. test denial and recovery from a second session before any reload decision;
+11. obtain explicit owner authorization for the reload and installed protocol
     test.
 
 Rollback first disables the new key or dedicated match using the retained

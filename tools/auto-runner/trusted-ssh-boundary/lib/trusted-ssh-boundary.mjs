@@ -382,6 +382,15 @@ export function createTrustedSshInstallationPlan({
         "dedicated PAM pre-auth service installation and rollback approval",
         "maintenance window, console recovery path, and final sshd reload authorization",
       ],
+      runtimeRequirements: {
+        node: {
+          executable: trustedSshPaths.rootBootstrap,
+          maximumExclusive: "23.0.0",
+          minimum: "22.15.0",
+          requiredApi: "process.execve",
+          verifyBeforeOperationClaim: true,
+        },
+      },
       proposedPaths: trustedSshPaths,
       rollbackOrder: [
         "disable-new-key-or-Match-block-with-existing-admin-session",
@@ -484,6 +493,10 @@ export function validateTrustedSshInstallationPlan(root, {
         `/usr/bin/getent group ${trustedSshPaths.account}`,
         "normalize-complete-sudo-source-provenance-groups-password-owner-timestamp-pam-and-rules-to-effective-sudo-policy-v1",
       ])
+      || canonicalJson(plan.runtimeRequirements) !== canonicalJson({ node: {
+        executable: trustedSshPaths.rootBootstrap, maximumExclusive: "23.0.0", minimum: "22.15.0",
+        requiredApi: "process.execve", verifyBeforeOperationClaim: true,
+      } })
       || canonicalJson(artifacts.map(({ installedPath, mode, name }) => [name, installedPath, mode]).sort()) !== canonicalJson(expectedArtifacts)
       || plan.source?.repository !== "tommytang213/Settleora" || !oidPattern.test(plan.source?.commit) || !oidPattern.test(plan.source?.tree)
       || canonicalJson(plan.account?.sshKey?.algorithms) !== canonicalJson(allowedKeyAlgorithms)
@@ -794,8 +807,10 @@ function collectSudoersClosure(name, snapshotRoot, readSource, seen = new Set())
       assertCanonicalSnapshotSourceName(includeDir[1]);
       const directory = path.join(snapshotRoot, includeDir[1].slice(1));
       assertPrivateSnapshotAncestry(snapshotRoot, directory);
-      const entries = readdirSync(directory).filter((entry) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(entry)).sort();
-      if (entries.length > 128) throw new Error("trusted_ssh_installed_authority_sudo_include_invalid");
+      const entries = readdirSync(directory).sort();
+      if (entries.length > 128 || entries.some((entry) => !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(entry))) {
+        throw new Error("trusted_ssh_installed_authority_sudo_include_invalid");
+      }
       for (const entry of entries) chunks.push(collectSudoersClosure(`${includeDir[1]}/${entry}`, snapshotRoot, readSource, seen));
     } else chunks.push(line);
   }
@@ -888,6 +903,7 @@ function assertCanonicalSnapshotSourceName(value) {
 }
 
 function normalizeCollectedSudoPolicy(policy, groups) {
+  assertNoSudoAliases(policy);
   const applies = (binding = []) => binding.length === 0 || binding.some((entry) => entry.username === trustedSshPaths.account
     || entry.usergroup === trustedSshPaths.account || entry.username === "ALL");
   const exactAccountBinding = [{ username: trustedSshPaths.account }];
@@ -922,6 +938,27 @@ function normalizeCollectedSudoPolicy(policy, groups) {
     throw new Error("trusted_ssh_installed_authority_rule_invalid");
   }
   return deriveEffectiveSudoPolicy(renderTrustedSshFixtures({ operatorKeyFingerprint: syntheticOperatorFingerprint() }).sudoAuthorityObservation);
+}
+
+function assertNoSudoAliases(value) {
+  if (Array.isArray(value)) {
+    for (const entry of value) assertNoSudoAliases(entry);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [name, entry] of Object.entries(value)) {
+    if (/(?:^|_)aliases$/iu.test(name) || /alias$/iu.test(name)) {
+      throw new Error("trusted_ssh_installed_authority_sudo_alias_invalid");
+    }
+    assertNoSudoAliases(entry);
+  }
+}
+
+export function assertTrustedSshNodeRuntime(version, execve) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(String(version || ""));
+  if (!match || Number(match[1]) !== 22 || Number(match[2]) < 15 || typeof execve !== "function") {
+    throw new Error("trusted_ssh_node_runtime_invalid");
+  }
 }
 
 function syntheticOperatorFingerprint() { return `SHA256:${"A".repeat(43)}`; }

@@ -177,6 +177,11 @@ test("fixed no-argument root gate independently authenticates the exact package 
   assert.deepEqual(observed.argv, [trustedSshPaths.rootBootstrap, "--disable-proto=throw", trustedSshPaths.rootBootstrapModule]);
   assert.deepEqual(observed.env, { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/sbin:/usr/bin:/sbin:/bin", TZ: "UTC" });
   assert.deepEqual(order, ["bootstrap", "enter", "exec"]);
+  assert.throws(() => runTrustedSshRootGate({
+    argv: [String(process.getuid()), String(process.getgid())], cwd: path.join(packageRoot, key), handoffRoot: packageRoot,
+    uid: 0, euid: 0, runtimeVersion: "22.14.0", runtimeExecve() {}, gateEnterer() { order.push("unexpected-enter"); },
+  }), /node_runtime/u);
+  assert.deepEqual(order, ["bootstrap", "enter", "exec"]);
   assert.throws(() => runTrustedSshRootGate({ cwd: path.join(packageRoot, key), handoffRoot: packageRoot, argv: ["/bin/sh"], uid: 0, euid: 0 }), /identity/u);
 }));
 
@@ -454,6 +459,22 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   assert.throws(() => collectTrustedSshInstalledAuthority({
     ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/sudoers": sha256(escapingRoot) },
   }), /path/u);
+  writeFileSync(path.join(fixture, "etc/sudoers"), files["/etc/sudoers"], { mode: 0o600 });
+  for (const activeUnmodeledName of ["_evil", "-evil"]) {
+    const target = path.join(fixture, "etc/sudoers.d", activeUnmodeledName);
+    writeFileSync(target, `${trustedSshPaths.account} ALL=(root) NOPASSWD: /bin/bash\n`, { mode: 0o600 });
+    assert.throws(() => collectTrustedSshInstalledAuthority(options), /sudo_include/u);
+    rmSync(target);
+  }
+  const aliased = [
+    `User_Alias ATTACKERS = ${trustedSshPaths.account}`,
+    "ATTACKERS ALL=(root) NOPASSWD: /bin/bash",
+    rendered.sudoers.trim(), "",
+  ].join("\n");
+  writeFileSync(path.join(fixture, "etc/sudoers.d/settleora-trusted-ssh"), aliased, { mode: 0o600 });
+  assert.throws(() => collectTrustedSshInstalledAuthority({
+    ...options, expectedSourceDigests: { ...expectedSourceDigests, [trustedSshPaths.sudoers]: sha256(aliased) },
+  }), /sudo_alias/u);
 }));
 
 test("installed sshd and visudo fully parse generated configuration using a disposable fixture host key", () => withFixture((fixture) => {
@@ -485,6 +506,10 @@ test("installation plan is deterministic, complete, private-root-only and never 
   assert.equal(plan.rollbackOrder.length >= 6, true);
   assert.equal(plan.atomicInstallOrder.length >= 8, true);
   assert.equal(plan.manualDecisions.length, 5);
+  assert.deepEqual(plan.runtimeRequirements.node, {
+    executable: "/usr/bin/node", maximumExclusive: "23.0.0", minimum: "22.15.0",
+    requiredApi: "process.execve", verifyBeforeOperationClaim: true,
+  });
   const all = execFileSync("/usr/bin/find", [first.root, "-type", "f", "-print"], { encoding: "utf8" });
   assert.doesNotMatch(all, /^\/(etc|opt|usr\/local|var\/lib)\//mu);
 }));
