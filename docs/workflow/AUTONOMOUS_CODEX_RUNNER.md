@@ -2128,7 +2128,7 @@ owner-private snapshot and binds the complete sudoers include tree,
 passwd/group/NSS inputs, transitive PAM include tree, file metadata/digests,
 and the approved installed `cvtsudoers` digest before accepting that effective
 projection. NSS must expose exactly one local-files route for each passwd,
-group, sudoers, and initgroups database. PAM include/substack directives
+group, shadow, sudoers, and initgroups database. PAM include/substack directives
 with trailing comments remain captured; malformed directive-like lines fail
 closed. Live collection and approval remain a later manual gate. The
 collector rejects sudo aliases, numeric UID/GID bindings, run-as groups, and

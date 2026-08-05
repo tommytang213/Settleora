@@ -412,7 +412,7 @@ test("installed authority collector binds complete private sudoers, NSS and tran
     "/etc/sudoers.d/settleora-trusted-ssh": rendered.sudoers,
     "/etc/passwd": `${trustedSshPaths.account}:x:12345:12345:Settleora trusted SSH handoff:${trustedSshPaths.home}:${trustedSshPaths.loginShell}\n`,
     "/etc/group": `${trustedSshPaths.account}:x:12345:\n`,
-    "/etc/nsswitch.conf": "passwd: files\ngroup: files\ninitgroups: files\nsudoers: files\n",
+    "/etc/nsswitch.conf": "passwd: files\ngroup: files\nshadow: files\ninitgroups: files\nsudoers: files\n",
     "/etc/pam.d/settleora-handoff-sudo": rendered.pam,
     "/etc/pam.d/common-auth": "@include common-auth-local # bounded local include\nauth required pam_unix.so\n",
     "/etc/pam.d/common-auth-local": "auth required pam_deny.so\n",
@@ -454,6 +454,8 @@ test("installed authority collector binds complete private sudoers, NSS and tran
     `${trustedSshPaths.account}:x:0:12345:Settleora trusted SSH handoff:${trustedSshPaths.home}:${trustedSshPaths.loginShell}\n`,
     `${files["/etc/passwd"]}duplicate:x:12345:54321:Duplicate:/nonexistent:/usr/sbin/nologin\n`,
     `${files["/etc/passwd"]}shared-primary-group:x:54321:12345:Shared group:/nonexistent:/usr/sbin/nologin\n`,
+    `${files["/etc/passwd"]}numeric-duplicate:x:012345:54321:Duplicate:/nonexistent:/usr/sbin/nologin\n`,
+    `${files["/etc/passwd"]}numeric-group:x:54321:012345:Duplicate:/nonexistent:/usr/sbin/nologin\n`,
   ]) {
     const target = path.join(fixture, "etc/passwd"); writeFileSync(target, invalidAccountDatabase, { mode: 0o600 });
     assert.throws(() => collectTrustedSshInstalledAuthority({
@@ -464,6 +466,7 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   for (const invalidGroup of [
     `${trustedSshPaths.account}:x:0:\n`,
     `${files["/etc/group"]}duplicate:x:12345:\n`,
+    `${files["/etc/group"]}numeric-duplicate:x:012345:\n`,
     `${trustedSshPaths.account}:x:12345:other-account\n`,
   ]) {
     writeFileSync(path.join(fixture, "etc/group"), invalidGroup, { mode: 0o600 });
@@ -475,6 +478,8 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   for (const invalidNsswitch of [
     "passwd: files\npasswd: files\ngroup: files\n",
     "passwd: files\ngroup: files\ninitgroups: files sss\n",
+    "passwd: files\ngroup: files\nshadow: files sss\ninitgroups: files\nsudoers: files\n",
+    "passwd: files\ngroup: files\ninitgroups: files\nsudoers: files\n",
     "passwd: files\ngroup: files\nsudoers: files sss\n",
     "passwd: files\ngroup: files\nsudoers: files\nsudoers: files\n",
   ]) {
@@ -575,7 +580,8 @@ test("installation plan is deterministic, complete, private-root-only and never 
   assert.equal(plan.manualDecisions.length, 6);
   assert.deepEqual(plan.nssAuthority, {
     group: "exactly-one-files-source", initgroups: "exactly-one-files-source",
-    passwd: "exactly-one-files-source", sudoers: "exactly-one-files-source",
+    passwd: "exactly-one-files-source", shadow: "exactly-one-files-source",
+    sudoers: "exactly-one-files-source",
   });
   assert.deepEqual(plan.runtimeRequirements.node, {
     executable: "/usr/bin/node", maximumExclusive: "23.0.0", minimum: "22.15.0",

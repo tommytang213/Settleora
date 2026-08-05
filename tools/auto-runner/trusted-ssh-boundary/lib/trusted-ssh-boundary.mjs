@@ -378,7 +378,7 @@ export function createTrustedSshInstallationPlan({
       ],
       manualDecisions: [
         "dedicated UID and GID",
-        "local-only passwd-group-sudoers-initgroups NSS closure or separately reviewed equivalent",
+        "local-only passwd-group-shadow-sudoers-initgroups NSS closure or separately reviewed equivalent",
         "one operator public key and exact SHA256 fingerprint",
         "dedicated account sudo password or separately approved authentication factor",
         "dedicated PAM pre-auth service installation and rollback approval",
@@ -397,6 +397,7 @@ export function createTrustedSshInstallationPlan({
         group: "exactly-one-files-source",
         initgroups: "exactly-one-files-source",
         passwd: "exactly-one-files-source",
+        shadow: "exactly-one-files-source",
         sudoers: "exactly-one-files-source",
       },
       proposedPaths: trustedSshPaths,
@@ -417,7 +418,7 @@ export function createTrustedSshInstallationPlan({
       sudoValidation: [
         `/usr/bin/sudo -ll -U ${trustedSshPaths.account}`,
         `/usr/bin/getent group ${trustedSshPaths.account}`,
-        "capture-and-validate-complete-passwd-group-initgroups-sudoers-nss-source-policy",
+        "capture-and-validate-complete-passwd-group-shadow-initgroups-sudoers-nss-source-policy",
         "normalize-complete-sudo-source-provenance-groups-password-owner-timestamp-pam-and-rules-to-effective-sudo-policy-v1",
       ],
       sudo: { attempts: 1, command: `${trustedSshPaths.rootGate} (no arguments)`, requiresAuthentication: true },
@@ -500,13 +501,14 @@ export function validateTrustedSshInstallationPlan(root, {
       || canonicalJson(plan.sudoValidation) !== canonicalJson([
         `/usr/bin/sudo -ll -U ${trustedSshPaths.account}`,
         `/usr/bin/getent group ${trustedSshPaths.account}`,
-        "capture-and-validate-complete-passwd-group-initgroups-sudoers-nss-source-policy",
+        "capture-and-validate-complete-passwd-group-shadow-initgroups-sudoers-nss-source-policy",
         "normalize-complete-sudo-source-provenance-groups-password-owner-timestamp-pam-and-rules-to-effective-sudo-policy-v1",
       ])
       || plan.account?.gidPolicy !== "owner-selects-unused-exclusive-system-gid-at-manual-gate"
       || canonicalJson(plan.nssAuthority) !== canonicalJson({
         group: "exactly-one-files-source", initgroups: "exactly-one-files-source",
-        passwd: "exactly-one-files-source", sudoers: "exactly-one-files-source",
+        passwd: "exactly-one-files-source", shadow: "exactly-one-files-source",
+        sudoers: "exactly-one-files-source",
       })
       || canonicalJson(plan.runtimeRequirements) !== canonicalJson({ node: {
         executable: trustedSshPaths.rootBootstrap, maximumExclusive: "23.0.0", minimum: "22.15.0",
@@ -848,7 +850,8 @@ function collectPamClosure(service, readSource, seen = new Set()) {
 }
 
 function assertTrustedSshNsswitch(value) {
-  const relevant = new Map(["passwd", "group", "initgroups", "sudoers"].map((name) => [name, []]));
+  const databases = ["passwd", "group", "shadow", "initgroups", "sudoers"];
+  const relevant = new Map(databases.map((name) => [name, []]));
   for (const rawLine of value.split("\n")) {
     const line = rawLine.replace(/#.*$/u, "").trim();
     if (line === "") continue;
@@ -856,7 +859,7 @@ function assertTrustedSshNsswitch(value) {
     if (!match) throw new Error("trusted_ssh_installed_authority_nss_invalid");
     if (relevant.has(match[1])) relevant.get(match[1]).push(match[2]);
   }
-  for (const name of ["passwd", "group", "initgroups", "sudoers"]) {
+  for (const name of databases) {
     if (canonicalJson(relevant.get(name)) !== canonicalJson(["files"])) {
       throw new Error("trusted_ssh_installed_authority_nss_invalid");
     }
@@ -865,26 +868,45 @@ function assertTrustedSshNsswitch(value) {
 
 function parseSnapshotAccount(passwd, group) {
   const passwdRows = passwd.trim().split("\n").filter(Boolean).map((line) => line.split(":"));
-  const rows = passwdRows.filter((fields) => fields[0] === trustedSshPaths.account);
+  const normalizedPasswdRows = passwdRows.map((fields) => {
+    if (fields.length !== 7) throw new Error("trusted_ssh_installed_authority_account_invalid");
+    return { fields, gid: parseCanonicalSystemId(fields[3], "account"), uid: parseCanonicalSystemId(fields[2], "account") };
+  });
+  const rows = normalizedPasswdRows.filter(({ fields }) => fields[0] === trustedSshPaths.account);
   if (rows.length !== 1) throw new Error("trusted_ssh_installed_authority_account_invalid");
-  const fields = rows[0];
-  if (fields.length !== 7 || !/^[1-9][0-9]{0,9}$/u.test(fields[2]) || !/^[1-9][0-9]{0,9}$/u.test(fields[3])
-      || passwdRows.filter((candidate) => candidate[2] === fields[2]).length !== 1
-      || passwdRows.filter((candidate) => candidate[3] === fields[3]).length !== 1
+  const { fields, gid, uid } = rows[0];
+  if (uid === 0 || gid === 0
+      || normalizedPasswdRows.filter((candidate) => candidate.uid === uid).length !== 1
+      || normalizedPasswdRows.filter((candidate) => candidate.gid === gid).length !== 1
       || fields[5] !== trustedSshPaths.home || fields[6] !== trustedSshPaths.loginShell) {
     throw new Error("trusted_ssh_installed_authority_account_invalid");
   }
   const groupRows = group.trim().split("\n").filter(Boolean).map((line) => line.split(":"));
-  const primaryGroups = groupRows.filter((parts) => parts[2] === fields[3]);
-  if (primaryGroups.length !== 1 || primaryGroups[0].length !== 4 || primaryGroups[0][0] !== trustedSshPaths.account
-      || primaryGroups[0][3] !== ""
-      || groupRows.filter((parts) => parts[0] === trustedSshPaths.account).length !== 1) {
+  const normalizedGroupRows = groupRows.map((parts) => {
+    if (parts.length !== 4) throw new Error("trusted_ssh_installed_authority_groups_invalid");
+    return { gid: parseCanonicalSystemId(parts[2], "groups"), parts };
+  });
+  const primaryGroups = normalizedGroupRows.filter((candidate) => candidate.gid === gid);
+  if (primaryGroups.length !== 1 || primaryGroups[0].parts[0] !== trustedSshPaths.account
+      || primaryGroups[0].parts[3] !== ""
+      || normalizedGroupRows.filter(({ parts }) => parts[0] === trustedSshPaths.account).length !== 1) {
     throw new Error("trusted_ssh_installed_authority_groups_invalid");
   }
-  const groups = groupRows.filter((parts) => parts[2] === fields[3]
-    || String(parts[3] || "").split(",").includes(trustedSshPaths.account)).map((parts) => parts[0]).sort();
+  const groups = normalizedGroupRows.filter(({ gid: candidateGid, parts }) => candidateGid === gid
+    || String(parts[3] || "").split(",").includes(trustedSshPaths.account)).map(({ parts }) => parts[0]).sort();
   if (canonicalJson(groups) !== canonicalJson([trustedSshPaths.account])) throw new Error("trusted_ssh_installed_authority_groups_invalid");
   return { groups };
+}
+
+function parseCanonicalSystemId(value, family) {
+  if (!/^(?:0|[1-9][0-9]{0,9})$/u.test(String(value))) {
+    throw new Error(`trusted_ssh_installed_authority_${family}_invalid`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed >= 0xffffffff) {
+    throw new Error(`trusted_ssh_installed_authority_${family}_invalid`);
+  }
+  return parsed;
 }
 
 function runCvtsudoersJson(policy) {
