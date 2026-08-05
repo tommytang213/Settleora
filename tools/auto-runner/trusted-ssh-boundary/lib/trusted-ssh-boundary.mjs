@@ -872,12 +872,19 @@ function assertPrivateSnapshotAncestry(root, directory) {
 function normalizeCollectedSudoPolicy(policy, groups) {
   const applies = (binding = []) => binding.length === 0 || binding.some((entry) => entry.username === trustedSshPaths.account
     || entry.usergroup === trustedSshPaths.account || entry.username === "ALL");
+  const exactAccountBinding = [{ username: trustedSshPaths.account }];
   const defaults = new Map();
   for (const entry of policy.Defaults || []) if (applies(entry.Binding)) {
+    if (canonicalJson(entry.Binding) !== canonicalJson(exactAccountBinding)) {
+      throw new Error("trusted_ssh_installed_authority_defaults_scope_invalid");
+    }
     for (const option of entry.Options || []) for (const [name, value] of Object.entries(option)) defaults.set(name, value);
   }
   const rules = [];
   for (const spec of policy.User_Specs || []) if (applies(spec.User_List)) {
+    if (canonicalJson(spec.User_List) !== canonicalJson(exactAccountBinding)) {
+      throw new Error("trusted_ssh_installed_authority_rule_scope_invalid");
+    }
     for (const command of spec.Cmnd_Specs || []) for (const item of command.Commands || []) rules.push({ command, host: spec.Host_List, item });
   }
   const required = {
@@ -885,6 +892,9 @@ function normalizeCollectedSudoPolicy(policy, groups) {
     rootpw: false, runaspw: false, secure_path: "/usr/sbin:/usr/bin:/sbin:/bin", set_home: false,
     targetpw: false, timestamp_timeout: "0", use_pty: true,
   };
+  if (canonicalJson([...defaults.keys()].sort()) !== canonicalJson(Object.keys(required).sort())) {
+    throw new Error("trusted_ssh_installed_authority_defaults_set_invalid");
+  }
   for (const [name, value] of Object.entries(required)) if (defaults.get(name) !== value) throw new Error("trusted_ssh_installed_authority_defaults_invalid");
   if (defaults.has("exempt_group") || canonicalJson(groups) !== canonicalJson([trustedSshPaths.account]) || rules.length !== 1
       || canonicalJson(rules[0].host) !== canonicalJson([{ hostname: "ALL" }])

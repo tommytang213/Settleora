@@ -419,6 +419,16 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   writeFileSync(path.join(fixture, "etc/sudoers.d/alternate"), `${trustedSshPaths.account} ALL=(root) NOPASSWD: /bin/bash\n`, { mode: 0o600 });
   const expanded = { ...expectedSourceDigests, "/etc/sudoers.d/alternate": sha256(`${trustedSshPaths.account} ALL=(root) NOPASSWD: /bin/bash\n`) };
   assert.throws(() => collectTrustedSshInstalledAuthority({ ...options, expectedSourceDigests: expanded }), /rule/u);
+  rmSync(path.join(fixture, "etc/sudoers.d/alternate"));
+  for (const [name, line, reason] of [
+    ["extra-default", `Defaults:${trustedSshPaths.account} env_keep += "ATTACKER"\n`, /defaults_set/u],
+    ["global-default", "Defaults env_reset\n", /defaults_scope/u],
+  ]) {
+    const target = path.join(fixture, `etc/sudoers.d/${name}`); writeFileSync(target, line, { mode: 0o600 });
+    const withDefault = { ...expectedSourceDigests, [`/etc/sudoers.d/${name}`]: sha256(line) };
+    assert.throws(() => collectTrustedSshInstalledAuthority({ ...options, expectedSourceDigests: withDefault }), reason);
+    rmSync(target);
+  }
 }));
 
 test("installed sshd and visudo fully parse generated configuration using a disposable fixture host key", () => withFixture((fixture) => {
