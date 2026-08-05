@@ -303,9 +303,11 @@ export function validateNativeInstallHandoffPackage(directory, { filesystem = cr
       || summary.packageManifestDigest !== sha256(manifestBytes) || summary.windowsLauncherSha256 !== manifest.windowsLauncherSha256
       || summary.remoteEntrypointSha256 !== manifest.remoteEntrypointSha256 || summary.contentManifestDigest !== manifest.contentManifestDigest
       || summary.descriptorDigest !== manifest.descriptorDigest || summary.handoffIdentityDigest !== manifest.handoffIdentityDigest
-      || summary.sourceCommit !== manifest.sourceCommit || summary.sourceTree !== manifest.sourceTree) throw new Error("handoff generation summary invalid");
+      || summary.sourceCommit !== manifest.sourceCommit || summary.sourceTree !== manifest.sourceTree
+      || summary.windowsLauncherPath !== manifest.windowsLauncherPath || summary.packageContractVersion !== nativeInstallPackageVersion
+      || summary.generatedAt !== identity.generatedAt) throw new Error("handoff generation summary invalid");
   if (expected) {
-    for (const key of ["operationId", "packageAggregateDigest", "packageManifestDigest", "windowsLauncherSha256", "remoteEntrypointSha256", "sourceCommit", "sourceTree"])
+    for (const key of ["operationId", "packageAggregateDigest", "packageContractVersion", "packageManifestDigest", "windowsLauncherPath", "windowsLauncherSha256", "remoteEntrypointSha256", "sourceCommit", "sourceTree"])
       if (expected[key] !== summary[key]) throw new Error("handoff expected result mismatch");
   }
   return deepFreeze({ ...summary, packageManifestDigest: sha256(manifestBytes) });
@@ -501,7 +503,7 @@ function Read-CanonicalSingleRecord { param([string]$Value,[string]$ExpectedPhas
 }
 function Invoke-Phase { param([string]$Phase,[bool]$Capture)
   $ttyOption = if ($Phase -eq '--preflight') { '-T' } else { '-tt' }
-  $args=@($ttyOption,'-F','none','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ForwardAgent=no','-o','ForwardX11=no',$RemoteHost,$RemoteEntrypoint,$Phase,$OperationId,$ChallengeId,$DescriptorSha256,$ContentManifestSha256,$HandoffIdentitySha256,$RemoteEntrypointSha256)
+  $args=@($ttyOption,'-F','none','-o','BatchMode=yes','-o','ClearAllForwardings=yes','-o','ForwardAgent=no','-o','ForwardX11=no',$RemoteHost,'/usr/bin/env','-i','HOME=/nonexistent','LANG=C','LC_ALL=C','PATH=/usr/bin:/bin','TZ=UTC','/usr/bin/bash','--noprofile','--norc',$RemoteEntrypoint,$Phase,$OperationId,$ChallengeId,$DescriptorSha256,$ContentManifestSha256,$HandoffIdentitySha256,$RemoteEntrypointSha256)
   $info=New-SshProcessStartInfo (Resolve-TrustedLocations) $args $Capture
   $process=[Diagnostics.Process]::new(); $process.StartInfo=$info
   if ($Phase -eq '--preflight') { Start-SshPreflightProcess $process } else { Assert-SshExecuteRemainsInteractive $process; if (-not $process.Start()) { throw 'execute_process_start_failed' } }
@@ -518,6 +520,7 @@ Invoke-Phase '--execute' $false
 function renderRemoteEntrypoint({ descriptor, descriptorDigest, identityDigest }) {
   const controller = renderNativeInstallRemoteControllerFlowSource();
   return `#!/usr/bin/bash\nset -eEuo pipefail\nIFS=$'\\n\\t'\numask 077\n` + String.raw`fail(){ /usr/bin/printf '%s\n' "$1" >&2; exit 1; }
+[[ ! -v BASH_ENV && ! -v ENV ]] || fail remote_shell_environment_unsafe
 [ "$#" -eq 7 ] || fail remote_arguments_invalid
 PHASE="$1"; OPERATION_ID="$2"; CHALLENGE_ID="$3"; DESCRIPTOR_DIGEST="$4"; CONTENT_DIGEST="$5"; IDENTITY_DIGEST="$6"; EXPECTED_SELF_DIGEST="$7"
 PACKAGE_ROOT=$(/usr/bin/readlink -f -- "$(/usr/bin/dirname -- "$0")")

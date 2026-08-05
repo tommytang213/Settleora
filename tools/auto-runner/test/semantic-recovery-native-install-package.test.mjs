@@ -108,7 +108,7 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   assert.match(launcher, /execute_stdin_must_remain_interactive/u);
   assert.match(launcher, /if \(\$Phase -eq '--preflight'\) \{ '-T' \} else \{ '-tt' \}/u);
   assert.match(launcher, /\$args=@\(\$ttyOption,'-F','none','-o','BatchMode=yes'/u);
-  assert.match(launcher, /'ForwardX11=no',\$RemoteHost,\$RemoteEntrypoint,\$Phase/u);
+  assert.match(launcher, /'ForwardX11=no',\$RemoteHost,'\/usr\/bin\/env','-i','HOME=\/nonexistent','LANG=C','LC_ALL=C','PATH=\/usr\/bin:\/bin','TZ=UTC','\/usr\/bin\/bash','--noprofile','--norc',\$RemoteEntrypoint,\$Phase/u);
   assert.doesNotMatch(launcher, /'--',\$RemoteHost/u);
   assert.match(launcher, /controller_output_not_exact_canonical_record/u);
   assert.match(launcher, /\$Value -cne \$expected/u);
@@ -121,6 +121,7 @@ test("generated launcher preserves ProgramData-only restoration, closed prefligh
   assert.match(remote, /awaiting_readback_only_resume/u);
   assert.match(remote, /validate_installed_readback\(\)\{ emit native_install_execute_requires_installed_readback; exit 75; \}/u);
   assert.match(remote, /remote_package_root_unsafe/u);
+  assert.match(remote, /\[\[ ! -v BASH_ENV && ! -v ENV \]\] \|\| fail remote_shell_environment_unsafe/u);
   assert.match(remote, /remote_package_ancestor_mode_unsafe/u);
   assert.match(remote, /package_symlink_residue/u);
   assert.match(remote, /package_hardlink_residue/u);
@@ -172,6 +173,19 @@ test("mutation, embedded digest mismatch, noncanonical and unknown schema fields
   ]) {
     const { result } = generate(); mutation(result.finalHandoffDirectory);
     assert.throws(() => validateNativeInstallHandoffPackage(result.finalHandoffDirectory));
+  }
+  for (const [field, replacement] of [
+    ["windowsLauncherPath", "wrong-launcher.ps1"],
+    ["packageContractVersion", 2],
+    ["generatedAt", "2026-08-05T01:56:00.001Z"],
+  ]) {
+    const { result } = generate();
+    const target = path.join(result.finalHandoffDirectory, "generation-summary.json");
+    const current = readFileSync(target, "utf8");
+    const parsed = JSON.parse(current);
+    const serialized = typeof parsed[field] === "string" ? JSON.stringify(parsed[field]) : String(parsed[field]);
+    writeFileSync(target, current.replace(`"${field}":${serialized}`, `"${field}":${JSON.stringify(replacement)}`));
+    assert.throws(() => validateNativeInstallHandoffPackage(result.finalHandoffDirectory), /generation summary invalid/u);
   }
 });
 
