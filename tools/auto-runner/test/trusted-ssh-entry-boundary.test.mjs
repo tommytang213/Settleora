@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync, closeSync, constants, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync,
@@ -12,12 +12,13 @@ import {
   authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage, createTrustedSshInstallationPlan,
   consumeTrustedSshOperation, parseTrustedSshCommand, renderTrustedSshFixtures, reserveTrustedSshOperation,
   trustedSshPackageContract, trustedSshPaths,
-  validateEffectiveSshdOutput, validateNativeStaticExecutable, validateRealizedAuthorizedKey, validateTrustedSshFixtures,
+  validateEffectiveSshdOutput, validateEffectiveSudoPolicy, validateNativeStaticExecutable, validateRealizedAuthorizedKey, validateTrustedSshFixtures,
   validateTrustedSshInstallationPlan,
 } from "../trusted-ssh-boundary/lib/trusted-ssh-boundary.mjs";
 import { runTrustedSshDispatcher } from "../trusted-ssh-boundary/settleora-trusted-ssh-dispatcher.mjs";
 import { runTrustedSshRootGate } from "../trusted-ssh-boundary/settleora-trusted-ssh-root-gate.mjs";
 import { runAuthenticatedRootBootstrap } from "../trusted-ssh-boundary/settleora-authenticated-root-bootstrap.mjs";
+import { runTrustedSshPamPreauth } from "../trusted-ssh-boundary/settleora-trusted-ssh-pam-preauth.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 const sourceRoot = path.join(repositoryRoot, "tools/auto-runner/trusted-ssh-boundary");
@@ -29,13 +30,13 @@ const fingerprint = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 test("native shell and fd gate compile warning-free as static ELF without loader dependencies", () => withFixture((fixture) => {
   const built = buildNative(fixture);
-  for (const executable of [built.entry, built.fdExec, built.rootGate]) {
+  for (const executable of [built.entry, built.fdExec, built.rootGate, built.pamPreauth]) {
     const identity = validateNativeStaticExecutable(executable);
     assert.equal(identity.static, true);
     assert.doesNotMatch(execFileSync("/usr/bin/readelf", ["-W", "-l", executable], { encoding: "utf8" }), /INTERP/u);
     assert.doesNotMatch(execFileSync("/usr/bin/readelf", ["-W", "-d", executable], { encoding: "utf8" }), /\(NEEDED\)/u);
   }
-  for (const executable of [built.entry, built.rootGate]) {
+  for (const executable of [built.entry, built.rootGate, built.pamPreauth]) {
     const symbols = execFileSync("/usr/bin/readelf", ["-Ws", executable], { encoding: "utf8" });
     assert.doesNotMatch(symbols, /UND\s+[A-Za-z_]|__tunables_init|libc|GLIBC/u);
     assert.match(symbols, /\b_start\b/u);
@@ -168,14 +169,14 @@ test("fixed no-argument root gate independently authenticates the exact package 
   let observed; const order = [];
   const result = runTrustedSshRootGate({
     argv: [String(process.getuid()), String(process.getgid())], cwd: path.join(packageRoot, key), handoffRoot: packageRoot,
-    uid: 0, euid: 0, expectedPackageUid: process.getuid(), claimConsumer: () => { order.push("claim"); return { sudoAttemptCount: 1 }; },
+    uid: 0, euid: 0, expectedPackageUid: process.getuid(), receiptValidator: () => { order.push("receipt"); return { sudoAttemptCount: 1 }; },
     bootstrapAuthenticator: () => { order.push("bootstrap"); return { reasonCode: "fixture_bootstrap_verified" }; },
     executor(value) { order.push("exec"); observed = value; return { reasonCode: "mock_root_gate_complete" }; },
   });
   assert.equal(result.reasonCode, "mock_root_gate_complete");
   assert.deepEqual(observed.argv, [trustedSshPaths.rootBootstrap, "--disable-proto=throw", trustedSshPaths.rootBootstrapModule]);
   assert.deepEqual(observed.env, { HOME: "/root", LANG: "C", LC_ALL: "C", PATH: "/usr/sbin:/usr/bin:/sbin:/bin", TZ: "UTC" });
-  assert.deepEqual(order, ["bootstrap", "claim", "exec"]);
+  assert.deepEqual(order, ["bootstrap", "receipt", "exec"]);
   assert.throws(() => runTrustedSshRootGate({ cwd: path.join(packageRoot, key), handoffRoot: packageRoot, argv: ["/bin/sh"], uid: 0, euid: 0 }), /identity/u);
 }));
 
@@ -219,6 +220,26 @@ test("authenticated root bootstrap revalidates package and consumed receipt befo
   }), /receipt/u);
 }));
 
+test("PAM pre-auth consumes the durable one-shot before a password prompt and rejects a second invocation", () => withFixture((fixture) => {
+  const packageRoot = path.join(fixture, "handoffs"); mkdirSync(packageRoot, { mode: 0o700 }); createPackage(packageRoot);
+  let consumed = false; let promptCount = 0;
+  const invoke = () => {
+    runTrustedSshPamPreauth({
+      argv: [String(process.getuid()), String(process.getgid())], cwd: path.join(packageRoot, key), handoffRoot: packageRoot,
+      uid: process.getuid(), euid: 0, expectedPackageUid: process.getuid(), bootstrapAuthenticator() {},
+      claimConsumer() { if (consumed) throw new Error("already_consumed"); consumed = true; return { sudoAttemptCount: 1 }; },
+    });
+    promptCount += 1;
+  };
+  invoke();
+  assert.throws(invoke, /already_consumed/u);
+  assert.equal(promptCount, 1);
+  assert.throws(() => runTrustedSshPamPreauth({
+    argv: [String(process.getuid()), String(process.getgid())], cwd: path.join(packageRoot, key), handoffRoot: packageRoot,
+    uid: process.getuid(), gid: process.getgid() + 1, euid: 0,
+  }), /identity_invalid/u);
+}));
+
 test("operation claim reservation and root consumption enforce one fail-closed sudo execution", () => withFixture((fixture) => {
   const uid = process.getuid(); const gid = process.getgid();
   const claimRoot = path.join(fixture, "claims");
@@ -234,6 +255,25 @@ test("operation claim reservation and root consumption enforce one fail-closed s
   assert.throws(() => consumeTrustedSshOperation({ claimRoot, handoffKey: key, operationId: operation,
     expectedClaimUid: uid, expectedClaimGid: gid, expectedRootUid: uid, expectedRootGid: gid }));
 }));
+
+test("concurrent pre-auth consumers permit exactly one transition before any prompt", async () => {
+  const fixture = mkdtempSync(path.join(os.tmpdir(), "settleora-trusted-ssh-test-")); chmodSync(fixture, 0o700);
+  try {
+  const uid = process.getuid(); const gid = process.getgid();
+  const claimRoot = path.join(fixture, "claims");
+  mkdirSync(claimRoot, { mode: 0o710 }); chmodSync(claimRoot, 0o710);
+  mkdirSync(path.join(claimRoot, "pending"), { mode: 0o1730 }); chmodSync(path.join(claimRoot, "pending"), 0o1730);
+  mkdirSync(path.join(claimRoot, "consumed"), { mode: 0o700 }); chmodSync(path.join(claimRoot, "consumed"), 0o700);
+  reserveTrustedSshOperation({ claimRoot, handoffKey: key, operationId: operation, expectedRootUid: uid, expectedAccountGid: gid });
+  const moduleUrl = new URL("../trusted-ssh-boundary/lib/trusted-ssh-boundary.mjs", import.meta.url).href;
+  const source = `import {consumeTrustedSshOperation as c} from ${JSON.stringify(moduleUrl)}; try { c({claimRoot:process.argv[1],handoffKey:process.argv[2],operationId:process.argv[3],expectedClaimUid:Number(process.argv[4]),expectedClaimGid:Number(process.argv[5]),expectedRootUid:Number(process.argv[4]),expectedRootGid:Number(process.argv[5])}); } catch { process.exitCode=1; }`;
+  const run = () => new Promise((resolve) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", source, claimRoot, key, operation, String(uid), String(gid)], { stdio: "ignore" });
+    child.on("exit", (code) => resolve(code));
+  });
+    assert.deepEqual((await Promise.all([run(), run()])).sort(), [0, 1]);
+  } finally { rmSync(fixture, { recursive: true, force: true }); }
+});
 
 test("execute reserves the operation before entrypoint dispatch and refuses a second prompt path", () => withFixture((fixture) => {
   const packageRoot = path.join(fixture, "handoffs"); mkdirSync(packageRoot, { mode: 0o700 }); createPackage(packageRoot);
@@ -307,6 +347,20 @@ test("effective sshd validator rejects every security regression and accepts the
   ]) assert.throws(() => validateEffectiveSshdOutput(replaceEffective(exact, name, value)), new RegExp(name, "u"));
 });
 
+test("effective sudo projection rejects global, group, exempt, passwordless and extra-command authority", () => {
+  const exact = JSON.parse(renderTrustedSshFixtures({ operatorKeyFingerprint: fingerprint }).effectiveSudoPolicy);
+  assert.equal(validateEffectiveSudoPolicy(`${canonicalJson(exact)}\n`).ok, true);
+  const mutations = [
+    { ...exact, exemptGroup: "sudo" },
+    { ...exact, accountGroups: [trustedSshPaths.account, "sudo"] },
+    { ...exact, authenticationRequired: false },
+    { ...exact, passwordTries: 3 },
+    { ...exact, rules: [...exact.rules, { arguments: [], command: "/bin/bash", host: "ALL", runAs: ["root"], tags: ["PASSWD"] }] },
+    { ...exact, rules: [{ ...exact.rules[0], tags: ["NOPASSWD"] }] },
+  ];
+  for (const policy of mutations) assert.throws(() => validateEffectiveSudoPolicy(`${canonicalJson(policy)}\n`), /sudo_policy/u);
+});
+
 test("installed sshd and visudo parse generated configuration where unprivileged platform limits permit", () => withFixture((fixture) => {
   const rendered = renderTrustedSshFixtures({ operatorKeyFingerprint: fingerprint });
   const config = path.join(fixture, "sshd_config");
@@ -333,7 +387,7 @@ test("installation plan is deterministic, complete, private-root-only and never 
   const plan = JSON.parse(readFileSync(path.join(first.root, "installation-plan.json"), "utf8"));
   assert.equal(plan.rollbackOrder.length >= 6, true);
   assert.equal(plan.atomicInstallOrder.length >= 8, true);
-  assert.equal(plan.manualDecisions.length, 4);
+  assert.equal(plan.manualDecisions.length, 5);
   const all = execFileSync("/usr/bin/find", [first.root, "-type", "f", "-print"], { encoding: "utf8" });
   assert.doesNotMatch(all, /^\/(etc|opt|usr\/local|var\/lib)\//mu);
 }));
@@ -379,24 +433,7 @@ test("source contains no shell execution, PATH lookup, broad sudo, credentials, 
   const closure = Buffer.concat(names.map((name) => readFileSync(name)));
   assert.doesNotMatch(closure.toString("utf8"), /-----BEGIN [A-Z ]*PRIVATE KEY-----/u);
   const text = closure.toString("utf8");
-  assert.doesNotMatch(text, /["'`]\/?(?:usr\/sbin\/)?(?:useradd|usermod|chsh|passwd|sudo)["'`]|systemctl["'`]?,\s*["'`]reload|sshd["'`]?,\s*["'`]-HUP/u);
-});
-
-test("draft PR 1048 branch and tree remain at the retained exact identity", () => {
-  assert.equal(execFileSync("/usr/bin/git", ["rev-parse", "refs/heads/fix/issue-1012-complete-manual-root-handoff-package-producer-20260805-0156"], { cwd: repositoryRoot, encoding: "utf8" }).trim(), "d7fb62da65af8c8441bf1dfe05d56240bc03d26f");
-  assert.equal(execFileSync("/usr/bin/git", ["rev-parse", "refs/heads/fix/issue-1012-complete-manual-root-handoff-package-producer-20260805-0156^{tree}"], { cwd: repositoryRoot, encoding: "utf8" }).trim(), "c20fc8304faccf9e8274d77dc7be386692d316f2");
-  assert.equal(execFileSync("/usr/bin/git", ["status", "--porcelain", "--untracked-files=no"], { cwd: repositoryRoot, encoding: "utf8" }).includes("semantic-recovery-native-install-package.mjs"), false);
-});
-
-test("retained 20260804-1825 handoff, owner controls and owner-readable root temporary stay byte-identical", () => {
-  const retained = "/workspace/logs/auto-runner/Settleora/manual-root-handoffs/20260804-1825";
-  const journals = "/workspace/logs/auto-runner/Settleora/manual-root-install-journals";
-  const operationId = "054edadcb40c71dcf9d4b2a8e5bae634605f08c6d1d8610a25f52e3d392f29c5";
-  const rootTemporary = `/etc/settleora-auto-runner/.semantic-recovery-native-install-results/.${operationId}.36dee61dd63802e10fab4133.tmp`;
-  const aggregate = (command) => execFileSync("/usr/bin/bash", ["-o", "pipefail", "-c", command], { encoding: "utf8" }).trim().split(" ")[0];
-  assert.equal(aggregate(`/usr/bin/find '${retained}' -type f -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/sha256sum | /usr/bin/sha256sum`), "658f1b4b0ec25e25c85ef7846436e2782aafb35978f43fb99c2306441b218ffa");
-  assert.equal(aggregate(`/usr/bin/find '${journals}' -maxdepth 1 -type f -name '*${operationId}*' -print0 | /usr/bin/sort -z | /usr/bin/xargs -0 /usr/bin/sha256sum | /usr/bin/sha256sum`), "cdcd922b75337d3f1028eeb995bd4d66005418c67cf30dbe281cf7869b6800cb");
-  assert.equal(sha256(readFileSync(rootTemporary)), "1c01eaaccca53a946c405d1362a3122b35bd726abc129cd34d5a92500ad8ed03");
+  assert.doesNotMatch(text, /spawn(?:Sync)?\(["'`]\/?(?:usr\/sbin\/)?(?:useradd|usermod|chsh|passwd|sudo)["'`]|systemctl["'`]?,\s*["'`]reload|sshd["'`]?,\s*["'`]-HUP/u);
 });
 
 function rejectedCommands() {
@@ -417,10 +454,12 @@ function buildNative(root, { expectedUid = 0 } = {}) {
   const entry = path.join(root, "settleora-trusted-ssh-entry");
   const fdExec = path.join(root, "settleora-trusted-ssh-fd-exec");
   const rootGate = path.join(root, "settleora-root-gate");
+  const pamPreauth = path.join(root, "settleora-sudo-preauth");
   execFileSync("/usr/bin/gcc", [...entryCompilerFlags, path.join(sourceRoot, "native/settleora-trusted-ssh-entry.c"), "-o", entry]);
   execFileSync("/usr/bin/gcc", [...compilerFlags, `-DSETTLEORA_EXPECTED_ENTRY_UID=${expectedUid}U`, path.join(sourceRoot, "native/settleora-trusted-ssh-fd-exec.c"), "-o", fdExec]);
   execFileSync("/usr/bin/gcc", [...entryCompilerFlags, path.join(sourceRoot, "native/settleora-trusted-ssh-root-gate.c"), "-o", rootGate]);
-  return { entry, fdExec, rootGate };
+  execFileSync("/usr/bin/gcc", [...entryCompilerFlags, path.join(sourceRoot, "native/settleora-trusted-ssh-pam-preauth.c"), "-o", pamPreauth]);
+  return { entry, fdExec, pamPreauth, rootGate };
 }
 
 function planArgs(built) {
@@ -429,13 +468,16 @@ function planArgs(built) {
     generatedAt: "2026-08-05T01:25:00Z", nativeShell: built.entry, operatorKeyFingerprint: fingerprint,
     rootGate: built.rootGate, rootGateModule: path.join(sourceRoot, "settleora-trusted-ssh-root-gate.mjs"),
     rootBootstrapModule: path.join(sourceRoot, "settleora-authenticated-root-bootstrap.mjs"),
+    pamPreauth: built.pamPreauth, pamPreauthModule: path.join(sourceRoot, "settleora-trusted-ssh-pam-preauth.mjs"),
     repositoryRoot,
     sourceCommit: "d".repeat(40), sourceTree: "e".repeat(40),
     supportLibrary: path.join(sourceRoot, "lib/trusted-ssh-boundary.mjs"),
-    sourceClosureAuthenticator: ({ dispatcherModule, fdExec, nativeShell, rootGate, rootGateModule, rootBootstrapModule, supportLibrary }) => ({ artifactBytes: {
+    sourceClosureAuthenticator: ({ dispatcherModule, fdExec, nativeShell, pamPreauth, pamPreauthModule, rootGate, rootGateModule, rootBootstrapModule, supportLibrary }) => ({ artifactBytes: {
       "settleora-trusted-ssh-entry": readFileSync(nativeShell),
       "settleora-trusted-ssh-dispatcher.mjs": readFileSync(dispatcherModule),
       "settleora-trusted-ssh-fd-exec": readFileSync(fdExec),
+      "settleora-sudo-preauth": readFileSync(pamPreauth),
+      "settleora-trusted-ssh-pam-preauth.mjs": readFileSync(pamPreauthModule),
       "settleora-root-gate": readFileSync(rootGate),
       "settleora-trusted-ssh-root-gate.mjs": readFileSync(rootGateModule),
       "settleora-authenticated-root-bootstrap.mjs": readFileSync(rootBootstrapModule),

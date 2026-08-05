@@ -2397,6 +2397,8 @@ The source-owned generator is generation-only:
   --native-shell /absolute/private/build/settleora-trusted-ssh-entry \
   --dispatcher-module /absolute/source/settleora-trusted-ssh-dispatcher.mjs \
   --fd-exec /absolute/private/build/settleora-trusted-ssh-fd-exec \
+  --pam-preauth /absolute/private/build/settleora-sudo-preauth \
+  --pam-preauth-module /absolute/source/settleora-trusted-ssh-pam-preauth.mjs \
   --root-gate /absolute/private/build/settleora-root-gate \
   --root-gate-module /absolute/source/settleora-trusted-ssh-root-gate.mjs \
   --root-bootstrap-module /absolute/source/settleora-authenticated-root-bootstrap.mjs \
@@ -2416,9 +2418,9 @@ placeholder template and contains no key bytes. Before later publication, the
 read-only realized-key validator requires one exact `restrict,pty` allowed-key
 line and verifies its SHA-256 fingerprint. The Match contract also requires
 effective `AuthorizedKeysCommand none`, preventing a global alternate key
-provider from bypassing that one-key boundary. The root gate authenticates the
+provider from bypassing that one-key boundary. The PAM pre-auth helper authenticates the
 installed root-bootstrap module against the root-owned artifact manifest before
-claim consumption; the module then reauthenticates the package and consumed
+claim consumption; the post-auth root gate and bootstrap then reauthenticate the package and consumed
 receipt before exposing the fixed later PR #1048 integration envelope. The plan validator is also fixture/
 private-root-only in source-development tasks:
 
@@ -2426,6 +2428,15 @@ private-root-only in source-development tasks:
 /usr/bin/node tools/auto-runner/trusted-ssh-boundary/validate-trusted-ssh-boundary.mjs \
   /absolute/owner-private/fixture-root/trusted-ssh-boundary-plan-v1
 ```
+
+The password prompt is bounded before authentication, not merely after the
+sudo command starts. A root-owned freestanding PAM pre-auth helper consumes the
+one-shot claim before the dedicated service includes `common-auth`, and the
+sudoers contract sets `passwd_tries=1`. Replay therefore fails before a second
+prompt. The private fixtures also carry a closed normalized effective-sudo
+projection; later installation must derive it from every sudoers include,
+group match, exempt group, PAM setting, and command rule. Live PAM/sudoers
+installation remains a separate explicit owner gate.
 
 The stable future integration envelope is
 `settleora_trusted_ssh_handoff_package_v1`. Draft PR #1048 must remain

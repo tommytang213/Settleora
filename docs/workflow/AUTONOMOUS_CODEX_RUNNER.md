@@ -2115,8 +2115,11 @@ sudo gate. Exact source-blob rebuild binding, descriptor-relative recursive
 package validation, and an exclusive pending/consumed operation claim enforce
 the authenticated closure and one-attempt transition. The installed
 root-bootstrap module is digest-checked against a root-owned artifact manifest
-before claim consumption and independently checks the package plus consumed
-receipt. `ForceCommand` remains defense in depth and a subsystem/request
+before claim consumption. A dedicated PAM service invokes a freestanding
+pre-auth helper to consume the one-shot before `common-auth`; `passwd_tries=1`
+bounds the admitted invocation to one prompt, and complete effective sudo
+authority must contain no other user/group/exempt route. The post-auth gate and
+bootstrap independently check the package plus consumed receipt. `ForceCommand` remains defense in depth and a subsystem/request
 normalizer; it is not treated as the pre-shell boundary.
 
 Repository source and tests may generate and validate plans only under a

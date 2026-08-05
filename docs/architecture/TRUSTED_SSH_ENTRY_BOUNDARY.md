@@ -57,6 +57,8 @@ In scope:
 - replacement, symlink, hard-link, traversal, wrong-owner/mode, package
   mutation, replay, residue, and path-reopen races;
 - a package entrypoint that attempts a second sudo call or arbitrary argv;
+- a compromised account that invokes the allowed sudo command repeatedly to
+  induce multiple password prompts before the command itself starts;
 - lockout or accidental changes to existing developer SSH access.
 
 Trusted:
@@ -150,6 +152,8 @@ Use one dedicated non-product account named `settleora_handoff` with:
   prompt;
 - a manually provisioned account password or separately approved factor used
   only for sudo, never stored in the repository or plan;
+- a dedicated root-owned PAM service whose first `auth requisite` step consumes
+  the operation one-shot before `common-auth`, with `passwd_tries=1`;
 - no unrestricted administrator-group membership.
 
 The authorized-key template uses `restrict,pty`. The sshd match repeats the
@@ -218,7 +222,9 @@ account-owned, non-writable operation claim with `O_EXCL`. The syscall-only
 native sudo gate validates the invoking UID/GID and passes those normalized
 integers—not command text—to its fixed Node module. That module takes the claim
 root-owned, then exclusively publishes a root-owned consumed receipt with
-`sudoAttemptCount: 1` before root bootstrap. A repeated or ambiguous operation
+`sudoAttemptCount: 1` before root bootstrap. The transition is performed by a
+freestanding root-owned PAM pre-auth helper before the password module is
+entered, not by the post-authentication command. A repeated or ambiguous operation
 therefore cannot reach a second privileged attempt. Execute may reach only the
 existing prepare, one-arm, readback-only resume sequence. Drift, residue,
 replay evidence, malformed output, path/link/owner/mode change, or a second
@@ -240,7 +246,7 @@ unreviewed or path-selected bootstrap can run.
 The canonical sudoers fixture is narrow:
 
 ```sudoers
-Defaults:settleora_handoff env_reset,use_pty,!set_home,!preserve_groups,timestamp_timeout=0
+Defaults:settleora_handoff env_reset,use_pty,!set_home,!preserve_groups,timestamp_timeout=0,passwd_tries=1,pam_service=settleora-handoff-sudo
 Defaults:settleora_handoff secure_path=/usr/sbin:/usr/bin:/sbin:/bin
 settleora_handoff ALL=(root) PASSWD: /opt/settleora/trusted-ssh/bin/settleora-root-gate ""
 ```
@@ -253,10 +259,34 @@ argv. The account password or separately approved factor is manually
 provisioned and never recorded. The root gate must preserve and enforce
 `sudoAttemptCount == 1`.
 
+Stock sudo command gating alone is insufficient: sudo authenticates before it
+executes the allowed command, so a compromised account could otherwise enter
+PAM twice and obtain two prompts before the command-side receipt check. The
+dedicated `settleora-handoff-sudo` PAM service therefore begins with:
+
+```text
+auth requisite pam_exec.so quiet seteuid /opt/settleora/trusted-ssh/bin/settleora-sudo-preauth
+auth include common-auth
+```
+
+The static pre-auth helper validates the exact PAM user/type, replaces its
+environment before fixed Node execution, reauthenticates the package and
+installed bootstrap, and atomically consumes the pending operation. Failure or
+replay stops before `common-auth`; `passwd_tries=1` bounds the admitted
+invocation to one prompt. The post-authentication root gate accepts only the
+already consumed root-owned receipt. Installing this dedicated PAM service is
+a later explicit owner security decision; this PR does not touch live PAM.
+
+The future installed validator must normalize the account's complete effective
+sudo authority across every include, user/group match, `exempt_group`, PAM
+service, password-tries setting, and command specification. It accepts exactly
+one authenticated no-argument root-gate rule, the dedicated account's own
+group only, no exempt group, and no global/group/alternate command route.
+
 ## Trust roots and ownership
 
 All installed ancestors, native binaries, dispatcher module, support library,
-fd helper, root gate, package validator, sshd drop-in, authorized keys, sudoers
+fd helper, PAM pre-auth helper/module, root gate, package validator, sshd drop-in, authorized keys, sudoers
 fragment, and package publication root are root-owned and not writable by the
 dedicated account. Package files may be root-owned with a dedicated read-only
 group, but must never be account-writable, symlinks, or unexpected hard links.
@@ -305,7 +335,8 @@ Deployment is a later manual gate. Before any reload, an owner must:
    temporary sibling paths;
 5. realize exactly one restricted public-key line, validate its exact
    fingerprint, prove effective `AuthorizedKeysCommand none`, and validate the
-   sudoers fragment with `visudo`;
+   sudoers fragment with `visudo`, the dedicated PAM service before use, and
+   the complete normalized effective sudo policy;
 6. add the shell only after its static and freestanding identity is verified;
 7. create the locked dedicated account, set the fixed shell, then manually
    provision the one key and sudo factor;
@@ -339,6 +370,7 @@ first merge, then the boundary must be separately installed and verified, and
 only then may PR #1048 integrate the installed contract and reconverge.
 
 Manual decisions remain: UID/GID, operator key/fingerprint, sudo factor,
+dedicated PAM service approval,
 account/password lifecycle, installation window, recovery channel, exact
 installed root/group modes, sshd reload, live PTY/PAM behavior, and later PR
 #1048 package-envelope integration. No decision here authorizes any of them.

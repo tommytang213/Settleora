@@ -20,6 +20,9 @@ export const trustedSshPaths = Object.freeze({
   operationClaims: "/var/lib/settleora/trusted-ssh/operation-claims",
   operationClaimsConsumed: "/var/lib/settleora/trusted-ssh/operation-claims/consumed",
   operationClaimsPending: "/var/lib/settleora/trusted-ssh/operation-claims/pending",
+  pamPreauth: "/opt/settleora/trusted-ssh/bin/settleora-sudo-preauth",
+  pamPreauthModule: "/opt/settleora/trusted-ssh/lib/settleora-trusted-ssh-pam-preauth.mjs",
+  pamService: "/etc/pam.d/settleora-handoff-sudo",
   loginShell: "/opt/settleora/trusted-ssh/bin/settleora-trusted-ssh-entry",
   node: "/usr/bin/node",
   rootGate: "/opt/settleora/trusted-ssh/bin/settleora-root-gate",
@@ -159,7 +162,7 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
     "",
   ].join("\n");
   const sudoers = [
-    `Defaults:${trustedSshPaths.account} env_reset,use_pty,!set_home,!preserve_groups,timestamp_timeout=0`,
+    `Defaults:${trustedSshPaths.account} env_reset,use_pty,!set_home,!preserve_groups,timestamp_timeout=0,passwd_tries=1,pam_service=settleora-handoff-sudo`,
     `Defaults:${trustedSshPaths.account} secure_path=/usr/sbin:/usr/bin:/sbin:/bin`,
     `${trustedSshPaths.account} ALL=(root) PASSWD: ${trustedSshPaths.rootGate} ""`,
     "",
@@ -169,10 +172,30 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
     "restrict,pty __OPERATOR_PUBLIC_KEY_ALGORITHM__ __OPERATOR_PUBLIC_KEY_BASE64__ settleora-trusted-ssh-operator",
     "",
   ].join("\n");
+  const pam = [
+    `auth requisite pam_exec.so quiet seteuid ${trustedSshPaths.pamPreauth}`,
+    "auth include common-auth",
+    "account include common-account",
+    "session include common-session-noninteractive",
+    "",
+  ].join("\n");
+  const effectiveSudoPolicy = `${canonicalJson({
+    account: trustedSshPaths.account,
+    accountGroups: [trustedSshPaths.account],
+    authenticationRequired: true,
+    exemptGroup: null,
+    pamService: "settleora-handoff-sudo",
+    passwordTries: 1,
+    rules: [{ arguments: [], command: trustedSshPaths.rootGate, host: "ALL", runAs: ["root"], tags: ["PASSWD"] }],
+    sourceCoverage: "all-sudoers-includes-and-group-membership",
+    version: 1,
+  })}\n`;
   return Object.freeze({
     authorizedKeys,
     group: `${trustedSshPaths.account}:x:__DEDICATED_GID__:\n`,
     passwd: `${trustedSshPaths.account}:x:__DEDICATED_UID__:__DEDICATED_GID__:Settleora trusted SSH handoff:${trustedSshPaths.home}:${trustedSshPaths.loginShell}\n`,
+    effectiveSudoPolicy,
+    pam,
     shadow: `${trustedSshPaths.account}:__MANUAL_PASSWORD_HASH_REQUIRED__:0:0:99999:7:::\n`,
     shells: `${trustedSshPaths.loginShell}\n`,
     sshd,
@@ -181,7 +204,8 @@ export function renderTrustedSshFixtures({ operatorKeyFingerprint }) {
 }
 
 export function createTrustedSshInstallationPlan({
-  outputRoot, sourceCommit, sourceTree, nativeShell, dispatcherModule, fdExec, rootGate, rootGateModule, rootBootstrapModule, supportLibrary,
+  outputRoot, sourceCommit, sourceTree, nativeShell, dispatcherModule, fdExec, pamPreauth, pamPreauthModule,
+  rootGate, rootGateModule, rootBootstrapModule, supportLibrary,
   operatorKeyFingerprint, generatedAt, repositoryRoot = null, sourceIdentityReader = readGitSourceIdentity,
   sourceClosureAuthenticator = authenticatePlanSourceClosure,
   faultAt = null,
@@ -196,13 +220,16 @@ export function createTrustedSshInstallationPlan({
     throw new Error("trusted_ssh_plan_source_identity_invalid");
   }
   const sourceClosureBinding = sourceClosureAuthenticator({
-    dispatcherModule, fdExec, nativeShell, outputRoot, repositoryRoot, rootGate, rootGateModule, rootBootstrapModule,
+    dispatcherModule, fdExec, nativeShell, outputRoot, pamPreauth, pamPreauthModule, repositoryRoot,
+    rootGate, rootGateModule, rootBootstrapModule,
     sourceCommit, sourceTree, supportLibrary,
   });
   const inputSpecs = [
     ["settleora-trusted-ssh-entry", nativeShell, "0555", trustedSshPaths.loginShell],
     ["settleora-trusted-ssh-dispatcher.mjs", dispatcherModule, "0444", trustedSshPaths.dispatcherModule],
     ["settleora-trusted-ssh-fd-exec", fdExec, "0555", trustedSshPaths.fdExec],
+    ["settleora-sudo-preauth", pamPreauth, "0555", trustedSshPaths.pamPreauth],
+    ["settleora-trusted-ssh-pam-preauth.mjs", pamPreauthModule, "0444", trustedSshPaths.pamPreauthModule],
     ["settleora-root-gate", rootGate, "0555", trustedSshPaths.rootGate],
     ["settleora-trusted-ssh-root-gate.mjs", rootGateModule, "0444", trustedSshPaths.rootGateModule],
     ["settleora-authenticated-root-bootstrap.mjs", rootBootstrapModule, "0444", trustedSshPaths.rootBootstrapModule],
@@ -232,8 +259,10 @@ export function createTrustedSshInstallationPlan({
     if (faultAt === "after_artifacts") throw new Error("trusted_ssh_plan_fault_injected");
     const fixtureEntries = Object.entries({
       "authorized_keys.template": fixtures.authorizedKeys,
+      "effective-sudo-policy.json": fixtures.effectiveSudoPolicy,
       "group.template": fixtures.group,
       "passwd.template": fixtures.passwd,
+      "pam-service": fixtures.pam,
       "shadow.template": fixtures.shadow,
       "shells.append": fixtures.shells,
       "sshd-match.conf": fixtures.sshd,
@@ -269,12 +298,13 @@ export function createTrustedSshInstallationPlan({
         "install-root-owned-artifact-manifest-for-runtime-bootstrap-verification",
         "verify-static-shell-and-all-digests",
         "realize-one-restricted-operator-key-and-verify-its-bound-fingerprint",
-        "publish-authorized-key-and-sudoers-files",
+        "publish-dedicated-pam-service-authorized-key-and-sudoers-files",
         "append-login-shell-after-verification",
         "create-locked-dedicated-account-then-set-fixed-login-shell",
         "provision-one-operator-key-and-separate-sudo-password-manually",
         "publish-sshd-match-drop-in",
         "run-visudo-and-sshd-T-before-any-reload",
+        "prove-complete-effective-sudo-policy-has-one-passwd-gate-and-no-exempt-or-group-route",
         "keep-existing-admin-session-open-and-test-second-session",
         "manual-owner-decision-before-reload",
       ],
@@ -287,12 +317,14 @@ export function createTrustedSshInstallationPlan({
         "effective-dedicated-user-config-is-key-only-and-forwarding-disabled",
         "preflight-is-non-mutating",
         "execute-has-pty-and-exactly-one-password-requiring-sudo-gate",
+        "pam-preauth-consumes-one-shot-before-the-only-password-prompt",
         "existing-tommytang213-session-and-login-shell-remain-unchanged",
       ],
       manualDecisions: [
         "dedicated UID and GID",
         "one operator public key and exact SHA256 fingerprint",
         "dedicated account sudo password or separately approved authentication factor",
+        "dedicated PAM pre-auth service installation and rollback approval",
         "maintenance window, console recovery path, and final sshd reload authorization",
       ],
       proposedPaths: trustedSshPaths,
@@ -300,7 +332,7 @@ export function createTrustedSshInstallationPlan({
         "disable-new-key-or-Match-block-with-existing-admin-session",
         "validate-rollback-sshd-config-before-reload",
         "reload-only-after-owner-authorization",
-        "restore-previous-sshd-drop-in-authorized-keys-sudoers-and-shells",
+        "restore-previous-sshd-drop-in-authorized-keys-sudoers-pam-service-and-shells",
         "lock-dedicated-account-without-changing-existing-developer-account",
         "remove-installed-closure-only-after-no-active-boundary-sessions",
         "retain-bounded-audit-and-installation-evidence",
@@ -309,6 +341,11 @@ export function createTrustedSshInstallationPlan({
       sshdValidation: [
         `/usr/sbin/sshd -t -f ${trustedSshPaths.sshdDropIn}`,
         `/usr/sbin/sshd -T -C user=${trustedSshPaths.account},host=localhost,addr=127.0.0.1`,
+      ],
+      sudoValidation: [
+        `/usr/bin/sudo -ll -U ${trustedSshPaths.account}`,
+        `/usr/bin/getent group ${trustedSshPaths.account}`,
+        "normalize-all-includes-groups-exempt-group-pam-service-password-tries-and-rules-to-effective-sudo-policy-v1",
       ],
       sudo: { attempts: 1, command: `${trustedSshPaths.rootGate} (no arguments)`, requiresAuthentication: true },
       version: 1,
@@ -375,9 +412,11 @@ export function validateTrustedSshInstallationPlan(root, {
   const expectedArtifacts = [
     ["settleora-authenticated-root-bootstrap.mjs", trustedSshPaths.rootBootstrapModule, "0444"],
     ["settleora-root-gate", trustedSshPaths.rootGate, "0555"],
+    ["settleora-sudo-preauth", trustedSshPaths.pamPreauth, "0555"],
     ["settleora-trusted-ssh-dispatcher.mjs", trustedSshPaths.dispatcherModule, "0444"],
     ["settleora-trusted-ssh-entry", trustedSshPaths.loginShell, "0555"],
     ["settleora-trusted-ssh-fd-exec", trustedSshPaths.fdExec, "0555"],
+    ["settleora-trusted-ssh-pam-preauth.mjs", trustedSshPaths.pamPreauthModule, "0444"],
     ["settleora-trusted-ssh-root-gate.mjs", trustedSshPaths.rootGateModule, "0444"],
     ["trusted-ssh-boundary.mjs", trustedSshPaths.supportLibrary, "0444"],
   ];
@@ -385,6 +424,11 @@ export function validateTrustedSshInstallationPlan(root, {
       || canonicalJson(plan.artifacts) !== canonicalJson(artifacts)
       || canonicalJson(plan.fixtures) !== canonicalJson(fixtureManifest) || plan.sudo.attempts !== 1
       || plan.sudo.requiresAuthentication !== true || plan.proposedPaths.loginShell !== trustedSshPaths.loginShell
+      || canonicalJson(plan.sudoValidation) !== canonicalJson([
+        `/usr/bin/sudo -ll -U ${trustedSshPaths.account}`,
+        `/usr/bin/getent group ${trustedSshPaths.account}`,
+        "normalize-all-includes-groups-exempt-group-pam-service-password-tries-and-rules-to-effective-sudo-policy-v1",
+      ])
       || canonicalJson(artifacts.map(({ installedPath, mode, name }) => [name, installedPath, mode]).sort()) !== canonicalJson(expectedArtifacts)
       || plan.source?.repository !== "tommytang213/Settleora" || !oidPattern.test(plan.source?.commit) || !oidPattern.test(plan.source?.tree)
       || canonicalJson(plan.account?.sshKey?.algorithms) !== canonicalJson(allowedKeyAlgorithms)
@@ -416,10 +460,10 @@ export function validateTrustedSshInstallationPlan(root, {
   validateTrustedSshFixtures(canonicalRoot, {
     operatorKeyFingerprint: plan.account.sshKey.fingerprint, expectedUid, expectedGid,
   });
-  const nativeNames = ["settleora-trusted-ssh-entry", "settleora-trusted-ssh-fd-exec", "settleora-root-gate"];
+  const nativeNames = ["settleora-trusted-ssh-entry", "settleora-trusted-ssh-fd-exec", "settleora-root-gate", "settleora-sudo-preauth"];
   if (nativeNames.some((name) => !artifacts.some((entry) => entry.name === name))) throw new Error("trusted_ssh_native_missing");
   const nativeIdentities = Object.fromEntries(nativeNames.map((name) => [name,
-    runPlatformTools ? (["settleora-trusted-ssh-entry", "settleora-root-gate"].includes(name)
+    runPlatformTools ? (["settleora-trusted-ssh-entry", "settleora-root-gate", "settleora-sudo-preauth"].includes(name)
       ? validateNativeFreestandingExecutable(path.join(canonicalRoot, "artifacts", name))
       : validateNativeStaticExecutable(path.join(canonicalRoot, "artifacts", name))) : { static: null, inspected: false },
   ]));
@@ -443,15 +487,19 @@ export function validateTrustedSshFixtures(root, {
   const sshd = fixture("sshd-match.conf");
   const key = fixture("authorized_keys.template");
   const sudoers = fixture("sudoers");
+  const pam = fixture("pam-service");
+  const effectiveSudoPolicy = fixture("effective-sudo-policy.json");
   const passwd = fixture("passwd.template");
   const group = fixture("group.template");
   const shadow = fixture("shadow.template");
   const shells = fixture("shells.append");
   const expectedFixtures = renderTrustedSshFixtures({ operatorKeyFingerprint: operatorKeyFingerprint || key.split("\n")[0].replace("# required-fingerprint ", "") });
   const exact = {
-    "authorized_keys.template": expectedFixtures.authorizedKeys, "group.template": expectedFixtures.group,
+    "authorized_keys.template": expectedFixtures.authorizedKeys, "effective-sudo-policy.json": expectedFixtures.effectiveSudoPolicy,
+    "group.template": expectedFixtures.group,
     "passwd.template": expectedFixtures.passwd, "shadow.template": expectedFixtures.shadow,
-    "shells.append": expectedFixtures.shells, "sshd-match.conf": expectedFixtures.sshd, sudoers: expectedFixtures.sudoers,
+    "pam-service": expectedFixtures.pam, "shells.append": expectedFixtures.shells,
+    "sshd-match.conf": expectedFixtures.sshd, sudoers: expectedFixtures.sudoers,
   };
   for (const [name, bytes] of Object.entries(exact)) if (fixture(name) !== bytes) throw new Error("trusted_ssh_fixture_bytes_invalid");
   for (const required of [
@@ -469,9 +517,14 @@ export function validateTrustedSshFixtures(root, {
     throw new Error("trusted_ssh_authorized_key_fixture_invalid");
   }
   if (!sudoers.includes(" PASSWD: ") || sudoers.includes("NOPASSWD") || sudoers.includes(" ALL=(ALL) ALL")
+      || !sudoers.includes("passwd_tries=1,pam_service=settleora-handoff-sudo")
       || !sudoers.includes(`${trustedSshPaths.rootGate} ""`) || /[*?]/u.test(sudoers)) {
     throw new Error("trusted_ssh_sudoers_fixture_invalid");
   }
+  if (pam !== `auth requisite pam_exec.so quiet seteuid ${trustedSshPaths.pamPreauth}\nauth include common-auth\naccount include common-account\nsession include common-session-noninteractive\n`) {
+    throw new Error("trusted_ssh_pam_fixture_invalid");
+  }
+  validateEffectiveSudoPolicy(effectiveSudoPolicy);
   const fields = passwd.trim().split(":");
   if (fields[0] !== trustedSshPaths.account || fields[5] !== trustedSshPaths.home || fields[6] !== trustedSshPaths.loginShell) {
     throw new Error("trusted_ssh_account_fixture_invalid");
@@ -554,6 +607,23 @@ export function validateEffectiveSshdOutput(text) {
   ]);
   for (const [name, value] of expected) if (values.get(name) !== value) throw new Error(`trusted_ssh_effective_${name}_invalid`);
   return Object.freeze({ ok: true, reasonCode: "trusted_ssh_effective_sshd_verified" });
+}
+
+export function validateEffectiveSudoPolicy(text) {
+  const policy = parseCanonicalJson(Buffer.from(String(text)));
+  assertExactKeys(policy, ["account", "accountGroups", "authenticationRequired", "exemptGroup", "pamService", "passwordTries", "rules", "sourceCoverage", "version"]);
+  const expectedRule = {
+    arguments: [], command: trustedSshPaths.rootGate, host: "ALL", runAs: ["root"], tags: ["PASSWD"],
+  };
+  if (policy.version !== 1 || policy.account !== trustedSshPaths.account
+      || canonicalJson(policy.accountGroups) !== canonicalJson([trustedSshPaths.account])
+      || policy.authenticationRequired !== true || policy.exemptGroup !== null
+      || policy.pamService !== "settleora-handoff-sudo" || policy.passwordTries !== 1
+      || policy.sourceCoverage !== "all-sudoers-includes-and-group-membership"
+      || canonicalJson(policy.rules) !== canonicalJson([expectedRule])) {
+    throw new Error("trusted_ssh_effective_sudo_policy_invalid");
+  }
+  return Object.freeze({ ok: true, reasonCode: "trusted_ssh_effective_sudo_policy_verified" });
 }
 
 export function validateNativeStaticExecutable(executable) {
@@ -756,13 +826,14 @@ function authenticatedArtifactRecord({ bytes, installedPath, mode, name, source 
 }
 
 function authenticatePlanSourceClosure({
-  dispatcherModule, fdExec, nativeShell, outputRoot, repositoryRoot, rootGate, rootGateModule,
+  dispatcherModule, fdExec, nativeShell, outputRoot, pamPreauth, pamPreauthModule, repositoryRoot, rootGate, rootGateModule,
   rootBootstrapModule, sourceCommit, sourceTree, supportLibrary,
 }) {
   const root = realpathSync(repositoryRoot);
   const sources = [
     ["tools/auto-runner/trusted-ssh-boundary/settleora-trusted-ssh-dispatcher.mjs", dispatcherModule],
     ["tools/auto-runner/trusted-ssh-boundary/settleora-trusted-ssh-root-gate.mjs", rootGateModule],
+    ["tools/auto-runner/trusted-ssh-boundary/settleora-trusted-ssh-pam-preauth.mjs", pamPreauthModule],
     ["tools/auto-runner/trusted-ssh-boundary/settleora-authenticated-root-bootstrap.mjs", rootBootstrapModule],
     ["tools/auto-runner/trusted-ssh-boundary/lib/trusted-ssh-boundary.mjs", supportLibrary],
   ];
@@ -775,6 +846,7 @@ function authenticatePlanSourceClosure({
     }
     const artifactName = relative.endsWith("settleora-trusted-ssh-dispatcher.mjs") ? "settleora-trusted-ssh-dispatcher.mjs"
       : relative.endsWith("settleora-authenticated-root-bootstrap.mjs") ? "settleora-authenticated-root-bootstrap.mjs"
+      : relative.endsWith("settleora-trusted-ssh-pam-preauth.mjs") ? "settleora-trusted-ssh-pam-preauth.mjs"
       : relative.endsWith("settleora-trusted-ssh-root-gate.mjs") ? "settleora-trusted-ssh-root-gate.mjs" : "trusted-ssh-boundary.mjs";
     artifactBytes[artifactName] = bytes;
   }
@@ -785,6 +857,8 @@ function authenticatePlanSourceClosure({
         ["-std=c17", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic", "-nostdlib", "-static", "-fno-stack-protector", "-fno-builtin", "-fno-pie", "-no-pie"]],
       ["tools/auto-runner/trusted-ssh-boundary/native/settleora-trusted-ssh-fd-exec.c", fdExec,
         ["-std=c17", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic", "-static"]],
+      ["tools/auto-runner/trusted-ssh-boundary/native/settleora-trusted-ssh-pam-preauth.c", pamPreauth,
+        ["-std=c17", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic", "-nostdlib", "-static", "-fno-stack-protector", "-fno-builtin", "-fno-pie", "-no-pie"]],
       ["tools/auto-runner/trusted-ssh-boundary/native/settleora-trusted-ssh-root-gate.c", rootGate,
         ["-std=c17", "-O2", "-Wall", "-Wextra", "-Werror", "-pedantic", "-nostdlib", "-static", "-fno-stack-protector", "-fno-builtin", "-fno-pie", "-no-pie"]],
     ];
@@ -799,6 +873,7 @@ function authenticatePlanSourceClosure({
         throw new Error("trusted_ssh_native_build_binding_invalid");
       }
       const artifactName = relative.includes("fd-exec") ? "settleora-trusted-ssh-fd-exec"
+        : relative.includes("pam-preauth.c") ? "settleora-sudo-preauth"
         : relative.includes("root-gate.c") ? "settleora-root-gate" : "settleora-trusted-ssh-entry";
       artifactBytes[artifactName] = readFileSync(executable);
     }
