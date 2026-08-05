@@ -2438,7 +2438,9 @@ floor; PAM pre-auth and the root gate verify it before consuming or entering
 the one-shot receipt.
 The installed sudo authority collector rejects every unmodeled includedir
 entry, sudo alias, numeric UID/GID binding, and run-as group instead of silently
-excluding authority that sudo would load.
+excluding authority that sudo would load. Defaults and rule-user binding shapes
+are validated before applicability, so command scopes and netgroups also fail
+closed.
 
 The password prompt is bounded before authentication, not merely after the
 sudo command starts. A root-owned freestanding PAM pre-auth helper consumes the

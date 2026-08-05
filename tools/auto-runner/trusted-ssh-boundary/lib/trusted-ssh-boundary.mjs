@@ -908,14 +908,18 @@ function normalizeCollectedSudoPolicy(policy, groups) {
     || entry.usergroup === trustedSshPaths.account || entry.username === "ALL");
   const exactAccountBinding = [{ username: trustedSshPaths.account }];
   const defaults = new Map();
-  for (const entry of policy.Defaults || []) if (applies(entry.Binding)) {
+  for (const entry of policy.Defaults || []) {
+    assertModeledSudoUserBinding(entry.Binding, "defaults");
+    if (!applies(entry.Binding)) continue;
     if (canonicalJson(entry.Binding) !== canonicalJson(exactAccountBinding)) {
       throw new Error("trusted_ssh_installed_authority_defaults_scope_invalid");
     }
     for (const option of entry.Options || []) for (const [name, value] of Object.entries(option)) defaults.set(name, value);
   }
   const rules = [];
-  for (const spec of policy.User_Specs || []) if (applies(spec.User_List)) {
+  for (const spec of policy.User_Specs || []) {
+    assertModeledSudoUserBinding(spec.User_List, "rule");
+    if (!applies(spec.User_List)) continue;
     if (canonicalJson(spec.User_List) !== canonicalJson(exactAccountBinding)) {
       throw new Error("trusted_ssh_installed_authority_rule_scope_invalid");
     }
@@ -939,6 +943,20 @@ function normalizeCollectedSudoPolicy(policy, groups) {
     throw new Error("trusted_ssh_installed_authority_rule_invalid");
   }
   return deriveEffectiveSudoPolicy(renderTrustedSshFixtures({ operatorKeyFingerprint: syntheticOperatorFingerprint() }).sudoAuthorityObservation);
+}
+
+function assertModeledSudoUserBinding(binding, kind) {
+  if (binding === undefined) return;
+  if (!Array.isArray(binding)) throw new Error(`trusted_ssh_installed_authority_${kind}_binding_invalid`);
+  for (const entry of binding) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`trusted_ssh_installed_authority_${kind}_binding_invalid`);
+    }
+    const names = Object.keys(entry);
+    if (names.length !== 1 || !["username", "usergroup"].includes(names[0]) || typeof entry[names[0]] !== "string") {
+      throw new Error(`trusted_ssh_installed_authority_${kind}_binding_invalid`);
+    }
+  }
 }
 
 function assertNoUnmodeledSudoIdentities(value) {

@@ -435,6 +435,7 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   for (const [name, line, reason] of [
     ["extra-default", `Defaults:${trustedSshPaths.account} env_keep += "ATTACKER"\n`, /defaults_set/u],
     ["global-default", "Defaults env_reset\n", /defaults_scope/u],
+    ["command-default", `Defaults!${trustedSshPaths.rootGate} pam_service=common-auth\n`, /defaults_binding/u],
   ]) {
     const target = path.join(fixture, `etc/sudoers.d/${name}`); writeFileSync(target, line, { mode: 0o600 });
     const withDefault = { ...expectedSourceDigests, [`/etc/sudoers.d/${name}`]: sha256(line) };
@@ -497,6 +498,11 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   assert.throws(() => collectTrustedSshInstalledAuthority({
     ...options, expectedSourceDigests: { ...expectedSourceDigests, [trustedSshPaths.sudoers]: sha256(runAsGroup) },
   }), /rule/u);
+  const netgroup = ["+attackers ALL=(root) NOPASSWD: /bin/bash", rendered.sudoers.trim(), ""].join("\n");
+  writeFileSync(path.join(fixture, "etc/sudoers.d/settleora-trusted-ssh"), netgroup, { mode: 0o600 });
+  assert.throws(() => collectTrustedSshInstalledAuthority({
+    ...options, expectedSourceDigests: { ...expectedSourceDigests, [trustedSshPaths.sudoers]: sha256(netgroup) },
+  }), /rule_binding/u);
 }));
 
 test("installed sshd and visudo fully parse generated configuration using a disposable fixture host key", () => withFixture((fixture) => {

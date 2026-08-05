@@ -2128,8 +2128,8 @@ owner-private snapshot and binds the complete sudoers include tree,
 passwd/group/NSS inputs, transitive PAM include tree, file metadata/digests,
 and the approved installed `cvtsudoers` digest before accepting that effective
 projection. Live collection and approval remain a later manual gate. The
-collector rejects sudo aliases, numeric UID/GID bindings, and all run-as group
-authority before applicability normalization. The
+collector rejects sudo aliases, numeric UID/GID bindings, run-as groups, and
+any unmodeled Defaults/User_List binding before applicability normalization. The
 post-auth gate atomically moves the consumed receipt to a
 root-only entered state exactly once; bootstrap independently checks the
 package plus entered receipt. `ForceCommand` remains defense in depth and a subsystem/request

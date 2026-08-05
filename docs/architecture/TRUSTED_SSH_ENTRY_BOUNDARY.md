@@ -347,7 +347,9 @@ The installed-authority collector also fails closed on every unmodeled
 `@includedir` entry (including sudo-active names beginning with `_` or `-`) and
 on any sudo alias or numeric UID/GID representation; it never filters them out
 before deciding which authority applies to the account. Any run-as group field
-is rejected rather than normalized into the fixed root-user-only rule.
+is rejected rather than normalized into the fixed root-user-only rule. Defaults
+and rule user bindings are shape-checked before applicability, so command,
+host, run-as, netgroup, negated, or other unmodeled bindings cannot disappear.
 
 ## Deployment, lockout avoidance, and rollback
 
