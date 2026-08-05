@@ -2097,3 +2097,27 @@ number, `main` base authority, and exact head. Stale or prior heads, a different
 PR/base/URL, missing or duplicate-like markers or intents, mixed authority, or
 remote-head disagreement fail closed at push, PR-create, CI-wait, and later
 GitHub-convergence restarts.
+
+## Trusted SSH entry dependency for manual-root handoff
+
+The manual-root handoff cannot use a Bash account's ordinary remote-command
+path as its first trusted server-side boundary. Installed OpenSSH starts forced
+and client commands through the configured login shell with `-c`, so a
+client-supplied clean environment begins too late to exclude Bash startup
+authority.
+
+The inactive source contract in
+`docs/architecture/TRUSTED_SSH_ENTRY_BOUNDARY.md` therefore requires a
+dedicated account with a static root-owned native login shell, root-owned
+authorization/dispatcher closure, public-key-only SSH authentication,
+forwarding disabled, and PTY retained only for one password-requiring fixed
+sudo gate. `ForceCommand` remains defense in depth and a subsystem/request
+normalizer; it is not treated as the pre-shell boundary.
+
+Repository source and tests may generate and validate plans only under a
+caller-supplied owner-private fixture root. They must not create an account,
+key, password, shell entry, sshd/PAM/sudoers configuration, service change,
+reload, installation, production handoff, runner submission, or Issue #959
+effect. Boundary merge, boundary deployment, installed behavior validation,
+draft PR #1048 integration, and any fresh production handoff are separate
+manual gates in that order.

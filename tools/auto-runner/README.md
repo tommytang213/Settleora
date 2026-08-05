@@ -2365,3 +2365,59 @@ For an exact authenticated terminal-validation-retry projection, the reloaded
 projection digest directly authorizes bounded lifecycle reopen. The legacy raw
 retry predicate remains only for non-projected compatibility. An unexpected
 terminal planner result in projected posture blocks before any recovery write.
+
+## Inactive trusted SSH entry boundary
+
+Issue #1012's trusted SSH entry boundary is defined by
+`docs/architecture/TRUSTED_SSH_ENTRY_BOUNDARY.md` and source under
+`tools/auto-runner/trusted-ssh-boundary/`. It is not installed or activated by
+the runner. It exists because OpenSSH invokes `ForceCommand` and authorized-key
+commands through the configured login shell with `-c`; client-side `env -i`
+cannot prevent a Bash startup hook from running before that point.
+
+The selected future boundary uses a dedicated account whose login shell is the
+statically linked `settleora-trusted-ssh-entry` ELF. `ForceCommand
+settleora-handoff-v1` normalizes shell/command/subsystem requests but is not the
+pre-shell trust boundary. The native shell accepts only the exact installed
+OpenSSH `shell -c` argv shape and the version-1 `preflight` or `execute`
+identity grammar, clears the complete environment, and executes the fixed
+root-owned dispatcher closure. Execute requires and preserves the PTY needed
+for one password-requiring sudo gate.
+
+The source-owned generator is generation-only:
+
+```bash
+/usr/bin/node tools/auto-runner/trusted-ssh-boundary/generate-trusted-ssh-boundary-plan.mjs \
+  --output-root /absolute/owner-private/fixture-root \
+  --source-commit <exact-40-hex-commit> \
+  --source-tree <exact-40-hex-tree> \
+  --repository-root /absolute/clean/Settleora-checkout \
+  --native-shell /absolute/private/build/settleora-trusted-ssh-entry \
+  --dispatcher-module /absolute/source/settleora-trusted-ssh-dispatcher.mjs \
+  --fd-exec /absolute/private/build/settleora-trusted-ssh-fd-exec \
+  --root-gate /absolute/private/build/settleora-root-gate \
+  --root-gate-module /absolute/source/settleora-trusted-ssh-root-gate.mjs \
+  --operator-key-fingerprint SHA256:<owner-supplied-fingerprint> \
+  --generated-at <injected-UTC-second>
+```
+
+The generator independently reads `HEAD` and `HEAD^{tree}` from that clean
+checkout and rejects caller identities that differ. It writes only beneath the
+existing owner-private output root. It does not run
+account, password, SSH, sudo, sshd, PAM, service, deployment, native-install,
+runner, or handoff operations. The emitted authorized-key content is a
+placeholder template and contains no key bytes. The plan validator is also
+fixture/private-root-only in source-development tasks:
+
+```bash
+/usr/bin/node tools/auto-runner/trusted-ssh-boundary/validate-trusted-ssh-boundary.mjs \
+  /absolute/owner-private/fixture-root/trusted-ssh-boundary-plan-v1
+```
+
+The stable future integration envelope is
+`settleora_trusted_ssh_handoff_package_v1`. Draft PR #1048 must remain
+unmerged and unchanged until this boundary source separately merges, is later
+installed under an explicit manual security gate, and its installed
+sshd/account/shell/sudo/PTY behavior is verified. Only then may PR #1048 adapt
+its authenticated package producer to this envelope and reconverge. Retained
+handoff `20260804-1825` is never an input or reusable identity.
