@@ -283,7 +283,7 @@ already consumed root-owned receipt and moves it to entered exactly once. Instal
 a later explicit owner security decision; this PR does not touch live PAM.
 
 The future installed validator must capture the complete sudoers include tree,
-passwd/group/NSS inputs, and transitive PAM `include`/`substack` tree into an
+passwd/group/shadow/NSS inputs, and transitive PAM `include`/`substack` tree into an
 owner-private read-only snapshot. Every captured regular file is bound by
 owner, group, mode, link count, byte length, and digest; the approved digest
 map must match exactly. The installed `/usr/bin/cvtsudoers` executable is also
@@ -299,6 +299,11 @@ NSS parsing requires exactly one `files` source for each `passwd`, `group`,
 sources fail closed. PAM closure parsing
 captures valid `include`/`substack` directives with trailing comments and
 rejects every directive-like line outside the modeled grammar.
+The owner-private snapshot also captures `/etc/shadow`, validates exactly one
+unlocked dedicated-account row with canonical aging fields, and binds the
+complete bytes by digest without emitting the password authority in output or
+audit logs. Thus `pam_unix` password and expiry decisions cannot depend on
+uncaptured bytes.
 The inspected DevBox currently uses `files systemd` for passwd, group, and
 shadow, so a
 future deployment cannot pass this proof as-is. The inactive plan records an

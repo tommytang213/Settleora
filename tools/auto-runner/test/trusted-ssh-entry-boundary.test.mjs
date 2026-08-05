@@ -412,6 +412,7 @@ test("installed authority collector binds complete private sudoers, NSS and tran
     "/etc/sudoers.d/settleora-trusted-ssh": rendered.sudoers,
     "/etc/passwd": `${trustedSshPaths.account}:x:12345:12345:Settleora trusted SSH handoff:${trustedSshPaths.home}:${trustedSshPaths.loginShell}\n`,
     "/etc/group": `${trustedSshPaths.account}:x:12345:\n`,
+    "/etc/shadow": `${trustedSshPaths.account}:__SYNTHETIC_TEST_PASSWORD_AUTHORITY__:0:0:99999:7:::\n`,
     "/etc/nsswitch.conf": "passwd: files\ngroup: files\nshadow: files\ninitgroups: files\nsudoers: files\n",
     "/etc/pam.d/settleora-handoff-sudo": rendered.pam,
     "/etc/pam.d/common-auth": "@include common-auth-local # bounded local include\nauth required pam_unix.so\n",
@@ -432,6 +433,7 @@ test("installed authority collector binds complete private sudoers, NSS and tran
   assert.equal(collected.collector, "settleora_trusted_ssh_installed_authority_v1");
   assert.deepEqual(collected.pamClosure, ["/etc/pam.d/settleora-handoff-sudo", "/etc/pam.d/common-auth", "/etc/pam.d/common-auth-local", "/etc/pam.d/common-account", "/etc/pam.d/common-session-noninteractive"]);
   assert.equal(collected.sources.length, Object.keys(files).length);
+  assert.equal(collected.sources.some((source) => source.path === "/etc/shadow"), true);
   assert.equal(collected.sources.every((source) => source.mode === "0600" && source.nlink === 1), true);
   assert.equal(collected.converter.sha256, options.expectedConverterSha256);
   assert.throws(() => collectTrustedSshInstalledAuthority({ ...options, expectedConverterSha256: "0".repeat(64) }), /converter_digest/u);
@@ -475,6 +477,18 @@ test("installed authority collector binds complete private sudoers, NSS and tran
     }), /groups/u);
   }
   writeFileSync(path.join(fixture, "etc/group"), files["/etc/group"], { mode: 0o600 });
+  for (const invalidShadow of [
+    `${trustedSshPaths.account}:!:0:0:99999:7:::\n`,
+    `${trustedSshPaths.account}:__MANUAL_PASSWORD_HASH_REQUIRED__:0:0:99999:7:::\n`,
+    `${files["/etc/shadow"]}${trustedSshPaths.account}:__SECOND_AUTHORITY__:0:0:99999:7:::\n`,
+    `${trustedSshPaths.account}:__SYNTHETIC_TEST_PASSWORD_AUTHORITY__:00:0:99999:7:::\n`,
+  ]) {
+    writeFileSync(path.join(fixture, "etc/shadow"), invalidShadow, { mode: 0o600 });
+    assert.throws(() => collectTrustedSshInstalledAuthority({
+      ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/shadow": sha256(invalidShadow) },
+    }), /shadow/u);
+  }
+  writeFileSync(path.join(fixture, "etc/shadow"), files["/etc/shadow"], { mode: 0o600 });
   for (const invalidNsswitch of [
     "passwd: files\npasswd: files\ngroup: files\n",
     "passwd: files\ngroup: files\ninitgroups: files sss\n",
@@ -583,6 +597,12 @@ test("installation plan is deterministic, complete, private-root-only and never 
     passwd: "exactly-one-files-source", shadow: "exactly-one-files-source",
     sudoers: "exactly-one-files-source",
   });
+  for (const modulePath of [
+    trustedSshPaths.dispatcherModule, trustedSshPaths.pamPreauthModule,
+    trustedSshPaths.rootGateModule, trustedSshPaths.rootBootstrapModule,
+  ]) {
+    assert.equal(path.posix.resolve(path.posix.dirname(modulePath), "lib/trusted-ssh-boundary.mjs"), trustedSshPaths.supportLibrary);
+  }
   assert.deepEqual(plan.runtimeRequirements.node, {
     executable: "/usr/bin/node", maximumExclusive: "23.0.0", minimum: "22.15.0",
     requiredApi: "process.execve", verifyBeforeOperationClaim: true,

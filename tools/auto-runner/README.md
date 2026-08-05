@@ -2450,7 +2450,7 @@ sudoers contract sets `passwd_tries=1`. Replay therefore fails before a second
 prompt. The private fixtures also carry a closed normalized effective-sudo
 projection and its structured source observation. The source-owned collector
 requires a caller-private snapshot containing the complete sudoers include
-tree, passwd/group/NSS inputs, and transitive PAM include tree; it binds every
+tree, passwd/group/shadow/NSS inputs, and transitive PAM include tree; it binds every
 source's ownership, mode, link count, size, and approved digest plus the exact
 installed `cvtsudoers` digest. Later installation must derive the policy from
 that closed source set and reject any extra source, group match, exempt group,

@@ -2125,7 +2125,7 @@ provenance. PAM pre-auth and the post-auth root gate both prove the boundary's
 Node floor and `process.execve` capability before consuming or entering the
 one-shot. The source-owned installed-authority collector operates on an
 owner-private snapshot and binds the complete sudoers include tree,
-passwd/group/NSS inputs, transitive PAM include tree, file metadata/digests,
+passwd/group/shadow/NSS inputs, transitive PAM include tree, file metadata/digests,
 and the approved installed `cvtsudoers` digest before accepting that effective
 projection. NSS must expose exactly one local-files route for each passwd,
 group, shadow, sudoers, and initgroups database. PAM include/substack directives

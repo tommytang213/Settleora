@@ -28,7 +28,7 @@ export const trustedSshPaths = Object.freeze({
   node: "/usr/bin/node",
   rootGate: "/opt/settleora/trusted-ssh/bin/settleora-root-gate",
   rootGateModule: "/opt/settleora/trusted-ssh/lib/settleora-trusted-ssh-root-gate.mjs",
-  supportLibrary: "/opt/settleora/trusted-ssh/lib/trusted-ssh-boundary.mjs",
+  supportLibrary: "/opt/settleora/trusted-ssh/lib/lib/trusted-ssh-boundary.mjs",
   rootBootstrap: "/usr/bin/node",
   rootBootstrapModule: "/opt/settleora/trusted-ssh/lib/settleora-authenticated-root-bootstrap.mjs",
   sshdDropIn: "/etc/ssh/sshd_config.d/90-settleora-trusted-ssh.conf",
@@ -340,6 +340,9 @@ export function createTrustedSshInstallationPlan({
       artifacts: artifactManifest,
       authorityPaths: [
         { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh" },
+        { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh/bin" },
+        { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh/lib" },
+        { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh/lib/lib" },
         { group: "settleora_handoff", mode: "0710", owner: "root", path: trustedSshPaths.operationClaims },
         { group: "settleora_handoff", mode: "1770", owner: "root", path: trustedSshPaths.operationClaimsPending },
         { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsConsumed },
@@ -520,6 +523,9 @@ export function validateTrustedSshInstallationPlan(root, {
       || !fingerprintPattern.test(String(plan.account?.sshKey?.fingerprint || ""))
       || canonicalJson(plan.authorityPaths) !== canonicalJson([
         { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh" },
+        { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh/bin" },
+        { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh/lib" },
+        { group: "root", mode: "0755", owner: "root", path: "/opt/settleora/trusted-ssh/lib/lib" },
         { group: "settleora_handoff", mode: "0710", owner: "root", path: trustedSshPaths.operationClaims },
         { group: "settleora_handoff", mode: "1770", owner: "root", path: trustedSshPaths.operationClaimsPending },
         { group: "root", mode: "0700", owner: "root", path: trustedSshPaths.operationClaimsConsumed },
@@ -784,9 +790,11 @@ export function collectTrustedSshInstalledAuthority({
   if (sha256(readFileSync(converterPath)) !== converterBefore) throw new Error("trusted_ssh_installed_authority_converter_drift");
   const passwd = readSource("/etc/passwd");
   const group = readSource("/etc/group");
+  const shadow = readSource("/etc/shadow");
   const nsswitch = readSource("/etc/nsswitch.conf");
   const pamFiles = collectPamClosure("settleora-handoff-sudo", readSource);
   const account = parseSnapshotAccount(passwd, group);
+  assertSnapshotShadow(shadow);
   const sources = [...captured].sort(([left], [right]) => left.localeCompare(right)).map(([name, capture]) => ({
     byteCount: capture.bytes.length, gid: capture.gid, mode: capture.mode, nlink: capture.nlink,
     path: name, sha256: sha256(capture.bytes), uid: capture.uid,
@@ -896,6 +904,26 @@ function parseSnapshotAccount(passwd, group) {
     || String(parts[3] || "").split(",").includes(trustedSshPaths.account)).map(({ parts }) => parts[0]).sort();
   if (canonicalJson(groups) !== canonicalJson([trustedSshPaths.account])) throw new Error("trusted_ssh_installed_authority_groups_invalid");
   return { groups };
+}
+
+function assertSnapshotShadow(shadow) {
+  const rows = shadow.trim().split("\n").filter(Boolean).map((line) => line.split(":"));
+  const accountRows = rows.filter((fields) => fields[0] === trustedSshPaths.account);
+  if (accountRows.length !== 1 || rows.some((fields) => fields.length !== 9)) {
+    throw new Error("trusted_ssh_installed_authority_shadow_invalid");
+  }
+  const fields = accountRows[0];
+  const passwordAuthority = fields[1];
+  if (passwordAuthority.length < 1 || passwordAuthority.length > 255 || /^[!*]/u.test(passwordAuthority)
+      || passwordAuthority === "__MANUAL_PASSWORD_HASH_REQUIRED__" || !/^[\x21-\x7e]+$/u.test(passwordAuthority)
+      || fields[8] !== "") {
+    throw new Error("trusted_ssh_installed_authority_shadow_invalid");
+  }
+  for (const value of fields.slice(2, 8)) {
+    if (value !== "" && !/^(?:0|[1-9][0-9]{0,9})$/u.test(value)) {
+      throw new Error("trusted_ssh_installed_authority_shadow_invalid");
+    }
+  }
 }
 
 function parseCanonicalSystemId(value, family) {
