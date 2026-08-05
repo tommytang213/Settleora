@@ -2,7 +2,8 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  authenticateTrustedSshPackage, closeAuthenticatedPackage, parseTrustedSshCommand, reserveTrustedSshOperation, trustedSshPaths,
+  assertTrustedSshNodeRuntime, authenticateTrustedSshPackage, closeAuthenticatedPackage, parseTrustedSshCommand,
+  reserveTrustedSshOperation, trustedSshPaths,
 } from "./lib/trusted-ssh-boundary.mjs";
 
 export function runTrustedSshDispatcher({
@@ -12,9 +13,12 @@ export function runTrustedSshDispatcher({
   claimRoot = trustedSshPaths.operationClaims,
   claimReserver = reserveTrustedSshOperation,
   executor = executeHeldEntrypoint,
+  runtimeVersion = process.versions.node,
+  runtimeExecve = process.execve,
 } = {}) {
   if (!Array.isArray(argv) || argv.length !== 3) throw new Error("trusted_ssh_dispatch_argv_invalid");
   const request = parseTrustedSshCommand(`settleora-handoff-v1 ${argv.join(" ")}`);
+  assertTrustedSshNodeRuntime(runtimeVersion, runtimeExecve);
   const authenticated = authenticateTrustedSshPackage({
     root: handoffRoot,
     handoffKey: request.handoffKey,

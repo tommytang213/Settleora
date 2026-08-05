@@ -301,6 +301,13 @@ test("concurrent pre-auth consumers permit exactly one transition before any pro
 test("execute reserves the operation before entrypoint dispatch and refuses a second prompt path", () => withFixture((fixture) => {
   const packageRoot = path.join(fixture, "handoffs"); mkdirSync(packageRoot, { mode: 0o700 }); createPackage(packageRoot);
   let claims = 0; let executions = 0;
+  assert.throws(() => runTrustedSshDispatcher({
+    argv: ["execute", key, operation], handoffRoot: packageRoot, expectedUid: process.getuid(),
+    runtimeVersion: "22.14.0", runtimeExecve: undefined,
+    claimReserver() { claims += 1; }, executor() { executions += 1; },
+  }), /node_runtime/u);
+  assert.equal(claims, 0);
+  assert.equal(executions, 0);
   const invoke = () => runTrustedSshDispatcher({
     argv: ["execute", key, operation], handoffRoot: packageRoot, expectedUid: process.getuid(),
     claimReserver() { claims += 1; if (claims > 1) throw new Error("replay"); },
