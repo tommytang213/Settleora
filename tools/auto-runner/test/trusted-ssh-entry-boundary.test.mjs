@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage, createTrustedSshInstallationPlan,
+  authenticateInstalledBoundaryArtifact, authenticateTrustedSshPackage, closeAuthenticatedPackage, collectTrustedSshInstalledAuthority, createTrustedSshInstallationPlan,
   consumeTrustedSshOperation, deriveEffectiveSudoPolicy, enterTrustedSshRootGate, parseTrustedSshCommand, renderTrustedSshFixtures, reserveTrustedSshOperation,
   trustedSshPackageContract, trustedSshPaths,
   validateEffectiveSshdOutput, validateEffectiveSudoPolicy, validateNativeStaticExecutable, validateRealizedAuthorizedKey, validateTrustedSshFixtures,
@@ -384,6 +384,42 @@ test("effective sudo projection rejects global, group, exempt, passwordless and 
     { ...observation, rules: [...observation.rules, { ...observation.rules[0], command: "/bin/bash" }] },
   ]) assert.throws(() => deriveEffectiveSudoPolicy(`${canonicalJson(mutation)}\n`), /sudo_authority/u);
 });
+
+test("installed authority collector binds complete private sudoers, NSS and transitive PAM source bytes", () => withFixture((fixture) => {
+  const rendered = renderTrustedSshFixtures({ operatorKeyFingerprint: fingerprint });
+  const files = {
+    "/etc/sudoers": "@includedir /etc/sudoers.d\n",
+    "/etc/sudoers.d/settleora-trusted-ssh": rendered.sudoers,
+    "/etc/passwd": `${trustedSshPaths.account}:x:12345:12345:Settleora trusted SSH handoff:${trustedSshPaths.home}:${trustedSshPaths.loginShell}\n`,
+    "/etc/group": `${trustedSshPaths.account}:x:12345:\n`,
+    "/etc/nsswitch.conf": "passwd: files\ngroup: files\n",
+    "/etc/pam.d/settleora-handoff-sudo": rendered.pam,
+    "/etc/pam.d/common-auth": "@include common-auth-local\nauth required pam_unix.so\n",
+    "/etc/pam.d/common-auth-local": "auth required pam_deny.so\n",
+    "/etc/pam.d/common-account": "account required pam_unix.so\n",
+    "/etc/pam.d/common-session-noninteractive": "session required pam_unix.so\n",
+  };
+  const expectedSourceDigests = {};
+  for (const [name, bytes] of Object.entries(files)) {
+    const target = path.join(fixture, name.slice(1)); mkdirSync(path.dirname(target), { mode: 0o700, recursive: true });
+    writeFileSync(target, bytes, { mode: 0o600 }); chmodSync(target, 0o600); expectedSourceDigests[name] = sha256(bytes);
+  }
+  const options = {
+    snapshotRoot: fixture, expectedSourceDigests, expectedConverterSha256: sha256(readFileSync("/usr/bin/cvtsudoers")),
+    sourceCommit: "d".repeat(40), sourceTree: "e".repeat(40), collectedAt: "2026-08-05T04:15:00Z",
+  };
+  const collected = collectTrustedSshInstalledAuthority(options);
+  assert.equal(collected.collector, "settleora_trusted_ssh_installed_authority_v1");
+  assert.deepEqual(collected.pamClosure, ["/etc/pam.d/settleora-handoff-sudo", "/etc/pam.d/common-auth", "/etc/pam.d/common-auth-local", "/etc/pam.d/common-account", "/etc/pam.d/common-session-noninteractive"]);
+  assert.equal(collected.sources.length, Object.keys(files).length);
+  assert.equal(collected.sources.every((source) => source.mode === "0600" && source.nlink === 1), true);
+  assert.equal(collected.converter.sha256, options.expectedConverterSha256);
+  assert.throws(() => collectTrustedSshInstalledAuthority({ ...options, expectedConverterSha256: "0".repeat(64) }), /converter_digest/u);
+  assert.throws(() => collectTrustedSshInstalledAuthority({ ...options, expectedSourceDigests: { ...expectedSourceDigests, "/etc/pam.d/common-auth": "0".repeat(64) } }), /source_digest/u);
+  writeFileSync(path.join(fixture, "etc/sudoers.d/alternate"), `${trustedSshPaths.account} ALL=(root) NOPASSWD: /bin/bash\n`, { mode: 0o600 });
+  const expanded = { ...expectedSourceDigests, "/etc/sudoers.d/alternate": sha256(`${trustedSshPaths.account} ALL=(root) NOPASSWD: /bin/bash\n`) };
+  assert.throws(() => collectTrustedSshInstalledAuthority({ ...options, expectedSourceDigests: expanded }), /rule/u);
+}));
 
 test("installed sshd and visudo fully parse generated configuration using a disposable fixture host key", () => withFixture((fixture) => {
   const rendered = renderTrustedSshFixtures({ operatorKeyFingerprint: fingerprint });

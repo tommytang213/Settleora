@@ -281,12 +281,21 @@ invocation to one prompt. The post-authentication root gate accepts only the
 already consumed root-owned receipt and moves it to entered exactly once. Installing this dedicated PAM service is
 a later explicit owner security decision; this PR does not touch live PAM.
 
-The future installed validator must normalize the account's complete effective
-sudo authority across every include, user/group match, `exempt_group`, PAM
-service, password-owner flags, zero timestamp timeout, password-tries setting,
-source provenance, and command specification. It accepts exactly
+The future installed validator must capture the complete sudoers include tree,
+passwd/group/NSS inputs, and transitive PAM `include`/`substack` tree into an
+owner-private read-only snapshot. Every captured regular file is bound by
+owner, group, mode, link count, byte length, and digest; the approved digest
+map must match exactly. The installed `/usr/bin/cvtsudoers` executable is also
+bound to its explicitly approved digest before and after it derives the
+effective policy. The validator then normalizes every user/group match,
+`exempt_group`, PAM service, password-owner flag, zero timestamp timeout,
+password-tries setting, security default, source provenance, and command
+specification. It accepts exactly
 one authenticated no-argument root-gate rule, the dedicated account's own
 group only, no exempt group, and no global/group/alternate command route.
+This collector is source-only in this PR and tests only caller-owned private
+snapshot roots; collecting and approving a live installed snapshot remains a
+later manual security gate.
 
 ## Trust roots and ownership
 

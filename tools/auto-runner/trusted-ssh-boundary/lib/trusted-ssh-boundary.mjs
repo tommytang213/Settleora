@@ -726,6 +726,176 @@ export function validateEffectiveSudoPolicy(text) {
   return Object.freeze({ ok: true, reasonCode: "trusted_ssh_effective_sudo_policy_verified" });
 }
 
+export function collectTrustedSshInstalledAuthority({
+  snapshotRoot, expectedSourceDigests, expectedConverterSha256, sourceCommit, sourceTree, collectedAt,
+} = {}) {
+  assertPrivateOutputRoot(snapshotRoot);
+  if (!oidPattern.test(String(sourceCommit || "")) || !oidPattern.test(String(sourceTree || ""))
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(String(collectedAt || ""))
+      || !expectedSourceDigests || typeof expectedSourceDigests !== "object" || Array.isArray(expectedSourceDigests)
+      || !digestPattern.test(String(expectedConverterSha256 || ""))) {
+    throw new Error("trusted_ssh_installed_authority_identity_invalid");
+  }
+  const captured = new Map();
+  const readSource = (absoluteName) => {
+    if (!absoluteName.startsWith("/") || absoluteName.includes("..")) throw new Error("trusted_ssh_installed_authority_path_invalid");
+    const relative = absoluteName.slice(1);
+    const file = path.join(snapshotRoot, relative);
+    if (path.relative(snapshotRoot, file).startsWith("..")) throw new Error("trusted_ssh_installed_authority_path_invalid");
+    assertPrivateSnapshotAncestry(snapshotRoot, path.dirname(file));
+    const capture = capturePrivateAuthorityFile(file);
+    captured.set(absoluteName, capture);
+    return capture.bytes.toString("utf8");
+  };
+  const converterPath = "/usr/bin/cvtsudoers";
+  const converterBefore = sha256(readFileSync(converterPath));
+  if (converterBefore !== expectedConverterSha256) throw new Error("trusted_ssh_installed_authority_converter_digest_invalid");
+  const sudoPolicy = runCvtsudoersJson(collectSudoersClosure("/etc/sudoers", snapshotRoot, readSource));
+  if (sha256(readFileSync(converterPath)) !== converterBefore) throw new Error("trusted_ssh_installed_authority_converter_drift");
+  const passwd = readSource("/etc/passwd");
+  const group = readSource("/etc/group");
+  const nsswitch = readSource("/etc/nsswitch.conf");
+  const pamFiles = collectPamClosure("settleora-handoff-sudo", readSource);
+  const account = parseSnapshotAccount(passwd, group);
+  const sources = [...captured].sort(([left], [right]) => left.localeCompare(right)).map(([name, capture]) => ({
+    byteCount: capture.bytes.length, gid: capture.gid, mode: capture.mode, nlink: capture.nlink,
+    path: name, sha256: sha256(capture.bytes), uid: capture.uid,
+  }));
+  const actualDigests = Object.fromEntries(sources.map(({ path: name, sha256: digest }) => [name, digest]));
+  if (canonicalJson(actualDigests) !== canonicalJson(expectedSourceDigests)) {
+    throw new Error("trusted_ssh_installed_authority_source_digest_invalid");
+  }
+  const normalized = normalizeCollectedSudoPolicy(sudoPolicy, account.groups);
+  if (!/^passwd:\s+files\s*$/mu.test(nsswitch) || !/^group:\s+files\s*$/mu.test(nsswitch)) {
+    throw new Error("trusted_ssh_installed_authority_nss_invalid");
+  }
+  if (pamFiles[0]?.path !== trustedSshPaths.pamService
+      || pamFiles[0].bytes !== renderTrustedSshFixtures({ operatorKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }).pam) {
+    throw new Error("trusted_ssh_installed_authority_pam_invalid");
+  }
+  return Object.freeze({
+    account: trustedSshPaths.account, collectedAt, collector: "settleora_trusted_ssh_installed_authority_v1",
+    converter: { path: converterPath, sha256: converterBefore },
+    effectiveSudoPolicy: normalized, hostSnapshotDigest: sha256(canonicalJson(sources)),
+    pamClosure: pamFiles.map(({ path: name }) => name), source: { commit: sourceCommit, tree: sourceTree }, sources, version: 1,
+  });
+}
+
+function collectSudoersClosure(name, snapshotRoot, readSource, seen = new Set()) {
+  if (seen.has(name)) throw new Error("trusted_ssh_installed_authority_sudo_include_cycle");
+  seen.add(name);
+  const text = readSource(name);
+  const chunks = [];
+  for (const line of text.split("\n")) {
+    const include = /^\s*[@#]include\s+([^\s]+)\s*$/u.exec(line);
+    const includeDir = /^\s*[@#]includedir\s+([^\s]+)\s*$/u.exec(line);
+    if (include) chunks.push(collectSudoersClosure(include[1], snapshotRoot, readSource, seen));
+    else if (includeDir) {
+      const directory = path.join(snapshotRoot, includeDir[1].slice(1));
+      const entries = readdirSync(directory).filter((entry) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(entry)).sort();
+      if (entries.length > 128) throw new Error("trusted_ssh_installed_authority_sudo_include_invalid");
+      for (const entry of entries) chunks.push(collectSudoersClosure(`${includeDir[1]}/${entry}`, snapshotRoot, readSource, seen));
+    } else chunks.push(line);
+  }
+  return chunks.join("\n");
+}
+
+function collectPamClosure(service, readSource, seen = new Set()) {
+  const name = `/etc/pam.d/${service}`;
+  if (seen.has(name)) return [];
+  seen.add(name);
+  const bytes = readSource(name);
+  const result = [{ bytes, path: name }];
+  for (const line of bytes.split("\n")) {
+    const include = /^\s*(?:(?:auth|account|password|session)\s+(?:include|substack)|@include)\s+([A-Za-z0-9_-]+)\s*$/u.exec(line);
+    if (include) result.push(...collectPamClosure(include[1], readSource, seen));
+  }
+  return result;
+}
+
+function parseSnapshotAccount(passwd, group) {
+  const rows = passwd.trim().split("\n").filter((line) => line.split(":")[0] === trustedSshPaths.account);
+  if (rows.length !== 1) throw new Error("trusted_ssh_installed_authority_account_invalid");
+  const fields = rows[0].split(":");
+  if (fields.length !== 7 || fields[5] !== trustedSshPaths.home || fields[6] !== trustedSshPaths.loginShell) {
+    throw new Error("trusted_ssh_installed_authority_account_invalid");
+  }
+  const groups = group.trim().split("\n").filter(Boolean).filter((line) => {
+    const parts = line.split(":"); return parts[2] === fields[3] || parts[3].split(",").includes(trustedSshPaths.account);
+  }).map((line) => line.split(":")[0]).sort();
+  if (canonicalJson(groups) !== canonicalJson([trustedSshPaths.account])) throw new Error("trusted_ssh_installed_authority_groups_invalid");
+  return { groups };
+}
+
+function runCvtsudoersJson(policy) {
+  const result = spawnSync("/usr/bin/cvtsudoers", ["-f", "JSON", "-"], {
+    cwd: "/", encoding: "utf8", input: policy,
+    env: { HOME: "/nonexistent", LANG: "C", LC_ALL: "C", PATH: "/usr/bin:/bin", TZ: "UTC" },
+  });
+  if (result.status !== 0 || result.error) throw new Error("trusted_ssh_installed_authority_converter_invalid");
+  return JSON.parse(result.stdout);
+}
+
+function capturePrivateAuthorityFile(file) {
+  const expectedUid = process.getuid?.() ?? 0;
+  const expectedGid = process.getgid?.() ?? 0;
+  const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const before = fstatSync(fd);
+    if (!before.isFile() || before.uid !== expectedUid || before.gid !== expectedGid || before.nlink !== 1
+        || (before.mode & 0o777) !== 0o600 || before.size < 2 || before.size > 4 * 1024 * 1024) {
+      throw new Error("trusted_ssh_installed_authority_source_metadata_invalid");
+    }
+    const bytes = readFileSync(fd);
+    const after = fstatSync(fd);
+    for (const field of ["dev", "ino", "uid", "gid", "mode", "nlink", "size", "mtimeMs", "ctimeMs"]) {
+      if (before[field] !== after[field]) throw new Error("trusted_ssh_installed_authority_source_drift");
+    }
+    return Object.freeze({ bytes, gid: before.gid, mode: `0${(before.mode & 0o777).toString(8)}`, nlink: before.nlink, uid: before.uid });
+  } finally { closeSync(fd); }
+}
+
+function assertPrivateSnapshotAncestry(root, directory) {
+  const expectedUid = process.getuid?.() ?? 0;
+  let cursor = root;
+  const relative = path.relative(root, directory);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("trusted_ssh_installed_authority_path_invalid");
+  for (const component of relative.split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, component);
+    const info = lstatSync(cursor);
+    if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== expectedUid || (info.mode & 0o022) !== 0) {
+      throw new Error("trusted_ssh_installed_authority_ancestry_invalid");
+    }
+  }
+}
+
+function normalizeCollectedSudoPolicy(policy, groups) {
+  const applies = (binding = []) => binding.length === 0 || binding.some((entry) => entry.username === trustedSshPaths.account
+    || entry.usergroup === trustedSshPaths.account || entry.username === "ALL");
+  const defaults = new Map();
+  for (const entry of policy.Defaults || []) if (applies(entry.Binding)) {
+    for (const option of entry.Options || []) for (const [name, value] of Object.entries(option)) defaults.set(name, value);
+  }
+  const rules = [];
+  for (const spec of policy.User_Specs || []) if (applies(spec.User_List)) {
+    for (const command of spec.Cmnd_Specs || []) for (const item of command.Commands || []) rules.push({ command, host: spec.Host_List, item });
+  }
+  const required = {
+    env_reset: true, pam_service: "settleora-handoff-sudo", passwd_tries: "1", preserve_groups: false,
+    rootpw: false, runaspw: false, secure_path: "/usr/sbin:/usr/bin:/sbin:/bin", set_home: false,
+    targetpw: false, timestamp_timeout: "0", use_pty: true,
+  };
+  for (const [name, value] of Object.entries(required)) if (defaults.get(name) !== value) throw new Error("trusted_ssh_installed_authority_defaults_invalid");
+  if (defaults.has("exempt_group") || canonicalJson(groups) !== canonicalJson([trustedSshPaths.account]) || rules.length !== 1
+      || canonicalJson(rules[0].host) !== canonicalJson([{ hostname: "ALL" }])
+      || canonicalJson(rules[0].command.runasusers) !== canonicalJson([{ username: "root" }])
+      || canonicalJson(rules[0].command.Options) !== canonicalJson([{ authenticate: true }])
+      || canonicalJson(rules[0].item) !== canonicalJson({ command: `${trustedSshPaths.rootGate} \"\"` })) {
+    throw new Error("trusted_ssh_installed_authority_rule_invalid");
+  }
+  return deriveEffectiveSudoPolicy(renderTrustedSshFixtures({ operatorKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }).sudoAuthorityObservation);
+}
+
 export function validateNativeStaticExecutable(executable) {
   const file = spawnTool("/usr/bin/file", ["-b", executable]);
   const programHeaders = spawnTool("/usr/bin/readelf", ["-W", "-l", executable]);

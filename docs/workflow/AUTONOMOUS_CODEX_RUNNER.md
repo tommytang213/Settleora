@@ -2121,7 +2121,12 @@ pre-auth helper to consume the one-shot before `common-auth`; `passwd_tries=1`
 bounds the admitted invocation to one prompt, and complete effective sudo
 authority must contain no other user/group/exempt route, must use invoking-user
 password ownership and zero timestamp timeout, and must retain exact source
-provenance. The post-auth gate atomically moves the consumed receipt to a
+provenance. The source-owned installed-authority collector operates on an
+owner-private snapshot and binds the complete sudoers include tree,
+passwd/group/NSS inputs, transitive PAM include tree, file metadata/digests,
+and the approved installed `cvtsudoers` digest before accepting that effective
+projection. Live collection and approval remain a later manual gate. The
+post-auth gate atomically moves the consumed receipt to a
 root-only entered state exactly once; bootstrap independently checks the
 package plus entered receipt. `ForceCommand` remains defense in depth and a subsystem/request
 normalizer; it is not treated as the pre-shell boundary.
