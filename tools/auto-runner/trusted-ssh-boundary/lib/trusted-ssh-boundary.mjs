@@ -738,7 +738,7 @@ export function collectTrustedSshInstalledAuthority({
   }
   const captured = new Map();
   const readSource = (absoluteName) => {
-    if (!absoluteName.startsWith("/") || absoluteName.includes("..")) throw new Error("trusted_ssh_installed_authority_path_invalid");
+    assertCanonicalSnapshotSourceName(absoluteName);
     const relative = absoluteName.slice(1);
     const file = path.join(snapshotRoot, relative);
     if (path.relative(snapshotRoot, file).startsWith("..")) throw new Error("trusted_ssh_installed_authority_path_invalid");
@@ -791,7 +791,9 @@ function collectSudoersClosure(name, snapshotRoot, readSource, seen = new Set())
     const includeDir = /^\s*[@#]includedir\s+([^\s]+)\s*$/u.exec(line);
     if (include) chunks.push(collectSudoersClosure(include[1], snapshotRoot, readSource, seen));
     else if (includeDir) {
+      assertCanonicalSnapshotSourceName(includeDir[1]);
       const directory = path.join(snapshotRoot, includeDir[1].slice(1));
+      assertPrivateSnapshotAncestry(snapshotRoot, directory);
       const entries = readdirSync(directory).filter((entry) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(entry)).sort();
       if (entries.length > 128) throw new Error("trusted_ssh_installed_authority_sudo_include_invalid");
       for (const entry of entries) chunks.push(collectSudoersClosure(`${includeDir[1]}/${entry}`, snapshotRoot, readSource, seen));
@@ -814,15 +816,23 @@ function collectPamClosure(service, readSource, seen = new Set()) {
 }
 
 function parseSnapshotAccount(passwd, group) {
-  const rows = passwd.trim().split("\n").filter((line) => line.split(":")[0] === trustedSshPaths.account);
+  const passwdRows = passwd.trim().split("\n").filter(Boolean).map((line) => line.split(":"));
+  const rows = passwdRows.filter((fields) => fields[0] === trustedSshPaths.account);
   if (rows.length !== 1) throw new Error("trusted_ssh_installed_authority_account_invalid");
-  const fields = rows[0].split(":");
-  if (fields.length !== 7 || fields[5] !== trustedSshPaths.home || fields[6] !== trustedSshPaths.loginShell) {
+  const fields = rows[0];
+  if (fields.length !== 7 || !/^[1-9][0-9]{0,9}$/u.test(fields[2]) || !/^[1-9][0-9]{0,9}$/u.test(fields[3])
+      || passwdRows.filter((candidate) => candidate[2] === fields[2]).length !== 1
+      || fields[5] !== trustedSshPaths.home || fields[6] !== trustedSshPaths.loginShell) {
     throw new Error("trusted_ssh_installed_authority_account_invalid");
   }
-  const groups = group.trim().split("\n").filter(Boolean).filter((line) => {
-    const parts = line.split(":"); return parts[2] === fields[3] || parts[3].split(",").includes(trustedSshPaths.account);
-  }).map((line) => line.split(":")[0]).sort();
+  const groupRows = group.trim().split("\n").filter(Boolean).map((line) => line.split(":"));
+  const primaryGroups = groupRows.filter((parts) => parts[2] === fields[3]);
+  if (primaryGroups.length !== 1 || primaryGroups[0].length !== 4 || primaryGroups[0][0] !== trustedSshPaths.account
+      || groupRows.filter((parts) => parts[0] === trustedSshPaths.account).length !== 1) {
+    throw new Error("trusted_ssh_installed_authority_groups_invalid");
+  }
+  const groups = groupRows.filter((parts) => parts[2] === fields[3]
+    || String(parts[3] || "").split(",").includes(trustedSshPaths.account)).map((parts) => parts[0]).sort();
   if (canonicalJson(groups) !== canonicalJson([trustedSshPaths.account])) throw new Error("trusted_ssh_installed_authority_groups_invalid");
   return { groups };
 }
@@ -866,6 +876,14 @@ function assertPrivateSnapshotAncestry(root, directory) {
     if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== expectedUid || (info.mode & 0o022) !== 0) {
       throw new Error("trusted_ssh_installed_authority_ancestry_invalid");
     }
+  }
+}
+
+function assertCanonicalSnapshotSourceName(value) {
+  if (typeof value !== "string" || !value.startsWith("/") || path.posix.normalize(value) !== value
+      || value.split("/").slice(1).some((component) => !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(component)
+        || component === "." || component === "..")) {
+    throw new Error("trusted_ssh_installed_authority_path_invalid");
   }
 }
 
