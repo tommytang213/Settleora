@@ -763,18 +763,9 @@ test("generated remote handoff flow resumes both valid arm outcomes and contains
 });
 
 
-test("closed handoff renderer CLI emits only the selected source-owned fragment", () => {
+test("remote handoff renderers remain import-only evidence with no operator CLI", () => {
   const renderer = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../render-semantic-recovery-native-install-handoff.mjs");
-  const windows = spawnSync(process.execPath, [renderer, "--windows-ssh-coordinator"], { encoding: "utf8" });
-  assert.equal(windows.status, 0, windows.stderr);
-  assert.match(windows.stdout, /EnvironmentVariables\['ProgramData'\]/u);
-  assert.equal(windows.stderr, "");
-  const remote = spawnSync(process.execPath, [renderer, "--remote-controller-flow"], { encoding: "utf8" });
-  assert.equal(remote.status, 0, remote.stderr);
-  assert.match(remote.stdout, /native_install_interactive_handoff_requires_readback/u);
-  const invalid = spawnSync(process.execPath, [renderer, "--arbitrary"], { encoding: "utf8" });
-  assert.notEqual(invalid.status, 0);
-  assert.equal(invalid.stdout, "");
+  assert.equal(existsSync(renderer), false);
 });
 
 

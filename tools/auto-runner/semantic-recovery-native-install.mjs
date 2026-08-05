@@ -46,6 +46,10 @@ import {
   verifyDurableInstalledNativeInstall,
 } from "./lib/semantic-recovery-native-install-publication.mjs";
 import {
+  buildLocalNativeBootstrapSudoArgv,
+  validateLocalNativeBootstrapSudoBoundary,
+} from "./lib/local-native-bootstrap.mjs";
+import {
   createPublicSemanticRecoveryGithubSnapshotReader,
   deriveSemanticRecoveryNativeInstallPackageFromRoot,
   deriveSemanticRecoveryNativeAuthorityProjectionsFromRoot,
@@ -58,7 +62,7 @@ const fixedPython = "/usr/bin/python3";
 const authorityDocumentName = ".native-install-source-authority.json";
 const maximumInputBytes = 64 * 1024;
 const modes = new Set([
-  "--prepare", "--arm-interactive-sudo", "--resume",
+  "--prepare", "--arm-interactive-sudo", "--prepare-local-interactive", "--arm-local-interactive-sudo", "--resume",
   "--root-bootstrap", "--root-authority-internal",
   "--root-plan-reader-internal", "--root-verify-reader-internal",
 ]);
@@ -70,6 +74,8 @@ export async function main(argv = process.argv.slice(2), input = process.stdin) 
   const hint = normalizeNativeInstallSourceHint(value);
   if (argv[0] === "--prepare") return prepare(hint);
   if (argv[0] === "--arm-interactive-sudo") return armInteractiveSudo(hint);
+  if (argv[0] === "--prepare-local-interactive") return prepareLocalInteractive(hint);
+  if (argv[0] === "--arm-local-interactive-sudo") return armLocalInteractiveSudo(hint);
   if (argv[0] === "--resume") return resume(hint);
   if (argv[0] === "--root-bootstrap") return rootBootstrap(hint);
   return rootAuthority(hint);
@@ -78,6 +84,15 @@ export async function main(argv = process.argv.slice(2), input = process.stdin) 
 function armInteractiveSudo(hint) {
   assertUnprivilegedOwner();
   verifyTrustedBootstrapPrerequisite(hint);
+  return armSudo(hint, { localBootstrap: false });
+}
+
+function armLocalInteractiveSudo(hint) {
+  assertUnprivilegedOwner();
+  return armSudo(hint, { localBootstrap: true });
+}
+
+function armSudo(hint, { localBootstrap }) {
   const operationId = operationIdentity(hint);
   const store = createFixedNativeInstallJournalStore({ scope: "owner", correlation: hint.taskCorrelation, operationId });
   const current = store.read();
@@ -92,7 +107,7 @@ function armInteractiveSudo(hint) {
   });
   const ownerJournalBytes = readFileSync(store.path);
   const ownerJournalSha256 = sha256(ownerJournalBytes);
-  const sudoArgv = buildNativeInstallSudoArgv({
+  const sudoIdentity = {
     handoffMode: "install",
     sourceCommit: hint.sourceCommit,
     bootstrapBlob: hint.bootstrapBlob,
@@ -100,22 +115,17 @@ function armInteractiveSudo(hint) {
     operationId,
     ownerJournalDigest: journal.journalDigest,
     ownerJournalSha256,
-  });
-  validateInteractiveSudoBoundary({
-    argv: sudoArgv,
-    env: {},
-    tty: realTtyAvailable(),
-    stdinKind: "tty_password_only_no_program_bytes",
-    stdoutKind: "bounded_capture",
-    stderrKind: "bounded_capture",
-  });
+  };
+  const sudoArgv = localBootstrap ? buildLocalNativeBootstrapSudoArgv(sudoIdentity) : buildNativeInstallSudoArgv(sudoIdentity);
+  if (localBootstrap) validateLocalNativeBootstrapSudoBoundary({ argv: sudoArgv, tty: realTtyAvailable(), stdioKind: "real_tty_all_streams" });
+  else validateInteractiveSudoBoundary({ argv: sudoArgv, env: {}, tty: realTtyAvailable(), stdinKind: "tty_password_only_no_program_bytes", stdoutKind: "bounded_capture", stderrKind: "bounded_capture" });
   const tty = openSync("/dev/tty", constants.O_RDWR | constants.O_NOFOLLOW);
   let child;
   try {
     child = spawnSync(sudoArgv[0], sudoArgv.slice(1), {
       cwd: "/",
       env: {},
-      stdio: [tty, "pipe", "pipe"],
+      stdio: localBootstrap ? [tty, tty, tty] : [tty, "pipe", "pipe"],
       encoding: "utf8",
       maxBuffer: 64 * 1024,
       timeout: 10 * 60 * 1000,
@@ -124,8 +134,8 @@ function armInteractiveSudo(hint) {
   const process = sanitizeNativeInstallProcessResult({
     status: child.status,
     signal: child.signal,
-    stdout: child.stdout || "",
-    stderr: child.stderr || "",
+    stdout: localBootstrap ? "" : child.stdout || "",
+    stderr: localBootstrap ? "" : child.stderr || "",
     timedOut: child.error?.code === "ETIMEDOUT",
     processLost: Boolean(child.error && child.error.code !== "ETIMEDOUT"),
   });
@@ -162,8 +172,32 @@ function armInteractiveSudo(hint) {
 function prepare(hint) {
   assertUnprivilegedOwner();
   verifyTrustedBootstrapPrerequisite(hint);
+  return prepareJournal(hint);
+}
+
+function prepareLocalInteractive(hint) {
+  assertUnprivilegedOwner();
+  return prepareJournal(hint);
+}
+
+function prepareJournal(hint) {
   const operationId = operationIdentity(hint);
   const store = createFixedNativeInstallJournalStore({ scope: "owner", correlation: hint.taskCorrelation, operationId });
+  if (store.exists()) {
+    const existing = store.read();
+    assertHintCorrelation(hint, existing);
+    if (existing.state !== "awaiting_interactive_sudo" || existing.sudoAttemptCount !== 0) {
+      throw new Error("native install existing operation is not preparable");
+    }
+    return writeResult({
+      ok: true,
+      reasonCode: "native_install_awaiting_fixed_root_bootstrap_handoff",
+      correlation: existing.correlation,
+      sourceCommit: existing.sourceCommit,
+      sudoAttemptCount: existing.sudoAttemptCount,
+      nextAction: "run_arm_interactive_sudo_once",
+    });
+  }
   let journal = createNativeInstallJournal({
     correlation: hint.taskCorrelation,
     repository: hint.repository,

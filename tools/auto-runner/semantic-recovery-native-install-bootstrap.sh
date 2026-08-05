@@ -1,9 +1,10 @@
 #!/usr/bin/bash
-# Trusted first-stage bootstrap. Before it may be named by sudo, these exact
-# bytes must have been installed at the fixed path below by a separately
-# authenticated OS/administrator channel. It accepts scalar identities only;
-# no program, path, plan, manifest, environment, or authority bytes cross the
-# unprivileged/root boundary.
+# Trusted native-install bootstrap. Legacy controller modes require these exact
+# bytes to be preinstalled by a separate authenticated administrator channel;
+# the supported trusted-interactive local mode independently authenticates and
+# atomically advances this fixed path inside its sole sudo attempt. This script
+# accepts scalar identities only; no caller program, path, plan, manifest,
+# environment, or authority bytes cross its unprivileged/root boundary.
 set -euo pipefail
 umask 077
 

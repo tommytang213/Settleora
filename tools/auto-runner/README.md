@@ -2088,19 +2088,22 @@ journal to `sudo_started` and then invokes the one fixed bootstrap argv on
 `/dev/tty`, so cancellation, EOF, timeout, or process loss cannot silently
 authorize a second sudo attempt.
 
-The later owner-authorized bootstrap is the reviewed source at
-`semantic-recovery-native-install-bootstrap.sh`. Before the handoff can be run,
-those exact bytes must already have been installed as root:root, one-link mode
-`0555` at
-`/usr/libexec/settleora-semantic-recovery-native-install-bootstrap` through a
-separate authenticated OS/administrator channel. Installing that prerequisite
-is not part of this protocol and is not performed by this source task. The
-fixed root-owned path—not a checkout, clipboard, shell literal, stdin program,
-or caller-selected executable—is the first root-executed code. Sudo receives
-only the exact commit/blob/correlation/operation and owner-journal digest
-scalars. The bootstrap verifies its own Git blob OID and metadata before any
-network access, freezes the exact armed owner journal inside one atomically
-published root-owned receipt,
+The retained `--prepare`/`--arm-interactive-sudo` interface still requires the
+reviewed `semantic-recovery-native-install-bootstrap.sh` bytes to have been
+installed separately as root:root, one-link mode `0555` at the fixed path. It
+is not the supported operator entrypoint. The local interactive coordinator
+uses the closed `--prepare-local-interactive`/`--arm-local-interactive-sudo`
+pair instead. Its one sudo argv contains fixed source-owned Python bytes plus
+only commit/blob/correlation/operation/journal identity scalars. That first
+stage independently proves public main with credential-free `git ls-remote`,
+fetches and strictly fscks the exact commit in a root-owned private directory,
+recomputes the selected bootstrap Git blob, validates the fixed path and its
+root metadata, atomically installs or adopts mode `0555`, fsyncs the directory,
+and execs the fixed installed path. No caller-selected path, plan, shell
+syntax, stdin program, password byte, or checkout byte is root authority.
+
+The installed bootstrap then verifies its own Git blob OID and metadata,
+freezes the exact armed owner journal inside one atomically published root-owned receipt,
 and then uses absolute system-tool paths, a sanitized environment, HTTPS origin
 `https://github.com/tommytang213/Settleora.git`, disabled redirects and
 credentials, strict object fsck, a unique root-owned `0700` temporary checkout,
@@ -2111,12 +2114,12 @@ materializes the auto-runner tree exclusively from those blobs. It verifies
 that the fetched bootstrap is the selected tree member and byte-identical to
 the fixed installed bootstrap before executing any fetched repository byte.
 Root state ancestors are opened/created descriptor-relatively with no-follow
-checks and fsynced before a receipt is published. A later separately authorized prerequisite-install task must
-bind the helper to the exact merged head; the handoff must present the full
-scalar-only argv for owner review. Sudo stdin is reserved for the real TTY/PAM
-exchange and never contains program bytes. Piping or typing a bootstrap, using
-`bash -c`, accepting a local helper hash, or using `sudo node /mutable/path` is
-prohibited.
+checks and fsynced before a receipt is published. The local plan binds the
+first-stage digest and prospective fixed-bootstrap change to the exact merged
+head. Sudo stdin, stdout, and stderr remain attached to the real TTY; the
+coordinator captures none of them. Piping or typing a bootstrap, using
+`bash -c`, accepting a caller-projected helper hash, or using
+`sudo node /mutable/path` is prohibited.
 
 Inside root, the controller independently authenticates the complete raw Git
 object closure, materializes the exact support closure, freshly derives the
@@ -2221,19 +2224,31 @@ represented only by byte counts and SHA-256 digests. Health tokens,
 authorization headers, credentials, raw evidence, logs, and provider payloads
 never enter argv, environment, journals, summaries, or exceptions.
 
-The source-owned handoff fragments are rendered only through
-`node tools/auto-runner/render-semantic-recovery-native-install-handoff.mjs`
-with either `--windows-ssh-coordinator` or `--remote-controller-flow`. The
-Windows OpenSSH fragment keeps the environment sanitized but restores the
-independently canonicalized `ProgramData` directory required by Windows
-OpenSSH. Preflight redirects and closes stdin immediately after process start
-so a forced TTY cannot echo queued console input into canonical JSON; execute
-keeps stdin attached to the real TTY for the one PAM password exchange. The
-remote flow accepts both
-`native_install_interactive_handoff_completed` and
-`native_install_interactive_handoff_requires_readback` from the one arm call,
-then always enters `--resume` without another sudo attempt. Unexpected reason
-codes remain fail-closed.
+The older source-owned Windows/OpenSSH handoff fragments remain low-level test
+and retained-evidence helpers only. They are not a supported deployment entry
+point and must not be used to generate or execute a production handoff. Draft
+PRs #1048 and #1049 preserve the superseded remote and dedicated-SSH-boundary
+designs; neither is an input to the local workflow.
+
+The supported Day 1 operator entrypoint is local and interactive:
+
+```bash
+cd /workspace/repos/Settleora
+node tools/auto-runner/settleora-local-runtime-deploy.mjs plan
+node tools/auto-runner/settleora-local-runtime-deploy.mjs apply --operation <operation-id>
+node tools/auto-runner/settleora-local-runtime-deploy.mjs verify --operation <operation-id>
+```
+
+The trusted boundary is the DevBox, the `tommytang213` account, the operator's
+authenticated interactive SSH session, and its login shell. Planning and
+verification are unprivileged. Apply requires the real TTY and records the
+single sudo attempt before entering the existing root-authoritative native
+installer. The coordinator never reads or stores password bytes. Once an
+attempt is recorded or may have occurred, all retries are readback-only and
+can never invoke sudo again for that operation. A zero sudo exit is
+nonterminal until exact installed runtime/profile/approval/launcher/unit and
+loopback health readback succeed. See
+`docs/architecture/TRUSTED_INTERACTIVE_DEVBOX_DEPLOYMENT.md`.
 
 Root subprocess failures cross process boundaries only as fixed allowlisted
 `native_install_root_*` reason codes. Public GitHub transport can therefore

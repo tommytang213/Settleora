@@ -1820,14 +1820,16 @@ later installation first bootstraps only executable/support bytes read from immu
 Git blob objects at the exact authenticated canonical-main SHA frozen in the
 plan and policy. The source-UID-writable worktree is never the bundle byte
 source, and the full authority context is reread after artifact derivation.
-The source-owned root-authoritative controller instead requires a separately
-authenticated administrator/OS channel to preinstall the exact reviewed
-bootstrap bytes as root:root, one-link mode `0555` at the fixed
-`/usr/libexec/settleora-semantic-recovery-native-install-bootstrap` path. The
-interactive handoff invokes only that root-owned path with closed scalar
-repository/commit/blob/correlation/journal identities; no shell literal,
-clipboard program, mutable checkout, or stdin program crosses sudo. The fixed
-bootstrap verifies its own Git blob identity, opens/creates every privileged
+The retained native-controller handoff modes require a separately installed
+root bootstrap, but they are no longer the supported operator route. The local
+interactive mode records the one attempt and invokes fixed source-owned Python
+bytes with closed scalar repository/commit/blob/correlation/journal identities.
+That first stage independently authenticates public main and the selected Git
+blob, then atomically installs or adopts the root:root, one-link mode `0555`
+fixed bootstrap and execs it within the same sudo attempt. No caller path,
+shell literal, clipboard program, mutable checkout, or stdin program crosses
+sudo; all three process streams stay attached to the real TTY. The fixed
+bootstrap then verifies its own Git blob identity, opens/creates every privileged
 journal ancestor descriptor-relatively with no-follow metadata checks, and
 freezes the armed owner transition inside one atomically published root-owned
 receipt before network
@@ -1901,13 +1903,23 @@ historical snapshot clock while freshly rereading current authority, so expiry
 cannot turn exact installed readback into replay. Verified installation/adoption
 cannot transition to `blocked`; a final journal or result-publication failure
 permits only exact frozen-package readback, completion, and idempotent result
-adoption. Manual handoff source is rendered from the repository-owned closed
-fragments. Its Windows OpenSSH coordinator restores only independently
-canonicalized `ProgramData` after clearing the ambient environment, closes
-preflight stdin to prevent forced-TTY console bytes from contaminating
-canonical JSON, and leaves execute stdin attached to the real TTY. Its remote
-controller flow accepts both completed and readback-required outcomes from the
-single arm call and proceeds to `--resume` without a second sudo attempt.
+adoption. The repository-owned Windows/OpenSSH handoff fragments remain only
+for retained compatibility tests and historical evidence. The remote
+coordinator and dedicated pre-login SSH boundary are superseded and unsupported
+for new operator actions. Draft PRs #1048 and #1049 remain preserved and
+unmodified evidence.
+
+The supported deployment source flow is the trusted interactive DevBox
+operator model in
+`docs/architecture/TRUSTED_INTERACTIVE_DEVBOX_DEPLOYMENT.md`. The administrator
+opens an authenticated interactive session, reconciles exact clean public and
+local `main`, runs the local `plan`, reviews the operation, initiates one local
+TTY-bound `apply`, and runs unprivileged `verify`. The DevBox administrator
+account and interactive shell are trusted; this does not change hostile-product
+traffic, authentication, authorization, privacy, money, audit, storage, or
+exposure rules. Once a sudo attempt is durable or may have occurred, every
+retry is readback-only and a new privilege attempt requires a new operation and
+authorization.
 Root-process exceptions are projected only into allowlisted
 `native_install_root_*` reason codes; raw exception text, tracebacks, paths,
 headers, credentials, and provider payloads never cross the root/controller
