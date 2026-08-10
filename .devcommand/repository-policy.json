@@ -1,0 +1,338 @@
+{
+  "schemaVersion": 1,
+  "repository": "tommytang213/Settleora",
+  "capabilities": {
+    "required": [
+      "candidate.identity.v1",
+      "claims.charges.leases.v1",
+      "recovery.continuation.v1",
+      "checks.configurable.v1",
+      "reviewers.configurable.v1",
+      "self_target_guard.v1"
+    ],
+    "enabled": [
+      "candidate.identity.v1",
+      "claims.charges.leases.v1",
+      "recovery.continuation.v1",
+      "github.convergence.v1",
+      "issue.hygiene.v1",
+      "merge.exact_head.v1",
+      "checks.configurable.v1",
+      "reviewers.configurable.v1",
+      "validation.fixed_commands.v1",
+      "providers.narrow_adapters.v1",
+      "self_target_guard.v1",
+      "lifecycle.declarations.v1"
+    ],
+    "disabled": [],
+    "optional": []
+  },
+  "labels": {
+    "eligible": [
+      "auto-ready",
+      "auto-bundle"
+    ],
+    "stop": [
+      "needs-tommy",
+      "manual-gate",
+      "danger-gate",
+      "auto-failed",
+      "auto-running",
+      "auto-pr-opened",
+      "blocked"
+    ],
+    "claim": [
+      "auto-claimed",
+      "auto-running"
+    ],
+    "priority": [
+      "priority-critical",
+      "priority-high",
+      "priority-ready"
+    ]
+  },
+  "validationProfiles": {
+    "docs-only": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run validate:docs"
+      ]
+    },
+    "workflow-tooling": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run validate:docs",
+        "npm run validate:scaffold",
+        "node --test tools/auto-runner/test/*.test.mjs",
+        "node --check tools/auto-runner/settleora-auto-runner.mjs",
+        "node tools/auto-runner/settleora-auto-runner.mjs --preflight"
+      ]
+    },
+    "runner-tests": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run validate:docs",
+        "npm run validate:scaffold",
+        "node --test tools/auto-runner/test/*.test.mjs",
+        "node --check tools/auto-runner/settleora-auto-runner.mjs",
+        "node tools/auto-runner/settleora-auto-runner.mjs --preflight"
+      ]
+    },
+    "scaffold-docs": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run validate:docs",
+        "npm run validate:scaffold"
+      ]
+    },
+    "mobile-ui-low-risk": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "cd apps/mobile && /opt/flutter/bin/flutter pub get",
+        "cd apps/mobile && /opt/flutter/bin/flutter analyze",
+        "cd apps/mobile && /opt/flutter/bin/flutter test test/ui/settleora_component_guardrail_test.dart"
+      ]
+    },
+    "mobile": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run doctor:mobile",
+        "npm run validate:mobile"
+      ]
+    },
+    "mobile-build-config": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "PATH=/opt/flutter/bin:$PATH npm run doctor:mobile",
+        "cd apps/mobile && /opt/flutter/bin/flutter pub get",
+        "cd apps/mobile && /opt/flutter/bin/flutter analyze",
+        "cd apps/mobile && /opt/flutter/bin/flutter test"
+      ]
+    },
+    "web-ui": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run validate:scaffold"
+      ]
+    },
+    "api-domain": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run doctor:validation",
+        "npm run validate:api"
+      ]
+    },
+    "api-security": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run doctor:validation",
+        "npm run validate:api-local"
+      ]
+    },
+    "api-storage": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run doctor:validation",
+        "npm run validate:api-local"
+      ]
+    },
+    "api-money": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run doctor:validation",
+        "npm run validate:api-local"
+      ]
+    },
+    "api-migrations": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run doctor:validation",
+        "npm run validate:api-migrations"
+      ]
+    },
+    "openapi-generated-clients": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run validate:openapi",
+        "npm run generate:clients",
+        "npm run validate:clients"
+      ]
+    },
+    "sync-import-export": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run doctor:validation",
+        "npm run validate:api-local"
+      ]
+    },
+    "compose-ci": {
+      "commands": [
+        "git status --short",
+        "git diff --name-only",
+        "git diff --check",
+        "npm run doctor:docker",
+        "npm run validate:compose"
+      ]
+    }
+  },
+  "paths": {
+    "allowed": [
+      ".ai/**",
+      ".github/workflows/**",
+      "apps/mobile/lib/**",
+      "apps/mobile/test/**",
+      "apps/mobile/pubspec.yaml",
+      "apps/mobile/pubspec.lock",
+      "apps/mobile/assets/**",
+      "apps/mobile/l10n/**",
+      "apps/mobile/android/**",
+      "apps/mobile/ios/**",
+      "apps/mobile/macos/**",
+      "apps/mobile/linux/**",
+      "apps/mobile/windows/**",
+      "apps/mobile/web/**",
+      "apps/web-user/**",
+      "apps/web-admin/**",
+      "docs/**",
+      "infra/**",
+      "packages/contracts/openapi/**",
+      "packages/client-web/src/generated/**",
+      "packages/client-dart/lib/generated/**",
+      "scripts/ai/**",
+      "services/api/**",
+      "tools/**",
+      "package.json",
+      "package-lock.json",
+      "npm-shrinkwrap.json"
+    ]
+  },
+  "riskDomains": [
+    "auth-session-security",
+    "storage-file-privacy-authz",
+    "money-settlement-payment",
+    "schema-migrations",
+    "openapi-generated-clients",
+    "sync-import-export-restore",
+    "mobile-build-config",
+    "docker-compose-ci-deployment",
+    "secrets-config",
+    "public-admin-exposure",
+    "production-release-deployment",
+    "destructive-operations",
+    "branch-history-cleanup",
+    "architecture-scope-authority"
+  ],
+  "review": {
+    "requiredReviewers": [
+      "strong_independent",
+      "codex_mechanics",
+      "github_codex"
+    ],
+    "providerProfiles": {
+      "cheap_independent": {
+        "adapter": "gemini",
+        "interfaceVersion": "1.0",
+        "profile": "gemini-cheap"
+      },
+      "strong_independent": {
+        "adapter": "gemini",
+        "interfaceVersion": "1.0",
+        "profile": "gemini-strong"
+      },
+      "tie_breaker": {
+        "adapter": "gemini",
+        "interfaceVersion": "1.0",
+        "profile": "gemini-strong"
+      },
+      "codex_mechanics": {
+        "adapter": "codex",
+        "interfaceVersion": "1.0",
+        "profile": "codex-mechanics-default"
+      },
+      "github_codex": {
+        "adapter": "github",
+        "interfaceVersion": "1.0",
+        "profile": "pull_request_review"
+      }
+    }
+  },
+  "checks": {
+    "exactNames": [
+      "Validate scaffold",
+      "CodeQL",
+      "Semgrep CE scan",
+      "Trivy repository scan"
+    ],
+    "reviewedPatterns": []
+  },
+  "merge": {
+    "method": "merge",
+    "allowAutoMerge": true,
+    "requireExactHead": true,
+    "manualWhenDraft": true
+  },
+  "issues": {
+    "allowCreation": true,
+    "closeNarrowOnComplete": true,
+    "closeParentWhenChildrenComplete": false,
+    "childDefaults": {
+      "labels": [
+        "workflow",
+        "auto-ready"
+      ]
+    }
+  },
+  "manualGates": [
+    "production-deploy",
+    "release",
+    "mobile-store-release",
+    "destructive-data",
+    "secrets-auth-config",
+    "auth-session-security-critical-runtime",
+    "storage-file-privacy-authz",
+    "money-settlement-payment-calculation-authority",
+    "schema-migrations",
+    "openapi-generated-clients",
+    "ci-deployment-infrastructure",
+    "public-admin-exposure",
+    "unsafe-scope-expansion",
+    "unresolved-product-policy-authority-financial-semantics",
+    "architecture-replacement",
+    "branch-deletion",
+    "force-like-history",
+    "day1-scope-reduction"
+  ],
+  "extensions": {
+    "lifecycle": []
+  }
+}
