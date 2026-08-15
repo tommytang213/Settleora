@@ -494,6 +494,31 @@ void main() {
     semanticsHandle.dispose();
   });
 
+  testWidgets('LoadingState exposes one live-region loading label', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(body: LoadingState(message: 'Loading bills')),
+      ),
+    );
+
+    expect(find.text('Loading bills'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    _expectSingleSemanticsLabel(tester, 'Loading bills');
+
+    final semanticsData = tester
+        .getSemantics(find.bySemanticsLabel('Loading bills'))
+        .getSemanticsData();
+    expect(semanticsData.label, 'Loading bills');
+    expect(semanticsData.flagsCollection.isLiveRegion, isTrue);
+
+    semanticsHandle.dispose();
+  });
+
   testWidgets(
     'SummaryCard groups title value and caption without duplicate labels',
     (tester) async {

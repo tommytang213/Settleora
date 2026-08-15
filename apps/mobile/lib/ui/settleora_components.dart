@@ -1851,18 +1851,25 @@ class LoadingState extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
 
-    return AppCard(
-      child: Row(
-        children: [
-          const SizedBox.square(
-            dimension: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
+    return Semantics(
+      container: true,
+      label: message,
+      liveRegion: true,
+      child: ExcludeSemantics(
+        child: AppCard(
+          child: Row(
+            children: [
+              const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: SettleoraSpacing.sm),
+              Expanded(
+                child: Text(message, style: TextStyle(color: colors.textMuted)),
+              ),
+            ],
           ),
-          const SizedBox(width: SettleoraSpacing.sm),
-          Expanded(
-            child: Text(message, style: TextStyle(color: colors.textMuted)),
-          ),
-        ],
+        ),
       ),
     );
   }
