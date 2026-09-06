@@ -25,9 +25,10 @@
   open as a separate accessibility slice: current source does not yet include
   focused proof of the dialog's exactly-once header semantics or sheet/dialog
   multi-action ordering, so no duplicate-completion closure was made.
-- No runtime, API, auth/session/security, storage/privacy, money/settlement,
-  schema/migration, OpenAPI/generated-client, deployment/environment, secret,
-  DevCommand, or autonomous-runner change occurred.
+- No non-presentation runtime, API, auth/session/security, storage/privacy,
+  money/settlement, schema/migration, OpenAPI/generated-client,
+  deployment/environment, secret, DevCommand, or autonomous-runner change
+  occurred.
 
 ### Issue #1012 and PR #1046 — manual-root handoff source repair merged (2026-08-05)
 
