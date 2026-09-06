@@ -76,7 +76,7 @@ async function api(env, suffix) {
   // No shell, arbitrary URL, redirects to a supplied host, or write operation.
   return JSON.parse(execFileSync('gh', apiArgs(suffix), {
     encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000,
-    maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_TOKEN: env.GH_TOKEN },
+    maxBuffer: 8 * 1024 * 1024,
   }));
 }
 export async function analysesFor(env, ref, sha, request = api) {
