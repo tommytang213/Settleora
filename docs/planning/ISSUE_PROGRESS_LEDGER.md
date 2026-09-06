@@ -65,7 +65,8 @@
   the current unconditional sync/security-family preference bypass and its
   unresolved policy/persistence acceptance under #973. No runtime changed.
 - Additional requirement precision: M08/#776 includes existing MFA-policy readout
-  wiring and disabled/required/noncompliant states; M15/#350 includes missing
+  wiring, disabled/required/noncompliant states and existing-factor/recovery/step-up
+  lifecycle management; M15/#350 includes missing
   server-resolved item split/rounding-residual presentation, crediting its API.
   M26/#976 includes unfriend/future-sharing revocation with preserved history;
   M45/#412 includes feasible limited advanced-area opt-ins. SMTP delivery is a
