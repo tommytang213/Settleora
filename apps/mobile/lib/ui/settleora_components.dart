@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import 'settleora_theme.dart';
 
@@ -1069,27 +1070,39 @@ class SettleoraKeyValueRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.settleoraColors;
 
-    return Padding(
-      padding: padding,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: labelWidth,
-            child: Text(
-              label,
-              style:
-                  labelStyle ??
-                  Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: colors.textSubtle),
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      child: Padding(
+        padding: padding,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: labelWidth,
+              child: Semantics(
+                sortKey: const OrdinalSortKey(0),
+                child: Text(
+                  label,
+                  style:
+                      labelStyle ??
+                      Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colors.textSubtle,
+                      ),
+                ),
+              ),
             ),
-          ),
-          SizedBox(width: spacing),
-          Expanded(
-            child: Align(alignment: valueAlignment, child: value),
-          ),
-        ],
+            SizedBox(width: spacing),
+            Expanded(
+              child: Semantics(
+                container: true,
+                explicitChildNodes: true,
+                sortKey: const OrdinalSortKey(1),
+                child: Align(alignment: valueAlignment, child: value),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

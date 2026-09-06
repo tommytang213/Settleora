@@ -519,6 +519,97 @@ void main() {
     semanticsHandle.dispose();
   });
 
+  testWidgets('key-value text announces label before value exactly once', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: SettleoraKeyValueText(label: 'Status', value: 'Ready'),
+        ),
+      ),
+    );
+
+    expect(find.text('Status'), findsOneWidget);
+    expect(find.text('Ready'), findsOneWidget);
+    _expectSemanticsLabelsInOrder(tester, ['Status', 'Ready']);
+    _expectSingleSemanticsLabel(tester, 'Status');
+    _expectSingleSemanticsLabel(tester, 'Ready');
+
+    semanticsHandle.dispose();
+  });
+
+  testWidgets(
+    'key-value custom widget keeps interactive descendants separate',
+    (tester) async {
+      final semanticsHandle = tester.ensureSemantics();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: Scaffold(
+            body: SettleoraKeyValueRow(
+              label: 'Payment method',
+              value: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('PayMe'),
+                  TextButton(
+                    onPressed: () {},
+                    child: const Text('Change method'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      _expectSemanticsLabelsInOrder(tester, [
+        'Payment method',
+        'PayMe',
+        'Change method',
+      ]);
+      _expectSingleSemanticsLabel(tester, 'Payment method');
+      _expectSingleSemanticsLabel(tester, 'PayMe');
+      _expectSingleSemanticsLabel(tester, 'Change method');
+      _expectAppButtonSemantics(tester, label: 'Change method');
+      _expectNoSemanticsLabel(tester, 'Payment method, PayMe, Change method');
+
+      semanticsHandle.dispose();
+    },
+  );
+
+  testWidgets('key-value money announces label before amount exactly once', (
+    tester,
+  ) async {
+    final semanticsHandle = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SettleoraTheme.light(),
+        home: const Scaffold(
+          body: SettleoraKeyValueMoneyText(
+            label: 'Balance',
+            amount: '128.00',
+            currencyCode: 'HKD',
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Balance'), findsOneWidget);
+    expect(find.text('128.00 HKD'), findsOneWidget);
+    _expectSemanticsLabelsInOrder(tester, ['Balance', '128.00 HKD']);
+    _expectSingleSemanticsLabel(tester, 'Balance');
+    _expectSingleSemanticsLabel(tester, '128.00 HKD');
+
+    semanticsHandle.dispose();
+  });
+
   testWidgets(
     'SummaryCard groups title value and caption without duplicate labels',
     (tester) async {
@@ -1962,6 +2053,17 @@ void _expectSingleSemanticsLabel(WidgetTester tester, String label) {
   );
 }
 
+void _expectSemanticsLabelsInOrder(
+  WidgetTester tester,
+  List<String> expectedLabels,
+) {
+  final labels = _semanticsNodesInTraversalOrder(tester)
+      .map((node) => node.getSemanticsData().label)
+      .where((label) => label.isNotEmpty)
+      .toList();
+  expect(labels, containsAllInOrder(expectedLabels));
+}
+
 void _expectStaticSemanticsLabel(WidgetTester tester, String label) {
   final matchingNodes = _semanticsNodes(
     tester,
@@ -2014,6 +2116,29 @@ List<SemanticsNode> _semanticsNodes(WidgetTester tester) {
       collect(child);
       return true;
     });
+  }
+
+  collect(root);
+  return nodes;
+}
+
+List<SemanticsNode> _semanticsNodesInTraversalOrder(WidgetTester tester) {
+  final root = tester
+      .binding
+      .renderViews
+      .first
+      .owner!
+      .semanticsOwner!
+      .rootSemanticsNode!;
+  final nodes = <SemanticsNode>[];
+
+  void collect(SemanticsNode node) {
+    nodes.add(node);
+    for (final child in node.debugListChildrenInOrder(
+      DebugSemanticsDumpOrder.traversalOrder,
+    )) {
+      collect(child);
+    }
   }
 
   collect(root);
