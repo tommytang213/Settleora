@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
-import { applicability, coverage, gateResult, languages, analysesFor } from '../codeql-gate.mjs';
+import { applicability, coverage, gateResult, languages, analysesFor, apiArgs } from '../codeql-gate.mjs';
 import { summarizeCheckStatus } from '../../auto-runner/lib/auto-merge-policy.mjs';
 
 const base = 'a'.repeat(40), head = 'b'.repeat(40), source = 'c'.repeat(40);
@@ -152,4 +152,23 @@ test('coverage crosses page boundaries and refuses missing or malformed records'
   assert.equal(coverage(await analysesFor(env, env.GITHUB_REF, head, async () => []), head), false);
   await assert.rejects(analysesFor(env, env.GITHUB_REF, head, async () => ({})), /Malformed/);
   await assert.rejects(analysesFor(env, env.GITHUB_REF, head, async () => { throw new Error('Denied'); }), /Denied/);
+});
+
+test('GitHub reads use a fixed host/repository, fixed GET and allowlisted endpoint shapes', () => {
+  for (const suffix of ['pulls/1088', `commits/${head}/check-runs?check_name=CodeQL&filter=latest&per_page=100`, 'code-scanning/analyses?ref=refs%2Fheads%2Fmain&tool_name=CodeQL&per_page=100&page=1']) {
+    const args = apiArgs(suffix);
+    assert.deepEqual(args.slice(0, 5), ['api', '--hostname', 'github.com', '--method', 'GET']);
+    assert.equal(args[5], `repos/tommytang213/Settleora/${suffix}`);
+  }
+  for (const suffix of ['https://attacker.invalid', '//attacker.invalid', 'pulls/../settings', 'pulls/1?redirect=https://evil.invalid', '--method=POST', 'code-scanning/alerts/123', 'pulls/1\n']) {
+    assert.throws(() => apiArgs(suffix), /Unsupported/);
+  }
+});
+test('workflow owns file boundaries and helper only reads/writes streams', () => {
+  const helper = readFileSync(new URL('../codeql-gate.mjs', import.meta.url), 'utf8');
+  assert.match(helper, /readFileSync\(0, 'utf8'\)/);
+  assert.doesNotMatch(helper, /appendFileSync|writeFileSync|env\.GITHUB_EVENT_PATH|env\.GITHUB_OUTPUT|env\.GITHUB_STEP_SUMMARY|fetch\(/);
+  const w = YAML.parse(readFileSync(new URL('../../../.github/workflows/security-codeql.yml', import.meta.url), 'utf8'));
+  assert.equal(w.jobs.prepare.steps.at(-1).run, 'node tools/ci/codeql-gate.mjs prepare < "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"');
+  assert.equal(w.jobs.gate.steps.at(-1).run, 'node tools/ci/codeql-gate.mjs gate < "$GITHUB_EVENT_PATH" >> "$GITHUB_STEP_SUMMARY"');
 });

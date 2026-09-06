@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, appendFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { classifyChanges } from './scaffold-validation-changes.mjs';
@@ -64,13 +64,20 @@ export function gateResult(proof, expected, needs, checks = []) {
     c.status === 'completed' && c.conclusion === 'success');
 }
 
+export function apiArgs(suffix) {
+  // Only read these three endpoint shapes, on this repository and GitHub host.
+  const allowed = /^(?:pulls\/[1-9][0-9]*|commits\/[a-f0-9]{40}\/check-runs\?check_name=CodeQL&filter=latest&per_page=100|code-scanning\/analyses\?ref=[A-Za-z0-9%_.~-]+&tool_name=CodeQL&per_page=100&page=[1-9][0-9]*)$/;
+  if (!allowed.test(suffix)) throw new Error('Unsupported GitHub read endpoint');
+  return ['api', '--hostname', 'github.com', '--method', 'GET',
+    `repos/tommytang213/Settleora/${suffix}`, '-H', 'Accept: application/vnd.github+json',
+    '-H', 'X-GitHub-Api-Version: 2022-11-28'];
+}
 async function api(env, suffix) {
-  const response = await fetch(`https://api.github.com/repos/${env.GITHUB_REPOSITORY}/${suffix}`, {
-    headers: { Authorization: `Bearer ${env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) throw new Error(`GitHub read failed: ${response.status}`);
-  return response.json();
+  // No shell, arbitrary URL, redirects to a supplied host, or write operation.
+  return JSON.parse(execFileSync('gh', apiArgs(suffix), {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000,
+    maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_TOKEN: env.GH_TOKEN },
+  }));
 }
 export async function analysesFor(env, ref, sha, request = api) {
   const all = [];
@@ -90,7 +97,8 @@ async function currentIdentity(env, event) {
       pr.merge_commit_sha !== env.GITHUB_SHA) throw new Error('Stale PR identity');
 }
 async function main(env) {
-  const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
+  // The workflow opens its event file and output destinations; JS uses streams only.
+  const event = JSON.parse(readFileSync(0, 'utf8'));
   let proof = applicability(env, event);
   if (proof.mode === 'docs-only') {
     try {
@@ -98,12 +106,13 @@ async function main(env) {
       if (!coverage(await analysesFor(env, `refs/heads/${event.pull_request.base.ref}`, proof.base), proof.base)) throw new Error('Missing base scanning authority');
     } catch { proof = { ...proof, mode: 'analysis', languages, reason: 'Unproven live identity/base scanner state' }; }
   }
-  console.log(JSON.stringify(proof));
+  console.error(JSON.stringify(proof));
   if (process.argv[2] === 'prepare') {
-    appendFileSync(env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ language: proof.languages })}\nmode=${proof.mode}\n`);
+    process.stdout.write(`matrix=${JSON.stringify({ language: proof.languages })}\nmode=${proof.mode}\n`);
     return;
   }
   const needs = JSON.parse(env.NEEDS_RESULTS);
+  if (needs.prepare !== 'success' || needs.analyze !== 'success') throw new Error('Required applicability/analysis job failed');
   if (proof.mode !== env.PREPARED_MODE) throw new Error('Applicability changed; rerun with current authority');
   await currentIdentity(env, event);
   const expected = { head: env.GITHUB_SHA, source: event.pull_request?.head.sha || env.GITHUB_SHA };
@@ -114,8 +123,12 @@ async function main(env) {
         const checks = await api(env, `commits/${expected.source}/check-runs?check_name=CodeQL&filter=latest&per_page=100`);
         if (gateResult(proof, expected, needs, checks.check_runs)) {
           await currentIdentity(env, event);
-          appendFileSync(env.GITHUB_STEP_SUMMARY, `Real CodeQL: all five language jobs, uploads, processing and native findings gate succeeded.\n\n${JSON.stringify(expected)}\n`);
+          process.stdout.write(`Real CodeQL: all five language jobs, uploads, processing and native findings gate succeeded.\n\n${JSON.stringify(expected)}\n`);
           return;
+        }
+        if (checks.check_runs.some((c) => c.name === 'CodeQL' && c.app?.slug === 'github-advanced-security' &&
+            c.head_sha === expected.source && c.status === 'completed' && c.conclusion !== 'success')) {
+          throw new Error('Native CodeQL reported findings or unsuccessful analysis');
         }
         await new Promise((resolve) => setTimeout(resolve, 10_000));
       }
@@ -123,7 +136,7 @@ async function main(env) {
     }
     if (needs.prepare !== 'success' || needs.analyze !== 'success') throw new Error('Required analysis job failed');
   } else if (!gateResult(proof, expected, needs)) throw new Error('Invalid docs gate proof');
-  appendFileSync(env.GITHUB_STEP_SUMMARY, `${proof.mode === 'docs-only' ? 'CodeQL not applicable: trusted docs-only proof; no language analysis launched.' : 'Real repository-wide CodeQL: all five language analyses uploaded and processed.'}\n\n${JSON.stringify(proof)}\n`);
+  process.stdout.write(`${proof.mode === 'docs-only' ? 'CodeQL not applicable: trusted docs-only proof; no language analysis launched.' : 'Real repository-wide CodeQL: all five language analyses uploaded and processed.'}\n\n${JSON.stringify(proof)}\n`);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.env).catch((error) => { console.error(error.message); process.exitCode = 1; });

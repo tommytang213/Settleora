@@ -31,7 +31,7 @@ jobs:
       - id: proof
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node tools/ci/codeql-gate.mjs prepare
+        run: node tools/ci/codeql-gate.mjs prepare < "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
 
   analyze:
     name: CodeQL work (${{ matrix.language }})
@@ -85,4 +85,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PREPARED_MODE: ${{ needs.prepare.outputs.mode }}
           NEEDS_RESULTS: '{"prepare":"${{ needs.prepare.result }}","analyze":"${{ needs.analyze.result }}"}'
-        run: node tools/ci/codeql-gate.mjs gate
+        run: node tools/ci/codeql-gate.mjs gate < "$GITHUB_EVENT_PATH" >> "$GITHUB_STEP_SUMMARY"
