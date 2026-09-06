@@ -71,7 +71,7 @@ export function classifyEvidence(expected, commit, comparison) {
   return classifyChanges({ EVENT_NAME: 'pull_request', CURRENT_SHA: expected.merge, PR_BASE_SHA: expected.base }, gitFacts);
 }
 export function apiArgs(endpoint, publish = false) {
-  const reads = /^(?:pulls\/[1-9][0-9]*|git\/ref\/heads\/main|commits\/[a-f0-9]{40}|compare\/[a-f0-9]{40}\.\.\.[a-f0-9]{40}|contents\/(?:\.github\/workflows\/(?:security-codeql|codeql-protected-auditor)\.yml|tools\/ci\/(?:codeql-gate|codeql-protected-auditor|scaffold-validation-changes)\.mjs)\?ref=[a-f0-9]{40}|code-scanning\/analyses\?ref=[A-Za-z0-9%_.~-]+&tool_name=CodeQL&per_page=100&page=[1-9][0-9]*)$/;
+  const reads = /^(?:pulls\/[1-9][0-9]*|git\/ref\/heads\/main|git\/trees\/[a-f0-9]{40}\?recursive=1|commits\/[a-f0-9]{40}|compare\/[a-f0-9]{40}\.\.\.[a-f0-9]{40}|contents\/(?:\.github\/workflows\/(?:security-codeql|codeql-protected-auditor)\.yml|tools\/ci\/(?:codeql-gate|codeql-protected-auditor|scaffold-validation-changes)\.mjs)\?ref=[a-f0-9]{40}|code-scanning\/analyses\?ref=[A-Za-z0-9%_.~-]+&tool_name=CodeQL&per_page=100&page=[1-9][0-9]*)$/;
   requireProof(publish ? endpoint === 'check-runs' : reads.test(endpoint), 'Unsupported GitHub endpoint');
   return ['api', '--hostname', 'github.com', '--method', publish ? 'POST' : 'GET', `repos/${repository}/${endpoint}`,
     '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2022-11-28', ...(publish ? ['--input', '-'] : [])];
@@ -82,9 +82,18 @@ function request(endpoint, payload) {
     stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000, maxBuffer: 8 * 1024 * 1024,
   }));
 }
-async function fileAt(api, path, sha) {
+async function fileAt(api, path, sha, trees) {
   requireProof(shaPattern.test(sha), 'Invalid file revision');
+  if (!trees.has(sha)) {
+    const tree = await api(`git/trees/${sha}?recursive=1`);
+    requireProof(shaPattern.test(tree?.sha) && tree.truncated === false && Array.isArray(tree.tree), 'Unavailable or truncated Git tree');
+    trees.set(sha, tree.tree);
+  }
+  const entries = trees.get(sha).filter((entry) => entry.path === path);
+  requireProof(entries.length === 1 && entries[0].type === 'blob' && entries[0].mode === '100644' &&
+    shaPattern.test(entries[0].sha), 'Required authority is not a regular Git file');
   const file = await api(`contents/${path}?ref=${sha}`);
+  requireProof(file.sha === entries[0].sha, 'Git tree/content blob mismatch');
   requireProof(file.path === path, 'File path mismatch');
   return decodeFile(file);
 }
@@ -100,26 +109,28 @@ async function baseCoverage(api, base, ref) {
   return false;
 }
 export async function audit(expected, api = request) {
+  const trees = new Map();
+  const readFile = (path, sha) => fileAt(api, path, sha, trees);
   const pr = await api(`pulls/${expected.number}`);
   validateIdentity(pr, expected, (await api('git/ref/heads/main')).object?.sha);
   const commit = await api(`commits/${expected.merge}`);
   const comparison = await api(`compare/${expected.base}...${expected.merge}`);
   const classification = classifyEvidence(expected, commit, comparison);
   for (const path of Object.keys(approved)) {
-    for (const sha of [expected.source, expected.merge]) verifyDefinition(path, await fileAt(api, path, sha));
+    for (const sha of [expected.source, expected.merge]) verifyDefinition(path, await readFile(path, sha));
   }
   // The auditor cannot be changed or removed by the PR it is certifying.
   for (const path of [auditor, helper, classifier]) {
-    const trusted = await fileAt(api, path, expected.authority);
+    const trusted = await readFile(path, expected.authority);
     for (const sha of [expected.source, expected.merge]) {
-      requireProof(digest(await fileAt(api, path, sha)) === digest(trusted), 'Changed protected auditor');
+      requireProof(digest(await readFile(path, sha)) === digest(trusted), 'Changed protected auditor');
     }
   }
   // Prove the exact controller which the frozen analyzer actually loads.
   let baseTrusted = false;
   try {
-    verifyDefinition(controller, await fileAt(api, controller, expected.base));
-    verifyDefinition(classifier, await fileAt(api, classifier, expected.base));
+    verifyDefinition(controller, await readFile(controller, expected.base));
+    verifyDefinition(classifier, await readFile(classifier, expected.base));
     baseTrusted = true;
   } catch (error) {
     // Only a positively absent base controller permits the frozen fallback.
@@ -128,12 +139,12 @@ export async function audit(expected, api = request) {
     // Content API failure is not absence proof; inspect the trusted local base
     // through the caller-provided absence fact, never infer 404 from any error.
     requireProof(expected.baseControllerAbsent === true, 'Unproven base controller');
-    for (const path of [controller, classifier]) verifyDefinition(path, await fileAt(api, path, fallback));
+    for (const path of [controller, classifier]) verifyDefinition(path, await readFile(path, fallback));
   }
   let mode = 'analysis';
   if (classification.docs_only && baseTrusted) {
     try {
-      verifyDefinition(workflow, await fileAt(api, workflow, expected.base));
+      verifyDefinition(workflow, await readFile(workflow, expected.base));
       if (await baseCoverage(api, expected.base, pr.base.ref)) mode = 'docs-only';
     } catch { /* Ambiguous base scanner proof requires real analysis. */ }
   }

@@ -25,6 +25,12 @@ function apiFixture(overrides = {}) {
     if (endpoint === 'git/ref/heads/main') return { object: { sha: base } };
     if (endpoint === `commits/${merge}`) return structuredClone(commit);
     if (endpoint === `commits/${base}`) return { sha: base };
+    if (endpoint.startsWith('git/trees/')) {
+      return { sha: endpoint.split('/')[2].split('?')[0], truncated: false,
+        tree: [...Object.keys(approved), '.github/workflows/codeql-protected-auditor.yml', 'tools/ci/codeql-protected-auditor.mjs'].map((path) => ({
+          path, type: 'blob', mode: '100644', sha: content(path, frozen[path] ?? Buffer.from('trusted auditor bytes')).sha,
+        })) };
+    }
     if (endpoint.startsWith('compare/')) return comparison();
     if (endpoint.startsWith('code-scanning/analyses')) return structuredClone(advanced);
     const match = /^contents\/(.+)\?ref=([a-f0-9]{40})$/.exec(endpoint);
@@ -69,7 +75,7 @@ test('re-read catches head movement after evidence collection', async () => {
 test('both source and actual merge workflow modifications fail closed', async () => {
   for (const sha of [source, merge]) {
     const path = '.github/workflows/security-codeql.yml';
-    await assert.rejects(audit(expected, apiFixture({ [`contents/${path}?ref=${sha}`]: () => content(path, Buffer.from('malicious workflow')) })), /Unapproved/);
+    await assert.rejects(audit(expected, apiFixture({ [`contents/${path}?ref=${sha}`]: () => content(path, Buffer.from('malicious workflow')) })), /Unapproved|blob mismatch/);
   }
 });
 test('complete frozen workflow approval rejects every semantic analyzer weakening', () => {
@@ -98,7 +104,7 @@ test('complete frozen workflow approval rejects every semantic analyzer weakenin
 });
 test('auditor source cannot be replaced and PR helper is only decoded as data', async () => {
   const path = 'tools/ci/codeql-protected-auditor.mjs';
-  await assert.rejects(audit(expected, apiFixture({ [`contents/${path}?ref=${source}`]: () => content(path, Buffer.from('throw new Error("executed PR code")')) })), /Changed protected/);
+  await assert.rejects(audit(expected, apiFixture({ [`contents/${path}?ref=${source}`]: () => content(path, Buffer.from('throw new Error("executed PR code")')) })), /Changed protected|blob mismatch/);
   const workflow = YAML.parse(readFileSync(new URL('../../../.github/workflows/codeql-protected-auditor.yml', import.meta.url), 'utf8'));
   assert.ok(workflow.on.pull_request_target);
   assert.equal(workflow.jobs.audit.steps[0].with.ref, '${{ github.workflow_sha }}');
@@ -123,5 +129,17 @@ test('fixed host/path GET boundary and single narrow check POST only', () => {
   assert.equal(apiArgs('check-runs', true)[4], 'POST');
   for (const path of ['https://evil.invalid', 'pulls/../settings', 'code-scanning/alerts/1', 'contents/.env?ref=' + base, 'pulls/1088\n']) {
     assert.throws(() => apiArgs(path)); assert.throws(() => apiArgs(path, true));
+  }
+});
+
+test('Git tree rejects dereferenced symlinks, submodules, missing/duplicate files and truncated evidence', async () => {
+  const path = '.github/workflows/security-codeql.yml';
+  const normal = await apiFixture()(`git/trees/${source}?recursive=1`);
+  for (const patch of [{ mode: '120000' }, { mode: '160000', type: 'commit' }, { sha: base }, { mode: '100755' }]) {
+    const tree = { ...normal, tree: normal.tree.map((e) => e.path === path ? { ...e, ...patch } : e) };
+    await assert.rejects(audit(expected, apiFixture({ [`git/trees/${source}?recursive=1`]: () => tree })), /regular Git file|blob mismatch/);
+  }
+  for (const tree of [{ ...normal, truncated: true }, { ...normal, tree: normal.tree.filter((e) => e.path !== path) }, { ...normal, tree: [...normal.tree, normal.tree[0]] }, {}]) {
+    await assert.rejects(audit(expected, apiFixture({ [`git/trees/${source}?recursive=1`]: () => tree })), /Git tree|regular Git file/);
   }
 });
