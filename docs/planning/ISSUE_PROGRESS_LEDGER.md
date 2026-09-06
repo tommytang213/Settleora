@@ -8,7 +8,7 @@
   and merge. No runtime/UI implementation or manual Day 1 acceptance is claimed.
 - Durable inventory:
   [Day 1 mobile screen completeness checklist](../qa/DAY1_MOBILE_SCREEN_COMPLETENESS_CHECKLIST.md).
-  **59 canonical rows: complete 2, partial 39, missing 10, blocked 8.** Counts
+  **61 canonical rows: complete 2, partial 39, missing 10, blocked 10.** Counts
   include the shared-component and cross-screen acceptance flows; a completed
   bounded password-reset request or notification handoff does not complete auth
   or notification product scope.
@@ -57,6 +57,13 @@
   M60 credits existing event producers and leaves producer gaps with #369 through
   #973 reconciliation. M61 counts localization readiness under sole owner #409;
   English-only Day 1 remains allowed, Traditional Chinese remains Day 2.
+- Additional lifecycle/notification reconciliation: M62 owns cross-record lifecycle
+  gaps under #716; closed #410 is superseded, and merged #715 guardrails are
+  credited. #960/domain policies/#961 and #722/#723/#724 precede runtime.
+  M63 assigns future required notification route extensions to #973 while
+  #371's accepted current-family scope remains complete. M56 explicitly records
+  the current unconditional sync/security-family preference bypass and its
+  unresolved policy/persistence acceptance under #973. No runtime changed.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
