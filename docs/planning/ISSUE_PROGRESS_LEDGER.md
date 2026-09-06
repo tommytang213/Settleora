@@ -1,5 +1,63 @@
 # Issue Progress Ledger
 
+### Issue #1087 — CodeQL optimization abandoned; default setup retained (2026-09-06)
+
+- Owner decision [5559641879](https://github.com/tommytang213/Settleora/issues/1087#issuecomment-5559641879)
+  abandons the docs-only CodeQL optimization as not planned: ongoing
+  security/control complexity outweighs the small CI-time saving. No docs-only
+  CodeQL skip is implemented or claimed. The pending protected configuration-read
+  authentication channel and integration-enforcement repair are not continued
+  solely for #1087.
+- Cleanup PR #1090 merged normally from source
+  `815e2487ffe73b876a29307f4ca0378d6a42130d` as
+  `72b179dd04f1d6e9c4742bee59b400b4de4da68d`. It exactly reversed merged
+  #1089's five-file repository effect: deleted the protected-auditor workflow,
+  helper and test; restored the Scaffold workflow and validation budget document
+  byte-for-byte to pre-#1089 parent `2dff505c473f122333efbe0388188ee88d931566`.
+  Cleanup main's entire tree matches that parent. No protected-auditor or advanced
+  CodeQL analyzer/controller remains on main.
+- #1084 remains completed and retained. Issue #1084 is CLOSED/completed and its
+  hygiene PR #1086 merged as `2dff505c473f122333efbe0388188ee88d931566`.
+  The Scaffold workflow, classifier helper and 33-test regression suite match
+  accepted #1084 source `113a331347cbd9b6744f8480b21d1e99e3e4c6fd` exactly.
+  The earlier #1084 entry below is its historical pre-merge checkpoint.
+- Final scanner posture is GitHub CodeQL default setup: real Actions, C/C++, C#,
+  JavaScript/TypeScript and Python scanning; default queries, `remote_and_local`,
+  weekly schedule and standard runner. No default-setup settings were changed in
+  this cleanup. Exact cleanup-source run `34037550235` and fresh cleanup-main
+  [run 34038312630](https://github.com/tommytang213/Settleora/actions/runs/34038312630)
+  passed all five analyses, with processed records and no errors/warnings.
+  Relevant open code-scanning alert inventories were empty. Docs-only hygiene
+  may still receive full default CodeQL scanning; that is intended behavior.
+- Cleanup local validation passed all 11 commands, including docs/scaffold,
+  validation and Docker doctors, Compose, workflow YAML parsing, syntax and all
+  33 classifier tests. Fresh exact-source Gemini `strong_independent`, independent
+  local Codex mechanics/CI/security and GitHub Codex reviews passed without
+  actionable findings. Both full Scaffold runs, CodeQL, Semgrep and Trivy passed.
+  The sole exception was the owner-approved legacy `Audit CodeQL definition`
+  failure in run `34037551397`, job `101498278023`, executing old protected main
+  `2f00113f603314f7342e12ad0eb4ee038d36811b`. Actual logs and independent
+  production-function reproduction proved the expected absent advanced analyzer
+  error, `Required authority is not a regular Git file`. This failure is not a
+  pass; no other check, scanner or review finding was waived.
+- Retained PR #1088 is CLOSED and unmerged at unchanged source
+  `f5eedc9d2e13a6bf78bbb45c00b42bfc9ea4ebef`. Its unresolved integration-authority
+  P1 thread `PRRT_kwDOSNHStc6frYwW` remains unresolved and unwaived: the proposal
+  is abandoned, not accepted. Its branch is retained.
+- Issue #1087 remains OPEN at this pre-merge hygiene checkpoint. Close
+  recommendation: `not planned` after this ledger-only hygiene PR passes fresh
+  reviews/checks, merges normally and final-main default CodeQL health is proven.
+  No linked Project item exists. Branch/worktree cleanup is intentionally not
+  performed; all branches/worktrees are retained. No product/runtime/API/auth,
+  storage/privacy, money, schema, OpenAPI/generated-client, deployment, secret,
+  ruleset/protection or scanner-suppression change. No broader Day 1 completion
+  is implied.
+- Last verified main: `72b179dd04f1d6e9c4742bee59b400b4de4da68d`.
+  Logical task `20260906-1710`, continuation `20260906-2147`; final closure and
+  hygiene merge evidence belongs in the issue's final comment and report
+  `settleora-codex-report-20260906-2147-issue-1087-abandon-codeql-docs-only-cleanup.md`
+  under `/workspace/logs/`, with evidence in `/workspace/logs/issue-1087-20260906-2147/`.
+
 ### Issue #1084 and PR #1085 — proven docs-only first-push classifier (2026-09-06)
 
 - Source PR #1085 merged by normal GitHub merge from base
