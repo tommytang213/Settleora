@@ -105,6 +105,13 @@
   M31/#356 retains mobile proof scope. M14/#402 explicitly owns remaining
   invalidation/adjustment/reopen policy reconciliation and focused splitting with
   #967/#969/#718 inputs, separately from impact-readout and UI slices.
+- Latest live-authority precision: M53 password-change UI belongs #339 with
+  #965 input. Closed #348 foundation work is credited; remaining granular revision
+  snapshots go through #967, separate from #402 settlement impact. #966 explicitly
+  includes configurable file policy/hard-cap/retention/cleanup reconciliation with
+  existing #341 before new children. #349 retains cross-domain money acceptance
+  through #967/#969 outside mobile counts. #296 statement/drill-down expansion is
+  Needs Decision under canonical scope, not an approved new contract requirement.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
