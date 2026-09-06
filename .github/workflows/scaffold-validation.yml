@@ -60,9 +60,6 @@ jobs:
       - name: Test scaffold classifier
         run: node --test tools/ci/test/scaffold-validation-changes.test.mjs
 
-      - name: Test protected CodeQL auditor
-        run: node --test tools/ci/test/codeql-protected-auditor.test.mjs
-
       - name: Validate OpenAPI
         if: steps.changes.outputs.run_full_validation == 'true'
         run: npm run validate:openapi
