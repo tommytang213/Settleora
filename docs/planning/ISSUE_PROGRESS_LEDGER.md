@@ -120,6 +120,15 @@
   paid-by confirmation #346. Friend-request/group-invite/overdue/comment event
   families are explicitly Needs Decision through #973, with #369 producers only
   after scope/domain approval. No new issue or runtime change.
+- Further acceptance precision: #350 includes bill-level member exclusions;
+  #406 explicitly owns duplicate-safe CSV replay/candidate recovery and retains
+  broader JSON/PDF/selected-record export as Needs Decision. #366 owns recurring
+  edit-scope disposition; #972 separately owns background generation disposition,
+  neither equated with reminders or Day 2 autopay. #966 includes resolved privacy
+  policy/default/required/disabled/change-warning states. #1092 includes skip/copy/
+  localization acceptance and #1093 a complete keyed Day 1 help coverage matrix;
+  admin maintenance is not a mobile destination. #405 sorting/pagination are
+  bounded-design mechanics or Needs Decision, not standalone scope expansion.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
