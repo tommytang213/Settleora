@@ -88,6 +88,13 @@
   M05/#338 owns missing new-device source classification/audit; producer #369
   depends on it. Conditional bill tags remain Needs Decision through #967,
   outside approved counts until explicit product disposition.
+- Final client/contract reconciliation: M08/#776 first needs the missing mapped
+  MFA policy-readout endpoint and authorization/tests before generated transport
+  can support mobile policy states. M37/#634 explicitly includes push-token
+  revocation lifecycle and bounded failure acceptance. M36/#971 includes broader
+  offline create/edit/mutation replay beyond current archive/restore types.
+  M41/#406 is the sole portability implementation-split owner; #971 and #966
+  remain reconciliation/local-workspace/storage inputs, not competing owners.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
