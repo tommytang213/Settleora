@@ -42,7 +42,7 @@ jobs:
           CURRENT_SHA: ${{ github.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_REF: ${{ github.ref }}
-        run: node tools/ci/scaffold-validation-changes.mjs
+        run: node tools/ci/scaffold-validation-changes.mjs >> "$GITHUB_OUTPUT"
 
       - name: Setup .NET
         if: steps.changes.outputs.run_full_validation == 'true'
@@ -56,6 +56,9 @@ jobs:
 
       - name: Validate scaffold paths
         run: npm run validate:scaffold
+
+      - name: Test scaffold classifier
+        run: node --test tools/ci/test/scaffold-validation-changes.test.mjs
 
       - name: Validate OpenAPI
         if: steps.changes.outputs.run_full_validation == 'true'

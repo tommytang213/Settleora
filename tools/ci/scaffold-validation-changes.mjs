@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const shaPattern = /^[0-9a-f]{40}$/;
@@ -59,8 +58,7 @@ export function classifyChanges(env, git = gitCommand) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const result = classifyChanges(process.env);
-  // Only fixed booleans go to GITHUB_OUTPUT; filenames cannot inject outputs.
-  appendFileSync(process.env.GITHUB_OUTPUT,
-    `run_full_validation=${result.run_full_validation}\ndocs_only=${result.docs_only}\n`);
-  console.log(JSON.stringify({ event: process.env.EVENT_NAME, before: process.env.BEFORE_SHA, ...result }));
+  // Stdout is only fixed booleans; evidence stays on stderr, never in outputs.
+  process.stdout.write(`run_full_validation=${result.run_full_validation}\ndocs_only=${result.docs_only}\n`);
+  console.error(JSON.stringify({ event: process.env.EVENT_NAME, before: process.env.BEFORE_SHA, ...result }));
 }

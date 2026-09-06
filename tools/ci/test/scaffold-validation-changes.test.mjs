@@ -113,3 +113,25 @@ test('workflow uses shared classifier and retains six expensive step gates', () 
   for (const command of ['npm ci', 'npm run validate:scaffold']) assert.ok(workflow.includes(`run: ${command}`));
   assert.match(workflow, /contents: read/);
 });
+
+for (const [filename, full] of [['docs/guide.md', false], ['services/api/source.cs', true]]) {
+  test(`PR merge checkout: ${filename}`, (t) => {
+    const f = fixture(t, filename);
+    f.git(['switch', 'main']);
+    writeFileSync(path.join(f.repo, 'main-only.txt'), 'New main change\n');
+    f.git(['add', 'main-only.txt']); f.git(['commit', '-m', 'advance main']);
+    const prBase = f.git(['rev-parse', 'HEAD']).trim();
+    f.git(['merge', '--no-ff', 'docs/misleading', '-m', 'PR merge']);
+    const mergeHead = f.git(['rev-parse', 'HEAD']).trim();
+    const env = { ...f.env, EVENT_NAME: 'pull_request', PR_BASE_SHA: prBase, CURRENT_SHA: mergeHead };
+    assert.equal(classifyChanges(env, f.git).run_full_validation, full);
+  });
+}
+test('CLI stdout is fixed outputs only; evidence cannot inject workflow outputs', (t) => {
+  const f = fixture(t);
+  const cli = new URL('../scaffold-validation-changes.mjs', import.meta.url);
+  const stdout = execFileSync(process.execPath, [cli.pathname], {
+    cwd: f.repo, env: { ...process.env, ...f.env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.equal(stdout, 'run_full_validation=false\ndocs_only=true\n');
+});
