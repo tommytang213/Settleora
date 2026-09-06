@@ -143,7 +143,7 @@ Totals: **55 rows — complete 2, partial 37, missing 8, blocked 8**.
 - Status: `partial`. Requirement/reference: PRD: shared bills/multi-payer acknowledgement; Bills, Groups.
 - Source: [SettleoraGroupBillCreateScreen](../../apps/mobile/lib/bills/bill_list_screen.dart); [_GroupBillAcknowledgementActions](../../apps/mobile/lib/bills/bill_list_screen.dart).
 - Tests: [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill create happy path smoke reaches submitted detail`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill detail blocks duplicate participant action taps`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill participant failure shows bounded retryable state refresh`.
-- States: E active-member requirement; L create/submit/ack busy; R retry without duplicate create; D refreshed capabilities and member failure block actions; O online-only create, queue not claimed.
+- States: E active-member requirement; L create/submit/ack busy; R retry without duplicate create; D loaded participant/status eligibility and member failure block actions; accept/reject calls mutate before refresh, with bounded API rejection; O online-only create, queue not claimed.
 - Accessibility/visual: Guided assignment sections and shared money fields; group/bills captures; payer confirmation/platform acceptance still incomplete.
 - Owner: [#346](https://github.com/tommytang213/Settleora/issues/346). Remaining: Group create, split/payer entry, submit and accept/reject exist. Category and whole-bill/shared-note metadata gaps are M11/#967. Remaining on-behalf-of/paid-by confirmation coverage must be reconciled against API capability, not added as a second group-create UI.
 - Gate/dependency: Money/payer/participant authority; [#967](https://github.com/tommytang213/Settleora/issues/967) dependency. Order: **W4**.
@@ -153,9 +153,9 @@ Totals: **55 rows — complete 2, partial 37, missing 8, blocked 8**.
 - Status: `partial`. Requirement/reference: PRD: safe edit/archive/restore; Bills.
 - Source: [SettleoraBillListScreen](../../apps/mobile/lib/bills/bill_list_screen.dart); [_CreateRevisionAction](../../apps/mobile/lib/bills/bill_list_screen.dart).
 - Tests: [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `bill list queues archive and flushes through sync`; [bill_sync_controller_test.dart](../../apps/mobile/test/bill_sync_controller_test.dart): `queues archive and restore using empty safe payloads`.
-- States: E no actionable records; L queued/in-flight guards; R retry-later/conflict; D server capability guards; O personal archive/restore queue only.
+- States: E no actionable records; L queued/in-flight guards; R retry-later/conflict; D server/sync acceptance after enqueue; archive/restore has no pre-action capability guard (revision guards are separate); O personal archive/restore queue only.
 - Accessibility/visual: Existing controls/captures do not prove all group draft edit/archive/restore and terminal states.
-- Owner: [#345](https://github.com/tommytang213/Settleora/issues/345). Remaining: Personal archive/restore queue and revision entry exist; general draft edit and group lifecycle parity are not proven. Keep lifecycle policy [#718](https://github.com/tommytang213/Settleora/issues/718)/#960 separate from broad UI changes.
+- Owner: [#345](https://github.com/tommytang213/Settleora/issues/345). Remaining: Personal archive/restore queue and revision entry exist; archive/restore buttons gate only busy/open-operation state and choose action from isArchived. Lifecycle eligibility/denied presentation before enqueue remains #345 work; general draft edit and group lifecycle parity are not proven. Keep lifecycle policy [#718](https://github.com/tommytang213/Settleora/issues/718)/#960 separate from broad UI changes.
 - Gate/dependency: Lifecycle/money, sync and any API contract changes. Order: **W4**.
 
 ### M14 — Bill revision proposal / review / approvals
@@ -423,7 +423,7 @@ Totals: **55 rows — complete 2, partial 37, missing 8, blocked 8**.
 - Status: `partial`. Requirement/reference: PRD: manual finance/forecast input; Settings.
 - Source: [SettleoraManualFinanceScreen](../../apps/mobile/lib/manual_finance/manual_finance_screen.dart).
 - Tests: [manual_finance_screen_test.dart](../../apps/mobile/test/manual_finance_screen_test.dart): `lists manual account and income data with explanatory copy`.
-- States: E no accounts/income; L load/save; R safe failure; D repository-backed capability; O no offline account mutation.
+- States: E no accounts/income; L load/save; R safe failure; D typed SettleoraManualFinanceFailure denied/unavailable results; O no offline account mutation.
 - Accessibility/visual: Shared MoneyInput/DateField; money-date form capture; distinct summaries have domain-specific justification, not automatic component defect.
 - Owner: [#972](https://github.com/tommytang213/Settleora/issues/972). Remaining: Manual accounts/income and estimates exist and are reachable from More. Day 1 manual account/income estimates and forecast-input acceptance require current domain reconciliation; discoverability is M09. Autopay policy defaults and paid-state overrides remain Day 2 under D1-RECUR-003 and are not an acceptance gap here.
 - Gate/dependency: Money/forecast authority. Order: **W4**.
