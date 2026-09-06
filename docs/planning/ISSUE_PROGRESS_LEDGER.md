@@ -1,5 +1,46 @@
 # Issue Progress Ledger
 
+### Issue #866 and PR #1082 — sheet/dialog accessibility semantics completed (2026-09-06)
+
+- PR #1082 merged by normal GitHub merge commit from base
+  `f9c4c1d772e6abd2fbbd6aa9c04ee3eab6543a83` and exact source head
+  `48fb7b56fb1866608252f0985f1c2753e9e11dfc` (tree
+  `c545103c32dec542b3e546c7c3cd3bb845972360`) as merge
+  `8680f17e5eaecd64af75ff0349415376084769ac`. Fetched main contains the source
+  head and both reviewed product files match exactly. Source branch retained.
+- Evidence-first tests proved the sheet already had one title header while
+  the dialog had zero. The only production change adds a semantic header
+  around the existing dialog title. Routed sheet/dialog tests prove exactly
+  one title/header announcement, readable non-header subtitle/message/body,
+  independently enabled tappable buttons in predictable traversal order, and
+  both callbacks. Visible copy, layout, scrolling, keyboard inset handling,
+  component APIs, and action behavior are unchanged.
+- Product diff is restricted to `apps/mobile/lib/ui/settleora_components.dart`
+  and `apps/mobile/test/ui/settleora_component_guardrail_test.dart`. Clean
+  worktree and scope/diff checks, mobile doctor, Flutter dependency resolution,
+  analysis, and all 43 component guardrail tests passed. Existing #865 key/value
+  traversal/custom-widget actions and LoadingState live-region tests remain
+  unchanged and pass.
+- Fresh exact-head Gemini `strong_independent`, local Codex mechanics/security,
+  and GitHub Codex reviews passed with no material findings. Validate scaffold,
+  CodeQL and all five language analyses, Semgrep CE/OSS, and Trivy checks passed
+  on the exact PR head. Review inventory had zero unresolved threads.
+- #866 is closed complete. Completion evidence is recorded in its
+  [issue checkpoint](https://github.com/tommytang213/Settleora/issues/866#issuecomment-5557860172).
+  #301 and #372 received child-completion checkpoints and remain open for their
+  independent component, screen, reference, and platform acceptance scope.
+  #866 has no linked Project item. Parent Project status remains
+  `Needs Figma / Reference`; #301 retains 5 initial/remaining MD, while #372
+  has no numeric estimates in the readback. No broader completion is inferred.
+- Last verified main: `8680f17e5eaecd64af75ff0349415376084769ac`. Task/report:
+  `20260906-1531`, `.codex/last-report.md`; detailed local evidence under
+  `.codex/issue-866-20260906-1531/`. No remaining gate for the implemented
+  #866 semantics slice; broader manual reference/acceptance/release gates
+  remain independent.
+- No API/security/auth/storage/money/schema/OpenAPI/generated-client,
+  deployment/environment/secret, DevCommand or autonomous-runner change.
+  #959, #1048, #1049 and closed #800 were untouched.
+
 ### Issue #865 and PR #1080 — mobile key/value reading-order semantics completed (2026-09-06)
 
 - PR #1080 merged by normal GitHub merge commit from exact source base
