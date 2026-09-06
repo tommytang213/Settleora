@@ -1,5 +1,158 @@
 # Issue Progress Ledger
 
+### Issue #407 — Day 1 mobile screen completeness audit (2026-09-06)
+
+- Audit baseline: `2b7e39d24cf39b4900d7f0bce0b1da36c0b8467f` on `main`.
+  Issue #407 is open while this docs/control candidate awaits exact-head
+  validation, fresh Gemini `strong_independent`, local Codex, GitHub review/checks
+  and merge. No runtime/UI implementation or manual Day 1 acceptance is claimed.
+- Durable inventory:
+  [Day 1 mobile screen completeness checklist](../qa/DAY1_MOBILE_SCREEN_COMPLETENESS_CHECKLIST.md).
+  **60 canonical rows: complete 2, partial 38, missing 10, blocked 10.** Counts
+  include the shared-component and cross-screen acceptance flows; a completed
+  bounded password-reset request or notification handoff does not complete auth
+  or notification product scope.
+- New focused owners after open/closed issue and source/test duplicate checks:
+  [#1092 bundled What’s New](https://github.com/tommytang213/Settleora/issues/1092),
+  [#1093 contextual static screen help](https://github.com/tommytang213/Settleora/issues/1093),
+  [#1094 server-announcement authority/contract handoff](https://github.com/tommytang213/Settleora/issues/1094),
+  [#1096 setup persistence and connection feedback](https://github.com/tommytang213/Settleora/issues/1096).
+  All other remaining gaps reuse the checklist's single owner per gap; audit
+  owners reconcile and split before runtime admission, not broad automatic coding.
+- Smallest next waves: W1 existing #959 parser fix separately from #301
+  equivalent component adoption, #299 metric actionability and #295 lightweight
+  shortcuts; then local version notes/help. W2 #977-backed report/group-summary
+  work, #412 mode reference and #1094 announcement design. W3 auth/security,
+  vault/privacy and push-provider gates stay separate. W4 #967/#970/#969/#972/
+  #976/#971 domain reconciliations precede separately scoped money, OCR, proof,
+  recurring, relationship, offline and portability changes. W5 #975 coordinates
+  final state/accessibility/visual/platform acceptance, with release proof #974.
+- #301/#372 reconciliation: money/date selectors, reusable rows, state panels,
+  sheets/dialogs and focused accessibility primitives already exist. #672/#679,
+  #371 and #865/#866 completion evidence must not be recreated. Open umbrellas
+  are not proof of missing work. The old light-only, missing shared-sheet and
+  missing group/recurring-create descriptions are superseded by current source.
+  #301 remains open for demonstrated adoption/consistency gaps; #372 stays open
+  for the full product and acceptance close rule.
+- GitHub review reconciliation: receipt normalization is already wired for personal/group
+  create-form camera/gallery/file upload intake; saved-detail uploads bypass it,
+  while native OCR still reads the original path. Production notification restore
+  is unavailable despite the optional fake-tested UI seam.
+  Fresh setup lacks server reachability/capability feedback; #967 owns missing
+  category and whole-bill/shared-note metadata, distinct from existing item notes.
+  M56 assigns remaining persisted notification preferences to #973 after completed
+  #370/#561 API foundations; #634 retains OS push registration only. Settlement
+  notes remain #355 domain-gated work. Day 2 autopay/theme and previously optional
+  #772/#774 mobile surfaces are excluded from counts. #405 owns advanced search
+  through #977; #404 owns reconciliation status. Role-aware group actions remain
+  #720. Recurring notification handoffs and CSV/backup server foundations exist;
+  mobile wiring and failed-normalization safety are explicitly distinguished.
+- Further API/source reconciliation credits group lifecycle/reconciliation, self QR,
+  bounded server bill filters and #367 due-soon runtime. M58 explicitly inventories
+  missing financial-component/multi-tax/receipt-total controls under open #967;
+  #351 stays closed for its completed planning/validation children. Personal payment
+  method wiring, channel preferences and authorized recurring group selection are
+  also explicit existing-owner gaps; no new API implementation is inferred.
+- Final coverage split: M59 counterparty QR content belongs #966, separately from
+  #356 proof; proof/QR/supporting-image purpose-specific normalization is explicit.
+  M60 credits existing event producers and leaves producer gaps with #369 through
+  #973 reconciliation. M61 counts localization readiness under sole owner #409;
+  English-only Day 1 remains allowed, Traditional Chinese remains Day 2.
+- Additional lifecycle/notification reconciliation: M62 owns cross-record lifecycle
+  gaps under #716; closed #410 is superseded, and merged #715 guardrails are
+  credited. #960/domain policies/#961 and #722/#723/#724 precede runtime.
+  M63 assigns future required notification route extensions to #973 while
+  #371's accepted current-family scope remains complete. M56 explicitly records
+  the current unconditional sync/security-family preference bypass and its
+  unresolved policy/persistence acceptance under #973. No runtime changed.
+- Additional requirement precision: M08/#776 includes existing MFA-policy readout
+  wiring, disabled/required/noncompliant states and existing-factor/recovery/step-up
+  lifecycle management; M15/#350 includes missing
+  server-resolved item split/rounding-residual presentation, crediting its API.
+  M26/#976 includes unfriend/future-sharing revocation with preserved history;
+  M45/#412 includes feasible limited advanced-area opt-ins. SMTP delivery is a
+  separate #403-owned server/provider dependency, excluded from mobile destination
+  counts; closed #632 sender foundations are credited, activation remains gated.
+- Final authority corrections: M01 setup behavior belongs focused #1096, not
+  #301 component adoption. Required server OCR runtime is a separate #357/#970
+  dependency, outside mobile counts. M60/#369 explicitly includes bill-updated
+  producers; M15/#350 includes missing bill-level split contract/domain/UI.
+  Retired M40 manual accounts/income is existing starter UI without explicit
+  Day 1 approval: keep broader scope Needs Decision, outside counts and #972
+  acceptance, with current #299 conditional placement context retained.
+- Capability precision after review: M14/#402 credits existing conservative
+  settlement apply guards but records absent impact-readout runtime/mobile data.
+  M25/#399 credits the group-scoped report API/screen and owns its missing group
+  handoff; M29/#354 separates existing pay-all wiring from absent selected-line
+  domain/contracts. M18/#358 adds supporting-to-receipt purpose-change bypasses.
+  M05/#338 owns missing new-device source classification/audit; producer #369
+  depends on it. Conditional bill tags remain Needs Decision through #967,
+  outside approved counts until explicit product disposition.
+- Final client/contract reconciliation: M08/#776 reuses the mapped factor-list
+  response policy for mobile states, including an empty factor list; the absent
+  standalone policy route is contract drift, not a new-endpoint prerequisite. M37/#634 explicitly includes push-token
+  revocation lifecycle and bounded failure acceptance. M36/#971 includes broader
+  offline create/edit/mutation replay beyond current archive/restore types.
+  M41/#406 is the sole portability implementation-split owner; #971 and #966
+  remain reconciliation/local-workspace/storage inputs, not competing owners.
+- Additional server/foundation precision: M18/#358 retains client intake gaps;
+  #966 solely owns reconciliation/splitting of authoritative server normalization,
+  absent despite bounded upload validation. M25/#399 credits existing group-scoped
+  recurring repository/API reads and owns missing scoped screen/handoff wiring.
+- Adjacent ownership precision: #966 owns authoritative server normalization
+  reconciliation for receipt/supporting, proof and self-QR image purposes; bounded
+  upload validation is credited but direct byte persistence is not normalization.
+  M31/#356 retains mobile proof scope. M14/#402 explicitly owns remaining
+  invalidation/adjustment/reopen policy reconciliation and focused splitting with
+  #967/#969/#718 inputs, separately from impact-readout and UI slices.
+- Latest live-authority precision: M53 password-change UI belongs #339 with
+  #965 input. Closed #348 foundation work is credited; remaining granular revision
+  snapshots go through #967, separate from #402 settlement impact. #966 explicitly
+  includes configurable file policy/hard-cap/retention/cleanup reconciliation with
+  existing #341 before new children. #349 retains cross-domain money acceptance
+  through #967/#969 outside mobile counts. #296 statement/drill-down expansion is
+  Needs Decision under canonical scope, not an approved new contract requirement.
+- Additional bounded requirement reconciliation: #635 retains admin notification
+  policy runtime/disposition outside mobile counts; its guarded readout exists,
+  mutation scope remains decision-gated. M21/#970 credits editable/trimmed merchant
+  text and owns non-AI Day 1 normalization acceptance; AI suggestions remain Day 3.
+  M12 separates responsible owner/editor selection/authorization under #967 from
+  paid-by confirmation #346. Friend-request/group-invite/overdue/comment event
+  families are explicitly Needs Decision through #973, with #369 producers only
+  after scope/domain approval. No new issue or runtime change.
+- Further acceptance precision: #350 includes bill-level member exclusions;
+  #406 explicitly owns duplicate-safe CSV replay/candidate recovery and retains
+  broader JSON/PDF/selected-record export as Needs Decision. #366 owns recurring
+  edit-scope disposition; #972 separately owns background generation disposition,
+  neither equated with reminders or Day 2 autopay. #966 includes resolved privacy
+  policy/default/required/disabled/change-warning states. #1092 includes skip/copy/
+  localization acceptance and #1093 a complete keyed Day 1 help coverage matrix;
+  admin maintenance is not a mobile destination. #405 sorting/pagination are
+  bounded-design mechanics or Needs Decision, not standalone scope expansion.
+- Final handoff precision: #1093 settings help includes push M37 and persisted
+  preferences M56. #966 explicitly owns the platform-feasible local PIN/biometric/
+  encryption/backup-protection/settings-change security slice, crediting the
+  existing no-collaboration warning. M25/#399 credits current group balance
+  projection and groupId-preserving mobile mapping; remaining work is contextual
+  filtering/handoff/acceptance unless a concrete missing field is demonstrated.
+- Security dependency precision: outside-mobile #465 owns absent admin MFA/auth
+  policy controls while server read/default foundations and M08 readout are
+  credited. M04 explicitly retains #785 owner-lockout and #464 admin settings
+  gates. #966 retains actual Recoverable Vault encryption/envelope/schema/API/
+  sensitive-content/recovery/audit/backup runtime splitting; closed #419/#420/
+  #422 architecture packets are credited, not mistaken for implemented protection.
+- Exact #407 close recommendation: close only after checklist plus ledger merge,
+  exact-head validation/reviews/checks are recorded, #372 receives the current
+  gap/wave summary, and every genuine gap is linked without duplication. Until
+  then keep #407 open. Do not close #372 or #301 merely because this audit merges.
+- Task report:
+  `/workspace/logs/settleora-codex-report-20260906-2230-issue-407-day1-mobile-screen-completeness-audit.md`.
+  Post-merge source/merge/check/review/Project evidence belongs in that report
+  and issue comments; this candidate does not pre-claim merge or acceptance.
+- Scope: documentation/control only. No API/domain, auth/session/authz, money,
+  file privacy, schema, OpenAPI/generated-client, OCR/sync runtime, deployment,
+  secret or mobile UI behavior change.
+
 ### Issue #1087 — CodeQL optimization abandoned; default setup retained (2026-09-06)
 
 - Owner decision [5559641879](https://github.com/tommytang213/Settleora/issues/1087#issuecomment-5559641879)
