@@ -131,8 +131,8 @@ void main() {
                           builder: (_) => SettleoraDialogFrame(
                             title: 'Review details',
                             message: 'Check the visible details.',
-                            child: const Text('Details remain editable.'),
                             actions: actions,
+                            child: const Text('Details remain editable.'),
                           ),
                         );
                       }
