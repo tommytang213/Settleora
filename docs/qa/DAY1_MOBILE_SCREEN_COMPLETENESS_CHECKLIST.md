@@ -8,7 +8,7 @@ owns server authorization, money, status, file access, sync acceptance and audit
 
 ## Reading and counting rules
 
-Each canonical destination/flow appears once in M01–M56. Entry aliases and
+Each canonical destination/flow appears once in the active M01–M57 rows. M07 and M54 are retired optional-scope identifiers (see exclusions); IDs are not reused. Entry aliases and
 embedded/pushed variants are included in their canonical row, not counted again.
 M49–M50 are cross-cutting component/acceptance flows included in the same totals.
 Source symbols and named test cases below are current, inspected evidence; tests
@@ -34,7 +34,7 @@ screen acceptance.
   reproducible branch-rendered fixtures exist, not that [#407](https://github.com/tommytang213/Settleora/issues/407) rendered or approved
   unseen UI. No new Figma or screenshots were required or created here.
 
-Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
+Totals: **55 rows — complete 2, partial 37, missing 8, blocked 8**.
 
 ## Canonical inventory
 
@@ -45,7 +45,7 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `setup saves local mode without creating a server repository`; [widget_test.dart](../../apps/mobile/test/widget_test.dart): `setup rejects invalid server base URLs before saving`.
 - States: E initial choice; L save busy; R URL validation and initial storage-read recovery; configuration save failure has no bounded feedback; D only syntactic URL validation on fresh setup; unreachable/incompatible-server setup feedback is uncovered; O local choice persists, operational workspace M02.
 - Accessibility/visual: Labels, scroll and shared controls exist; shell capture harness; exhaustive large-text/keyboard/platform acceptance unproven.
-- Owner: [#301](https://github.com/tommytang213/Settleora/issues/301). Remaining: Bounded setup exists, but _save and _saveConfiguration lack save-error mapping; add bounded save-failure presentation/tests in a focused state-pattern slice. Fresh setup does not probe server reachability/capability; _load contacts currentUser only for a saved session. The uncovered setup feedback belongs this same state-pattern owner, with any new connection contract reviewed separately. Per-device onboarding acceptance stays M50; experience modes are M45, not another authority mode.
+- Owner: [#301](https://github.com/tommytang213/Settleora/issues/301). Remaining: Bounded setup exists, but _save and _saveConfiguration lack save-error mapping; add bounded save-failure presentation/tests in a focused state-pattern slice. Fresh setup does not probe server reachability/capability; _load contacts currentUser only for a saved session. The unconditional StatusChip labeled Server checked (setup_screen.dart) falsely implies verification; correct or condition that claim under this same state-pattern owner. The uncovered setup feedback belongs this owner, with any new connection contract reviewed separately. Per-device onboarding acceptance stays M50; experience modes are M45, not another authority mode.
 - Gate/dependency: None for evidence-only work. Order: **W5**.
 
 ### M02 — Local-only operational workspace
@@ -95,18 +95,8 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `forgot password opens the reset request form`; [widget_test.dart](../../apps/mobile/test/widget_test.dart): `password reset failure uses generic safe copy`.
 - States: E request form; L busy; R generic safe failure/retry; D non-enumerating request result; O bounded connection failure.
 - Accessibility/visual: Accepted scoped password-reset package and [#771](https://github.com/tommytang213/Settleora/pull/771)/#778 completion; no new visual approval made here.
-- Owner: [#339](https://github.com/tommytang213/Settleora/issues/339). Remaining: No remaining gap in the accepted reset-request surface. This does not include email/app-link continuation M07 or MFA M08.
+- Owner: [#339](https://github.com/tommytang213/Settleora/issues/339). Remaining: No remaining gap in the accepted reset-request surface. MFA remains M08; optional mobile reset-link continuation #772 is excluded from Day 1 counts.
 - Gate/dependency: None for evidence-only work. Order: **Retain**.
-
-### M07 — Password-reset app/universal/custom-link continuation
-
-- Status: `blocked`. Requirement/reference: PRD: account recovery; Reset.
-- Source: [SettleoraSignInScreen](../../apps/mobile/lib/app/sign_in_screen.dart).
-- Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `forgot password opens the reset request form`.
-- States: E/L/R/D/O request-only tests; link continuation states not implemented.
-- Accessibility/visual: No platform link acceptance; [#772](https://github.com/tommytang213/Settleora/issues/772) owns focused reference and security handling.
-- Owner: [#772](https://github.com/tommytang213/Settleora/issues/772). Remaining: Reset request exists, but mobile reset-link ownership/platform routing is not complete. Closed [#371](https://github.com/tommytang213/Settleora/issues/371) notification routing is not reset-link authority.
-- Gate/dependency: Token handling, platform link ownership and auth security. Order: **W3**.
 
 ### M08 — Passkey / TOTP / recovery-code enrollment and challenge
 
@@ -215,7 +205,7 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Tests: [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill receipt image permission error keeps manual entry`; [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill scan receipt reviews and applies OCR suggestions`; [receipt_ocr_capture/receipt_image_artifact_processor_test.dart](../../apps/mobile/test/receipt_ocr_capture/receipt_image_artifact_processor_test.dart): `produces normalized JPEG and thumbnail bytes from PNG input`.
 - States: E cancel unchanged; L picker/provider busy; R safe picker errors; D permission-denied manual path; O artifacts in memory, secure cache deferred.
 - Accessibility/visual: Capture guidance exists; camera/native permission and all intake variants need device evidence.
-- Owner: [#358](https://github.com/tommytang213/Settleora/issues/358). Remaining: Personal/group camera/gallery and file-import intake call _processedReceiptAttachmentArtifact, which invokes processor.process and replaces supported input with normalized JPEG upload bytes. This integration is already implemented. The helper retains file.localPath; _runReceiptOcrPreview passes that original path, and MlKitReceiptOcrProvider uses InputImage.fromFilePath rather than normalized request bytes. Normalized native-OCR input/path parity is still missing. Share-sheet, replacement and offline queue normalization parity and secure-cache/device acceptance remain unproven; do not recreate camera/gallery/file wiring.
+- Owner: [#358](https://github.com/tommytang213/Settleora/issues/358). Remaining: Personal/group camera/gallery and file-import intake call _processedReceiptAttachmentArtifact, which invokes processor.process and replaces supported input with normalized JPEG upload bytes. This integration is already implemented. The helper retains file.localPath; _runReceiptOcrPreview passes that original path, and MlKitReceiptOcrProvider uses InputImage.fromFilePath rather than normalized request bytes. Normalized native-OCR input/path parity is still missing. On failed processing the helper returns the original file, which stays uploadable; safe handling/blocking of failed decode/normalization is also an uncovered #358 boundary, not successful normalized intake. Share-sheet, replacement and offline queue normalization parity and secure-cache/device acceptance remain unproven; do not recreate camera/gallery/file wiring.
 - Gate/dependency: Storage/image retention/privacy; no client override of API upload policy. Order: **W4**.
 
 ### M19 — On-device OCR extraction and parser quality
@@ -273,9 +263,9 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Status: `partial`. Requirement/reference: PRD: group roles and historic membership; Groups.
 - Source: [SettleoraGroupListScreen](../../apps/mobile/lib/groups/group_list_screen.dart); [SettleoraGroupDetailScreen](../../apps/mobile/lib/groups/group_list_screen.dart).
 - Tests: [group_list_screen_test.dart](../../apps/mobile/test/group_list_screen_test.dart): `group detail edits group and manages members`; [group_list_screen_test.dart](../../apps/mobile/test/group_list_screen_test.dart): `group detail filtered actions target the visible member`; [group_list_screen_test.dart](../../apps/mobile/test/group_list_screen_test.dart): `group screen shows bounded failures`.
-- States: E true/filtered empty; L group/member load; R safe failure; D capability/role-backed actions; O server-only, no offline membership acceptance.
+- States: E true/filtered empty; L group/member load; R safe failure; D API rejection is bounded, but edit/add/change-role/remove controls do not consult currentUserRole; O server-only, no offline membership acceptance.
 - Accessibility/visual: Shared sections/rows, groups capture harness; historical removal/reactivation acceptance incomplete.
-- Owner: [#720](https://github.com/tommytang213/Settleora/issues/720). Remaining: Create/edit groups and add/change-role/remove member presentation exists; remaining historical participation/lifecycle policy must be reconciled, not recreated as basic membership CRUD.
+- Owner: [#720](https://github.com/tommytang213/Settleora/issues/720). Remaining: Create/edit groups and add/change-role/remove member presentation exists; ordinary-member controls remain actionable until API rejection. Role-aware action presentation and denied-state tests are missing under #720; keep authorization server-owned. Remaining historical participation/lifecycle policy must be reconciled, not recreated as basic membership CRUD.
 - Gate/dependency: Membership/authz/lifecycle; [#976](https://github.com/tommytang213/Settleora/issues/976) dependency. Order: **W4**.
 
 ### M25 — Group dashboard / contextual cross-domain summaries
@@ -381,11 +371,11 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 ### M35 — Typed notification destination handoff
 
 - Status: `complete`. Requirement/reference: PRD: authorized notification entry; Open.
-- Source: [_openPersonalBill](../../apps/mobile/lib/notifications/notification_screen.dart); [_openGroupBill](../../apps/mobile/lib/notifications/notification_screen.dart); [_openSettlement](../../apps/mobile/lib/notifications/notification_screen.dart); [_openReceiptOcrReview](../../apps/mobile/lib/notifications/notification_screen.dart); [_openSyncOperation](../../apps/mobile/lib/notifications/notification_screen.dart).
-- Tests: [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `bill revision open action ignores action URLs`; [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `sync notifications refresh and show bounded sync readout`; [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `future and unsupported route families show safe fallback copy`.
+- Source: [_openPersonalBill](../../apps/mobile/lib/notifications/notification_screen.dart); [_openGroupBill](../../apps/mobile/lib/notifications/notification_screen.dart); [_openSettlement](../../apps/mobile/lib/notifications/notification_screen.dart); [_openReceiptOcrReview](../../apps/mobile/lib/notifications/notification_screen.dart); [_openSyncOperation](../../apps/mobile/lib/notifications/notification_screen.dart); [_openRecurringBill](../../apps/mobile/lib/notifications/notification_screen.dart).
+- Tests: [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `bill revision open action ignores action URLs`; [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `sync notifications refresh and show bounded sync readout`; [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `future and unsupported route families show safe fallback copy`; [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `recurring bill notifications show open recurring action and navigate`; [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `opening a recurring notification marks read and updates filters`.
 - States: E missing typed target => fallback; L single-flight open; R safe retry; D fresh repository checks, archived no-open; O unavailable server => bounded result.
 - Accessibility/visual: [#371](https://github.com/tommytang213/Settleora/issues/371) accepted scope closed via [#663](https://github.com/tommytang213/Settleora/pull/663)/#664; action/details safety tests and historical reference acceptance.
-- Owner: [#371](https://github.com/tommytang213/Settleora/issues/371). Remaining: No remaining gap in accepted in-app typed handoffs. Push delivery, OS registration and password links are separate M37/M07; unsupported families remain honest fallbacks.
+- Owner: [#371](https://github.com/tommytang213/Settleora/issues/371). Remaining: No remaining gap in accepted in-app typed handoffs. Recurring notifications re-fetch typed template IDs and open the recurring detail, with mark-read/filter coverage. Push delivery/OS registration is M37; mobile reset links #772 are future optional, outside Day 1; unsupported families remain honest fallbacks.
 - Gate/dependency: None for evidence-only work. Order: **Retain**.
 
 ### M36 — Sync status / offline queue / conflict and reconnect
@@ -418,14 +408,14 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Owner: [#296](https://github.com/tommytang213/Settleora/issues/296). Remaining: Monthly totals and local aggregate filters exist. Underlying bill/payment statement records and authorized drill-down are absent from report response/UI; coordinate [#977](https://github.com/tommytang213/Settleora/issues/977) contract needs before presentation work.
 - Gate/dependency: Authoritative report contract/financial totals if expanded. Order: **W2**.
 
-### M39 — Manual reconciliation status and record search/filter
+### M39 — Manual reconciliation status
 
 - Status: `partial`. Requirement/reference: PRD: manual reconciliation, not bank matching; Bills, UX.
 - Source: [_BillDetailHeader](../../apps/mobile/lib/bills/bill_list_screen.dart); [_MonthlyReportDiscoveryState](../../apps/mobile/lib/reports/monthly_report_screen.dart).
 - Tests: [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `bill list and detail show bounded reconciliation readouts`; [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `bill reconciliation readout hides unsafe raw details`.
 - States: E no status/filtered records; L parent load; R bounded failures; D safe readout; O no queued reconciliation mutation.
 - Accessibility/visual: Readouts tested, no complete mobile update/clear/reason flow or large-record acceptance.
-- Owner: [#404](https://github.com/tommytang213/Settleora/issues/404). Remaining: Reconciliation readout is not status mutation or bank evidence. Existing per-screen search is real; server/global search and supported reconciliation filters need [#967](https://github.com/tommytang213/Settleora/issues/967)/#977 reconciliation.
+- Owner: [#404](https://github.com/tommytang213/Settleora/issues/404). Remaining: Reconciliation readout is not status mutation or bank evidence. Update/clear/reason presentation needs current domain reconciliation; advanced search/filter belongs M57/#405, not this status-mutation owner.
 - Gate/dependency: Domain reconciliation/audit and any contract change. Order: **W2**.
 
 ### M40 — Accounts and income
@@ -441,11 +431,11 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 ### M41 — CSV import/export and local backup/restore preview
 
 - Status: `partial`. Requirement/reference: PRD: portability and local recovery; Settings, UX.
-- Source: [SecureStorageLocalDataBackupService](../../apps/mobile/lib/app/local_data_backup.dart); [_DataBackupImportPreviewDialog](../../apps/mobile/lib/app/server_mode_shell.dart).
+- Source: [SecureStorageLocalDataBackupService](../../apps/mobile/lib/app/local_data_backup.dart); [_DataBackupImportPreviewDialog](../../apps/mobile/lib/app/server_mode_shell.dart); [exportPersonalBillsCsv](../../packages/client-dart/lib/generated/client.dart); [downloadLocalBackupPackageContent](../../packages/client-dart/lib/generated/client.dart).
 - Tests: [local_data_backup_test.dart](../../apps/mobile/test/local_data_backup_test.dart): `buildExport creates a versioned backup without session material`; [local_data_backup_test.dart](../../apps/mobile/test/local_data_backup_test.dart): `previewImport validates JSON and blocks sensitive material`; [server_mode_shell_dashboard_test.dart](../../apps/mobile/test/server_mode_shell_dashboard_test.dart): `dashboard exposes backup export and import preview guards`.
 - States: E initial export/paste; L service call; R validation result; D rejects session/sensitive material; O local metadata only, no restore apply.
 - Accessibility/visual: Preview/dialog exists; no real file-share/export/import-apply or local workspace recovery acceptance.
-- Owner: [#971](https://github.com/tommytang213/Settleora/issues/971). Remaining: Current export displays JSON for manual save and import previews configuration/queue metadata. Not full record backup, CSV pipeline, restore apply or server backup. Reuse [#406](https://github.com/tommytang213/Settleora/issues/406) and closed [#453](https://github.com/tommytang213/Settleora/issues/453)–[#457](https://github.com/tommytang213/Settleora/issues/457) reference design.
+- Owner: [#971](https://github.com/tommytang213/Settleora/issues/971). Remaining: Current export displays JSON for manual save and import previews configuration/queue metadata. This mobile metadata preview is not full record backup or CSV import/review/file-share integration. Existing server/generated foundations must be credited: personal/group CSV export, preflight, import sessions/confirmation/import; local backup package sessions, generation/download, data artifacts, restore preview and confirmation sessions already exist. See generated exportPersonalBillsCsv/exportGroupBillsCsv/preflightPersonalBillsCsvImport/importPersonalBillsCsv/downloadLocalBackupPackageContent and the [ledger completed import/export/local-backup checkpoint](../planning/ISSUE_PROGRESS_LEDGER.md) (PRs #596/#597/#599/#602/#603/#614/#617/#619/#622/#624). Remaining work is mobile file/share/import-review wiring and local recovery integration; actual restore apply, durable/encrypted package storage and file-byte package sections remain separate unfinished storage boundaries. Do not recreate those API foundations. Reuse [#406](https://github.com/tommytang213/Settleora/issues/406) and closed [#453](https://github.com/tommytang213/Settleora/issues/453)–[#457](https://github.com/tommytang213/Settleora/issues/457) reference design.
 - Gate/dependency: Storage/privacy/import validation and destructive restore gates. Order: **W4**.
 
 ### M42 — Self profile and payment-detail editing / QR
@@ -568,16 +558,6 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Owner: [#965](https://github.com/tommytang213/Settleora/issues/965). Remaining: Generated changeCurrentAccountPassword and merged API [#729](https://github.com/tommytang213/Settleora/issues/729) exist, but mobile has no authenticated change-password surface. Do not confuse reset request M06 with password change.
 - Gate/dependency: Auth/security, factor/session effects; [#339](https://github.com/tommytang213/Settleora/issues/339) dependency. Order: **W3**.
 
-### M54 — Credential activity / security-center event entry
-
-- Status: `blocked`. Requirement/reference: PRD: security visibility and audit; Auth, Settings.
-- Source: [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart); [SettleoraSessionListScreen](../../apps/mobile/lib/app/server_mode_shell.dart).
-- Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `session list displays safe metadata and revokes a session`.
-- States: E/L/R/D/O session list exists but credential activity/security-center flow absent.
-- Accessibility/visual: No security event detail or safe audit re-fetch UI evidence; session metadata is adjacent only.
-- Owner: [#774](https://github.com/tommytang213/Settleora/issues/774). Remaining: Credential activity/security-center presentation needs the existing focused planning gate; do not expose raw audit records or pretend session metadata is a security event timeline.
-- Gate/dependency: Auth audit/privacy and safe event contracts. Order: **W3**.
-
 ### M55 — Shared/group bills list / detail / loaded filters
 
 - Status: `partial`. Requirement/reference: PRD: shared records; Bills, Groups.
@@ -597,6 +577,16 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Accessibility/visual: Current local preference controls and inbox reference exist; persisted-save/error/reload and full policy-resolution acceptance are unproven.
 - Owner: [#973](https://github.com/tommytang213/Settleora/issues/973). Remaining: Mobile server-preference wiring and Day 1 quiet-hours/digest/group-mute reconciliation remain. [#370](https://github.com/tommytang213/Settleora/issues/370) is closed for persisted API foundations via [#561](https://github.com/tommytang213/Settleora/pull/561); its completion explicitly excluded mobile persistence wiring, workers and group/admin policy. Reuse the open notification reconciliation owner instead of reopening completed API work or assigning this non-push gap to #634.
 - Gate/dependency: Notification privacy/security policy and any API changes; provider/OS registration remains M37. Order: **W2**.
+
+### M57 — Advanced record search / filter / sort / pagination
+
+- Status: `partial`. Requirement/reference: PRD: report/search/filter entry; Shell, UX; [current readiness plan](../planning/DAY1_UX_IMPLEMENTATION_READINESS_PLAN.md).
+- Source: [_MonthlyReportDiscoveryState](../../apps/mobile/lib/reports/monthly_report_screen.dart); [SettleoraBillListScreen](../../apps/mobile/lib/bills/bill_list_screen.dart).
+- Tests: [monthly_report_screen_test.dart](../../apps/mobile/test/monthly_report_screen_test.dart): `monthly report search filters loaded aggregate rows`; [monthly_report_screen_test.dart](../../apps/mobile/test/monthly_report_screen_test.dart): `monthly report combines search and filters safely`.
+- States: E local no-match distinct from server empty; L/R parent loading/retry; D loaded authorized rows only; O local filtering does not prove offline/global retrieval.
+- Accessibility/visual: Current per-screen controls and report/bill references exist; advanced query/pagination and full device acceptance unproven.
+- Owner: [#405](https://github.com/tommytang213/Settleora/issues/405). Remaining: Local search/chips exist; reconcile missing mobile query dimensions, sorting/pagination and server-backed/global search against current contracts through #977 before implementation. #405 remains the search sub-umbrella, not direct auto-ready work. Reconciliation status mutation is solely M39/#404; do not duplicate it here or recreate existing loaded-row filters.
+- Gate/dependency: #977 audit and authoritative authorized queries; any financial/API changes retain domain gates. Order: **W2**.
 
 ## Reference index and historical evidence
 
@@ -675,7 +665,7 @@ that current source supersedes. Private names alone are not duplicates:
 Manual finance's summary/account/income sections have distinct domain composition;
 they should not be forced into a generic ledger abstraction.
 
-Genuine remaining adoption candidates, all owned by M49/#301:
+Component adoption candidates belong M49/#301. The actionability and localization rows below identify adjacent work owned solely by #299 and #409 respectively; they are not additional #301 gaps:
 
 | Family | Current deviation to inspect in focused wave | Boundary |
 | --- | --- | --- |
@@ -705,9 +695,9 @@ Each child needs a current allowed-path contract, exact validation and review.
 2. **W2 — reference/contract-aware product work:** [#296](https://github.com/tommytang213/Settleora/issues/296) report readability plus
    [#399](https://github.com/tommytang213/Settleora/issues/399) group summary after [#977](https://github.com/tommytang213/Settleora/issues/977) establishes available data; [#412](https://github.com/tommytang213/Settleora/issues/412) focused mode
    reference before mode UI; [#1094](https://github.com/tommytang213/Settleora/issues/1094) announcement authority design before API and
-   mobile work. Notification [#973](https://github.com/tommytang213/Settleora/issues/973) reconciliation remains distinct. A report
+   mobile work. Advanced search/filter #405 requires #977 reconciliation; notification [#973](https://github.com/tommytang213/Settleora/issues/973) reconciliation remains distinct. A report
    endpoint change is not ordinary UI polish.
-3. **W3 — separately gated auth/privacy/provider work:** [#965](https://github.com/tommytang213/Settleora/issues/965)/#776/#772,
+3. **W3 — separately gated auth/privacy/provider work:** [#965](https://github.com/tommytang213/Settleora/issues/965)/#776,
    [#966](https://github.com/tommytang213/Settleora/issues/966) vault/local-security and [#634](https://github.com/tommytang213/Settleora/issues/634) push registration. Do not combine
    credentials, platform links, provider setup or vault warnings with W1.
 4. **W4 — separately gated domain work:** [#967](https://github.com/tommytang213/Settleora/issues/967) bill lifecycle/payer/claim/FX,
@@ -725,10 +715,12 @@ Each child needs a current allowed-path contract, exact validation and review.
 ## Coverage reconciliation, ownership and close rules
 
 Search/filter entry is represented with each owning canonical flow; M39 covers
-cross-record reconciliation/search gaps. Receipt preview inside create, saved
+reconciliation status; M57 covers advanced record search/filter gaps. Receipt preview inside create, saved
 review inside detail and the pushed review queue are distinct stages M18–M22,
 not duplicate copies of one route. Settings aliases resolve to M41–M45; static
 `DashboardPreviewScreen` is a fixture/preview entry, not another product Home.
+Accepted optional exclusions: retired M07/#772 mobile reset-link continuation and M54/#774 credential-activity/security-center UI are future optional under the [ledger's approved password-reset future-surface matrix](../planning/ISSUE_PROGRESS_LEDGER.md) and Reset reference. They are not Day 1 blockers or W3 implementation requirements; required auth event/audit/notification boundaries remain with M05/M34/M56. This follows existing authority, not a new Day 1 reduction.
+
 Server admin backup, web/admin management, SMS MFA, provider FX, bank/PDF matching,
 Strict Vault, federation/cloud, full drag/drop builders and later dedicated Sync
 Center enhancements are not invented Day 1 mobile destinations. Existing Day 1 manual FX is represented once in M51; provider FX does not replace it.

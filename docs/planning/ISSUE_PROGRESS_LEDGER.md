@@ -8,7 +8,7 @@
   and merge. No runtime/UI implementation or manual Day 1 acceptance is claimed.
 - Durable inventory:
   [Day 1 mobile screen completeness checklist](../qa/DAY1_MOBILE_SCREEN_COMPLETENESS_CHECKLIST.md).
-  **56 canonical rows: complete 2, partial 36, missing 8, blocked 10.** Counts
+  **55 canonical rows: complete 2, partial 37, missing 8, blocked 8.** Counts
   include the shared-component and cross-screen acceptance flows; a completed
   bounded password-reset request or notification handoff does not complete auth
   or notification product scope.
@@ -39,7 +39,11 @@
   category and whole-bill/shared-note metadata, distinct from existing item notes.
   M56 assigns remaining persisted notification preferences to #973 after completed
   #370/#561 API foundations; #634 retains OS push registration only. Settlement
-  notes remain #355 domain-gated work. Day 2 autopay and theme settings are excluded.
+  notes remain #355 domain-gated work. Day 2 autopay/theme and previously optional
+  #772/#774 mobile surfaces are excluded from counts. #405 owns advanced search
+  through #977; #404 owns reconciliation status. Role-aware group actions remain
+  #720. Recurring notification handoffs and CSV/backup server foundations exist;
+  mobile wiring and failed-normalization safety are explicitly distinguished.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
