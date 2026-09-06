@@ -1,5 +1,34 @@
 # Issue Progress Ledger
 
+### Issue #865 and PR #1080 — mobile key/value reading-order semantics completed (2026-09-06)
+
+- PR #1080 merged by normal GitHub merge commit from exact source base
+  `b542b18011e8809c69df6e56405c66ece17616ef` and exact source head
+  `776eacdac412a1450d52b9113ffa135de44f8915` as merge
+  `0afca9046835dc0b6956bcfeecec36da84091f16`. The implementation changed only
+  `apps/mobile/lib/ui/settleora_components.dart` and
+  `apps/mobile/test/ui/settleora_component_guardrail_test.dart`.
+- `SettleoraKeyValueRow` now exposes stable label-then-value traversal while
+  leaving custom interactive descendants independent. Plain text and money
+  values are each announced once, including preservation of `MoneyText`'s
+  existing single semantic value. Visible layout, displayed values, callbacks,
+  component APIs, and product behavior are unchanged.
+- Exact-head validation passed Flutter dependency resolution, static analysis,
+  and all 41 shared component guardrail tests, including the existing
+  `LoadingState` live-region coverage and focused plain-text, custom-widget,
+  and money semantics cases. Fresh independent Gemini and local Codex reviews
+  found no material findings; exact-head GitHub Codex found no major issues.
+  All required Scaffold Validation, CodeQL, Semgrep, and Trivy checks passed,
+  with zero unresolved review threads.
+- Issue #865 closed through PR #1080. Parent issues #301 and #372 remain open;
+  historical auto-runner foundation issue #800 is closed. Issue #866 remains
+  open as a separate accessibility slice: current source does not yet include
+  focused proof of the dialog's exactly-once header semantics or sheet/dialog
+  multi-action ordering, so no duplicate-completion closure was made.
+- No runtime, API, auth/session/security, storage/privacy, money/settlement,
+  schema/migration, OpenAPI/generated-client, deployment/environment, secret,
+  DevCommand, or autonomous-runner change occurred.
+
 ### Issue #1012 and PR #1046 — manual-root handoff source repair merged (2026-08-05)
 
 - PR #1046, `fix(auto-runner): repair Issue #1012 manual-root handoff`,
