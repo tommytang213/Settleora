@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import YAML from 'yaml';
-import { applicability, coverage, gateResult, languages } from '../codeql-gate.mjs';
+import { applicability, coverage, gateResult, languages, analysesFor } from '../codeql-gate.mjs';
 import { summarizeCheckStatus } from '../../auto-runner/lib/auto-merge-policy.mjs';
 
 const base = 'a'.repeat(40), head = 'b'.repeat(40), source = 'c'.repeat(40);
@@ -116,4 +116,40 @@ test('supported workflow wiring preserves languages, queries, threat and mandato
   for (const file of ['security-semgrep.yml', 'security-trivy.yml', 'scaffold-validation.yml']) {
     assert.ok(YAML.parse(readFileSync(new URL(`../../../.github/workflows/${file}`, import.meta.url), 'utf8')).on.pull_request !== undefined);
   }
+});
+
+function analysisRecords(sha = head) {
+  return languages.map((language) => ({ tool: { name: 'CodeQL' }, commit_sha: sha, analysis_key: '.github/workflows/security-codeql.yml:analyze', category: `/language:${language}`, error: '', warning: '' }));
+}
+test('source applicability records comparison and policy/workflow identity', () => {
+  const proof = applicability({ ...env, GITHUB_WORKFLOW_REF: 'workflow@ref', GITHUB_WORKFLOW_SHA: head }, event, gitFor(['source.cs']));
+  assert.equal(proof.base, base);
+  assert.equal(proof.source, source);
+  assert.equal(proof.head, head);
+  assert.equal(proof.classifierSource, head);
+  assert.equal(proof.workflowSha, head);
+  assert.equal(proof.workflowRef, 'workflow@ref');
+  assert.equal(proof.event, 'pull_request');
+  assert.equal(proof.ref, env.GITHUB_REF);
+  assert.equal(Object.keys(proof.versions).length, 3);
+});
+test('exact coverage stops before enumerating over 2000 unrelated main analyses', async () => {
+  let calls = 0;
+  const request = async () => {
+    calls++;
+    // An arbitrarily long historical inventory has full pages forever.
+    return [...analysisRecords(), ...Array.from({ length: 95 }, () => analysisRecords(base)[0])];
+  };
+  assert.equal(coverage(await analysesFor(env, 'refs/heads/main', head, request), head), true);
+  assert.equal(calls, 1);
+});
+test('coverage crosses page boundaries and refuses missing or malformed records', async () => {
+  let calls = 0;
+  const records = analysisRecords();
+  const request = async () => ++calls === 1 ? [...records.slice(0, 4), ...Array.from({ length: 96 }, () => analysisRecords(base)[0])] : [records[4]];
+  assert.equal(coverage(await analysesFor(env, env.GITHUB_REF, head, request), head), true);
+  assert.equal(calls, 2);
+  assert.equal(coverage(await analysesFor(env, env.GITHUB_REF, head, async () => []), head), false);
+  await assert.rejects(analysesFor(env, env.GITHUB_REF, head, async () => ({})), /Malformed/);
+  await assert.rejects(analysesFor(env, env.GITHUB_REF, head, async () => { throw new Error('Denied'); }), /Denied/);
 });

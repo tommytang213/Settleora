@@ -12,7 +12,20 @@ const gitCommand = (args) => execFileSync('git', args, { encoding: 'utf8', stdio
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 
 export function applicability(env, event, git = gitCommand) {
-  const full = (reason) => ({ mode: 'analysis', languages, reason, head: env.GITHUB_SHA, source: event.pull_request?.head?.sha || env.GITHUB_SHA });
+  const identity = {
+    event: env.GITHUB_EVENT_NAME, ref: env.GITHUB_REF, head: env.GITHUB_SHA,
+    source: event.pull_request?.head?.sha || env.GITHUB_SHA,
+    base: event.pull_request?.base?.sha || null,
+    workflowRef: env.GITHUB_WORKFLOW_REF || null,
+    workflowSha: env.GITHUB_WORKFLOW_SHA || null,
+    classifierSource: env.GITHUB_SHA, versions: {},
+  };
+  try {
+    if (shaPattern.test(env.GITHUB_SHA || '')) {
+      for (const file of policyFiles) identity.versions[file] = digest(git(['show', `${env.GITHUB_SHA}:${file}`]));
+    }
+  } catch { /* Missing version evidence cannot enable the docs path. */ }
+  const full = (reason) => ({ ...identity, mode: 'analysis', languages, reason });
   if (env.GITHUB_EVENT_NAME !== 'pull_request') return full('Repository-wide scan');
   try {
     const pr = event.pull_request;
@@ -29,7 +42,7 @@ export function applicability(env, event, git = gitCommand) {
       if (base !== current) return full('Changed policy/workflow authority');
       versions[file] = digest(base);
     }
-    return { mode: 'docs-only', languages: ['docs-only'], reason: 'Trusted exact PR docs proof', ...proof,
+    return { ...identity, mode: 'docs-only', languages: ['docs-only'], reason: 'Trusted exact PR docs proof', ...proof,
       source: pr.head.sha, ref: env.GITHUB_REF, versions };
   } catch { return full('Unprovable applicability'); }
 }
@@ -59,13 +72,14 @@ async function api(env, suffix) {
   if (!response.ok) throw new Error(`GitHub read failed: ${response.status}`);
   return response.json();
 }
-async function analysesFor(env, ref) {
+export async function analysesFor(env, ref, sha, request = api) {
   const all = [];
   for (let page = 1; page <= 20; page++) {
-    const batch = await api(env, `code-scanning/analyses?ref=${encodeURIComponent(ref)}&tool_name=CodeQL&per_page=100&page=${page}`);
+    const batch = await request(env, `code-scanning/analyses?ref=${encodeURIComponent(ref)}&tool_name=CodeQL&per_page=100&page=${page}`);
     if (!Array.isArray(batch)) throw new Error('Malformed analysis response');
     all.push(...batch);
-    if (batch.length < 100) return all;
+    // Positive exact-commit coverage needs no inventory of unrelated history.
+    if (coverage(all, sha) || batch.length < 100) return all;
   }
   throw new Error('Incomplete analysis pagination');
 }
@@ -81,7 +95,7 @@ async function main(env) {
   if (proof.mode === 'docs-only') {
     try {
       await currentIdentity(env, event);
-      if (!coverage(await analysesFor(env, `refs/heads/${event.pull_request.base.ref}`), proof.base)) throw new Error('Missing base scanning authority');
+      if (!coverage(await analysesFor(env, `refs/heads/${event.pull_request.base.ref}`, proof.base), proof.base)) throw new Error('Missing base scanning authority');
     } catch { proof = { ...proof, mode: 'analysis', languages, reason: 'Unproven live identity/base scanner state' }; }
   }
   console.log(JSON.stringify(proof));
@@ -94,7 +108,7 @@ async function main(env) {
   await currentIdentity(env, event);
   const expected = { head: env.GITHUB_SHA, source: event.pull_request?.head.sha || env.GITHUB_SHA };
   if (proof.mode === 'analysis') {
-    if (!coverage(await analysesFor(env, env.GITHUB_REF), env.GITHUB_SHA)) throw new Error('Missing successful exact-commit advanced language analyses');
+    if (!coverage(await analysesFor(env, env.GITHUB_REF, env.GITHUB_SHA), env.GITHUB_SHA)) throw new Error('Missing successful exact-commit advanced language analyses');
     if (env.GITHUB_EVENT_NAME === 'pull_request') {
       for (let attempt = 0; attempt < 60; attempt++) {
         const checks = await api(env, `commits/${expected.source}/check-runs?check_name=CodeQL&filter=latest&per_page=100`);
