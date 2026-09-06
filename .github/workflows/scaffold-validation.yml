@@ -26,6 +26,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node
+        # Pinned from actions/setup-node@v6.
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+          cache: npm
+
       - name: Classify changed files
         id: changes
         shell: bash
@@ -34,76 +41,8 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
           CURRENT_SHA: ${{ github.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-
-          zero_sha="0000000000000000000000000000000000000000"
-          run_full_validation=true
-          docs_only=false
-          compare_base=""
-
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            compare_base="${PR_BASE_SHA}"
-          elif [[ "${EVENT_NAME}" == "push" ]]; then
-            if [[ -z "${BEFORE_SHA}" || "${BEFORE_SHA}" == "${zero_sha}" ]]; then
-              echo "First push or missing before SHA; defaulting to full validation."
-              compare_base=""
-            else
-              compare_base="${BEFORE_SHA}"
-            fi
-          else
-            echo "Unsupported event ${EVENT_NAME}; defaulting to full validation."
-            compare_base=""
-          fi
-
-          changed_files=""
-          if [[ -n "${compare_base}" ]]; then
-            git fetch --no-tags --prune --depth=1 origin "${compare_base}" || true
-            changed_files="$(git diff --name-only "${compare_base}" "${CURRENT_SHA}" || true)"
-          fi
-
-          if [[ -n "${changed_files}" ]]; then
-            run_full_validation=false
-            docs_only=true
-
-            while IFS= read -r changed_file; do
-              [[ -z "${changed_file}" ]] && continue
-
-              case "${changed_file}" in
-                README.md)
-                  ;;
-                docs/*.md|docs/**/*.md|docs/*.mdx|docs/**/*.mdx|docs/*.txt|docs/**/*.txt|docs/*.png|docs/**/*.png|docs/*.jpg|docs/**/*.jpg|docs/*.jpeg|docs/**/*.jpeg|docs/*.gif|docs/**/*.gif|docs/*.svg|docs/**/*.svg|docs/*.webp|docs/**/*.webp|docs/*.avif|docs/**/*.avif|docs/*.pdf|docs/**/*.pdf)
-                  ;;
-                *)
-                  run_full_validation=true
-                  docs_only=false
-                  echo "Full validation required by changed file: ${changed_file}"
-                  break
-                  ;;
-              esac
-            done <<< "${changed_files}"
-          else
-            echo "No changed files detected or diff unavailable; defaulting to full validation."
-          fi
-
-          {
-            echo "run_full_validation=${run_full_validation}"
-            echo "docs_only=${docs_only}"
-            echo "changed_files<<EOF"
-            printf '%s\n' "${changed_files}"
-            echo "EOF"
-          } >> "${GITHUB_OUTPUT}"
-
-          echo "docs_only=${docs_only}"
-          echo "run_full_validation=${run_full_validation}"
-          printf 'Changed files:\n%s\n' "${changed_files:-<unavailable>}"
-
-      - name: Setup Node
-        # Pinned from actions/setup-node@v6.
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
-        with:
-          node-version: "22"
-          cache: npm
+          EVENT_REF: ${{ github.ref }}
+        run: node tools/ci/scaffold-validation-changes.mjs >> "$GITHUB_OUTPUT"
 
       - name: Setup .NET
         if: steps.changes.outputs.run_full_validation == 'true'
@@ -117,6 +56,9 @@ jobs:
 
       - name: Validate scaffold paths
         run: npm run validate:scaffold
+
+      - name: Test scaffold classifier
+        run: node --test tools/ci/test/scaffold-validation-changes.test.mjs
 
       - name: Validate OpenAPI
         if: steps.changes.outputs.run_full_validation == 'true'

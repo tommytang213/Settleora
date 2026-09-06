@@ -153,7 +153,7 @@ The repository-side Codemagic setup remains documented in [CODEMAGIC_TESTFLIGHT_
 
 ## GitHub Actions Required Check Budget Rule
 
-The required `Scaffold Validation` workflow must keep the `Validate scaffold` job name stable for branch protection. Its changed-file classifier treats only `README.md` and Markdown/static documentation assets under `docs/` as docs-only. Docs-only runs install the Node repo tooling dependencies and run `npm run validate:scaffold`; any other changed path, unavailable diff, first-push/zero-SHA push, or unsupported event defaults to full validation.
+The required `Scaffold Validation` workflow must keep the `Validate scaffold` job name stable for branch protection. Its changed-file classifier treats only `README.md` and Markdown/static documentation assets under `docs/` as docs-only. Docs-only runs install the Node repo tooling dependencies and run `npm run validate:scaffold`. A first push with a missing/zero before SHA on a non-default branch may qualify only after a successful fixed `origin/main` fetch, matching checked-out event SHA, complete history, one validated merge-base, consistent ancestry, and a successful non-empty docs-only diff. Default-main first pushes, any other changed path, unavailable or untrustworthy proof, and unsupported events default to full validation. The focused classifier regression suite runs in every Scaffold Validation job.
 
 Workflow, CI, package metadata, tooling, scripts, services, apps, contracts, generated clients, source, tests, Docker/compose, infrastructure, deployment, runtime config, OpenAPI, schema, migration, security, storage/privacy, money, settlement, payment, and bill-calculation changes must keep the broader GitHub Actions validation path enabled.
 
