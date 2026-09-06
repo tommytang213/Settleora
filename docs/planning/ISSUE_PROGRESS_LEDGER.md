@@ -23,12 +23,30 @@
   CodeQL, Semgrep CE/OSS and Trivy passed. Policy thread
   `PRRT_kwDOSNHStc6fqWX3` was corrected and resolved with evidence; zero
   unresolved threads. Earlier CodeQL alert #122 is fixed, not dismissed.
-- Live acceptance is pending on the natural first push of this new ledger-only
-  branch, followed by its PR-triggered Scaffold run. No zero-before skip proof
-  or terminal completion is claimed yet. This entry must be updated with actual
-  run/job/step evidence before the hygiene PR merges.
-- #1084 remains open until live acceptance and this separate ledger hygiene
-  merge are complete. No linked Project item exists. No product work, #959,
+- Natural ledger-only hygiene PR #1086 uses
+  `docs/1084-first-push-acceptance-hygiene-20260906-1636`. Its first remote
+  push at head `8ed7aa0e32238d132acb823a559713e6b162dd2a` passed
+  [Scaffold run 34023304482](https://github.com/tommytang213/Settleora/actions/runs/34023304482),
+  job `101459745419`. Actual classifier logs show `event=push`,
+  `before=0000000000000000000000000000000000000000`,
+  `reason=first_push_main_merge_base`, base
+  `af32371868a8a2355396136a9614441d17b17499`, `docs_only=true`,
+  `run_full_validation=false`, and only this ledger in changed paths.
+- The same candidate's pull-request-triggered
+  [Scaffold run 34023306615](https://github.com/tommytang213/Settleora/actions/runs/34023306615),
+  job `101459751097`, also passed lightweight with `reason=pull_request_base`.
+  Its checked-out synthetic merge SHA was
+  `e6efe3088704ad3e83a0eef2805b45111bd0456b`; its source head was the first-push
+  candidate above. Both actual jobs report Setup .NET, Validate OpenAPI,
+  Validate generated clients, Validate API, Validate Docker Compose and
+  Validate API Docker image as skipped. Checkout, Setup Node, classification,
+  npm dependency installation, scaffold paths and all 33 classifier tests
+  succeeded. These are observed run/job/log results, not inferred skips.
+- #1084 is open at this pre-merge ledger checkpoint; the close recommendation
+  is complete after PR #1086's final exact-head reviews/checks and normal merge,
+  then current-main ancestry/content proof. Live acceptance is complete; final
+  hygiene merge/closure evidence belongs in the issue completion comment and
+  continuation report. No linked Project item exists. No product work, #959,
   DevCommand/runner state, deployment, secret/config, API, auth/security runtime,
   storage/privacy, money, schema, OpenAPI/generated-client or branch cleanup
   change. No broader Day 1 completion is implied.
