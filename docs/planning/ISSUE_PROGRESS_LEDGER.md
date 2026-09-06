@@ -129,6 +129,12 @@
   localization acceptance and #1093 a complete keyed Day 1 help coverage matrix;
   admin maintenance is not a mobile destination. #405 sorting/pagination are
   bounded-design mechanics or Needs Decision, not standalone scope expansion.
+- Final handoff precision: #1093 settings help includes push M37 and persisted
+  preferences M56. #966 explicitly owns the platform-feasible local PIN/biometric/
+  encryption/backup-protection/settings-change security slice, crediting the
+  existing no-collaboration warning. M25/#399 credits current group balance
+  projection and groupId-preserving mobile mapping; remaining work is contextual
+  filtering/handoff/acceptance unless a concrete missing field is demonstrated.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
