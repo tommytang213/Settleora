@@ -8,14 +8,15 @@
   and merge. No runtime/UI implementation or manual Day 1 acceptance is claimed.
 - Durable inventory:
   [Day 1 mobile screen completeness checklist](../qa/DAY1_MOBILE_SCREEN_COMPLETENESS_CHECKLIST.md).
-  **61 canonical rows: complete 2, partial 39, missing 10, blocked 10.** Counts
+  **60 canonical rows: complete 2, partial 38, missing 10, blocked 10.** Counts
   include the shared-component and cross-screen acceptance flows; a completed
   bounded password-reset request or notification handoff does not complete auth
   or notification product scope.
 - New focused owners after open/closed issue and source/test duplicate checks:
   [#1092 bundled What’s New](https://github.com/tommytang213/Settleora/issues/1092),
   [#1093 contextual static screen help](https://github.com/tommytang213/Settleora/issues/1093),
-  [#1094 server-announcement authority/contract handoff](https://github.com/tommytang213/Settleora/issues/1094).
+  [#1094 server-announcement authority/contract handoff](https://github.com/tommytang213/Settleora/issues/1094),
+  [#1096 setup persistence and connection feedback](https://github.com/tommytang213/Settleora/issues/1096).
   All other remaining gaps reuse the checklist's single owner per gap; audit
   owners reconcile and split before runtime admission, not broad automatic coding.
 - Smallest next waves: W1 existing #959 parser fix separately from #301
@@ -72,6 +73,13 @@
   M45/#412 includes feasible limited advanced-area opt-ins. SMTP delivery is a
   separate #403-owned server/provider dependency, excluded from mobile destination
   counts; closed #632 sender foundations are credited, activation remains gated.
+- Final authority corrections: M01 setup behavior belongs focused #1096, not
+  #301 component adoption. Required server OCR runtime is a separate #357/#970
+  dependency, outside mobile counts. M60/#369 explicitly includes bill-updated
+  producers; M15/#350 includes missing bill-level split contract/domain/UI.
+  Retired M40 manual accounts/income is existing starter UI without explicit
+  Day 1 approval: keep broader scope Needs Decision, outside counts and #972
+  acceptance, with current #299 conditional placement context retained.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
