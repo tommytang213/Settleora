@@ -135,6 +135,12 @@
   existing no-collaboration warning. M25/#399 credits current group balance
   projection and groupId-preserving mobile mapping; remaining work is contextual
   filtering/handoff/acceptance unless a concrete missing field is demonstrated.
+- Security dependency precision: outside-mobile #465 owns absent admin MFA/auth
+  policy controls while server read/default foundations and M08 readout are
+  credited. M04 explicitly retains #785 owner-lockout and #464 admin settings
+  gates. #966 retains actual Recoverable Vault encryption/envelope/schema/API/
+  sensitive-content/recovery/audit/backup runtime splitting; closed #419/#420/
+  #422 architecture packets are credited, not mistaken for implemented protection.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
