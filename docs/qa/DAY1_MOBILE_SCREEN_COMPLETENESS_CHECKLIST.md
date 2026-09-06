@@ -8,7 +8,7 @@ owns server authorization, money, status, file access, sync acceptance and audit
 
 ## Reading and counting rules
 
-Each canonical destination/flow appears once in M01–M55. Entry aliases and
+Each canonical destination/flow appears once in M01–M56. Entry aliases and
 embedded/pushed variants are included in their canonical row, not counted again.
 M49–M50 are cross-cutting component/acceptance flows included in the same totals.
 Source symbols and named test cases below are current, inspected evidence; tests
@@ -34,7 +34,7 @@ screen acceptance.
   reproducible branch-rendered fixtures exist, not that [#407](https://github.com/tommytang213/Settleora/issues/407) rendered or approved
   unseen UI. No new Figma or screenshots were required or created here.
 
-Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
+Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 
 ## Canonical inventory
 
@@ -43,9 +43,9 @@ Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 - Status: `partial`. Requirement/reference: PRD: identity and sync; Shell, Settings.
 - Source: [SettleoraSetupScreen](../../apps/mobile/lib/app/setup_screen.dart); [SettleoraAppBootstrap](../../apps/mobile/lib/app/app_bootstrap.dart).
 - Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `setup saves local mode without creating a server repository`; [widget_test.dart](../../apps/mobile/test/widget_test.dart): `setup rejects invalid server base URLs before saving`.
-- States: E initial choice; L save busy; R URL validation and initial storage-read recovery; configuration save failure has no bounded feedback; D server capability checked on entry; O local choice persists, operational workspace M02.
+- States: E initial choice; L save busy; R URL validation and initial storage-read recovery; configuration save failure has no bounded feedback; D only syntactic URL validation on fresh setup; unreachable/incompatible-server setup feedback is uncovered; O local choice persists, operational workspace M02.
 - Accessibility/visual: Labels, scroll and shared controls exist; shell capture harness; exhaustive large-text/keyboard/platform acceptance unproven.
-- Owner: [#301](https://github.com/tommytang213/Settleora/issues/301). Remaining: Bounded setup exists, but _save and _saveConfiguration lack save-error mapping; add bounded save-failure presentation/tests in a focused state-pattern slice. Per-device onboarding acceptance stays M50; experience modes are M45, not another authority mode.
+- Owner: [#301](https://github.com/tommytang213/Settleora/issues/301). Remaining: Bounded setup exists, but _save and _saveConfiguration lack save-error mapping; add bounded save-failure presentation/tests in a focused state-pattern slice. Fresh setup does not probe server reachability/capability; _load contacts currentUser only for a saved session. The uncovered setup feedback belongs this same state-pattern owner, with any new connection contract reviewed separately. Per-device onboarding acceptance stays M50; experience modes are M45, not another authority mode.
 - Gate/dependency: None for evidence-only work. Order: **W5**.
 
 ### M02 — Local-only operational workspace
@@ -211,11 +211,11 @@ Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 ### M18 — Receipt camera/gallery/import normalization
 
 - Status: `partial`. Requirement/reference: PRD: normalized receipt intake on every entry; Bills.
-- Source: [ImagePickerReceiptImageIntake](../../apps/mobile/lib/receipt_ocr_capture/receipt_image_intake.dart); [ReceiptImageArtifactProcessor](../../apps/mobile/lib/receipt_ocr_capture/receipt_image_artifact_processor.dart).
-- Tests: [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill receipt image permission error keeps manual entry`; [receipt_ocr_capture/receipt_image_artifact_processor_test.dart](../../apps/mobile/test/receipt_ocr_capture/receipt_image_artifact_processor_test.dart): `produces normalized JPEG and thumbnail bytes from PNG input`.
+- Source: [ImagePickerReceiptImageIntake](../../apps/mobile/lib/receipt_ocr_capture/receipt_image_intake.dart); [ReceiptImageArtifactProcessor](../../apps/mobile/lib/receipt_ocr_capture/receipt_image_artifact_processor.dart); [_processedReceiptAttachmentArtifact](../../apps/mobile/lib/bills/bill_list_screen.dart).
+- Tests: [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill receipt image permission error keeps manual entry`; [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill scan receipt reviews and applies OCR suggestions`; [receipt_ocr_capture/receipt_image_artifact_processor_test.dart](../../apps/mobile/test/receipt_ocr_capture/receipt_image_artifact_processor_test.dart): `produces normalized JPEG and thumbnail bytes from PNG input`.
 - States: E cancel unchanged; L picker/provider busy; R safe picker errors; D permission-denied manual path; O artifacts in memory, secure cache deferred.
 - Accessibility/visual: Capture guidance exists; camera/native permission and all intake variants need device evidence.
-- Owner: [#358](https://github.com/tommytang213/Settleora/issues/358). Remaining: JPEG/thumbnail processor exists but is not wired into bill intake (no processor call in bill_list_screen); camera/gallery return original selected bytes/path. File/share-sheet/replacement/queue normalization parity remains.
+- Owner: [#358](https://github.com/tommytang213/Settleora/issues/358). Remaining: Personal/group camera/gallery and file-import intake call _processedReceiptAttachmentArtifact, which invokes processor.process and replaces supported input with normalized JPEG upload bytes. This integration is already implemented. Share-sheet, replacement and offline queue normalization parity and secure-cache/device acceptance remain unproven; do not recreate camera/gallery/file wiring.
 - Gate/dependency: Storage/image retention/privacy; no client override of API upload policy. Order: **W4**.
 
 ### M19 — On-device OCR extraction and parser quality
@@ -331,11 +331,11 @@ Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 ### M30 — Settlement payment claim / confirmation / dispute / residual
 
 - Status: `partial`. Requirement/reference: PRD: actual paid vs selected/residual review; Settle.
-- Source: [_MarkPaymentPaidDialog](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [_ResidualList](../../apps/mobile/lib/settlements/settlement_list_screen.dart).
+- Source: [_MarkPaymentPaidDialog](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [_ResidualList](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [SettlementPaymentClaimEndpoints](../../services/api/src/Settleora.Api/Settlements/SettlementPaymentClaimEndpoints.cs) rejects unknown fields in ReadRequestAsync.
 - Tests: [settlement_list_screen_test.dart](../../apps/mobile/test/settlement_list_screen_test.dart): `debtor marks requested settlement paid after confirmation`; [settlement_list_screen_test.dart](../../apps/mobile/test/settlement_list_screen_test.dart): `receiver confirms marked-paid payment after confirmation`; [settlement_list_screen_test.dart](../../apps/mobile/test/settlement_list_screen_test.dart): `settlement list opens detail and confirms residuals`.
 - States: E no payments/residuals; L single-flight actions; R state retained on failure/refresh failure; D payer/receiver/capability guards; O no offline payment acceptance.
 - Accessibility/visual: Confirmation and residual readouts tested, captures exist; full residual outcome/correction acceptance not established.
-- Owner: [#355](https://github.com/tommytang213/Settleora/issues/355). Remaining: Mark-paid, receiver confirmation, cancellation/dispute and residual confirmation already exist. Remaining explicit delta/policy/outcome correction acceptance must use server truth, not a broad credit ledger.
+- Owner: [#355](https://github.com/tommytang213/Settleora/issues/355). Remaining: Mark-paid, receiver confirmation, cancellation/dispute and residual confirmation already exist. Remaining explicit delta/policy/outcome correction acceptance must use server truth, not a broad credit ledger. Day 1 settlement notes are also missing from the mobile claim form and current payment-claim contract (which rejects notes); #355 owns this payment-flow gap with #969 domain reconciliation before any contract change. See PRD Settlement notes and [E2E-SETTLE-001](../acceptance/day1/DAY1_E2E_REGRESSION_MATRIX.md); this is missing underlying capability as well as presentation.
 - Gate/dependency: Money/payment/residual policy. Order: **W4**.
 
 ### M31 — Settlement proof attach/list/view/remove and counterparty QR
@@ -364,8 +364,8 @@ Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 - Source: [SettleoraFutureBillDetailScreen](../../apps/mobile/lib/recurring_bills/recurring_bill_screen.dart); [SettleoraRecurringBillScreen](../../apps/mobile/lib/recurring_bills/recurring_bill_screen.dart).
 - Tests: [recurring_bill_screen_test.dart](../../apps/mobile/test/recurring_bill_screen_test.dart): `explicit draft generation shows success and reloads`; [recurring_bill_screen_test.dart](../../apps/mobile/test/recurring_bill_screen_test.dart): `future bill create form saves upcoming bill draft`; [recurring_bill_screen_test.dart](../../apps/mobile/test/recurring_bill_screen_test.dart): `future bill post calls repository once and updates detail`.
 - States: E no forecast/future rows; L load/generate/post; R refresh failure preserves generated context; D inactive/non-draft actions hidden; O no offline generation.
-- Accessibility/visual: Future/recurring capture harness; real schedule/pay-from/autopay acceptance not proven.
-- Owner: [#972](https://github.com/tommytang213/Settleora/issues/972). Remaining: Forecast, explicit draft generation and future bill create/edit/cancel/post exist. [#293](https://github.com/tommytang213/Settleora/issues/293)/#294/#291 require reconciliation against actual forecast capability; no worker/reminder completion inferred.
+- Accessibility/visual: Future/recurring capture harness; Day 1 scheduling, due-soon, forecast and explicit draft-confirmation acceptance not proven. Autopay defaults and paid-state overrides are deferred Day 2.
+- Owner: [#972](https://github.com/tommytang213/Settleora/issues/972). Remaining: Forecast, explicit draft generation and future bill create/edit/cancel/post exist. Day 1 due-soon/reminder and schedule acceptance require reconciliation against actual forecast capability; no worker/reminder completion inferred. [D1-RECUR-003](../planning/DAY1_EXECUTION_COVERAGE_MATRIX.md) explicitly excludes Day 2 autopay from this gap.
 - Gate/dependency: Forecast/payment authority; provider FX remains later-day. Order: **W4**.
 
 ### M34 — Notification inbox / triage / detail
@@ -398,14 +398,14 @@ Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 - Owner: [#971](https://github.com/tommytang213/Settleora/issues/971). Remaining: Existing status/queue and [#363](https://github.com/tommytang213/Settleora/issues/363) notification readout are credited. Full Day 1 offline hydration and supported keep-server/keep-local resolution remain; [#1066](https://github.com/tommytang213/Settleora/issues/1066) is later dedicated Sync Center, not permission to remove Day 1 conflict obligations.
 - Gate/dependency: Sync acceptance/idempotency; field-level decisions only where supported. Order: **W4**.
 
-### M37 — Notification preferences / OS push permission and registration
+### M37 — OS push permission and registration
 
 - Status: `blocked`. Requirement/reference: PRD: notifications and policy caps; Push, Settings.
 - Source: [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart); [SettleoraNotificationScreen](../../apps/mobile/lib/notifications/notification_screen.dart).
 - Tests: [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `notification preferences use safe defaults and local suppression`.
-- States: E default preferences; L/R local form; D provider/permission UI absent; O local filters do not register tokens or promise delivery.
+- States: E/L/R/D mobile provider/permission/registration UI absent; O local filters do not register tokens or promise delivery; preference wiring is M56.
 - Accessibility/visual: [#653](https://github.com/tommytang213/Settleora/issues/653) push reference exists; physical OS permission/token/signing evidence absent.
-- Owner: [#634](https://github.com/tommytang213/Settleora/issues/634). Remaining: Mobile preference filtering is local. API preference/token/provider foundations are not mobile OS registration, server-preference wiring or real APNs/FCM delivery; [#973](https://github.com/tommytang213/Settleora/issues/973) reconciles broader channel work.
+- Owner: [#634](https://github.com/tommytang213/Settleora/issues/634). Remaining: API token/provider foundations are not mobile OS registration or real APNs/FCM delivery. This owner covers only device/provider integration; persisted preference wiring is separately M56.
 - Gate/dependency: Provider choice/credentials/signing, platform permission and any API wiring. Order: **W3**.
 
 ### M38 — Monthly reports / statement drill-down
@@ -435,7 +435,7 @@ Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 - Tests: [manual_finance_screen_test.dart](../../apps/mobile/test/manual_finance_screen_test.dart): `lists manual account and income data with explanatory copy`.
 - States: E no accounts/income; L load/save; R safe failure; D repository-backed capability; O no offline account mutation.
 - Accessibility/visual: Shared MoneyInput/DateField; money-date form capture; distinct summaries have domain-specific justification, not automatic component defect.
-- Owner: [#972](https://github.com/tommytang213/Settleora/issues/972). Remaining: Manual accounts/income and estimates exist and are reachable from More. Forecast pay-from/autopay integration and full financial acceptance require [#293](https://github.com/tommytang213/Settleora/issues/293)/#294 reconciliation; discoverability is M09.
+- Owner: [#972](https://github.com/tommytang213/Settleora/issues/972). Remaining: Manual accounts/income and estimates exist and are reachable from More. Day 1 manual account/income estimates and forecast-input acceptance require current domain reconciliation; discoverability is M09. Autopay policy defaults and paid-state overrides remain Day 2 under D1-RECUR-003 and are not an acceptance gap here.
 - Gate/dependency: Money/forecast authority. Order: **W4**.
 
 ### M41 — CSV import/export and local backup/restore preview
@@ -478,14 +478,14 @@ Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 - Owner: [#295](https://github.com/tommytang213/Settleora/issues/295). Remaining: Canonical More/settings and recurring/receipts/reports/session entry exist. Lightweight pin/show shortcuts still missing per live comment 4757022528; full drag/drop builder remains Day 2.
 - Gate/dependency: New layout/reference only if material; no auth bypass. Order: **W1**.
 
-### M45 — Basic / Guided / Advanced / Help me decide and appearance
+### M45 — Basic / Guided / Advanced / Help me decide
 
 - Status: `blocked`. Requirement/reference: PRD: experience modes; Settings, UX.
 - Source: [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart); [SettleoraSetupScreen](../../apps/mobile/lib/app/setup_screen.dart).
 - Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `default app starts at setup when no mode is configured`.
-- States: E/L/R/D/O no mode-choice/recommendation or theme preference UI.
+- States: E/L/R/D/O no experience-mode choice/recommendation UI.
 - Accessibility/visual: main.dart uses SettleoraTheme.midnight; light and midnight tokens exist, not a theme selector; focused mode reference remains.
-- Owner: [#412](https://github.com/tommytang213/Settleora/issues/412). Remaining: Experience-mode selection/change/help-me-decide is absent, unlike authority-mode choice M01. Theme/preference readouts do not implement preference selection/persistence.
+- Owner: [#412](https://github.com/tommytang213/Settleora/issues/412). Remaining: Experience-mode selection/change/help-me-decide is absent, unlike authority-mode choice M01. Theme selection/persistence is explicitly Day 2 under [D1-DEC-DEFER-001](../planning/DAY1_DECISION_REGISTER.md); existing theme tokens are inventory only, not a Day 1 gap or #412 scope.
 - Gate/dependency: Focused first-launch/reference; any server preference contract separate. Order: **W2**.
 
 ### M46 — Bundled What’s New / version-seen state
@@ -588,6 +588,16 @@ Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 - Owner: [#975](https://github.com/tommytang213/Settleora/issues/975). Remaining: Read/list/detail/search is implemented and separate from create/submit/participant actions M12. Remaining acceptance is evidence for long shared-record screens; no duplicate create task.
 - Gate/dependency: None for evidence-only work. Order: **W5**.
 
+### M56 — Persisted notification preferences / quiet hours / group mute
+
+- Status: `partial`. Requirement/reference: PRD: user notification preferences; Inbox, Settings; [D1-NOTIF-002](../planning/DAY1_EXECUTION_COVERAGE_MATRIX.md).
+- Source: [SettleoraNotificationScreen](../../apps/mobile/lib/notifications/notification_screen.dart).
+- Tests: [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `notification preferences use safe defaults and local suppression`.
+- States: E safe local defaults; L/R local preference interaction only; D policy caps and persisted failure states not established by local filtering; O local suppression is not synchronized server policy.
+- Accessibility/visual: Current local preference controls and inbox reference exist; persisted-save/error/reload and full policy-resolution acceptance are unproven.
+- Owner: [#973](https://github.com/tommytang213/Settleora/issues/973). Remaining: Mobile server-preference wiring and Day 1 quiet-hours/digest/group-mute reconciliation remain. [#370](https://github.com/tommytang213/Settleora/issues/370) is closed for persisted API foundations via [#561](https://github.com/tommytang213/Settleora/pull/561); its completion explicitly excluded mobile persistence wiring, workers and group/admin policy. Reuse the open notification reconciliation owner instead of reopening completed API work or assigning this non-push gap to #634.
+- Gate/dependency: Notification privacy/security policy and any API changes; provider/OS registration remains M37. Order: **W2**.
+
 ## Reference index and historical evidence
 
 Requirement labels resolve to current repository documents below; consult their
@@ -616,7 +626,7 @@ manual UI/code acceptance as deferred. They neither forbid this explicitly
 requested [#407](https://github.com/tommytang213/Settleora/issues/407) audit nor expand its two-file allowlist. Current source wins over
 stale README/M6/M14 text: group create/edit lifecycle, recurring edit, OCR provider,
 notification handoffs, normalized-artifact processor and midnight theme exist.
-The processor's existence still does not prove intake integration.
+Current bill intake calls the processor; M18 credits that integration while preserving the uncovered intake/cache paths.
 
 Historical [#672](https://github.com/tommytang213/Settleora/issues/672) closed after [#673](https://github.com/tommytang213/Settleora/pull/673)–[#677](https://github.com/tommytang213/Settleora/pull/677) visual slices and [#680](https://github.com/tommytang213/Settleora/pull/680) close handoff;
 [#679](https://github.com/tommytang213/Settleora/issues/679) closed via [#681](https://github.com/tommytang213/Settleora/pull/681) copy/spacing follow-up. These are not new missing work.

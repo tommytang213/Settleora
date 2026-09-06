@@ -8,7 +8,7 @@
   and merge. No runtime/UI implementation or manual Day 1 acceptance is claimed.
 - Durable inventory:
   [Day 1 mobile screen completeness checklist](../qa/DAY1_MOBILE_SCREEN_COMPLETENESS_CHECKLIST.md).
-  **55 canonical rows: complete 2, partial 35, missing 8, blocked 10.** Counts
+  **56 canonical rows: complete 2, partial 36, missing 8, blocked 10.** Counts
   include the shared-component and cross-screen acceptance flows; a completed
   bounded password-reset request or notification handoff does not complete auth
   or notification product scope.
@@ -33,6 +33,11 @@
   missing group/recurring-create descriptions are superseded by current source.
   #301 remains open for demonstrated adoption/consistency gaps; #372 stays open
   for the full product and acceptance close rule.
+- GitHub review reconciliation: receipt normalization is already wired for personal/group
+  camera/gallery/file intake; fresh setup lacks server reachability/capability feedback.
+  M56 assigns remaining persisted notification preferences to #973 after completed
+  #370/#561 API foundations; #634 retains OS push registration only. Settlement
+  notes remain #355 domain-gated work. Day 2 autopay and theme settings are excluded.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
