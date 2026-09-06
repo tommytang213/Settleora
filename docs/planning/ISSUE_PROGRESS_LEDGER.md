@@ -64,6 +64,13 @@
   #371's accepted current-family scope remains complete. M56 explicitly records
   the current unconditional sync/security-family preference bypass and its
   unresolved policy/persistence acceptance under #973. No runtime changed.
+- Additional requirement precision: M08/#776 includes existing MFA-policy readout
+  wiring and disabled/required/noncompliant states; M15/#350 includes missing
+  server-resolved item split/rounding-residual presentation, crediting its API.
+  M26/#976 includes unfriend/future-sharing revocation with preserved history;
+  M45/#412 includes feasible limited advanced-area opt-ins. SMTP delivery is a
+  separate #403-owned server/provider dependency, excluded from mobile destination
+  counts; closed #632 sender foundations are credited, activation remains gated.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until

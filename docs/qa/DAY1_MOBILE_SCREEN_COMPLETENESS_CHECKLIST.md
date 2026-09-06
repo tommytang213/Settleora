@@ -101,11 +101,11 @@ Totals: **61 rows — complete 2, partial 39, missing 10, blocked 10**.
 ### M08 — Passkey / TOTP / recovery-code enrollment and challenge
 
 - Status: `blocked`. Requirement/reference: PRD: Day 1 MFA/passkeys; Auth.
-- Source: [SettleoraSignInScreen](../../apps/mobile/lib/app/sign_in_screen.dart); [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart).
+- Source: [getCurrentMfaPolicy](../../packages/client-dart/lib/generated/client.dart); [AuthMfaPolicyReadoutResponse](../../packages/client-dart/lib/generated/models.dart); [SettleoraSignInScreen](../../apps/mobile/lib/app/sign_in_screen.dart); [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart).
 - Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `forgot password opens the reset request form`.
-- States: E/L/R/D/O no factor enrollment/challenge/recovery mobile flow; adjacent sign-in test only.
+- States: E/L/R/D/O no factor enrollment/challenge/recovery or disabled/required/noncompliant policy mobile flow; adjacent sign-in test only.
 - Accessibility/visual: Approved auth frames exist; native credential, recovery disclosure and focus evidence absent.
-- Owner: [#776](https://github.com/tommytang213/Settleora/issues/776). Remaining: Mobile factor UI is absent while schema/contracts/API slices [#501](https://github.com/tommytang213/Settleora/issues/501)–[#506](https://github.com/tommytang213/Settleora/issues/506) are closed. [#394](https://github.com/tommytang213/Settleora/issues/394) remains umbrella; no recreation of API factor runtime.
+- Owner: [#776](https://github.com/tommytang213/Settleora/issues/776). Remaining: Mobile factor UI is absent while schema/contracts/API slices [#501](https://github.com/tommytang213/Settleora/issues/501)–[#506](https://github.com/tommytang213/Settleora/issues/506) are closed. [#394](https://github.com/tommytang213/Settleora/issues/394) remains umbrella; no recreation of API factor runtime. getCurrentMfaPolicy and factor metadata already exist in the generated contract, but mobile does not wire this readout. #776 must include server-resolved enabled/disabled factor availability, required-MFA and account-compliance presentation, loading/denied/unavailable/retry states, and enforcement-policy acceptance; enrollment/challenge controls alone are insufficient. Clients never infer or weaken server policy.
 - Gate/dependency: Auth/security and platform factor APIs; [#965](https://github.com/tommytang213/Settleora/issues/965) reconciliation. Order: **W3**.
 
 ### M09 — Home dashboard and actionable metrics
@@ -170,12 +170,12 @@ Totals: **61 rows — complete 2, partial 39, missing 10, blocked 10**.
 
 ### M15 — Item assignment / quantity and open self-claim
 
-- Status: `partial`. Requirement/reference: PRD: quantity-level and unresolved claiming; Bills.
-- Source: [_GroupBillAcknowledgementActions](../../apps/mobile/lib/bills/bill_list_screen.dart); [SettleoraGroupBillCreateScreen](../../apps/mobile/lib/bills/bill_list_screen.dart).
-- Tests: [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill assign item sheet renders quantity split controls`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill receipt items hides raw split controls and keeps quantity local`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill assign item sheet applies exact amounts locally`.
+- Status: `partial`. Requirement/reference: PRD: quantity-level/unresolved claiming and deterministic rounding residuals (D1-MONEY-001); Bills.
+- Source: [_mapGroupItem](../../apps/mobile/lib/bills/generated_bill_repository.dart); [SettleoraBillItem](../../apps/mobile/lib/bills/bill_repository.dart); [GroupBillItemSplitResponse](../../packages/client-dart/lib/generated/models.dart); [_GroupBillAcknowledgementActions](../../apps/mobile/lib/bills/bill_list_screen.dart); [SettleoraGroupBillCreateScreen](../../apps/mobile/lib/bills/bill_list_screen.dart).
+- Tests: [bill_generated_repository_test.dart](../../apps/mobile/test/bill_generated_repository_test.dart): `maps active and archived group bill reads safely` (aggregate participant shares, not per-item residual rendering); [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill assign item sheet renders quantity split controls`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill receipt items hides raw split controls and keeps quantity local`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill assign item sheet applies exact amounts locally`.
 - States: E no eligible member; L member fetch; R form validation; D active-member options; O local draft assignment is not accepted offline claim.
 - Accessibility/visual: Assignment sheets exist; no complete server-accepted quantity/open-claim state evidence.
-- Owner: [#350](https://github.com/tommytang213/Settleora/issues/350). Remaining: Local assignment, exact amounts and share weights exist. Quantity UI does not establish persisted self-claim/unresolved workflow; reconcile server capability first.
+- Owner: [#350](https://github.com/tommytang213/Settleora/issues/350). Remaining: Local assignment, exact amounts and share weights exist. Quantity UI does not establish persisted self-claim/unresolved workflow; reconcile server capability first. Existing GroupBillItemResponse.splits already supplies server-resolved amount/currency, allocationOrder and receivedResidualMinorUnit. _mapGroupItem drops response.splits and SettleoraBillItem has no split readout data: missing per-item participant allocations and deterministic residual-recipient explanation belong solely #350, alongside claim/split review. Preserve server results through mobile mapping and test rounding/residual display and unavailable states; do not recompute allocation in the client or recreate the API. Current aggregate participant share rendering does not cover this requirement.
 - Gate/dependency: Money/claim ownership and contract; [#967](https://github.com/tommytang213/Settleora/issues/967) dependency. Order: **W4**.
 
 ### M16 — Participant/user/group selection primitives
@@ -278,14 +278,14 @@ Totals: **61 rows — complete 2, partial 39, missing 10, blocked 10**.
 - Owner: [#399](https://github.com/tommytang213/Settleora/issues/399). Remaining: Full group-scoped summary and handoffs for balances, reports, recurring and attention are not implemented as one group dashboard. Domain screens elsewhere are not proof of contextual group entry.
 - Gate/dependency: Use [#977](https://github.com/tommytang213/Settleora/issues/977)/#976 audit and authoritative summary APIs; new shell reference only if materially changed. Order: **W2**.
 
-### M26 — Friends / exact-match discovery / direct sharing / block
+### M26 — Friends / exact-match discovery / direct sharing / block and unfriend
 
 - Status: `blocked`. Requirement/reference: PRD: approved relationships, no global directory; Groups, UX.
 - Source: [SettleoraGroupListScreen](../../apps/mobile/lib/groups/group_list_screen.dart); [SettleoraAuthenticatedServerShell](../../apps/mobile/lib/app/server_mode_shell.dart).
 - Tests: [group_list_screen_test.dart](../../apps/mobile/test/group_list_screen_test.dart): `group detail edits group and manages members`.
-- States: E/L/R/D/O friend/discovery/direct-share screens absent; group membership tests are adjacent only.
+- States: E/L/R/D/O friend/discovery/direct-share/unfriend screens absent; group membership tests are adjacent only.
 - Accessibility/visual: Closed [#434](https://github.com/tommytang213/Settleora/issues/434) reference is not runtime; relationship/visibility/blocked-state UI acceptance missing.
-- Owner: [#976](https://github.com/tommytang213/Settleora/issues/976). Remaining: No friend/direct-sharing surface in current mobile route graph. Reconcile [#400](https://github.com/tommytang213/Settleora/issues/400) and closed [#431](https://github.com/tommytang213/Settleora/issues/431)–[#435](https://github.com/tommytang213/Settleora/issues/435) policy/reference work before runtime children; group membership is not friend authorization.
+- Owner: [#976](https://github.com/tommytang213/Settleora/issues/976). Remaining: No friend/direct-sharing/block/unfriend surface in current mobile route graph. #976 also owns unfriend/unlink confirmation, future-sharing revocation and retained-history states: removing a friendship stops future sharing while preserving historical financial/audit references under server authorization. Group removal is not unfriend implementation. Reconcile [#400](https://github.com/tommytang213/Settleora/issues/400) and closed [#431](https://github.com/tommytang213/Settleora/issues/431)–[#435](https://github.com/tommytang213/Settleora/issues/435) policy/reference work before runtime children; group membership is not friend authorization.
 - Gate/dependency: Authz/privacy/relationship lifecycle and any contract additions. Order: **W4**.
 
 ### M27 — Temporary participants / claim and account link
@@ -475,7 +475,7 @@ Totals: **61 rows — complete 2, partial 39, missing 10, blocked 10**.
 - Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `default app starts at setup when no mode is configured`.
 - States: E/L/R/D/O no experience-mode choice/recommendation UI.
 - Accessibility/visual: main.dart uses SettleoraTheme.midnight; light and midnight tokens exist, not a theme selector; focused mode reference remains.
-- Owner: [#412](https://github.com/tommytang213/Settleora/issues/412). Remaining: Experience-mode selection/change/help-me-decide is absent, unlike authority-mode choice M01. Theme selection/persistence is explicitly Day 2 under [D1-DEC-DEFER-001](../planning/DAY1_DECISION_REGISTER.md); existing theme tokens are inventory only, not a Day 1 gap or #412 scope.
+- Owner: [#412](https://github.com/tommytang213/Settleora/issues/412). Remaining: Experience-mode selection/change/help-me-decide is absent, unlike authority-mode choice M01. Day 1 also requires, where feasible, opting into one or two advanced feature areas without adopting all Advanced features; #412 must include these limited opt-ins and their persistence/discoverability/state acceptance, or explicitly document a product-approved feasibility constraint under D1-UXMODE-001. Theme selection/persistence is explicitly Day 2 under [D1-DEC-DEFER-001](../planning/DAY1_DECISION_REGISTER.md); existing theme tokens are inventory only, not a Day 1 gap or #412 scope.
 - Gate/dependency: Focused first-launch/reference; any server preference contract separate. Order: **W2**.
 
 ### M46 — Bundled What’s New / version-seen state
@@ -615,7 +615,7 @@ Totals: **61 rows — complete 2, partial 39, missing 10, blocked 10**.
 - Tests: [InAppNotificationWriterTests.cs](../../services/api/tests/Settleora.Api.Tests/InAppNotificationWriterTests.cs): `WriterCreatesSafeNotificationForActiveNonDeletedRecipient`; [InAppNotificationWriterTests.cs](../../services/api/tests/Settleora.Api.Tests/InAppNotificationWriterTests.cs): `WriterSkipsDeletedRecipientSelfNotificationUnsafeMetadataAndPendingDuplicates`; [RecurringBillEndpointTests.cs](../../services/api/tests/Settleora.Api.Tests/RecurringBillEndpointTests.cs): `ForecastCreatesIdempotentDueSoonNotificationsForVisibleActiveForecastedOccurrencesOnly`.
 - States: E unsupported event families have no source event; L/R producer and inbox boundaries differ; D writer eligibility/safe targets are server-owned; O sync conflict/rejected-operation events exist, ordinary queue/retry churn remains deferred by source policy.
 - Accessibility/visual: Supported in-app presentation is M34/M35; new source-family targets require bounded presentation and acceptance only after domain policy. No new visual approval inferred.
-- Owner: [#369](https://github.com/tommytang213/Settleora/issues/369). Remaining: Credit implemented bill workflow/revision, settlement request/payment/proof/residual-review, recurring due-soon/draft-generated, OCR needs-review assignment, sync conflict and failed-operation writers. Remaining exact families: OCR completed/failed pending approved worker-result event-source/recipient contracts; auth/session/security event semantics/targets/recipients; claim/split/creator-review pending source runtime; broader mismatch/debtor residual decisions and justified persisted sync-resolution/exhaustion events. Ordinary queued/retrying churn is deferred, not a missing Day 1 writer. #369 is the producer sub-umbrella; current #973 must reconcile/split it before any runtime admission. M34 owns inbox lifecycle; M56 owns preferences; provider activation remains M37.
+- Owner: [#369](https://github.com/tommytang213/Settleora/issues/369). Remaining: Credit implemented bill workflow/revision, settlement request/payment/proof/residual-review, recurring due-soon/draft-generated, OCR needs-review assignment, sync conflict and failed-operation writers. Remaining exact families: OCR completed/failed pending approved worker-result event-source/recipient contracts; auth/session/security event semantics/targets/recipients; claim/split/creator-review pending source runtime; broader mismatch/debtor residual decisions and justified persisted sync-resolution/exhaustion events. Ordinary queued/retrying churn is deferred, not a missing Day 1 writer. #369 is the producer sub-umbrella; current #973 must reconcile/split it before any runtime admission. M34 owns inbox lifecycle; M56 owns preferences; push activation remains M37; SMTP delivery belongs the #403 dependency below.
 - Gate/dependency: Source-domain truth and auth/security/money/OCR/sync/manual contracts; existing target/source policies must precede new writers. Order: **W3/W4 by owning domain**.
 
 ### M61 — Localization readiness across Day 1 mobile states
@@ -740,6 +740,21 @@ Component guardrail tests provide focused semantics and scaling evidence, not
 an app-wide WCAG certificate. Existing Day 1 accessibility obligations stay with
 M50/#975; the later [#1069](https://github.com/tommytang213/Settleora/issues/1069) enhancement must not absorb them.
 
+## SMTP/email delivery dependency (outside mobile destination counts)
+
+The email channel is required Day 1 capability even though SMTP configuration and
+sending are server/provider responsibilities, not a new mobile screen. Sole
+remaining provider owner: [#403](https://github.com/tommytang213/Settleora/issues/403),
+reconciled and split through #973; never #634's push-only scope or M56's user
+preference UI. Status: **partial / provider activation blocked**.
+
+- Requirement/reference: PRD notification channels, D1-NOTIF-002 and [SMTP provider policy](../architecture/SMTP_EMAIL_PROVIDER_POLICY.md).
+- Source: [SmtpEmailNotificationSender](../../services/api/src/Settleora.Api/Notifications/SmtpEmailNotificationSender.cs).
+- Tests: [SmtpEmailNotificationSenderTests.cs](../../services/api/tests/Settleora.Api.Tests/SmtpEmailNotificationSenderTests.cs): `SmtpEmailIsDisabledByDefaultAndDoesNotCallTransport`; [SmtpEmailNotificationSenderTests.cs](../../services/api/tests/Settleora.Api.Tests/SmtpEmailNotificationSenderTests.cs): `EnabledButIncompleteConfigurationReturnsUnconfiguredWithoutFakeSentSuccess`; [SmtpEmailNotificationSenderTests.cs](../../services/api/tests/Settleora.Api.Tests/SmtpEmailNotificationSenderTests.cs): `CompleteConfigurationBuildsBoundedPrivacySafeMessageThroughTransportBoundary`.
+- Existing capability: closed #632 implemented disabled-by-default SMTP sender/transport foundations and bounded disabled/unconfigured/failure outcomes. Do not recreate that runtime or count a mocked transport test as live delivery proof.
+- Remaining gap: #403 owns provider readiness/hosted activation, recipient/channel eligibility and end-to-end delivery/policy acceptance after #973 reconciles its existing child graph. M34/M56 own mobile delivery-state/preference presentation; M60 owns source events. Unsupported, unconfigured, disabled, muted, deferred, queued, sent and failed remain distinct; missing configuration cannot report sent.
+- Gate/order: W3 server/provider lane; manual SMTP configuration/credentials/deployment and security-event policy gates, separate from mobile UI. No SMTP setup, sender activation, email sending or final delivery/visual approval occurs in #407.
+
 ## Smallest dependency-safe next waves
 
 Wave order is queue guidance, not authorization to implement gated runtime.
@@ -758,7 +773,7 @@ Each child needs a current allowed-path contract, exact validation and review.
    mobile work. Advanced search/filter #405 requires #977 reconciliation; notification [#973](https://github.com/tommytang213/Settleora/issues/973) reconciliation remains distinct; M60/#369 owns producer gaps, M34 inbox lifecycle, M56 preference/bypass policy and M63 future required route extensions. A report
    endpoint change is not ordinary UI polish.
 3. **W3 — separately gated auth/privacy/provider work:** [#965](https://github.com/tommytang213/Settleora/issues/965)/#776,
-   [#966](https://github.com/tommytang213/Settleora/issues/966) vault/local-security and [#634](https://github.com/tommytang213/Settleora/issues/634) push registration. Do not combine
+   [#966](https://github.com/tommytang213/Settleora/issues/966) vault/local-security and [#634](https://github.com/tommytang213/Settleora/issues/634) push registration; #403 owns the separate SMTP delivery dependency above. Do not combine
    credentials, platform links, provider setup or vault warnings with W1.
 4. **W4 — separately gated domain work:** M62/#716 lifecycle policy/reference chain (#960 → domain policies → #961 → #722/#723/#724) precedes any cross-record lifecycle implementation; [#967](https://github.com/tommytang213/Settleora/issues/967) bill lifecycle/payer/claim/FX and M58 financial components (closed #351 planning credited),
    [#970](https://github.com/tommytang213/Settleora/issues/970) OCR normalization/correction/non-draft handoff, [#969](https://github.com/tommytang213/Settleora/issues/969) settlement basket/
