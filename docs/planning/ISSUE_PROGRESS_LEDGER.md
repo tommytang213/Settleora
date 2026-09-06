@@ -34,7 +34,9 @@
   #301 remains open for demonstrated adoption/consistency gaps; #372 stays open
   for the full product and acceptance close rule.
 - GitHub review reconciliation: receipt normalization is already wired for personal/group
-  camera/gallery/file intake; fresh setup lacks server reachability/capability feedback.
+  camera/gallery/file upload intake, while native OCR still reads the original path.
+  Fresh setup lacks server reachability/capability feedback; #967 owns missing
+  category and whole-bill/shared-note metadata, distinct from existing item notes.
   M56 assigns remaining persisted notification preferences to #973 after completed
   #370/#561 API foundations; #634 retains OS push registration only. Settlement
   notes remain #355 domain-gated work. Day 2 autopay and theme settings are excluded.

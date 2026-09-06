@@ -138,14 +138,14 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Owner: [#975](https://github.com/tommytang213/Settleora/issues/975). Remaining: Functional list/detail/search exists. Remaining row-specific acceptance is long-detail reading, scaling and platform back/scroll evidence; edit/lifecycle M13 and reconciliation M39 are separate.
 - Gate/dependency: None for evidence-only work. Order: **W5**.
 
-### M11 — Personal bill create and draft receipt handoff
+### M11 — Personal bill create / shared bill metadata / draft receipt handoff
 
 - Status: `partial`. Requirement/reference: PRD: create/itemized expenses; Bills.
-- Source: [SettleoraPersonalBillCreateScreen](../../apps/mobile/lib/bills/bill_list_screen.dart).
+- Source: [SettleoraPersonalBillCreateScreen](../../apps/mobile/lib/bills/bill_list_screen.dart); [SettleoraPersonalBillCreateDraft](../../apps/mobile/lib/bills/bill_repository.dart); [SettleoraGroupBillCreateDraft](../../apps/mobile/lib/bills/bill_repository.dart).
 - Tests: [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `create save sends expected personal bill draft strings`; [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `attachment upload failure after create is retryable without duplicate bill create`; [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill create prompts before discarding edited draft`.
 - States: E initial form/item validation; L create/upload busy; R preserves draft and retries remaining upload; D missing receipt seam bounded; O no offline create acceptance.
 - Accessibility/visual: Shared DateField/MoneyInput; discard and validation tests; bills capture harness, complete keyboard/large-form acceptance absent.
-- Owner: [#967](https://github.com/tommytang213/Settleora/issues/967). Remaining: Existing create and duplicate-safe upload must be retained. PRD-rich item/component model and server-accepted financial completeness need money audit; specialized claims/FX/OCR corrections are owned separately below.
+- Owner: [#967](https://github.com/tommytang213/Settleora/issues/967). Remaining: Existing create and duplicate-safe upload must be retained. Personal/group drafts expose item.note and adjustment.reasonNote, but no category or bill-level note/comment field; current screens have no category editor or whole-bill/shared-note discussion surface. These explicit PRD Expenses and trust-workflow gaps belong #967 once here (including shared bills); establish current domain/API capability before extending UI or proposing a comment system. PRD-rich item/component model and server-accepted financial completeness need money audit; specialized claims/FX/OCR corrections are owned separately below.
 - Gate/dependency: Money/API and storage if expanding create payload or upload behavior. Order: **W4**.
 
 ### M12 — Group bill create / submit / participant accept-reject
@@ -155,7 +155,7 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Tests: [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill create happy path smoke reaches submitted detail`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill detail blocks duplicate participant action taps`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill participant failure shows bounded retryable state refresh`.
 - States: E active-member requirement; L create/submit/ack busy; R retry without duplicate create; D refreshed capabilities and member failure block actions; O online-only create, queue not claimed.
 - Accessibility/visual: Guided assignment sections and shared money fields; group/bills captures; payer confirmation/platform acceptance still incomplete.
-- Owner: [#346](https://github.com/tommytang213/Settleora/issues/346). Remaining: Group create, split/payer entry, submit and accept/reject exist. Remaining on-behalf-of/paid-by confirmation coverage must be reconciled against API capability, not added as a second group-create UI.
+- Owner: [#346](https://github.com/tommytang213/Settleora/issues/346). Remaining: Group create, split/payer entry, submit and accept/reject exist. Category and whole-bill/shared-note metadata gaps are M11/#967. Remaining on-behalf-of/paid-by confirmation coverage must be reconciled against API capability, not added as a second group-create UI.
 - Gate/dependency: Money/payer/participant authority; [#967](https://github.com/tommytang213/Settleora/issues/967) dependency. Order: **W4**.
 
 ### M13 — Bill edit / archive / restore lifecycle
@@ -215,7 +215,7 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Tests: [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill receipt image permission error keeps manual entry`; [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill scan receipt reviews and applies OCR suggestions`; [receipt_ocr_capture/receipt_image_artifact_processor_test.dart](../../apps/mobile/test/receipt_ocr_capture/receipt_image_artifact_processor_test.dart): `produces normalized JPEG and thumbnail bytes from PNG input`.
 - States: E cancel unchanged; L picker/provider busy; R safe picker errors; D permission-denied manual path; O artifacts in memory, secure cache deferred.
 - Accessibility/visual: Capture guidance exists; camera/native permission and all intake variants need device evidence.
-- Owner: [#358](https://github.com/tommytang213/Settleora/issues/358). Remaining: Personal/group camera/gallery and file-import intake call _processedReceiptAttachmentArtifact, which invokes processor.process and replaces supported input with normalized JPEG upload bytes. This integration is already implemented. Share-sheet, replacement and offline queue normalization parity and secure-cache/device acceptance remain unproven; do not recreate camera/gallery/file wiring.
+- Owner: [#358](https://github.com/tommytang213/Settleora/issues/358). Remaining: Personal/group camera/gallery and file-import intake call _processedReceiptAttachmentArtifact, which invokes processor.process and replaces supported input with normalized JPEG upload bytes. This integration is already implemented. The helper retains file.localPath; _runReceiptOcrPreview passes that original path, and MlKitReceiptOcrProvider uses InputImage.fromFilePath rather than normalized request bytes. Normalized native-OCR input/path parity is still missing. Share-sheet, replacement and offline queue normalization parity and secure-cache/device acceptance remain unproven; do not recreate camera/gallery/file wiring.
 - Gate/dependency: Storage/image retention/privacy; no client override of API upload policy. Order: **W4**.
 
 ### M19 — On-device OCR extraction and parser quality
@@ -331,7 +331,7 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 ### M30 — Settlement payment claim / confirmation / dispute / residual
 
 - Status: `partial`. Requirement/reference: PRD: actual paid vs selected/residual review; Settle.
-- Source: [_MarkPaymentPaidDialog](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [_ResidualList](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [SettlementPaymentClaimEndpoints](../../services/api/src/Settleora.Api/Settlements/SettlementPaymentClaimEndpoints.cs) rejects unknown fields in ReadRequestAsync.
+- Source: [_MarkPaymentPaidDialog](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [_ResidualList](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [SettlementPaymentClaimEndpoints](../../services/api/src/Settleora.Api/Settlements/SettlementPaymentClaimEndpoints.cs) rejects unknown fields in ReadPaymentClaimRequestAsync.
 - Tests: [settlement_list_screen_test.dart](../../apps/mobile/test/settlement_list_screen_test.dart): `debtor marks requested settlement paid after confirmation`; [settlement_list_screen_test.dart](../../apps/mobile/test/settlement_list_screen_test.dart): `receiver confirms marked-paid payment after confirmation`; [settlement_list_screen_test.dart](../../apps/mobile/test/settlement_list_screen_test.dart): `settlement list opens detail and confirms residuals`.
 - States: E no payments/residuals; L single-flight actions; R state retained on failure/refresh failure; D payer/receiver/capability guards; O no offline payment acceptance.
 - Accessibility/visual: Confirmation and residual readouts tested, captures exist; full residual outcome/correction acceptance not established.
@@ -585,7 +585,7 @@ Totals: **56 rows — complete 2, partial 36, missing 8, blocked 10**.
 - Tests: [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill list renders loading, empty, and refresh states`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill list shows safe error and retries`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill list opens detail and refreshes detail`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill search combines with chips and clears together`.
 - States: E true/filtered empty; L list/detail/member loading; R bounded retry/refresh; D member fallback and current-user eligibility; O online read, full cache M36.
 - Accessibility/visual: Shared money/status/readouts and groups/bills capture harness; large lists, text scaling, screen-reader traversal and device acceptance unproven.
-- Owner: [#975](https://github.com/tommytang213/Settleora/issues/975). Remaining: Read/list/detail/search is implemented and separate from create/submit/participant actions M12. Remaining acceptance is evidence for long shared-record screens; no duplicate create task.
+- Owner: [#975](https://github.com/tommytang213/Settleora/issues/975). Remaining: Read/list/detail/search is implemented and separate from create/submit/participant actions M12. Category/whole-bill discussion gaps are M11/#967. Remaining acceptance is evidence for long shared-record screens; no duplicate create task.
 - Gate/dependency: None for evidence-only work. Order: **W5**.
 
 ### M56 — Persisted notification preferences / quiet hours / group mute
