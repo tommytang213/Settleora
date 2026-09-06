@@ -175,3 +175,24 @@ When user action is actually required, blocker/manual decision text should name 
 Future task prompts should include required guardrails, branch/PR targets, manual gates, and task-specific validation, but avoid repeating long validation prose when this policy already defines the rule. Link to this document instead.
 
 Still repeat or strengthen rules for high-risk work where the task depends on explicit manual gates, such as auth/session/security, storage/privacy/file bytes, money/settlement calculation authority, schema migrations, Docker/CI/deployment, production release, mobile store release, secrets, destructive operations, or branch/history cleanup.
+
+## Protected CodeQL Analyzer Authority
+
+The protected `pull_request_target` auditor covers main-targeting PRs only. It
+executes only default-branch code and
+approves complete frozen analyzer/controller definitions, inspecting PR source and
+merge content as data. Its exact-head result is `CodeQL protected auditor`.
+Before merging advanced-CodeQL or docs-applicability changes, verify the actual
+protected Actions run, successful audit job, its recorded published check ID, and
+current source/base/merge/default-authority SHAs. Check names, app identity and
+caller-supplied check URLs alone are not provenance. The existing merge consumer
+and external rulesets do not independently enforce this extra provenance check;
+the supervised exact-head merge procedure must perform it. Analyzer/auditor
+changes require a separately reviewed protected authority update before candidate
+acceptance. Missing or stale protected evidence cannot authorize a merge.
+
+Issue #1087's owner-approved bootstrap may establish this authority under restored
+real default five-language CodeQL plus all normal fresh reviews/checks. This is a
+trust-anchor prerequisite only: default scans do not count as advanced acceptance.
+Advanced source scanning, current-main proof and natural docs-only hosted acceptance
+remain required before #1087 completion.
