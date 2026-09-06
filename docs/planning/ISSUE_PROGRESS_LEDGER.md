@@ -80,6 +80,14 @@
   Retired M40 manual accounts/income is existing starter UI without explicit
   Day 1 approval: keep broader scope Needs Decision, outside counts and #972
   acceptance, with current #299 conditional placement context retained.
+- Capability precision after review: M14/#402 credits existing conservative
+  settlement apply guards but records absent impact-readout runtime/mobile data.
+  M25/#399 credits the group-scoped report API/screen and owns its missing group
+  handoff; M29/#354 separates existing pay-all wiring from absent selected-line
+  domain/contracts. M18/#358 adds supporting-to-receipt purpose-change bypasses.
+  M05/#338 owns missing new-device source classification/audit; producer #369
+  depends on it. Conditional bill tags remain Needs Decision through #967,
+  outside approved counts until explicit product disposition.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
