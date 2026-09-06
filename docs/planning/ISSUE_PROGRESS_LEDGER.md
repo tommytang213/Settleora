@@ -99,6 +99,12 @@
   #966 solely owns reconciliation/splitting of authoritative server normalization,
   absent despite bounded upload validation. M25/#399 credits existing group-scoped
   recurring repository/API reads and owns missing scoped screen/handoff wiring.
+- Adjacent ownership precision: #966 owns authoritative server normalization
+  reconciliation for receipt/supporting, proof and self-QR image purposes; bounded
+  upload validation is credited but direct byte persistence is not normalization.
+  M31/#356 retains mobile proof scope. M14/#402 explicitly owns remaining
+  invalidation/adjustment/reopen policy reconciliation and focused splitting with
+  #967/#969/#718 inputs, separately from impact-readout and UI slices.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
