@@ -160,7 +160,9 @@ Workflow, CI, package metadata, tooling, scripts, services, apps, contracts, gen
 The repository-managed `Security CodeQL` workflow uses the same docs classifier
 for PR applicability. Only a current PR merge checkout with a nonempty docs-only
 diff, unchanged workflow/classifier authority, and successful five-language advanced
-analysis of its comparison base may select the lightweight docs work item. Missing,
+analysis of its comparison base may select the lightweight docs work item. Control
+helpers execute from the PR base revision, with a pinned reviewed full-analysis
+bootstrap for bases predating the helper. PR and push triggers include `ai/integration`. Missing,
 stale, failed or ambiguous proof selects real analysis. The always-running `CodeQL`
 job requires successful applicability and work jobs; source PRs additionally require
 all five advanced analyses to be uploaded/processed and the exact-head native

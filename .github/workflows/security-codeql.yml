@@ -2,9 +2,9 @@ name: Security CodeQL
 
 on:
   pull_request:
-    branches: [main, uat, prod, 'release/*', 'hotfix/*']
+    branches: [main, ai/integration, uat, prod, 'release/*', 'hotfix/*']
   push:
-    branches: [main, uat, prod, 'release/*', 'hotfix/*']
+    branches: [main, ai/integration, uat, prod, 'release/*', 'hotfix/*']
   schedule:
     - cron: '43 2 * * 1'
   workflow_dispatch:
@@ -28,10 +28,31 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Load trusted CodeQL controller
+        id: controller
+        env:
+          BASE_REVISION: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$BASE_REVISION"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          if ! git cat-file -e "$revision:tools/ci/codeql-gate.mjs"; then
+            # Reviewed bootstrap authority, retained in task history. A base
+            # without the workflow/helper cannot qualify for docs applicability.
+            revision=c778cf3ed81a1c6146f6013d026610c575eb9243
+          fi
+          controller="$RUNNER_TEMP/codeql-controller"
+          mkdir -p "$controller"
+          for file in codeql-gate.mjs scaffold-validation-changes.mjs; do
+            git show "$revision:tools/ci/$file" > "$controller/$file"
+          done
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "Trusted controller revision: $revision"
       - id: proof
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node tools/ci/codeql-gate.mjs prepare < "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
+        run: node "$RUNNER_TEMP/codeql-controller/codeql-gate.mjs" prepare < "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
 
   analyze:
     name: CodeQL work (${{ matrix.language }})
@@ -80,9 +101,30 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Load trusted CodeQL controller
+        id: controller
+        env:
+          BASE_REVISION: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          revision="$BASE_REVISION"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          if ! git cat-file -e "$revision:tools/ci/codeql-gate.mjs"; then
+            # Reviewed bootstrap authority, retained in task history. A base
+            # without the workflow/helper cannot qualify for docs applicability.
+            revision=c778cf3ed81a1c6146f6013d026610c575eb9243
+          fi
+          controller="$RUNNER_TEMP/codeql-controller"
+          mkdir -p "$controller"
+          for file in codeql-gate.mjs scaffold-validation-changes.mjs; do
+            git show "$revision:tools/ci/$file" > "$controller/$file"
+          done
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "Trusted controller revision: $revision"
       - name: Verify exact-current applicability and scanner gate
         env:
           GH_TOKEN: ${{ github.token }}
           PREPARED_MODE: ${{ needs.prepare.outputs.mode }}
           NEEDS_RESULTS: '{"prepare":"${{ needs.prepare.result }}","analyze":"${{ needs.analyze.result }}"}'
-        run: node tools/ci/codeql-gate.mjs gate < "$GITHUB_EVENT_PATH" >> "$GITHUB_STEP_SUMMARY"
+        run: node "$RUNNER_TEMP/codeql-controller/codeql-gate.mjs" gate < "$GITHUB_EVENT_PATH" >> "$GITHUB_STEP_SUMMARY"

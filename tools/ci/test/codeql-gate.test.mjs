@@ -91,7 +91,7 @@ test('existing merge policy refuses missing CodeQL, pending and skipped checks',
 test('supported workflow wiring preserves languages, queries, threat and mandatory scanners', () => {
   const text = readFileSync(new URL('../../../.github/workflows/security-codeql.yml', import.meta.url), 'utf8');
   const w = YAML.parse(text);
-  assert.deepEqual(w.on.push.branches, ['main', 'uat', 'prod', 'release/*', 'hotfix/*']);
+  assert.deepEqual(w.on.push.branches, ['main', 'ai/integration', 'uat', 'prod', 'release/*', 'hotfix/*']);
   assert.deepEqual(w.on.pull_request.branches, w.on.push.branches);
   assert.equal(w.on.schedule.length, 1);
   assert.ok('workflow_dispatch' in w.on);
@@ -169,6 +169,18 @@ test('workflow owns file boundaries and helper only reads/writes streams', () =>
   assert.match(helper, /readFileSync\(0, 'utf8'\)/);
   assert.doesNotMatch(helper, /appendFileSync|writeFileSync|env\.GITHUB_EVENT_PATH|env\.GITHUB_OUTPUT|env\.GITHUB_STEP_SUMMARY|fetch\(/);
   const w = YAML.parse(readFileSync(new URL('../../../.github/workflows/security-codeql.yml', import.meta.url), 'utf8'));
-  assert.equal(w.jobs.prepare.steps.at(-1).run, 'node tools/ci/codeql-gate.mjs prepare < "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"');
-  assert.equal(w.jobs.gate.steps.at(-1).run, 'node tools/ci/codeql-gate.mjs gate < "$GITHUB_EVENT_PATH" >> "$GITHUB_STEP_SUMMARY"');
+  assert.equal(w.jobs.prepare.steps.at(-1).run, 'node "$RUNNER_TEMP/codeql-controller/codeql-gate.mjs" prepare < "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"');
+  assert.equal(w.jobs.gate.steps.at(-1).run, 'node "$RUNNER_TEMP/codeql-controller/codeql-gate.mjs" gate < "$GITHUB_EVENT_PATH" >> "$GITHUB_STEP_SUMMARY"');
+});
+
+test('both control jobs load protected-base helpers or pinned reviewed bootstrap', () => {
+  const w = YAML.parse(readFileSync(new URL('../../../.github/workflows/security-codeql.yml', import.meta.url), 'utf8'));
+  for (const name of ['prepare', 'gate']) {
+    const step = w.jobs[name].steps.find((s) => s.id === 'controller');
+    assert.equal(step.env.BASE_REVISION, "${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}");
+    assert.ok(step.run.includes('revision=c778cf3ed81a1c6146f6013d026610c575eb9243'));
+    assert.ok(step.run.includes('git show "$revision:tools/ci/$file" > "$controller/$file"'));
+    assert.ok(step.run.includes('codeql-gate.mjs scaffold-validation-changes.mjs'));
+    assert.ok(w.jobs[name].steps.at(-1).run.includes('"$RUNNER_TEMP/codeql-controller/codeql-gate.mjs"'));
+  }
 });
