@@ -1,5 +1,61 @@
 # Issue Progress Ledger
 
+### Issue #1084 and PR #1085 — proven docs-only first-push classifier (2026-09-06)
+
+- Source PR #1085 merged by normal GitHub merge from base
+  `3d223e5d694af3cced770a6f72c6f6188591696b`, exact head
+  `113a331347cbd9b6744f8480b21d1e99e3e4c6fd` (tree
+  `460319d917a30e083a2799e38624f2d16ff44f92`), as merge
+  `af32371868a8a2355396136a9614441d17b17499`. Fetched main contains the
+  source head and all four reviewed source files match exactly. Branch retained.
+- Scope is `.github/workflows/scaffold-validation.yml`, the focused
+  `tools/ci/scaffold-validation-changes.mjs` helper and its regression test,
+  plus the explicitly owner-approved one-paragraph correction in
+  `docs/workflow/CODEX_VALIDATION_REPORT_BUDGET.md`. Non-default-branch
+  first pushes can take the docs path only with trusted current-main fetch,
+  exact checkout, complete ancestry/merge-base and nonempty docs-only diff
+  evidence. Non-doc or unprovable cases remain full. All six expensive gates,
+  always-run foundation, required job name, permissions and scanners remain.
+- Fresh exact-head local validation passed docs/scaffold, Docker doctor/Compose,
+  syntax/YAML checks and all 33 deterministic classifier tests. Fresh Gemini
+  `strong_independent`, local Codex mechanics/CI/security and GitHub Codex
+  reviews passed. Both Scaffold checks, all five CodeQL analyses and aggregate
+  CodeQL, Semgrep CE/OSS and Trivy passed. Policy thread
+  `PRRT_kwDOSNHStc6fqWX3` was corrected and resolved with evidence; zero
+  unresolved threads. Earlier CodeQL alert #122 is fixed, not dismissed.
+- Natural ledger-only hygiene PR #1086 uses
+  `docs/1084-first-push-acceptance-hygiene-20260906-1636`. Its first remote
+  push at head `8ed7aa0e32238d132acb823a559713e6b162dd2a` passed
+  [Scaffold run 34023304482](https://github.com/tommytang213/Settleora/actions/runs/34023304482),
+  job `101459745419`. Actual classifier logs show `event=push`,
+  `before=0000000000000000000000000000000000000000`,
+  `reason=first_push_main_merge_base`, base
+  `af32371868a8a2355396136a9614441d17b17499`, `docs_only=true`,
+  `run_full_validation=false`, and only this ledger in changed paths.
+- The same candidate's pull-request-triggered
+  [Scaffold run 34023306615](https://github.com/tommytang213/Settleora/actions/runs/34023306615),
+  job `101459751097`, also passed lightweight with `reason=pull_request_base`.
+  Its checked-out synthetic merge SHA was
+  `e6efe3088704ad3e83a0eef2805b45111bd0456b`; its source head was the first-push
+  candidate above. Both actual jobs report Setup .NET, Validate OpenAPI,
+  Validate generated clients, Validate API, Validate Docker Compose and
+  Validate API Docker image as skipped. Checkout, Setup Node, classification,
+  npm dependency installation, scaffold paths and all 33 classifier tests
+  succeeded. These are observed run/job/log results, not inferred skips.
+- #1084 is open at this pre-merge ledger checkpoint; the close recommendation
+  is complete after PR #1086's final exact-head reviews/checks and normal merge,
+  then current-main ancestry/content proof. Live acceptance is complete; final
+  hygiene merge/closure evidence belongs in the issue completion comment and
+  continuation report. No linked Project item exists. No product work, #959,
+  DevCommand/runner state, deployment, secret/config, API, auth/security runtime,
+  storage/privacy, money, schema, OpenAPI/generated-client or branch cleanup
+  change. No broader Day 1 completion is implied.
+- Last verified main: `af32371868a8a2355396136a9614441d17b17499`.
+  Accepted logical task `20260906-1613`, approved continuation `20260906-1636`;
+  detailed report: `settleora-codex-report-20260906-1636-issue-1084-policy-approved-continuation.md`
+  under `/workspace/logs/`; exact validation/review evidence under
+  `/workspace/logs/issue-1084-20260906-1636/`.
+
 ### Issue #866 and PR #1082 — sheet/dialog accessibility semantics completed (2026-09-06)
 
 - PR #1082 merged by normal GitHub merge commit from base
