@@ -143,3 +143,11 @@ test('Git tree rejects dereferenced symlinks, submodules, missing/duplicate file
     await assert.rejects(audit(expected, apiFixture({ [`git/trees/${source}?recursive=1`]: () => tree })), /Git tree|regular Git file/);
   }
 });
+
+test('retargeting to another branch at the same SHA fails at either live identity read', async () => {
+  const retargeted = { ...pr, base: { ...pr.base, ref: 'ai/integration' } };
+  assert.throws(() => validateIdentity(retargeted, expected, base), /Stale/);
+  await assert.rejects(audit(expected, apiFixture({ 'pulls/1088': () => retargeted })), /Stale/);
+  let calls = 0;
+  await assert.rejects(audit(expected, apiFixture({ 'pulls/1088': () => ++calls === 1 ? pr : retargeted })), /Stale/);
+});

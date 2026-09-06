@@ -37,7 +37,7 @@ export function decodeFile(file) {
 }
 export function validateIdentity(pr, expected, main) {
   requireProof(pr?.state === 'open' && pr.number === expected.number &&
-    pr.base?.repo?.full_name === repository && pr.head?.repo?.full_name === repository &&
+    pr.base?.repo?.full_name === repository && pr.base.ref === 'main' && pr.head?.repo?.full_name === repository &&
     shaPattern.test(pr.head.sha) && shaPattern.test(pr.base.sha) && shaPattern.test(pr.merge_commit_sha) &&
     pr.head.sha === expected.source && pr.base.sha === expected.base && pr.merge_commit_sha === expected.merge &&
     main === expected.authority && shaPattern.test(main), 'Stale or untrusted PR/base/head authority');
