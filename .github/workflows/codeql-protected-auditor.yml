@@ -39,4 +39,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_CONTROLLER_ABSENT: ${{ steps.base.outputs.absent }}
-        run: node tools/ci/codeql-protected-auditor.mjs < "$GITHUB_EVENT_PATH" >> "$GITHUB_STEP_SUMMARY"
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/ci/codeql-protected-auditor.mjs < "$GITHUB_EVENT_PATH" | tee -a "$GITHUB_STEP_SUMMARY"

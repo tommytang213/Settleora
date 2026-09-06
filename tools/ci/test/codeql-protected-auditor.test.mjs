@@ -151,3 +151,11 @@ test('retargeting to another branch at the same SHA fails at either live identit
   let calls = 0;
   await assert.rejects(audit(expected, apiFixture({ 'pulls/1088': () => ++calls === 1 ? pr : retargeted })), /Stale/);
 });
+
+test('published check association is retained in protected logs and summary with pipefail', () => {
+  const w = YAML.parse(readFileSync(new URL('../../../.github/workflows/codeql-protected-auditor.yml', import.meta.url), 'utf8'));
+  const step = w.jobs.audit.steps.at(-1);
+  assert.equal(step.shell, 'bash');
+  assert.match(step.run, /set -euo pipefail/);
+  assert.match(step.run, /node tools\/ci\/codeql-protected-auditor.mjs < "\$GITHUB_EVENT_PATH" \| tee -a "\$GITHUB_STEP_SUMMARY"/);
+});
