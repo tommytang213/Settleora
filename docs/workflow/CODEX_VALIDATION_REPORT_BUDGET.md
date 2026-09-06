@@ -157,6 +157,22 @@ The required `Scaffold Validation` workflow must keep the `Validate scaffold` jo
 
 Workflow, CI, package metadata, tooling, scripts, services, apps, contracts, generated clients, source, tests, Docker/compose, infrastructure, deployment, runtime config, OpenAPI, schema, migration, security, storage/privacy, money, settlement, payment, and bill-calculation changes must keep the broader GitHub Actions validation path enabled.
 
+The repository-managed `Security CodeQL` workflow uses the same docs classifier
+for PR applicability. Only a current PR merge checkout with a nonempty docs-only
+diff, unchanged workflow/classifier authority, and successful five-language advanced
+analysis of its comparison base may select the lightweight docs work item. Missing,
+stale, failed or ambiguous proof selects real analysis. The always-running `CodeQL`
+job requires successful applicability and work jobs; source PRs additionally require
+all five advanced analyses to be uploaded/processed and the exact-head native
+CodeQL findings check to succeed. Docs applicability does not fabricate scanner
+results. Default/protected-branch pushes, weekly schedules and manual recovery scans
+always analyze Actions, C/C++, C#, JavaScript/TypeScript and Python using default
+queries, local plus remote threat sources and supported `none` build mode. The
+workflow requires GitHub default setup to be disabled through an explicitly approved,
+coordinated migration before advanced uploads; default dynamic scans are not advanced
+workflow acceptance evidence. Semgrep, Trivy, Scaffold and exact-head review/merge
+requirements remain mandatory.
+
 ## Chat And Report Budget Rule
 
 Future Codex workflow chat replies should stay compact. Use:

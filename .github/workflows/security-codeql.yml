@@ -1,0 +1,88 @@
+name: Security CodeQL
+
+on:
+  pull_request:
+    branches: [main, uat, prod, 'release/*', 'hotfix/*']
+  push:
+    branches: [main, uat, prod, 'release/*', 'hotfix/*']
+  schedule:
+    - cron: '43 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: CodeQL applicability
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: read
+    outputs:
+      matrix: ${{ steps.proof.outputs.matrix }}
+      mode: ${{ steps.proof.outputs.mode }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/ci/codeql-gate.mjs prepare
+
+  analyze:
+    name: CodeQL work (${{ matrix.language }})
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Docs applicability only
+        if: matrix.language == 'docs-only'
+        run: echo 'No CodeQL language extraction, query execution or SARIF upload applies to this proven docs-only PR.'
+      - name: Initialize CodeQL
+        if: matrix.language != 'docs-only'
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          config: |
+            threat-models: [local]
+      - name: Analyze and process CodeQL
+        if: matrix.language != 'docs-only'
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          category: /language:${{ matrix.language }}
+          wait-for-processing: true
+
+  gate:
+    name: CodeQL
+    if: always()
+    needs: [prepare, analyze]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      security-events: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact-current applicability and scanner gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREPARED_MODE: ${{ needs.prepare.outputs.mode }}
+          NEEDS_RESULTS: '{"prepare":"${{ needs.prepare.result }}","analyze":"${{ needs.analyze.result }}"}'
+        run: node tools/ci/codeql-gate.mjs gate
