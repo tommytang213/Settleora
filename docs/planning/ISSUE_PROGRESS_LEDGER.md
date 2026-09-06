@@ -8,7 +8,7 @@
   and merge. No runtime/UI implementation or manual Day 1 acceptance is claimed.
 - Durable inventory:
   [Day 1 mobile screen completeness checklist](../qa/DAY1_MOBILE_SCREEN_COMPLETENESS_CHECKLIST.md).
-  **51 canonical rows: complete 2, partial 34, missing 6, blocked 9.** Counts
+  **55 canonical rows: complete 2, partial 35, missing 8, blocked 10.** Counts
   include the shared-component and cross-screen acceptance flows; a completed
   bounded password-reset request or notification handoff does not complete auth
   or notification product scope.
@@ -24,7 +24,7 @@
   work, #412 mode reference and #1094 announcement design. W3 auth/security,
   vault/privacy and push-provider gates stay separate. W4 #967/#970/#969/#972/
   #976/#971 domain reconciliations precede separately scoped money, OCR, proof,
-  recurring, relationship, offline and portability changes. W6 #975 coordinates
+  recurring, relationship, offline and portability changes. W5 #975 coordinates
   final state/accessibility/visual/platform acceptance, with release proof #974.
 - #301/#372 reconciliation: money/date selectors, reusable rows, state panels,
   sheets/dialogs and focused accessibility primitives already exist. #672/#679,

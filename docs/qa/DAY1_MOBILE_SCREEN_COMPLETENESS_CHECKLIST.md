@@ -8,7 +8,7 @@ owns server authorization, money, status, file access, sync acceptance and audit
 
 ## Reading and counting rules
 
-Each canonical destination/flow appears once in M01–M51. Entry aliases and
+Each canonical destination/flow appears once in M01–M55. Entry aliases and
 embedded/pushed variants are included in their canonical row, not counted again.
 M49–M50 are cross-cutting component/acceptance flows included in the same totals.
 Source symbols and named test cases below are current, inspected evidence; tests
@@ -34,7 +34,7 @@ screen acceptance.
   reproducible branch-rendered fixtures exist, not that [#407](https://github.com/tommytang213/Settleora/issues/407) rendered or approved
   unseen UI. No new Figma or screenshots were required or created here.
 
-Totals: **51 rows — complete 2, partial 34, missing 6, blocked 9**.
+Totals: **55 rows — complete 2, partial 35, missing 8, blocked 10**.
 
 ## Canonical inventory
 
@@ -43,10 +43,10 @@ Totals: **51 rows — complete 2, partial 34, missing 6, blocked 9**.
 - Status: `partial`. Requirement/reference: PRD: identity and sync; Shell, Settings.
 - Source: [SettleoraSetupScreen](../../apps/mobile/lib/app/setup_screen.dart); [SettleoraAppBootstrap](../../apps/mobile/lib/app/app_bootstrap.dart).
 - Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `setup saves local mode without creating a server repository`; [widget_test.dart](../../apps/mobile/test/widget_test.dart): `setup rejects invalid server base URLs before saving`.
-- States: E initial choice; L save busy; R invalid URL/storage feedback; D server capability checked on entry; O local choice persists, operational workspace M02.
+- States: E initial choice; L save busy; R URL validation and initial storage-read recovery; configuration save failure has no bounded feedback; D server capability checked on entry; O local choice persists, operational workspace M02.
 - Accessibility/visual: Labels, scroll and shared controls exist; shell capture harness; exhaustive large-text/keyboard/platform acceptance unproven.
-- Owner: [#975](https://github.com/tommytang213/Settleora/issues/975). Remaining: Bounded setup exists. Per-device onboarding acceptance still unproven; experience modes are M45, not another authority mode.
-- Gate/dependency: None for evidence-only work. Order: **W6**.
+- Owner: [#301](https://github.com/tommytang213/Settleora/issues/301). Remaining: Bounded setup exists, but _save and _saveConfiguration lack save-error mapping; add bounded save-failure presentation/tests in a focused state-pattern slice. Per-device onboarding acceptance stays M50; experience modes are M45, not another authority mode.
+- Gate/dependency: None for evidence-only work. Order: **W5**.
 
 ### M02 — Local-only operational workspace
 
@@ -58,14 +58,14 @@ Totals: **51 rows — complete 2, partial 34, missing 6, blocked 9**.
 - Owner: [#971](https://github.com/tommytang213/Settleora/issues/971). Remaining: Selecting local mode reaches a placeholder with Connect to Server, not an operational local record/OCR/backup workspace. Underlying local product capability is absent.
 - Gate/dependency: Local storage/security and migration boundaries; [#408](https://github.com/tommytang213/Settleora/issues/408) dependency. Order: **W4**.
 
-### M03 — Local-account sign-in / first-owner bootstrap / session entry
+### M03 — Local-account sign-in / refreshed session entry
 
 - Status: `partial`. Requirement/reference: PRD: accounts/identity; Auth, Reset.
 - Source: [SettleoraSignInScreen](../../apps/mobile/lib/app/sign_in_screen.dart); [SettleoraAppBootstrap](../../apps/mobile/lib/app/app_bootstrap.dart).
 - Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `successful sign-in stores session and reaches the shell`; [widget_test.dart](../../apps/mobile/test/widget_test.dart): `bootstrap refreshes an expired access session before shell`; [widget_test.dart](../../apps/mobile/test/widget_test.dart): `network sign-in failure maps to a safe retry state`.
-- States: E forms; L sign-in/bootstrap busy; R bounded validation/failure; D invalid/expired session prevents shell; O server-unavailable feedback, no offline authentication.
+- States: E forms; L sign-in/session loading busy; R bounded validation/failure; D invalid/expired session prevents shell; O server-unavailable feedback, no offline authentication.
 - Accessibility/visual: Autofill and next/done actions exist; setup/sign-in capture harness; physical-device focus/secure-input acceptance unproven.
-- Owner: [#965](https://github.com/tommytang213/Settleora/issues/965). Remaining: Existing login/bootstrap and refreshed session shell must be retained; final auth/platform acceptance is not established by route tests. Additional onboarding methods are M04.
+- Owner: [#965](https://github.com/tommytang213/Settleora/issues/965). Remaining: Existing login and refreshed session shell must be retained; final auth/platform acceptance is not established by route tests. Additional onboarding methods are M04.
 - Gate/dependency: Auth/security; [#777](https://github.com/tommytang213/Settleora/issues/777) exposure acceptance separate. Order: **W3**.
 
 ### M04 — Invitation / registration / OIDC mobile entry
@@ -136,7 +136,7 @@ Totals: **51 rows — complete 2, partial 34, missing 6, blocked 9**.
 - States: E true/filtered empty; L list/detail load; R refresh/retry; D bounded unavailable/session; O queue badges exist, full cache M36.
 - Accessibility/visual: MoneyText, shared panels and labeled filters exist; full route text-scale/focus acceptance unproven; bills capture harness.
 - Owner: [#975](https://github.com/tommytang213/Settleora/issues/975). Remaining: Functional list/detail/search exists. Remaining row-specific acceptance is long-detail reading, scaling and platform back/scroll evidence; edit/lifecycle M13 and reconciliation M39 are separate.
-- Gate/dependency: None for evidence-only work. Order: **W6**.
+- Gate/dependency: None for evidence-only work. Order: **W5**.
 
 ### M11 — Personal bill create and draft receipt handoff
 
@@ -316,7 +316,7 @@ Totals: **51 rows — complete 2, partial 34, missing 6, blocked 9**.
 - States: E balances/requests/lines/filtered empty; L load; R refresh/retry; D bounded session/denied/unavailable; O server unavailable, no offline mutation.
 - Accessibility/visual: Shared money/key-value states and settlement capture harness; exhaustive detail/platform acceptance incomplete.
 - Owner: [#969](https://github.com/tommytang213/Settleora/issues/969). Remaining: Existing balance/request/payment reads are retained. End-to-end accepted settlement evidence remains incomplete; basket, residual and proof gaps are separately owned below.
-- Gate/dependency: Final financial acceptance; no balance recalculation in client. Order: **W6**.
+- Gate/dependency: Final financial acceptance; no balance recalculation in client. Order: **W5**.
 
 ### M29 — Settlement basket / select-visible / create request
 
@@ -536,7 +536,7 @@ Totals: **51 rows — complete 2, partial 34, missing 6, blocked 9**.
 - States: E/L/R/D/O state families exist, but no exhaustive destination × state × device acceptance matrix passed.
 - Accessibility/visual: Shared semantic ordering, 1.8× button/2× amount tests and visual harnesses exist. TalkBack/VoiceOver, keyboard/focus, text scale, safe-area and long forms require final platform acceptance.
 - Owner: [#975](https://github.com/tommytang213/Settleora/issues/975). Remaining: This single cross-cutting owner holds remaining acceptance evidence, not duplicate feature implementation. Day 2 [#1069](https://github.com/tommytang213/Settleora/issues/1069) does not defer existing Day 1 accessibility requirements.
-- Gate/dependency: Human visual/device/Day 1 acceptance; [#974](https://github.com/tommytang213/Settleora/issues/974) release proof separate. Order: **W6**.
+- Gate/dependency: Human visual/device/Day 1 acceptance; [#974](https://github.com/tommytang213/Settleora/issues/974) release proof separate. Order: **W5**.
 
 ### M51 — Manual FX snapshot entry and review
 
@@ -547,6 +547,46 @@ Totals: **51 rows — complete 2, partial 34, missing 6, blocked 9**.
 - Accessibility/visual: Currency controls exist but no FX source/date/rate review or acceptance evidence.
 - Owner: [#352](https://github.com/tommytang213/Settleora/issues/352). Remaining: No mobile manual FX snapshot editor found. A currency selector is not rate conversion; [#967](https://github.com/tommytang213/Settleora/issues/967) must establish current server financial model before any mobile payload change.
 - Gate/dependency: Money/rounding and any OpenAPI/generated-client contract. Order: **W4**.
+
+### M52 — First-owner mobile provisioning entry
+
+- Status: `missing`. Requirement/reference: PRD: first-owner bootstrap; Auth.
+- Source: [SettleoraSignInScreen](../../apps/mobile/lib/app/sign_in_screen.dart); [SettleoraAppBootstrap](../../apps/mobile/lib/app/app_bootstrap.dart).
+- Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `successful sign-in stores session and reaches the shell`.
+- States: E/L/R/D/O no mobile first-owner status/create flow; ordinary login test is adjacent only.
+- Accessibility/visual: Auth reference and generated bootstrapLocalOwner/getAuthBootstrapStatus exist; no mobile provisioning capture/state tests.
+- Owner: [#965](https://github.com/tommytang213/Settleora/issues/965). Remaining: App initialization is not owner creation. Mobile does not call bootstrapLocalOwner/getAuthBootstrapStatus although generated transport and API capability exist. Establish intended mobile onboarding handoff before implementation.
+- Gate/dependency: Auth/security first-owner exposure and policy. Order: **W3**.
+
+### M53 — Authenticated current-account password change
+
+- Status: `missing`. Requirement/reference: PRD: account security; Reset, Auth.
+- Source: [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart); [SettleoraSignInScreen](../../apps/mobile/lib/app/sign_in_screen.dart).
+- Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `successful sign-in stores session and reaches the shell`.
+- States: E/L/R/D/O password-change mobile form and outcomes absent; login/reset request are separate flows.
+- Accessibility/visual: No change-password screen/focus/reauthentication/session-effect capture or test.
+- Owner: [#965](https://github.com/tommytang213/Settleora/issues/965). Remaining: Generated changeCurrentAccountPassword and merged API [#729](https://github.com/tommytang213/Settleora/issues/729) exist, but mobile has no authenticated change-password surface. Do not confuse reset request M06 with password change.
+- Gate/dependency: Auth/security, factor/session effects; [#339](https://github.com/tommytang213/Settleora/issues/339) dependency. Order: **W3**.
+
+### M54 — Credential activity / security-center event entry
+
+- Status: `blocked`. Requirement/reference: PRD: security visibility and audit; Auth, Settings.
+- Source: [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart); [SettleoraSessionListScreen](../../apps/mobile/lib/app/server_mode_shell.dart).
+- Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `session list displays safe metadata and revokes a session`.
+- States: E/L/R/D/O session list exists but credential activity/security-center flow absent.
+- Accessibility/visual: No security event detail or safe audit re-fetch UI evidence; session metadata is adjacent only.
+- Owner: [#774](https://github.com/tommytang213/Settleora/issues/774). Remaining: Credential activity/security-center presentation needs the existing focused planning gate; do not expose raw audit records or pretend session metadata is a security event timeline.
+- Gate/dependency: Auth audit/privacy and safe event contracts. Order: **W3**.
+
+### M55 — Shared/group bills list / detail / loaded filters
+
+- Status: `partial`. Requirement/reference: PRD: shared records; Bills, Groups.
+- Source: [SettleoraGroupBillListScreen](../../apps/mobile/lib/bills/bill_list_screen.dart); [SettleoraGroupBillDetailScreen](../../apps/mobile/lib/bills/bill_list_screen.dart).
+- Tests: [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill list renders loading, empty, and refresh states`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill list shows safe error and retries`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill list opens detail and refreshes detail`; [group_bill_list_screen_test.dart](../../apps/mobile/test/group_bill_list_screen_test.dart): `group bill search combines with chips and clears together`.
+- States: E true/filtered empty; L list/detail/member loading; R bounded retry/refresh; D member fallback and current-user eligibility; O online read, full cache M36.
+- Accessibility/visual: Shared money/status/readouts and groups/bills capture harness; large lists, text scaling, screen-reader traversal and device acceptance unproven.
+- Owner: [#975](https://github.com/tommytang213/Settleora/issues/975). Remaining: Read/list/detail/search is implemented and separate from create/submit/participant actions M12. Remaining acceptance is evidence for long shared-record screens; no duplicate create task.
+- Gate/dependency: None for evidence-only work. Order: **W5**.
 
 ## Reference index and historical evidence
 
@@ -667,7 +707,7 @@ Each child needs a current allowed-path contract, exact validation and review.
    [#345](https://github.com/tommytang213/Settleora/issues/345)/#346/#350/#352/#354/#355/#356/#358/#366/#438/#442 remain first choices.
    Money, storage, sync and API contracts are separate boundaries even when
    adjacent UI looks similar.
-5. **W6 — acceptance:** [#975](https://github.com/tommytang213/Settleora/issues/975) coordinates exact changed-flow device, screen-reader,
+5. **W5 — acceptance:** [#975](https://github.com/tommytang213/Settleora/issues/975) coordinates exact changed-flow device, screen-reader,
    text-scaling/keyboard/focus, safe-area, state and visual evidence after each
    slice; [#974](https://github.com/tommytang213/Settleora/issues/974) owns build/release proof. Acceptance does not wait to detect obvious
    regressions, but final Day 1 approval remains a human gate.
