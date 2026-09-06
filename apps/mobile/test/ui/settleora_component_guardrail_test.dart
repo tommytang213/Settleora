@@ -86,6 +86,106 @@ void main() {
     },
   );
 
+  for (final isSheet in [true, false]) {
+    testWidgets(
+      '${isSheet ? 'sheet' : 'dialog'} exposes one title header and independent ordered actions',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          final tapped = <String>[];
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: SettleoraTheme.light(),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () {
+                      final actions = [
+                        AppButton(
+                          label: 'Keep editing',
+                          onPressed: () => tapped.add('Keep editing'),
+                        ),
+                        AppButton(
+                          label: 'Save changes',
+                          onPressed: () => tapped.add('Save changes'),
+                        ),
+                      ];
+                      if (isSheet) {
+                        showSettleoraBottomSheet<void>(
+                          context: context,
+                          builder: (_) => SettleoraBottomSheetFrame(
+                            title: 'Review details',
+                            subtitle: 'Check the visible details.',
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('Details remain editable.'),
+                                ...actions,
+                              ],
+                            ),
+                          ),
+                        );
+                      } else {
+                        showDialog<void>(
+                          context: context,
+                          builder: (_) => SettleoraDialogFrame(
+                            title: 'Review details',
+                            message: 'Check the visible details.',
+                            actions: actions,
+                            child: const Text('Details remain editable.'),
+                          ),
+                        );
+                      }
+                    },
+                    child: const Text('Open review'),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.tap(find.text('Open review'));
+          await tester.pumpAndSettle();
+
+          _expectHeaderSemantics(tester, 'Review details');
+          final titleNodes = _semanticsNodes(tester).where(
+            (node) => node.getSemanticsData().label.contains('Review details'),
+          );
+          expect(titleNodes, hasLength(1));
+          expect(
+            _semanticsNodes(
+              tester,
+            ).where((node) => node.getSemanticsData().flagsCollection.isHeader),
+            hasLength(1),
+          );
+          for (final label in [
+            'Check the visible details.',
+            'Details remain editable.',
+          ]) {
+            _expectSingleSemanticsLabel(tester, label);
+            _expectNotHeaderSemantics(tester, label);
+          }
+          for (final label in ['Keep editing', 'Save changes']) {
+            _expectAppButtonSemantics(tester, label: label);
+            _expectNotHeaderSemantics(tester, label);
+          }
+          _expectSemanticsLabelsInOrder(tester, [
+            'Review details',
+            'Check the visible details.',
+            'Details remain editable.',
+            'Keep editing',
+            'Save changes',
+          ]);
+          await tester.tap(find.text('Keep editing'));
+          await tester.tap(find.text('Save changes'));
+          expect(tapped, ['Keep editing', 'Save changes']);
+          expect(tester.takeException(), isNull);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+  }
+
   testWidgets('shared Settleora UI primitives render stable labels', (
     tester,
   ) async {

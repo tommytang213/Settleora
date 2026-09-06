@@ -900,7 +900,7 @@ class SettleoraDialogFrame extends StatelessWidget {
             ),
             const SizedBox(width: SettleoraSpacing.sm),
           ],
-          Expanded(child: Text(title)),
+          Expanded(child: Semantics(header: true, child: Text(title))),
         ],
       ),
       content: child == null
