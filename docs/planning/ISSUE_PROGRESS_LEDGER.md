@@ -112,6 +112,14 @@
   existing #341 before new children. #349 retains cross-domain money acceptance
   through #967/#969 outside mobile counts. #296 statement/drill-down expansion is
   Needs Decision under canonical scope, not an approved new contract requirement.
+- Additional bounded requirement reconciliation: #635 retains admin notification
+  policy runtime/disposition outside mobile counts; its guarded readout exists,
+  mutation scope remains decision-gated. M21/#970 credits editable/trimmed merchant
+  text and owns non-AI Day 1 normalization acceptance; AI suggestions remain Day 3.
+  M12 separates responsible owner/editor selection/authorization under #967 from
+  paid-by confirmation #346. Friend-request/group-invite/overdue/comment event
+  families are explicitly Needs Decision through #973, with #369 producers only
+  after scope/domain approval. No new issue or runtime change.
 - Exact #407 close recommendation: close only after checklist plus ledger merge,
   exact-head validation/reviews/checks are recorded, #372 receives the current
   gap/wave summary, and every genuine gap is linked without duplication. Until
