@@ -178,7 +178,8 @@ Still repeat or strengthen rules for high-risk work where the task depends on ex
 
 ## Protected CodeQL Analyzer Authority
 
-The protected `pull_request_target` auditor executes only default-branch code and
+The protected `pull_request_target` auditor covers main-targeting PRs only. It
+executes only default-branch code and
 approves complete frozen analyzer/controller definitions, inspecting PR source and
 merge content as data. Its exact-head result is `CodeQL protected auditor`.
 Before merging advanced-CodeQL or docs-applicability changes, verify the actual

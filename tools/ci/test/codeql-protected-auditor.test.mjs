@@ -106,7 +106,7 @@ test('auditor source cannot be replaced and PR helper is only decoded as data', 
   const path = 'tools/ci/codeql-protected-auditor.mjs';
   await assert.rejects(audit(expected, apiFixture({ [`contents/${path}?ref=${source}`]: () => content(path, Buffer.from('throw new Error("executed PR code")')) })), /Changed protected|blob mismatch/);
   const workflow = YAML.parse(readFileSync(new URL('../../../.github/workflows/codeql-protected-auditor.yml', import.meta.url), 'utf8'));
-  assert.ok(workflow.on.pull_request_target);
+  assert.deepEqual(workflow.on.pull_request_target.branches, ['main']);
   assert.equal(workflow.jobs.audit.steps[0].with.ref, '${{ github.workflow_sha }}');
   assert.equal(workflow.jobs.audit.steps[0].with['persist-credentials'], false);
   assert.deepEqual(workflow.jobs.audit.permissions, { contents: 'read', 'pull-requests': 'read', 'security-events': 'read', checks: 'write' });
