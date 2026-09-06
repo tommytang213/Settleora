@@ -8,7 +8,7 @@ owns server authorization, money, status, file access, sync acceptance and audit
 
 ## Reading and counting rules
 
-Each canonical destination/flow appears once in the active M01–M58 rows. M07 and M54 are retired optional-scope identifiers (see exclusions); IDs are not reused. Entry aliases and
+Each canonical destination/flow appears once in the active M01–M61 rows. M07 and M54 are retired optional-scope identifiers (see exclusions); IDs are not reused. Entry aliases and
 embedded/pushed variants are included in their canonical row, not counted again.
 M49–M50 are cross-cutting component/acceptance flows included in the same totals.
 Source symbols and named test cases below are current, inspected evidence; tests
@@ -34,7 +34,7 @@ screen acceptance.
   reproducible branch-rendered fixtures exist, not that [#407](https://github.com/tommytang213/Settleora/issues/407) rendered or approved
   unseen UI. No new Figma or screenshots were required or created here.
 
-Totals: **56 rows — complete 2, partial 37, missing 9, blocked 8**.
+Totals: **59 rows — complete 2, partial 39, missing 10, blocked 8**.
 
 ## Canonical inventory
 
@@ -195,7 +195,7 @@ Totals: **56 rows — complete 2, partial 37, missing 9, blocked 8**.
 - Tests: [bill_attachment_section_test.dart](../../apps/mobile/test/bill_attachment_section_test.dart): `labels refresh and retry controls accessibly`; [bill_attachment_section_test.dart](../../apps/mobile/test/bill_attachment_section_test.dart): `blocks duplicate and conflicting actions while downloading`; [bill_list_screen_test.dart](../../apps/mobile/test/bill_list_screen_test.dart): `personal bill attachment download reports bounded bytes only`.
 - States: E no files/filtered empty; L list and single-flight actions; R safe upload/download/remove retry; D scoped route and receipt-purpose controls; O no durable offline bytes.
 - Accessibility/visual: Dedicated attachment semantics; download currently reports bounded bytes, not proof of a usable file viewer.
-- Owner: [#966](https://github.com/tommytang213/Settleora/issues/966). Remaining: Attach/list/remove and authorized download seams exist. Receipt normalization bypass on saved-detail uploads is solely M18/#358. Actual mobile content viewing/sharing, policy parity and private file acceptance remain storage-owned; no generic file API inferred.
+- Owner: [#966](https://github.com/tommytang213/Settleora/issues/966). Remaining: Attach/list/remove and authorized download seams exist. Receipt normalization bypass on saved-detail uploads is solely M18/#358. Supporting non-receipt image uploads also forward original bytes without purpose-specific normalization; #966 owns their bounded normalization/decode/oversize/failure acceptance under server policy, distinct from receipt-purpose handling. Actual mobile content viewing/sharing, policy parity and private file acceptance remain storage-owned; no generic file API inferred.
 - Gate/dependency: Storage/privacy/file-byte authorization. Order: **W4**.
 
 ### M18 — Receipt camera/gallery/import normalization
@@ -328,14 +328,14 @@ Totals: **56 rows — complete 2, partial 37, missing 9, blocked 8**.
 - Owner: [#355](https://github.com/tommytang213/Settleora/issues/355). Remaining: Mark-paid, receiver confirmation, cancellation/dispute and residual confirmation already exist. Remaining explicit delta/policy/outcome correction acceptance must use server truth, not a broad credit ledger. Day 1 settlement notes are also missing from the mobile claim form and current payment-claim contract (which rejects notes); #355 owns this payment-flow gap with #969 domain reconciliation before any contract change. See PRD Settlement notes and [E2E-SETTLE-001](../acceptance/day1/DAY1_E2E_REGRESSION_MATRIX.md); this is missing underlying capability as well as presentation.
 - Gate/dependency: Money/payment/residual policy. Order: **W4**.
 
-### M31 — Settlement proof attach/list/view/remove and counterparty QR
+### M31 — Settlement proof attach/list/view/remove
 
-- Status: `missing`. Requirement/reference: PRD: optional proof and authorized payment instructions; Settle.
-- Source: [_CounterpartyPaymentDetailsSection](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [_PaymentTile](../../apps/mobile/lib/settlements/settlement_list_screen.dart).
-- Tests: [settlement_list_screen_test.dart](../../apps/mobile/test/settlement_list_screen_test.dart): `counterparty details explain settlement-scoped visibility`.
-- States: E QR not configured metadata; L/R/D parent detail states only; O no offline file access; proof-specific states absent.
-- Accessibility/visual: QR is Available/Not linked text; no proof viewer or attach/remove UI and tests.
-- Owner: [#356](https://github.com/tommytang213/Settleora/issues/356). Remaining: Mobile proof/file-content presentation is missing despite backend proof endpoints. Counterparty QR content must remain scoped; proof never grants confirmation authority.
+- Status: `missing`. Requirement/reference: PRD: optional settlement proof and purpose-specific image upload policy; Settle.
+- Source: [_PaymentTile](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [attachSettlementPaymentProof](../../packages/client-dart/lib/generated/client.dart).
+- Tests: [SettlementPaymentProofEndpointTests.cs](../../services/api/tests/Settleora.Api.Tests/SettlementPaymentProofEndpointTests.cs): `DebtorCanUploadListCreditorReadAndDebtorRemoveProofWithSafeMetadataStorageAndAudit` (server foundation, not mobile proof UI).
+- States: E/L/R/D parent payment states only; proof upload/view/remove/normalization failure states absent; O no offline proof access.
+- Accessibility/visual: No mobile proof viewer or attach/remove UI and acceptance tests; Settle reference only.
+- Owner: [#356](https://github.com/tommytang213/Settleora/issues/356). Remaining: Mobile proof/file-content presentation is missing despite backend proof endpoints. Proof-image intake must implement purpose-specific normalization, bounded source/output limits and failed-decode/oversize/retry acceptance under server policy; raw camera/gallery uploads must not bypass that requirement. This is proof scope #356; receipt normalization is M18, self QR intake M42, counterparty QR reads M59. Proof never grants confirmation authority.
 - Gate/dependency: Storage/privacy/authz and settlement reference acceptance. Order: **W4**.
 
 ### M32 — Recurring templates / create-edit / pause-resume-archive
@@ -365,7 +365,7 @@ Totals: **56 rows — complete 2, partial 37, missing 9, blocked 8**.
 - Tests: [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `notification filters show counts and filtered empty state`; [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `successful archive preserves local state when follow-up refresh fails`; [notification_screen_test.dart](../../apps/mobile/test/notification_screen_test.dart): `duplicate bulk mark visible read taps are single flight`.
 - States: E true/filtered empty; L load/action; R safe retry/retained state; D expired session/unavailable target; production restore disabled because optional interface absent; O loaded local filtering, no background delivery.
 - Accessibility/visual: Dedicated bounded text/semantics tests; historical [#672](https://github.com/tommytang213/Settleora/issues/672)/#679 capture acceptance; event completeness remains separate.
-- Owner: [#973](https://github.com/tommytang213/Settleora/issues/973). Remaining: Read/mark visible/all read/archive/detail exist. Restore is a conditional UI/test seam: FakeNotificationRepository implements SettleoraNotificationRestoreRepository, but production GeneratedSettleoraNotificationRepository does not, and the API/generated catalog has no restore operation. Production restore is unavailable; #973 must reconcile its intended lifecycle/contract and unavailable-state acceptance, alongside remaining event-family/channel work. Do not treat fake restore success as production capability or recreate the working inbox.
+- Owner: [#973](https://github.com/tommytang213/Settleora/issues/973). Remaining: Read/mark visible/all read/archive/detail exist. Restore is a conditional UI/test seam: FakeNotificationRepository implements SettleoraNotificationRestoreRepository, but production GeneratedSettleoraNotificationRepository does not, and the API/generated catalog has no restore operation. Production restore is unavailable; #973 must reconcile its intended lifecycle/contract and unavailable-state acceptance, alongside inbox lifecycle/acceptance work. Event-source gaps are solely M60/#369; preference/channel controls are M56, not duplicate inbox implementation. Do not treat fake restore success as production capability or recreate the working inbox.
 - Gate/dependency: Notification privacy and any domain event changes. Order: **W2**.
 
 ### M35 — Typed notification destination handoff
@@ -445,7 +445,7 @@ Totals: **56 rows — complete 2, partial 37, missing 9, blocked 8**.
 - Tests: [profile_screen_test.dart](../../apps/mobile/test/profile_screen_test.dart): `profile screen updates profile and payment details`; [profile_screen_test.dart](../../apps/mobile/test/profile_screen_test.dart): `profile and payment saves ignore duplicate submits`; [profile_screen_test.dart](../../apps/mobile/test/profile_screen_test.dart): `profile screen handles expired sessions safely`.
 - States: E no payment details/QR; L load/save; R validation and retained returned state; D bounded expired/denied/conflict; O no offline profile acceptance.
 - Accessibility/visual: Shared currency/payment selector and profile capture; QR is metadata only; all text-scale/privacy states unproven.
-- Owner: [#966](https://github.com/tommytang213/Settleora/issues/966). Remaining: Profile fields and payment handle/visibility editing exist. Authenticated attachSelfPaymentQr/removeSelfPaymentQr/getSelfPaymentQrContent already exist in API/OpenAPI/generated Dart; the handwritten profile repository/screen expose only QR metadata. Missing mobile scope is file intake, repository wiring, preview/content display, replacement/removal UX and platform/privacy acceptance; [#395](https://github.com/tommytang213/Settleora/issues/395) is parent reconciliation, not a second QR owner.
+- Owner: [#966](https://github.com/tommytang213/Settleora/issues/966). Remaining: Profile fields and payment handle/visibility editing exist. Authenticated attachSelfPaymentQr/removeSelfPaymentQr/getSelfPaymentQrContent already exist in API/OpenAPI/generated Dart; the handwritten profile repository/screen expose only QR metadata. Missing mobile scope is file intake with purpose-specific QR normalization and bounded source/output/failure handling, repository wiring, preview/content display, replacement/removal UX and platform/privacy acceptance; server upload policy remains authoritative; [#395](https://github.com/tommytang213/Settleora/issues/395) is parent reconciliation, not a second QR owner.
 - Gate/dependency: Storage/file privacy and profile authorization. Order: **W4**.
 
 ### M43 — Privacy vault / local app-lock security settings
@@ -598,6 +598,36 @@ Totals: **56 rows — complete 2, partial 37, missing 9, blocked 8**.
 - Owner: [#967](https://github.com/tommytang213/Settleora/issues/967). Remaining: Current create screens never construct adjustment drafts despite bounded DTO/repository adjustment support. Missing explicit mobile scope: mixed tax groups and included/excluded interpretation; before/after-tax discounts; coupon/points/gift-card/tender/change/void/free/refund/tax-correction classification and editable contribution treatment; generic fee tax/allocation fields; manual adjustment and receipt-total-mismatch review. Current contracts/model must be reconciled before richer financial payloads. Historical [#351](https://github.com/tommytang213/Settleora/issues/351) is CLOSED after #427/#428/#429/#430 planning/validation children (#533/#534/#553/#535); its close comment explicitly sends runtime follow-up to separate scoped tasks. Credit that work, keep #351 closed, and use current open #967 as the sole remaining reconciliation owner. M21 owns OCR-candidate correction only; M58 owns bill financial-component controls.
 - Gate/dependency: Money/allocation/rounding; any schema/migration/OpenAPI/generated-client changes require separate manual gates. Order: **W4**.
 
+### M59 — Settlement counterparty payment QR content
+
+- Status: `missing`. Requirement/reference: PRD: authorized payment instructions; Settle, Settings.
+- Source: [_CounterpartyPaymentDetailsSection](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [getSettlementCounterpartyPaymentDetailsQrContent](../../packages/client-dart/lib/generated/client.dart).
+- Tests: [settlement_list_screen_test.dart](../../apps/mobile/test/settlement_list_screen_test.dart): `counterparty details explain settlement-scoped visibility` (metadata/readout only).
+- States: E QR not linked metadata; L/R/D parent scoped detail only, no QR content loading/denied/retry/view states; O no offline QR bytes.
+- Accessibility/visual: Current Available/Not linked readout is not a readable QR image or accessible payment-instruction viewer; [M8 QA map](M8_MOBILE_SETTLEMENT_WORKFLOW_QA_MAP.md) records hasQrFile-only mobile mapping.
+- Owner: [#966](https://github.com/tommytang213/Settleora/issues/966). Remaining: Server/generated settlement-scoped QR content read exists; handwritten repository wiring and mobile content display/acceptance are absent. Preserve route/user/payment-detail authorization and privacy; do not attach this distinct payment-file gap to proof owner #356. Self QR upload/normalization is M42; no separate upload is introduced here.
+- Gate/dependency: Storage/file privacy/authz and scoped payment-instruction reference acceptance. Order: **W4**.
+
+### M60 — Notification source-event coverage reaching mobile
+
+- Status: `partial`. Requirement/reference: PRD: Day 1 in-app event coverage; Inbox, Open; [#369 source-event gate review](../planning/NOTIFICATION_369_REMAINING_EVENT_COVERAGE_GATE_REVIEW.md).
+- Source: [InAppNotificationEventTypes](../../services/api/src/Settleora.Api/Domain/Notifications/InAppNotificationEventTypes.cs); [EfInAppNotificationWriter](../../services/api/src/Settleora.Api/Notifications/EfInAppNotificationWriter.cs); [SettleoraNotificationScreen](../../apps/mobile/lib/notifications/notification_screen.dart).
+- Tests: [InAppNotificationWriterTests.cs](../../services/api/tests/Settleora.Api.Tests/InAppNotificationWriterTests.cs): `WriterCreatesSafeNotificationForActiveNonDeletedRecipient`; [InAppNotificationWriterTests.cs](../../services/api/tests/Settleora.Api.Tests/InAppNotificationWriterTests.cs): `WriterSkipsDeletedRecipientSelfNotificationUnsafeMetadataAndPendingDuplicates`; [RecurringBillEndpointTests.cs](../../services/api/tests/Settleora.Api.Tests/RecurringBillEndpointTests.cs): `ForecastCreatesIdempotentDueSoonNotificationsForVisibleActiveForecastedOccurrencesOnly`.
+- States: E unsupported event families have no source event; L/R producer and inbox boundaries differ; D writer eligibility/safe targets are server-owned; O sync conflict/rejected-operation events exist, ordinary queue/retry churn remains deferred by source policy.
+- Accessibility/visual: Supported in-app presentation is M34/M35; new source-family targets require bounded presentation and acceptance only after domain policy. No new visual approval inferred.
+- Owner: [#369](https://github.com/tommytang213/Settleora/issues/369). Remaining: Credit implemented bill workflow/revision, settlement request/payment/proof/residual-review, recurring due-soon/draft-generated, OCR needs-review assignment, sync conflict and failed-operation writers. Remaining exact families: OCR completed/failed pending approved worker-result event-source/recipient contracts; auth/session/security event semantics/targets/recipients; claim/split/creator-review pending source runtime; broader mismatch/debtor residual decisions and justified persisted sync-resolution/exhaustion events. Ordinary queued/retrying churn is deferred, not a missing Day 1 writer. #369 is the producer sub-umbrella; current #973 must reconcile/split it before any runtime admission. M34 owns inbox lifecycle; M56 owns preferences; provider activation remains M37.
+- Gate/dependency: Source-domain truth and auth/security/money/OCR/sync/manual contracts; existing target/source policies must precede new writers. Order: **W3/W4 by owning domain**.
+
+### M61 — Localization readiness across Day 1 mobile states
+
+- Status: `partial`. Requirement/reference: PRD: English-only Day 1 with localization readiness; [D1-L10N-001](../planning/DAY1_EXECUTION_COVERAGE_MATRIX.md).
+- Source: [DateField](../../apps/mobile/lib/ui/settleora_form_fields.dart); [_formatProductDate](../../apps/mobile/lib/ui/settleora_form_fields.dart); [SettleoraBillFailureKind](../../apps/mobile/lib/bills/bill_repository.dart); [SettleoraNotificationScreen](../../apps/mobile/lib/notifications/notification_screen.dart).
+- Tests: [ui/settleora_component_guardrail_test.dart](../../apps/mobile/test/ui/settleora_component_guardrail_test.dart): `shared button labels fit narrow mobile widths` (adjacent text-layout foundation, not localization acceptance); [InAppNotificationWriterTests.cs](../../services/api/tests/Settleora.Api.Tests/InAppNotificationWriterTests.cs): `WriterCreatesSafeNotificationForActiveNonDeletedRecipient` (existing notification title/message keys, not translated rendering).
+- States: E/L/R/D/O many screen and error labels remain hardcoded English; locale-specific formatting/interpolation/plural and expansion coverage are not established.
+- Accessibility/visual: Shared text/layout guards and formatting/failure-kind primitives exist; product-date month names are hardcoded. Pseudolocale/text-expansion, locale formatting and accessible translated labels are unproven; current English captures do not certify readiness.
+- Owner: [#409](https://github.com/tommytang213/Settleora/issues/409). Remaining: Audit and split string extraction, locale-aware date/time/currency, stable machine-error identifiers separated from display text, translatable notification templates and interpolation/plural/ordering readiness. Credit existing typed failure kinds, shared fields and server template keys; they do not establish whole-app localization. #409 alone owns this cross-cutting gap, not #301. Traditional Chinese translation remains Day 2.
+- Gate/dependency: Bounded UI/API/template lanes; any contract changes separate from copy extraction. Order: **W1 audit, then focused slices and W5 acceptance**.
+
 ## Reference index and historical evidence
 
 Requirement labels resolve to current repository documents below; consult their
@@ -705,7 +735,7 @@ Each child needs a current allowed-path contract, exact validation and review.
 2. **W2 — reference/contract-aware product work:** [#296](https://github.com/tommytang213/Settleora/issues/296) report readability plus
    [#399](https://github.com/tommytang213/Settleora/issues/399) group summary after [#977](https://github.com/tommytang213/Settleora/issues/977) establishes available data; [#412](https://github.com/tommytang213/Settleora/issues/412) focused mode
    reference before mode UI; [#1094](https://github.com/tommytang213/Settleora/issues/1094) announcement authority design before API and
-   mobile work. Advanced search/filter #405 requires #977 reconciliation; notification [#973](https://github.com/tommytang213/Settleora/issues/973) reconciliation remains distinct. A report
+   mobile work. Advanced search/filter #405 requires #977 reconciliation; notification [#973](https://github.com/tommytang213/Settleora/issues/973) reconciliation remains distinct; M60/#369 owns producer gaps, M34 inbox lifecycle and M56 preferences. A report
    endpoint change is not ordinary UI polish.
 3. **W3 — separately gated auth/privacy/provider work:** [#965](https://github.com/tommytang213/Settleora/issues/965)/#776,
    [#966](https://github.com/tommytang213/Settleora/issues/966) vault/local-security and [#634](https://github.com/tommytang213/Settleora/issues/634) push registration. Do not combine
