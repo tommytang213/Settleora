@@ -1,0 +1,45 @@
+name: Protected CodeQL auditor
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Audit CodeQL definition
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      security-events: read
+      checks: write
+    steps:
+      - name: Checkout protected authority only
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Prove protected bootstrap controller absence
+        id: base
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git cat-file -e HEAD:tools/ci/codeql-gate.mjs; then
+            echo 'absent=false' >> "$GITHUB_OUTPUT"
+          else
+            git ls-tree HEAD tools/ci/codeql-gate.mjs > "$RUNNER_TEMP/controller-tree"
+            test ! -s "$RUNNER_TEMP/controller-tree"
+            echo 'absent=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Verify and publish exact-head analyzer evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_CONTROLLER_ABSENT: ${{ steps.base.outputs.absent }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/ci/codeql-protected-auditor.mjs < "$GITHUB_EVENT_PATH" | tee -a "$GITHUB_STEP_SUMMARY"
