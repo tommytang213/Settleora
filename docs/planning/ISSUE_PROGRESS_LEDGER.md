@@ -1,5 +1,20 @@
 # Issue Progress Ledger
 
+### Issue #1121 — Personal/group bill-list shared-search adoption (2026-09-07)
+
+- Pre-hygiene checkpoint: **OPEN**; close only after this same-task evidence merge and final #301/#372/main reconciliation. No linked Project item exists; no invented board completion or parent-wide acceptance.
+- Implementation [PR #1123](https://github.com/tommytang213/Settleora/pull/1123), reviewed source `41f94f95b99f872b61e0dea074b39d46c8bf2393`, normal merge `23257211b2bd151d618c7244ff515fc6c1426271`. Starting main `2ad834e974cf54a2d56be77ab1449e4cba7b59fd`. Branch `feature/1121-bill-list-shared-search-20260907-2301` retained.
+- Both list usages are equivalent and adopt current `AppTextField`; no raw search retained or shared API extension. Existing `labelAbove` is justified by actual320px/2× group-label truncation and floating personal/group label clipping. Full field labels remain readable.
+- Personal/group controller ownership/raw values/onChanged, exact search/clear keys/copy/input action/icons, filter keys/counts/selection/readouts and empty states remain unchanged. Suffix clear is query-only and preserves selected filter; host overall Clear resets query and All. Predicates/member mapping/group context/loaded rows and financial/API authority are byte-identical outside field presentation.
+- Exact-head clean scope/diff, doctor, pub get, analyzer (no issues), **284 focused tests**, **939 full mobile tests** and scaffold passed. Tests exercise production controls, both clear paths, unchanged personal/group matching, Morgan display-name intersection, zero repository mutations, focus/simulated inset, single clear semantics,48dp+ target and narrow2× label geometry. Existing group status regression scrolls before asserting the lazy rejected row.
+- All36 actual production PNGs reviewed by root, fresh Gemini strong_independent and independent local Codex at390px/1× and320px/2×. [Durable exact validation and SHA256 image inventory](../qa/evidence/issue-1121/README.md). Native keyboard/device/screen-reader acceptance is not claimed; existing card/chip truncation, horizontal filter scroll and verbose group readout/FAB lower-content limits remain separate.
+- Fresh GitHub Codex/checks/scanners passed exact head, zero unresolved threads and zero open PR scanning alerts. No suppression/waiver. Reviewed source/merge ancestry, normal parent pair and all implementation/test blobs verified on fetched main. Existing unrelated web dependency alert32 remains unchanged.
+- Pre-existing helper matching of hidden participant profile IDs is separately owned by manually gated [#1122](https://github.com/tommytang213/Settleora/issues/1122), created after all-state focused owner searches found none. No searchable field or authorization/data-scope change entered1121.
+- Remaining #301: separate `bill-detail-search` equivalence; other raw forms/buttons/private dialog framing, token/summary styling and participant/assignment sharing. #301/#372 stay open. #723/#299/#295/#409/#1096/#975/#959 retain independent ownership; prior focused children remain complete.
+- No backend/API/OpenAPI/generated-client, auth/session/authz, storage/privacy policy, money/settlement/payment/bill calculations, schema, OCR/sync/lifecycle authority, deployment/CI/config or secret changes. Same logical task `20260907-2301` includes this docs/static-evidence hygiene.
+- Report: `/workspace/logs/settleora-codex-report-20260907-2301-issue-1121-bill-list-shared-search.md`.
+
+
 ### Issue #1118 — Bill attachment discovery shared-search adoption (2026-09-07)
 
 - GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this ledger
