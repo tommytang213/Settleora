@@ -1,5 +1,89 @@
 # Issue Progress Ledger
 
+### Issue #1118 — Bill attachment discovery shared-search adoption (2026-09-07)
+
+- GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this ledger
+  merge, final reviewed-blob proof and #301/#372 reconciliation. No linked
+  Project item exists. #301 and #372 remain **OPEN**.
+- Implementation PR [#1119](https://github.com/tommytang213/Settleora/pull/1119):
+  reviewed source `109a66b4f1eafaa74a5ec8e2b34b3a0eab0e6f73`, normal merge
+  `5e70c418b7f005a79cf7a4babf322763325cd01b`. Branch
+  `feature/1118-bill-attachment-discovery-shared-search-20260907-2138` retained.
+  Historical PR #57 owns the discovery/filter behavior and is credited.
+- Attachment discovery adopts `AppTextField`; no field retained and no shared
+  API extension. The existing opt-in `labelAbove` is used only after actual
+  320px/2× captures showed normal/floating-label truncation. The full label
+  stays separate from input with shared theme styling and native focus.
+- Exact search/field-clear/overall-clear keys, label/hint, input action and
+  icons remain unchanged. State owns the same controller/listener/disposal,
+  raw values and normalized query; all five filter counts, intersections,
+  filtered-empty state, route reset and busy visibility remain local. The
+  suffix appears for query **or filter-only** activation and resets both query
+  and filter, as does overall Clear. No query-only clear behavior was added.
+- Search still uses only presentation-safe purpose, sanitized content type,
+  size, uploaded date and updated date. Actual private file IDs, storage-looking
+  identifiers and sanitized metadata are proven non-searchable/non-visible;
+  no route IDs, hidden filename, raw OCR or storage internals entered tokens.
+  Search/filter/clear leave repository calls unchanged. Upload/download/remove,
+  refresh, confirmation and OCR-review eligibility/typed-route handoffs retain
+  their original guards and authority.
+- Exact-head validation passed clean scope/diff, mobile doctor, pub get,
+  analyzer (no issues), **362 focused tests**, **935 full mobile tests** and
+  scaffold. Existing attachment, generated repository, personal/group bill and
+  OCR handoff tests pass. Nine personal attachment integration scrolls now wait
+  for layout before taps; no action assertion was removed. Tests cover stable
+  controller/raw edits, both clears, filter-only clear, counts/intersection,
+  busy hiding, route reset, safe metadata, zero mutations, native focus/search
+  submission, single useful clear semantics and 48dp+ clear target.
+- All 26 actual production PNGs inspected against Bills/OCR/shared references:
+  normal, purpose/type/size/date query, filtered-empty, suffix clear, filter-only
+  Receipts/Supporting/Reviewable OCR, overall Clear, download-busy and focused
+  simulated 300px inset at 390px/1× and 320px/2×. Harness:
+  `apps/mobile/test/ui/bill_attachment_discovery_shared_search_test.dart`.
+  Durable [validation record and all 26 SHA256-indexed PNGs](../qa/evidence/issue-1118/README.md)
+  preserve the exact reviewed pixels in repository history. Local execution
+  logs also remain under `/workspace/logs/issue1118-20260907-2138/`.
+- Visual limits: native one-line hint ellipsis, selected-chip count fading and
+  attachment metadata/date wrapping at narrow/2× remain separately scoped.
+  An unchanged-main diagnostic reproduces a 0.0812px refresh-status row overflow
+  at 320px/2×; narrow busy captures use the existing download state. Its
+  unsuppressed diagnostic is retained; all busy hiding guards remain tested.
+  This is field/clear acceptance, not whole-screen/native IME/screen-reader
+  acceptance; #975 retains platform acceptance and #301 retains separate
+  status/row/chip refinements.
+- GitHub Codex P2 found UTC-only timestamp test expectations; the corrective
+  head derives local uploaded/updated clock queries. The focused metadata test
+  also passes under `Asia/Hong_Kong`. Full validation/captures and fresh reviews
+  repeated on the corrective head; production behavior was unchanged.
+- Fresh Gemini `strong_independent` and independent local Codex passed exact
+  source and all images. Fresh GitHub Codex passed; all implementation checks
+  and scanners succeeded, zero unresolved threads and zero open PR scanning
+  alerts. No findings suppressed or waived. Existing unrelated dependency
+  alert #32 remains untouched.
+- Post-merge proof verifies normal merge parents, source/merge ancestry, all
+  four reviewed implementation/test blobs and retained branch. Production
+  outside field presentation/import is byte-identical to starting main.
+  No backend/domain/API/OpenAPI/generated-client, auth/session/authz, storage
+  abstraction/privacy/file policy, repository contracts, money/settlement/
+  payment/bill calculation, schema, sync/OCR authority, CI/deployment/config
+  or secret changes.
+- Remaining #301 candidates verified in current source: bill/group list
+  `bill-list-search` / `group-bill-list-search` in `_BillListDiscoveryControls`
+  and `bill-detail-search` in `_BillDetailDiscoveryControls`, each requiring a
+  separate equivalence check. Other raw forms/buttons/private dialog framing,
+  token/summary styling and participant/assignment sharing require separate
+  equivalence checks. Attachment discovery and prior focused children are
+  complete; do not replay them. Domain-specific multi-selection/quantity
+  allocation and #723 lifecycle UX remain separate. #299 dashboard, #295
+  navigation, #409 localization, #1096 setup, #975 platform acceptance and
+  #959 parser retain independent ownership. #407 counts and broader Day 1
+  scope remain unchanged; #301/#372 stay open.
+- Separate ledger/evidence hygiene remains inside logical task `20260907-2138`.
+  The durable evidence copy addresses GitHub review feedback without adding
+  `.codex/` files or changing implementation source.
+  Report:
+  `/workspace/logs/settleora-codex-report-20260907-2138-issue-1118-bill-attachment-discovery-shared-search.md`.
+
 ### Issue #1115 — Settlement-detail search shared-field adoption (2026-09-07)
 
 - GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this ledger
