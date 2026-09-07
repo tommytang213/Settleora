@@ -2018,13 +2018,11 @@ class _NotificationPrimaryAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon),
-        label: Text(label),
-      ),
+    return AppButton(
+      onPressed: onPressed,
+      icon: icon,
+      label: label,
+      expanded: true,
     );
   }
 }
@@ -2231,10 +2229,11 @@ class _NotificationSyncOperationScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            OutlinedButton.icon(
+            AppButton(
               onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(Icons.arrow_back_outlined),
-              label: const Text('Back to notifications'),
+              icon: Icons.arrow_back_outlined,
+              label: 'Back to notifications',
+              variant: AppButtonVariant.secondary,
             ),
           ],
         ),
