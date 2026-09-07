@@ -188,17 +188,16 @@ void main() {
       expect(clearSemantics.hasAction(ui.SemanticsAction.tap), isTrue);
       var clearNodes = 0;
       void countClear(SemanticsNode node) {
-        if (node.getSemanticsData().tooltip == 'Clear attachment discovery')
+        if (node.getSemanticsData().tooltip == 'Clear attachment discovery') {
           clearNodes++;
+        }
         node.visitChildren((child) {
           countClear(child);
           return true;
         });
       }
 
-      countClear(
-        tester.binding.pipelineOwner.semanticsOwner!.rootSemanticsNode!,
-      );
+      countClear(tester.getSemantics(_search));
       expect(clearNodes, 1);
       var changes = 0;
       controller.addListener(() => changes++);
