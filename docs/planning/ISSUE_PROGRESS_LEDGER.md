@@ -1,5 +1,70 @@
 # Issue Progress Ledger
 
+### Issue #1112 — Notification action-button shared-component adoption (2026-09-07)
+
+- GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this ledger
+  merge, final reviewed-blob proof and #301/#372 reconciliation. No linked
+  Project item exists. #301 and #372 remain **OPEN**.
+- Implementation PR [#1113](https://github.com/tommytang213/Settleora/pull/1113):
+  reviewed source `a9acc725c8bccb7b820e59933d60ed7ff651ef88`, normal merge
+  `328df70911324fed48ce03e3f934f734e0043163`. Branch
+  `feature/1112-notification-action-buttons-shared-components-20260907-1906`
+  retained.
+- Adopted: `_NotificationPrimaryAction` now uses expanded primary `AppButton`
+  for all seven typed-target families; sync detail `Back to notifications` uses
+  secondary `AppButton`. Both were directly equivalent presentation controls.
+  Keys, labels, IconData, full card-content width, null-disabled ownership,
+  ordered target selection and original navigation callbacks remain unchanged.
+  No shared API extension.
+- Retained: `notification-mark-visible-read` stays a compact transparent inline
+  `TextButton.icon`. Existing shared variants all add filled or bordered surfaces
+  and do not preserve its hierarchy; no notification-specific API was invented.
+  Label `Mark read`, icon, 18dp spinner, visible-unread eligibility, global busy
+  disablement and host in-flight guards remain unchanged.
+- Exact-head validation: clean worktree, two-file scope and diff guards,
+  mobile doctor, pub get, analyze (no issues), **127 focused tests**, **922 full
+  mobile tests** and scaffold passed. Tests exercise actual production/shared
+  controls: all seven label/key/icon mappings, exact full width, 48dp+ targets,
+  single useful semantics, one destination despite repeated pointer/semantic/
+  stale callback activation, busy/unavailable behavior, sequential mark-read
+  calls followed by one summary/list refresh, unchanged counts, retained bulk
+  hierarchy and individual-action global busy protection. Existing notification,
+  repository, deep-link, archive/restore and shared guardrails remain green.
+- Twelve production-screen PNGs cover primary enabled/disabled, bulk Mark read
+  idle/loading/disabled and sync back at 390px/1× and 320px/2×. Harness:
+  `apps/mobile/test/ui/notification_action_buttons_test.dart`.
+  Immutable evidence: `/workspace/logs/issue1112-20260907-1906/visual-a9acc725/`;
+  SHA256 inventory: `candidate-a9acc725.json`. All actual images inspected against
+  Notifications/shared references. Action copy remains visible with the existing
+  shared fit-down. Surrounding narrow card title/date wrapping and summary-chip
+  truncation remain separate; no whole-screen/native accessibility acceptance.
+- Fresh Gemini `strong_independent` and independent local Codex passed exact
+  source and all twelve images with no material findings. Fresh GitHub Codex
+  passed that source; all implementation checks/scanners succeeded, zero
+  unresolved threads and zero open PR code-scanning alerts. Existing unrelated
+  web dependency alert #32 remains untouched; no suppression or waiver.
+- Post-merge proof verifies normal merge parents, source ancestry, both reviewed
+  blobs on main, exact file scope and retained branch. All production source
+  outside the primary/back presentation wrappers is byte-identical to the base.
+  No backend/domain/API, OpenAPI/generated-client, auth/session/authz,
+  storage/privacy, money/settlement/payment/bill calculation, schema,
+  notification policy, sync/OCR behavior, CI/deployment/config or secret changes.
+- Remaining #301 candidates: settlement-detail line/payment search
+  (`settlement-detail-lines-search`, `settlement-detail-payments-search`) and
+  attachment discovery (`$keyPrefix-discovery-search`), each subject to separate
+  equivalence checks; other raw forms/buttons/private dialog framing, token/
+  summary styling and participant/assignment sharing. Retained compact Mark read
+  is not an outstanding forced-adoption requirement. Domain-specific
+  multi-selection/quantity allocation and #723 lifecycle UX remain separate.
+  #299 dashboard, #295 navigation, #409 localization, #1096 setup, #975 final
+  platform acceptance and #959 parser keep independent ownership. Prior #301
+  children remain complete; #407 flow counts and broader Day 1 scope unchanged.
+- This separate ledger-only hygiene remains within logical task `20260907-1906`.
+  Report:
+  `/workspace/logs/settleora-codex-report-20260907-1906-issue-1112-notification-action-buttons-shared-components.md`.
+
+
+
 ### Issue #1109 — Mobile discovery search shared-field adoption (2026-09-07)
 
 - GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this required
