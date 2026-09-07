@@ -369,15 +369,12 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                   SettleoraSection(
                     title: 'Profile',
                     children: [
-                      TextField(
+                      AppTextField(
                         key: const Key('profile-display-name'),
                         controller: _displayNameController,
                         textInputAction: TextInputAction.next,
                         maxLength: 160,
-                        decoration: const InputDecoration(
-                          labelText: 'Display name',
-                          border: OutlineInputBorder(),
-                        ),
+                        label: 'Display name',
                       ),
                       const SizedBox(height: 10),
                       CurrencySelector(
@@ -400,18 +397,12 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         _InlineFailure(failure: _profileSaveFailure!),
                       ],
                       const SizedBox(height: 12),
-                      FilledButton.icon(
+                      AppButton(
                         key: const Key('profile-save'),
                         onPressed: _isSavingAny ? null : _saveProfile,
-                        icon: _isSavingProfile
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.save_outlined),
-                        label: const Text('Save Profile'),
+                        icon: Icons.save_outlined,
+                        isLoading: _isSavingProfile,
+                        label: 'Save Profile',
                       ),
                     ],
                   ),
@@ -446,30 +437,24 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                         },
                       ),
                       const SizedBox(height: 10),
-                      TextField(
+                      AppTextField(
                         key: const Key('profile-payment-handle'),
                         controller: _paymentHandleController,
                         textInputAction: TextInputAction.next,
                         maxLength: _paymentHandleMaxLength,
                         maxLengthEnforcement: MaxLengthEnforcement.none,
-                        decoration: InputDecoration(
-                          labelText: paymentCopy.detailLabel,
-                          helperText: paymentCopy.detailHelper,
-                          border: const OutlineInputBorder(),
-                        ),
+                        label: paymentCopy.detailLabel,
+                        helperText: paymentCopy.detailHelper,
                       ),
                       const SizedBox(height: 10),
-                      TextField(
+                      AppTextField(
                         key: const Key('profile-payment-note'),
                         controller: _paymentNoteController,
                         maxLines: 3,
                         maxLength: _paymentNoteMaxLength,
                         maxLengthEnforcement: MaxLengthEnforcement.none,
-                        decoration: InputDecoration(
-                          labelText: paymentCopy.noteLabel,
-                          helperText: paymentCopy.noteHelper,
-                          border: const OutlineInputBorder(),
-                        ),
+                        label: paymentCopy.noteLabel,
+                        helperText: paymentCopy.noteHelper,
                       ),
                       const SizedBox(height: 10),
                       InputDecorator(
@@ -524,29 +509,24 @@ class _SettleoraProfileScreenState extends State<SettleoraProfileScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          FilledButton.icon(
+                          AppButton(
                             key: const Key('profile-payment-save'),
                             onPressed: _isSavingAny
                                 ? null
                                 : _savePaymentDetails,
-                            icon: _isSavingPaymentDetails
-                                ? const SizedBox.square(
-                                    dimension: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.save_outlined),
-                            label: const Text('Save Payment Details'),
+                            icon: Icons.save_outlined,
+                            isLoading: _isSavingPaymentDetails,
+                            label: 'Save Payment Details',
                           ),
                           const SizedBox(height: 8),
-                          OutlinedButton.icon(
+                          AppButton(
                             key: const Key('profile-payment-cancel'),
                             onPressed: _isSavingAny
                                 ? null
                                 : _cancelPaymentDetailsEdit,
-                            icon: const Icon(Icons.close),
-                            label: const Text('Cancel'),
+                            icon: Icons.close,
+                            variant: AppButtonVariant.secondary,
+                            label: 'Cancel',
                           ),
                         ],
                       ),

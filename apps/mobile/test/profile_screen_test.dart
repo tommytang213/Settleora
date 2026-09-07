@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:mobile/ui/settleora_components.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
@@ -356,9 +357,7 @@ void main() {
 
     expect(repository.profileUpdateCalls, 1);
     expect(
-      tester
-          .widget<FilledButton>(find.byKey(const Key('profile-save')))
-          .onPressed,
+      tester.widget<AppButton>(find.byKey(const Key('profile-save'))).onPressed,
       isNull,
     );
 
@@ -390,7 +389,7 @@ void main() {
     expect(repository.paymentUpdateCalls, 1);
     expect(
       tester
-          .widget<FilledButton>(find.byKey(const Key('profile-payment-save')))
+          .widget<AppButton>(find.byKey(const Key('profile-payment-save')))
           .onPressed,
       isNull,
     );
@@ -576,7 +575,7 @@ void main() {
     await tester.tap(find.byKey(const Key('profile-payment-cancel')));
     await tester.pumpAndSettle();
 
-    final handleField = tester.widget<TextField>(
+    final handleField = tester.widget<AppTextField>(
       find.byKey(const Key('profile-payment-handle')),
     );
 
