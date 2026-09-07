@@ -283,7 +283,8 @@ void main() {
         expect(tester.widget<FilterChip>(chip('all')).selected, isTrue);
         expect(tester.widget<TextButton>(overall).onPressed, isNull);
         count(6);
-        await capture('overall-clear', clearVisible: true);
+        await capture('restored-rows', clearVisible: true);
+        await capture('overall-clear');
         // Each safe presentation category retains the same query/filter intersection.
         for (final entry in {
           'items': ['morning', '16.50', 'milk'],
@@ -349,7 +350,7 @@ void main() {
         var editableNodes = 0;
         void inspectSemantics(SemanticsNode node) {
           final nodeData = node.getSemanticsData();
-          if (nodeData.hasFlag(ui.SemanticsFlag.isTextField)) {
+          if (nodeData.flagsCollection.isTextField) {
             editableNodes++;
             expect(nodeData.value, raw);
           }
