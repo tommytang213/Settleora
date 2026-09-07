@@ -1,5 +1,60 @@
 # Issue Progress Ledger
 
+### Issue #1097 — Shared mobile participant picker adoption (2026-09-07)
+
+- GitHub state: **CLOSED/completed**, after implementation merge, exact-head
+  validation/reviews/captures, post-merge main proof and parent updates satisfied
+  the issue close rule. No linked Project item exists for #1097. Parent #301 and
+  #372 remain **OPEN** with their existing Project fields unchanged.
+- Implementation PR [#1098](https://github.com/tommytang213/Settleora/pull/1098):
+  reviewed source `d63446d32a3f80ea147603dd26e2935b04d6e94c`, normal merge
+  `3dd9688a5253f44ef6031188a74d76d8023a54e0`. The source branch
+  `feature/1097-mobile-participant-picker-component-20260907-1043` is retained.
+- Completed: `SettleoraMemberChoice`, `SettleoraMemberSearchField` and
+  `SettleoraMemberPickerField` in `apps/mobile/lib/ui/settleora_components.dart`.
+  Group-bill payer selection maps existing active members and unchanged IDs to
+  the shared selector. Group detail is a roster with distinct role/status filters
+  and member mutation behavior, so it shares only equivalent search presentation.
+  Existing eligibility, callbacks, repository requests and split/money behavior
+  remain host/domain-owned; no global directory or identity expansion was added.
+- Exact-source validation passed: doctor, pub get, analyze (no issues), **309
+  focused tests**, **860 full mobile tests**, diff/scope, docs and scaffold checks.
+  The focused production-component tests cover selection/search/empty/loading/
+  error/retry/disabled states, duplicate actions, keyboard/focus, semantics and
+  320×640 / 2× text / keyboard-inset selection. Existing bill/group tests retain
+  active-only eligibility, exact IDs and domain-specific member action behavior.
+- Visual evidence: ten branch-rendered 390×844 PNGs, including affected states
+  and both representative screens, reviewed against current Settleora references.
+  Reproducible harness:
+  `apps/mobile/test/ui/member_picker_visual_capture_test.dart`; immutable source
+  evidence: `/workspace/logs/issue1097-20260907-1043/visual-d63446d3/`.
+  Fresh Gemini `strong_independent`, local Codex and GitHub Codex passed the
+  exact source. All **11 GitHub check entries** passed, including CodeQL, Semgrep,
+  Trivy and configured API/Docker validation; zero unresolved threads and zero
+  open PR code-scanning alerts. Unrelated existing web development dependency
+  Dependabot #32 remains unchanged; no dependency files or alerts were modified.
+- Main proof at `3dd9688a5253f44ef6031188a74d76d8023a54e0`: reviewed source is
+  the merge's second parent/ancestor, all six reviewed source/test blobs match,
+  and the merge contains only those six allowed mobile files. No backend/domain,
+  auth/session/authz, API/OpenAPI/generated-client, money/split/settlement,
+  storage/privacy, schema, OCR/sync authority, CI/deployment/config or secret
+  changes entered the implementation merge.
+- Parent updates:
+  [#301 component scope](https://github.com/tommytang213/Settleora/issues/301#issuecomment-5564592651)
+  and [#372 Day 1 checkpoint](https://github.com/tommytang213/Settleora/issues/372#issuecomment-5564592836).
+  #301 retains other proven-equivalent form/button/dialog, token/summary and
+  state-label adoption candidates. Domain-specific multi-selection/quantity
+  allocation was not unified with this payer selector. #299 dashboard, #295
+  shortcuts, #409 localization, #1096 setup and #975 final cross-screen/state/
+  accessibility/visual/platform acceptance retain their independent scope.
+  This child does not complete the whole M16 family or change #407's broader
+  60-flow completeness totals. Do not recreate the accepted bounded picker slice.
+- This entry is the separate documentation-only post-merge hygiene step required
+  by the workflow; it adds no further runtime changes. Report/task key:
+  `/workspace/logs/settleora-codex-report-20260907-1043-issue-1097-mobile-participant-picker-shared-component.md`,
+  `20260907-1043`. Current GitHub closure evidence is linked in
+  [#1097](https://github.com/tommytang213/Settleora/issues/1097#issuecomment-5564592444).
+
 ### Issue #407 — Day 1 mobile screen completeness audit (2026-09-06)
 
 - Audit baseline: `2b7e39d24cf39b4900d7f0bce0b1da36c0b8467f` on `main`.
