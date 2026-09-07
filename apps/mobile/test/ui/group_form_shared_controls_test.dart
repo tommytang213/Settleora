@@ -3,7 +3,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/groups/group_list_screen.dart';
 import 'package:mobile/groups/group_repository.dart';
@@ -117,8 +116,8 @@ void main() {
       final fieldSemantics = tester.getSemantics(editable).getSemanticsData();
       expect(fieldSemantics.label, 'Name');
       expect(fieldSemantics.value, '  House 🏡  ');
-      expect(fieldSemantics.hasFlag(ui.SemanticsFlag.isTextField), isTrue);
-      expect(fieldSemantics.hasFlag(ui.SemanticsFlag.isEnabled), isTrue);
+      expect(fieldSemantics.flagsCollection.isTextField, isTrue);
+      expect(fieldSemantics.flagsCollection.isEnabled.name, 'isTrue');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
       expect(tester.widget<EditableText>(editable).focusNode.hasFocus, isFalse);
@@ -196,10 +195,9 @@ void main() {
       await tester.enterText(control('name'), 'Once');
       final callback = tester.widget<AppButton>(control('save')).onPressed!;
       final node = tester.getSemantics(control('save'));
-      tester.binding.pipelineOwner.semanticsOwner!.performAction(
-        node.id,
-        ui.SemanticsAction.tap,
-      );
+      tester.binding.rootPipelineOwner.visitChildren((owner) {
+        owner.semanticsOwner?.performAction(node.id, ui.SemanticsAction.tap);
+      });
       callback();
       callback();
       await tester.pumpAndSettle();
@@ -272,8 +270,8 @@ void main() {
           body: SettleoraDialogFrame(
             title: 'Title',
             message: 'Existing message',
-            child: Text('Existing child'),
             actions: [],
+            child: Text('Existing child'),
           ),
         ),
       ),

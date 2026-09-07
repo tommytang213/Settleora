@@ -1525,13 +1525,6 @@ class _GroupFormDialogState extends State<_GroupFormDialog> {
   Widget build(BuildContext context) {
     return SettleoraDialogFrame(
       title: widget.title,
-      child: AppTextField(
-        key: const Key('group-form-name'),
-        controller: _controller,
-        autofocus: true,
-        maxLength: 160,
-        label: 'Name',
-      ),
       actions: [
         AppButton(
           key: const Key('group-form-cancel'),
@@ -1547,6 +1540,13 @@ class _GroupFormDialogState extends State<_GroupFormDialog> {
           label: 'Save',
         ),
       ],
+      child: AppTextField(
+        key: const Key('group-form-name'),
+        controller: _controller,
+        autofocus: true,
+        maxLength: 160,
+        label: 'Name',
+      ),
     );
   }
 }
