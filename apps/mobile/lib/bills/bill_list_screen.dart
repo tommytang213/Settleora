@@ -15363,16 +15363,14 @@ class _BillDetailDiscoveryControls extends StatelessWidget {
     return _Section(
       title: 'Find bill details',
       children: [
-        TextField(
+        AppTextField(
           key: const Key('bill-detail-search'),
+          label: 'Search detail rows',
+          labelAbove: true,
           controller: searchController,
           onChanged: onSearchChanged,
           textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            labelText: 'Search detail rows',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-          ),
+          prefixIcon: const Icon(Icons.search),
         ),
         const SizedBox(height: 10),
         Wrap(
