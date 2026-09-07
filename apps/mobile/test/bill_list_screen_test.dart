@@ -6691,10 +6691,7 @@ void main() {
 
     expect(find.text('Showing 0 of 3 members'), findsOneWidget);
     expect(find.text('No matching members'), findsOneWidget);
-    expect(
-      find.text('No loaded active members match this search.'),
-      findsOneWidget,
-    );
+    expect(find.text('No members match this search.'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('group-bill-payer-member-clear-search-0')),
