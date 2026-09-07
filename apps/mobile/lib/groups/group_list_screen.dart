@@ -1160,27 +1160,25 @@ class _GroupDiscoveryControls extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
+        AppTextField(
           key: const Key('group-list-search'),
+          label: 'Search by group name',
+          labelAbove: true,
           controller: searchController,
           onChanged: onSearchChanged,
           textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            labelText: 'Search by group name',
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: searchController.text.trim().isEmpty
-                ? null
-                : IconButton(
-                    key: const Key('group-list-search-clear'),
-                    tooltip: 'Clear search',
-                    onPressed: () {
-                      searchController.clear();
-                      onSearchChanged('');
-                    },
-                    icon: const Icon(Icons.close),
-                  ),
-          ),
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: searchController.text.trim().isEmpty
+              ? null
+              : IconButton(
+                  key: const Key('group-list-search-clear'),
+                  tooltip: 'Clear search',
+                  onPressed: () {
+                    searchController.clear();
+                    onSearchChanged('');
+                  },
+                  icon: const Icon(Icons.close),
+                ),
         ),
         const SizedBox(height: 10),
         Row(

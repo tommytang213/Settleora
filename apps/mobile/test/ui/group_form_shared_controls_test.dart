@@ -221,7 +221,7 @@ void main() {
           scale: scale,
         );
         expect(find.byType(SettleoraDialogFrame), findsOneWidget);
-        expect(find.byType(AppTextField), findsOneWidget);
+        expect(tester.widget(control('name')), isA<AppTextField>());
         await capture(tester, '$mode-normal-${scale}x');
         await tester.enterText(control('name'), '');
         await tester.pumpAndSettle();
