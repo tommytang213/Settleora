@@ -1736,20 +1736,11 @@ class SettleoraMemberPickerField extends StatefulWidget {
 
 class _SettleoraMemberPickerFieldState
     extends State<SettleoraMemberPickerField> {
-  final _formKey = GlobalKey<FormFieldState<String>>();
   final _focus = FocusNode();
   bool _opening = false;
   bool _retrying = false;
 
   bool get _interactive => widget.enabled && !widget.loading && !_retrying;
-
-  @override
-  void didUpdateWidget(SettleoraMemberPickerField oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.value != widget.value) {
-      _formKey.currentState?.didChange(widget.value);
-    }
-  }
 
   @override
   void dispose() {
@@ -1777,8 +1768,9 @@ class _SettleoraMemberPickerFieldState
           !field.mounted ||
           !_interactive ||
           widget.errorText != null ||
-          selected == null)
+          selected == null) {
         return;
+      }
       // A host may refresh its choices while the sheet is open.
       if (!widget.choices.any((choice) => choice.value == selected)) return;
       field.didChange(selected);
@@ -1800,8 +1792,7 @@ class _SettleoraMemberPickerFieldState
   }
 
   @override
-  Widget build(BuildContext context) => FormField<String>(
-    key: _formKey,
+  Widget build(BuildContext context) => _SettleoraMemberFormField(
     initialValue: widget.value,
     validator: widget.validator,
     builder: (field) {
@@ -1850,6 +1841,28 @@ class _SettleoraMemberPickerFieldState
       );
     },
   );
+}
+
+// Sync host values without notifying the ancestor Form during a build.
+class _SettleoraMemberFormField extends FormField<String> {
+  const _SettleoraMemberFormField({
+    required super.initialValue,
+    required super.validator,
+    required super.builder,
+  });
+
+  @override
+  FormFieldState<String> createState() => _SettleoraMemberFormFieldState();
+}
+
+class _SettleoraMemberFormFieldState extends FormFieldState<String> {
+  @override
+  void didUpdateWidget(covariant _SettleoraMemberFormField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialValue != widget.initialValue) {
+      setValue(widget.initialValue);
+    }
+  }
 }
 
 class _SettleoraMemberPickerSheet extends StatefulWidget {
@@ -1959,8 +1972,8 @@ class _SettleoraMemberPickerSheetState
                   ),
                 for (final choice in choices)
                   Semantics(
-                    selected: choice.value == widget.selectedValue,
                     child: ListTile(
+                      selected: choice.value == widget.selectedValue,
                       key: choice.key,
                       minVerticalPadding: SettleoraSpacing.sm,
                       title: Text(choice.label),

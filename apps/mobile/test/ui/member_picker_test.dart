@@ -34,7 +34,12 @@ Widget harness({
   ValueChanged<String>? changed,
   double scale = 1,
 }) => MaterialApp(
+  debugShowCheckedModeBanner: false,
   theme: SettleoraTheme.light(),
+  builder: (context, child) => MediaQuery(
+    data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(scale)),
+    child: child!,
+  ),
   home: Scaffold(
     body: MediaQuery(
       data: MediaQueryData(textScaler: TextScaler.linear(scale)),
@@ -192,7 +197,7 @@ void main() {
     await tester.tap(find.byType(InkWell).first);
     await tester.pumpAndSettle();
     final node = tester.getSemantics(find.byKey(const Key('taylor')));
-    expect(node.hasFlag(SemanticsFlag.isSelected), isTrue);
+    expect(node.flagsCollection.isSelected == Tristate.isTrue, isTrue);
     expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
   });
 
