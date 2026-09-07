@@ -224,6 +224,9 @@ void main() {
         expect(find.byType(AppTextField), findsOneWidget);
         await capture(tester, '$mode-normal-${scale}x');
         await tester.enterText(control('name'), '');
+        await tester.pumpAndSettle();
+        expect(field(tester).controller!.text, isEmpty);
+        expect(find.text('0/160'), findsOneWidget);
         await capture(tester, '$mode-empty-${scale}x');
         await tester.tap(control('cancel'));
         await tester.pumpAndSettle();
