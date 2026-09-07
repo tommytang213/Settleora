@@ -840,26 +840,31 @@ class _ReceiptOcrReviewHeader extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    merchant,
-                    style: Theme.of(context).textTheme.headlineSmall,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+            LayoutBuilder(
+              builder: (context, constraints) => Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      merchant,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Flexible(
-                  child: StatusChip(
-                    label: receiptOcrReviewStatusLabel(review.status),
-                    icon: Icons.pending_actions_outlined,
-                    wrap: true,
+                  const SizedBox(width: 12),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth / 2,
+                    ),
+                    child: StatusChip(
+                      label: receiptOcrReviewStatusLabel(review.status),
+                      icon: Icons.pending_actions_outlined,
+                      wrap: true,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             if (grandTotal != null && currency != null) ...[
@@ -1341,28 +1346,33 @@ class _ReceiptOcrReviewLineTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      line.text,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall,
+              LayoutBuilder(
+                builder: (context, constraints) => Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        line.text,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Flexible(
-                    child: StatusChip(
-                      wrap: true,
-                      label: readiness,
-                      icon: total == null
-                          ? Icons.report_problem_outlined
-                          : Icons.check_circle_outline,
+                    const SizedBox(width: 10),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth / 2,
+                      ),
+                      child: StatusChip(
+                        wrap: true,
+                        label: readiness,
+                        icon: total == null
+                            ? Icons.report_problem_outlined
+                            : Icons.check_circle_outline,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 10),
               Wrap(

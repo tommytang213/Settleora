@@ -145,11 +145,32 @@ void main() {
       await _setup(tester);
       final semantics = tester.ensureSemantics();
       final route = ocr.sampleRoute();
+      const merchant =
+          'Corner Market grocery receipt with household essentials';
+      final lines = ocr.discoveryLines();
+      final first = lines.first;
+      lines[0] = ReceiptOcrReviewLine(
+        id: first.id,
+        sortOrder: first.sortOrder,
+        text: 'Whole milk and household groceries for the weekend',
+        quantity: first.quantity,
+        unitPriceAmount: first.unitPriceAmount,
+        lineTotalAmount: first.lineTotalAmount,
+        createdAtUtc: first.createdAtUtc,
+        updatedAtUtc: first.updatedAtUtc,
+      );
       final repository = ocr.FakeReceiptOcrReviewRepository(
         listResponse: [
-          ocr.sampleSummary(status: ReceiptOcrReviewStatusValues.provisional),
+          ocr.sampleSummary(
+            status: ReceiptOcrReviewStatusValues.provisional,
+            merchantText: merchant,
+          ),
         ],
-        reviewResponse: ocr.sampleReview(route, lines: ocr.discoveryLines()),
+        reviewResponse: ocr.sampleReview(
+          route,
+          merchantText: merchant,
+          lines: lines,
+        ),
         previewResponse: ocr.samplePreview(
           route,
           canApply: false,
@@ -167,6 +188,7 @@ void main() {
         scale: scale,
       );
       expect(_chip('Provisional'), findsOneWidget);
+      _expectTrailingChipWidth(tester, _chip('Provisional'));
       expect(find.byIcon(Icons.pending_actions_outlined), findsOneWidget);
       // The parent row remains the sole navigation target and owns its label.
       expect(
@@ -189,6 +211,7 @@ void main() {
         scale: scale,
       );
       _expectStatic(tester, 'Reviewed');
+      _expectTrailingChipWidth(tester, _chip('Reviewed'));
       await _capture(tester, 'ocr-detail-status-${scale}x.png');
       await Scrollable.ensureVisible(
         tester.element(find.text('Missing line total')),
@@ -196,6 +219,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       _expectStatic(tester, 'Missing line total');
+      _expectTrailingChipWidth(tester, _chip('Missing line total'));
+      _expectTrailingChipWidth(tester, _chip('Ready').first);
       expect(_chip('Qty needs review'), findsWidgets);
       expect(_chip('Unit needs review'), findsWidgets);
       expect(_chip('Line needs review'), findsOneWidget);
@@ -295,6 +320,17 @@ void main() {
 
 Finder _chip(String label) =>
     find.byWidgetPredicate((w) => w is StatusChip && w.label == label);
+
+// The chip must consume only its natural width up to its cap. A loose flex
+// sibling would reserve half the row and truncate the adjacent OCR text early.
+void _expectTrailingChipWidth(WidgetTester tester, Finder chip) {
+  final row = find.ancestor(of: chip, matching: find.byType(Row)).first;
+  expect(tester.getRect(chip).right, closeTo(tester.getRect(row).right, 0.01));
+  expect(
+    tester.getSize(chip).width,
+    lessThanOrEqualTo(tester.getSize(row).width / 2),
+  );
+}
 
 void _expectStatic(WidgetTester tester, String label) {
   expect(_chip(label), findsOneWidget);
