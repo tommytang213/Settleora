@@ -431,6 +431,8 @@ void main() {
       await pumpQueue(tester, repository: repository);
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('Group Receipt'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Group Receipt'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));

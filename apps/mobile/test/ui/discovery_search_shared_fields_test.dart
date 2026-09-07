@@ -194,6 +194,10 @@ void main() {
               }
             });
             await tester.ensureVisible(control(i));
+            expect(
+              tester.getSize(find.byTooltip('Clear search')).shortestSide,
+              greaterThanOrEqualTo(48),
+            );
             await tester.tap(find.byTooltip('Clear search'));
             await tester.pumpAndSettle();
             expect(textChanges, 1);
