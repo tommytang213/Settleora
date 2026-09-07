@@ -1,5 +1,70 @@
 # Issue Progress Ledger
 
+### Issue #1106 — Group create/rename shared-dialog adoption (2026-09-07)
+
+- GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this required
+  ledger merge and final close-rule proof. Implementation is complete; close
+  after hygiene, reviewed-blob proof and #301/#372 reconciliation. No linked
+  Project item exists. #301 and #372 remain **OPEN**.
+- Implementation PR [#1107](https://github.com/tommytang213/Settleora/pull/1107):
+  reviewed source `b3cd72c1317360c70a2cba71e83f55cafe86c234`, normal merge
+  `7a5b5176ca1d7bd1ceb36a663c901a17aa1a908f`. Branch
+  `feature/1106-group-create-rename-shared-dialog-20260907-1725` retained.
+- The shared create/rename form adopts `SettleoraDialogFrame`, `AppTextField`,
+  primary Save and secondary Cancel `AppButton` controls. All four controls
+  adopted; none retained. Actions were directly equivalent. The frame required
+  only optional message content, because the original dialog has no explanatory
+  copy; the field required generic opt-in autofocus (default false). Existing
+  shared max-length APIs are reused; no group-specific shared API was added.
+- Exact current copy remains `Create Group`, `Edit Group`, `Name`, `Cancel`
+  and `Save`. Controller ownership/disposal, empty create value, initial rename
+  name, native 160-character limit/enforcement, single-line keyboard/focus,
+  native field semantics and untrimmed save result remain unchanged. Empty and
+  whitespace names still reach existing repository validation; no dialog-level
+  validation or async busy state was invented. Null cancel/back/barrier results
+  cause no mutation. A local one-shot completion guard prevents repeated
+  pointer/semantic activation from popping the caller. Existing create/update
+  repository operations and caller in-flight guards remain unchanged.
+- Exact-head validation: clean worktree, three-file scope guard, diff check,
+  mobile doctor, pub get, analyze (no issues), **137 focused tests**, **900 full
+  mobile tests**, and scaffold passed. Focused coverage includes existing Group
+  and server-shell entry tests, shared/Profile regressions, form values/limits,
+  empty/whitespace caller validation, cancel/back/barrier, duplicate completion,
+  keyboard/focus, semantics and 48dp+ targets. The destructive member-removal
+  dialog is byte-identical to main; existing removal tests pass.
+- Sixteen production-screen PNGs cover create/rename normal/empty, 390×844/1×
+  and 320×844/2×, Midnight/light and focused keyboard-inset states. Harness:
+  `apps/mobile/test/ui/group_form_shared_controls_test.dart`.
+  Immutable evidence: `/workspace/logs/issue1106-20260907-1725/visual-b3cd72c1/`,
+  hashes in `candidate-b3cd72c1.json`. Actual images were inspected against
+  Groups/shared references. The empty-rename harness was corrected to repaint
+  before capture; all validation was rerun on the reviewed head. Keyboard
+  evidence uses real field focus and a simulated 300px inset, not native keyboard
+  pixels. Narrow titles wrap and actions stack without critical dialog clipping.
+- Fresh Gemini `strong_independent` and independent local Codex passed exact
+  source and all images with no material findings. Fresh GitHub Codex passed
+  the exact head; all 11 check entries succeeded, with zero unresolved threads
+  and zero open PR code-scanning alerts. No findings were waived or suppressed.
+- Post-merge proof verifies normal merge parents, source ancestry, all three
+  reviewed blobs on main, exact allowed files and retained branch. No backend,
+  API/OpenAPI/generated-client, auth/session/authz, membership policy, money,
+  settlement/payment, storage/privacy, schema, sync/OCR, deployment/CI/config
+  or secret changes entered. Unrelated web dependency alert #32 is unchanged.
+- Remaining #301 candidates: equivalent raw forms/buttons and private dialog
+  framing on other screens, token/summary styling, other state-label adoption
+  and further participant/assignment sharing only where equivalence is proven.
+  Domain-specific multi-selection/quantity allocation remains separate. The
+  inherited shared dialog surface tint and existing surrounding screen layout
+  are not a whole-screen redesign or final native accessibility acceptance.
+- Destructive/member-removal and lifecycle UX remain outside this task under
+  their independent ownership, including #723. #299 dashboard, #295 navigation,
+  #409 localization, #1096 setup, #975 final platform acceptance and #959 parser
+  remain independent. #407 flow counts and broader Day 1 completion are
+  unchanged. Final #1106/#301/#372 comments follow this hygiene merge.
+- This ledger-only hygiene remains in logical task `20260907-1725`. Report:
+  `/workspace/logs/settleora-codex-report-20260907-1725-issue-1106-group-create-rename-shared-dialog.md`.
+
+
 ### Issue #1103 — Profile form shared-component adoption (2026-09-07)
 
 - GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this required
