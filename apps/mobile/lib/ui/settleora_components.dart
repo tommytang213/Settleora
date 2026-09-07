@@ -1600,6 +1600,401 @@ class AppTextField extends StatelessWidget {
   }
 }
 
+/// Display-only choice. Hosts supply eligible values and product-facing text.
+class SettleoraMemberChoice {
+  const SettleoraMemberChoice({
+    required this.value,
+    required this.label,
+    this.subtitle,
+    this.searchTerms = const [],
+    this.key,
+  });
+
+  final String value;
+  final String label;
+  final String? subtitle;
+  final List<String> searchTerms;
+  final Key? key;
+
+  bool matches(String query) => [
+    label,
+    ...searchTerms,
+  ].any((text) => text.toLowerCase().contains(query.trim().toLowerCase()));
+}
+
+/// Shared member-search presentation; filtering and controller ownership stay
+/// with the host, including roster-specific role/status filters.
+class SettleoraMemberSearchField extends StatefulWidget {
+  const SettleoraMemberSearchField({
+    super.key,
+    required this.controller,
+    required this.onChanged,
+    this.searchKey,
+    this.clearSearchKey,
+    this.enabled = true,
+    this.autofocus = false,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final Key? searchKey;
+  final Key? clearSearchKey;
+  final bool enabled;
+  final bool autofocus;
+
+  @override
+  State<SettleoraMemberSearchField> createState() =>
+      _SettleoraMemberSearchFieldState();
+}
+
+class _SettleoraMemberSearchFieldState
+    extends State<SettleoraMemberSearchField> {
+  final _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<TextEditingValue>(
+        valueListenable: widget.controller,
+        builder: (context, value, _) => TextField(
+          key: widget.searchKey,
+          controller: widget.controller,
+          focusNode: _focus,
+          autofocus: widget.autofocus,
+          enabled: widget.enabled,
+          textInputAction: TextInputAction.search,
+          onChanged: widget.onChanged,
+          decoration: InputDecoration(
+            labelText: 'Search members',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: value.text.trim().isEmpty
+                ? null
+                : IconButton(
+                    key: widget.clearSearchKey,
+                    tooltip: 'Clear search',
+                    onPressed: !widget.enabled
+                        ? null
+                        : () {
+                            widget.controller.clear();
+                            widget.onChanged('');
+                            _focus.requestFocus();
+                          },
+                    icon: const Icon(Icons.close),
+                  ),
+          ),
+        ),
+      );
+}
+
+/// Single member form selection. No networking, eligibility or domain types.
+/// Loading/failure ownership and validation remain explicit host inputs.
+class SettleoraMemberPickerField extends StatefulWidget {
+  const SettleoraMemberPickerField({
+    super.key,
+    required this.label,
+    required this.pickerTitle,
+    required this.choices,
+    required this.value,
+    required this.onChanged,
+    this.validator,
+    this.helperText,
+    this.errorText,
+    this.enabled = true,
+    this.loading = false,
+    this.onRetry,
+    this.searchKey,
+    this.clearSearchKey,
+    this.emptyTitle = 'No members available',
+    this.emptyMessage = 'There are no members to choose from.',
+  });
+
+  final String label;
+  final String pickerTitle;
+  final List<SettleoraMemberChoice> choices;
+  final String? value;
+  final ValueChanged<String> onChanged;
+  final FormFieldValidator<String>? validator;
+  final String? helperText;
+  final String? errorText;
+  final bool enabled;
+  final bool loading;
+  final Future<void> Function()? onRetry;
+  final Key? searchKey;
+  final Key? clearSearchKey;
+  final String emptyTitle;
+  final String emptyMessage;
+
+  @override
+  State<SettleoraMemberPickerField> createState() =>
+      _SettleoraMemberPickerFieldState();
+}
+
+class _SettleoraMemberPickerFieldState
+    extends State<SettleoraMemberPickerField> {
+  final _focus = FocusNode();
+  bool _opening = false;
+  bool _retrying = false;
+
+  bool get _interactive => widget.enabled && !widget.loading && !_retrying;
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  Future<void> _open(FormFieldState<String> field) async {
+    if (!_interactive || _opening || widget.errorText != null) return;
+    _opening = true;
+    try {
+      final selected = await showSettleoraBottomSheet<String>(
+        context: context,
+        builder: (_) => _SettleoraMemberPickerSheet(
+          title: widget.pickerTitle,
+          choices: List.of(widget.choices),
+          selectedValue: field.value,
+          searchKey: widget.searchKey,
+          clearSearchKey: widget.clearSearchKey,
+          emptyTitle: widget.emptyTitle,
+          emptyMessage: widget.emptyMessage,
+        ),
+      );
+      if (!mounted ||
+          !field.mounted ||
+          !_interactive ||
+          widget.errorText != null ||
+          selected == null) {
+        return;
+      }
+      // A host may refresh its choices while the sheet is open.
+      if (!widget.choices.any((choice) => choice.value == selected)) return;
+      field.didChange(selected);
+      widget.onChanged(selected);
+    } finally {
+      _opening = false;
+      if (mounted && _interactive) _focus.requestFocus();
+    }
+  }
+
+  Future<void> _retry() async {
+    if (!_interactive || widget.onRetry == null) return;
+    setState(() => _retrying = true);
+    try {
+      await widget.onRetry!();
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _SettleoraMemberFormField(
+    initialValue: widget.value,
+    validator: widget.validator,
+    builder: (field) {
+      final selected = widget.choices.where((c) => c.value == field.value);
+      final label = selected.isEmpty ? 'Choose member' : selected.first.label;
+      final enabled = _interactive && widget.errorText == null;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            button: true,
+            enabled: enabled,
+            label: widget.label,
+            value: label,
+            child: InkWell(
+              focusNode: _focus,
+              onTap: enabled ? () => _open(field) : null,
+              borderRadius: BorderRadius.circular(SettleoraRadius.md),
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: widget.label,
+                  enabled: enabled,
+                  helperText: widget.helperText,
+                  helperMaxLines: 10,
+                  errorText: widget.errorText ?? field.errorText,
+                  errorMaxLines: 10,
+                  suffixIcon: const Icon(Icons.expand_more),
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 24),
+                  child: Text(label),
+                ),
+              ),
+            ),
+          ),
+          if (widget.loading || _retrying) ...[
+            const SizedBox(height: SettleoraSpacing.md),
+            const SettleoraLoadingPanel(label: 'Loading members'),
+          ] else if (widget.errorText != null && widget.onRetry != null)
+            AppButton(
+              label: 'Retry loading members',
+              onPressed: _interactive ? _retry : null,
+              variant: AppButtonVariant.secondary,
+            ),
+        ],
+      );
+    },
+  );
+}
+
+// Sync host values without notifying the ancestor Form during a build.
+class _SettleoraMemberFormField extends FormField<String> {
+  const _SettleoraMemberFormField({
+    required super.initialValue,
+    required super.validator,
+    required super.builder,
+  });
+
+  @override
+  FormFieldState<String> createState() => _SettleoraMemberFormFieldState();
+}
+
+class _SettleoraMemberFormFieldState extends FormFieldState<String> {
+  @override
+  void didUpdateWidget(covariant _SettleoraMemberFormField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialValue != widget.initialValue) {
+      setValue(widget.initialValue);
+    }
+  }
+}
+
+class _SettleoraMemberPickerSheet extends StatefulWidget {
+  const _SettleoraMemberPickerSheet({
+    required this.title,
+    required this.choices,
+    required this.selectedValue,
+    required this.searchKey,
+    required this.clearSearchKey,
+    required this.emptyTitle,
+    required this.emptyMessage,
+  });
+
+  final String title;
+  final List<SettleoraMemberChoice> choices;
+  final String? selectedValue;
+  final Key? searchKey;
+  final Key? clearSearchKey;
+  final String emptyTitle;
+  final String emptyMessage;
+
+  @override
+  State<_SettleoraMemberPickerSheet> createState() =>
+      _SettleoraMemberPickerSheetState();
+}
+
+class _SettleoraMemberPickerSheetState
+    extends State<_SettleoraMemberPickerSheet> {
+  final _search = TextEditingController();
+  bool _closing = false;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _close([String? value]) {
+    if (_closing) return;
+    _closing = true;
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final choices = widget.choices
+        .where((c) => c.matches(_search.text))
+        .toList();
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          SettleoraSpacing.md,
+          0,
+          SettleoraSpacing.md,
+          MediaQuery.viewInsetsOf(context).bottom + SettleoraSpacing.md,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SizedBox(
+            height: constraints.maxHeight * 0.82,
+            child: ListView(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Semantics(
+                        header: true,
+                        child: Text(
+                          widget.title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: _close,
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: SettleoraSpacing.sm),
+                SettleoraMemberSearchField(
+                  controller: _search,
+                  onChanged: (_) => setState(() {}),
+                  searchKey: widget.searchKey,
+                  clearSearchKey: widget.clearSearchKey,
+                  enabled: widget.choices.isNotEmpty,
+                  autofocus: true,
+                ),
+                const SizedBox(height: SettleoraSpacing.sm),
+                Text(
+                  'Showing ${choices.length} of ${widget.choices.length} members',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.settleoraColors.textMuted,
+                  ),
+                ),
+                const SizedBox(height: SettleoraSpacing.sm),
+                if (choices.isEmpty)
+                  SettleoraStatePanel(
+                    compact: true,
+                    icon: Icons.group_off_outlined,
+                    title: widget.choices.isEmpty
+                        ? widget.emptyTitle
+                        : 'No matching members',
+                    message: widget.choices.isEmpty
+                        ? widget.emptyMessage
+                        : 'No members match this search.',
+                  ),
+                for (final choice in choices)
+                  Semantics(
+                    child: ListTile(
+                      selected: choice.value == widget.selectedValue,
+                      key: choice.key,
+                      minVerticalPadding: SettleoraSpacing.sm,
+                      title: Text(choice.label),
+                      subtitle: choice.subtitle == null
+                          ? null
+                          : Text(choice.subtitle!),
+                      trailing: choice.value == widget.selectedValue
+                          ? const Icon(Icons.check_circle)
+                          : null,
+                      onTap: () => _close(choice.value),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 enum SettleoraNavDestination { home, bills, groups, settle, more }
 
 class SettleoraBottomNav extends StatelessWidget {
