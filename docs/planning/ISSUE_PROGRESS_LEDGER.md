@@ -1,5 +1,17 @@
 # Issue Progress Ledger
 
+### Issue #1125 — Personal/group bill-detail shared-search adoption (2026-09-08 HKT)
+
+- Pre-hygiene checkpoint: **OPEN**, close only after this same-task evidence merge and final #301/#372/main reconciliation. No linked Project item; no parent-wide acceptance.
+- Implementation [PR #1126](https://github.com/tommytang213/Settleora/pull/1126), source `72f9141cf0aa39860f3d824015eac6ea1df58226`, normal merge `1caeca517cb1967c462733adfac30e1969fd2227`, starting main `533d5cfd35c8f75f8fea70138ecf0aa7e878fe12`. Branch `feature/1125-bill-detail-shared-search-20260907-2358` retained. Historical PR #56 credited for discovery behavior.
+- Both detail hosts adopt current AppTextField with existing labelAbove after actual320px/2× truncation/floating clipping proof. No raw search retained or shared API extension. Raw controllers/values/callbacks, exact keys/copy/input action/prefix, all seven live filters/counts/empty states remain unchanged. No suffix query-clear; single overall Clear resets query plus All exactly once and is disabled when inactive. Task checkpoint five-filter inventory reconciled against live seven-filter source (including Needs response/Rejected).
+- All item/participant/payer/adjustment predicates, current-user/member-name/fallback/rejection presentation, membership/response eligibility, repository calls and authority stay unchanged. Production outside field block byte-identical; no direct raw profile ID added to detail matching. List-level _billMatchesQuery is untouched; #1122 remains OPEN/manual privacy-gated.
+- Exact clean scope/diff, doctor, pub get, analyzer(no issues),333 focused tests,943 full mobile tests and scaffold passed. Fresh Gemini strong_independent/local Codex reviewed source plus32 production images; GitHub Codex/checks/scanners passed exact head, zero unresolved threads/open PR scan alerts. [Durable validation/equivalence and SHA256 image inventory](../qa/evidence/issue-1125/README.md).
+- Field/clear accepted only within scoped captures at390px/1× and320px/2×, real focus/simulated300px inset. Existing narrow participant money ellipsis/wrapping and scroll/inset lower-content limitations remain separate; no whole-screen/native IME/device/screen-reader acceptance. Normal merge parents/ancestry and reviewed blobs verified on main.
+- Remaining #301: verified `group-list-search` in `_GroupDiscoveryControls` for separate equivalence, other raw forms/buttons/private dialog framing, token/summary styling and participant/assignment sharing. #301/#372 stay open; prior focused children are not replayed. #723/#299/#295/#409/#1096/#975/#959 remain independently owned.
+- No backend/API/OpenAPI/generated-client, auth/session/authz, storage/privacy policy, money/bill/settlement/payment calculation, schema, OCR/sync/lifecycle authority, CI/deployment/config or secret changes. Same logical task `20260907-2358` includes this ledger/static-evidence hygiene.
+- Report: `/workspace/logs/settleora-codex-report-20260907-2358-issue-1125-bill-detail-shared-search.md`.
+
 ### Issue #1121 — Personal/group bill-list shared-search adoption (2026-09-07)
 
 - Pre-hygiene checkpoint: **OPEN**; close only after this same-task evidence merge and final #301/#372/main reconciliation. No linked Project item exists; no invented board completion or parent-wide acceptance.
