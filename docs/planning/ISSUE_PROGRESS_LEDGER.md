@@ -1,5 +1,15 @@
 # Issue Progress Ledger
 
+### Issue #1131 — Sign-in-required state-action shared-component adoption (2026-09-08 HKT)
+
+- Implementation [PR #1132](https://github.com/tommytang213/Settleora/pull/1132), reviewed source `ca55c0298fb9c8fdfcdbcc92260ea0584451e55b`, normal merge `11d370568db547719aa4781aca9a6ade325b6ed6`, starting main `7c16c47539337d71971e6b31c7749176c7c4bf86`. Branch `feature/1131-sign-in-required-state-actions-20260908-0214` retained.
+- Profile, Monthly report and Notifications sign-in-required failure actions were directly equivalent and adopt explicit primary `AppButton`; no raw action was retained and no shared API extension was needed. Exact keys, `Sign In` copy, login icon, both session failure classifications, nullable callback gates, once-only existing callback forwarding, state panels and redaction remain unchanged. Representative non-sign-in failures retain Retry; null callbacks expose no Sign In.
+- Exact clean scope/diff, doctor, pub get, analyzer (no issues), **145 focused tests**, **89 independent focused tests**, **955 full mobile tests** and scaffold passed. Fresh Gemini `strong_independent` and independent local Codex reviewed exact source plus all **18** production images; GitHub Codex/checks/scanners passed exact head with zero unresolved threads and zero open PR scan alerts. [Durable equivalence, validation and SHA256 image inventory](../qa/evidence/issue-1131/README.md).
+- Actual production/shared controls were captured at 390px/1× and 320px/2× across Sign In, keyboard-focus highlight and representative non-sign-in failure states for all three hosts. Actions remain readable with 48dp+ targets and useful semantics. This is scoped Flutter state/action acceptance, not native device/screen-reader/whole-screen acceptance; #975 retains that gate.
+- `session-list-sign-in-required` remains byte-identical at its central session/security-shell boundary; setup/bootstrap actions are unchanged. #1122 remains OPEN/manual privacy-security gated and was neither implemented nor approved. #301/#372 remain open; remaining #301 scope includes other raw forms/buttons/private-dialog framing, token/summary styling and participant/assignment sharing. Prior focused children must not be replayed.
+- No backend/domain/API/OpenAPI/generated-client, auth/session/authz, secure-storage/privacy policy, money/bill/settlement/payment calculation, schema, OCR/sync/lifecycle authority, CI/deployment/config or secret changes. Same logical task `20260908-0214` includes this ledger/static-evidence hygiene.
+- Report: `/workspace/logs/settleora-codex-report-20260908-0214-issue-1131-sign-in-required-state-actions.md`.
+
 ### Issue #1128 — Group-list shared-search adoption (2026-09-08 HKT)
 
 - Implementation [PR #1129](https://github.com/tommytang213/Settleora/pull/1129), reviewed source `bfad01cf7817207e51eabd0124bb3ebab7bebada`, normal merge `25d68f136104cf00623aabe52cfdd80d8f70dcba`, starting main `7726bde47df5c43254c81afb98c95ff3b41c0409`. Branch `feature/1128-group-list-shared-search-20260908-0050` retained; historical PR #47 retains discovery/filter provenance.
