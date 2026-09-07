@@ -333,6 +333,13 @@ void main() {
           await _png(tester, '$prefix-normal');
           await _query(tester, i, i == 0 ? ' EuR closed ' : ' EUR pending ');
           await _png(tester, '$prefix-populated');
+          final inputRect = tester.getRect(
+            find.descendant(of: _control(i), matching: find.byType(TextField)),
+          );
+          final clearRect = tester.getRect(_clear(i));
+          expect(clearRect.top, greaterThanOrEqualTo(inputRect.top));
+          expect(clearRect.bottom, lessThanOrEqualTo(inputRect.bottom));
+
           expect(
             tester.getRect(find.text(_labels[i])).bottom,
             lessThan(

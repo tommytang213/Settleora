@@ -1637,7 +1637,8 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final field = TextField(
+    Widget buildField([FocusNode? focusNode]) => TextField(
+      focusNode: focusNode,
       controller: controller,
       onChanged: onChanged,
       keyboardType: keyboardType,
@@ -1657,23 +1658,13 @@ class AppTextField extends StatelessWidget {
       ),
     );
     if (labelAbove) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ExcludeSemantics(
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: context.settleoraColors.textMuted,
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Semantics(label: label, child: field),
-        ],
+      return _AppTextFieldAboveLabel(
+        label: label,
+        enabled: enabled,
+        buildField: buildField,
       );
     }
+    final field = buildField();
     if (!wrapLabel) return field;
     // A wrapped floating label can extend above the native field bounds.
     // Reserve one scaled label line so scrolling cannot clip it at the top.
@@ -1682,6 +1673,58 @@ class AppTextField extends StatelessWidget {
       child: field,
     );
   }
+}
+
+class _AppTextFieldAboveLabel extends StatefulWidget {
+  const _AppTextFieldAboveLabel({
+    required this.label,
+    required this.enabled,
+    required this.buildField,
+  });
+
+  final String label;
+  final bool enabled;
+  final Widget Function(FocusNode) buildField;
+
+  @override
+  State<_AppTextFieldAboveLabel> createState() =>
+      _AppTextFieldAboveLabelState();
+}
+
+class _AppTextFieldAboveLabelState extends State<_AppTextFieldAboveLabel> {
+  final _focusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: widget.label,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          excludeFromSemantics: true,
+          onTap: widget.enabled ? _focusNode.requestFocus : null,
+          child: ExcludeSemantics(
+            child: Text(
+              widget.label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: context.settleoraColors.textMuted,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        widget.buildField(_focusNode),
+      ],
+    ),
+  );
 }
 
 /// Display-only choice. Hosts supply eligible values and product-facing text.

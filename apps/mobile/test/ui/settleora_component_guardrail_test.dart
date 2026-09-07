@@ -87,6 +87,36 @@ void main() {
                 .hasFocus,
             isFalse,
           );
+          final fieldRect = tester.getRect(find.byType(TextField));
+          final labelRect = tester.getRect(
+            find.text('Search payments and residuals'),
+          );
+          final semanticNode = tester.getSemantics(
+            find.bySemanticsLabel('Search payments and residuals'),
+          );
+          expect(
+            semanticNode.rect.height,
+            greaterThanOrEqualTo(fieldRect.height + labelRect.height + 8),
+          );
+          await tester.tap(find.text('Search payments and residuals'));
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<EditableText>(find.byType(EditableText))
+                .focusNode
+                .hasFocus,
+            isTrue,
+          );
+          expect(tester.testTextInput.isVisible, isTrue);
+          expect(
+            tester
+                .getSemantics(
+                  find.bySemanticsLabel('Search payments and residuals'),
+                )
+                .getSemanticsData()
+                .label,
+            'Search payments and residuals',
+          );
         }
         expect(edits, ['  Mixed query  ', '', '  Mixed query  ']);
       } finally {
