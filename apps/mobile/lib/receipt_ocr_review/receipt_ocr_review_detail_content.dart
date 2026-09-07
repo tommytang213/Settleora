@@ -840,20 +840,31 @@ class _ReceiptOcrReviewHeader extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    merchant,
-                    style: Theme.of(context).textTheme.headlineSmall,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+            LayoutBuilder(
+              builder: (context, constraints) => Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      merchant,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
-              ],
+                  const SizedBox(width: 12),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: constraints.maxWidth / 2,
+                    ),
+                    child: StatusChip(
+                      label: receiptOcrReviewStatusLabel(review.status),
+                      icon: Icons.pending_actions_outlined,
+                      wrap: true,
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             if (grandTotal != null && currency != null) ...[
@@ -1335,40 +1346,51 @@ class _ReceiptOcrReviewLineTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      line.text,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall,
+              LayoutBuilder(
+                builder: (context, constraints) => Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        line.text,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  _SoftChip(
-                    label: readiness,
-                    icon: total == null
-                        ? Icons.report_problem_outlined
-                        : Icons.check_circle_outline,
-                  ),
-                ],
+                    const SizedBox(width: 10),
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth / 2,
+                      ),
+                      child: StatusChip(
+                        wrap: true,
+                        label: readiness,
+                        icon: total == null
+                            ? Icons.report_problem_outlined
+                            : Icons.check_circle_outline,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  _SoftChip(
+                  StatusChip(
+                    wrap: true,
                     label: 'Qty ${quantity ?? 'needs review'}',
                     icon: Icons.confirmation_number_outlined,
                   ),
-                  _SoftChip(
+                  StatusChip(
+                    wrap: true,
                     label: 'Unit ${unit ?? 'needs review'}',
                     icon: Icons.sell_outlined,
                   ),
-                  _SoftChip(
+                  StatusChip(
+                    wrap: true,
                     label: 'Line ${total ?? 'needs review'}',
                     icon: Icons.payments_outlined,
                   ),
@@ -1641,11 +1663,13 @@ class _PreviewSummary extends StatelessWidget {
                   size: 20,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  preview.canApply
-                      ? 'Ready for confirmation'
-                      : 'Review needed before apply',
-                  style: Theme.of(context).textTheme.titleSmall,
+                Expanded(
+                  child: Text(
+                    preview.canApply
+                        ? 'Ready for confirmation'
+                        : 'Review needed before apply',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                 ),
               ],
             ),
@@ -1796,7 +1820,8 @@ class _IssueWrap extends StatelessWidget {
               Semantics(
                 container: true,
                 label: _ocrReviewIssueSemanticLabel,
-                child: _SoftChip(
+                child: StatusChip(
+                  wrap: true,
                   label: receiptOcrReviewIssueLabel(issue),
                   icon: Icons.info_outline,
                 ),

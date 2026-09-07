@@ -4,6 +4,7 @@ import '../ui/settleora_components.dart'
     show
         AppCard,
         MoneyText,
+        StatusChip,
         SettleoraCompactHeader,
         SettleoraInlinePanel,
         SettleoraKeyValueMoneyText,
@@ -1268,13 +1269,15 @@ class _ChangeRow extends StatelessWidget {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _ChangeMarker(label: change.accessibleLabel),
-                  _SoftChip(
+                  StatusChip(
+                    wrap: true,
                     label: settleoraBillRevisionChangeScopeLabel(
                       change.changeScope,
                     ),
                     icon: Icons.label_outline,
                   ),
-                  _SoftChip(
+                  StatusChip(
+                    wrap: true,
                     label: settleoraBillRevisionChangeViewerImpactLabel(
                       change.viewerImpact,
                     ),
@@ -1797,23 +1800,6 @@ class _BodyText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(value);
-  }
-}
-
-class _SoftChip extends StatelessWidget {
-  const _SoftChip({required this.label, required this.icon});
-
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: Icon(icon, size: 16),
-      label: Text(label),
-    );
   }
 }
 

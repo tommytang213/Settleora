@@ -4,6 +4,7 @@ import '../ui/settleora_components.dart'
     show
         AppCard,
         MoneyText,
+        StatusChip,
         SettleoraCompactHeader,
         SettleoraInlinePanel,
         SettleoraSurfaceVariant;
@@ -1155,38 +1156,6 @@ class _KeyValueText extends StatelessWidget {
           Expanded(child: Text(value, textAlign: TextAlign.end)),
         ],
       ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      label: Text(label),
-      avatar: const Icon(Icons.pending_actions_outlined, size: 16),
-    );
-  }
-}
-
-class _SoftChip extends StatelessWidget {
-  const _SoftChip({required this.label, this.icon});
-
-  final String label;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-      avatar: icon == null ? null : Icon(icon, size: 16),
-      label: Text(label),
     );
   }
 }

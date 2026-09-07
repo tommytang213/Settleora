@@ -389,19 +389,30 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: SettleoraCompactHeader(
-                        title: merchant,
-                        subtitle: scope,
-                        leadingIcon: Icons.receipt_long_outlined,
+                LayoutBuilder(
+                  builder: (context, constraints) => Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: SettleoraCompactHeader(
+                          title: merchant,
+                          subtitle: scope,
+                          leadingIcon: Icons.receipt_long_outlined,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    _StatusChip(label: status),
-                  ],
+                      const SizedBox(width: 10),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: constraints.maxWidth / 2,
+                        ),
+                        child: StatusChip(
+                          label: status,
+                          icon: Icons.pending_actions_outlined,
+                          wrap: true,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 DecoratedBox(
