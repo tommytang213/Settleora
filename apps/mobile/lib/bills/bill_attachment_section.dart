@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
 import '../receipt_ocr_review/receipt_ocr_review_screen.dart';
+import '../ui/settleora_components.dart';
 import 'bill_attachment_file_input.dart';
 import 'bill_attachment_repository.dart';
 
@@ -1045,25 +1046,22 @@ class _AttachmentDiscoveryControls extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        TextField(
+        AppTextField(
           key: Key('$keyPrefix-discovery-search'),
           controller: controller,
           textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            labelText: 'Search attachments',
-            hintText: 'Purpose, type, size, or date',
-            prefixIcon: const Icon(Icons.search),
-            border: const OutlineInputBorder(),
-            isDense: true,
-            suffixIcon: onClear == null
-                ? null
-                : IconButton(
-                    key: Key('$keyPrefix-discovery-clear-field'),
-                    tooltip: 'Clear attachment discovery',
-                    onPressed: onClear,
-                    icon: const Icon(Icons.close),
-                  ),
-          ),
+          label: 'Search attachments',
+          labelAbove: true,
+          hintText: 'Purpose, type, size, or date',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: onClear == null
+              ? null
+              : IconButton(
+                  key: Key('$keyPrefix-discovery-clear-field'),
+                  tooltip: 'Clear attachment discovery',
+                  onPressed: onClear,
+                  icon: const Icon(Icons.close),
+                ),
         ),
         const SizedBox(height: 8),
         Wrap(

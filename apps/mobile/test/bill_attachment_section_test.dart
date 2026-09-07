@@ -1421,6 +1421,12 @@ void expectIconButtonEnabled(WidgetTester tester, Key key, Matcher matcher) {
 }
 
 void expectBusySemanticsFor(Iterable<String> labels) {
+  expect(find.byKey(const Key('attachments-discovery-search')), findsNothing);
+  expect(
+    find.byKey(const Key('attachments-discovery-clear-field')),
+    findsNothing,
+  );
+  expect(find.byKey(const Key('attachments-discovery-clear')), findsNothing);
   for (final label in labels) {
     expect(
       find.bySemanticsLabel(
