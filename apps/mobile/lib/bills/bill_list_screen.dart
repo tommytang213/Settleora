@@ -5434,27 +5434,25 @@ class _BillListDiscoveryControls<T extends Enum> extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        TextField(
+        AppTextField(
           key: Key('$keyPrefix-search'),
+          label: searchHint,
+          labelAbove: true,
           controller: searchController,
           onChanged: onSearchChanged,
           textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: searchController.text.trim().isEmpty
-                ? null
-                : IconButton(
-                    key: Key('$keyPrefix-clear-search'),
-                    tooltip: 'Clear search',
-                    onPressed: () {
-                      searchController.clear();
-                      onSearchChanged('');
-                    },
-                    icon: const Icon(Icons.close),
-                  ),
-            labelText: searchHint,
-            border: const OutlineInputBorder(),
-          ),
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: searchController.text.trim().isEmpty
+              ? null
+              : IconButton(
+                  key: Key('$keyPrefix-clear-search'),
+                  tooltip: 'Clear search',
+                  onPressed: () {
+                    searchController.clear();
+                    onSearchChanged('');
+                  },
+                  icon: const Icon(Icons.close),
+                ),
         ),
         const SizedBox(height: 8),
         Text(

@@ -432,6 +432,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('You accepted'), findsWidgets);
+      await tester.scrollUntilVisible(
+        find.text('You rejected'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
       expect(find.text('You rejected'), findsWidgets);
       expect(
         find.text('Rejected: Participant 1 (you), Participant 2'),
