@@ -3294,23 +3294,21 @@ class _RecurringBillDiscoveryControls extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
+        AppTextField(
           key: const Key('recurring-bill-search'),
+          wrapLabel: true,
           controller: controller,
           textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            labelText: 'Search recurring bills',
-            prefixIcon: const Icon(Icons.search),
-            border: const OutlineInputBorder(),
-            suffixIcon: controller.text.isEmpty
-                ? null
-                : IconButton(
-                    key: const Key('recurring-bill-search-clear'),
-                    tooltip: 'Clear search',
-                    onPressed: controller.clear,
-                    icon: const Icon(Icons.close),
-                  ),
-          ),
+          label: 'Search recurring bills',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: controller.text.isEmpty
+              ? null
+              : IconButton(
+                  key: const Key('recurring-bill-search-clear'),
+                  tooltip: 'Clear search',
+                  onPressed: controller.clear,
+                  icon: const Icon(Icons.close),
+                ),
         ),
         const SizedBox(height: 12),
         _FilterChipRow(

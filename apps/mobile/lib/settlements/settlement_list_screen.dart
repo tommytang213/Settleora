@@ -1003,14 +1003,12 @@ class _SettlementDiscoveryControls extends StatelessWidget {
             )
           : null,
       children: [
-        TextField(
+        AppTextField(
           key: const Key('settlement-list-search'),
+          wrapLabel: true,
           controller: controller,
-          decoration: const InputDecoration(
-            labelText: 'Search settlements',
-            prefixIcon: Icon(Icons.search_outlined),
-            border: OutlineInputBorder(),
-          ),
+          label: 'Search settlements',
+          prefixIcon: Icon(Icons.search_outlined),
         ),
         const SizedBox(height: 10),
         SingleChildScrollView(

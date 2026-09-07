@@ -209,14 +209,12 @@ class _ReceiptOcrReviewDiscoveryControls extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
+        AppTextField(
           key: const Key('receipt-review-search'),
+          wrapLabel: true,
           controller: searchController,
-          decoration: const InputDecoration(
-            labelText: 'Search receipt reviews',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-          ),
+          label: 'Search receipt reviews',
+          prefixIcon: Icon(Icons.search),
           textInputAction: TextInputAction.search,
           onChanged: onSearchChanged,
         ),

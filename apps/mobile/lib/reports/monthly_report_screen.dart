@@ -240,6 +240,7 @@ class _SettleoraMonthlyReportScreenState
                       const SizedBox(height: 10),
                     ],
                     _DiscoveryPanel(
+                      key: const ValueKey('monthly-report-discovery'),
                       searchController: _searchController,
                       selectedFilter: _discoveryFilter,
                       counts: _MonthlyReportDiscoveryFilterCounts.from(report),
@@ -571,6 +572,7 @@ class _MonthlyReportDiscoveryState {
 
 class _DiscoveryPanel extends StatelessWidget {
   const _DiscoveryPanel({
+    super.key,
     required this.searchController,
     required this.selectedFilter,
     required this.counts,
@@ -591,23 +593,21 @@ class _DiscoveryPanel extends StatelessWidget {
     return SettleoraSection(
       title: 'Find report details',
       children: [
-        TextField(
+        AppTextField(
           key: const Key('monthly-report-search'),
+          wrapLabel: true,
           controller: searchController,
           textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            labelText: 'Search report',
-            prefixIcon: const Icon(Icons.search),
-            border: const OutlineInputBorder(),
-            suffixIcon: searchController.text.isEmpty
-                ? null
-                : IconButton(
-                    key: const Key('monthly-report-clear-search'),
-                    tooltip: 'Clear search',
-                    onPressed: searchController.clear,
-                    icon: const Icon(Icons.clear),
-                  ),
-          ),
+          label: 'Search report',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: searchController.text.isEmpty
+              ? null
+              : IconButton(
+                  key: const Key('monthly-report-clear-search'),
+                  tooltip: 'Clear search',
+                  onPressed: searchController.clear,
+                  icon: const Icon(Icons.clear),
+                ),
         ),
         const SizedBox(height: 10),
         Wrap(

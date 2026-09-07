@@ -1609,9 +1609,14 @@ class AppTextField extends StatelessWidget {
     this.maxLength,
     this.maxLengthEnforcement,
     this.maxLines = 1,
+    this.prefixIcon,
+    this.suffixIcon,
+    this.onChanged,
+    this.wrapLabel = false,
   });
 
   final String label;
+  final bool wrapLabel;
   final TextEditingController? controller;
   final String? hintText;
   final TextInputType? keyboardType;
@@ -1622,11 +1627,15 @@ class AppTextField extends StatelessWidget {
   final int? maxLength;
   final MaxLengthEnforcement? maxLengthEnforcement;
   final int maxLines;
+  final Widget? prefixIcon;
+  final Widget? suffixIcon;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
+    final field = TextField(
       controller: controller,
+      onChanged: onChanged,
       keyboardType: keyboardType,
       enabled: enabled,
       autofocus: autofocus,
@@ -1635,10 +1644,20 @@ class AppTextField extends StatelessWidget {
       maxLengthEnforcement: maxLengthEnforcement,
       maxLines: maxLines,
       decoration: InputDecoration(
-        labelText: label,
+        labelText: wrapLabel ? null : label,
+        label: wrapLabel ? Text(label) : null,
+        prefixIcon: prefixIcon,
+        suffixIcon: suffixIcon,
         hintText: hintText,
         helper: helperText == null ? null : Text(helperText!),
       ),
+    );
+    if (!wrapLabel) return field;
+    // A wrapped floating label can extend above the native field bounds.
+    // Reserve one scaled label line so scrolling cannot clip it at the top.
+    return Padding(
+      padding: EdgeInsets.only(top: MediaQuery.textScalerOf(context).scale(16)),
+      child: field,
     );
   }
 }

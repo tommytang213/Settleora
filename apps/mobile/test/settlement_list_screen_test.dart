@@ -209,6 +209,10 @@ void main() {
 
     expect(find.text('10.00 USD'), findsOneWidget);
 
+    expect(
+      tester.widget(find.byKey(const Key('settlement-list-search'))),
+      isA<AppTextField>(),
+    );
     final rawIdentifiers = <String>[
       _settlementId,
       _billId,
@@ -330,7 +334,12 @@ void main() {
     expect(find.text('25.00 EUR'), findsOneWidget);
     expect(
       tester
-          .widget<TextField>(find.byKey(const Key('settlement-list-search')))
+          .widget<TextField>(
+            find.descendant(
+              of: find.byKey(const Key('settlement-list-search')),
+              matching: find.byType(TextField),
+            ),
+          )
           .controller
           ?.text,
       isEmpty,
@@ -389,7 +398,12 @@ void main() {
       expect(find.text('25.00 EUR'), findsOneWidget);
       expect(
         tester
-            .widget<TextField>(find.byKey(const Key('settlement-list-search')))
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('settlement-list-search')),
+                matching: find.byType(TextField),
+              ),
+            )
             .controller
             ?.text,
         isEmpty,

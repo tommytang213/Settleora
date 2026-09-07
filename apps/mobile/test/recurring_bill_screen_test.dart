@@ -654,7 +654,12 @@ void main() {
 
     expect(
       tester
-          .widget<TextField>(find.byKey(const Key('recurring-bill-search')))
+          .widget<TextField>(
+            find.descendant(
+              of: find.byKey(const Key('recurring-bill-search')),
+              matching: find.byType(TextField),
+            ),
+          )
           .controller
           ?.text,
       isEmpty,
