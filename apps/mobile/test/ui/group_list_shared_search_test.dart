@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/groups/group_list_screen.dart';
-import 'package:mobile/groups/group_repository.dart';
 import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_theme.dart';
 
