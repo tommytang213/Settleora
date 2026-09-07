@@ -1613,9 +1613,13 @@ class AppTextField extends StatelessWidget {
     this.suffixIcon,
     this.onChanged,
     this.wrapLabel = false,
+    this.labelAbove = false,
   });
 
   final String label;
+
+  /// Keeps long labels clear of the editable value at narrow widths.
+  final bool labelAbove;
   final bool wrapLabel;
   final TextEditingController? controller;
   final String? hintText;
@@ -1644,14 +1648,32 @@ class AppTextField extends StatelessWidget {
       maxLengthEnforcement: maxLengthEnforcement,
       maxLines: maxLines,
       decoration: InputDecoration(
-        labelText: wrapLabel ? null : label,
-        label: wrapLabel ? Text(label) : null,
+        labelText: labelAbove || wrapLabel ? null : label,
+        label: !labelAbove && wrapLabel ? Text(label) : null,
         prefixIcon: prefixIcon,
         suffixIcon: suffixIcon,
         hintText: hintText,
         helper: helperText == null ? null : Text(helperText!),
       ),
     );
+    if (labelAbove) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ExcludeSemantics(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: context.settleoraColors.textMuted,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Semantics(label: label, child: field),
+        ],
+      );
+    }
     if (!wrapLabel) return field;
     // A wrapped floating label can extend above the native field bounds.
     // Reserve one scaled label line so scrolling cannot clip it at the top.
