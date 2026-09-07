@@ -40,8 +40,9 @@
   Receipts/Supporting/Reviewable OCR, overall Clear, download-busy and focused
   simulated 300px inset at 390px/1× and 320px/2×. Harness:
   `apps/mobile/test/ui/bill_attachment_discovery_shared_search_test.dart`.
-  Immutable images `/workspace/logs/issue1118-20260907-2138/visual-109a66b4/`;
-  SHA256 inventory `candidate-109a66b4.json`.
+  Durable [validation record and all 26 SHA256-indexed PNGs](../qa/evidence/issue-1118/README.md)
+  preserve the exact reviewed pixels in repository history. Local execution
+  logs also remain under `/workspace/logs/issue1118-20260907-2138/`.
 - Visual limits: native one-line hint ellipsis, selected-chip count fading and
   attachment metadata/date wrapping at narrow/2× remain separately scoped.
   An unchanged-main diagnostic reproduces a 0.0812px refresh-status row overflow
@@ -77,7 +78,9 @@
   navigation, #409 localization, #1096 setup, #975 platform acceptance and
   #959 parser retain independent ownership. #407 counts and broader Day 1
   scope remain unchanged; #301/#372 stay open.
-- Separate ledger hygiene remains inside logical task `20260907-2138`.
+- Separate ledger/evidence hygiene remains inside logical task `20260907-2138`.
+  The durable evidence copy addresses GitHub review feedback without adding
+  `.codex/` files or changing implementation source.
   Report:
   `/workspace/logs/settleora-codex-report-20260907-2138-issue-1118-bill-attachment-discovery-shared-search.md`.
 
