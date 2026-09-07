@@ -54,7 +54,11 @@ void main() {
       'bill-detail-money-summary-390x844.png',
     );
 
-    await tester.drag(find.byType(Scrollable).first, const Offset(0, -620));
+    await tester.scrollUntilVisible(
+      _moneyText('32.12', 'HKD'),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     expect(_moneyText('32.12', 'HKD'), findsOneWidget);
     await _captureBoundary(
