@@ -2717,11 +2717,12 @@ class _FailurePanel extends StatelessWidget {
       title: failure.title,
       message: failure.message,
       action: requiresSignIn && onSessionEnded != null
-          ? FilledButton.icon(
+          ? AppButton(
               key: const Key('notification-sign-in-required'),
               onPressed: onSessionEnded,
-              icon: const Icon(Icons.login_outlined),
-              label: const Text('Sign In'),
+              icon: Icons.login_outlined,
+              label: 'Sign In',
+              variant: AppButtonVariant.primary,
             )
           : OutlinedButton.icon(
               key: const Key('notification-retry'),
