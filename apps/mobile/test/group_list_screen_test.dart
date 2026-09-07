@@ -280,7 +280,12 @@ void main() {
     expect(find.text('Archive Team'), findsOneWidget);
     expect(
       tester
-          .widget<TextField>(find.byKey(const Key('group-list-search')))
+          .widget<TextField>(
+            find.descendant(
+              of: find.byKey(const Key('group-list-search')),
+              matching: find.byType(TextField),
+            ),
+          )
           .controller
           ?.text,
       isEmpty,
