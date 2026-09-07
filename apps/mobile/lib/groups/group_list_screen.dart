@@ -1499,6 +1499,7 @@ class _GroupFormDialog extends StatefulWidget {
 
 class _GroupFormDialogState extends State<_GroupFormDialog> {
   late final TextEditingController _controller;
+  bool _didComplete = false;
 
   @override
   void initState() {
@@ -1512,36 +1513,40 @@ class _GroupFormDialogState extends State<_GroupFormDialog> {
     super.dispose();
   }
 
+  void _complete([SettleoraGroupSaveRequest? request]) {
+    if (_didComplete || !mounted || ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    _didComplete = true;
+    Navigator.of(context).pop(request);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
+    return SettleoraDialogFrame(
+      title: widget.title,
+      actions: [
+        AppButton(
+          key: const Key('group-form-cancel'),
+          onPressed: () => _complete(),
+          label: 'Cancel',
+          variant: AppButtonVariant.secondary,
+        ),
+        AppButton(
+          key: const Key('group-form-save'),
+          onPressed: () {
+            _complete(SettleoraGroupSaveRequest(name: _controller.text));
+          },
+          label: 'Save',
+        ),
+      ],
+      child: AppTextField(
         key: const Key('group-form-name'),
         controller: _controller,
         autofocus: true,
         maxLength: 160,
-        decoration: const InputDecoration(
-          labelText: 'Name',
-          border: OutlineInputBorder(),
-        ),
+        label: 'Name',
       ),
-      actions: [
-        TextButton(
-          key: const Key('group-form-cancel'),
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const Key('group-form-save'),
-          onPressed: () {
-            Navigator.of(
-              context,
-            ).pop(SettleoraGroupSaveRequest(name: _controller.text));
-          },
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }

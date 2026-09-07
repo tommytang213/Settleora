@@ -884,7 +884,7 @@ class SettleoraDialogFrame extends StatelessWidget {
   const SettleoraDialogFrame({
     super.key,
     required this.title,
-    required this.message,
+    this.message,
     required this.actions,
     this.icon,
     this.variant = SettleoraSurfaceVariant.neutral,
@@ -892,7 +892,7 @@ class SettleoraDialogFrame extends StatelessWidget {
   });
 
   final String title;
-  final String message;
+  final String? message;
   final List<Widget> actions;
   final IconData? icon;
   final SettleoraSurfaceVariant variant;
@@ -924,13 +924,15 @@ class SettleoraDialogFrame extends StatelessWidget {
         ],
       ),
       content: child == null
-          ? Text(message)
+          ? (message == null ? null : Text(message!))
           : Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(message),
-                const SizedBox(height: SettleoraSpacing.md),
+                if (message != null) ...[
+                  Text(message!),
+                  const SizedBox(height: SettleoraSpacing.md),
+                ],
                 child!,
               ],
             ),
@@ -1601,6 +1603,7 @@ class AppTextField extends StatelessWidget {
     this.hintText,
     this.keyboardType,
     this.enabled = true,
+    this.autofocus = false,
     this.helperText,
     this.textInputAction,
     this.maxLength,
@@ -1613,6 +1616,7 @@ class AppTextField extends StatelessWidget {
   final String? hintText;
   final TextInputType? keyboardType;
   final bool enabled;
+  final bool autofocus;
   final String? helperText;
   final TextInputAction? textInputAction;
   final int? maxLength;
@@ -1625,6 +1629,7 @@ class AppTextField extends StatelessWidget {
       controller: controller,
       keyboardType: keyboardType,
       enabled: enabled,
+      autofocus: autofocus,
       textInputAction: textInputAction,
       maxLength: maxLength,
       maxLengthEnforcement: maxLengthEnforcement,
