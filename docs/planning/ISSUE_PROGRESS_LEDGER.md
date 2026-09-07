@@ -1,5 +1,69 @@
 # Issue Progress Ledger
 
+### Issue #1109 — Mobile discovery search shared-field adoption (2026-09-07)
+
+- GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this required
+  ledger merge, final reviewed-blob proof and #301/#372 reconciliation. No linked
+  Project item exists. #301 and #372 remain **OPEN**.
+- Implementation PR [#1110](https://github.com/tommytang213/Settleora/pull/1110):
+  reviewed source `7c479ac292ba7f56b39d43eddc18664e71b628b8`, normal merge
+  `507d5a152aee9d9c6266335cf460781e2a343a7f`. Branch
+  `feature/1109-mobile-discovery-search-shared-fields-20260907-1805` retained.
+- All four scoped discovery fields adopt `AppTextField`: monthly report,
+  settlement list, recurring bills and receipt-review queue. No in-scope raw
+  field retained. All are equivalent except reusable presentation needs:
+  prefix/suffix widgets, `onChanged`, and opt-in wrapping label/space for its
+  floating text at 2×. Existing shared consumers keep their defaults.
+- Host controller ownership/disposal, raw values, trimmed query/listener paths,
+  OCR `onChanged`, clear/reset, labels/icons, loaded-data predicates, filter
+  counts and status handling remain unchanged. Settlement retains its native
+  default input action; the other three retain `TextInputAction.search`.
+  Monthly discovery gains a stable widget key so the conditional filtered
+  summary no longer recreates the focused field. OCR parent import-only edit
+  exposes the shared field to its queue part library.
+- Exact-head validation: clean worktree, ten-file scope and diff guards,
+  doctor, pub get, analyze (no issues), **173 focused tests**, **910 full mobile
+  tests**, and scaffold passed. Scope proof confirms all code outside shared
+  field/four presentation classes is byte-identical except that monthly key and
+  OCR import. Existing search/filter suites pass. Shared regressions cover raw
+  edits, no synthesized callback on clear, controller identity, semantics once,
+  native submission/focus, 48dp+ clear targets and large text. Settlement negative
+  tests exercise the adopted field and reject all nine raw settlement/bill/group/
+  line/revision/candidate/profile identifiers. Monthly local search leaves the
+  loaded report/totals and repository call count unchanged.
+- Twenty actual production-screen PNGs cover all fields normal/populated at
+  390px/1× and 320px/2×, plus real focus with simulated 300px keyboard inset and
+  filtered-empty queries. Harness:
+  `apps/mobile/test/ui/discovery_search_shared_fields_test.dart`.
+  Immutable evidence: `/workspace/logs/issue1109-20260907-1805/visual-7c479ac2/`;
+  SHA256 inventory: `candidate-7c479ac2.json`. All images inspected against
+  current repo/shared/Settle/Bills-OCR references. Long labels wrap with reserved
+  floating-label space. Existing surrounding large-text money-row ellipses/OCR
+  row wrapping are independent follow-ups, not whole-screen/native acceptance.
+- Fresh Gemini `strong_independent` and independent local Codex passed the
+  exact implementation source and all images with no material findings. Fresh
+  GitHub Codex passed that head; all implementation checks/scanners succeeded,
+  zero unresolved threads and zero open PR code-scanning alerts. Existing
+  unrelated web dependency alert #32 remains untouched; no suppression/waiver.
+- Post-merge proof verifies normal merge parents, source ancestry, ten reviewed
+  blobs on main, exact file scope and retained branch. No backend/domain/API,
+  OpenAPI/generated-client, auth/session/authz, storage/privacy, money/settlement/
+  payment, report aggregation, recurring generation, OCR parser/extraction/apply,
+  schema, sync, CI/deployment/config or secret changes.
+- Remaining #301 candidates include settlement-detail line/payment search
+  (`settlement-detail-lines-search`, `settlement-detail-payments-search`) and
+  attachment discovery (`$keyPrefix-discovery-search`), subject to separate
+  equivalence checks; other raw forms/buttons/private dialog framing, token/
+  summary styling and participant/assignment sharing remain separately scoped.
+  Domain-specific multi-selection/quantity allocation and #723 lifecycle UX
+  remain separate. #299 dashboard, #295 navigation, #409 localization, #1096
+  setup, #975 final platform acceptance and #959 parser keep independent
+  ownership. #407 flow counts and broader Day 1 completion are unchanged.
+- This ledger-only hygiene remains within logical task `20260907-1805`.
+  Report:
+  `/workspace/logs/settleora-codex-report-20260907-1805-issue-1109-mobile-discovery-search-shared-fields.md`.
+
+
 ### Issue #1106 — Group create/rename shared-dialog adoption (2026-09-07)
 
 - GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this required
