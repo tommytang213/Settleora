@@ -275,8 +275,22 @@ void main() {
         'application/pdf': 1,
         '512 bytes': 1,
         '2.0 KiB': 1,
-        '09:00:00': 3,
-        '10:00:00': 3,
+        repository.attachments.first.uploadedAtUtc
+                .toLocal()
+                .toString()
+                .split(' ')
+                .last
+                .split('.')
+                .first:
+            3,
+        repository.attachments.first.updatedAtUtc
+                .toLocal()
+                .toString()
+                .split(' ')
+                .last
+                .split('.')
+                .first:
+            3,
         date: 3,
         'Unknown type': 1,
       }.entries) {
