@@ -63,7 +63,7 @@ void main() {
                 .getSemanticsData();
             expect(node.label, 'Search payments and residuals');
             expect(node.value, value);
-            expect(node.hasFlag(SemanticsFlag.isTextField), isTrue);
+            expect(node.flagsCollection.isTextField, isTrue);
             expect(controller.text, value);
             expect(
               tester.widget<TextField>(find.byType(TextField)).controller,

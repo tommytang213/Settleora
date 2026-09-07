@@ -205,7 +205,7 @@ void main() {
         final payment = fixtures.samplePayment();
         final ids = <String>{
           request.id,
-          request.sourceExpenseBillId!,
+          request.sourceExpenseBillId,
           request.groupId!,
           request.lines.single.id,
           request.lines.single.sourceBillRevisionId!,
