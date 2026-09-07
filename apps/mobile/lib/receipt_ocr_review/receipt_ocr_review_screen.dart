@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../ui/settleora_components.dart'
     show
         AppCard,
+        AppTextField,
         MoneyText,
         StatusChip,
         SettleoraCompactHeader,
