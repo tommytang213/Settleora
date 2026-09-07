@@ -78,6 +78,7 @@ void main() {
       await tester.tap(find.byType(InkWell).first, warnIfMissed: false);
       await tester.pumpAndSettle();
       expect(find.text('Choose payer member'), findsOneWidget);
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('morgan')));
       await tester.tap(find.byKey(const Key('morgan')), warnIfMissed: false);
       await tester.pumpAndSettle();
@@ -243,11 +244,14 @@ void main() {
               of: find.byType(BottomSheet),
               matching: find.byType(Scrollable),
             )
-            .last,
+            .first,
       );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('morgan')));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.text('Morgan'), findsOneWidget);
     },
   );
 }
