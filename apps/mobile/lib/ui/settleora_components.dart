@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 
 import 'settleora_theme.dart';
 
@@ -13,6 +14,7 @@ class AppButton extends StatelessWidget {
     this.icon,
     this.variant = AppButtonVariant.primary,
     this.expanded = false,
+    this.isLoading = false,
   });
 
   final String label;
@@ -20,6 +22,9 @@ class AppButton extends StatelessWidget {
   final IconData? icon;
   final AppButtonVariant variant;
   final bool expanded;
+
+  /// Shows progress and disables both pointer and semantic activation.
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -39,20 +44,27 @@ class AppButton extends StatelessWidget {
     final border = variant == AppButtonVariant.secondary
         ? BorderSide(color: colors.borderStrong)
         : BorderSide.none;
-    final child = icon == null
+    final child = icon == null && !isLoading
         ? _AppButtonLabel(label: label)
         : Row(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 18),
+              if (isLoading)
+                const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(icon, size: 18),
               const SizedBox(width: 8),
               Flexible(child: _AppButtonLabel(label: label)),
             ],
           );
-    final isEnabled = onPressed != null;
+    final effectiveOnPressed = isLoading ? null : onPressed;
+    final isEnabled = effectiveOnPressed != null;
     final button = FilledButton(
-      onPressed: onPressed,
+      onPressed: effectiveOnPressed,
       style: FilledButton.styleFrom(
         backgroundColor: background,
         foregroundColor: foreground,
@@ -68,7 +80,8 @@ class AppButton extends StatelessWidget {
       label: label,
       button: true,
       enabled: isEnabled,
-      onTap: onPressed,
+      value: isLoading ? 'In progress' : null,
+      onTap: effectiveOnPressed,
       child: button,
     );
 
@@ -1588,6 +1601,11 @@ class AppTextField extends StatelessWidget {
     this.hintText,
     this.keyboardType,
     this.enabled = true,
+    this.helperText,
+    this.textInputAction,
+    this.maxLength,
+    this.maxLengthEnforcement,
+    this.maxLines = 1,
   });
 
   final String label;
@@ -1595,6 +1613,11 @@ class AppTextField extends StatelessWidget {
   final String? hintText;
   final TextInputType? keyboardType;
   final bool enabled;
+  final String? helperText;
+  final TextInputAction? textInputAction;
+  final int? maxLength;
+  final MaxLengthEnforcement? maxLengthEnforcement;
+  final int maxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -1602,7 +1625,15 @@ class AppTextField extends StatelessWidget {
       controller: controller,
       keyboardType: keyboardType,
       enabled: enabled,
-      decoration: InputDecoration(labelText: label, hintText: hintText),
+      textInputAction: textInputAction,
+      maxLength: maxLength,
+      maxLengthEnforcement: maxLengthEnforcement,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hintText,
+        helper: helperText == null ? null : Text(helperText!),
+      ),
     );
   }
 }
