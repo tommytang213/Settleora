@@ -1,5 +1,61 @@
 # Issue Progress Ledger
 
+### Issue #1100 — Mobile status/soft-chip consolidation (2026-09-07)
+
+- GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this required
+  ledger merge and final close-rule readback. Implementation is complete; close
+  after this hygiene merges and final source/parent evidence is verified. No
+  linked Project item exists for #1100. #301 and #372 remain **OPEN**.
+- Implementation PR [#1101](https://github.com/tommytang213/Settleora/pull/1101):
+  reviewed source `8964586e6e2bfac9251f806ab0cbb072065b0479`, normal merge
+  `61bb74483cfec1ee107637c3bcc8e81fbc6740a0`. Source branch
+  `feature/1100-mobile-status-soft-chip-consolidation-20260907-1141` retained.
+- Completed: all three in-scope private chip implementations are removed.
+  OCR queue/detail status, line readiness, Qty/Unit/Line and issue labels, plus
+  revision scope/impact labels now use neutral shared `StatusChip`. Existing
+  label expressions, icons, status mappings and callbacks are preserved.
+  Shared `wrap` is opt-in; old callers retain single-line ellipsis. The local
+  variants were equivalent static readouts except for wrapping, so no separate
+  soft-chip API or domain-specific type was introduced and none was retained.
+- Host chip widths are bounded for large text. The existing preview-panel title
+  also gains a width constraint after a 45-pixel overflow was found during the
+  required 2× issue capture. No summary-family redesign or preview logic changed.
+- Exact-source validation: doctor, pub get, analyze (no issues), **118 focused
+  tests**, **867 full mobile tests**, clean worktree, six-file scope guard,
+  diff check and scaffold all passed. Existing #840 static guardrails remain
+  intact. New production-screen/component tests cover exact labels, useful
+  nonduplicated semantics, icon/no-icon, wrapping/default clamp, 2× readability,
+  no chip tap action and unchanged OCR/revision mutation counters.
+- Thirteen branch PNGs show OCR queue/detail/line/issues and revision chips at
+  1× and 2×, plus 320-wide long labels and light/Midnight shared presentation.
+  All actual images were reviewed against repo references/tokens. Harness:
+  `apps/mobile/test/ui/status_chip_adoption_visual_capture_test.dart`.
+  Immutable evidence: `/workspace/logs/issue1100-20260907-1141/visual-8964586e/`.
+  Fresh Gemini `strong_independent` and independent local Codex passed exact
+  source and images with zero material findings; GitHub Codex and all
+  11 exact-head check entries passed with zero unresolved
+  threads and zero open PR code-scanning alerts. Existing unrelated web
+  development dependency alert #32 was unchanged, not dismissed or suppressed.
+- Post-merge proof verifies source ancestry, normal merge parents, all six
+  reviewed blobs on main, only allowed mobile files in the implementation
+  merge, and retained branch. No backend/domain, API/OpenAPI/generated-client,
+  auth/session/authz, money/split/settlement/payment, storage/privacy, schema,
+  OCR parser/extraction, sync, CI/deployment/config or secret changes entered.
+- #301 parent checkpoint: https://github.com/tommytang213/Settleora/issues/301#issuecomment-5565008486
+  Remaining #301-owned candidates are repeated raw form/button and private
+  dialog framing, token/summary styling, other consistent state-label adoption,
+  and further participant/assignment sharing only where equivalence is proven.
+  This completes the focused OCR/revision chip slice, not all component work.
+- #372 Day 1 checkpoint: https://github.com/tommytang213/Settleora/issues/372#issuecomment-5565008713
+  #299 dashboard actionability, #295 shortcuts, #409 localization, #1096 setup,
+  #975 final cross-screen/platform acceptance and #959 parser work remain with
+  their independent owners. #407's broader flow counts are unchanged; no final
+  Day 1 or whole-app visual/accessibility acceptance is claimed.
+- This is the separate ledger-only hygiene step; no additional runtime changes.
+  Task/report: `20260907-1141`,
+  `/workspace/logs/settleora-codex-report-20260907-1141-issue-1100-mobile-status-soft-chip-consolidation.md`.
+  Implementation completion checkpoint: https://github.com/tommytang213/Settleora/issues/1100#issuecomment-5565008258
+
 ### Issue #1097 — Shared mobile participant picker adoption (2026-09-07)
 
 - GitHub state: **CLOSED/completed**, after implementation merge, exact-head
