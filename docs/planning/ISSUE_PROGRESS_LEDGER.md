@@ -1,5 +1,67 @@
 # Issue Progress Ledger
 
+### Issue #1103 — Profile form shared-component adoption (2026-09-07)
+
+- GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this required
+  ledger merge and final close-rule proof. Implementation is complete; close
+  only after hygiene, reviewed-blob proof and #301/#372 reconciliation. No
+  linked Project item exists. #301 and #372 remain **OPEN**.
+- Implementation PR [#1104](https://github.com/tommytang213/Settleora/pull/1104):
+  reviewed source `3b2ed17665ced42f17c6d36b665d6132052d318c`, normal merge
+  `484912092657b9c4e22cce04303040cb8e871fe5`. Branch
+  `feature/1103-profile-form-shared-components-20260907-1548` retained.
+- All six scoped controls adopted: display name, payment handle and multiline
+  payment note use `AppTextField`; Save Profile, Save Payment Details and Cancel
+  use `AppButton` (primary saves, secondary cancel). Cancel was directly
+  equivalent; fields required only helper text, keyboard action, max length,
+  enforcement and line count; saves required `isLoading`. No scoped control
+  retained. Existing failure-panel actions and specialized selectors remain
+  outside this adoption slice.
+- Controllers, 160/320/1000 limits and enforcement, method-specific copy,
+  multiline input, focus flow, native field semantics, save/refresh/validation
+  callbacks, loaded-value cancel/reset and payment visibility behavior remain
+  unchanged. Wrapping field helpers stay readable at large text. Loading keeps
+  the action label/spinner and disables pointer and semantic actions; both saves
+  and Cancel stay disabled during either active save. Existing field editability
+  during saves is preserved. No repository or request changes.
+- Exact-head validation: clean worktree, four-file scope guard, diff check,
+  mobile doctor, pub get, analyze, **77 focused tests**, **881 full mobile
+  tests**, and scaffold passed. Tests exercise production/shared widgets,
+  limits, semantics, keyboard flow, method copy, cancel failure clearing,
+  duplicate-save guards, busy targets and existing repository interactions.
+- Thirty-two production-screen captures cover profile/payment sections and
+  actions in normal, validation/error, profile-save and payment-save states at
+  390×844/1× and 320×844/2×. Harness:
+  `apps/mobile/test/ui/profile_form_shared_controls_test.dart`.
+  Immutable evidence: `/workspace/logs/issue1103-20260907-1548/visual-3b2ed176/`,
+  with image hashes in `candidate-3b2ed176.json`. Actual images were inspected
+  against tracked Profile/More references and the approved Midnight foundation.
+  Fresh Gemini `strong_independent` and independent local Codex passed exact
+  source and images with no actionable findings. GitHub Codex and
+  11 exact-head check entries passed; zero unresolved
+  threads and zero open PR code-scanning alerts.
+- Post-merge proof verifies normal merge parents, source ancestry, all four
+  reviewed blobs on main, exact allowed files and retained branch. No backend,
+  API/OpenAPI/generated-client, auth/session/authz, payment visibility policy,
+  money/settlement, storage/privacy, schema, sync/OCR, deployment/CI/config or
+  secret changes entered. Existing unrelated web dependency alert #32 remains
+  untouched; no alerts were dismissed or suppressed.
+- Remaining #301 candidates: equivalent raw forms/buttons on other screens,
+  private dialog framing, token/summary styling, other state-label adoption and
+  further participant/assignment sharing only where equivalence is proven.
+  Domain-specific multi-selection/quantity allocation remains separate. Existing
+  selector helper/visibility-label truncation and shared button fit-down remain
+  limitations, not claims of whole-screen/platform acceptance.
+- #299 dashboard actionability, #295 navigation/shortcuts, #409 localization,
+  #1096 setup behavior, #975 final cross-screen/platform acceptance, #959 parser
+  and #966 QR/storage scope retain independent ownership. #407 flow counts and
+  broader Day 1 completion are unchanged. Final #1103/#301/#372 comments follow
+  this hygiene merge; parents stay open.
+- This ledger-only hygiene is part of logical task `20260907-1548`, not another
+  implementation slice. Report:
+  `/workspace/logs/settleora-codex-report-20260907-1548-issue-1103-profile-form-shared-components.md`.
+
+
 ### Issue #1100 — Mobile status/soft-chip consolidation (2026-09-07)
 
 - GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this required
