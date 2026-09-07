@@ -192,14 +192,17 @@ void main() {
     tester,
   ) async {
     final semantics = tester.ensureSemantics();
-    addTearDown(semantics.dispose);
-    await tester.pumpWidget(harness());
-    expect(find.bySemanticsLabel(RegExp('Paid by')), findsWidgets);
-    await tester.tap(find.byType(InkWell).first);
-    await tester.pumpAndSettle();
-    final node = tester.getSemantics(find.byKey(const Key('taylor')));
-    expect(node.flagsCollection.isSelected == Tristate.isTrue, isTrue);
-    expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+    try {
+      await tester.pumpWidget(harness());
+      expect(find.bySemanticsLabel(RegExp('Paid by')), findsWidgets);
+      await tester.tap(find.byType(InkWell).first);
+      await tester.pumpAndSettle();
+      final node = tester.getSemantics(find.byKey(const Key('taylor')));
+      expect(node.flagsCollection.isSelected == Tristate.isTrue, isTrue);
+      expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('host value and availability changes are respected while open', (
@@ -232,7 +235,16 @@ void main() {
       addTearDown(tester.view.resetViewInsets);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      await tester.ensureVisible(find.byKey(const Key('morgan')));
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('morgan')),
+        100,
+        scrollable: find
+            .descendant(
+              of: find.byType(BottomSheet),
+              matching: find.byType(Scrollable),
+            )
+            .last,
+      );
       await tester.tap(find.byKey(const Key('morgan')));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
