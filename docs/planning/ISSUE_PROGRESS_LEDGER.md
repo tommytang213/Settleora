@@ -1,5 +1,16 @@
 # Issue Progress Ledger
 
+### Issue #1128 — Group-list shared-search adoption (2026-09-08 HKT)
+
+- Implementation [PR #1129](https://github.com/tommytang213/Settleora/pull/1129), reviewed source `bfad01cf7817207e51eabd0124bb3ebab7bebada`, normal merge `25d68f136104cf00623aabe52cfdd80d8f70dcba`, starting main `7726bde47df5c43254c81afb98c95ff3b41c0409`. Branch `feature/1128-group-list-shared-search-20260908-0050` retained; historical PR #47 retains discovery/filter provenance.
+- `_GroupDiscoveryControls` adopts current `AppTextField` with existing `labelAbove`; no raw group-list search remains and no shared API extension was needed. Controller/raw value/callback, exact search and clear keys/copy/input action/icons, role/status chips/counts/intersections, visible readout, loaded rows and empty states remain unchanged.
+- Suffix Clear remains conditional on a nonempty trimmed query, clears search only through the existing callback and preserves role/status. Overall Clear remains conditional on any active query/role/status filter and uses the existing host reset for query/controller plus both filters. Search remains limited to display name, role label and membership-status label; raw IDs, repository calls, navigation and mutation behavior are unchanged.
+- Exact clean scope/diff, doctor, pub get, analyzer (no issues), **109 focused tests**, **42 additional focused tests**, **946 full mobile tests** and scaffold passed. Fresh Gemini strong_independent and independent local Codex reviewed exact source plus all **30** production images; GitHub Codex/checks/scanners passed exact head, with zero unresolved threads and zero open PR scan alerts. [Durable equivalence, validation and SHA256 image inventory](../qa/evidence/issue-1128/README.md).
+- Actual production/shared controls were captured at 390px/1× and 320px/2× across normal, name/role/status queries, both filter-only states, intersections, both clear paths, filter-preserving suffix clear, filtered empty and real focus with simulated 300px inset. This is scoped field/search acceptance, not native IME/device/screen-reader/whole-screen acceptance; #975 retains that gate.
+- Separate `group-member-search` remains on `SettleoraMemberSearchField` and unchanged. #1122 remains OPEN/manual privacy-gated and was neither implemented nor approved. #301/#372 remain open; remaining #301 work is other raw forms/buttons/private dialog framing, token/summary styling and participant/assignment sharing. Prior focused children must not be replayed.
+- No backend/API/OpenAPI/generated-client, auth/session/authz, storage/privacy policy, money/bill/settlement/payment calculation, group membership policy, schema, OCR/sync/lifecycle authority, CI/deployment/config or secret changes. Same logical task `20260908-0050` includes this ledger/static-evidence hygiene.
+- Report: `/workspace/logs/settleora-codex-report-20260908-0050-issue-1128-group-list-shared-search.md`.
+
 ### Issue #1125 — Personal/group bill-detail shared-search adoption (2026-09-08 HKT)
 
 - Pre-hygiene checkpoint: **OPEN**, close only after this same-task evidence merge and final #301/#372/main reconciliation. No linked Project item; no parent-wide acceptance.
