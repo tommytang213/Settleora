@@ -9137,6 +9137,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('bill-attachments-remove-0')),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('bill-attachments-remove-confirm')));
@@ -9176,6 +9177,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('bill-attachments-remove-0')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
       await tester.pumpAndSettle();
 
@@ -9232,6 +9234,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('bill-attachments-remove-0')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
       await tester.pumpAndSettle();
       await tester.tap(
@@ -9332,6 +9335,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('bill-attachments-remove-0')),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('bill-attachments-remove-confirm')));
@@ -9395,6 +9399,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('bill-attachments-remove-0')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('bill-attachments-remove-0')));
       await tester.pumpAndSettle();
       await tester.tap(
@@ -9454,6 +9459,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('bill-attachments-download-0')),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('bill-attachments-download-0')));
     await tester.pumpAndSettle();
 
@@ -9502,6 +9508,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('bill-attachments-download-0')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const ValueKey('bill-attachments-download-0')),
       );
@@ -9608,6 +9615,7 @@ void main() {
       await tester.ensureVisible(
         find.byKey(const ValueKey('bill-attachments-download-0')),
       );
+      await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const ValueKey('bill-attachments-download-0')),
       );
@@ -11045,6 +11053,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const ValueKey('bill-attachments-ocr-0')),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('bill-attachments-ocr-0')));
     await tester.pumpAndSettle();
 
