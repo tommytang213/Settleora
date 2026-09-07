@@ -242,10 +242,7 @@ void main() {
         final card = find
             .ancestor(of: primary, matching: find.byType(AppCard))
             .first;
-        expect(
-          tester.getSize(primary).width,
-          greaterThan(tester.getSize(card).width - 50),
-        );
+        expect(tester.getSize(primary).width, tester.getSize(card).width - 24);
         expect(tester.getSize(primary).height, greaterThanOrEqualTo(48));
         expect(find.bySemanticsLabel(c.label), findsOneWidget);
         expect(
@@ -298,6 +295,54 @@ void main() {
       },
     );
   }
+
+  testWidgets(
+    'single-row busy guard disables retained bulk and rejects stale activation',
+    (tester) async {
+      final repository = _HeldRepository(
+        notifications: [
+          cases.last.row,
+          f.sampleNotification(id: 'second'),
+        ],
+      );
+      await _mount(tester, repository);
+      await _show(tester, _bulk);
+      final staleBulk = tester.widget<TextButton>(_bulk).onPressed!;
+      final markOne = find.byKey(const ValueKey('notification-mark-read-0'));
+      await _show(tester, markOne);
+      await tester.tap(markOne);
+      await tester.pump();
+      await _show(tester, _bulk, busy: true);
+      expect(tester.widget<TextButton>(_bulk).onPressed, isNull);
+      expect(
+        find.descendant(
+          of: _bulk,
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsNothing,
+      );
+      staleBulk();
+      await tester.tap(_bulk);
+      await tester.pump();
+      expect(repository.events, [
+        'summary',
+        'list',
+        'mark:${cases.last.row.id}',
+      ]);
+      repository.release.complete();
+      await tester.pumpAndSettle();
+      expect(repository.markReadIds, [cases.last.row.id]);
+      expect(repository.events, [
+        'summary',
+        'list',
+        'mark:${cases.last.row.id}',
+        'summary',
+        'list',
+      ]);
+      expect(tester.widget<TextButton>(_bulk).onPressed, isNotNull);
+      expect(find.text('Unread (1)'), findsOneWidget);
+    },
+  );
 
   for (final viewport in [(390.0, 1.0), (320.0, 2.0)]) {
     testWidgets(
