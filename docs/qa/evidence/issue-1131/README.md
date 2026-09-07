@@ -29,8 +29,8 @@ All commands below passed on clean implementation source `ca55c0298fb9c8fdfcdbcc
 | `PATH=/opt/flutter/bin:$PATH npm run doctor:mobile` | PASS |
 | `cd apps/mobile && /opt/flutter/bin/flutter pub get` | PASS; dependency update notices informational |
 | `cd apps/mobile && /opt/flutter/bin/flutter analyze` | PASS, no issues |
-| focused Profile/Monthly report/Notification/shared-button/visual suite | PASS, 145 tests |
-| independent focused Profile/Monthly report/Notification suite | PASS, 89 tests |
+| `cd apps/mobile && /opt/flutter/bin/flutter test test/profile_screen_test.dart test/monthly_report_screen_test.dart test/notification_screen_test.dart test/ui/settleora_component_guardrail_test.dart test/ui/sign_in_required_state_actions_test.dart test/ui/profile_shared_visual_foundation_capture_test.dart test/ui/reports_money_fields_visual_capture_test.dart test/ui/notifications_shared_primitives_visual_capture_test.dart` | PASS, 145 tests |
+| `cd apps/mobile && /opt/flutter/bin/flutter test --no-pub test/profile_screen_test.dart test/monthly_report_screen_test.dart test/notification_screen_test.dart` | PASS, 89 tests |
 | `PATH=/opt/flutter/bin:$PATH npm run validate:mobile` | PASS, 955 tests |
 | `npm run validate:scaffold` | PASS, 19 paths |
 
