@@ -1,5 +1,76 @@
 # Issue Progress Ledger
 
+### Issue #1115 — Settlement-detail search shared-field adoption (2026-09-07)
+
+- GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this ledger
+  merge, final reviewed-blob proof and #301/#372 reconciliation. No linked
+  Project item exists. #301 and #372 remain **OPEN**.
+- Implementation PR [#1116](https://github.com/tommytang213/Settleora/pull/1116):
+  reviewed source `b8716002eef7876b5b6ac3c81f2a408fa1bfa081`, normal merge
+  `3f038dfc5bad914c1c2f1a4176e675842b968592`. Branch
+  `feature/1115-settlement-detail-search-shared-fields-20260907-1954` retained.
+- Both request-line and payment/residual searches adopt `AppTextField`; neither
+  remains a raw local field. Exact keys, clear keys and product labels remain
+  unchanged, as do `_lineSearchController`/`_paymentSearchController` ownership,
+  listeners/disposal, raw values, trimming/normalization, local predicates,
+  filter counts/selection, clear/reset and filtered-empty behavior. Line clear
+  affects only line query; payment clear resets payment query and filter to All.
+- A generic opt-in `labelAbove` presentation (default false) was needed after
+  actual 320px/2× captures showed a three-line floating label/value collision.
+  It wraps the theme label above the input with one associated semantic label;
+  label taps focus the native field, semantic bounds cover label plus input,
+  and the clear button stays beside the input. These address two GitHub Codex
+  P2 findings with fresh exact-head validation/reviews and geometry/focus tests;
+  existing `wrapLabel` and other shared consumers retain their defaults. No
+  settlement types, filtering or business logic entered the shared component.
+- Exact-head validation passed: clean worktree, four-file scope/byte-boundary
+  proof, diff guard, mobile doctor, pub get, analyze (no issues), **96 focused
+  tests**, **930 full mobile tests** and scaffold. Regressions exercise actual
+  production/shared controls, stable controllers/raw values, exact labels/keys,
+  native input action/focus, single clear transition, useful semantics, 48dp+
+  clear targets, label/value geometry, unchanged safe loaded-data search,
+  payment filter/count intersections and residual/actionability. Twelve raw
+  settlement/bill/group/line/revision/candidate/profile/payment/residual/allocation
+  identifiers are excluded from both searches. Search/clear/filter interactions
+  leave every fake repository read/mutation counter unchanged. Existing exact
+  residual-confirm target and settlement action tests remain green.
+- Twenty-two production PNGs cover both fields normal/populated/filtered-empty/
+  clear/focused and payment filter+query at 390px/1× and 320px/2×. Harness:
+  `apps/mobile/test/ui/settlement_detail_search_shared_fields_test.dart`.
+  Immutable evidence: `/workspace/logs/issue1115-20260907-1954/visual-b8716002/`;
+  SHA256 inventory `candidate-b8716002.json`. All images inspected against
+  current Settle/shared references. Keyboard evidence uses real focus with a
+  simulated 300px inset, not native keyboard pixels.
+- Visual limits: 390px captures use receiver; 320px captures use payer. A
+  separate unchanged-main baseline reproduces preexisting receiver residual-row
+  overflow/compressed text beside Confirm remaining at 320px/2×. That action
+  refactor is outside #1115; its unsuppressed baseline log is retained under the
+  task evidence root. Existing surrounding payment-date/row wrapping and
+  horizontal filter scrolling remain separate. This completes scoped search
+  field/clear QA, not whole-screen receiver-action or native accessibility
+  acceptance. Those #301/#975 obligations remain open.
+- Fresh Gemini `strong_independent` and independent local Codex passed the
+  exact implementation source and all images. Fresh GitHub Codex passed that
+  head; all implementation checks/scanners succeeded, zero unresolved threads
+  and zero open PR code-scanning alerts. No findings suppressed or waived.
+- Post-merge proof verifies normal merge parents, source ancestry, all four
+  reviewed blobs on main and retained branch. Source outside detail-search
+  presentation and `AppTextField` is byte-identical to base. No backend/domain/
+  API/OpenAPI/generated-client, auth/session/authz, storage/privacy, money/
+  settlement/payment/bill calculation, payment-details visibility policy,
+  schema, sync/OCR, CI/deployment/config or secret changes.
+- Remaining #301 candidates: attachment discovery (`$keyPrefix-discovery-search`)
+  requires its own equivalence check; other raw forms/buttons/private dialog
+  framing, token/summary styling and participant/assignment sharing remain.
+  Domain-specific multi-selection/quantity allocation and #723 lifecycle UX
+  stay separate. #299 dashboard, #295 navigation, #409 localization, #1096 setup,
+  #975 final platform acceptance and #959 parser keep independent ownership.
+  Prior focused #301 children remain complete; list settlement discovery #1109
+  was not replayed; #407 flow counts and broader Day 1 scope are unchanged.
+- Separate ledger-only hygiene remains in logical task `20260907-1954`.
+  Report:
+  `/workspace/logs/settleora-codex-report-20260907-1954-issue-1115-settlement-detail-search-shared-fields.md`.
+
 ### Issue #1112 — Notification action-button shared-component adoption (2026-09-07)
 
 - GitHub state at this pre-hygiene checkpoint: **OPEN**, pending this ledger
