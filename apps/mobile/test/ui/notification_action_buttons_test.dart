@@ -82,7 +82,7 @@ Future<void> _mount(
       key: _capture,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        navigatorObservers: [if (observer != null) observer],
+        navigatorObservers: [?observer],
         theme: SettleoraTheme.light(),
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(
@@ -274,9 +274,12 @@ void main() {
         final staleOpen = tester.widget<AppButton>(sharedFinder).onPressed!;
         final node = tester.getSemantics(find.bySemanticsLabel(c.label));
         await tester.tap(primary);
-        tester.binding.pipelineOwner.semanticsOwner!.performAction(
-          node.id,
-          ui.SemanticsAction.tap,
+        tester.binding.performSemanticsAction(
+          ui.SemanticsActionEvent(
+            type: ui.SemanticsAction.tap,
+            nodeId: node.id,
+            viewId: tester.view.viewId,
+          ),
         );
         staleOpen();
         await tester.pumpAndSettle();
@@ -335,9 +338,12 @@ void main() {
         await _captureImage(tester, 'bulk-idle-$tag');
         final staleCallback = tester.widget<TextButton>(_bulk).onPressed!;
         final node = tester.getSemantics(_bulk);
-        tester.binding.pipelineOwner.semanticsOwner!.performAction(
-          node.id,
-          ui.SemanticsAction.tap,
+        tester.binding.performSemanticsAction(
+          ui.SemanticsActionEvent(
+            type: ui.SemanticsAction.tap,
+            nodeId: node.id,
+            viewId: tester.view.viewId,
+          ),
         );
         staleCallback();
         await tester.tap(_bulk);
