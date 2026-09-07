@@ -433,7 +433,7 @@ void main() {
 
       expect(find.text('You accepted'), findsWidgets);
       await tester.scrollUntilVisible(
-        find.text('You rejected').first,
+        find.text('You rejected'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
