@@ -1857,16 +1857,15 @@ class _DetailSearchControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
-          child: TextField(
+          child: AppTextField(
             key: searchKey,
             controller: controller,
-            decoration: InputDecoration(
-              labelText: label,
-              prefixIcon: const Icon(Icons.search_outlined),
-              border: const OutlineInputBorder(),
-            ),
+            label: label,
+            labelAbove: true,
+            prefixIcon: const Icon(Icons.search_outlined),
           ),
         ),
         if (hasActiveDiscovery) ...[

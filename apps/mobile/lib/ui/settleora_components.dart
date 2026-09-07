@@ -1613,9 +1613,13 @@ class AppTextField extends StatelessWidget {
     this.suffixIcon,
     this.onChanged,
     this.wrapLabel = false,
+    this.labelAbove = false,
   });
 
   final String label;
+
+  /// Keeps long labels clear of the editable value at narrow widths.
+  final bool labelAbove;
   final bool wrapLabel;
   final TextEditingController? controller;
   final String? hintText;
@@ -1633,7 +1637,8 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final field = TextField(
+    Widget buildField([FocusNode? focusNode]) => TextField(
+      focusNode: focusNode,
       controller: controller,
       onChanged: onChanged,
       keyboardType: keyboardType,
@@ -1644,14 +1649,22 @@ class AppTextField extends StatelessWidget {
       maxLengthEnforcement: maxLengthEnforcement,
       maxLines: maxLines,
       decoration: InputDecoration(
-        labelText: wrapLabel ? null : label,
-        label: wrapLabel ? Text(label) : null,
+        labelText: labelAbove || wrapLabel ? null : label,
+        label: !labelAbove && wrapLabel ? Text(label) : null,
         prefixIcon: prefixIcon,
         suffixIcon: suffixIcon,
         hintText: hintText,
         helper: helperText == null ? null : Text(helperText!),
       ),
     );
+    if (labelAbove) {
+      return _AppTextFieldAboveLabel(
+        label: label,
+        enabled: enabled,
+        buildField: buildField,
+      );
+    }
+    final field = buildField();
     if (!wrapLabel) return field;
     // A wrapped floating label can extend above the native field bounds.
     // Reserve one scaled label line so scrolling cannot clip it at the top.
@@ -1660,6 +1673,58 @@ class AppTextField extends StatelessWidget {
       child: field,
     );
   }
+}
+
+class _AppTextFieldAboveLabel extends StatefulWidget {
+  const _AppTextFieldAboveLabel({
+    required this.label,
+    required this.enabled,
+    required this.buildField,
+  });
+
+  final String label;
+  final bool enabled;
+  final Widget Function(FocusNode) buildField;
+
+  @override
+  State<_AppTextFieldAboveLabel> createState() =>
+      _AppTextFieldAboveLabelState();
+}
+
+class _AppTextFieldAboveLabelState extends State<_AppTextFieldAboveLabel> {
+  final _focusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: widget.label,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          excludeFromSemantics: true,
+          onTap: widget.enabled ? _focusNode.requestFocus : null,
+          child: ExcludeSemantics(
+            child: Text(
+              widget.label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: context.settleoraColors.textMuted,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        widget.buildField(_focusNode),
+      ],
+    ),
+  );
 }
 
 /// Display-only choice. Hosts supply eligible values and product-facing text.

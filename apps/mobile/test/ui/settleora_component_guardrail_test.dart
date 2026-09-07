@@ -8,6 +8,124 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 
 void main() {
+  testWidgets(
+    'above-field labels wrap without overlap or duplicate semantics',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = TextEditingController();
+      final edits = <String>[];
+      try {
+        await setSettleoraMobileViewport(tester, width: 320);
+        for (final theme in [
+          SettleoraTheme.light(),
+          SettleoraTheme.midnight(),
+        ]) {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: theme,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(2)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: 232,
+                    child: AppTextField(
+                      key: const Key('above-label'),
+                      label: 'Search payments and residuals',
+                      labelAbove: true,
+                      controller: controller,
+                      prefixIcon: const Icon(Icons.search),
+                      onChanged: edits.add,
+                      textInputAction: TextInputAction.search,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          for (final value in ['', '  Mixed query  ']) {
+            await tester.enterText(find.byType(TextField), value);
+            await tester.pumpAndSettle();
+            expect(
+              tester.getRect(find.text('Search payments and residuals')).bottom,
+              lessThan(tester.getRect(find.byType(TextField)).top),
+            );
+            final node = tester
+                .getSemantics(
+                  find.bySemanticsLabel('Search payments and residuals'),
+                )
+                .getSemanticsData();
+            expect(node.label, 'Search payments and residuals');
+            expect(node.value, value);
+            expect(node.flagsCollection.isTextField, isTrue);
+            expect(controller.text, value);
+            expect(
+              tester.widget<TextField>(find.byType(TextField)).controller,
+              same(controller),
+            );
+            expect(
+              tester
+                  .widget<EditableText>(find.byType(EditableText))
+                  .focusNode
+                  .hasFocus,
+              isTrue,
+            );
+            expect(tester.takeException(), isNull);
+          }
+          await tester.testTextInput.receiveAction(TextInputAction.search);
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<EditableText>(find.byType(EditableText))
+                .focusNode
+                .hasFocus,
+            isFalse,
+          );
+          final fieldRect = tester.getRect(find.byType(TextField));
+          final labelRect = tester.getRect(
+            find.text('Search payments and residuals'),
+          );
+          final semanticNode = tester.getSemantics(
+            find.bySemanticsLabel('Search payments and residuals'),
+          );
+          expect(
+            semanticNode.rect.height,
+            greaterThanOrEqualTo(fieldRect.height + labelRect.height + 8),
+          );
+          await tester.tap(find.text('Search payments and residuals'));
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<EditableText>(find.byType(EditableText))
+                .focusNode
+                .hasFocus,
+            isTrue,
+          );
+          expect(tester.testTextInput.isVisible, isTrue);
+          expect(
+            tester
+                .getSemantics(
+                  find.bySemanticsLabel('Search payments and residuals'),
+                )
+                .getSemanticsData()
+                .label,
+            'Search payments and residuals',
+          );
+        }
+        expect(edits, ['  Mixed query  ', '', '  Mixed query  ']);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+        semantics.dispose();
+      }
+    },
+  );
   test('built-in light palette keeps readable warm-fintech token pairs', () {
     const colors = SettleoraColors.light;
     final primaryHue = HSVColor.fromColor(colors.primary).hue;
