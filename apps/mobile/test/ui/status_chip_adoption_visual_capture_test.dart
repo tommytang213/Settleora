@@ -3,7 +3,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/bills/bill_revision_review_screen.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -306,7 +305,7 @@ void _expectStatic(WidgetTester tester, String label) {
   expect(nodes, findsOneWidget);
   final data = tester.getSemantics(nodes).getSemanticsData();
   expect(data.hasAction(SemanticsAction.tap), isFalse);
-  expect(data.hasFlag(SemanticsFlag.isButton), isFalse);
+  expect(data.flagsCollection.isButton, isFalse);
 }
 
 Future<void> _setup(WidgetTester tester, {double width = 390}) async {
