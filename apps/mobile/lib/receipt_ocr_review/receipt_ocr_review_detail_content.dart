@@ -852,7 +852,13 @@ class _ReceiptOcrReviewHeader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                _StatusChip(label: receiptOcrReviewStatusLabel(review.status)),
+                Flexible(
+                  child: StatusChip(
+                    label: receiptOcrReviewStatusLabel(review.status),
+                    icon: Icons.pending_actions_outlined,
+                    wrap: true,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -1347,11 +1353,14 @@ class _ReceiptOcrReviewLineTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  _SoftChip(
-                    label: readiness,
-                    icon: total == null
-                        ? Icons.report_problem_outlined
-                        : Icons.check_circle_outline,
+                  Flexible(
+                    child: StatusChip(
+                      wrap: true,
+                      label: readiness,
+                      icon: total == null
+                          ? Icons.report_problem_outlined
+                          : Icons.check_circle_outline,
+                    ),
                   ),
                 ],
               ),
@@ -1360,15 +1369,18 @@ class _ReceiptOcrReviewLineTile extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  _SoftChip(
+                  StatusChip(
+                    wrap: true,
                     label: 'Qty ${quantity ?? 'needs review'}',
                     icon: Icons.confirmation_number_outlined,
                   ),
-                  _SoftChip(
+                  StatusChip(
+                    wrap: true,
                     label: 'Unit ${unit ?? 'needs review'}',
                     icon: Icons.sell_outlined,
                   ),
-                  _SoftChip(
+                  StatusChip(
+                    wrap: true,
                     label: 'Line ${total ?? 'needs review'}',
                     icon: Icons.payments_outlined,
                   ),
@@ -1641,11 +1653,13 @@ class _PreviewSummary extends StatelessWidget {
                   size: 20,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  preview.canApply
-                      ? 'Ready for confirmation'
-                      : 'Review needed before apply',
-                  style: Theme.of(context).textTheme.titleSmall,
+                Expanded(
+                  child: Text(
+                    preview.canApply
+                        ? 'Ready for confirmation'
+                        : 'Review needed before apply',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                 ),
               ],
             ),
@@ -1796,7 +1810,8 @@ class _IssueWrap extends StatelessWidget {
               Semantics(
                 container: true,
                 label: _ocrReviewIssueSemanticLabel,
-                child: _SoftChip(
+                child: StatusChip(
+                  wrap: true,
                   label: receiptOcrReviewIssueLabel(issue),
                   icon: Icons.info_outline,
                 ),

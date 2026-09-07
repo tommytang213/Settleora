@@ -112,12 +112,17 @@ class StatusChip extends StatelessWidget {
     this.icon,
     this.variant = StatusChipVariant.neutral,
     this.size = StatusChipSize.regular,
+    this.wrap = false,
   });
 
   final String label;
   final IconData? icon;
   final StatusChipVariant variant;
   final StatusChipSize size;
+
+  /// Allow the full label to wrap when the host provides a bounded width.
+  /// Compact callers retain their existing single-line ellipsis by default.
+  final bool wrap;
 
   @override
   Widget build(BuildContext context) {
@@ -155,8 +160,10 @@ class StatusChip extends StatelessWidget {
                 Flexible(
                   child: Text(
                     label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: wrap ? null : 1,
+                    overflow: wrap
+                        ? TextOverflow.visible
+                        : TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: foreground,
                       fontWeight: FontWeight.w800,

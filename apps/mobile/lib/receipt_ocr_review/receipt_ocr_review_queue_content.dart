@@ -400,7 +400,13 @@ class _ReceiptOcrReviewSummaryTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    _StatusChip(label: status),
+                    Flexible(
+                      child: StatusChip(
+                        label: status,
+                        icon: Icons.pending_actions_outlined,
+                        wrap: true,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
