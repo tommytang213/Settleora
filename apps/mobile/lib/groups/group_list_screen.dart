@@ -1063,27 +1063,11 @@ class _MemberDiscoveryControls extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          key: const Key('group-member-search'),
+        SettleoraMemberSearchField(
+          searchKey: const Key('group-member-search'),
+          clearSearchKey: const Key('group-member-search-clear'),
           controller: searchController,
           onChanged: onSearchChanged,
-          textInputAction: TextInputAction.search,
-          decoration: InputDecoration(
-            labelText: 'Search members',
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.search),
-            suffixIcon: searchController.text.trim().isEmpty
-                ? null
-                : IconButton(
-                    key: const Key('group-member-search-clear'),
-                    tooltip: 'Clear search',
-                    onPressed: () {
-                      searchController.clear();
-                      onSearchChanged('');
-                    },
-                    icon: const Icon(Icons.close),
-                  ),
-          ),
         ),
         const SizedBox(height: 10),
         Row(
