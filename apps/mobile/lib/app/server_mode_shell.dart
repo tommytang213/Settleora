@@ -1745,7 +1745,14 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('App settings')),
+      appBar: AppBar(
+        title: const Text('App settings'),
+        actions: const [
+          SettleoraContextualHelpAction(
+            topic: SettleoraHelpTopic.settingsSecurity,
+          ),
+        ],
+      ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -1887,6 +1894,9 @@ class _DashboardDataSafetySection extends StatelessWidget {
 
     return SettleoraSection(
       title: 'Data safety',
+      trailing: const SettleoraContextualHelpAction(
+        topic: SettleoraHelpTopic.backupRestore,
+      ),
       children: [
         SettleoraInlinePanel(
           key: const Key('server-shell-data-safety-panel'),
