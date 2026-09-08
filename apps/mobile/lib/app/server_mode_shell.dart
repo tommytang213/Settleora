@@ -11,6 +11,7 @@ import '../bills/bill_repository.dart';
 import '../bills/bill_sync_controller.dart';
 import '../future_bills/future_bill_repository.dart';
 import '../groups/group_list_screen.dart';
+import '../help/contextual_help.dart';
 import '../groups/group_repository.dart';
 import '../manual_finance/manual_finance_repository.dart';
 import '../manual_finance/manual_finance_screen.dart';
@@ -580,6 +581,9 @@ class _SettleoraAuthenticatedServerShellState
           ? AppBar(
               title: const Text('Settleora'),
               actions: [
+                const SettleoraContextualHelpAction(
+                  topic: SettleoraHelpTopic.dashboard,
+                ),
                 IconButton(
                   key: const Key('server-shell-notifications-appbar'),
                   tooltip: 'Notifications',
