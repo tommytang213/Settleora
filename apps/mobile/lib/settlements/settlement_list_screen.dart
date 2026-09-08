@@ -988,7 +988,7 @@ class _SettleoraSettlementDetailScreenState
   }
 }
 
-class _SettlementDiscoveryControls extends StatelessWidget {
+class _SettlementDiscoveryControls extends StatefulWidget {
   const _SettlementDiscoveryControls({
     required this.controller,
     required this.selectedFilter,
@@ -1006,13 +1006,49 @@ class _SettlementDiscoveryControls extends StatelessWidget {
   final VoidCallback onClear;
 
   @override
+  State<_SettlementDiscoveryControls> createState() =>
+      _SettlementDiscoveryControlsState();
+}
+
+class _SettlementDiscoveryControlsState
+    extends State<_SettlementDiscoveryControls> {
+  final GlobalKey _selectedFilterAnchorKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _revealSelectedFilter();
+  }
+
+  @override
+  void didUpdateWidget(_SettlementDiscoveryControls oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedFilter != widget.selectedFilter) {
+      _revealSelectedFilter();
+    }
+  }
+
+  void _revealSelectedFilter() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final selectedContext = _selectedFilterAnchorKey.currentContext;
+      if (!mounted || selectedContext == null) {
+        return;
+      }
+      Scrollable.ensureVisible(
+        selectedContext,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return SettleoraSection(
       title: 'Find settlements',
-      trailing: hasActiveDiscovery
+      trailing: widget.hasActiveDiscovery
           ? TextButton.icon(
               key: const Key('settlement-list-clear-filters'),
-              onPressed: onClear,
+              onPressed: widget.onClear,
               icon: const Icon(Icons.close_outlined),
               label: const Text('Clear'),
             )
@@ -1021,7 +1057,7 @@ class _SettlementDiscoveryControls extends StatelessWidget {
         AppTextField(
           key: const Key('settlement-list-search'),
           wrapLabel: true,
-          controller: controller,
+          controller: widget.controller,
           label: 'Search settlements',
           prefixIcon: Icon(Icons.search_outlined),
         ),
@@ -1032,12 +1068,17 @@ class _SettlementDiscoveryControls extends StatelessWidget {
             children: [
               for (final filter in _SettlementRequestFilter.values)
                 Padding(
+                  key: widget.selectedFilter == filter
+                      ? _selectedFilterAnchorKey
+                      : null,
                   padding: const EdgeInsets.only(right: 8),
                   child: FilterChip(
                     key: Key('settlement-list-filter-${filter.key}'),
-                    selected: selectedFilter == filter,
-                    onSelected: (_) => onFilterSelected(filter),
-                    label: Text('${filter.label} (${counts.count(filter)})'),
+                    selected: widget.selectedFilter == filter,
+                    onSelected: (_) => widget.onFilterSelected(filter),
+                    label: Text(
+                      '${filter.label} (${widget.counts.count(filter)})',
+                    ),
                   ),
                 ),
             ],

@@ -430,6 +430,10 @@ void main() {
     testWidgets('settlement initial ${testCase.name} view stays clearable', (
       tester,
     ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final repository = FakeSettlementRepository(
         requests: [
           sampleRequest(),
@@ -462,6 +466,12 @@ void main() {
             .selected,
         isTrue,
       );
+      final filterViewport = tester.getRect(find.byType(SingleChildScrollView));
+      final selectedFilter = tester.getRect(
+        find.byKey(Key('settlement-list-filter-${testCase.filterKey}')),
+      );
+      expect(selectedFilter.left, greaterThanOrEqualTo(filterViewport.left));
+      expect(selectedFilter.right, lessThanOrEqualTo(filterViewport.right));
       expect(find.text(testCase.visibleAmount), findsOneWidget);
       expect(find.text(testCase.hiddenAmount), findsNothing);
 
