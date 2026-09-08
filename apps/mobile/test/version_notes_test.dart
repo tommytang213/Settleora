@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/app/app_configuration.dart';
 import 'package:mobile/app/secure_storage.dart';
@@ -256,6 +257,14 @@ void main() {
     await tester.tap(find.byKey(const Key('whats-new-close')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('bootstrap-connect-server')), findsOneWidget);
+    final localLauncher = find.byKey(const Key('bootstrap-whats-new'));
+    expect(localLauncher, findsOneWidget);
+    await tester.tap(localLauncher);
+    await tester.pumpAndSettle();
+    expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
+    await tester.tap(find.byKey(const Key('whats-new-close')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<AppButton>(localLauncher).focusNode?.hasFocus, isTrue);
   });
 
   testWidgets('settings reopens the same seen notes and returns focus', (
@@ -288,10 +297,19 @@ void main() {
     await tester.tap(find.byKey(const Key('whats-new-close')));
     await tester.pumpAndSettle();
 
-    final focus = tester.widget<Focus>(
-      find.ancestor(of: launcher, matching: find.byType(Focus)).first,
+    final launcherFocus = find.descendant(
+      of: launcher,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Focus &&
+            widget.focusNode?.debugLabel == 'settings-whats-new',
+      ),
     );
-    expect(focus.focusNode?.hasFocus, isTrue);
+    expect(launcherFocus, findsOneWidget);
+    expect(tester.widget<Focus>(launcherFocus).focusNode?.hasFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
   });
 
   testWidgets('long localized-style notes scroll safely at 320px and 2x', (

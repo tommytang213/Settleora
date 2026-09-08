@@ -1761,18 +1761,16 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
                           _MoreHubSection(
                             title: 'About this app',
                             children: [
-                              Focus(
+                              SettingsRow(
+                                key: const Key('settings-whats-new'),
+                                icon: Icons.auto_awesome_outlined,
+                                title: "What's New",
+                                subtitle:
+                                    'Read the bundled notes for this Settleora version.',
+                                statusLabel: 'Current version',
+                                statusVariant: StatusChipVariant.info,
                                 focusNode: _whatsNewFocusNode,
-                                child: SettingsRow(
-                                  key: const Key('settings-whats-new'),
-                                  icon: Icons.auto_awesome_outlined,
-                                  title: "What's New",
-                                  subtitle:
-                                      'Read the bundled notes for this Settleora version.',
-                                  statusLabel: 'Current version',
-                                  statusVariant: StatusChipVariant.info,
-                                  onTap: _openWhatsNew,
-                                ),
+                                onTap: _openWhatsNew,
                               ),
                             ],
                           ),

@@ -35,6 +35,7 @@ import '../sync/generated_sync_repository.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
 import '../sync/sync_repository.dart';
+import '../ui/settleora_components.dart';
 import 'app_configuration.dart';
 import 'auth_session_repository.dart';
 import 'local_data_backup.dart';
@@ -198,6 +199,9 @@ class SettleoraAppBootstrap extends StatefulWidget {
 }
 
 class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
+  final FocusNode _localWhatsNewFocusNode = FocusNode(
+    debugLabel: 'bootstrap-whats-new',
+  );
   _BootstrapSnapshot? _snapshot;
   bool _isLoading = true;
   bool _loadFailed = false;
@@ -341,6 +345,22 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     });
   }
 
+  Future<void> _openLocalWhatsNew() async {
+    await showSettleoraVersionNotes(
+      context: context,
+      notes: widget.versionNotes,
+    );
+    if (mounted) {
+      _localWhatsNewFocusNode.requestFocus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _localWhatsNewFocusNode.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SettleoraVersionNotesAutoPresenter(
@@ -391,11 +411,27 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
         title: 'Local Mode',
         message:
             'Local Mode is device-bound and does not create or link a server account. Shared groups, collaboration, server sync, server backup, import/export, cloud recovery, and automatic migration are not available here. Moving to server mode will be a future explicit guided flow.',
-        action: FilledButton.icon(
-          key: const Key('bootstrap-connect-server'),
-          onPressed: _editConfiguration,
-          icon: const Icon(Icons.cloud_outlined),
-          label: const Text('Connect to Server'),
+        action: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              key: const Key('bootstrap-connect-server'),
+              onPressed: _editConfiguration,
+              icon: const Icon(Icons.cloud_outlined),
+              label: const Text('Connect to Server'),
+            ),
+            if (widget.versionNotes?.isUsable ?? false)
+              AppButton(
+                key: const Key('bootstrap-whats-new'),
+                label: "Read What's New",
+                icon: Icons.auto_awesome_outlined,
+                variant: AppButtonVariant.secondary,
+                focusNode: _localWhatsNewFocusNode,
+                onPressed: _openLocalWhatsNew,
+              ),
+          ],
         ),
       );
     }
