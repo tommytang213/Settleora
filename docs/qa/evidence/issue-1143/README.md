@@ -13,11 +13,12 @@ This directory preserves the exact branch-rendered evidence reviewed for Issue
 - Normal merge: `e81d0d2082e93bc4c233f2e86731c3cfcb47ee30`
 
 Both receipt-review edit actions were equivalent to `AppButton` except for a
-minimal generic semantic-label capability. Cancel adopts the secondary variant;
+minimal generic semantic-label override. Cancel adopts the secondary variant;
 Save adopts the primary variant and uses `isLoading` only while saving. No raw
-Save/Cancel action was retained. `AppButton` now accepts optional
-`semanticLabel` and `focusNode` values; every existing caller retains its prior
-visible-label semantics and internally owned focus by default.
+Save/Cancel action was retained. The initial migration added optional
+`semanticLabel`; a corrective focus-visibility review then added optional
+`focusNode` forwarding. Every existing caller retains its prior visible-label
+semantics and internally owned focus by default.
 
 ## Complete pre-edit equivalence inventory
 
@@ -33,10 +34,12 @@ visible-label semantics and internally owned focus by default.
 | Focus/tap | first action before Save; themed 48dp minimum | second action; themed 48dp minimum | Same traversal/order and 48dp+ targets; supplied focus nodes only keep the row visible at narrow/2× |
 | Tests/captures | existing accessibility/busy/cancel tests | existing validation/request/save/busy tests | Focused shared tests plus ten production captures cover both controls and all requested states |
 
-The Tooltips use `excludeFromSemantics: true`; `AppButton` remains the single
-semantic button node. Its semantic label defaults to the visible `label` for
-all callers and can differ only when explicitly supplied. `_SemanticButtonLabel`
-was not removed and still serves unchanged delete/apply/confirmation controls.
+The new host Tooltip wrappers replace the migrated controls' helper-owned
+Tooltips while reusing the exact prior messages. They use
+`excludeFromSemantics: true`; `AppButton` remains the single semantic button
+node. Its semantic label defaults to the visible `label` for all callers and
+can differ only when explicitly supplied. `_SemanticButtonLabel` was not
+removed and still serves unchanged delete/apply/confirmation controls.
 
 ## Behavior and authority proof
 
