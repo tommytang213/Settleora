@@ -34,7 +34,7 @@ screen acceptance.
   reproducible branch-rendered fixtures exist, not that [#407](https://github.com/tommytang213/Settleora/issues/407) rendered or approved
   unseen UI. No new Figma or screenshots were required or created here.
 
-Totals: **60 rows — complete 4, partial 38, missing 8, blocked 10**.
+Totals: **60 rows — complete 5, partial 37, missing 8, blocked 10**.
 
 ## Canonical inventory
 
@@ -110,13 +110,13 @@ Totals: **60 rows — complete 4, partial 38, missing 8, blocked 10**.
 
 ### M09 — Home dashboard and actionable metrics
 
-- Status: `partial`. Requirement/reference: PRD: dashboard; Shell.
-- Source: [_DashboardMetricChip](../../apps/mobile/lib/app/server_mode_shell.dart).
-- Tests: [server_mode_shell_dashboard_test.dart](../../apps/mobile/test/server_mode_shell_dashboard_test.dart): `dashboard overview renders repository summaries`; [server_mode_shell_dashboard_test.dart](../../apps/mobile/test/server_mode_shell_dashboard_test.dart): `dashboard cards navigate to existing mobile surfaces`; [server_mode_shell_dashboard_test.dart](../../apps/mobile/test/server_mode_shell_dashboard_test.dart): `dashboard retries bounded load failures`.
-- States: E honest empty sections; L overview loading; R retry/stale overview; D unavailable repositories; O stale warning, not hydrated cache.
-- Accessibility/visual: Historical [#672](https://github.com/tommytang213/Settleora/issues/672) shell capture; static cards and route semantics need focused actionability comparison.
-- Owner: [#299](https://github.com/tommytang213/Settleora/issues/299). Remaining: Home is a dashboard, not a missing menu replacement. Reconcile static summary affordances and meaningful filtered metric handoffs; Accounts & income already has More access, but its broader Day 1 product scope is unapproved (retired M40 below); do not infer new finance requirements from discoverability work.
-- Gate/dependency: None for evidence-only work. Order: **W1**.
+- Status: `complete`. Requirement/reference: PRD: dashboard; Shell.
+- Source: [_DashboardStaticMetric and _DashboardActionSurface](../../apps/mobile/lib/app/server_mode_shell.dart); [SettleoraBillListScreen](../../apps/mobile/lib/bills/bill_list_screen.dart); [SettleoraNotificationScreen](../../apps/mobile/lib/notifications/notification_screen.dart); [SettleoraSettlementListScreen](../../apps/mobile/lib/settlements/settlement_list_screen.dart).
+- Tests: [server_mode_shell_dashboard_test.dart](../../apps/mobile/test/server_mode_shell_dashboard_test.dart) proves the unchanged four-domain hero formula, its static semantics, four one-shot dashboard actions, exact initial target views, zero-count navigation, unchanged displayed money and no bill/notification/settlement/payment mutation; focused [Bills](../../apps/mobile/test/bill_list_screen_test.dart), [Notifications](../../apps/mobile/test/notification_screen_test.dart) and [Settlements](../../apps/mobile/test/settlement_list_screen_test.dart) tests prove default-All compatibility and clear/filter behavior. [Visual capture coverage](evidence/issue-299/README.md) renders the production widgets at 390px/1x and 320px/2x.
+- States: E zero counts still open truthful filtered empty views; L overview/target loading remains existing behavior; R retry/stale overview unchanged; D existing unavailable target language unchanged; O loaded-row discovery remains client-side and switchable/clearable.
+- Accessibility/visual: The cross-domain review total is an informational static surface with no callback, button semantics, keyboard activation or navigation tooltip. Active bills, unread, You owe and You're owed use one Material ink/focus surface each, one useful navigation semantic action, deterministic single activation, visual-order focus and at least 48dp effective targets. Original-resolution captures cover zero/nonzero, focused bill/money actions, all four selected targets and 320px/2x reachability without critical clipping.
+- Owner: [#299](https://github.com/tommytang213/Settleora/issues/299), completed by implementation PR #1156 plus same-task ledger/checklist/evidence hygiene under the approved Option 3 decision (comment `5588938396`). The hero total remains exactly settlement actions + upcoming recurring forecast/draft opportunities + notification attention + notification urgent and remains non-interactive. Active bills opens Bills/Active, unread opens Notification Center/Unread, You owe opens Settlements/Outgoing and You're owed opens Settlements/Incoming. Typed presentation-only initial-view seams default to All; Bills dashboard navigation suppresses pending-sync auto-flush, and no backend query, domain calculation or mutation is introduced. Accounts & income remains unchanged under More; [#295](https://github.com/tommytang213/Settleora/issues/295) retains broader IA/navigation ownership.
+- Gate/dependency: Focused behavior complete. Remaining physical-device/native accessibility acceptance: **W5 / #975**.
 
 ### M10 — Personal bills list / detail / loaded search
 
