@@ -34,7 +34,7 @@ screen acceptance.
   reproducible branch-rendered fixtures exist, not that [#407](https://github.com/tommytang213/Settleora/issues/407) rendered or approved
   unseen UI. No new Figma or screenshots were required or created here.
 
-Totals: **60 rows — complete 2, partial 38, missing 10, blocked 10**.
+Totals: **60 rows — complete 3, partial 38, missing 9, blocked 10**.
 
 ## Canonical inventory
 
@@ -470,13 +470,13 @@ Totals: **60 rows — complete 2, partial 38, missing 10, blocked 10**.
 
 ### M46 — Bundled What’s New / version-seen state
 
-- Status: `missing`. Requirement/reference: PRD: user guidance release notes; Settings.
-- Source: [SettleoraAppBootstrap](../../apps/mobile/lib/app/app_bootstrap.dart); [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart).
-- Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `default app starts at setup when no mode is configured`.
-- States: E/L/R/D/O feature absent; adjacent setup tests only.
-- Accessibility/visual: No feature-specific semantics/capture; derivative shared sheet suitable.
-- Owner: [#1092](https://github.com/tommytang213/Settleora/issues/1092). Remaining: No bundled version notes, once-per-version state, pre-sign-in display or reopen action found. The #1092 acceptance slice also requires skippable/dismissible behavior without blocking setup/sign-in, local-only/offline availability, product-facing release-note copy rather than developer changelog text, and localization-ready bundled content. Test unseen/seen-version, dismiss/skip/reopen, focus return and text-scaling behavior; a missing or invalid notes payload must not trap startup. Newly focused owner; not deployment release automation.
-- Gate/dependency: None for evidence-only work. Order: **W1**.
+- Status: `complete`. Requirement/reference: PRD: user guidance release notes; Settings.
+- Source: [SettleoraBundledVersionNotes](../../apps/mobile/lib/app/version_notes.dart); [SettleoraVersionNotesAutoPresenter](../../apps/mobile/lib/app/version_notes.dart); [SettleoraAppBootstrap](../../apps/mobile/lib/app/app_bootstrap.dart); [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart).
+- Tests: [version_notes_test.dart](../../apps/mobile/test/version_notes_test.dart): unseen/seen/new-version, ordinary and explicit dismissal, manual/automatic race, malformed payload/preference, read/write failure, setup/sign-in/local/authenticated settings, focus, zero repository calls and 320px/2× behavior; [version_notes_visual_capture_test.dart](../../apps/mobile/test/ui/version_notes_visual_capture_test.dart): production-widget setup, sign-in, local-only, settings/reopen and long-content captures; [settleora_component_guardrail_test.dart](../../apps/mobile/test/ui/settleora_component_guardrail_test.dart): shared guidance/sheet semantics and narrow scaled layout.
+- States: E valid unseen bundled notes auto-present after the ordinary surface is renderable; seen current key stays closed and a changed key presents; L delayed preference read never blocks setup; R read/write/presentation failures fail open with a process guard preventing repeat loops; D missing, blank-heading, blank-key and overlong-key payloads do not present; O setup, signed-out server and Local Mode need no release-note network or authentication, while authenticated More → App settings manually reopens the same seen payload.
+- Accessibility/visual: Shared guidance heading semantics and single shared Close action; 48dp+ action targets; actionable settings/local launcher focus restoration; 390px/1× production states and 320px/2× long localized-style content remain readable and scrollable with Close reachable. Native screen-reader/device acceptance remains #975.
+- Owner: [#1092](https://github.com/tommytang213/Settleora/issues/1092), completed by implementation PR #1148 plus same-task ledger hygiene. The explicit `1.0.0+1` bundled release key must be updated with `pubspec.yaml` for a future release that should present new notes. Caller/bundle-owned content is localization-ready; locale-resource implementation remains #409. Server announcements remain #1094 and contextual help remains #1093.
+- Gate/dependency: Feature-complete in scoped Flutter source/tests/evidence. #975 retains final native/platform acceptance; no deployment release automation is claimed.
 
 ### M47 — Contextual screen help
 
@@ -808,8 +808,8 @@ Each child needs a current allowed-path contract, exact validation and review.
    independently from UI work. For setup behavior, #1096 follows its supported-probe contract gate independently. For UI, first [#301](https://github.com/tommytang213/Settleora/issues/301) equivalent selector/sheet/state
    adoption (2–4 related slices), then [#299](https://github.com/tommytang213/Settleora/issues/299) metric handoffs plus [#295](https://github.com/tommytang213/Settleora/issues/295) lightweight
    shortcut visibility where validation/reference boundaries match. [#1092](https://github.com/tommytang213/Settleora/issues/1092) bundled
-   What’s New and [#1093](https://github.com/tommytang213/Settleora/issues/1093) static help can follow as separate local presentation
-   slices; do not bundle them with security or financial actions. [#409](https://github.com/tommytang213/Settleora/issues/409) findings
+   What’s New is complete; [#1093](https://github.com/tommytang213/Settleora/issues/1093) static help remains a separate local presentation
+   slice and must not be bundled with security or financial actions. [#409](https://github.com/tommytang213/Settleora/issues/409) findings
    guide copy extraction without a repository-wide rewrite.
 2. **W2 — reference/contract-aware product work:** [#296](https://github.com/tommytang213/Settleora/issues/296) report readability plus
    [#399](https://github.com/tommytang213/Settleora/issues/399) group summary after [#977](https://github.com/tommytang213/Settleora/issues/977) establishes available data; [#412](https://github.com/tommytang213/Settleora/issues/412) focused mode
