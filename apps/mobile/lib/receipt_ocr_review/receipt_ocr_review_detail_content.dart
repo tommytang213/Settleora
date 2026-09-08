@@ -52,7 +52,7 @@ class _ReceiptOcrReviewDetailBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isLoadingReview) {
-      return const _LoadingPanel(label: 'Loading receipt review');
+      return const SettleoraLoadingPanel(label: 'Loading receipt review');
     }
 
     final failure = reviewFailure;
@@ -165,12 +165,13 @@ class _ReceiptOcrReviewReadOnlyContent extends StatelessWidget {
               const SizedBox(height: 20),
               _ReceiptOcrReviewLines(lines: review.lines),
             ] else
-              const _StatePanel(
+              const SettleoraStatePanel(
                 icon: Icons.receipt_long_outlined,
                 title: 'No OCR result',
                 message:
                     'No reviewed OCR suggestions are saved for this receipt yet.',
                 compact: true,
+                compactAlignment: Alignment.centerLeft,
               ),
           ],
         ),
@@ -464,12 +465,13 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
             ),
             const SizedBox(height: 8),
             if (_lineEditors.isEmpty)
-              const _StatePanel(
+              const SettleoraStatePanel(
                 icon: Icons.format_list_bulleted,
                 title: 'No receipt lines',
                 message:
                     'Save can proceed, but apply may be blocked by the server.',
                 compact: true,
+                compactAlignment: Alignment.centerLeft,
               )
             else
               for (var index = 0; index < _lineEditors.length; index++)
@@ -1107,11 +1109,12 @@ class _ReceiptOcrReviewTotals extends StatelessWidget {
     ].where((row) => row.$2 != null).toList(growable: false);
 
     if (rows.isEmpty) {
-      return const _StatePanel(
+      return const SettleoraStatePanel(
         icon: Icons.payments_outlined,
         title: 'No header totals',
         message: 'Review the receipt lines or use manual entry.',
         compact: true,
+        compactAlignment: Alignment.centerLeft,
       );
     }
 
@@ -1201,11 +1204,12 @@ class _ReceiptOcrReviewLinesState extends State<_ReceiptOcrReviewLines> {
   Widget build(BuildContext context) {
     final lines = widget.lines;
     if (lines.isEmpty) {
-      return const _StatePanel(
+      return const SettleoraStatePanel(
         icon: Icons.format_list_bulleted,
         title: 'No receipt lines',
         message: 'Apply is blocked until this receipt has reviewed lines.',
         compact: true,
+        compactAlignment: Alignment.centerLeft,
       );
     }
 
@@ -1241,12 +1245,13 @@ class _ReceiptOcrReviewLinesState extends State<_ReceiptOcrReviewLines> {
             ),
             const SizedBox(height: 10),
             if (discovery.visibleLines.isEmpty)
-              const _StatePanel(
+              const SettleoraStatePanel(
                 icon: Icons.search_off_outlined,
                 title: 'No matching receipt lines',
                 message:
                     'Adjust the search or filters to show loaded OCR receipt lines.',
                 compact: true,
+                compactAlignment: Alignment.centerLeft,
               )
             else
               for (final line in discovery.visibleLines)
