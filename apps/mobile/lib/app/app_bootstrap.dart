@@ -145,6 +145,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
     super.key,
     required this.secureStorage,
     required this.versionSeenPreference,
+    this.versionNotesProcessGuard,
     this.versionNotes = currentBundledVersionNotes,
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
@@ -169,6 +170,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
 
   final SettleoraSecureStorageBoundary secureStorage;
   final SettleoraVersionSeenPreference versionSeenPreference;
+  final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
   final SettleoraBundledVersionNotes? versionNotes;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
@@ -345,6 +347,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       preference: widget.versionSeenPreference,
       notes: widget.versionNotes,
       enabled: !_isLoading && !_loadFailed,
+      processGuard: widget.versionNotesProcessGuard,
       child: _buildBootstrapSurface(context),
     );
   }

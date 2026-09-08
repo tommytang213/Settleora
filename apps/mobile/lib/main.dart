@@ -17,6 +17,7 @@ class SettleoraMobileApp extends StatelessWidget {
     super.key,
     SettleoraSecureStorageBoundary? secureStorage,
     SettleoraVersionSeenPreference? versionSeenPreference,
+    this.versionNotesProcessGuard,
     this.versionNotes = currentBundledVersionNotes,
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
@@ -43,6 +44,7 @@ class SettleoraMobileApp extends StatelessWidget {
 
   final SettleoraSecureStorageBoundary secureStorage;
   final SettleoraVersionSeenPreference versionSeenPreference;
+  final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
   final SettleoraBundledVersionNotes? versionNotes;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
@@ -73,6 +75,7 @@ class SettleoraMobileApp extends StatelessWidget {
           : SettleoraAppBootstrap(
               secureStorage: secureStorage,
               versionSeenPreference: versionSeenPreference,
+              versionNotesProcessGuard: versionNotesProcessGuard,
               versionNotes: versionNotes,
               receiptOcrReviewRepositoryFactory:
                   receiptOcrReviewRepositoryFactory,

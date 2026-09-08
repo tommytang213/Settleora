@@ -131,6 +131,7 @@ void main() {
           home: SettleoraAppBootstrap(
             secureStorage: _VisualSecureStorage(),
             versionSeenPreference: _VisualVersionSeenPreference(),
+            versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
             versionNotes: notes,
           ),
         ),
@@ -146,7 +147,13 @@ void main() {
           matching: find.byType(SingleChildScrollView),
         )
         .first;
-    await tester.drag(sheetScroll, const Offset(0, -1200));
+    await tester.scrollUntilVisible(
+      find.textContaining('product guidance point 8').first,
+      500,
+      scrollable: find
+          .descendant(of: sheetScroll, matching: find.byType(Scrollable))
+          .first,
+    );
     await tester.pumpAndSettle();
     await _capture(tester, 'long-whats-new-320x760-2x-close-reachable.png');
   }, tags: ['visual']);
@@ -182,6 +189,7 @@ Future<void> _pumpBootstrap(
           key: UniqueKey(),
           secureStorage: storage,
           versionSeenPreference: _VisualVersionSeenPreference(),
+          versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
         ),
       ),
     ),

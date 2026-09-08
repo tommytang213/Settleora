@@ -62,6 +62,12 @@ void main() {
       expect(find.text('Settleora Setup'), findsOneWidget);
       expect(preference.writeCalls, 1);
       expect(preference.seenKey, currentBundledVersionNotesKey);
+      final focusedContext = FocusManager.instance.primaryFocus?.context;
+      expect(
+        focusedContext
+            ?.findAncestorWidgetOfExactType<SettleoraBottomSheetFrame>(),
+        isNull,
+      );
     },
   );
 
@@ -79,18 +85,34 @@ void main() {
     expect(preference.writeCalls, 1);
   });
 
-  testWidgets('seen release stays closed and a changed release opens again', (
+  testWidgets('persisted current release does not open automatically', (
     tester,
   ) async {
     final preference = _FakeVersionSeenPreference(
       seenKey: currentBundledVersionNotesKey,
     );
     await _pumpApp(tester, preference: preference);
+
+    expect(find.text('Settleora Setup'), findsOneWidget);
+    expect(find.byType(SettleoraGuidanceContent), findsNothing);
+    expect(preference.writeCalls, 0);
+  });
+
+  testWidgets('dismissed release stays closed and a changed release opens', (
+    tester,
+  ) async {
+    final preference = _FakeVersionSeenPreference();
+    final processGuard = SettleoraVersionNotesProcessGuard();
+    await _pumpApp(tester, preference: preference, processGuard: processGuard);
+    expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
+    await tester.tap(find.byKey(const Key('whats-new-close')));
+    await tester.pumpAndSettle();
     expect(find.byType(SettleoraGuidanceContent), findsNothing);
 
     await _pumpApp(
       tester,
       preference: preference,
+      processGuard: processGuard,
       notes: const SettleoraBundledVersionNotes(
         releaseKey: '1.0.0+2',
         heading: "What's New in Settleora 1.0 build 2",
@@ -109,6 +131,7 @@ void main() {
       SettleoraMobileApp(
         secureStorage: _FakeSecureStorage(),
         versionSeenPreference: preference,
+        versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
       ),
     );
     await tester.pump();
@@ -137,6 +160,7 @@ void main() {
       SettleoraMobileApp(
         secureStorage: _FakeSecureStorage(),
         versionSeenPreference: preference,
+        versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
       ),
     );
     await tester.pumpAndSettle();
@@ -148,17 +172,28 @@ void main() {
   ) async {
     final preference = _FakeVersionSeenPreference(writeFailure: true);
     final storage = _FakeSecureStorage();
-    await _pumpApp(tester, preference: preference, storage: storage);
+    final processGuard = SettleoraVersionNotesProcessGuard();
+    await _pumpApp(
+      tester,
+      preference: preference,
+      storage: storage,
+      processGuard: processGuard,
+    );
 
     await tester.tap(find.byKey(const Key('whats-new-close')));
     await tester.pumpAndSettle();
     expect(find.text('Settleora Setup'), findsOneWidget);
     expect(preference.writeCalls, 1);
 
-    await tester.tap(find.text('Use local mode'));
-    await tester.pumpAndSettle();
+    await _pumpApp(
+      tester,
+      preference: preference,
+      storage: storage,
+      processGuard: processGuard,
+    );
     expect(find.byType(SettleoraGuidanceContent), findsNothing);
     expect(preference.writeCalls, 1);
+    expect(preference.readCalls, 2);
   });
 
   testWidgets('missing and invalid bundled payloads never trap startup', (
@@ -206,6 +241,7 @@ void main() {
       SettleoraMobileApp(
         secureStorage: storage,
         versionSeenPreference: _FakeVersionSeenPreference(),
+        versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
         receiptOcrReviewRepositoryFactory: (_, _) {
           repositoryCreated = true;
           return dashboard.FakeReceiptOcrReviewRepository();
@@ -281,6 +317,7 @@ void main() {
         child: SettleoraMobileApp(
           secureStorage: _FakeSecureStorage(),
           versionSeenPreference: _FakeVersionSeenPreference(),
+          versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
           versionNotes: longNotes,
         ),
       ),
@@ -301,11 +338,15 @@ Future<void> _pumpApp(
   required _FakeVersionSeenPreference preference,
   _FakeSecureStorage? storage,
   SettleoraBundledVersionNotes? notes = currentBundledVersionNotes,
+  SettleoraVersionNotesProcessGuard? processGuard,
 }) async {
   await tester.pumpWidget(
     SettleoraMobileApp(
+      key: UniqueKey(),
       secureStorage: storage ?? _FakeSecureStorage(),
       versionSeenPreference: preference,
+      versionNotesProcessGuard:
+          processGuard ?? SettleoraVersionNotesProcessGuard(),
       versionNotes: notes,
     ),
   );

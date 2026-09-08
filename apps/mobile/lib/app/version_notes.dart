@@ -44,6 +44,22 @@ abstract interface class SettleoraVersionSeenPreference {
   Future<void> writeSeenReleaseKey(String releaseKey);
 }
 
+/// Process-lifetime guard keyed by bundled release. Persistence failures may
+/// allow a future app process to show the notes again, but rebuilding the app
+/// tree in this process cannot immediately repeat the same automatic sheet.
+class SettleoraVersionNotesProcessGuard {
+  final Set<String> _attemptedReleaseKeys = <String>{};
+
+  bool hasAttempted(String releaseKey) =>
+      _attemptedReleaseKeys.contains(releaseKey.trim());
+
+  bool markAttempted(String releaseKey) =>
+      _attemptedReleaseKeys.add(releaseKey.trim());
+}
+
+final SettleoraVersionNotesProcessGuard
+_defaultSettleoraVersionNotesProcessGuard = SettleoraVersionNotesProcessGuard();
+
 class LocalSettleoraVersionSeenPreference
     implements SettleoraVersionSeenPreference {
   LocalSettleoraVersionSeenPreference({SecureKeyValueStore? keyValueStore})
@@ -109,12 +125,14 @@ class SettleoraVersionNotesAutoPresenter extends StatefulWidget {
     required this.notes,
     required this.enabled,
     required this.child,
+    this.processGuard,
   });
 
   final SettleoraVersionSeenPreference preference;
   final SettleoraBundledVersionNotes? notes;
   final bool enabled;
   final Widget child;
+  final SettleoraVersionNotesProcessGuard? processGuard;
 
   @override
   State<SettleoraVersionNotesAutoPresenter> createState() =>
@@ -126,25 +144,47 @@ class _SettleoraVersionNotesAutoPresenterState
   bool _readCompleted = false;
   bool _readFailed = false;
   bool _presentationScheduled = false;
-  bool _automaticPresentationAttempted = false;
   String? _seenReleaseKey;
+  int _readGeneration = 0;
+
+  SettleoraVersionNotesProcessGuard get _processGuard =>
+      widget.processGuard ?? _defaultSettleoraVersionNotesProcessGuard;
 
   @override
   void initState() {
     super.initState();
-    Future<void>.microtask(_readPreference);
+    _startPreferenceRead();
   }
 
   @override
   void didUpdateWidget(SettleoraVersionNotesAutoPresenter oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.preference, widget.preference)) {
+      _readCompleted = false;
+      _readFailed = false;
+      _seenReleaseKey = null;
+      _startPreferenceRead();
+      return;
+    }
     _scheduleIfNeeded();
   }
 
-  Future<void> _readPreference() async {
+  void _startPreferenceRead() {
+    final generation = ++_readGeneration;
+    Future<void>.microtask(() => _readPreference(generation));
+  }
+
+  Future<void> _readPreference(int generation) async {
     try {
-      _seenReleaseKey = await widget.preference.readSeenReleaseKey();
+      final seenReleaseKey = await widget.preference.readSeenReleaseKey();
+      if (generation != _readGeneration) {
+        return;
+      }
+      _seenReleaseKey = seenReleaseKey;
     } catch (_) {
+      if (generation != _readGeneration) {
+        return;
+      }
       _readFailed = true;
     }
     if (!mounted) {
@@ -165,7 +205,7 @@ class _SettleoraVersionNotesAutoPresenterState
         notes == null ||
         !notes.isUsable ||
         _presentationScheduled ||
-        _automaticPresentationAttempted ||
+        _processGuard.hasAttempted(notes.releaseKey) ||
         _seenReleaseKey == notes.releaseKey.trim()) {
       return;
     }
@@ -173,7 +213,9 @@ class _SettleoraVersionNotesAutoPresenterState
     _presentationScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _presentationScheduled = false;
-      if (!mounted || !widget.enabled || _automaticPresentationAttempted) {
+      if (!mounted ||
+          !widget.enabled ||
+          _processGuard.hasAttempted(notes.releaseKey)) {
         return;
       }
       _presentAutomatically(notes);
@@ -181,7 +223,9 @@ class _SettleoraVersionNotesAutoPresenterState
   }
 
   Future<void> _presentAutomatically(SettleoraBundledVersionNotes notes) async {
-    _automaticPresentationAttempted = true;
+    if (!_processGuard.markAttempted(notes.releaseKey)) {
+      return;
+    }
     var dismissedValidSheet = false;
     try {
       dismissedValidSheet = await showSettleoraVersionNotes(
