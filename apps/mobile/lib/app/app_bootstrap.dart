@@ -354,6 +354,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       context: context,
       notes: widget.versionNotes,
       processGuard: _versionNotesProcessGuard,
+      preference: widget.versionSeenPreference,
     );
     if (mounted) {
       _localWhatsNewFocusNode.requestFocus();
@@ -591,6 +592,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       onSessionEnded: _clearSessionAndLoad,
       versionNotes: widget.versionNotes,
       versionNotesProcessGuard: _versionNotesProcessGuard,
+      versionSeenPreference: widget.versionSeenPreference,
     );
   }
 

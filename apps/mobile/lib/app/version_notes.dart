@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../ui/settleora_components.dart';
@@ -6,6 +8,7 @@ import 'secure_storage.dart';
 /// Update this key with `pubspec.yaml`'s version/build for every bundled
 /// release whose What's New content should be shown again.
 const currentBundledVersionNotesKey = '1.0.0+1';
+const settleoraVersionNotesReleaseKeyMaxLength = 128;
 
 const currentBundledVersionNotes = SettleoraBundledVersionNotes(
   releaseKey: currentBundledVersionNotesKey,
@@ -33,7 +36,14 @@ class SettleoraBundledVersionNotes {
   final List<String> points;
 
   bool get isUsable =>
-      releaseKey.trim().isNotEmpty && heading.trim().isNotEmpty;
+      isValidSettleoraVersionNotesReleaseKey(releaseKey) &&
+      heading.trim().isNotEmpty;
+}
+
+bool isValidSettleoraVersionNotesReleaseKey(String releaseKey) {
+  final trimmed = releaseKey.trim();
+  return trimmed.isNotEmpty &&
+      trimmed.length <= settleoraVersionNotesReleaseKeyMaxLength;
 }
 
 /// A device-local presentation preference only. It is never consulted for
@@ -77,7 +87,7 @@ class LocalSettleoraVersionSeenPreference
   @override
   Future<String?> readSeenReleaseKey() async {
     final value = (await _keyValueStore.read(_storageKey))?.trim();
-    if (value == null || value.isEmpty || value.length > 128) {
+    if (value == null || !isValidSettleoraVersionNotesReleaseKey(value)) {
       return null;
     }
     return value;
@@ -126,12 +136,37 @@ Future<bool> showSettleoraVersionNotesManually({
   required BuildContext context,
   required SettleoraBundledVersionNotes? notes,
   required SettleoraVersionNotesProcessGuard processGuard,
-}) {
+  SettleoraVersionSeenPreference? preference,
+}) async {
   if (notes == null || !notes.isUsable) {
-    return Future<bool>.value(false);
+    return false;
   }
   processGuard.markAttempted(notes.releaseKey);
-  return showSettleoraVersionNotes(context: context, notes: notes);
+  var dismissedValidSheet = false;
+  try {
+    dismissedValidSheet = await showSettleoraVersionNotes(
+      context: context,
+      notes: notes,
+    );
+  } catch (_) {
+    return false;
+  }
+  if (dismissedValidSheet && preference != null) {
+    unawaited(_writeSeenReleaseKeyFailOpen(preference, notes.releaseKey));
+  }
+  return dismissedValidSheet;
+}
+
+Future<void> _writeSeenReleaseKeyFailOpen(
+  SettleoraVersionSeenPreference preference,
+  String releaseKey,
+) async {
+  try {
+    await preference.writeSeenReleaseKey(releaseKey.trim());
+  } catch (_) {
+    // Manual use remains available and this process stays guarded. A later
+    // process may show the notes again if persistence genuinely failed.
+  }
 }
 
 /// Keeps release-note preference I/O out of bootstrap loading. The child is

@@ -70,6 +70,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.onSessionEnded,
     this.versionNotes = currentBundledVersionNotes,
     this.versionNotesProcessGuard,
+    this.versionSeenPreference,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -96,6 +97,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraSessionEndedCallback onSessionEnded;
   final SettleoraBundledVersionNotes? versionNotes;
   final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
+  final SettleoraVersionSeenPreference? versionSeenPreference;
 
   @override
   State<SettleoraAuthenticatedServerShell> createState() =>
@@ -553,6 +555,7 @@ class _SettleoraAuthenticatedServerShellState
           versionNotesProcessGuard:
               widget.versionNotesProcessGuard ??
               defaultSettleoraVersionNotesProcessGuard,
+          versionSeenPreference: widget.versionSeenPreference,
         ),
       ),
     );
@@ -1618,6 +1621,7 @@ class _AppSettingsScreen extends StatefulWidget {
     required this.dataBackupService,
     required this.versionNotes,
     required this.versionNotesProcessGuard,
+    required this.versionSeenPreference,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -1627,6 +1631,7 @@ class _AppSettingsScreen extends StatefulWidget {
   final SettleoraLocalDataBackupService? dataBackupService;
   final SettleoraBundledVersionNotes? versionNotes;
   final SettleoraVersionNotesProcessGuard versionNotesProcessGuard;
+  final SettleoraVersionSeenPreference? versionSeenPreference;
 
   @override
   State<_AppSettingsScreen> createState() => _AppSettingsScreenState();
@@ -1657,6 +1662,7 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
       context: context,
       notes: widget.versionNotes,
       processGuard: widget.versionNotesProcessGuard,
+      preference: widget.versionSeenPreference,
     );
     if (mounted) {
       _whatsNewFocusNode.requestFocus();

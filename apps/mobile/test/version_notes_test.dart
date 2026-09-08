@@ -205,6 +205,10 @@ void main() {
       null,
       const SettleoraBundledVersionNotes(releaseKey: '', heading: "What's New"),
       const SettleoraBundledVersionNotes(releaseKey: '1.0.0+1', heading: '   '),
+      SettleoraBundledVersionNotes(
+        releaseKey: 'x' * (settleoraVersionNotesReleaseKeyMaxLength + 1),
+        heading: "What's New",
+      ),
     ]) {
       await _pumpApp(
         tester,
@@ -297,6 +301,17 @@ void main() {
     await tester.tap(find.byKey(const Key('whats-new-close')));
     await tester.pumpAndSettle();
     expect(find.byType(SettleoraGuidanceContent), findsNothing);
+    expect(preference.seenKey, currentBundledVersionNotesKey);
+    expect(preference.writeCalls, 1);
+
+    await _pumpApp(
+      tester,
+      preference: _FakeVersionSeenPreference(seenKey: preference.seenKey),
+      storage: _FakeSecureStorage(
+        configuration: const SettleoraAppConfiguration.local(),
+      ),
+    );
+    expect(find.byType(SettleoraGuidanceContent), findsNothing);
   });
 
   testWidgets('settings reopens the same seen notes and returns focus', (
@@ -305,7 +320,14 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(900, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final processGuard = SettleoraVersionNotesProcessGuard();
-    await _pumpShell(tester, processGuard: processGuard);
+    final preference = _FakeVersionSeenPreference(
+      seenKey: currentBundledVersionNotesKey,
+    );
+    await _pumpShell(
+      tester,
+      processGuard: processGuard,
+      preference: preference,
+    );
     await tester.tap(find.byKey(const Key('bottom-nav-more')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
@@ -330,6 +352,8 @@ void main() {
     expect(find.text(currentBundledVersionNotes.heading), findsOneWidget);
     await tester.tap(find.byKey(const Key('whats-new-close')));
     await tester.pumpAndSettle();
+    expect(preference.seenKey, currentBundledVersionNotesKey);
+    expect(preference.writeCalls, 1);
 
     final launcherFocus = find.descendant(
       of: launcher,
@@ -417,6 +441,7 @@ Future<void> _pumpApp(
 Future<void> _pumpShell(
   WidgetTester tester, {
   SettleoraVersionNotesProcessGuard? processGuard,
+  SettleoraVersionSeenPreference? preference,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -435,6 +460,7 @@ Future<void> _pumpShell(
         accessTokenProvider: dashboard.FakeAccessTokenProvider(),
         onSessionEnded: (_) async {},
         versionNotesProcessGuard: processGuard,
+        versionSeenPreference: preference,
       ),
     ),
   );
