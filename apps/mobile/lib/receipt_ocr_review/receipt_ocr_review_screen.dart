@@ -817,9 +817,10 @@ class _ReceiptOcrReviewDetailScreenState
         appBar: AppBar(
           title: const Text('Receipt Review'),
           actions: [
-            const SettleoraContextualHelpAction(
-              topic: SettleoraHelpTopic.ocrReview,
-            ),
+            if (!_detailActionsBlocked)
+              const SettleoraContextualHelpAction(
+                topic: SettleoraHelpTopic.ocrReview,
+              ),
             if (!_isEditing)
               IconButton(
                 onPressed:

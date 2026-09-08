@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -63,6 +64,45 @@ void main() {
     expect(repository.deleteCalls, 0);
     expect(repository.previewCalls, 0);
     expect(repository.applyCalls, 0);
+  });
+
+  testWidgets('OCR detail help is unavailable during an active deletion', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 1024);
+    addTearDown(tester.view.resetPhysicalSize);
+    final route = ocr.sampleRoute();
+    final deleteCompleter = Completer<void>();
+    final repository = ocr.FakeReceiptOcrReviewRepository(
+      reviewResponse: ocr.sampleReview(route),
+      deleteCompleter: deleteCompleter,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ReceiptOcrReviewDetailScreen.forRoute(
+          repository: repository,
+          route: route,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Edit receipt review'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('receipt-review-edit-delete')),
+    );
+    await tester.tap(find.byKey(const Key('receipt-review-edit-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+    await tester.pump();
+
+    expect(repository.deleteCalls, 1);
+    expect(find.byKey(const Key('contextual-help-ocr-review')), findsNothing);
+
+    deleteCompleter.completeError(Exception('bounded deletion failure'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('contextual-help-ocr-review')), findsOneWidget);
   });
 
   testWidgets(
