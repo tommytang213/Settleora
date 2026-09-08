@@ -184,7 +184,10 @@ class _SettleoraSettlementListScreenState
                     onClear: _clearDiscoveryState,
                   ),
                   const SizedBox(height: 20),
-                  _BalanceSection(snapshot: balanceSnapshot),
+                  _BalanceSection(
+                    snapshot: balanceSnapshot,
+                    direction: _filter.balanceDirection,
+                  ),
                   const SizedBox(height: 20),
                   _RequestSection(
                     requests: visibleRequests,
@@ -357,6 +360,16 @@ enum _SettlementRequestFilter {
   const _SettlementRequestFilter({required this.label});
 
   final String label;
+
+  SettleoraSettlementBalanceDirection? get balanceDirection {
+    return switch (this) {
+      _SettlementRequestFilter.incoming =>
+        SettleoraSettlementBalanceDirectionValues.incoming,
+      _SettlementRequestFilter.outgoing =>
+        SettleoraSettlementBalanceDirectionValues.outgoing,
+      _ => null,
+    };
+  }
 
   String get key {
     return switch (this) {
@@ -1086,7 +1099,7 @@ class _SettlementDiscoveryControlsState
         ),
         const SizedBox(height: 6),
         Text(
-          'Balances stay visible while you filter payments.',
+          'Balances follow Incoming and Outgoing filters.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1097,23 +1110,37 @@ class _SettlementDiscoveryControlsState
 }
 
 class _BalanceSection extends StatelessWidget {
-  const _BalanceSection({required this.snapshot});
+  const _BalanceSection({required this.snapshot, required this.direction});
 
   final SettleoraSettlementBalanceSnapshot? snapshot;
+  final SettleoraSettlementBalanceDirection? direction;
 
   @override
   Widget build(BuildContext context) {
     final snapshot = this.snapshot;
-    final balances = snapshot?.balances ?? const <SettleoraSettlementBalance>[];
+    final allBalances =
+        snapshot?.balances ?? const <SettleoraSettlementBalance>[];
+    final balances = direction == null
+        ? allBalances
+        : allBalances
+              .where((balance) => balance.direction == direction)
+              .toList(growable: false);
 
     if (balances.isEmpty) {
-      return const SettleoraSection(
+      final directionLabel = direction == null
+          ? null
+          : settleoraSettlementBalanceDirectionLabel(direction!).toLowerCase();
+      return SettleoraSection(
         title: 'Balances',
         children: [
           SettleoraStatePanel(
             icon: Icons.account_balance_wallet_outlined,
-            title: 'No balances',
-            message: 'Current settlement balances will appear here.',
+            title: directionLabel == null
+                ? 'No balances'
+                : 'No $directionLabel balances',
+            message: directionLabel == null
+                ? 'Current settlement balances will appear here.'
+                : 'No $directionLabel settlement balances match this view.',
             compact: true,
           ),
         ],

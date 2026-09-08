@@ -483,6 +483,57 @@ void main() {
     });
   }
 
+  for (final testCase in [
+    (
+      name: 'Incoming',
+      initialView: SettleoraSettlementListInitialView.incoming,
+      hiddenName: 'Outgoing',
+    ),
+    (
+      name: 'Outgoing',
+      initialView: SettleoraSettlementListInitialView.outgoing,
+      hiddenName: 'Incoming',
+    ),
+  ]) {
+    testWidgets(
+      'settlement initial ${testCase.name} view filters balance direction',
+      (tester) async {
+        final repository = FakeSettlementRepository(
+          balances: [
+            sampleBalance(),
+            sampleBalance(
+              direction: SettleoraSettlementBalanceDirectionValues.incoming,
+              currency: 'EUR',
+              remainingUnclaimedAmount: '22.00',
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: SettleoraSettlementListScreen(
+              repository: repository,
+              currentUserProfileId: _debtorUserProfileId,
+              initialView: testCase.initialView,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('${testCase.name} balance'), findsOneWidget);
+        expect(find.text('${testCase.hiddenName} balance'), findsNothing);
+
+        await tester.tap(
+          find.byKey(const Key('settlement-list-clear-filters')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Incoming balance'), findsOneWidget);
+        expect(find.text('Outgoing balance'), findsOneWidget);
+      },
+    );
+  }
+
   testWidgets('settlement list shows compact empty state for no matches', (
     tester,
   ) async {
@@ -1557,6 +1608,9 @@ void expectMoneyText(String amount, String currencyCode, [Matcher? matcher]) {
 }
 
 SettleoraSettlementBalance sampleBalance({
+  SettleoraSettlementBalanceDirection direction =
+      SettleoraSettlementBalanceDirectionValues.outgoing,
+  String currency = 'USD',
   String selectedLineAmount = '10.00',
   String pendingClaimedAmount = '2.50',
   String confirmedClearedAmount = '0.00',
@@ -1572,8 +1626,8 @@ SettleoraSettlementBalance sampleBalance({
   return SettleoraSettlementBalance(
     counterpartyUserProfileId: _creditorUserProfileId,
     groupId: null,
-    direction: SettleoraSettlementBalanceDirectionValues.outgoing,
-    currency: 'USD',
+    direction: direction,
+    currency: currency,
     selectedLineAmount: selectedLineAmount,
     pendingClaimedAmount: pendingClaimedAmount,
     confirmedClearedAmount: confirmedClearedAmount,
