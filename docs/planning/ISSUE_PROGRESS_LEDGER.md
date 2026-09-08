@@ -1,5 +1,17 @@
 # Issue Progress Ledger
 
+### Issue #1134 — Failure-retry state-action shared-component adoption (2026-09-08 HKT)
+
+- Pre-hygiene checkpoint: **OPEN**; close after this same-task evidence merge, final reviewed-blob proof, and #301/#372 reconciliation. No linked Project item exists and no parent-wide acceptance is claimed.
+- Implementation [PR #1135](https://github.com/tommytang213/Settleora/pull/1135), reviewed source `0387fc77a58ebc61a47c6ed6da34d49b1b38822c`, tree `302a6652e139fd72848b1f74a9b888e8e1bf0d33`, normal merge `54d9fbb808921077598f547d183b449ad369d06b`, starting main `a7266bd4947968271848d09cd897d072cf1201e3`. Branch `feature/1134-failure-retry-state-actions-20260908-0828` retained.
+- Profile, Monthly report, and Notifications non-sign-in failure actions were directly equivalent and adopt secondary `AppButton`; no raw action was retained and no shared API extension was needed. Exact Retry keys/copy/refresh icon, failure classifications, required `_load` callbacks, state panels, failure copy/icon/tone, and redaction remain unchanged. The completed #1131 primary Sign In branch and its exact keys/callback gates remain unchanged.
+- Retry preserves host repository order and counts: Profile profile→payment (1/0 initially, 2/1 after Retry), Monthly report one same month/group request (1→2), and Notifications summary→list(limit 50) (1/0→2/1). One activation produces one reload intent; mutation counters remain zero.
+- Exact clean scope/diff, doctor, pub get, analyzer (no issues), **145 focused tests**, **955 full mobile tests**, and scaffold passed. Fresh Gemini `strong_independent` and independent local Codex reviewed exact source plus all **24** production images; GitHub Codex/checks/scanners passed exact head with zero unresolved threads and zero open PR scan alerts. [Durable equivalence, validation, and SHA256 image inventory](../qa/evidence/issue-1134/README.md).
+- Actual production/shared controls were captured at 390px/1× and 320px/2× across Retry and Sign In normal/focused states for all three hosts. Actions remain readable with 48dp+ targets, useful semantics, and visible keyboard focus. This is scoped Flutter state/action acceptance, not native device/screen-reader/whole-screen acceptance; #975 retains that gate.
+- `session-list-sign-in-required` and setup/bootstrap controls remain unchanged. #1122 remains OPEN/manual privacy-security gated and was neither implemented nor approved. #301/#372 remain open; remaining #301 scope includes other raw forms/buttons/private-dialog framing, token/summary styling, and participant/assignment sharing. Prior focused children must not be replayed.
+- No backend/domain/API/OpenAPI/generated-client, auth/session/authz, secure-storage/privacy policy, money/bill/settlement/payment calculation, schema, OCR/sync/lifecycle authority, CI/deployment/config, or secret changes. Same logical task `20260908-0828` includes this ledger/static-evidence hygiene.
+- Report: `/workspace/logs/settleora-codex-report-20260908-0828-issue-1134-failure-retry-state-actions.md`.
+
 ### Issue #1131 — Sign-in-required state-action shared-component adoption (2026-09-08 HKT)
 
 - Pre-hygiene checkpoint: **OPEN**; close after this same-task evidence merge, final reviewed-blob proof and #301/#372 reconciliation. No linked Project item exists and no parent-wide acceptance is claimed.
