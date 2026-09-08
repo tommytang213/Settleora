@@ -105,8 +105,8 @@ const settleoraContextualHelpRegistry = <SettleoraHelpTopic, SettleoraContextual
         'Groups lists the shared workspaces and participant details currently visible to your account.',
     points: [
       'Roles and membership statuses are server-provided readouts; hiding or showing an action does not grant authorization.',
-      'Participant changes use the existing protected server flow and may be unavailable for your role or the current group state.',
-      'Temporary participants can appear in bill context without receiving account permissions.',
+      'Group member changes use the existing protected server flow and may be unavailable for your role or the current group state.',
+      'Temporary participants are not available in this mobile build. The current group and bill flows use registered profiles and do not grant account permissions through visible controls.',
     ],
     entryLabel: 'Help with Groups',
   ),

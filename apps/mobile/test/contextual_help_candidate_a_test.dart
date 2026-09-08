@@ -51,6 +51,10 @@ void main() {
       expect(content.entryLabel.trim(), isNotEmpty);
       expect(identical(content, settleoraHelpContent(topic)), isTrue);
     }
+
+    final groups = settleoraHelpContent(SettleoraHelpTopic.groups);
+    expect(groups.points, contains(contains('not available')));
+    expect(groups.points.join(' '), isNot(contains('can appear')));
   });
 
   testWidgets(
@@ -82,10 +86,7 @@ void main() {
         find.byKey(const Key('contextual-help-content-first-launch')),
         findsOneWidget,
       );
-      expect(
-        find.text('Choose how this device starts'),
-        findsOneWidget,
-      );
+      expect(find.text('Choose how this device starts'), findsOneWidget);
       expect(saveCalls, 0);
 
       await tester.tapAt(const Offset(8, 220));
