@@ -1,5 +1,17 @@
 # Issue Progress Ledger
 
+### Issue #1137 — Group member-add shared-control adoption (2026-09-08 HKT)
+
+- Pre-hygiene checkpoint: **OPEN**; close after this same-task evidence merge, final reviewed-blob proof, and #301/#372 reconciliation. No linked Project item exists and no parent-wide acceptance is claimed.
+- Implementation [PR #1138](https://github.com/tommytang213/Settleora/pull/1138), reviewed source `4f09394df47211d75179b46a9869a5f8f37bbc1b`, tree `f1f584a79557b2d23fc6d0fe461ec873a4f9533f`, normal merge `4baae3e8a5be8a3a8148088548e348ad74b27a07`, starting main `6566f9630adb33906c5cc230a3c4420edfea4969`. Branch `feature/1137-group-member-add-shared-controls-20260908-0945` retained.
+- The exact `group-member-profile-id` field adopts current `AppTextField` with `labelAbove`; the exact primary `group-member-add` action adopts current `AppButton.isLoading`. The local `group-member-role` dropdown is retained because no equivalent shared select exists. No shared API extension was needed.
+- Controller ownership/disposal, raw profile-ID text, `TextInputAction.next`, owner/member values and labels, member default, host selection state, exact group/role request payload, one `addGroupMember` call, duplicate-add and member-mutation overlap guards, success clear/reset/returned-profile dedup and feedback, failure state, and final busy reset remain unchanged.
+- Exact clean scope/diff, doctor, pub get, analyzer (no issues), **55 focused tests**, **966 full mobile tests**, and scaffold passed. Fresh Gemini `strong_independent` and independent local Codex reviewed exact source plus all **16** production images; GitHub Codex/checks/scanners passed exact head with zero unresolved threads and zero open PR scan alerts. [Durable equivalence, validation, and SHA256 image inventory](../qa/evidence/issue-1137/README.md).
+- Actual production/shared controls were captured at 390px/1× and 320px/2× across default, populated, owner-role, loading/disabled, success/reset, focus/keyboard reachability, and failure states. The changed controls have no critical clipping and the action retains a 48dp+ target with useful semantics. This is scoped Flutter control acceptance, not native IME/device/screen-reader/whole-screen acceptance; #975 retains that gate.
+- Completed #1097 member picker, #1106 create/rename, and #1128 group-list search are not replayed. Member update/remove and destructive confirmation remain unchanged. #1122 remains OPEN/manual privacy-security gated and untouched; #976 remains independently owned. #301/#372 remain open; remaining #301 candidates include other raw forms/buttons/private-dialog framing, token/summary styling, and participant/assignment sharing.
+- No backend/domain/API/OpenAPI/generated-client, auth/session/authz, membership/role policy, storage/privacy, money/bill/settlement/payment calculation, schema, OCR/sync/lifecycle authority, CI/deployment/config, or secret changes. Same logical task `20260908-0945` includes this ledger/static-evidence hygiene.
+- Report: `/workspace/logs/settleora-codex-report-20260908-0945-issue-1137-group-member-add-shared-controls.md`.
+
 ### Issue #1134 — Failure-retry state-action shared-component adoption (2026-09-08 HKT)
 
 - Pre-hygiene checkpoint: **OPEN**; close after this same-task evidence merge, final reviewed-blob proof, and #301/#372 reconciliation. No linked Project item exists and no parent-wide acceptance is claimed.
