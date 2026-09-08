@@ -12,11 +12,13 @@ class SettleoraSettlementListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.currentUserProfileId,
+    this.initialView = SettleoraSettlementListInitialView.all,
     this.openNeedsActionOnStart = false,
   });
 
   final SettleoraSettlementRepository repository;
   final String currentUserProfileId;
+  final SettleoraSettlementListInitialView initialView;
   final bool openNeedsActionOnStart;
 
   @override
@@ -39,7 +41,14 @@ class _SettleoraSettlementListScreenState
     super.initState();
     _filter = widget.openNeedsActionOnStart
         ? _SettlementRequestFilter.needsAction
-        : _SettlementRequestFilter.all;
+        : switch (widget.initialView) {
+            SettleoraSettlementListInitialView.all =>
+              _SettlementRequestFilter.all,
+            SettleoraSettlementListInitialView.incoming =>
+              _SettlementRequestFilter.incoming,
+            SettleoraSettlementListInitialView.outgoing =>
+              _SettlementRequestFilter.outgoing,
+          };
     _searchController = TextEditingController();
     _searchController.addListener(_handleSearchChanged);
     Future<void>.microtask(_load);
@@ -175,7 +184,10 @@ class _SettleoraSettlementListScreenState
                     onClear: _clearDiscoveryState,
                   ),
                   const SizedBox(height: 20),
-                  _BalanceSection(snapshot: balanceSnapshot),
+                  _BalanceSection(
+                    snapshot: balanceSnapshot,
+                    direction: _filter.balanceDirection,
+                  ),
                   const SizedBox(height: 20),
                   _RequestSection(
                     requests: visibleRequests,
@@ -228,6 +240,8 @@ class _SettleoraSettlementListScreenState
         .toList(growable: false);
   }
 }
+
+enum SettleoraSettlementListInitialView { all, incoming, outgoing }
 
 class _SettlementLandingSummary extends StatelessWidget {
   const _SettlementLandingSummary({
@@ -346,6 +360,16 @@ enum _SettlementRequestFilter {
   const _SettlementRequestFilter({required this.label});
 
   final String label;
+
+  SettleoraSettlementBalanceDirection? get balanceDirection {
+    return switch (this) {
+      _SettlementRequestFilter.incoming =>
+        SettleoraSettlementBalanceDirectionValues.incoming,
+      _SettlementRequestFilter.outgoing =>
+        SettleoraSettlementBalanceDirectionValues.outgoing,
+      _ => null,
+    };
+  }
 
   String get key {
     return switch (this) {
@@ -977,7 +1001,7 @@ class _SettleoraSettlementDetailScreenState
   }
 }
 
-class _SettlementDiscoveryControls extends StatelessWidget {
+class _SettlementDiscoveryControls extends StatefulWidget {
   const _SettlementDiscoveryControls({
     required this.controller,
     required this.selectedFilter,
@@ -995,13 +1019,49 @@ class _SettlementDiscoveryControls extends StatelessWidget {
   final VoidCallback onClear;
 
   @override
+  State<_SettlementDiscoveryControls> createState() =>
+      _SettlementDiscoveryControlsState();
+}
+
+class _SettlementDiscoveryControlsState
+    extends State<_SettlementDiscoveryControls> {
+  final GlobalKey _selectedFilterAnchorKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _revealSelectedFilter();
+  }
+
+  @override
+  void didUpdateWidget(_SettlementDiscoveryControls oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedFilter != widget.selectedFilter) {
+      _revealSelectedFilter();
+    }
+  }
+
+  void _revealSelectedFilter() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final selectedContext = _selectedFilterAnchorKey.currentContext;
+      if (!mounted || selectedContext == null) {
+        return;
+      }
+      Scrollable.ensureVisible(
+        selectedContext,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return SettleoraSection(
       title: 'Find settlements',
-      trailing: hasActiveDiscovery
+      trailing: widget.hasActiveDiscovery
           ? TextButton.icon(
               key: const Key('settlement-list-clear-filters'),
-              onPressed: onClear,
+              onPressed: widget.onClear,
               icon: const Icon(Icons.close_outlined),
               label: const Text('Clear'),
             )
@@ -1010,7 +1070,7 @@ class _SettlementDiscoveryControls extends StatelessWidget {
         AppTextField(
           key: const Key('settlement-list-search'),
           wrapLabel: true,
-          controller: controller,
+          controller: widget.controller,
           label: 'Search settlements',
           prefixIcon: Icon(Icons.search_outlined),
         ),
@@ -1021,12 +1081,17 @@ class _SettlementDiscoveryControls extends StatelessWidget {
             children: [
               for (final filter in _SettlementRequestFilter.values)
                 Padding(
+                  key: widget.selectedFilter == filter
+                      ? _selectedFilterAnchorKey
+                      : null,
                   padding: const EdgeInsets.only(right: 8),
                   child: FilterChip(
                     key: Key('settlement-list-filter-${filter.key}'),
-                    selected: selectedFilter == filter,
-                    onSelected: (_) => onFilterSelected(filter),
-                    label: Text('${filter.label} (${counts.count(filter)})'),
+                    selected: widget.selectedFilter == filter,
+                    onSelected: (_) => widget.onFilterSelected(filter),
+                    label: Text(
+                      '${filter.label} (${widget.counts.count(filter)})',
+                    ),
                   ),
                 ),
             ],
@@ -1034,7 +1099,7 @@ class _SettlementDiscoveryControls extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'Balances stay visible while you filter payments.',
+          'Balances follow Incoming and Outgoing filters.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1045,23 +1110,37 @@ class _SettlementDiscoveryControls extends StatelessWidget {
 }
 
 class _BalanceSection extends StatelessWidget {
-  const _BalanceSection({required this.snapshot});
+  const _BalanceSection({required this.snapshot, required this.direction});
 
   final SettleoraSettlementBalanceSnapshot? snapshot;
+  final SettleoraSettlementBalanceDirection? direction;
 
   @override
   Widget build(BuildContext context) {
     final snapshot = this.snapshot;
-    final balances = snapshot?.balances ?? const <SettleoraSettlementBalance>[];
+    final allBalances =
+        snapshot?.balances ?? const <SettleoraSettlementBalance>[];
+    final balances = direction == null
+        ? allBalances
+        : allBalances
+              .where((balance) => balance.direction == direction)
+              .toList(growable: false);
 
     if (balances.isEmpty) {
-      return const SettleoraSection(
+      final directionLabel = direction == null
+          ? null
+          : settleoraSettlementBalanceDirectionLabel(direction!).toLowerCase();
+      return SettleoraSection(
         title: 'Balances',
         children: [
           SettleoraStatePanel(
             icon: Icons.account_balance_wallet_outlined,
-            title: 'No balances',
-            message: 'Current settlement balances will appear here.',
+            title: directionLabel == null
+                ? 'No balances'
+                : 'No $directionLabel balances',
+            message: directionLabel == null
+                ? 'Current settlement balances will appear here.'
+                : 'No $directionLabel settlement balances match this view.',
             compact: true,
           ),
         ],

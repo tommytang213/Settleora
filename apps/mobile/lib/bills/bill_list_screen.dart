@@ -563,6 +563,8 @@ class SettleoraBillListScreen extends StatefulWidget {
     this.receiptOcrReviewRepository,
     this.revisionRepository,
     this.defaultCurrency,
+    this.initialView = SettleoraBillListInitialView.all,
+    this.autoFlushPendingOnLoad = true,
     this.showBottomNav = true,
     this.onTopLevelDestinationSelected,
   });
@@ -577,6 +579,8 @@ class SettleoraBillListScreen extends StatefulWidget {
   final ReceiptOcrReviewRepository? receiptOcrReviewRepository;
   final SettleoraBillRevisionRepository? revisionRepository;
   final String? defaultCurrency;
+  final SettleoraBillListInitialView initialView;
+  final bool autoFlushPendingOnLoad;
   final bool showBottomNav;
   final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
@@ -592,7 +596,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   bool _isSyncing = false;
   String? _busyBillId;
   List<SettleoraBillSummary> _bills = const [];
-  _PersonalBillListFilter _selectedFilter = _PersonalBillListFilter.all;
+  late _PersonalBillListFilter _selectedFilter;
   _SyncQueueFilter _selectedSyncQueueFilter = _SyncQueueFilter.all;
   SettleoraBillFailure? _failure;
   SettleoraBillSyncSnapshot? _syncSnapshot;
@@ -601,6 +605,10 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedFilter = switch (widget.initialView) {
+      SettleoraBillListInitialView.all => _PersonalBillListFilter.all,
+      SettleoraBillListInitialView.active => _PersonalBillListFilter.active,
+    };
     Future<void>.microtask(_load);
   }
 
@@ -630,7 +638,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
         _isLoading = false;
       });
 
-      if (snapshot.pendingCount > 0) {
+      if (widget.autoFlushPendingOnLoad && snapshot.pendingCount > 0) {
         await _flushQueue(reloadBillsOnSuccess: true);
       }
     } catch (error) {
@@ -895,7 +903,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
                     const SizedBox(height: 10),
                     _SyncNotice(message: syncNotice),
                   ],
-                  if (_bills.isEmpty) ...[
+                  if (_bills.isEmpty && !hasFilters) ...[
                     const SizedBox(height: 56),
                     _StatePanel(
                       icon: Icons.receipt_long_outlined,
@@ -1000,6 +1008,8 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
     });
   }
 }
+
+enum SettleoraBillListInitialView { all, active }
 
 enum _PersonalBillListFilter { all, active, needsReview, archived }
 

@@ -421,6 +421,65 @@ void main() {
     expect(find.text('No notifications'), findsNothing);
   });
 
+  testWidgets('notification initial Unread view stays clearable', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(safeSummary: 'Unread update.'),
+        sampleNotification(
+          id: 'read-notification-id',
+          safeSummary: 'Read update.',
+          status: SettleoraNotificationStatusValues.read,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          initialView: SettleoraNotificationInitialView.unread,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expectSelectedFilter(tester, 'unread');
+    expect(find.text('Unread update.'), findsOneWidget);
+    expect(find.text('Read update.'), findsNothing);
+    expect(repository.markReadCalls, 0);
+
+    await tapNotificationFilter(tester, 'all');
+    expect(find.text('Unread update.'), findsOneWidget);
+    expect(find.text('Read update.'), findsOneWidget);
+    expect(repository.markReadCalls, 0);
+  });
+
+  testWidgets('zero-result initial Unread view is truthful and non-mutating', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      notifications: [
+        sampleNotification(status: SettleoraNotificationStatusValues.read),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraNotificationScreen(
+          repository: repository,
+          initialView: SettleoraNotificationInitialView.unread,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expectSelectedFilter(tester, 'unread');
+    expect(find.text('No unread notifications'), findsOneWidget);
+    expect(repository.markReadCalls, 0);
+  });
+
   testWidgets('notification screen retries bounded load failures', (
     tester,
   ) async {

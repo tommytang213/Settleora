@@ -34,6 +34,7 @@ class SettleoraNotificationScreen extends StatefulWidget {
     this.billRevisionRepository,
     this.syncRepository,
     this.preferences,
+    this.initialView = SettleoraNotificationInitialView.all,
     this.onSessionEnded,
   });
 
@@ -49,6 +50,7 @@ class SettleoraNotificationScreen extends StatefulWidget {
   final SettleoraBillRevisionRepository? billRevisionRepository;
   final SettleoraSyncRepository? syncRepository;
   final SettleoraNotificationPreferenceSettings? preferences;
+  final SettleoraNotificationInitialView initialView;
   final Future<void> Function(String? noticeMessage)? onSessionEnded;
 
   @override
@@ -64,13 +66,17 @@ class _SettleoraNotificationScreenState
   String? _actingNotificationId;
   SettleoraNotificationSummary? _summary;
   List<SettleoraNotificationRow> _notifications = const [];
-  _NotificationFilter _selectedFilter = _NotificationFilter.all;
+  late _NotificationFilter _selectedFilter;
   SettleoraNotificationFailure? _loadFailure;
   SettleoraNotificationFailure? _actionFailure;
 
   @override
   void initState() {
     super.initState();
+    _selectedFilter = switch (widget.initialView) {
+      SettleoraNotificationInitialView.all => _NotificationFilter.all,
+      SettleoraNotificationInitialView.unread => _NotificationFilter.unread,
+    };
     Future<void>.microtask(_load);
   }
 
@@ -1258,9 +1264,11 @@ class _SettleoraNotificationScreenState
                     _InlineFailure(failure: actionFailure),
                   ],
                   const SizedBox(height: 16),
-                  if (_notifications.isEmpty)
+                  if (_notifications.isEmpty &&
+                      _selectedFilter == _NotificationFilter.all)
                     const _EmptyNotifications()
-                  else if (preferenceVisibleNotifications.isEmpty)
+                  else if (preferenceVisibleNotifications.isEmpty &&
+                      _notifications.isNotEmpty)
                     const _EmptyNotifications(
                       title: 'Nothing visible',
                       message:
@@ -1481,6 +1489,8 @@ class _SummaryPanel extends StatelessWidget {
     );
   }
 }
+
+enum SettleoraNotificationInitialView { all, unread }
 
 enum _NotificationFilter {
   all('All'),
