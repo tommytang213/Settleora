@@ -5,15 +5,19 @@ import '../ui/settleora_components.dart';
 import '../ui/settleora_theme.dart';
 import '../help/contextual_help.dart';
 import 'app_configuration.dart';
+import 'server_connection_probe.dart';
 
 class SettleoraSetupScreen extends StatefulWidget {
   const SettleoraSetupScreen({
     super.key,
     required this.onSaveConfiguration,
+    this.serverConnectionProbe =
+        const GeneratedSettleoraServerConnectionProbe(),
     this.initialConfiguration,
   });
 
   final SettleoraAppConfiguration? initialConfiguration;
+  final SettleoraServerConnectionProbe serverConnectionProbe;
   final Future<void> Function(SettleoraAppConfiguration configuration)
   onSaveConfiguration;
 
@@ -27,6 +31,11 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
   late final TextEditingController _serverBaseUrlController;
   bool _isSaving = false;
   ServerBaseUriValidationResult? _lastValidation;
+  Uri? _verifiedServerBaseUri;
+  late String _observedServerBaseUrlText;
+  late Uri? _observedNormalizedServerBaseUri;
+  _ServerCheckState _serverCheckState = _ServerCheckState.unverified;
+  _SetupFailure? _setupFailure;
 
   @override
   void initState() {
@@ -36,10 +45,16 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
     _serverBaseUrlController = TextEditingController(
       text: initial?.serverBaseUri?.toString() ?? '',
     );
+    _observedServerBaseUrlText = _serverBaseUrlController.text;
+    _observedNormalizedServerBaseUri = validateServerBaseUri(
+      _serverBaseUrlController.text,
+    ).normalizedUri;
+    _serverBaseUrlController.addListener(_handleServerBaseUrlChanged);
   }
 
   @override
   void dispose() {
+    _serverBaseUrlController.removeListener(_handleServerBaseUrlChanged);
     _serverBaseUrlController.dispose();
     super.dispose();
   }
@@ -60,10 +75,43 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
 
     setState(() {
       _isSaving = true;
+      _setupFailure = null;
     });
 
     try {
+      final serverBaseUri = configuration.serverBaseUri;
+      if (serverBaseUri != null && _verifiedServerBaseUri != serverBaseUri) {
+        setState(() {
+          _serverCheckState = _ServerCheckState.checking;
+        });
+        try {
+          await widget.serverConnectionProbe.verify(serverBaseUri);
+        } catch (_) {
+          if (mounted) {
+            setState(() {
+              _serverCheckState = _ServerCheckState.unavailable;
+              _setupFailure = const _SetupFailure.serverUnavailable();
+            });
+          }
+          return;
+        }
+
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _verifiedServerBaseUri = serverBaseUri;
+          _serverCheckState = _ServerCheckState.verified;
+        });
+      }
+
       await widget.onSaveConfiguration(configuration);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _setupFailure = const _SetupFailure.notSaved();
+        });
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -71,6 +119,28 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
         });
       }
     }
+  }
+
+  void _handleServerBaseUrlChanged() {
+    final text = _serverBaseUrlController.text;
+    if (text == _observedServerBaseUrlText) {
+      return;
+    }
+    _observedServerBaseUrlText = text;
+    final normalized = validateServerBaseUri(text).normalizedUri;
+    final normalizedChanged = normalized != _observedNormalizedServerBaseUri;
+    _observedNormalizedServerBaseUri = normalized;
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _setupFailure = null;
+      if (normalizedChanged && normalized != _verifiedServerBaseUri) {
+        _verifiedServerBaseUri = null;
+        _serverCheckState = _ServerCheckState.unverified;
+      }
+    });
   }
 
   SettleoraAppConfiguration? _serverConfigurationFromForm() {
@@ -102,7 +172,10 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
   Widget build(BuildContext context) {
     final isServerMode = _selectedMode == SettleoraAppMode.server;
     final warning = isServerMode ? _lastValidation?.warningMessage : null;
+    final setupFailure = _setupFailure;
     final colors = context.settleoraColors;
+    final useVerticalModeChoice =
+        MediaQuery.textScalerOf(context).scale(1) >= 1.6;
 
     return Scaffold(
       appBar: AppBar(
@@ -137,19 +210,15 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                     Wrap(
                       spacing: SettleoraSpacing.xs,
                       runSpacing: SettleoraSpacing.xs,
-                      children: const [
-                        StatusChip(
-                          label: 'Server checked',
-                          icon: Icons.verified_user_outlined,
-                          variant: StatusChipVariant.info,
-                          size: StatusChipSize.small,
-                        ),
-                        StatusChip(
-                          label: 'Local stays local',
-                          icon: Icons.phone_android_outlined,
-                          variant: StatusChipVariant.neutral,
-                          size: StatusChipSize.small,
-                        ),
+                      children: [
+                        if (isServerMode) _serverStatusChip(),
+                        if (!isServerMode)
+                          const StatusChip(
+                            label: 'Local stays local',
+                            icon: Icons.phone_android_outlined,
+                            variant: StatusChipVariant.neutral,
+                            size: StatusChipSize.small,
+                          ),
                       ],
                     ),
                   ],
@@ -172,13 +241,21 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                     const SizedBox(height: SettleoraSpacing.md),
                     SegmentedButton<SettleoraAppMode>(
                       key: const Key('setup-mode-choice'),
-                      segments: const [
+                      direction: useVerticalModeChoice
+                          ? Axis.vertical
+                          : Axis.horizontal,
+                      segments: [
                         ButtonSegment(
                           value: SettleoraAppMode.server,
-                          icon: Icon(Icons.cloud_outlined),
-                          label: Text('Connect to server'),
+                          icon: const Icon(Icons.cloud_outlined),
+                          label: Text(
+                            useVerticalModeChoice
+                                ? 'Connect to\nserver'
+                                : 'Connect to server',
+                            textAlign: TextAlign.center,
+                          ),
                         ),
-                        ButtonSegment(
+                        const ButtonSegment(
                           value: SettleoraAppMode.local,
                           icon: Icon(Icons.phone_android_outlined),
                           label: Text('Use local mode'),
@@ -191,6 +268,7 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                               setState(() {
                                 _selectedMode = selection.single;
                                 _lastValidation = null;
+                                _setupFailure = null;
                               });
                             },
                     ),
@@ -206,6 +284,8 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                   onSave: _save,
                   warning: warning,
                   validator: _validateServerBaseUrl,
+                  onSubmitted: _save,
+                  failure: setupFailure,
                 ),
               if (!isServerMode) ...[
                 const SizedBox(height: SettleoraSpacing.md),
@@ -229,6 +309,16 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
                   ),
                 ),
               ],
+              if (!isServerMode && setupFailure != null) ...[
+                const SizedBox(height: SettleoraSpacing.sm),
+                SettleoraInlinePanel(
+                  key: const Key('setup-failure'),
+                  icon: setupFailure.icon,
+                  title: setupFailure.title,
+                  message: setupFailure.message,
+                  variant: SettleoraSurfaceVariant.danger,
+                ),
+              ],
               if (!isServerMode) ...[
                 const SizedBox(height: SettleoraSpacing.sm),
                 const _LocalModeNotice(),
@@ -239,6 +329,65 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
       ),
     );
   }
+
+  Widget _serverStatusChip() {
+    return switch (_serverCheckState) {
+      _ServerCheckState.unverified => const StatusChip(
+        key: Key('setup-server-status'),
+        label: 'Server not checked',
+        icon: Icons.cloud_outlined,
+        variant: StatusChipVariant.neutral,
+        size: StatusChipSize.small,
+      ),
+      _ServerCheckState.checking => const StatusChip(
+        key: Key('setup-server-status'),
+        label: 'Checking server',
+        icon: Icons.sync,
+        variant: StatusChipVariant.info,
+        size: StatusChipSize.small,
+      ),
+      _ServerCheckState.verified => const StatusChip(
+        key: Key('setup-server-status'),
+        label: 'Server verified',
+        icon: Icons.verified_user_outlined,
+        variant: StatusChipVariant.success,
+        size: StatusChipSize.small,
+      ),
+      _ServerCheckState.unavailable => const StatusChip(
+        key: Key('setup-server-status'),
+        label: 'Server unavailable',
+        icon: Icons.cloud_off_outlined,
+        variant: StatusChipVariant.danger,
+        size: StatusChipSize.small,
+      ),
+    };
+  }
+}
+
+enum _ServerCheckState { unverified, checking, verified, unavailable }
+
+class _SetupFailure {
+  const _SetupFailure({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  const _SetupFailure.serverUnavailable()
+    : icon = Icons.cloud_off_outlined,
+      title = 'Check this server',
+      message =
+          "Settleora couldn't verify this server at the address you entered. Check the address or try again.";
+
+  const _SetupFailure.notSaved()
+    : icon = Icons.save_outlined,
+      title = 'Setup not saved',
+      message =
+          "Settleora couldn't save this setup on this device. Your entries are still here. Try again.";
+
+  final IconData icon;
+  final String title;
+  final String message;
 }
 
 class _ServerModeFormFields extends StatelessWidget {
@@ -249,6 +398,8 @@ class _ServerModeFormFields extends StatelessWidget {
     required this.onSave,
     required this.warning,
     required this.validator,
+    required this.onSubmitted,
+    required this.failure,
   });
 
   final TextEditingController controller;
@@ -257,6 +408,8 @@ class _ServerModeFormFields extends StatelessWidget {
   final VoidCallback onSave;
   final String? warning;
   final String? Function(String?) validator;
+  final VoidCallback onSubmitted;
+  final _SetupFailure? failure;
 
   @override
   Widget build(BuildContext context) {
@@ -274,6 +427,7 @@ class _ServerModeFormFields extends StatelessWidget {
             autocorrect: false,
             textInputAction: TextInputAction.done,
             validator: validator,
+            onFieldSubmitted: (_) => onSubmitted(),
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
               labelText: 'Server base URL',
@@ -311,6 +465,16 @@ class _ServerModeFormFields extends StatelessWidget {
               title: 'Development server',
               message: warning!,
               variant: SettleoraSurfaceVariant.warning,
+            ),
+          ],
+          if (failure != null) ...[
+            const SizedBox(height: SettleoraSpacing.sm),
+            SettleoraInlinePanel(
+              key: const Key('setup-failure'),
+              icon: failure!.icon,
+              title: failure!.title,
+              message: failure!.message,
+              variant: SettleoraSurfaceVariant.danger,
             ),
           ],
         ],
