@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../help/contextual_help.dart';
 import '../ui/settleora_components.dart'
     show
         AppCard,
@@ -234,6 +235,9 @@ class _ReceiptOcrReviewQueueScreenState
       appBar: AppBar(
         title: const Text('Receipt Reviews'),
         actions: [
+          const SettleoraContextualHelpAction(
+            topic: SettleoraHelpTopic.ocrReview,
+          ),
           IconButton(
             onPressed: repository == null || _isLoading ? null : _loadReviews,
             tooltip: _refreshReceiptOcrReviewsLabel,
@@ -813,6 +817,9 @@ class _ReceiptOcrReviewDetailScreenState
         appBar: AppBar(
           title: const Text('Receipt Review'),
           actions: [
+            const SettleoraContextualHelpAction(
+              topic: SettleoraHelpTopic.ocrReview,
+            ),
             if (!_isEditing)
               IconButton(
                 onPressed:
