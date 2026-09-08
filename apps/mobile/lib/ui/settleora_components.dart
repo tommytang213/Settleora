@@ -854,10 +854,8 @@ class SettleoraBottomSheetFrame extends StatelessWidget {
           children: [
             SettleoraCompactHeader(title: title, subtitle: subtitle),
             const SizedBox(height: SettleoraSpacing.md),
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-              ),
+            Flexible(
+              fit: FlexFit.loose,
               child: SingleChildScrollView(child: child),
             ),
             if (actions.isNotEmpty) ...[
@@ -1350,6 +1348,7 @@ class SettingsRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.onTap,
+    this.focusNode,
     this.statusLabel,
     this.statusVariant = StatusChipVariant.neutral,
   });
@@ -1358,6 +1357,7 @@ class SettingsRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback? onTap;
+  final FocusNode? focusNode;
   final String? statusLabel;
   final StatusChipVariant statusVariant;
 
@@ -1417,6 +1417,7 @@ class SettingsRow extends StatelessWidget {
             onTap: onTap,
             child: InkWell(
               onTap: onTap,
+              focusNode: focusNode,
               excludeFromSemantics: true,
               borderRadius: BorderRadius.circular(SettleoraRadius.lg),
               child: row,

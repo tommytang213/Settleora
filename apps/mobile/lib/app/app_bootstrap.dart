@@ -35,6 +35,7 @@ import '../sync/generated_sync_repository.dart';
 import '../sync/sync_queue.dart';
 import '../sync/sync_queue_processor.dart';
 import '../sync/sync_repository.dart';
+import '../ui/settleora_components.dart';
 import 'app_configuration.dart';
 import 'auth_session_repository.dart';
 import 'local_data_backup.dart';
@@ -44,6 +45,7 @@ import 'secure_storage.dart';
 import 'server_mode_shell.dart';
 import 'setup_screen.dart';
 import 'sign_in_screen.dart';
+import 'version_notes.dart';
 
 typedef ReceiptOcrReviewRepositoryFactory =
     ReceiptOcrReviewRepository Function(
@@ -143,6 +145,9 @@ class SettleoraAppBootstrap extends StatefulWidget {
   const SettleoraAppBootstrap({
     super.key,
     required this.secureStorage,
+    required this.versionSeenPreference,
+    this.versionNotesProcessGuard,
+    this.versionNotes = currentBundledVersionNotes,
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
     this.passwordResetRepositoryFactory,
@@ -165,6 +170,9 @@ class SettleoraAppBootstrap extends StatefulWidget {
   });
 
   final SettleoraSecureStorageBoundary secureStorage;
+  final SettleoraVersionSeenPreference versionSeenPreference;
+  final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
+  final SettleoraBundledVersionNotes? versionNotes;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
   final SettleoraPasswordResetRepositoryFactory? passwordResetRepositoryFactory;
@@ -191,12 +199,19 @@ class SettleoraAppBootstrap extends StatefulWidget {
 }
 
 class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
+  final FocusNode _localWhatsNewFocusNode = FocusNode(
+    debugLabel: 'bootstrap-whats-new',
+  );
   _BootstrapSnapshot? _snapshot;
   bool _isLoading = true;
   bool _loadFailed = false;
   bool _isEditingConfiguration = false;
   SettleoraAuthFailure? _currentUserFailure;
   String? _signInNotice;
+
+  SettleoraVersionNotesProcessGuard get _versionNotesProcessGuard =>
+      widget.versionNotesProcessGuard ??
+      defaultSettleoraVersionNotesProcessGuard;
 
   @override
   void initState() {
@@ -334,8 +349,36 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     });
   }
 
+  Future<void> _openLocalWhatsNew() async {
+    await showSettleoraVersionNotesManually(
+      context: context,
+      notes: widget.versionNotes,
+      processGuard: _versionNotesProcessGuard,
+      preference: widget.versionSeenPreference,
+    );
+    if (mounted) {
+      _localWhatsNewFocusNode.requestFocus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _localWhatsNewFocusNode.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
+    return SettleoraVersionNotesAutoPresenter(
+      preference: widget.versionSeenPreference,
+      notes: widget.versionNotes,
+      enabled: !_isLoading && !_loadFailed,
+      processGuard: _versionNotesProcessGuard,
+      child: _buildBootstrapSurface(context),
+    );
+  }
+
+  Widget _buildBootstrapSurface(BuildContext context) {
     final snapshot = _snapshot;
     final configuration = snapshot?.configuration;
 
@@ -374,11 +417,27 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
         title: 'Local Mode',
         message:
             'Local Mode is device-bound and does not create or link a server account. Shared groups, collaboration, server sync, server backup, import/export, cloud recovery, and automatic migration are not available here. Moving to server mode will be a future explicit guided flow.',
-        action: FilledButton.icon(
-          key: const Key('bootstrap-connect-server'),
-          onPressed: _editConfiguration,
-          icon: const Icon(Icons.cloud_outlined),
-          label: const Text('Connect to Server'),
+        action: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              key: const Key('bootstrap-connect-server'),
+              onPressed: _editConfiguration,
+              icon: const Icon(Icons.cloud_outlined),
+              label: const Text('Connect to Server'),
+            ),
+            if (widget.versionNotes?.isUsable ?? false)
+              AppButton(
+                key: const Key('bootstrap-whats-new'),
+                label: "Read What's New",
+                icon: Icons.auto_awesome_outlined,
+                variant: AppButtonVariant.secondary,
+                focusNode: _localWhatsNewFocusNode,
+                onPressed: _openLocalWhatsNew,
+              ),
+          ],
         ),
       );
     }
@@ -531,6 +590,9 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       authRepository: authRepository,
       accessTokenProvider: tokenProvider,
       onSessionEnded: _clearSessionAndLoad,
+      versionNotes: widget.versionNotes,
+      versionNotesProcessGuard: _versionNotesProcessGuard,
+      versionSeenPreference: widget.versionSeenPreference,
     );
   }
 

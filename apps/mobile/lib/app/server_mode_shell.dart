@@ -36,6 +36,7 @@ import '../ui/settleora_components.dart';
 import '../ui/settleora_theme.dart';
 import 'auth_session_repository.dart';
 import 'local_data_backup.dart';
+import 'version_notes.dart';
 
 const _serverShellRootScrollPadding = EdgeInsets.fromLTRB(16, 12, 16, 148);
 
@@ -67,6 +68,9 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.authRepository,
     required this.accessTokenProvider,
     required this.onSessionEnded,
+    this.versionNotes = currentBundledVersionNotes,
+    this.versionNotesProcessGuard,
+    this.versionSeenPreference,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -91,6 +95,9 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraAuthRepository authRepository;
   final SettleoraAccessTokenProvider accessTokenProvider;
   final SettleoraSessionEndedCallback onSessionEnded;
+  final SettleoraBundledVersionNotes? versionNotes;
+  final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
+  final SettleoraVersionSeenPreference? versionSeenPreference;
 
   @override
   State<SettleoraAuthenticatedServerShell> createState() =>
@@ -544,6 +551,11 @@ class _SettleoraAuthenticatedServerShellState
           initialNotificationPreferences: _notificationPreferences,
           onNotificationPreferencesChanged: _setNotificationPreferences,
           dataBackupService: widget.dataBackupService,
+          versionNotes: widget.versionNotes,
+          versionNotesProcessGuard:
+              widget.versionNotesProcessGuard ??
+              defaultSettleoraVersionNotesProcessGuard,
+          versionSeenPreference: widget.versionSeenPreference,
         ),
       ),
     );
@@ -1607,6 +1619,9 @@ class _AppSettingsScreen extends StatefulWidget {
     required this.initialNotificationPreferences,
     required this.onNotificationPreferencesChanged,
     required this.dataBackupService,
+    required this.versionNotes,
+    required this.versionNotesProcessGuard,
+    required this.versionSeenPreference,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -1614,6 +1629,9 @@ class _AppSettingsScreen extends StatefulWidget {
   final ValueChanged<SettleoraNotificationPreferenceSettings>
   onNotificationPreferencesChanged;
   final SettleoraLocalDataBackupService? dataBackupService;
+  final SettleoraBundledVersionNotes? versionNotes;
+  final SettleoraVersionNotesProcessGuard versionNotesProcessGuard;
+  final SettleoraVersionSeenPreference? versionSeenPreference;
 
   @override
   State<_AppSettingsScreen> createState() => _AppSettingsScreenState();
@@ -1623,11 +1641,32 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
   late SettleoraNotificationPreferenceSettings _notificationPreferences;
   SettleoraLocalDataBackupExport? _latestBackupExport;
   bool _isBuildingBackup = false;
+  final FocusNode _whatsNewFocusNode = FocusNode(
+    debugLabel: 'settings-whats-new',
+  );
 
   @override
   void initState() {
     super.initState();
     _notificationPreferences = widget.initialNotificationPreferences;
+  }
+
+  @override
+  void dispose() {
+    _whatsNewFocusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openWhatsNew() async {
+    await showSettleoraVersionNotesManually(
+      context: context,
+      notes: widget.versionNotes,
+      processGuard: widget.versionNotesProcessGuard,
+      preference: widget.versionSeenPreference,
+    );
+    if (mounted) {
+      _whatsNewFocusNode.requestFocus();
+    }
   }
 
   void _setNotificationPreferences(
@@ -1732,6 +1771,25 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
+                        if (widget.versionNotes?.isUsable ?? false) ...[
+                          _MoreHubSection(
+                            title: 'About this app',
+                            children: [
+                              SettingsRow(
+                                key: const Key('settings-whats-new'),
+                                icon: Icons.auto_awesome_outlined,
+                                title: "What's New",
+                                subtitle:
+                                    'Read the bundled notes for this Settleora version.',
+                                statusLabel: 'Current version',
+                                statusVariant: StatusChipVariant.info,
+                                focusNode: _whatsNewFocusNode,
+                                onTap: _openWhatsNew,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                        ],
                         _MoreHubSection(
                           title: 'Notifications and delivery',
                           children: [
