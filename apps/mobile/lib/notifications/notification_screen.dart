@@ -2724,11 +2724,12 @@ class _FailurePanel extends StatelessWidget {
               label: 'Sign In',
               variant: AppButtonVariant.primary,
             )
-          : OutlinedButton.icon(
+          : AppButton(
               key: const Key('notification-retry'),
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              icon: Icons.refresh,
+              label: 'Retry',
+              variant: AppButtonVariant.secondary,
             ),
     );
   }
