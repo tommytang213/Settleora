@@ -6,6 +6,7 @@ import '../bills/bill_attachment_repository.dart';
 import '../bills/bill_revision_repository.dart';
 import '../bills/bill_list_screen.dart';
 import '../bills/bill_repository.dart';
+import '../help/contextual_help.dart';
 import '../receipt_ocr_capture/receipt_image_intake.dart';
 import '../receipt_ocr_capture/receipt_ocr_provider.dart';
 import '../receipt_ocr_review/receipt_ocr_review_repository.dart';
@@ -284,6 +285,7 @@ class _SettleoraGroupListScreenState extends State<SettleoraGroupListScreen> {
       appBar: AppBar(
         title: const Text('Groups'),
         actions: [
+          const SettleoraContextualHelpAction(topic: SettleoraHelpTopic.groups),
           IconButton(
             key: const Key('group-list-create'),
             tooltip: 'Create group',

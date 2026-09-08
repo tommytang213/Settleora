@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
+import '../help/contextual_help.dart';
 import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
 import '../ui/settleora_theme.dart';
@@ -128,6 +129,9 @@ class _SettleoraSettlementListScreenState
       appBar: AppBar(
         title: const Text('Settlements'),
         actions: [
+          const SettleoraContextualHelpAction(
+            topic: SettleoraHelpTopic.settlements,
+          ),
           IconButton(
             key: const Key('settlement-list-refresh'),
             onPressed: _isLoading ? null : _load,

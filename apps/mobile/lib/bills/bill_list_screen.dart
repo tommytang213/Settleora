@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../groups/group_repository.dart';
+import '../help/contextual_help.dart';
 import '../receipt_ocr_capture/receipt_image_artifact_processor.dart';
 import '../receipt_ocr_capture/receipt_image_intake.dart';
 import '../receipt_ocr_capture/receipt_image_normalization_policy.dart';
@@ -835,6 +836,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
       appBar: AppBar(
         title: const Text('Bills'),
         actions: [
+          const SettleoraContextualHelpAction(topic: SettleoraHelpTopic.bills),
           IconButton(
             key: const Key('bill-list-refresh'),
             onPressed: _isLoading ? null : _load,
@@ -5085,6 +5087,7 @@ class _SettleoraGroupBillListScreenState
       appBar: AppBar(
         title: const Text('Group bills'),
         actions: [
+          const SettleoraContextualHelpAction(topic: SettleoraHelpTopic.bills),
           IconButton(
             key: const Key('group-bill-list-refresh'),
             onPressed: _isLoading ? null : _load,
