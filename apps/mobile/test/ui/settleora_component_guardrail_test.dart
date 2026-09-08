@@ -1102,6 +1102,39 @@ void main() {
     expect(taps, 1);
   });
 
+  testWidgets(
+    'AppButton semantic label override preserves visible copy and one action',
+    (tester) async {
+      var taps = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: Scaffold(
+            body: Center(
+              child: AppButton(
+                label: 'Save',
+                semanticLabel: 'Save receipt review',
+                icon: Icons.save_outlined,
+                onPressed: () => taps += 1,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Save'), findsOneWidget);
+      final semanticsHandle = tester.ensureSemantics();
+      _expectAppButtonSemantics(tester, label: 'Save receipt review');
+      _expectNoSemanticsLabel(tester, 'Save');
+      semanticsHandle.dispose();
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(taps, 1);
+    },
+  );
+
   testWidgets('AppButton disabled state is non-actionable', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
