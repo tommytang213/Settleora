@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
@@ -764,7 +766,10 @@ void main() {
     expect(find.text('Dinner Club'), findsWidgets);
 
     await tester.enterText(
-      find.byKey(const Key('group-member-profile-id')),
+      find.descendant(
+        of: find.byKey(const Key('group-member-profile-id')),
+        matching: find.byType(TextField),
+      ),
       _otherProfileId,
     );
     await tester.tap(find.byKey(const Key('group-member-add')));
@@ -881,6 +886,9 @@ class FakeGroupRepository implements SettleoraGroupRepository {
     this.listFailure,
     this.detailFailure,
     this.actionFailure,
+    this.addMemberCompleter,
+    this.updateMemberCompleter,
+    this.addMemberResult,
   }) : groups = groups ?? const [],
        group = group ?? sampleGroup(),
        members = members ?? const [];
@@ -891,6 +899,9 @@ class FakeGroupRepository implements SettleoraGroupRepository {
   final SettleoraGroupFailure? listFailure;
   final SettleoraGroupFailure? detailFailure;
   final SettleoraGroupFailure? actionFailure;
+  final Completer<SettleoraGroupMember>? addMemberCompleter;
+  final Completer<SettleoraGroupMember>? updateMemberCompleter;
+  final SettleoraGroupMember? addMemberResult;
   int listCalls = 0;
   int createCalls = 0;
   int getCalls = 0;
@@ -973,11 +984,14 @@ class FakeGroupRepository implements SettleoraGroupRepository {
     lastGroupId = groupId;
     lastMemberAdd = request;
     _throwActionIfNeeded();
-    final member = sampleMember(
-      userProfileId: request.userProfileId.trim(),
-      displayName: 'Morgan',
-      role: request.role,
-    );
+    final member = addMemberCompleter == null
+        ? addMemberResult ??
+              sampleMember(
+                userProfileId: request.userProfileId.trim(),
+                displayName: 'Morgan',
+                role: request.role,
+              )
+        : await addMemberCompleter!.future;
     members = [member, ...members];
     return member;
   }
@@ -993,11 +1007,13 @@ class FakeGroupRepository implements SettleoraGroupRepository {
     lastUpdatedUserProfileId = userProfileId;
     lastMemberUpdate = update;
     _throwActionIfNeeded();
-    final updated = sampleMember(
-      userProfileId: userProfileId,
-      displayName: 'Morgan',
-      role: update.role,
-    );
+    final updated = updateMemberCompleter == null
+        ? sampleMember(
+            userProfileId: userProfileId,
+            displayName: 'Morgan',
+            role: update.role,
+          )
+        : await updateMemberCompleter!.future;
     members = [
       for (final member in members)
         if (member.userProfileId == userProfileId) updated else member,

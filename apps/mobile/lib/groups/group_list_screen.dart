@@ -865,14 +865,12 @@ class _SettleoraGroupDetailScreenState
                     title: 'Add Member',
                     spacing: 10,
                     children: [
-                      TextField(
+                      AppTextField(
                         key: const Key('group-member-profile-id'),
                         controller: _memberProfileIdController,
+                        label: 'User profile ID',
+                        labelAbove: true,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'User profile ID',
-                          border: OutlineInputBorder(),
-                        ),
                       ),
                       const SizedBox(height: 10),
                       InputDecorator(
@@ -908,18 +906,12 @@ class _SettleoraGroupDetailScreenState
                         ),
                       ),
                       const SizedBox(height: 12),
-                      FilledButton.icon(
+                      AppButton(
                         key: const Key('group-member-add'),
                         onPressed: _isAddingMember ? null : _addMember,
-                        icon: _isAddingMember
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.person_add_alt_1_outlined),
-                        label: const Text('Add Member'),
+                        icon: Icons.person_add_alt_1_outlined,
+                        label: 'Add Member',
+                        isLoading: _isAddingMember,
                       ),
                     ],
                   ),
