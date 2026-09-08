@@ -495,40 +495,47 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('receipt-review-edit-cancel'),
-                    onPressed: isBusy ? null : widget.onCancel,
-                    icon: const Icon(Icons.close),
-                    label: _SemanticButtonLabel(
-                      label: isBusy
+                  child: Tooltip(
+                    message: isBusy
+                        ? _busyActionSemanticLabel(
+                            _cancelReceiptOcrReviewEditLabel,
+                          )
+                        : _cancelReceiptOcrReviewEditLabel,
+                    excludeFromSemantics: true,
+                    child: AppButton(
+                      key: const Key('receipt-review-edit-cancel'),
+                      label: 'Cancel',
+                      semanticLabel: isBusy
                           ? _busyActionSemanticLabel(
                               _cancelReceiptOcrReviewEditLabel,
                             )
                           : _cancelReceiptOcrReviewEditLabel,
-                      enabled: !isBusy,
-                      child: const Text('Cancel'),
+                      icon: Icons.close,
+                      variant: AppButtonVariant.secondary,
+                      onPressed: isBusy ? null : widget.onCancel,
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: FilledButton.icon(
-                    key: const Key('receipt-review-edit-save'),
-                    onPressed: isBusy ? null : _submit,
-                    icon: widget.isSaving
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined),
-                    label: _SemanticButtonLabel(
-                      label: widget.isSaving
+                  child: Tooltip(
+                    message: widget.isSaving
+                        ? _savingReceiptOcrReviewLabel
+                        : isBusy
+                        ? _busyActionSemanticLabel(_saveReceiptOcrReviewLabel)
+                        : _saveReceiptOcrReviewLabel,
+                    excludeFromSemantics: true,
+                    child: AppButton(
+                      key: const Key('receipt-review-edit-save'),
+                      label: 'Save',
+                      semanticLabel: widget.isSaving
                           ? _savingReceiptOcrReviewLabel
                           : isBusy
                           ? _busyActionSemanticLabel(_saveReceiptOcrReviewLabel)
                           : _saveReceiptOcrReviewLabel,
-                      enabled: !isBusy,
-                      child: const Text('Save'),
+                      icon: Icons.save_outlined,
+                      isLoading: widget.isSaving,
+                      onPressed: isBusy ? null : _submit,
                     ),
                   ),
                 ),

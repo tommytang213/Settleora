@@ -12,6 +12,7 @@ class AppButton extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.icon,
+    this.semanticLabel,
     this.variant = AppButtonVariant.primary,
     this.expanded = false,
     this.isLoading = false,
@@ -20,6 +21,10 @@ class AppButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+
+  /// Overrides the spoken button label without changing the visible label.
+  /// Existing callers continue to announce [label] by default.
+  final String? semanticLabel;
   final AppButtonVariant variant;
   final bool expanded;
 
@@ -77,7 +82,7 @@ class AppButton extends StatelessWidget {
     final semanticButton = Semantics(
       container: true,
       excludeSemantics: true,
-      label: label,
+      label: semanticLabel ?? label,
       button: true,
       enabled: isEnabled,
       value: isLoading ? 'In progress' : null,

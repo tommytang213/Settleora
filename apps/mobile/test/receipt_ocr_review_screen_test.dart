@@ -1243,6 +1243,49 @@ void main() {
       expect(find.byTooltip('Cancel receipt review edit'), findsOneWidget);
       expect(find.byTooltip('Save receipt review'), findsOneWidget);
       expect(find.byTooltip('Delete saved OCR review'), findsOneWidget);
+      final cancel = find.byKey(const Key('receipt-review-edit-cancel'));
+      final save = find.byKey(const Key('receipt-review-edit-save'));
+      expect(
+        tester.widget<AppButton>(cancel).variant,
+        AppButtonVariant.secondary,
+      );
+      expect(tester.widget<AppButton>(save).variant, AppButtonVariant.primary);
+      expect(tester.widget<AppButton>(save).isLoading, isFalse);
+      expect(
+        find.descendant(of: cancel, matching: find.text('Cancel')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: save, matching: find.text('Save')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: cancel, matching: find.byIcon(Icons.close)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: save, matching: find.byIcon(Icons.save_outlined)),
+        findsOneWidget,
+      );
+      expect(
+        find.ancestor(of: cancel, matching: find.byType(Expanded)),
+        findsOneWidget,
+      );
+      expect(
+        find.ancestor(of: save, matching: find.byType(Expanded)),
+        findsOneWidget,
+      );
+      expect(
+        tester.getTopLeft(cancel).dx,
+        lessThan(tester.getTopLeft(save).dx),
+      );
+      expect(tester.getSize(cancel).height, greaterThanOrEqualTo(48));
+      expect(tester.getSize(save).height, greaterThanOrEqualTo(48));
+      expect(
+        find.bySemanticsLabel('Cancel receipt review edit'),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('Save receipt review'), findsOneWidget);
       expect(find.byType(DateField), findsOneWidget);
       expect(find.byType(MoneyInput), findsNWidgets(7));
       expect(find.byType(CurrencySelector), findsOneWidget);
@@ -1355,12 +1398,42 @@ void main() {
         find.bySemanticsLabel(RegExp('Saving receipt review')),
         findsOneWidget,
       );
+      expect(find.byTooltip('Saving receipt review'), findsOneWidget);
+      expect(
+        tester
+            .widget<AppButton>(
+              find.byKey(const Key('receipt-review-edit-save')),
+            )
+            .isLoading,
+        isTrue,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('receipt-review-edit-save')),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('receipt-review-edit-save')),
+          matching: find.byIcon(Icons.save_outlined),
+        ),
+        findsNothing,
+      );
       expect(
         find.bySemanticsLabel(
           RegExp(
             'Cancel receipt review edit. '
             'Disabled while receipt review action is in progress.',
           ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byTooltip(
+          'Cancel receipt review edit. '
+          'Disabled while receipt review action is in progress.',
         ),
         findsOneWidget,
       );
@@ -1714,12 +1787,12 @@ void main() {
         ReceiptOcrReviewSourceValues.onDevice,
       );
       expect(repository.lastSaveRequest?.lines.single.text, 'Milk');
-      expectFilledButtonEnabled(
+      expectAppButtonEnabled(
         tester,
         find.byKey(const Key('receipt-review-edit-save')),
         isFalse,
       );
-      expectOutlinedButtonEnabled(
+      expectAppButtonEnabled(
         tester,
         find.byKey(const Key('receipt-review-edit-cancel')),
         isFalse,
@@ -1937,12 +2010,27 @@ void main() {
           findsOneWidget,
         );
         expect(repository.deleteCalls, 0);
+        expect(
+          tester
+              .widget<AppButton>(
+                find.byKey(const Key('receipt-review-edit-save')),
+              )
+              .isLoading,
+          isFalse,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('receipt-review-edit-save')),
+            matching: find.byType(CircularProgressIndicator),
+          ),
+          findsNothing,
+        );
         expectIconButtonEnabled(
           tester,
           find.widgetWithIcon(IconButton, Icons.refresh),
           isFalse,
         );
-        expectFilledButtonEnabled(
+        expectAppButtonEnabled(
           tester,
           find.byKey(const Key('receipt-review-edit-save')),
           isFalse,
@@ -1990,6 +2078,33 @@ void main() {
       },
     );
 
+    testWidgets('Cancel exits edit once without repository mutation', (
+      tester,
+    ) async {
+      await useLargeSurface(tester);
+      final route = sampleRoute();
+      final repository = FakeReceiptOcrReviewRepository(
+        reviewResponse: sampleReview(route),
+      );
+
+      await pumpDetail(tester, repository: repository, route: route);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Edit receipt review'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('receipt-review-edit-cancel')),
+      );
+      await tester.tap(find.byKey(const Key('receipt-review-edit-cancel')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Review fields'), findsNothing);
+      expect(repository.saveCalls, 0);
+      expect(repository.deleteCalls, 0);
+      expect(repository.previewCalls, 0);
+      expect(repository.applyCalls, 0);
+      expect(repository.getCalls, 1);
+    });
+
     testWidgets('deletes through the group route and bounds failures', (
       tester,
     ) async {
@@ -2026,12 +2141,12 @@ void main() {
         find.byKey(const Key('receipt-review-edit-delete')),
         isFalse,
       );
-      expectFilledButtonEnabled(
+      expectAppButtonEnabled(
         tester,
         find.byKey(const Key('receipt-review-edit-save')),
         isFalse,
       );
-      expectOutlinedButtonEnabled(
+      expectAppButtonEnabled(
         tester,
         find.byKey(const Key('receipt-review-edit-cancel')),
         isFalse,
@@ -2142,6 +2257,15 @@ void expectFilledButtonEnabled(
 ) {
   final button = tester.widget<FilledButton>(finder);
   expect(button.onPressed != null, matcher);
+}
+
+void expectAppButtonEnabled(
+  WidgetTester tester,
+  Finder finder,
+  Matcher matcher,
+) {
+  final button = tester.widget<AppButton>(finder);
+  expect(button.onPressed != null && !button.isLoading, matcher);
 }
 
 void expectIconButtonEnabled(
