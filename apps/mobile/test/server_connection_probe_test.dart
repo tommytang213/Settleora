@@ -74,8 +74,13 @@ void main() {
   test(
     'probe-local timeout bounds completion without transport policy changes',
     () async {
+      var createdClients = 0;
       final probe = GeneratedSettleoraServerConnectionProbe(
         timeout: const Duration(milliseconds: 1),
+        httpClientFactory: () {
+          createdClients += 1;
+          return HttpClient();
+        },
         bootstrapStatusRequest: (_) =>
             Completer<api.BootstrapStatusResponse>().future,
       );
@@ -84,6 +89,7 @@ void main() {
         () => probe.verify(Uri.parse('https://settleora.example/')),
       );
       expect(failure.kind, SettleoraServerConnectionFailureKind.unavailable);
+      expect(createdClients, 1);
     },
   );
 }

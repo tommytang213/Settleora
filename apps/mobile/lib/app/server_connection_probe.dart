@@ -23,23 +23,26 @@ class SettleoraServerConnectionFailure implements Exception {
 typedef SettleoraBootstrapStatusRequest =
     Future<api.BootstrapStatusResponse> Function(api.SettleoraApiClient client);
 
+typedef SettleoraProbeHttpClientFactory = HttpClient Function();
+
 class GeneratedSettleoraServerConnectionProbe
     implements SettleoraServerConnectionProbe {
   const GeneratedSettleoraServerConnectionProbe({
-    this.clientFactory = const SettleoraGeneratedApiClientFactory(),
+    this.httpClientFactory = _createHttpClient,
     this.timeout = const Duration(seconds: 10),
     this.bootstrapStatusRequest = _getBootstrapStatus,
   });
 
-  final SettleoraGeneratedApiClientFactory clientFactory;
+  final SettleoraProbeHttpClientFactory httpClientFactory;
   final Duration timeout;
   final SettleoraBootstrapStatusRequest bootstrapStatusRequest;
 
   @override
   Future<void> verify(Uri baseUri) async {
-    final client = clientFactory.create(
-      SettleoraApiConfiguration(baseUri: baseUri),
-    );
+    final httpClient = httpClientFactory();
+    final client = SettleoraGeneratedApiClientFactory(
+      httpClient: httpClient,
+    ).create(SettleoraApiConfiguration(baseUri: baseUri));
 
     try {
       // Successful completion proves that the candidate answered with the
@@ -70,8 +73,15 @@ class GeneratedSettleoraServerConnectionProbe
       throw const SettleoraServerConnectionFailure(
         SettleoraServerConnectionFailureKind.incompatible,
       );
+    } finally {
+      // A timed-out generated request otherwise continues in the background.
+      // This client belongs only to this probe attempt, so force-close it to
+      // cancel the request and release its connection pool before a retry.
+      httpClient.close(force: true);
     }
   }
+
+  static HttpClient _createHttpClient() => HttpClient();
 
   static Future<api.BootstrapStatusResponse> _getBootstrapStatus(
     api.SettleoraApiClient client,

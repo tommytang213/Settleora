@@ -136,7 +136,8 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
     }
     setState(() {
       _setupFailure = null;
-      if (normalizedChanged && normalized != _verifiedServerBaseUri) {
+      if (normalizedChanged &&
+          (normalized == null || normalized != _verifiedServerBaseUri)) {
         _verifiedServerBaseUri = null;
         _serverCheckState = _ServerCheckState.unverified;
       }

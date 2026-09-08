@@ -123,6 +123,24 @@ void main() {
     expect(find.text('Server verified'), findsOneWidget);
   });
 
+  testWidgets('invalid edit clears stale unavailable status', (tester) async {
+    final probe = FakeServerConnectionProbe(
+      failures: [Exception('raw network failure')],
+    );
+    await pumpSetup(tester, probe: probe);
+    await tester.enterText(serverField, 'https://unavailable.example');
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Server unavailable'), findsOneWidget);
+
+    await tester.enterText(serverField, '/invalid');
+    await tester.pump();
+
+    expect(find.text('Server not checked'), findsOneWidget);
+    expect(find.text('Server unavailable'), findsNothing);
+    expect(find.text('Check this server'), findsNothing);
+  });
+
   testWidgets('save failure retains verified URL and retry does not re-probe', (
     tester,
   ) async {
