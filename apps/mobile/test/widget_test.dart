@@ -6,6 +6,7 @@ import 'package:mobile/app/app_configuration.dart';
 import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/password_reset_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
+import 'package:mobile/app/server_connection_probe.dart';
 import 'package:mobile/main.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_repository.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_screen.dart';
@@ -87,6 +88,95 @@ void main() {
     expect(storage.configuration, isNull);
     expect(find.textContaining('absolute URL'), findsOneWidget);
   });
+
+  testWidgets('successful server setup probes then uses bootstrap save flow', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage();
+    final probe = FakeServerConnectionProbe();
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(secureStorage: storage, serverConnectionProbe: probe),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('setup-server-base-url')),
+      'https://settleora.example',
+    );
+    await tester.tap(find.byKey(const Key('setup-save')));
+    await tester.pumpAndSettle();
+
+    expect(probe.calls, 1);
+    expect(storage.writeAppConfigurationCalls, 1);
+    expect(storage.clearServerSessionCalls, 1);
+    expect(
+      storage.configuration?.serverBaseUri,
+      Uri.parse('https://settleora.example/'),
+    );
+    expect(find.text('Sign in to Settleora'), findsOneWidget);
+  });
+
+  testWidgets('bootstrap persistence failure stays on retryable setup', (
+    tester,
+  ) async {
+    final storage = FakeSecureStorage(
+      writeAppConfigurationFailure: Exception('raw secure store'),
+    );
+    final probe = FakeServerConnectionProbe();
+
+    await tester.pumpWidget(
+      SettleoraMobileApp(secureStorage: storage, serverConnectionProbe: probe),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('setup-server-base-url')),
+      'https://settleora.example',
+    );
+    await tester.tap(find.byKey(const Key('setup-save')));
+    await tester.pumpAndSettle();
+
+    expect(probe.calls, 1);
+    expect(storage.writeAppConfigurationCalls, 1);
+    expect(storage.clearServerSessionCalls, 0);
+    expect(find.text('Server verified'), findsOneWidget);
+    expect(find.text('Setup not saved'), findsOneWidget);
+    expect(visibleText(tester), isNot(contains('raw secure store')));
+  });
+
+  testWidgets(
+    'saved configuration and session never count as setup verification',
+    (tester) async {
+      final storage = FakeSecureStorage(
+        configuration: SettleoraAppConfiguration.server(
+          serverBaseUri: Uri.parse('https://settleora.example/'),
+        ),
+        session: sampleSessionMaterial(),
+      );
+      final probe = FakeServerConnectionProbe();
+      final authRepository = FakeAuthRepository(
+        currentUserFailure: const SettleoraAuthFailure(
+          kind: SettleoraAuthFailureKind.unavailable,
+          message: 'Sign-in is unavailable right now. Try again later.',
+        ),
+      );
+
+      await tester.pumpWidget(
+        SettleoraMobileApp(
+          secureStorage: storage,
+          serverConnectionProbe: probe,
+          authRepositoryFactory: (_) => authRepository,
+          now: () => DateTime.utc(2026, 5, 14),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bootstrap-change-server')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Server not checked'), findsOneWidget);
+      expect(find.text('Server verified'), findsNothing);
+      expect(probe.calls, 0);
+    },
+  );
 
   testWidgets('server configuration without a session shows sign-in UI', (
     tester,
@@ -1801,10 +1891,16 @@ class FakeReceiptOcrReviewRepository implements ReceiptOcrReviewRepository {
 }
 
 class FakeSecureStorage implements SettleoraSecureStorageBoundary {
-  FakeSecureStorage({this.configuration, this.session});
+  FakeSecureStorage({
+    this.configuration,
+    this.session,
+    this.writeAppConfigurationFailure,
+  });
 
   SettleoraAppConfiguration? configuration;
   SettleoraServerSessionMaterial? session;
+  final Object? writeAppConfigurationFailure;
+  int writeAppConfigurationCalls = 0;
   int clearServerSessionCalls = 0;
   int writeServerSessionCalls = 0;
 
@@ -1817,6 +1913,9 @@ class FakeSecureStorage implements SettleoraSecureStorageBoundary {
   Future<void> writeAppConfiguration(
     SettleoraAppConfiguration configuration,
   ) async {
+    writeAppConfigurationCalls += 1;
+    final failure = writeAppConfigurationFailure;
+    if (failure != null) throw failure;
     this.configuration = configuration;
   }
 
@@ -1837,6 +1936,15 @@ class FakeSecureStorage implements SettleoraSecureStorageBoundary {
   Future<void> clearServerSession() async {
     clearServerSessionCalls += 1;
     session = null;
+  }
+}
+
+class FakeServerConnectionProbe implements SettleoraServerConnectionProbe {
+  int calls = 0;
+
+  @override
+  Future<void> verify(Uri baseUri) async {
+    calls += 1;
   }
 }
 

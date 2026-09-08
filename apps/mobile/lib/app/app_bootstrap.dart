@@ -42,6 +42,7 @@ import 'local_data_backup.dart';
 import 'password_reset_repository.dart';
 import 'secure_session_access_token_provider.dart';
 import 'secure_storage.dart';
+import 'server_connection_probe.dart';
 import 'server_mode_shell.dart';
 import 'setup_screen.dart';
 import 'sign_in_screen.dart';
@@ -167,6 +168,8 @@ class SettleoraAppBootstrap extends StatefulWidget {
     this.receiptImageIntake,
     this.receiptOcrProvider,
     this.now,
+    this.serverConnectionProbe =
+        const GeneratedSettleoraServerConnectionProbe(),
   });
 
   final SettleoraSecureStorageBoundary secureStorage;
@@ -193,6 +196,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
   final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
   final DateTime Function()? now;
+  final SettleoraServerConnectionProbe serverConnectionProbe;
 
   @override
   State<SettleoraAppBootstrap> createState() => _SettleoraAppBootstrapState();
@@ -407,6 +411,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     if (_isEditingConfiguration || configuration == null) {
       return SettleoraSetupScreen(
         initialConfiguration: configuration,
+        serverConnectionProbe: widget.serverConnectionProbe,
         onSaveConfiguration: _saveConfiguration,
       );
     }
@@ -446,6 +451,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
     if (baseUri == null) {
       return SettleoraSetupScreen(
         initialConfiguration: configuration,
+        serverConnectionProbe: widget.serverConnectionProbe,
         onSaveConfiguration: _saveConfiguration,
       );
     }

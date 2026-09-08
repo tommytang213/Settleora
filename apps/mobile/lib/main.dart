@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app/app_bootstrap.dart';
 import 'app/secure_storage.dart';
+import 'app/server_connection_probe.dart';
 import 'app/version_notes.dart';
 import 'dashboard/dashboard_preview_screen.dart';
 import 'receipt_ocr_capture/receipt_image_intake.dart';
@@ -35,6 +36,7 @@ class SettleoraMobileApp extends StatelessWidget {
     this.receiptImageIntake,
     this.receiptOcrProvider,
     this.now,
+    this.serverConnectionProbe,
     this.showDashboardPreview = const bool.fromEnvironment(
       'SETTLEORA_DASHBOARD_PREVIEW',
     ),
@@ -63,6 +65,7 @@ class SettleoraMobileApp extends StatelessWidget {
   final ReceiptImageIntake? receiptImageIntake;
   final ReceiptOcrProvider? receiptOcrProvider;
   final DateTime Function()? now;
+  final SettleoraServerConnectionProbe? serverConnectionProbe;
   final bool showDashboardPreview;
 
   @override
@@ -94,6 +97,9 @@ class SettleoraMobileApp extends StatelessWidget {
               receiptImageIntake: receiptImageIntake,
               receiptOcrProvider: receiptOcrProvider,
               now: now,
+              serverConnectionProbe:
+                  serverConnectionProbe ??
+                  const GeneratedSettleoraServerConnectionProbe(),
             ),
     );
   }
