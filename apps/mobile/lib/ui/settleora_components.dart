@@ -13,6 +13,7 @@ class AppButton extends StatelessWidget {
     required this.onPressed,
     this.icon,
     this.semanticLabel,
+    this.focusNode,
     this.variant = AppButtonVariant.primary,
     this.expanded = false,
     this.isLoading = false,
@@ -25,6 +26,7 @@ class AppButton extends StatelessWidget {
   /// Overrides the spoken button label without changing the visible label.
   /// Existing callers continue to announce [label] by default.
   final String? semanticLabel;
+  final FocusNode? focusNode;
   final AppButtonVariant variant;
   final bool expanded;
 
@@ -69,6 +71,7 @@ class AppButton extends StatelessWidget {
     final effectiveOnPressed = isLoading ? null : onPressed;
     final isEnabled = effectiveOnPressed != null;
     final button = FilledButton(
+      focusNode: focusNode,
       onPressed: effectiveOnPressed,
       style: FilledButton.styleFrom(
         backgroundColor: background,

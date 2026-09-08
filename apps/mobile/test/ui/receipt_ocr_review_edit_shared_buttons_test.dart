@@ -88,6 +88,15 @@ Future<void> _focusAction(WidgetTester tester, Key key) async {
         .evaluate();
     if (focusedElement.isNotEmpty) {
       await tester.pump(const Duration(milliseconds: 300));
+      final rect = tester.getRect(find.byKey(key));
+      final viewportSize =
+          tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect(rect.top, greaterThanOrEqualTo(0), reason: '$key top');
+      expect(
+        rect.bottom,
+        lessThanOrEqualTo(viewportSize.height),
+        reason: '$key bottom',
+      );
       return;
     }
   }

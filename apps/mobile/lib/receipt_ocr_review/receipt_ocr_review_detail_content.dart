@@ -211,6 +211,9 @@ class _ReceiptOcrReviewEditForm extends StatefulWidget {
 
 class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
   final _formKey = GlobalKey<FormState>();
+  final _editActionsKey = GlobalKey();
+  late final FocusNode _cancelFocusNode;
+  late final FocusNode _saveFocusNode;
   late final TextEditingController _merchantController;
   late final TextEditingController _receiptDateController;
   late final TextEditingController _currencyController;
@@ -224,6 +227,8 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
   @override
   void initState() {
     super.initState();
+    _cancelFocusNode = FocusNode()..addListener(_keepEditActionsVisible);
+    _saveFocusNode = FocusNode()..addListener(_keepEditActionsVisible);
     final review = widget.review;
     _merchantController = TextEditingController(text: review.merchantText);
     _receiptDateController = TextEditingController(
@@ -251,6 +256,12 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
 
   @override
   void dispose() {
+    _cancelFocusNode
+      ..removeListener(_keepEditActionsVisible)
+      ..dispose();
+    _saveFocusNode
+      ..removeListener(_keepEditActionsVisible)
+      ..dispose();
     _merchantController.dispose();
     _receiptDateController.dispose();
     _currencyController.dispose();
@@ -263,6 +274,24 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
       editors.dispose();
     }
     super.dispose();
+  }
+
+  void _keepEditActionsVisible() {
+    if (!_cancelFocusNode.hasFocus && !_saveFocusNode.hasFocus) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final actionsContext = _editActionsKey.currentContext;
+      if (!mounted || actionsContext == null) {
+        return;
+      }
+      Scrollable.ensureVisible(
+        actionsContext,
+        alignment: 1,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   void _addLine() {
@@ -493,6 +522,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
             ],
             const SizedBox(height: 18),
             Row(
+              key: _editActionsKey,
               children: [
                 Expanded(
                   child: Tooltip(
@@ -511,6 +541,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                             )
                           : _cancelReceiptOcrReviewEditLabel,
                       icon: Icons.close,
+                      focusNode: _cancelFocusNode,
                       variant: AppButtonVariant.secondary,
                       onPressed: isBusy ? null : widget.onCancel,
                     ),
@@ -534,6 +565,7 @@ class _ReceiptOcrReviewEditFormState extends State<_ReceiptOcrReviewEditForm> {
                           ? _busyActionSemanticLabel(_saveReceiptOcrReviewLabel)
                           : _saveReceiptOcrReviewLabel,
                       icon: Icons.save_outlined,
+                      focusNode: _saveFocusNode,
                       isLoading: widget.isSaving,
                       onPressed: isBusy ? null : _submit,
                     ),
