@@ -1,13 +1,13 @@
 # Issue #1096 setup persistence and server-feedback evidence
 
-Task key: `20260908-2243`. The production-widget captures remain under `/workspace/logs/settleora-visual-qa/20260908-2243-issue-1096/candidate-b/`; this manifest records their immutable SHA-256 evidence. All 12 final-candidate images were inspected at original resolution.
+Task key: `20260908-2243`. The production-widget captures remain under `/workspace/logs/settleora-visual-qa/20260908-2243-issue-1096/candidate-b/`; this manifest records their immutable SHA-256 evidence. All 12 final-candidate capture files (11 distinct bitmaps) were inspected at original resolution.
 
 ## Accepted contract and state machine
 
 - The probe consumes only the existing generated `getAuthBootstrapStatus` method for anonymous, read-only `GET /api/v1/auth/bootstrap/status`. A typed successful `BootstrapStatusResponse` verifies that the normalized candidate URL exposes the expected Settleora public API.
 - The response's `bootstrapRequired` value is ignored for both true and false. No account/bootstrap policy, access token, session, response body or internal identifier reaches setup UI.
 - Server state is `unverified` → `checking` → `verified` for a typed success, or `unavailable` for any safely redacted timeout/transport/API/malformed failure. Any effective normalized URL change invalidates verification and clears stale check/save feedback; normalization-equivalent text retains the exact URL identity.
-- A probe failure preserves URL/mode, prevents persistence and leaves Save available for a fresh probe. A persistence failure preserves input and the exact-URL verified result, so retry calls persistence once without re-probing. Local Mode constructs no probe/client and uses the same bounded persistence retry.
+- A probe failure preserves URL/mode, prevents persistence and leaves Save available for a fresh probe. A persistence failure preserves input and the exact-URL verified result, so retry calls persistence once without re-probing. Local Mode never invokes the configured probe, creates no probe HTTP client or network request, and uses the same bounded persistence retry.
 - Each generated probe client receives a probe-owned `HttpClient`, force-closed in `finally` even after the local ten-second wrapper timeout. This changes no global transport, TLS, certificate, header, proxy, API or session policy. Application persistence order remains configuration write then server-session clear.
 
 ## Candidate and convergence
@@ -35,4 +35,4 @@ ec7f4efe10012d87726ce1d7410d1e55125e495b238da1940c2f12965aa3fad9  server-verifie
 572f96d9c955be042e3046161f3f7df3d89b735a01f34a720af6014c5d08f3ee  server-verified-persistence-failure-390x844-1x.png
 ```
 
-The 390px/1× matrix covers initial/unverified, checking, verified, unavailable, verified persistence failure, retry ready/focused and unchanged Local Mode. The 320px/2× matrix proves unverified, unavailable, persistence failure and Save/retry reachability remain readable and scrollable without critical clipping. Captures use the production `SettleoraSetupScreen` and shared controls; widget tests independently assert status/error semantics, exact state transitions, keyboard submit and duplicate suppression.
+The 390px/1× matrix covers initial/unverified, checking, verified, unavailable, verified persistence failure, retry ready/focused and unchanged Local Mode. `server-verified-persistence-failure-390x844-1x.png` and `server-persistence-retry-ready-390x844-1x.png` are intentionally byte-identical: Save is already enabled in the retained failure state, so the retry-ready acceptance name records that unchanged screen without manufacturing a visual transition. The 320px/2× matrix proves unverified, unavailable, persistence failure and Save/retry reachability remain readable and scrollable without critical clipping. Captures use the production `SettleoraSetupScreen` and shared controls; widget tests independently assert status/error semantics, exact state transitions, keyboard submit and duplicate suppression.
