@@ -209,6 +209,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
   SettleoraAuthFailure? _currentUserFailure;
   String? _signInNotice;
 
+  SettleoraVersionNotesProcessGuard get _versionNotesProcessGuard =>
+      widget.versionNotesProcessGuard ??
+      defaultSettleoraVersionNotesProcessGuard;
+
   @override
   void initState() {
     super.initState();
@@ -346,9 +350,10 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
   }
 
   Future<void> _openLocalWhatsNew() async {
-    await showSettleoraVersionNotes(
+    await showSettleoraVersionNotesManually(
       context: context,
       notes: widget.versionNotes,
+      processGuard: _versionNotesProcessGuard,
     );
     if (mounted) {
       _localWhatsNewFocusNode.requestFocus();
@@ -367,7 +372,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       preference: widget.versionSeenPreference,
       notes: widget.versionNotes,
       enabled: !_isLoading && !_loadFailed,
-      processGuard: widget.versionNotesProcessGuard,
+      processGuard: _versionNotesProcessGuard,
       child: _buildBootstrapSurface(context),
     );
   }
@@ -585,6 +590,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       accessTokenProvider: tokenProvider,
       onSessionEnded: _clearSessionAndLoad,
       versionNotes: widget.versionNotes,
+      versionNotesProcessGuard: _versionNotesProcessGuard,
     );
   }
 

@@ -69,6 +69,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.accessTokenProvider,
     required this.onSessionEnded,
     this.versionNotes = currentBundledVersionNotes,
+    this.versionNotesProcessGuard,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -94,6 +95,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraAccessTokenProvider accessTokenProvider;
   final SettleoraSessionEndedCallback onSessionEnded;
   final SettleoraBundledVersionNotes? versionNotes;
+  final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
 
   @override
   State<SettleoraAuthenticatedServerShell> createState() =>
@@ -548,6 +550,9 @@ class _SettleoraAuthenticatedServerShellState
           onNotificationPreferencesChanged: _setNotificationPreferences,
           dataBackupService: widget.dataBackupService,
           versionNotes: widget.versionNotes,
+          versionNotesProcessGuard:
+              widget.versionNotesProcessGuard ??
+              defaultSettleoraVersionNotesProcessGuard,
         ),
       ),
     );
@@ -1612,6 +1617,7 @@ class _AppSettingsScreen extends StatefulWidget {
     required this.onNotificationPreferencesChanged,
     required this.dataBackupService,
     required this.versionNotes,
+    required this.versionNotesProcessGuard,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -1620,6 +1626,7 @@ class _AppSettingsScreen extends StatefulWidget {
   onNotificationPreferencesChanged;
   final SettleoraLocalDataBackupService? dataBackupService;
   final SettleoraBundledVersionNotes? versionNotes;
+  final SettleoraVersionNotesProcessGuard versionNotesProcessGuard;
 
   @override
   State<_AppSettingsScreen> createState() => _AppSettingsScreenState();
@@ -1646,9 +1653,10 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
   }
 
   Future<void> _openWhatsNew() async {
-    await showSettleoraVersionNotes(
+    await showSettleoraVersionNotesManually(
       context: context,
       notes: widget.versionNotes,
+      processGuard: widget.versionNotesProcessGuard,
     );
     if (mounted) {
       _whatsNewFocusNode.requestFocus();

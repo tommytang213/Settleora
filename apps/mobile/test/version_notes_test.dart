@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/app/app_configuration.dart';
+import 'package:mobile/app/app_bootstrap.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/app/version_notes.dart';
@@ -267,12 +268,44 @@ void main() {
     expect(tester.widget<AppButton>(localLauncher).focusNode?.hasFocus, isTrue);
   });
 
+  testWidgets('manual local open wins a delayed automatic-read race', (
+    tester,
+  ) async {
+    final readCompleter = Completer<String?>();
+    final preference = _FakeVersionSeenPreference(readCompleter: readCompleter);
+    await tester.pumpWidget(
+      SettleoraMobileApp(
+        secureStorage: _FakeSecureStorage(
+          configuration: const SettleoraAppConfiguration.local(),
+        ),
+        versionSeenPreference: preference,
+        versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('bootstrap-whats-new')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
+
+    readCompleter.complete(null);
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('whats-new-close')));
+    await tester.pumpAndSettle();
+    expect(find.byType(SettleoraGuidanceContent), findsNothing);
+  });
+
   testWidgets('settings reopens the same seen notes and returns focus', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(900, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await _pumpShell(tester);
+    final processGuard = SettleoraVersionNotesProcessGuard();
+    await _pumpShell(tester, processGuard: processGuard);
     await tester.tap(find.byKey(const Key('bottom-nav-more')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
@@ -293,6 +326,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
+    expect(processGuard.hasAttempted(currentBundledVersionNotesKey), isTrue);
     expect(find.text(currentBundledVersionNotes.heading), findsOneWidget);
     await tester.tap(find.byKey(const Key('whats-new-close')));
     await tester.pumpAndSettle();
@@ -330,9 +364,14 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MediaQuery(
-        data: const MediaQueryData(textScaler: TextScaler.linear(2)),
-        child: SettleoraMobileApp(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: SettleoraAppBootstrap(
           secureStorage: _FakeSecureStorage(),
           versionSeenPreference: _FakeVersionSeenPreference(),
           versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
@@ -342,6 +381,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final guidanceContext = tester.element(
+      find.byType(SettleoraGuidanceContent),
+    );
+    expect(MediaQuery.textScalerOf(guidanceContext).scale(10), 20);
     expect(tester.takeException(), isNull);
     expect(find.byType(SingleChildScrollView), findsWidgets);
     final close = find.byKey(const Key('whats-new-close'));
@@ -371,7 +414,10 @@ Future<void> _pumpApp(
   await tester.pumpAndSettle();
 }
 
-Future<void> _pumpShell(WidgetTester tester) async {
+Future<void> _pumpShell(
+  WidgetTester tester, {
+  SettleoraVersionNotesProcessGuard? processGuard,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       home: SettleoraAuthenticatedServerShell(
@@ -388,6 +434,7 @@ Future<void> _pumpShell(WidgetTester tester) async {
         authRepository: dashboard.FakeAuthRepository(),
         accessTokenProvider: dashboard.FakeAccessTokenProvider(),
         onSessionEnded: (_) async {},
+        versionNotesProcessGuard: processGuard,
       ),
     ),
   );

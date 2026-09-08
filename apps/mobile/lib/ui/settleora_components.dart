@@ -854,10 +854,8 @@ class SettleoraBottomSheetFrame extends StatelessWidget {
           children: [
             SettleoraCompactHeader(title: title, subtitle: subtitle),
             const SizedBox(height: SettleoraSpacing.md),
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-              ),
+            Flexible(
+              fit: FlexFit.loose,
               child: SingleChildScrollView(child: child),
             ),
             if (actions.isNotEmpty) ...[

@@ -60,6 +60,10 @@ class SettleoraVersionNotesProcessGuard {
 final SettleoraVersionNotesProcessGuard
 _defaultSettleoraVersionNotesProcessGuard = SettleoraVersionNotesProcessGuard();
 
+SettleoraVersionNotesProcessGuard
+get defaultSettleoraVersionNotesProcessGuard =>
+    _defaultSettleoraVersionNotesProcessGuard;
+
 class LocalSettleoraVersionSeenPreference
     implements SettleoraVersionSeenPreference {
   LocalSettleoraVersionSeenPreference({SecureKeyValueStore? keyValueStore})
@@ -113,6 +117,21 @@ Future<bool> showSettleoraVersionNotes({
     ),
   );
   return true;
+}
+
+/// Opens notes from a user-invoked launcher while coordinating with the
+/// automatic presenter. Marking the release synchronously prevents a delayed
+/// preference read from stacking an automatic sheet over this manual one.
+Future<bool> showSettleoraVersionNotesManually({
+  required BuildContext context,
+  required SettleoraBundledVersionNotes? notes,
+  required SettleoraVersionNotesProcessGuard processGuard,
+}) {
+  if (notes == null || !notes.isUsable) {
+    return Future<bool>.value(false);
+  }
+  processGuard.markAttempted(notes.releaseKey);
+  return showSettleoraVersionNotes(context: context, notes: notes);
 }
 
 /// Keeps release-note preference I/O out of bootstrap loading. The child is
