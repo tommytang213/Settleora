@@ -34,7 +34,7 @@ screen acceptance.
   reproducible branch-rendered fixtures exist, not that [#407](https://github.com/tommytang213/Settleora/issues/407) rendered or approved
   unseen UI. No new Figma or screenshots were required or created here.
 
-Totals: **60 rows — complete 3, partial 38, missing 9, blocked 10**.
+Totals: **60 rows — complete 4, partial 38, missing 8, blocked 10**.
 
 ## Canonical inventory
 
@@ -480,13 +480,13 @@ Totals: **60 rows — complete 3, partial 38, missing 9, blocked 10**.
 
 ### M47 — Contextual screen help
 
-- Status: `missing`. Requirement/reference: PRD: contextual screen help; DSL.
-- Source: [SettleoraBottomSheetFrame](../../apps/mobile/lib/ui/settleora_components.dart); [SettleoraSetupScreen](../../apps/mobile/lib/app/setup_screen.dart).
-- Tests: [widget_test.dart](../../apps/mobile/test/widget_test.dart): `default app starts at setup when no mode is configured`.
-- States: E/L/R/D/O feature absent; explanatory inline text is not reopenable contextual help.
-- Accessibility/visual: Shared sheet can support static help; dismiss/reopen/focus return and screen-specific copy need evidence.
-- Owner: [#1093](https://github.com/tommytang213/Settleora/issues/1093). Remaining: No versioned per-screen help registry or help entry/overlay flow found. #1093 completion requires a keyed coverage matrix, not a registry plus one example: setup/first-launch choice (M01–M02), dashboard (M09), bills (M10–M17/M23/M51/M55/M58), OCR review (M18–M22), groups (M24–M27), settlements (M28–M31/M59), recurring (M32–M33), reports/search (M38–M39/M57), backup/restore (M41), settings/security (M03–M06/M08/M37/M42–M45/M52–M53/M56), and applicable admin-maintenance guidance. For each key, record entry location, versioned product copy, implemented/unavailable-state meaning, skippable/closable/reopenable behavior, focus return, localization/text-scale evidence and a focused test or explicit dependency. Mobile has no admin-maintenance destination: record that key as not applicable to this mobile surface and route any separately approved admin guidance through #964 rather than creating mobile admin exposure. Missing underlying flows remain explicit help-copy dependencies; do not describe unimplemented actions as available. Keep distinct from [#412](https://github.com/tommytang213/Settleora/issues/412) mode recommender and from admin arbitrary content.
-- Gate/dependency: Risky instructional copy needs domain/reference review. Order: **W1**.
+- Status: `complete`. Requirement/reference: PRD: contextual screen help; DSL.
+- Source: [contextual_help.dart](../../apps/mobile/lib/help/contextual_help.dart); [SettleoraSetupScreen](../../apps/mobile/lib/app/setup_screen.dart); [_ServerHomeScreen and _AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart); [SettleoraBillListScreen](../../apps/mobile/lib/bills/bill_list_screen.dart); [ReceiptOcrReviewQueueScreen and ReceiptOcrReviewDetailScreen](../../apps/mobile/lib/receipt_ocr_review/receipt_ocr_review_screen.dart); [SettleoraGroupListScreen](../../apps/mobile/lib/groups/group_list_screen.dart); [SettleoraSettlementListScreen](../../apps/mobile/lib/settlements/settlement_list_screen.dart); [SettleoraRecurringBillScreen](../../apps/mobile/lib/recurring_bills/recurring_bill_screen.dart); [SettleoraMonthlyReportScreen](../../apps/mobile/lib/reports/monthly_report_screen.dart).
+- Tests: [contextual_help_candidate_a_test.dart](../../apps/mobile/test/contextual_help_candidate_a_test.dart), [contextual_help_candidate_b_test.dart](../../apps/mobile/test/contextual_help_candidate_b_test.dart) and [contextual_help_candidate_c_test.dart](../../apps/mobile/test/contextual_help_candidate_c_test.dart): exact ten-key registry, screen/topic wiring, implemented/unavailable meanings, zero repository/domain side effects, dismiss/reopen/focus, no persistence or #1092 release-state coupling, backup-preview placement and OCR deletion concurrency; candidate [A](../../apps/mobile/test/ui/contextual_help_candidate_a_visual_capture_test.dart), [B](../../apps/mobile/test/ui/contextual_help_candidate_b_visual_capture_test.dart) and [C](../../apps/mobile/test/ui/contextual_help_candidate_c_visual_capture_test.dart) production-widget capture suites.
+- States: E each user-invoked launcher opens its matching revision `2026-09-08.1` static sheet; L help never waits for a repository, parser, preference or server call; R explicit Close, modal barrier and drag dismissal are non-blocking and immediately reopenable; D unavailable, unsupported, read-only, preview-only and server-dependent behavior remains explicit and unchanged, with OCR detail help omitted while conflicting mutation work is active; O setup help is available before authentication and the remaining entries use their actual existing mobile surfaces without a new top-level destination.
+- Accessibility/visual: Stable `contextual-help-<topic-key>` action keys, useful tooltip/semantic labels, 48dp+ launcher/action targets, one guidance heading identity, one explicit `Close help` action, natural sheet reading order and reusable focus return. Twenty-seven original-resolution production/shared-widget captures cover every entry/open sheet, a setup sheet reopened after barrier dismissal, visible keyboard focus returned to its launcher after close, and long localization-style scrolling at 320px/2×; widget tests independently assert those mechanics. Paths/hashes are in [Issue #1093 evidence](evidence/issue-1093/README.md). Native screen-reader/device acceptance remains #975.
+- Owner: [#1093](https://github.com/tommytang213/Settleora/issues/1093), completed by implementation PRs #1150, #1151 and #1152 plus same-task ledger/evidence hygiene. Exact keys are `first-launch`, `dashboard`, `bills`, `ocr-review`, `groups`, `settlements`, `recurring`, `reports-search`, `backup-restore` and `settings-security`. Mobile has no admin-maintenance destination, so it is intentionally not a key; separately approved admin guidance remains #964. Centralized caller-owned versioned copy is localization-ready while locale resources/runtime remain #409. This remains distinct from #412 recommendations and #1092 release seen-state.
+- Gate/dependency: Feature-complete in scoped Flutter source/tests/evidence. #975 retains native/platform acceptance; future copy localization remains #409.
 
 ### M48 — Server-managed announcements
 
@@ -808,8 +808,8 @@ Each child needs a current allowed-path contract, exact validation and review.
    independently from UI work. For setup behavior, #1096 follows its supported-probe contract gate independently. For UI, first [#301](https://github.com/tommytang213/Settleora/issues/301) equivalent selector/sheet/state
    adoption (2–4 related slices), then [#299](https://github.com/tommytang213/Settleora/issues/299) metric handoffs plus [#295](https://github.com/tommytang213/Settleora/issues/295) lightweight
    shortcut visibility where validation/reference boundaries match. [#1092](https://github.com/tommytang213/Settleora/issues/1092) bundled
-   What’s New is complete; [#1093](https://github.com/tommytang213/Settleora/issues/1093) static help remains a separate local presentation
-   slice and must not be bundled with security or financial actions. [#409](https://github.com/tommytang213/Settleora/issues/409) findings
+   What’s New and [#1093](https://github.com/tommytang213/Settleora/issues/1093) static contextual help are complete local presentation
+   slices and remain separate from security or financial actions. [#409](https://github.com/tommytang213/Settleora/issues/409) findings
    guide copy extraction without a repository-wide rewrite.
 2. **W2 — reference/contract-aware product work:** [#296](https://github.com/tommytang213/Settleora/issues/296) report readability plus
    [#399](https://github.com/tommytang213/Settleora/issues/399) group summary after [#977](https://github.com/tommytang213/Settleora/issues/977) establishes available data; [#412](https://github.com/tommytang213/Settleora/issues/412) focused mode
@@ -867,8 +867,8 @@ Server admin backup, web/admin management, SMS MFA, provider FX, bank/PDF matchi
 Strict Vault, federation/cloud, full drag/drop builders and later dedicated Sync
 Center enhancements are not invented Day 1 mobile destinations. Existing Day 1 manual FX is represented once in M51; provider FX does not replace it.
 
-New issues: [#1092](https://github.com/tommytang213/Settleora/issues/1092) (bundled version notes), [#1093](https://github.com/tommytang213/Settleora/issues/1093) (static contextual help), [#1094](https://github.com/tommytang213/Settleora/issues/1094)
-(announcement authority/contract handoff), and [#1096](https://github.com/tommytang213/Settleora/issues/1096) (setup persistence and truthful server-connection feedback). Open/closed title/body searches and
+Completed focused guidance issues: [#1092](https://github.com/tommytang213/Settleora/issues/1092) (bundled version notes) and [#1093](https://github.com/tommytang213/Settleora/issues/1093) (static contextual help). Remaining new authority/follow-up issues: [#1094](https://github.com/tommytang213/Settleora/issues/1094)
+(announcement authority/contract handoff) and [#1096](https://github.com/tommytang213/Settleora/issues/1096) (setup persistence and truthful server-connection feedback). Open/closed title/body searches and
 current source/test/contract inspection found no same-scope owner; [#412](https://github.com/tommytang213/Settleora/issues/412) mode
 recommendation is not contextual per-screen help. Release workflow issues do not
 implement bundled notes. Event notifications are not server announcements.
