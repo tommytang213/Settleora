@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../future_bills/future_bill_repository.dart';
 import '../groups/group_repository.dart';
+import '../help/contextual_help.dart';
 import '../ui/settleora_components.dart';
 import '../ui/settleora_form_fields.dart';
 import 'recurring_bill_repository.dart';
@@ -426,6 +427,9 @@ class _SettleoraRecurringBillScreenState
       appBar: AppBar(
         title: const Text('Recurring bills'),
         actions: [
+          const SettleoraContextualHelpAction(
+            topic: SettleoraHelpTopic.recurring,
+          ),
           IconButton(
             key: const Key('recurring-bill-create'),
             tooltip: 'Create recurring bill',
