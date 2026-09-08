@@ -21,7 +21,7 @@ import '../profile_screen_test.dart' as profile;
 
 const _captureKey = Key('sign-in-required-state-action-capture');
 const _output =
-    '/workspace/logs/settleora-visual-qa/20260908-0214-sign-in-required-state-actions';
+    '/workspace/logs/settleora-visual-qa/20260908-0828-failure-retry-state-actions';
 
 enum _Host { profile, monthlyReport, notifications }
 
@@ -33,12 +33,21 @@ extension on _Host {
   };
 
   Key get actionKey => Key('$slug-sign-in-required');
+
+  Key get retryKey => Key('$slug-retry');
 }
 
 class _Fixture {
-  const _Fixture({required this.screen, required this.expectNoMutations});
+  const _Fixture({
+    required this.screen,
+    required this.expectInitialLoad,
+    required this.expectRetryReload,
+    required this.expectNoMutations,
+  });
 
   final Widget screen;
+  final VoidCallback expectInitialLoad;
+  final VoidCallback expectRetryReload;
   final VoidCallback expectNoMutations;
 }
 
@@ -73,7 +82,7 @@ void main() {
         );
         await _pump(tester, otherFailure.screen);
         expect(find.byKey(host.actionKey), findsNothing);
-        expect(find.byKey(Key('${host.slug}-retry')), findsOneWidget);
+        expect(find.byKey(host.retryKey), findsOneWidget);
         expect(find.text('Server unavailable'), findsOneWidget);
         expect(find.byIcon(Icons.cloud_off_outlined), findsOneWidget);
       },
@@ -82,7 +91,7 @@ void main() {
     for (final narrow in [false, true]) {
       final viewport = narrow ? '320-2x' : '390-1x';
       testWidgets(
-        '${host.slug} $viewport uses the production shared sign-in action',
+        '${host.slug} $viewport uses the production shared failure actions',
         (tester) async {
           var callbackCalls = 0;
           String? callbackMessage;
@@ -172,8 +181,43 @@ void main() {
           );
           await _pumpCapture(tester, otherFailure.screen, narrow: narrow);
           expect(find.byKey(host.actionKey), findsNothing);
-          expect(find.byKey(Key('${host.slug}-retry')), findsOneWidget);
+          final retry = find.byKey(host.retryKey);
+          expect(retry, findsOneWidget);
+          expect(
+            find.ancestor(
+              of: retry,
+              matching: find.byType(SettleoraStatePanel),
+            ),
+            findsOneWidget,
+          );
+          final retryButton = tester.widget<AppButton>(retry);
+          expect(retryButton.label, 'Retry');
+          expect(retryButton.icon, Icons.refresh);
+          expect(retryButton.variant, AppButtonVariant.secondary);
+          expect(retryButton.expanded, isFalse);
+          expect(retryButton.isLoading, isFalse);
+          expect(retryButton.onPressed, isNotNull);
+          expect(tester.getSize(retry).height, greaterThanOrEqualTo(48));
+          expect(tester.getSize(retry).width, greaterThanOrEqualTo(48));
+          otherFailure.expectInitialLoad();
+
+          final retrySemantics = tester.ensureSemantics();
+          final retryData = tester.getSemantics(retry).getSemanticsData();
+          expect(retryData.label, 'Retry');
+          expect(retryData.flagsCollection.isButton, isTrue);
+          expect(retryData.flagsCollection.isEnabled.name, 'isTrue');
+          expect(retryData.hasAction(SemanticsAction.tap), isTrue);
+          expect(_semanticLabelCount(tester, 'Retry'), 1);
           await _png(tester, '${host.slug}-$viewport-non-sign-in');
+          await _focusWithKeyboard(tester, retry);
+          await tester.pumpAndSettle();
+          await _png(tester, '${host.slug}-$viewport-retry-focused');
+
+          await tester.tap(retry);
+          await tester.pumpAndSettle();
+          otherFailure.expectRetryReload();
+          otherFailure.expectNoMutations();
+          retrySemantics.dispose();
         },
       );
     }
@@ -188,21 +232,36 @@ _Fixture _fixture(
   switch (host) {
     case _Host.profile:
       final repository = profile.FakeProfileRepository(
-        loadFailure: SettleoraProfileFailure(
-          kind: switch (failureKind) {
-            'required' => SettleoraProfileFailureKind.sessionRequired,
-            'expired' => SettleoraProfileFailureKind.sessionExpired,
-            _ => SettleoraProfileFailureKind.network,
-          },
-          message: _message(host, failureKind),
-        ),
+        loadFailure: failureKind == 'network'
+            ? null
+            : SettleoraProfileFailure(
+                kind: switch (failureKind) {
+                  'required' => SettleoraProfileFailureKind.sessionRequired,
+                  _ => SettleoraProfileFailureKind.sessionExpired,
+                },
+                message: _message(host, failureKind),
+              ),
       );
+      if (failureKind == 'network') {
+        repository.nextProfileReadFailure = SettleoraProfileFailure(
+          kind: SettleoraProfileFailureKind.network,
+          message: _message(host, failureKind),
+        );
+      }
       return _Fixture(
         screen: SettleoraProfileScreen(
           repository: repository,
           currentUser: profile.sampleCurrentUser(),
           onSessionEnded: onSessionEnded,
         ),
+        expectInitialLoad: () {
+          expect(repository.profileReadCalls, 1);
+          expect(repository.paymentReadCalls, 0);
+        },
+        expectRetryReload: () {
+          expect(repository.profileReadCalls, 2);
+          expect(repository.paymentReadCalls, 1);
+        },
         expectNoMutations: () {
           expect(repository.profileUpdateCalls, 0);
           expect(repository.paymentUpdateCalls, 0);
@@ -227,7 +286,17 @@ _Fixture _fixture(
           initialMonth: '2026-05',
           onSessionEnded: onSessionEnded,
         ),
-        expectNoMutations: () => expect(repository.calls, 1),
+        expectInitialLoad: () {
+          expect(repository.calls, 1);
+          expect(repository.requestedMonths, ['2026-05']);
+          expect(repository.requestedGroupIds, [null]);
+        },
+        expectRetryReload: () {
+          expect(repository.calls, 2);
+          expect(repository.requestedMonths, ['2026-05', '2026-05']);
+          expect(repository.requestedGroupIds, [null, null]);
+        },
+        expectNoMutations: () {},
       );
     case _Host.notifications:
       final repository = notifications.FakeNotificationRepository(
@@ -247,6 +316,14 @@ _Fixture _fixture(
           repository: repository,
           onSessionEnded: onSessionEnded,
         ),
+        expectInitialLoad: () {
+          expect(repository.summaryCalls, 1);
+          expect(repository.listCalls, 0);
+        },
+        expectRetryReload: () {
+          expect(repository.summaryCalls, 2);
+          expect(repository.listCalls, 1);
+        },
         expectNoMutations: () {
           expect(repository.markReadCalls, 0);
           expect(repository.markAllReadCalls, 0);
