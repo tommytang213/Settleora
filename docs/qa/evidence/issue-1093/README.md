@@ -57,6 +57,8 @@ a029b7aacbbe835676fd320aa402a1f29897e10b3c09ce9d142f325842feaf47  candidate-c/oc
 8fd29d79b2ed67246a49376d0c734b520d52d6dc5ece45169bf7a3607450fa9c  candidate-c/ocr-queue-help-open-390x844-1x.png
 f8b49b7daa204988d14e1f840790b577893aac5d78eee51c731fa8a33b2566b9  candidate-c/settings-security-help-entry-390x844-1x.png
 9811d09aa96da307afbd0321153765950e021ea90671a333e19470edecf038ff  candidate-c/settings-security-help-open-390x844-1x.png
+3c1932f75280e42290fe8c9d89e145d7d192c754ff4979077c1d1ef4f65cee1a  hygiene/setup-help-keyboard-focus-return-390x844-1x.png
+ba87b5eae19e6d5fec5ed1f27d2b3913e3cf03e324bf9acd2d73cb0cfc56da38  hygiene/setup-help-reopened-after-barrier-390x844-1x.png
 ```
 
-The 320px/2× capture exercises localization-style long copy and scroll reachability. Candidate A tests also prove modal-barrier dismissal, explicit close, immediate reopen and focus return; every launcher uses the same reusable mechanism. No #1092 seen key or preference is read or written.
+The two final hygiene captures were rendered from the production `SettleoraSetupScreen` on the post-implementation branch: one after barrier dismissal and immediate reopen, and one after keyboard activation plus explicit close with the returned launcher focus visibly highlighted. The 320px/2× capture exercises localization-style long copy and scroll reachability. Candidate A tests independently prove modal-barrier dismissal, explicit close, immediate reopen and focus return; every launcher uses the same reusable mechanism. No #1092 seen key or preference is read or written.
