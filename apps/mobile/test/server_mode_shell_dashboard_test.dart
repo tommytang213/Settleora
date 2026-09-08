@@ -193,12 +193,36 @@ void main() {
     tester,
   ) async {
     final repository = FakeBillRepository(bills: [sampleBill()]);
-    await pumpShell(tester, billRepository: repository);
+    final store = MemorySyncQueueStore(
+      initialState: SettleoraSyncQueueState(
+        items: [
+          sampleSyncItem(
+            id: 'dashboard-active-pending',
+            resourceId: _billId,
+            state: SettleoraSyncQueueItemStateValues.queued,
+          ),
+        ],
+      ),
+    );
+    final syncRepository = FakeSyncRepository();
+    await pumpShell(
+      tester,
+      billRepository: repository,
+      billSyncController: sampleBillSyncController(
+        store: store,
+        repository: syncRepository,
+      ),
+    );
 
     await tester.tap(find.byKey(const Key('dashboard-active-bills-action')));
     await tester.pumpAndSettle();
 
     expect(find.text('Bills'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('bill-list-filter-active')),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
       tester
           .widget<FilterChip>(
@@ -208,6 +232,11 @@ void main() {
       isTrue,
     );
     expect(repository.createCalls, 0);
+    expect(syncRepository.submitCalls, 0);
+    expect(
+      store.state.items.single.state,
+      SettleoraSyncQueueItemStateValues.queued,
+    );
   });
 
   testWidgets('zero active bills action opens truthful filtered empty view', (

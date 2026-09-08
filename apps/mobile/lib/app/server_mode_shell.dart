@@ -330,6 +330,7 @@ class _SettleoraAuthenticatedServerShellState
         revisionRepository: widget.billRevisionRepository,
         defaultCurrency: widget.currentUser.defaultCurrency,
         initialView: SettleoraBillListInitialView.active,
+        autoFlushPendingOnLoad: false,
         showBottomNav: false,
         onTopLevelDestinationSelected: _openNestedTopLevelDestination,
       ),

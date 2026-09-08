@@ -564,6 +564,7 @@ class SettleoraBillListScreen extends StatefulWidget {
     this.revisionRepository,
     this.defaultCurrency,
     this.initialView = SettleoraBillListInitialView.all,
+    this.autoFlushPendingOnLoad = true,
     this.showBottomNav = true,
     this.onTopLevelDestinationSelected,
   });
@@ -579,6 +580,7 @@ class SettleoraBillListScreen extends StatefulWidget {
   final SettleoraBillRevisionRepository? revisionRepository;
   final String? defaultCurrency;
   final SettleoraBillListInitialView initialView;
+  final bool autoFlushPendingOnLoad;
   final bool showBottomNav;
   final ValueChanged<SettleoraNavDestination>? onTopLevelDestinationSelected;
 
@@ -636,7 +638,7 @@ class _SettleoraBillListScreenState extends State<SettleoraBillListScreen> {
         _isLoading = false;
       });
 
-      if (snapshot.pendingCount > 0) {
+      if (widget.autoFlushPendingOnLoad && snapshot.pendingCount > 0) {
         await _flushQueue(reloadBillsOnSuccess: true);
       }
     } catch (error) {
