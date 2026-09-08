@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -343,6 +344,31 @@ void main() {
     expect(find.text('Bills'), findsWidgets);
     expect(repository.listCalls, 2);
     expect(repository.createCalls, 0);
+  });
+
+  testWidgets('dashboard action semantic activation fires once', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final repository = FakeBillRepository(bills: [sampleBill()]);
+    await pumpShell(tester, billRepository: repository);
+    final action = find.bySemanticsLabel('Open active bills');
+    final node = tester.getSemantics(action);
+
+    expect(node.getSemanticsData().hasAction(ui.SemanticsAction.tap), isTrue);
+    tester.binding.performSemanticsAction(
+      ui.SemanticsActionEvent(
+        type: ui.SemanticsAction.tap,
+        nodeId: node.id,
+        viewId: tester.view.viewId,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bills'), findsWidgets);
+    expect(repository.listCalls, 2);
+    expect(repository.createCalls, 0);
+    semantics.dispose();
   });
 
   testWidgets('dashboard exposes backup export and import preview guards', (

@@ -1697,6 +1697,7 @@ class _DashboardActionSurfaceState extends State<_DashboardActionSurface> {
     return Semantics(
       button: true,
       label: widget.actionLabel,
+      onTap: widget.onTap,
       excludeSemantics: true,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
