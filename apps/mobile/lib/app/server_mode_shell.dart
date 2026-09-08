@@ -36,6 +36,7 @@ import '../ui/settleora_components.dart';
 import '../ui/settleora_theme.dart';
 import 'auth_session_repository.dart';
 import 'local_data_backup.dart';
+import 'version_notes.dart';
 
 const _serverShellRootScrollPadding = EdgeInsets.fromLTRB(16, 12, 16, 148);
 
@@ -67,6 +68,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     required this.authRepository,
     required this.accessTokenProvider,
     required this.onSessionEnded,
+    this.versionNotes = currentBundledVersionNotes,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -91,6 +93,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraAuthRepository authRepository;
   final SettleoraAccessTokenProvider accessTokenProvider;
   final SettleoraSessionEndedCallback onSessionEnded;
+  final SettleoraBundledVersionNotes? versionNotes;
 
   @override
   State<SettleoraAuthenticatedServerShell> createState() =>
@@ -544,6 +547,7 @@ class _SettleoraAuthenticatedServerShellState
           initialNotificationPreferences: _notificationPreferences,
           onNotificationPreferencesChanged: _setNotificationPreferences,
           dataBackupService: widget.dataBackupService,
+          versionNotes: widget.versionNotes,
         ),
       ),
     );
@@ -1607,6 +1611,7 @@ class _AppSettingsScreen extends StatefulWidget {
     required this.initialNotificationPreferences,
     required this.onNotificationPreferencesChanged,
     required this.dataBackupService,
+    required this.versionNotes,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -1614,6 +1619,7 @@ class _AppSettingsScreen extends StatefulWidget {
   final ValueChanged<SettleoraNotificationPreferenceSettings>
   onNotificationPreferencesChanged;
   final SettleoraLocalDataBackupService? dataBackupService;
+  final SettleoraBundledVersionNotes? versionNotes;
 
   @override
   State<_AppSettingsScreen> createState() => _AppSettingsScreenState();
@@ -1623,11 +1629,30 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
   late SettleoraNotificationPreferenceSettings _notificationPreferences;
   SettleoraLocalDataBackupExport? _latestBackupExport;
   bool _isBuildingBackup = false;
+  final FocusNode _whatsNewFocusNode = FocusNode(
+    debugLabel: 'settings-whats-new',
+  );
 
   @override
   void initState() {
     super.initState();
     _notificationPreferences = widget.initialNotificationPreferences;
+  }
+
+  @override
+  void dispose() {
+    _whatsNewFocusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openWhatsNew() async {
+    await showSettleoraVersionNotes(
+      context: context,
+      notes: widget.versionNotes,
+    );
+    if (mounted) {
+      _whatsNewFocusNode.requestFocus();
+    }
   }
 
   void _setNotificationPreferences(
@@ -1732,6 +1757,27 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
+                        if (widget.versionNotes?.isUsable ?? false) ...[
+                          _MoreHubSection(
+                            title: 'About this app',
+                            children: [
+                              Focus(
+                                focusNode: _whatsNewFocusNode,
+                                child: SettingsRow(
+                                  key: const Key('settings-whats-new'),
+                                  icon: Icons.auto_awesome_outlined,
+                                  title: "What's New",
+                                  subtitle:
+                                      'Read the bundled notes for this Settleora version.',
+                                  statusLabel: 'Current version',
+                                  statusVariant: StatusChipVariant.info,
+                                  onTap: _openWhatsNew,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                        ],
                         _MoreHubSection(
                           title: 'Notifications and delivery',
                           children: [

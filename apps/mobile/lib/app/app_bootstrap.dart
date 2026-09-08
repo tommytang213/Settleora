@@ -44,6 +44,7 @@ import 'secure_storage.dart';
 import 'server_mode_shell.dart';
 import 'setup_screen.dart';
 import 'sign_in_screen.dart';
+import 'version_notes.dart';
 
 typedef ReceiptOcrReviewRepositoryFactory =
     ReceiptOcrReviewRepository Function(
@@ -143,6 +144,8 @@ class SettleoraAppBootstrap extends StatefulWidget {
   const SettleoraAppBootstrap({
     super.key,
     required this.secureStorage,
+    required this.versionSeenPreference,
+    this.versionNotes = currentBundledVersionNotes,
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
     this.passwordResetRepositoryFactory,
@@ -165,6 +168,8 @@ class SettleoraAppBootstrap extends StatefulWidget {
   });
 
   final SettleoraSecureStorageBoundary secureStorage;
+  final SettleoraVersionSeenPreference versionSeenPreference;
+  final SettleoraBundledVersionNotes? versionNotes;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
   final SettleoraPasswordResetRepositoryFactory? passwordResetRepositoryFactory;
@@ -336,6 +341,15 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
 
   @override
   Widget build(BuildContext context) {
+    return SettleoraVersionNotesAutoPresenter(
+      preference: widget.versionSeenPreference,
+      notes: widget.versionNotes,
+      enabled: !_isLoading && !_loadFailed,
+      child: _buildBootstrapSurface(context),
+    );
+  }
+
+  Widget _buildBootstrapSurface(BuildContext context) {
     final snapshot = _snapshot;
     final configuration = snapshot?.configuration;
 
@@ -531,6 +545,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       authRepository: authRepository,
       accessTokenProvider: tokenProvider,
       onSessionEnded: _clearSessionAndLoad,
+      versionNotes: widget.versionNotes,
     );
   }
 

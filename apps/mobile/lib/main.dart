@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'app/app_bootstrap.dart';
 import 'app/secure_storage.dart';
+import 'app/version_notes.dart';
 import 'dashboard/dashboard_preview_screen.dart';
 import 'receipt_ocr_capture/receipt_image_intake.dart';
 import 'receipt_ocr_capture/receipt_ocr_provider.dart';
@@ -15,6 +16,8 @@ class SettleoraMobileApp extends StatelessWidget {
   SettleoraMobileApp({
     super.key,
     SettleoraSecureStorageBoundary? secureStorage,
+    SettleoraVersionSeenPreference? versionSeenPreference,
+    this.versionNotes = currentBundledVersionNotes,
     this.receiptOcrReviewRepositoryFactory,
     this.authRepositoryFactory,
     this.passwordResetRepositoryFactory,
@@ -34,9 +37,13 @@ class SettleoraMobileApp extends StatelessWidget {
     this.showDashboardPreview = const bool.fromEnvironment(
       'SETTLEORA_DASHBOARD_PREVIEW',
     ),
-  }) : secureStorage = secureStorage ?? SettleoraSecureStorage();
+  }) : secureStorage = secureStorage ?? SettleoraSecureStorage(),
+       versionSeenPreference =
+           versionSeenPreference ?? LocalSettleoraVersionSeenPreference();
 
   final SettleoraSecureStorageBoundary secureStorage;
+  final SettleoraVersionSeenPreference versionSeenPreference;
+  final SettleoraBundledVersionNotes? versionNotes;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
   final SettleoraAuthRepositoryFactory? authRepositoryFactory;
   final SettleoraPasswordResetRepositoryFactory? passwordResetRepositoryFactory;
@@ -65,6 +72,8 @@ class SettleoraMobileApp extends StatelessWidget {
           ? const DashboardPreviewScreen()
           : SettleoraAppBootstrap(
               secureStorage: secureStorage,
+              versionSeenPreference: versionSeenPreference,
+              versionNotes: versionNotes,
               receiptOcrReviewRepositoryFactory:
                   receiptOcrReviewRepositoryFactory,
               authRepositoryFactory: authRepositoryFactory,
