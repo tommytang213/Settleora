@@ -1,5 +1,17 @@
 # Issue Progress Ledger
 
+### Issue #1143 — Receipt OCR edit shared Save/Cancel buttons (2026-09-08 HKT)
+
+- Pre-hygiene checkpoint: **OPEN**; close after this same-task evidence merge, final reviewed-blob proof and #301/#372 reconciliation. No parent-wide or native-platform acceptance is claimed.
+- Implementation [PR #1144](https://github.com/tommytang213/Settleora/pull/1144), reviewed source `28e70639311f08a34f1f855f0bd096b995d41fec`, tree `8d519f55e33998a7151c0a5414bc3d799265a9de`, normal merge `e81d0d2082e93bc4c233f2e86731c3cfcb47ee30`, starting main `4664d7769b18670a8551773e5404e7559eb8af13`. Branch `feature/1143-receipt-ocr-edit-save-cancel-shared-buttons-20260908-1224` retained.
+- Cancel and Save were equivalent except for one minimal generic accessibility capability and now adopt secondary/primary `AppButton`; no raw action was retained. `AppButton` adds optional generic `semanticLabel` and `focusNode` values with unchanged defaults. Host Tooltips retain exact idle/saving/other-busy messages while the shared control owns one semantic node. Save loading follows only saving; other busy work disables it without false progress.
+- Exact keys, visible labels, close/save icons, first/second order, two `Expanded` children, 10px gap, 48dp+ targets, callbacks, Form validation, request construction/normalization, one save mutation, zero Cancel mutations, success/failure behavior and delete/preview/apply/Retry/queue/line behavior remain unchanged. Keyboard focus now keeps the existing action row fully visible at narrow/2×. [Durable equivalence, validation and SHA256 image inventory](../qa/evidence/issue-1143/README.md).
+- Exact-head doctor, pub get, analyzer (no issues), **102 focused tests**, **978 full mobile tests**, scaffold and production capture validation passed. Fresh Gemini `strong_independent` and independent local Codex reviewed exact source plus all **10** images. GitHub Codex and all 11 checks/scanners passed exact head with zero review threads and zero open branch-scoped scanning alerts.
+- Actual production/shared controls were captured at 390px/1× and 320px/2× for idle, Cancel focus, Save focus, saving and unrelated delete-busy disablement. The full action row remains in viewport with stable geometry and no critical clipping/overflow. This is scoped Flutter evidence; #975 retains native IME/device/screen-reader/whole-screen acceptance.
+- #1140 state/loading work is ancestral and not replayed. #1122 remains OPEN/manual privacy-security gated and untouched; #959 remains independently owned parser work; #970 remains independently owned OCR completeness-audit work and was not executed. #301/#372 remain open; remaining #301 candidates include other raw form/buttons/private-dialog framing, token/summary styling and participant/assignment sharing.
+- No backend/domain/API/OpenAPI/generated-client, auth/session/authz, storage/file privacy, OCR parser/provider/extraction/apply authority, money/bill/settlement/payment calculation, schema/migration, CI/deployment/config or secret changes. Same logical task `20260908-1224` includes this ledger/static-evidence hygiene.
+- Report: `/workspace/logs/settleora-codex-report-20260908-1224-issue-1143-receipt-ocr-edit-save-cancel-shared-buttons.md`.
+
 ### Issue #1140 — Receipt OCR review shared state/loading panels (2026-09-08 HKT)
 
 - Pre-hygiene checkpoint: **OPEN**; close after this same-task evidence merge, final reviewed-blob proof, and #301/#372 reconciliation. No linked Project item exists and no parent-wide or platform acceptance is claimed.
