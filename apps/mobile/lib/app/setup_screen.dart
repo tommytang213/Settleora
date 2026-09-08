@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../ui/settleora_components.dart';
 import '../ui/settleora_theme.dart';
+import '../help/contextual_help.dart';
 import 'app_configuration.dart';
 
 class SettleoraSetupScreen extends StatefulWidget {
@@ -104,7 +105,12 @@ class _SettleoraSetupScreenState extends State<SettleoraSetupScreen> {
     final colors = context.settleoraColors;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settleora Setup')),
+      appBar: AppBar(
+        title: const Text('Settleora Setup'),
+        actions: const [
+          SettleoraContextualHelpAction(topic: SettleoraHelpTopic.firstLaunch),
+        ],
+      ),
       body: SafeArea(
         child: Form(
           key: _formKey,

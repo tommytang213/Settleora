@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'report_repository.dart';
+import '../help/contextual_help.dart';
 import '../ui/settleora_components.dart';
 
 class SettleoraMonthlyReportScreen extends StatefulWidget {
@@ -167,6 +168,9 @@ class _SettleoraMonthlyReportScreenState
       appBar: AppBar(
         title: const Text('Monthly report'),
         actions: [
+          const SettleoraContextualHelpAction(
+            topic: SettleoraHelpTopic.reportsSearch,
+          ),
           IconButton(
             key: const Key('monthly-report-refresh'),
             tooltip: 'Refresh',
