@@ -1,11 +1,18 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/ui/settleora_components.dart';
 import 'package:mobile/ui/settleora_form_fields.dart';
 import 'package:mobile/ui/settleora_theme.dart';
 
 import '../helpers/settleora_visual_test_fonts.dart';
+
+const _guidanceVisualOutputDir =
+    '/workspace/logs/settleora-visual-qa/20260908-1504-issue-1146-product-guidance';
 
 void main() {
   testWidgets(
@@ -303,6 +310,306 @@ void main() {
       },
     );
   }
+
+  testWidgets(
+    'guidance content exposes caller copy once in deterministic reading order',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: SettleoraTheme.light(),
+            home: const Scaffold(
+              body: SettleoraGuidanceContent(
+                heading: 'Make this screen yours',
+                description: 'Choose the details that are useful right now.',
+                points: [
+                  'Start with the shortest path.',
+                  'Return whenever you need more context.',
+                ],
+              ),
+            ),
+          ),
+        );
+
+        _expectHeaderSemantics(tester, 'Make this screen yours');
+        for (final label in [
+          'Make this screen yours',
+          'Choose the details that are useful right now.',
+          'Start with the shortest path.',
+          'Return whenever you need more context.',
+        ]) {
+          _expectSingleSemanticsLabel(tester, label);
+        }
+        _expectSemanticsLabelsInOrder(tester, [
+          'Make this screen yours',
+          'Choose the details that are useful right now.',
+          'Start with the shortest path.',
+          'Return whenever you need more context.',
+        ]);
+        expect(find.text('•'), findsNWidgets(2));
+        expect(_semanticsLabelCount(tester, '•'), 0);
+        for (final forbiddenDefault in [
+          "What's New",
+          'Help',
+          'OCR',
+          'Security',
+          'Settings',
+        ]) {
+          expect(find.text(forbiddenDefault), findsNothing);
+        }
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
+  testWidgets('guidance content omits blank optional values without gaps', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SettleoraTheme.light(),
+          home: const Scaffold(
+            body: SettleoraGuidanceContent(
+              heading: 'Quick overview',
+              description: '   ',
+              points: ['', '  '],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Quick overview'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SettleoraGuidanceContent),
+          matching: find.byType(SizedBox),
+        ),
+        findsNothing,
+      );
+      expect(
+        _semanticsNodes(
+          tester,
+        ).where((node) => node.getSemanticsData().label.trim().isNotEmpty),
+        hasLength(1),
+      );
+      _expectHeaderSemantics(tester, 'Quick overview');
+      expect(tester.takeException(), isNull);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  for (final viewport in [(390.0, 1.0), (320.0, 2.0)]) {
+    testWidgets(
+      'guidance sheet stays readable at ${viewport.$1.toInt()}px/${viewport.$2.toInt()}x and keeps its action reachable',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        final actionFocusNode = FocusNode(debugLabel: 'guidance action');
+        try {
+          await setSettleoraMobileViewport(tester, width: viewport.$1);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: SettleoraTheme.light(),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(viewport.$2)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () => showSettleoraBottomSheet<void>(
+                      context: context,
+                      builder: (_) => SettleoraBottomSheetFrame(
+                        title: 'Product guide',
+                        actions: [
+                          AppButton(
+                            focusNode: actionFocusNode,
+                            label: 'Continue',
+                            onPressed: () {},
+                          ),
+                        ],
+                        child: const SettleoraGuidanceContent(
+                          heading: 'Understand the current view',
+                          description:
+                              'Caller-supplied explanatory text can grow for localization without changing the shared component contract.',
+                          points: [
+                            'Read the current status before choosing an action.',
+                            'Long translated guidance wraps naturally instead of overflowing the available mobile width.',
+                            'Return to this guide whenever more context is useful.',
+                            'The last point remains reachable inside the shared scrolling content region.',
+                          ],
+                        ),
+                      ),
+                    ),
+                    child: const Text('Open product guide'),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.tap(find.text('Open product guide'));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(SettleoraBottomSheetFrame), findsOneWidget);
+          expect(find.byType(SingleChildScrollView), findsOneWidget);
+          expect(find.text('Continue'), findsOneWidget);
+          expect(
+            tester.getRect(find.text('Continue')).bottom,
+            lessThanOrEqualTo(844),
+          );
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+          expect(actionFocusNode.hasFocus, isTrue);
+          await tester.scrollUntilVisible(
+            find.text(
+              'The last point remains reachable inside the shared scrolling content region.',
+            ),
+            120,
+            scrollable: find.byType(Scrollable),
+          );
+          expect(find.text('Continue'), findsOneWidget);
+          _expectSemanticsLabelsInOrder(tester, [
+            'Product guide',
+            'Understand the current view',
+            'Caller-supplied explanatory text can grow for localization without changing the shared component contract.',
+            'Read the current status before choosing an action.',
+            'Long translated guidance wraps naturally instead of overflowing the available mobile width.',
+            'Return to this guide whenever more context is useful.',
+            'The last point remains reachable inside the shared scrolling content region.',
+            'Continue',
+          ]);
+          expect(tester.takeException(), isNull);
+        } finally {
+          actionFocusNode.dispose();
+          semantics.dispose();
+        }
+      },
+    );
+  }
+
+  testWidgets('captures shared product-guidance compositions', (tester) async {
+    await tester.runAsync(() async {
+      await loadSettleoraVisualTestFonts();
+      await Directory(_guidanceVisualOutputDir).create(recursive: true);
+    });
+
+    for (final capture
+        in <({String name, double width, double textScale, Widget child})>[
+          (
+            name: 'heading-only-390x1.png',
+            width: 390,
+            textScale: 1,
+            child: const SettleoraGuidanceContent(heading: 'Quick overview'),
+          ),
+          (
+            name: 'heading-description-390x1.png',
+            width: 390,
+            textScale: 1,
+            child: const SettleoraGuidanceContent(
+              heading: 'Understand this view',
+              description: 'Use this summary before choosing what to do next.',
+            ),
+          ),
+          (
+            name: 'multiple-points-390x1.png',
+            width: 390,
+            textScale: 1,
+            child: const SettleoraGuidanceContent(
+              heading: 'A few useful details',
+              description:
+                  'Each point is supplied by the feature that opens it.',
+              points: [
+                'Read the current status first.',
+                'Choose an available action.',
+                'Open this guide again whenever needed.',
+              ],
+            ),
+          ),
+          (
+            name: 'omitted-optional-390x1.png',
+            width: 390,
+            textScale: 1,
+            child: const SettleoraGuidanceContent(
+              heading: 'Only useful content appears',
+              description: ' ',
+              points: ['', '  '],
+            ),
+          ),
+          (
+            name: 'narrow-long-content-320x2.png',
+            width: 320,
+            textScale: 2,
+            child: const SettleoraGuidanceContent(
+              heading: 'Guidance remains readable',
+              description:
+                  'Long localization-ready explanatory text wraps within the available width.',
+              points: [
+                'Concise points may still become longer when translated.',
+                'The layout keeps each point in natural reading order.',
+              ],
+            ),
+          ),
+        ]) {
+      await _pumpGuidanceCapture(
+        tester,
+        width: capture.width,
+        textScale: capture.textScale,
+        child: capture.child,
+      );
+      await _captureGuidanceBoundary(tester, capture.name);
+      expect(tester.takeException(), isNull);
+    }
+
+    for (final viewport in [(390.0, 1.0), (320.0, 2.0)]) {
+      await setSettleoraMobileViewport(tester, width: viewport.$1);
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: const Key('guidance-visual-capture'),
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: SettleoraTheme.light(),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(viewport.$2)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.bottomCenter,
+                child: SettleoraBottomSheetFrame(
+                  title: 'Product guide',
+                  subtitle: 'Shared sheet composition',
+                  actions: [AppButton(label: 'Continue', onPressed: () {})],
+                  child: const SettleoraGuidanceContent(
+                    heading: 'Understand this view',
+                    description: 'Read these details before continuing.',
+                    points: [
+                      'The content stays presentation-only.',
+                      'The existing sheet remains the action owner.',
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _captureGuidanceBoundary(
+        tester,
+        'full-sheet-action-${viewport.$1.toInt()}x${viewport.$2.toInt()}.png',
+      );
+      expect(tester.takeException(), isNull);
+    }
+  });
 
   testWidgets('shared Settleora UI primitives render stable labels', (
     tester,
@@ -2313,6 +2620,53 @@ void _expectSemanticsLabelsInOrder(
       .where((label) => label.isNotEmpty)
       .toList();
   expect(labels, containsAllInOrder(expectedLabels));
+}
+
+Future<void> _pumpGuidanceCapture(
+  WidgetTester tester, {
+  required double width,
+  required double textScale,
+  required Widget child,
+}) async {
+  await setSettleoraMobileViewport(tester, width: width);
+  await tester.pumpWidget(
+    RepaintBoundary(
+      key: const Key('guidance-visual-capture'),
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: SettleoraTheme.light(),
+        builder: (context, appChild) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: appChild!,
+        ),
+        home: Scaffold(
+          body: Padding(
+            padding: const EdgeInsets.all(SettleoraSpacing.md),
+            child: Align(alignment: Alignment.topLeft, child: child),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _captureGuidanceBoundary(
+  WidgetTester tester,
+  String fileName,
+) async {
+  await tester.runAsync(() async {
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(const Key('guidance-visual-capture')),
+    );
+    final image = await boundary.toImage(pixelRatio: 1);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    await File(
+      '$_guidanceVisualOutputDir/$fileName',
+    ).writeAsBytes(byteData!.buffer.asUint8List());
+  });
 }
 
 void _expectStaticSemanticsLabel(WidgetTester tester, String label) {

@@ -876,6 +876,82 @@ class SettleoraBottomSheetFrame extends StatelessWidget {
   }
 }
 
+/// Product-copy-agnostic guidance content for composition inside shared
+/// surfaces such as [SettleoraBottomSheetFrame].
+///
+/// The caller owns every visible string and any surrounding actions. Blank
+/// optional values are omitted so they do not create empty layout or semantics.
+class SettleoraGuidanceContent extends StatelessWidget {
+  const SettleoraGuidanceContent({
+    super.key,
+    required this.heading,
+    this.description,
+    this.points = const [],
+  });
+
+  final String heading;
+  final String? description;
+  final List<String> points;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final theme = Theme.of(context);
+    final visibleDescription = description?.trim();
+    final visiblePoints = points
+        .map((point) => point.trim())
+        .where((point) => point.isNotEmpty)
+        .toList(growable: false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Semantics(
+          header: true,
+          child: Text(heading, style: theme.textTheme.titleMedium),
+        ),
+        if (visibleDescription != null && visibleDescription.isNotEmpty) ...[
+          const SizedBox(height: SettleoraSpacing.sm),
+          Text(
+            visibleDescription,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textMuted,
+            ),
+          ),
+        ],
+        if (visiblePoints.isNotEmpty) ...[
+          const SizedBox(height: SettleoraSpacing.sm),
+          for (var index = 0; index < visiblePoints.length; index++) ...[
+            if (index > 0) const SizedBox(height: SettleoraSpacing.xs),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ExcludeSemantics(
+                  child: Text(
+                    '•',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colors.primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: SettleoraSpacing.xs),
+                Expanded(
+                  child: Text(
+                    visiblePoints[index],
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
 Future<T?> showSettleoraBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
