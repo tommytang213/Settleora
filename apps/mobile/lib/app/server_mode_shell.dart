@@ -1459,6 +1459,7 @@ class _DashboardMoneySummaryCard extends StatelessWidget {
       background: background,
       borderRadius: BorderRadius.circular(SettleoraRadius.lg),
       actionLabel: actionLabel,
+      semanticLabel: '$title, $amount $currencyCode, $caption',
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.all(SettleoraSpacing.md),
@@ -1639,6 +1640,7 @@ class _DashboardMetricAction extends StatelessWidget {
         background: background,
         borderRadius: BorderRadius.circular(999),
         actionLabel: actionLabel,
+        semanticLabel: label,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1673,6 +1675,7 @@ class _DashboardActionSurface extends StatefulWidget {
     required this.background,
     required this.borderRadius,
     required this.actionLabel,
+    required this.semanticLabel,
     required this.onTap,
     required this.child,
   });
@@ -1680,6 +1683,7 @@ class _DashboardActionSurface extends StatefulWidget {
   final Color background;
   final BorderRadius borderRadius;
   final String actionLabel;
+  final String semanticLabel;
   final VoidCallback onTap;
   final Widget child;
 
@@ -1696,7 +1700,7 @@ class _DashboardActionSurfaceState extends State<_DashboardActionSurface> {
     final colors = context.settleoraColors;
     return Semantics(
       button: true,
-      label: widget.actionLabel,
+      label: '${widget.actionLabel}. ${widget.semanticLabel}',
       onTap: widget.onTap,
       excludeSemantics: true,
       child: AnimatedContainer(
@@ -1713,6 +1717,7 @@ class _DashboardActionSurfaceState extends State<_DashboardActionSurface> {
           color: widget.background,
           borderRadius: widget.borderRadius,
           child: InkWell(
+            excludeFromSemantics: true,
             onTap: widget.onTap,
             onFocusChange: (hasFocus) {
               if (_hasFocus != hasFocus) {

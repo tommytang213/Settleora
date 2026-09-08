@@ -159,13 +159,24 @@ void main() {
       findsOneWidget,
     );
 
-    for (final label in [
-      'Open active bills',
-      'Open unread notifications',
-      'Open outgoing settlements',
-      'Open incoming settlements',
+    for (final expectation in [
+      (action: 'Open active bills', value: '0 active bills'),
+      (action: 'Open unread notifications', value: '2 unread'),
+      (
+        action: 'Open outgoing settlements',
+        value: 'You owe.*0.00 USD.*No settlement balances yet',
+      ),
+      (
+        action: 'Open incoming settlements',
+        value: "You're owed.*0.00 USD.*No settlement balances yet",
+      ),
     ]) {
-      expect(find.bySemanticsLabel(label), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(
+          RegExp('${expectation.action}.*${expectation.value}', dotAll: true),
+        ),
+        findsOneWidget,
+      );
     }
     for (final key in [
       const Key('dashboard-active-bills-action'),
@@ -352,7 +363,9 @@ void main() {
     final semantics = tester.ensureSemantics();
     final repository = FakeBillRepository(bills: [sampleBill()]);
     await pumpShell(tester, billRepository: repository);
-    final action = find.bySemanticsLabel('Open active bills');
+    final action = find.bySemanticsLabel(
+      RegExp('Open active bills.*1 active bill', dotAll: true),
+    );
     final node = tester.getSemantics(action);
 
     expect(node.getSemanticsData().hasAction(ui.SemanticsAction.tap), isTrue);
