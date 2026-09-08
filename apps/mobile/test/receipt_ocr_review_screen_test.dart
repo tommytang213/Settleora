@@ -9,6 +9,40 @@ import 'package:mobile/ui/settleora_form_fields.dart';
 
 void main() {
   group('ReceiptOcrReviewQueueScreen', () {
+    testWidgets('uses the shared panel for the disconnected queue state', (
+      tester,
+    ) async {
+      await pumpQueue(tester, repository: null);
+
+      expect(find.byType(SettleoraStatePanel), findsOneWidget);
+      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+      expect(find.text('Sign in required'), findsOneWidget);
+      expect(
+        find.text('Connect an account session before loading receipt reviews.'),
+        findsOneWidget,
+      );
+      expect(find.byType(SettleoraLoadingPanel), findsNothing);
+    });
+
+    testWidgets('uses one shared live-region panel while the queue loads', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final repository = FakeReceiptOcrReviewRepository(
+        listCompleter: Completer<List<ReceiptOcrReviewSummary>>(),
+      );
+
+      await pumpQueue(tester, repository: repository);
+      await tester.pump();
+
+      expect(repository.listCalls, 1);
+      expect(find.byType(SettleoraLoadingPanel), findsOneWidget);
+      expect(find.text('Loading receipt reviews'), findsOneWidget);
+      expect(find.bySemanticsLabel('Loading receipt reviews'), findsOneWidget);
+      expect(find.byType(SettleoraStatePanel), findsNothing);
+      semantics.dispose();
+    });
+
     testWidgets('renders empty queue state from repository', (tester) async {
       final repository = FakeReceiptOcrReviewRepository(listResponse: const []);
 
@@ -16,6 +50,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No receipt reviews'), findsOneWidget);
+      expect(find.byType(SettleoraStatePanel), findsOneWidget);
+      expect(find.byIcon(Icons.receipt_long_outlined), findsOneWidget);
       expect(repository.listCalls, 1);
       expect(repository.lastListLimit, 50);
     });
@@ -223,6 +259,8 @@ void main() {
       );
       expect(find.text('No receipt reviews'), findsNothing);
       expect(find.text('Fresh Mart'), findsNothing);
+      expect(find.byType(SettleoraStatePanel), findsOneWidget);
+      expect(find.byIcon(Icons.search_off_outlined), findsOneWidget);
     });
 
     testWidgets('sanitizes queue failures before display', (tester) async {
@@ -261,6 +299,10 @@ void main() {
         find.bySemanticsLabel('Retry loading receipt reviews'),
         findsOneWidget,
       );
+      expect(find.byType(SettleoraStatePanel), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('Retry loading receipt reviews'));
+      await tester.pumpAndSettle();
+      expect(repository.listCalls, 2);
       expectVisibleTextOmitsUnsafeDetails(tester);
       semantics.dispose();
     });
@@ -889,6 +931,21 @@ void main() {
   });
 
   group('ReceiptOcrReviewDetailScreen', () {
+    testWidgets('uses one shared live-region panel while detail loads', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final repository = FakeReceiptOcrReviewRepository();
+
+      await pumpDetail(tester, repository: repository, route: sampleRoute());
+      await tester.pump();
+
+      expect(repository.getCalls, 1);
+      expect(find.byType(SettleoraLoadingPanel), findsOneWidget);
+      expect(find.text('Loading receipt review'), findsOneWidget);
+      expect(find.bySemanticsLabel('Loading receipt review'), findsOneWidget);
+      semantics.dispose();
+    });
     testWidgets('renders read-only review candidates and action labels', (
       tester,
     ) async {
@@ -2032,7 +2089,7 @@ Future<void> pumpDetail(
 
 Future<void> pumpQueue(
   WidgetTester tester, {
-  required FakeReceiptOcrReviewRepository repository,
+  required FakeReceiptOcrReviewRepository? repository,
 }) {
   return tester.pumpWidget(
     MaterialApp(home: ReceiptOcrReviewQueueScreen(repository: repository)),

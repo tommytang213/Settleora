@@ -68,7 +68,7 @@ class _ReceiptOcrReviewQueueContentState
     final currentFailure = widget.failure;
 
     if (!widget.isConnected) {
-      return const _StatePanel(
+      return const SettleoraStatePanel(
         icon: Icons.lock_outline,
         title: 'Sign in required',
         message: 'Connect an account session before loading receipt reviews.',
@@ -98,14 +98,14 @@ class _ReceiptOcrReviewQueueContentState
     }
 
     if (widget.isLoading) {
-      return const _LoadingPanel(label: 'Loading receipt reviews');
+      return const SettleoraLoadingPanel(label: 'Loading receipt reviews');
     }
 
     if (currentFailure != null) {
       return _FailurePanel(failure: currentFailure, onRetry: widget.onRetry);
     }
 
-    return const _StatePanel(
+    return const SettleoraStatePanel(
       icon: Icons.receipt_long_outlined,
       title: 'No receipt reviews',
       message:
@@ -168,7 +168,7 @@ class _ReceiptOcrReviewSummaryList extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             if (reviews.isEmpty)
-              _StatePanel(
+              SettleoraStatePanel(
                 icon: Icons.search_off_outlined,
                 title: 'No matching receipt reviews',
                 message:

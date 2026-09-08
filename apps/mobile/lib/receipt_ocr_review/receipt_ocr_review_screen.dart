@@ -8,6 +8,8 @@ import '../ui/settleora_components.dart'
         StatusChip,
         SettleoraCompactHeader,
         SettleoraInlinePanel,
+        SettleoraLoadingPanel,
+        SettleoraStatePanel,
         SettleoraSurfaceVariant;
 import '../ui/settleora_form_fields.dart';
 import 'receipt_ocr_review_repository.dart';
@@ -981,7 +983,7 @@ class _FailurePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _StatePanel(
+    return SettleoraStatePanel(
       icon: _failureIcon(failure.kind),
       title: failure.title,
       message: _safeReceiptOcrReviewFailureDisplayMessage(failure),
@@ -1051,81 +1053,6 @@ class _InlineFailure extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _StatePanel extends StatelessWidget {
-  const _StatePanel({
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.action,
-    this.compact = false,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final Widget? action;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: compact ? 28 : 42,
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        SizedBox(height: compact ? 8 : 14),
-        Text(
-          title,
-          style: compact
-              ? Theme.of(context).textTheme.titleMedium
-              : Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 6),
-        Text(message, textAlign: TextAlign.center),
-        if (action != null) ...[const SizedBox(height: 14), action!],
-      ],
-    );
-
-    if (compact) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: content,
-        ),
-      );
-    }
-
-    return Center(
-      child: Padding(padding: const EdgeInsets.all(24), child: content),
-    );
-  }
-}
-
-class _LoadingPanel extends StatelessWidget {
-  const _LoadingPanel({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 14),
-          Text(label),
-        ],
       ),
     );
   }
