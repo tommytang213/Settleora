@@ -317,6 +317,25 @@ class _SettleoraAuthenticatedServerShellState
     await _openTopLevelDestination(SettleoraNavDestination.bills);
   }
 
+  Future<void> _openActiveBills() async {
+    await _openDashboardDestination(
+      (_) => SettleoraBillListScreen(
+        repository: widget.billRepository,
+        syncController: widget.billSyncController,
+        attachmentRepository: widget.billAttachmentRepository,
+        attachmentFileInput: widget.billAttachmentFileInput,
+        receiptImageIntake: widget.receiptImageIntake,
+        receiptOcrProvider: widget.receiptOcrProvider,
+        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+        revisionRepository: widget.billRevisionRepository,
+        defaultCurrency: widget.currentUser.defaultCurrency,
+        initialView: SettleoraBillListInitialView.active,
+        showBottomNav: false,
+        onTopLevelDestinationSelected: _openNestedTopLevelDestination,
+      ),
+    );
+  }
+
   Future<void> _flushBillSyncNow() async {
     if (_isFlushingBillSync) {
       return;
@@ -427,6 +446,27 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
+  Future<void> _openUnreadNotifications() async {
+    await _openDashboardDestination(
+      (_) => SettleoraNotificationScreen(
+        repository: widget.notificationRepository,
+        currentUserProfileId: widget.currentUser.userProfileId,
+        billRepository: widget.billRepository,
+        groupRepository: widget.groupRepository,
+        settlementRepository: widget.settlementRepository,
+        recurringBillRepository: widget.recurringBillRepository,
+        billAttachmentRepository: widget.billAttachmentRepository,
+        billAttachmentFileInput: widget.billAttachmentFileInput,
+        receiptOcrReviewRepository: widget.receiptOcrReviewRepository,
+        billRevisionRepository: widget.billRevisionRepository,
+        syncRepository: widget.syncRepository,
+        preferences: _notificationPreferences,
+        initialView: SettleoraNotificationInitialView.unread,
+        onSessionEnded: widget.onSessionEnded,
+      ),
+    );
+  }
+
   Future<void> _openMonthlyReport() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -467,6 +507,18 @@ class _SettleoraAuthenticatedServerShellState
         repository: widget.settlementRepository,
         currentUserProfileId: widget.currentUser.userProfileId,
         openNeedsActionOnStart: true,
+      ),
+    );
+  }
+
+  Future<void> _openSettlementDirection(
+    SettleoraSettlementListInitialView initialView,
+  ) async {
+    await _openDashboardDestination(
+      (_) => SettleoraSettlementListScreen(
+        repository: widget.settlementRepository,
+        currentUserProfileId: widget.currentUser.userProfileId,
+        initialView: initialView,
       ),
     );
   }
@@ -619,12 +671,25 @@ class _SettleoraAuthenticatedServerShellState
                               onRefresh: _loadOverview,
                               onOpenProfile: _openProfile,
                               onOpenNotifications: _openNotifications,
+                              onOpenActiveBills: _openActiveBills,
+                              onOpenUnreadNotifications:
+                                  _openUnreadNotifications,
                             ),
                             if (overview != null) ...[
                               const SizedBox(height: 16),
                               _DashboardSummaryCards(
                                 overview: overview,
                                 defaultCurrency: defaultCurrency,
+                                onOpenOutgoingSettlements: () =>
+                                    _openSettlementDirection(
+                                      SettleoraSettlementListInitialView
+                                          .outgoing,
+                                    ),
+                                onOpenIncomingSettlements: () =>
+                                    _openSettlementDirection(
+                                      SettleoraSettlementListInitialView
+                                          .incoming,
+                                    ),
                               ),
                             ],
                             const SizedBox(height: 16),
@@ -1067,6 +1132,8 @@ class _DashboardHero extends StatelessWidget {
     required this.onRefresh,
     required this.onOpenProfile,
     required this.onOpenNotifications,
+    required this.onOpenActiveBills,
+    required this.onOpenUnreadNotifications,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -1076,6 +1143,8 @@ class _DashboardHero extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final VoidCallback onOpenProfile;
   final VoidCallback onOpenNotifications;
+  final VoidCallback onOpenActiveBills;
+  final VoidCallback onOpenUnreadNotifications;
 
   @override
   Widget build(BuildContext context) {
@@ -1193,7 +1262,8 @@ class _DashboardHero extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _DashboardMetricChip(
+                  _DashboardStaticMetric(
+                    key: const Key('dashboard-review-summary-static'),
                     icon: Icons.priority_high_outlined,
                     variant: attentionCount == 0
                         ? StatusChipVariant.success
@@ -1202,16 +1272,22 @@ class _DashboardHero extends StatelessWidget {
                         ? 'No urgent items'
                         : '$attentionCount item${_plural(attentionCount)} to review',
                   ),
-                  _DashboardMetricChip(
+                  _DashboardMetricAction(
+                    key: const Key('dashboard-active-bills-action'),
                     icon: Icons.receipt_long_outlined,
                     variant: StatusChipVariant.info,
+                    actionLabel: 'Open active bills',
+                    onTap: onOpenActiveBills,
                     label: overview == null
                         ? 'Bills loading'
                         : '${overview.activePersonalBillCount} active bill${_plural(overview.activePersonalBillCount)}',
                   ),
-                  _DashboardMetricChip(
+                  _DashboardMetricAction(
+                    key: const Key('dashboard-unread-notifications-action'),
                     icon: Icons.mark_email_unread_outlined,
                     variant: StatusChipVariant.neutral,
+                    actionLabel: 'Open unread notifications',
+                    onTap: onOpenUnreadNotifications,
                     label: overview == null
                         ? 'Activity loading'
                         : '${overview.notificationSummary.unreadCount} unread',
@@ -1230,10 +1306,14 @@ class _DashboardSummaryCards extends StatelessWidget {
   const _DashboardSummaryCards({
     required this.overview,
     required this.defaultCurrency,
+    required this.onOpenOutgoingSettlements,
+    required this.onOpenIncomingSettlements,
   });
 
   final _SettleoraDashboardOverview overview;
   final String? defaultCurrency;
+  final VoidCallback onOpenOutgoingSettlements;
+  final VoidCallback onOpenIncomingSettlements;
 
   @override
   Widget build(BuildContext context) {
@@ -1247,20 +1327,26 @@ class _DashboardSummaryCards extends StatelessWidget {
     );
     final cards = [
       _DashboardMoneySummaryCard(
+        key: const Key('dashboard-outgoing-settlements-action'),
         icon: Icons.north_east_outlined,
         title: 'You owe',
         amount: youOwe.amount,
         currencyCode: youOwe.currencyCode,
         caption: youOwe.caption,
         variant: SettleoraSurfaceVariant.danger,
+        actionLabel: 'Open outgoing settlements',
+        onTap: onOpenOutgoingSettlements,
       ),
       _DashboardMoneySummaryCard(
+        key: const Key('dashboard-incoming-settlements-action'),
         icon: Icons.south_west_outlined,
         title: "You're owed",
         amount: youAreOwed.amount,
         currencyCode: youAreOwed.currencyCode,
         caption: youAreOwed.caption,
         variant: SettleoraSurfaceVariant.success,
+        actionLabel: 'Open incoming settlements',
+        onTap: onOpenIncomingSettlements,
       ),
     ];
 
@@ -1328,12 +1414,15 @@ class _BalanceMetric {
 
 class _DashboardMoneySummaryCard extends StatelessWidget {
   const _DashboardMoneySummaryCard({
+    super.key,
     required this.title,
     required this.amount,
     required this.currencyCode,
     required this.caption,
     required this.icon,
     required this.variant,
+    required this.actionLabel,
+    required this.onTap,
   });
 
   final String title;
@@ -1342,6 +1431,8 @@ class _DashboardMoneySummaryCard extends StatelessWidget {
   final String caption;
   final IconData icon;
   final SettleoraSurfaceVariant variant;
+  final String actionLabel;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1364,49 +1455,56 @@ class _DashboardMoneySummaryCard extends StatelessWidget {
       SettleoraSurfaceVariant.neutral => (colors.surface, colors.text),
     };
 
-    return AppCard(
-      color: background,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 20, color: foreground),
-              const SizedBox(width: SettleoraSpacing.xs),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: foreground,
-                    fontWeight: FontWeight.w800,
+    return _DashboardActionSurface(
+      background: background,
+      borderRadius: BorderRadius.circular(SettleoraRadius.lg),
+      actionLabel: actionLabel,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(SettleoraSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: foreground),
+                const SizedBox(width: SettleoraSpacing.xs),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: SettleoraSpacing.xs),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: AlignmentDirectional.centerStart,
-            child: MoneyText(
-              amount: amount,
-              currencyCode: currencyCode,
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w800,
+                Icon(Icons.chevron_right_rounded, size: 20, color: foreground),
+              ],
+            ),
+            const SizedBox(height: SettleoraSpacing.xs),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: MoneyText(
+                amount: amount,
+                currencyCode: currencyCode,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: foreground,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: SettleoraSpacing.xxs),
-          Text(
-            caption,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: foreground),
-          ),
-        ],
+            const SizedBox(height: SettleoraSpacing.xxs),
+            Text(
+              caption,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: foreground),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1448,8 +1546,9 @@ class _DashboardHeroTitle extends StatelessWidget {
   }
 }
 
-class _DashboardMetricChip extends StatelessWidget {
-  const _DashboardMetricChip({
+class _DashboardStaticMetric extends StatelessWidget {
+  const _DashboardStaticMetric({
+    super.key,
     required this.icon,
     required this.label,
     required this.variant,
@@ -1461,13 +1560,169 @@ class _DashboardMetricChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final foreground = switch (variant) {
+      StatusChipVariant.success => colors.onSuccessSoft,
+      StatusChipVariant.warning => colors.onWarningSoft,
+      StatusChipVariant.danger => colors.onDangerSoft,
+      StatusChipVariant.info => colors.onInfoSoft,
+      StatusChipVariant.neutral => colors.textMuted,
+    };
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 220),
-      child: StatusChip(
-        icon: icon,
-        label: label,
-        variant: variant,
-        size: StatusChipSize.small,
+      child: Semantics(
+        container: true,
+        label: 'Review summary: $label',
+        child: ExcludeSemantics(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: foreground),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardMetricAction extends StatelessWidget {
+  const _DashboardMetricAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.variant,
+    required this.actionLabel,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final StatusChipVariant variant;
+  final String actionLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    final background = switch (variant) {
+      StatusChipVariant.success => colors.successSoft,
+      StatusChipVariant.warning => colors.warningSoft,
+      StatusChipVariant.danger => colors.dangerSoft,
+      StatusChipVariant.info => colors.infoSoft,
+      StatusChipVariant.neutral => colors.primarySoft,
+    };
+    final foreground = switch (variant) {
+      StatusChipVariant.success => colors.onSuccessSoft,
+      StatusChipVariant.warning => colors.onWarningSoft,
+      StatusChipVariant.danger => colors.onDangerSoft,
+      StatusChipVariant.info => colors.onInfoSoft,
+      StatusChipVariant.neutral => colors.textMuted,
+    };
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48, maxWidth: 240),
+      child: _DashboardActionSurface(
+        background: background,
+        borderRadius: BorderRadius.circular(999),
+        actionLabel: actionLabel,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: foreground),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right_rounded, size: 18, color: foreground),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardActionSurface extends StatefulWidget {
+  const _DashboardActionSurface({
+    required this.background,
+    required this.borderRadius,
+    required this.actionLabel,
+    required this.onTap,
+    required this.child,
+  });
+
+  final Color background;
+  final BorderRadius borderRadius;
+  final String actionLabel;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  State<_DashboardActionSurface> createState() =>
+      _DashboardActionSurfaceState();
+}
+
+class _DashboardActionSurfaceState extends State<_DashboardActionSurface> {
+  bool _hasFocus = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.settleoraColors;
+    return Semantics(
+      button: true,
+      label: widget.actionLabel,
+      excludeSemantics: true,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        decoration: BoxDecoration(
+          borderRadius: widget.borderRadius,
+          border: Border.all(
+            color: _hasFocus ? colors.primary : colors.border,
+            width: 2,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Material(
+          color: widget.background,
+          borderRadius: widget.borderRadius,
+          child: InkWell(
+            onTap: widget.onTap,
+            onFocusChange: (hasFocus) {
+              if (_hasFocus != hasFocus) {
+                setState(() {
+                  _hasFocus = hasFocus;
+                });
+              }
+            },
+            child: widget.child,
+          ),
+        ),
       ),
     );
   }

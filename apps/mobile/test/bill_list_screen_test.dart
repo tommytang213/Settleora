@@ -4457,6 +4457,88 @@ void main() {
     expect(find.text('Settled Lunch'), findsNothing);
   });
 
+  testWidgets('personal bill initial Active view stays clearable', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [
+        sampleBillSummary(merchantName: 'Active Market'),
+        sampleBillSummary(
+          id: 'archived-bill-id',
+          merchantName: 'Archived Market',
+          archiveState: SettleoraBillArchiveStateValues.archived,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+          initialView: SettleoraBillListInitialView.active,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const ValueKey('bill-list-filter-active')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(find.text('Active Market'), findsOneWidget);
+    expect(find.text('Archived Market'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('bill-list-clear-filters')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const ValueKey('bill-list-filter-all')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(find.text('Active Market'), findsOneWidget);
+    expect(find.text('Archived Market'), findsOneWidget);
+  });
+
+  testWidgets('zero-result initial Active view is truthful and non-mutating', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final repository = FakeBillRepository(
+      bills: [
+        sampleBillSummary(
+          id: 'archived-bill-id',
+          merchantName: 'Archived Market',
+          archiveState: SettleoraBillArchiveStateValues.archived,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          syncController: sampleBillSyncController(),
+          initialView: SettleoraBillListInitialView.active,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No matching bills'), findsOneWidget);
+    expect(find.text('Archived Market'), findsNothing);
+    expect(repository.createCalls, 0);
+  });
+
   testWidgets('personal bill search filters clear to the loaded bill list', (
     tester,
   ) async {

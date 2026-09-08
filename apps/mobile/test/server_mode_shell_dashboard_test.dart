@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
@@ -117,6 +118,231 @@ void main() {
     expect(notificationRepository.summaryCalls, 2);
     expect(settlementRepository.listBalanceCalls, 2);
     expect(recurringRepository.listForecastCalls, 2);
+  });
+
+  testWidgets('dashboard review aggregate stays static and exact', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await pumpShell(
+      tester,
+      notificationRepository: FakeNotificationRepository(
+        summary: const SettleoraNotificationSummary(
+          unreadCount: 2,
+          attentionCount: 1,
+          urgentCount: 1,
+        ),
+      ),
+      settlementRepository: FakeSettlementRepository(
+        requests: [sampleSettlementRequest()],
+      ),
+      recurringRepository: FakeRecurringBillRepository(
+        forecast: [sampleOccurrence()],
+      ),
+    );
+
+    final staticSummary = find.byKey(
+      const Key('dashboard-review-summary-static'),
+    );
+    expect(find.text('4 items to review'), findsOneWidget);
+    expect(
+      find.descendant(of: staticSummary, matching: find.byType(StatusChip)),
+      findsNothing,
+    );
+    expect(
+      tester.getSemantics(staticSummary).flagsCollection.isButton,
+      isFalse,
+    );
+    expect(
+      find.bySemanticsLabel('Review summary: 4 items to review'),
+      findsOneWidget,
+    );
+
+    for (final label in [
+      'Open active bills',
+      'Open unread notifications',
+      'Open outgoing settlements',
+      'Open incoming settlements',
+    ]) {
+      expect(find.bySemanticsLabel(label), findsOneWidget);
+    }
+    for (final key in [
+      const Key('dashboard-active-bills-action'),
+      const Key('dashboard-unread-notifications-action'),
+      const Key('dashboard-outgoing-settlements-action'),
+      const Key('dashboard-incoming-settlements-action'),
+    ]) {
+      expect(tester.getSize(find.byKey(key)).height, greaterThanOrEqualTo(48));
+    }
+    semantics.dispose();
+  });
+
+  testWidgets('active bills action opens exact filter without mutation', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(bills: [sampleBill()]);
+    await pumpShell(tester, billRepository: repository);
+
+    await tester.tap(find.byKey(const Key('dashboard-active-bills-action')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bills'), findsWidgets);
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const ValueKey('bill-list-filter-active')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(repository.createCalls, 0);
+  });
+
+  testWidgets('zero active bills action opens truthful filtered empty view', (
+    tester,
+  ) async {
+    await pumpShell(tester);
+
+    await tester.tap(find.byKey(const Key('dashboard-active-bills-action')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const ValueKey('bill-list-filter-active')),
+          )
+          .selected,
+      isTrue,
+    );
+    await tester.scrollUntilVisible(
+      find.text('No matching bills'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('No matching bills'), findsOneWidget);
+  });
+
+  testWidgets('unread action opens exact filter without marking read', (
+    tester,
+  ) async {
+    final repository = FakeNotificationRepository(
+      summary: const SettleoraNotificationSummary(
+        unreadCount: 1,
+        attentionCount: 0,
+        urgentCount: 0,
+      ),
+      notifications: [sampleNotification()],
+    );
+    await pumpShell(tester, notificationRepository: repository);
+
+    await tester.tap(
+      find.byKey(const Key('dashboard-unread-notifications-action')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notifications'), findsWidgets);
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const ValueKey('notification-filter-unread')),
+          )
+          .selected,
+      isTrue,
+    );
+  });
+
+  testWidgets('money actions open exact direction filters', (tester) async {
+    final repository = FakeSettlementRepository(
+      balances: [
+        sampleBalance(),
+        sampleBalance(
+          direction: SettleoraSettlementBalanceDirectionValues.incoming,
+          amount: '18.00',
+        ),
+      ],
+      requests: [
+        sampleSettlementRequest(),
+        sampleSettlementRequest(
+          id: _secondSettlementId,
+          debtorUserProfileId: 'counterparty-2',
+          creditorUserProfileId: _profileId,
+          amount: '18.00',
+        ),
+      ],
+    );
+    await pumpShell(tester, settlementRepository: repository);
+    expectMoneyText('10.00', 'USD');
+    expectMoneyText('18.00', 'USD');
+
+    await tester.ensureVisible(
+      find.byKey(const Key('dashboard-outgoing-settlements-action')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('dashboard-outgoing-settlements-action')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const Key('settlement-list-filter-outgoing')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(find.text('Outgoing (1)'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('dashboard-incoming-settlements-action')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('dashboard-incoming-settlements-action')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<FilterChip>(
+            find.byKey(const Key('settlement-list-filter-incoming')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(find.text('Incoming (1)'), findsOneWidget);
+  });
+
+  testWidgets('dashboard metric keyboard activation fires once', (
+    tester,
+  ) async {
+    final repository = FakeBillRepository(bills: [sampleBill()]);
+    await pumpShell(tester, billRepository: repository);
+    final action = find.byKey(const Key('dashboard-active-bills-action'));
+
+    var focused = false;
+    for (var index = 0; index < 12 && !focused; index += 1) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final focusContext = FocusManager.instance.primaryFocus?.context;
+      if (focusContext == null) {
+        continue;
+      }
+      final focusFinder = find.byElementPredicate(
+        (element) => identical(element, focusContext),
+      );
+      focused = find
+          .ancestor(of: focusFinder, matching: action)
+          .evaluate()
+          .isNotEmpty;
+    }
+    expect(focused, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bills'), findsWidgets);
+    expect(repository.listCalls, 2);
+    expect(repository.createCalls, 0);
   });
 
   testWidgets('dashboard exposes backup export and import preview guards', (

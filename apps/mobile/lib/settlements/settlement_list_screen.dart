@@ -12,11 +12,13 @@ class SettleoraSettlementListScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.currentUserProfileId,
+    this.initialView = SettleoraSettlementListInitialView.all,
     this.openNeedsActionOnStart = false,
   });
 
   final SettleoraSettlementRepository repository;
   final String currentUserProfileId;
+  final SettleoraSettlementListInitialView initialView;
   final bool openNeedsActionOnStart;
 
   @override
@@ -39,7 +41,14 @@ class _SettleoraSettlementListScreenState
     super.initState();
     _filter = widget.openNeedsActionOnStart
         ? _SettlementRequestFilter.needsAction
-        : _SettlementRequestFilter.all;
+        : switch (widget.initialView) {
+            SettleoraSettlementListInitialView.all =>
+              _SettlementRequestFilter.all,
+            SettleoraSettlementListInitialView.incoming =>
+              _SettlementRequestFilter.incoming,
+            SettleoraSettlementListInitialView.outgoing =>
+              _SettlementRequestFilter.outgoing,
+          };
     _searchController = TextEditingController();
     _searchController.addListener(_handleSearchChanged);
     Future<void>.microtask(_load);
@@ -228,6 +237,8 @@ class _SettleoraSettlementListScreenState
         .toList(growable: false);
   }
 }
+
+enum SettleoraSettlementListInitialView { all, incoming, outgoing }
 
 class _SettlementLandingSummary extends StatelessWidget {
   const _SettlementLandingSummary({

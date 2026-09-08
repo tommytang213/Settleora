@@ -411,6 +411,68 @@ void main() {
     },
   );
 
+  for (final testCase in [
+    (
+      name: 'Incoming',
+      initialView: SettleoraSettlementListInitialView.incoming,
+      filterKey: 'incoming',
+      visibleAmount: '25.00 EUR',
+      hiddenAmount: '10.00 USD',
+    ),
+    (
+      name: 'Outgoing',
+      initialView: SettleoraSettlementListInitialView.outgoing,
+      filterKey: 'outgoing',
+      visibleAmount: '10.00 USD',
+      hiddenAmount: '25.00 EUR',
+    ),
+  ]) {
+    testWidgets('settlement initial ${testCase.name} view stays clearable', (
+      tester,
+    ) async {
+      final repository = FakeSettlementRepository(
+        requests: [
+          sampleRequest(),
+          sampleRequest(
+            id: _secondSettlementId,
+            debtorUserProfileId: _creditorUserProfileId,
+            creditorUserProfileId: _debtorUserProfileId,
+            amount: '25.00',
+            currency: 'EUR',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SettleoraSettlementListScreen(
+            repository: repository,
+            currentUserProfileId: _debtorUserProfileId,
+            initialView: testCase.initialView,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(Key('settlement-list-filter-${testCase.filterKey}')),
+            )
+            .selected,
+        isTrue,
+      );
+      expect(find.text(testCase.visibleAmount), findsOneWidget);
+      expect(find.text(testCase.hiddenAmount), findsNothing);
+
+      await tester.tap(find.byKey(const Key('settlement-list-clear-filters')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('10.00 USD'), findsOneWidget);
+      expect(find.text('25.00 EUR'), findsOneWidget);
+    });
+  }
+
   testWidgets('settlement list shows compact empty state for no matches', (
     tester,
   ) async {
