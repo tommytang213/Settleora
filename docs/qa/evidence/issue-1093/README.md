@@ -27,6 +27,7 @@ Mobile admin-maintenance is not applicable because no mobile destination exists.
 - Candidate B: source `13082ab06e74eb5e77f88eea0946fb20ba4b5cab`, tree `204d1a6f693af5f3b26b07309ab9821050e68a8c`, PR #1151, merge `02cd17283c8bf4bfe595dc6d910acbac041e1fbf`. Gemini report: `/workspace/logs/settleora-issue-1093-review/candidate-b/reviews/integrated/2026-09-08T130354Z-strong_independent-15458-1788872634559-gemini-integrated-review.json`.
 - Candidate C: source `99ed53effbcd46670b28c57426e66bfaa485c93f`, tree `46eb5608ea950c785658a19f0f3ab215ee98bcf0`, PR #1152, merge `5322ba97b8fe76fe3ea536993f53a247570bc796`. Final Gemini report: `/workspace/logs/settleora-issue-1093-review/candidate-c/reviews/integrated/2026-09-08T135059Z-strong_independent-23915-1788875459649-gemini-integrated-review.json`.
 - Every final source head passed fresh Gemini `strong_independent`, independent local Codex and GitHub Codex review. Candidate C's first GitHub review found the OCR deletion/help modal race; corrective head `99ed53e` passed fresh validation and all reviews, and the sole thread was resolved.
+- GitHub prematurely closed #1093 at `2026-09-08T12:49:14Z` after intermediate PR #1150 despite its explicit non-closing intent. Live hygiene reconciliation reopened it before this evidence candidate; final closure remains gated on the hygiene merge and final-main proof.
 
 ## Capture SHA-256
 
