@@ -20,9 +20,9 @@ there is no sign-in, credential source, refresh, logout or protected-route
 redirect. The public password-reset completion route is the only complete
 user-facing operation.
 
-This audit inventories **36 canonical capability rows** exactly once:
-`implemented` 2, `partial` 18, `unavailable` 11, `blocked` 5, `superseded` 0.
-Thirty-four non-complete rows have one execution packet below. A packet can
+This audit inventories **37 canonical capability rows** exactly once:
+`implemented` 2, `partial` 18, `unavailable` 12, `blocked` 5, `superseded` 0.
+Thirty-five non-complete rows have one execution packet below. A packet can
 reuse an existing owner or recommend a focused child; it does not make an
 unnumbered recommendation runnable.
 
@@ -39,8 +39,8 @@ owned by #965.
 
 Evidence was reconciled from current source/tests, the generated web client,
 Day 1/Day 2 PRDs, the user-web reference, the #409 localization audit, live
-issues, and merge ancestry. Closed #458-#462 and PRs #580-#624 are credited
-only for the behavior still present. The stale claim in
+issues, and merge ancestry. Closed #458-#462 and only the runtime PRs named in
+section 9 are credited for behavior still present. The stale claim in
 `apps/web-user/README.md` that the portal is merely a foundation is
 superseded by source; the equally stale implication in old planning that
 generated methods make future UI readily available is also rejected.
@@ -88,10 +88,10 @@ never supplies `A`.
 | 19 | `WEB-D1-017` | Notification list, filters, summary and preference readout | `partial` | yes | yes* | yes | yes | `NotificationsReadoutPanel`, three read calls and tests; PRs #588/#589 | P10 |
 | 20 | `WEB-D1-018` | Notification read/archive/preference mutations, typed open and message resolution | `blocked` | partial | no | partial | partial | Generated read/archive/preference writes exist but are unused; related IDs are display-only; `safeSummary ?? messageKey` can expose keys; #973 owns reconciliation | P10 |
 | 21 | `WEB-D1-019` | Monthly reports and server-backed bill search | `partial` | yes | yes* | yes | yes | `ReportsReadoutPanel`, `loadReportsReadout`, tests; PR #591; group summary/detail actions remain absent | P11 |
-| 22 | `WEB-D1-020` | Personal/group CSV and JSON export | `partial` | yes | yes* | yes | yes | Readiness recheck, scoped download, object-URL revoke and failure tests in `importExportReadout`; PRs #595-#597 | P13 |
-| 23 | `WEB-D1-021` | CSV preflight, reviewed session, confirm and discard | `partial` | yes | yes* | yes | yes | Non-mutating preflight plus explicit server confirmation/discard in source/tests; PRs #599-#603; no direct-import fallback | P13 |
-| 24 | `WEB-D1-022` | Local backup package/session/download | `partial` | yes | yes* | yes | yes | Package create/prepare/status/download/cancel/discard code and tests; PRs #610-#618 | P14 |
-| 25 | `WEB-D1-023` | Restore preview and confirmation metadata | `partial` | yes | yes* | yes | yes | Non-mutating preview and metadata-only confirmation session code/tests; PRs #619-#623 | P14 |
+| 22 | `WEB-D1-020` | Personal/group CSV and JSON export | `partial` | yes | yes* | yes | yes | Readiness recheck, scoped download, object-URL revoke and failure tests in `importExportReadout`; runtime PRs #596/#597, contract #595 | P13 |
+| 23 | `WEB-D1-021` | CSV preflight, reviewed session, confirm and discard | `partial` | yes | yes* | yes | yes | Non-mutating preflight plus explicit server confirmation/discard in source/tests; runtime PRs #600/#603, contracts #599/#602; no direct-import fallback | P13 |
+| 24 | `WEB-D1-022` | Local backup package/session/download | `partial` | yes | yes* | yes | yes | Package create/prepare/status/download/cancel/discard code and tests; runtime PRs #617/#618 with contract prerequisites #610/#612/#614 | P14 |
+| 25 | `WEB-D1-023` | Restore preview and confirmation metadata | `partial` | yes | yes* | yes | yes | Non-mutating preview and metadata-only confirmation session code/tests; runtime PRs #620/#623/#624 with contracts #619/#622 | P14 |
 | 26 | `WEB-D1-024` | Restore apply | `blocked` | truthful unavailable | no | no | no | UI explicitly says no records restored; generated client has no restore-apply method | P14 |
 | 27 | `WEB-D1-025` | Sync/local-status readout | `partial` | yes | yes* | yes | yes | `loadSyncLocalStatus`, `SyncLocalStatusCard`, fail-closed tests; PR #607 | P15 |
 | 28 | `WEB-D1-026` | Offline queue, local-only persistence and conflict resolution | `unavailable` | no | no | partial | partial | No browser storage/service worker/queue use; only server status is rendered; generated sync methods are unused | P15 |
@@ -103,12 +103,56 @@ never supplies `A`.
 | 34 | `WEB-D1-032` | Keyboard, focus, semantics and zoom/text scaling | `partial` | yes | partial | n/a | n/a | Skip link, labels, live regions and focus-visible styles exist; no shell keyboard order, focus restoration, zoom or screen-reader tests | P12 |
 | 35 | `WEB-D1-033` | Final visual/reference acceptance | `partial` | yes | n/a | n/a | n/a | `WEB_USER_REFERENCE_V1.md` governs; historical #580 captures do not cover later readouts/actions or exact current head | P12 |
 | 36 | `WEB-D1-034` | Localization-ready catalog/formatting/expansion | `unavailable` | English only | no | n/a | n/a | #409 `L10N-D1-005/006/012/013/016/020/024/025`; no catalog/bootstrap; manual formatting and physical CSS remain | P17 |
+| 37 | `WEB-D1-035` | Settings, appearance and experience-mode controls | `unavailable` | placeholder | no | planning only | partial | `shellModel.ts::routeDefinitions` exposes `settings` as a placeholder; `shellModel.test.ts` covers navigation only; no appearance, `help_me_decide`, policy or mode-control operation exists | P18 |
 
 `Yes*` is implementation credit, not launch readiness: all protected rows
 currently receive an absent access token. Row 23 is an actual staged import
 mutation after explicit confirmation; row 25 is not restore apply.
 
-## 4. State-vector evidence
+## 4. User-impact registry
+
+Every non-complete row has one explicit impact below; the gap ID links it to
+the evidence and owner packet above.
+
+| Gap | User impact |
+| --- | --- |
+| `WEB-D1-001` | A browser launch cannot resolve the actor or enter protected Day 1 areas. |
+| `WEB-D1-002` | Users cannot sign in, recover an expired session, sign out, or follow a protected-route redirect. |
+| `WEB-D1-003` | Home shows protected placeholders instead of actionable account summaries. |
+| `WEB-D1-004` | Bill discovery works only in unreachable source and lacks composed-page acceptance. |
+| `WEB-D1-005` | Users cannot complete the full bill-detail review from the current page. |
+| `WEB-D1-006` | Users cannot create personal or group bills on web. |
+| `WEB-D1-007` | Users cannot maintain, submit, archive, restore, or respond to bills on web. |
+| `WEB-D1-008` | Users can see revision metadata but cannot inspect or complete revision review. |
+| `WEB-D1-009` | Users cannot securely view, upload, remove, or hand receipts to OCR from web. |
+| `WEB-D1-010` | Group readouts exist but remain unreachable and lack final page acceptance. |
+| `WEB-D1-011` | Users cannot create, rename, or change group membership on web. |
+| `WEB-D1-012` | Friends, direct shares, temporary participants, and claims cannot be used on web. |
+| `WEB-D1-013` | Settlement truth is readable only in an unreachable, not finally accepted surface. |
+| `WEB-D1-014` | Users cannot initiate or progress settlement/payment/proof workflows on web. |
+| `WEB-D1-015` | Profile and payment metadata cannot be reached or finally accepted in the shipped portal. |
+| `WEB-D1-016` | Users cannot edit profile/payment details or access authorized QR content on web. |
+| `WEB-D1-017` | Notification and preference readouts are unreachable and lack final page acceptance. |
+| `WEB-D1-018` | Users cannot safely open, mark, archive, or change notification preferences; raw keys may be visible. |
+| `WEB-D1-019` | Reports/search are unreachable and omit group-detail actions. |
+| `WEB-D1-020` | Export code exists but users cannot reach and accept the complete browser flow. |
+| `WEB-D1-021` | Import review/confirmation exists but cannot be reached or accepted end to end. |
+| `WEB-D1-022` | Backup creation/download exists only behind the missing session boundary and lacks page acceptance. |
+| `WEB-D1-023` | Users can preview restore metadata in source but cannot complete a restore. |
+| `WEB-D1-024` | No user can apply a restore; the UI correctly stops before destructive authority. |
+| `WEB-D1-025` | Users cannot reach the server sync/local-status readout from a normal launch. |
+| `WEB-D1-026` | Users have no browser queue, local-only persistence, or conflict-resolution workflow. |
+| `WEB-D1-027` | Users cannot inspect/revoke devices or control their current authenticated session. |
+| `WEB-D1-028` | Registration, invitation, OIDC, password, MFA, passkey, and recovery entry surfaces are absent. |
+| `WEB-D1-029` | Users cannot configure recurring bills or use forecasts on web. |
+| `WEB-D1-030` | Users can filter reconciliation status but cannot resolve it on web. |
+| `WEB-D1-031` | Narrow-screen behavior is not proven against the complete current surface. |
+| `WEB-D1-032` | Keyboard, focus, zoom, and assistive-technology regressions can escape current evidence. |
+| `WEB-D1-033` | Later runtime slices lack current-head visual/reference acceptance. |
+| `WEB-D1-034` | Hardcoded copy and formatting prevent a safe localization foundation and can expose transport labels. |
+| `WEB-D1-035` | Users cannot choose Day 1 experience modes, appearance, or supported settings. |
+
+## 5. State-vector evidence
 
 Codes: `Y` dedicated source plus test evidence; `P` present but generic,
 untested at the composed page, or unreachable; `N` absent/not applicable.
@@ -127,13 +171,14 @@ untested at the composed page, or unreachable; `N` absent/not applicable.
 | Backup/restore | Y | Y | Y | Y | Y | Y | P | P | Package/preview/session states are strong; restore apply intentionally absent. |
 | Sync/offline | Y | Y | Y | Y | Y | Y | P | P | Server status only; queue/conflict-resolution/local-only states absent. |
 | Account/security | N | P | P | P | Y | Y | P | P | Generic route only; reset-complete form has focused semantics tests. |
-| Recurring | N | N | N | N | Y | N | N | N | No user-web surface despite generated transport. |
+| Recurring | N | N | N | N | P | N | N | N | No dedicated surface; only the generic shell can represent signed-out state. |
+| Settings/modes | N | N | N | N | P | Y | P | P | Navigation reaches a placeholder; settings operations and dedicated state evidence are absent. |
 
 No family is promoted to implemented from a happy path alone. The adapter
 tests are valuable but do not replace composed `App` interaction, narrow
 rendering, focus-order, zoom or screen-reader evidence.
 
-## 5. Execution packets and gap ownership
+## 6. Execution packets and gap ownership
 
 Each packet supplies the canonical lane, intended path boundary, validation,
 review tier, gate, dependencies, close rule and duplicate evidence for every
@@ -154,13 +199,14 @@ not assigned to #373 or #963.
 | P10 | 017-018 | Existing [#973](https://github.com/tommytang213/Settleora/issues/973) must reconcile mutations, typed opens/authz revalidation and message arguments; then focused web children | `docs-planning` → `web-user-ui`; contract change kept separate | `docs-only` then `web-ui`; strong independent; notification privacy, auth or domain gates retained | P01 and #973; close UI children with server revalidation, safe fallback, mutation refresh and deep-link state evidence | Searches found #368/#369/#403/#973 and completed notification runtime; #409 `008/019` is localization evidence, not a duplicate feature owner. |
 | P11 | 019, 030 | Existing [#977](https://github.com/tommytang213/Settleora/issues/977), #405 and #404 reconcile report/group-summary/reconciliation scope | `reports-search-reconciliation` then `web-user-ui`; contract/UI split | matching domain profile then `web-ui`; strong independent; money gate if totals semantics change | P01 and #977; close with authoritative totals, bounded filters/actions and narrow/accessibility evidence | Search found #404/#405/#977 and credited PR #591; no new report parent. |
 | P12 | 031-033 | Recommend focused **current-head user-web responsive/accessibility/visual acceptance harness** after material runtime waves | `web-user-ui`; test/harness/evidence only, no domain mutation | `web-ui`; strong independent plus human visual acceptance | Runs after relevant UI children; close with desktop/narrow, keyboard/focus, zoom/text expansion and screen-reader-oriented evidence; #975 remains final cross-product QA | Searches found #975 and broad parents only; #580 captures are historical, and `WEB_USER_REFERENCE_V1.md` is the default reference. |
-| P13 | 020-021 | Existing [#971](https://github.com/tommytang213/Settleora/issues/971)/#406 reconcile export/import authority and acceptance; recommend only a reachability/composed-page acceptance child after P01 | `sync-import-export-restore` then `web-user-ui` | `sync-import-export`/`web-ui`; strong independent; import apply privacy/money gate | P01 and #971; close with scoped authorization, conflict/idempotency and full page state evidence | PRs #595-#603 and closed #461 are credited; direct import methods are intentionally unused. |
-| P14 | 022-024 | Existing #971/#406 with #966 must own package/preview/restore split; restore apply requires a new focused contract/server child before UI | `sync-import-export-restore`; storage and UI paths separated | `sync-import-export`; strong independent; **restore/destructive/privacy/money manual gates** | #971/#966 first; apply close rule requires identity, integrity, duplicates, conflicts, idempotency, financial/private validation, authz and audit | PRs #610-#624 credited; current generated client has no apply method, so preview/confirmation is not restore authority. |
+| P13 | 020-021 | Existing [#971](https://github.com/tommytang213/Settleora/issues/971)/#406 reconcile export/import authority and acceptance; recommend only a reachability/composed-page acceptance child after P01 | `sync-import-export-restore` then `web-user-ui` | `sync-import-export`/`web-ui`; strong independent; import apply privacy/money gate | P01 and #971; close with scoped authorization, conflict/idempotency and full page state evidence | Runtime PRs #596/#597/#600/#603 and their #595/#599/#602 contracts plus closed #461 are credited; direct import methods are intentionally unused. |
+| P14 | 022-024 | Existing #971/#406 with #966 must own package/preview/restore split; restore apply requires a new focused contract/server child before UI | `sync-import-export-restore`; storage and UI paths separated | `sync-import-export`; strong independent; **restore/destructive/privacy/money manual gates** | #971/#966 first; apply close rule requires identity, integrity, duplicates, conflicts, idempotency, financial/private validation, authz and audit | Runtime PRs #617/#618/#620/#623/#624 and their #610/#612/#614/#619/#622 contracts are credited; current generated client has no apply method, so preview/confirmation is not restore authority. |
 | P15 | 025-026 | Existing #971/#361 owns queue/offline/local/conflict reconciliation and future split | `sync-import-export-restore`; persistence/domain before UI | `sync-import-export`; strong independent; sync/restore manual gate | P01 and #971; close only with local/server authority, queued-versus-accepted truth, persistence/retry/conflict tests and UI evidence | Search found #361/#364/#406/#971; browser storage is absent, so no duplicate web local-mode issue is created. |
 | P16 | 029 | Existing [#365](https://github.com/tommytang213/Settleora/issues/365) must decide user-web recurring/forecast child scope | `recurring-bills` then `web-user-ui`; domain and UI split | matching domain profile/`web-ui`; strong independent; money gate for draft generation | P01 and #365; close with server schedules/forecast, explicit draft action and state/visual evidence | Source-symbol and issue search found generated recurring methods and #365, but no web route/child. |
 | P17 | 034 | First child: #409 `L10N-D1-005`; later `006/012/013/024` inventories, `016/025` after #965, `008` after #973, and `020` after #963/#970/#971/#966 | `web-user-ui` for 005; later `docs-planning`, gated web/API children | `web-ui` or `docs-only`; cheap/strong per child; money/auth/storage gates retained | 005 depends only on #963 merge. Close with English catalog/locale provider, synchronized document `lang`, representative ordinary shell/shared-state migration and tests; no auth copy | Exact keyword searches found #409 but no focused catalog issue. #409 explicitly excludes auth/session, money, notification resolver and server strings from 005. |
+| P18 | 035 | Recommend focused **user-web settings and Day 1 experience-mode controls** child after P01 and product-mode authority are reconciled | `web-user-ui`; settings UI/tests only, with any preference contract split first | `web-ui`; strong independent; visual evidence; auth/privacy review for persisted choices | P01 and an exact product-mode contract decision; close with supported mode/appearance/policy readouts, server-refreshed preference changes, all state-vector evidence and desktop/narrow proof | Live searches for `settings`, `experience mode`, `appearance` and `help_me_decide` found no focused issue; the placeholder from #580 is credited, and broad customization remains later-day. |
 
-## 6. Localization reconciliation
+## 7. Localization reconciliation
 
 - `L10N-D1-005` remains an independent, coherent first implementation
   foundation. It must not absorb missing product runtime, auth/session copy,
@@ -178,7 +224,7 @@ not assigned to #373 or #963.
 - `020` stays a non-runnable inventory after #970/#971/#966 and existing #406
   ownership. It must not mix API/OpenAPI, storage, restore, sync and UI work.
 
-## 7. Dependency-safe queue
+## 8. Dependency-safe queue
 
 1. **First:** implement `L10N-D1-005` as one `web-user-ui` English
    catalog/bootstrap/document-language child after #963 closes.
@@ -201,21 +247,24 @@ not assigned to #373 or #963.
    is needed only for a materially new/high-consequence interaction beyond
    `WEB_USER_REFERENCE_V1.md`.
 
-## 8. Closed-work credit and Day 2 boundary
+## 9. Closed-work credit and Day 2 boundary
 
 Closed #458-#462 remain valid planning/foundation checkpoints. Merged user-web
 runtime is credited to PR #580 (shell), #582-#584 (bills/groups), #585-#590
-(settlement/profile/notification/proof readouts), #591 (reports), #593,
-#595-#607 (availability/export/import/sync), and #610-#624
-(backup/restore-preview). PR #767 later added the public reset-completion flow.
-No row asks to rewrite those slices.
+(settlement/profile/notification/proof readouts), #591 (reports), #593
+(import/export availability), #596/#597 (export), #600/#603 (import), #607
+(sync status), #617/#618 (backup artifact/download), #620/#623/#624
+(restore preview/confirmation/package preview), and #767 (public reset
+completion). Documentation and contract prerequisites in the intervening PRs
+are evidence, not mislabeled as runtime; unrelated #615 is excluded. No row
+asks to rewrite these slices.
 
 Day 2 is excluded: live FX providers, bank/statement automation, budgets,
 cross-instance/cloud behavior, actual multilingual resources and broader
 customization remain governed by `DAY2_SCOPE.md` or later authority. Structural
 English catalog readiness is Day 1; translated content is not.
 
-## 9. Audit close rule
+## 10. Audit close rule
 
 #963 may close after this audit and its concise ledger checkpoint merge, the
 #373 completed/remaining graph is updated, live duplicate searches remain
