@@ -27,10 +27,10 @@ void main() {
     await _capture(tester, '01-home-default-390x844-1x.png', 1);
 
     await _openMore(tester);
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('server-shell-reports')),
-      220,
-      scrollable: _scrollableWithin(const Key('server-shell-more-hub')),
+    await Scrollable.ensureVisible(
+      tester.element(find.byKey(const Key('server-shell-more-notifications'))),
+      alignment: 0,
+      duration: Duration.zero,
     );
     await tester.pumpAndSettle();
     await _capture(tester, '02-more-canonical-routes-390x844-1x.png', 1);
@@ -261,6 +261,7 @@ Future<void> _focusWithin(WidgetTester tester, Key targetKey) async {
       });
     }
     if (isWithinTarget) {
+      await tester.pumpAndSettle();
       return;
     }
   }

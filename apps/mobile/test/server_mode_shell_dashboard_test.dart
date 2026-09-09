@@ -33,14 +33,12 @@ void main() {
     (key: 'reports', title: 'Monthly report'),
   ]) {
     testWidgets(
-      'Home ${routeCase.key} shortcut opens the existing canonical route',
+      'Home ${routeCase.key} shortcut opens the canonical route without preference mutation',
       (tester) async {
-        await pumpShell(
-          tester,
-          homeShortcutPreference: FakeHomeShortcutPreference(
-            selection: settleoraHomeShortcutFixedOrder.toSet(),
-          ),
+        final preference = FakeHomeShortcutPreference(
+          selection: settleoraHomeShortcutFixedOrder.toSet(),
         );
+        await pumpShell(tester, homeShortcutPreference: preference);
         final shortcut = find.byKey(
           Key('server-shell-home-shortcut-${routeCase.key}'),
         );
@@ -49,9 +47,31 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text(routeCase.title), findsWidgets);
+        expect(preference.writeCalls, 0);
       },
     );
   }
+
+  testWidgets('Home shortcut supports deterministic keyboard activation', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      homeShortcutPreference: FakeHomeShortcutPreference(
+        selection: settleoraHomeShortcutFixedOrder.toSet(),
+      ),
+    );
+    final shortcut = find.byKey(
+      const Key('server-shell-home-shortcut-notifications'),
+    );
+    await tester.ensureVisible(shortcut);
+    expect(await focusWithin(tester, shortcut), isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notifications'), findsWidgets);
+  });
 
   testWidgets('Home shows the default two shortcuts in fixed order', (
     tester,
@@ -188,6 +208,50 @@ void main() {
     );
   });
 
+  testWidgets(
+    'hiding Notifications preserves unread state and delivery behavior',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        summary: const SettleoraNotificationSummary(
+          unreadCount: 7,
+          attentionCount: 2,
+          urgentCount: 1,
+        ),
+        notifications: [sampleNotification()],
+      );
+      final preference = FakeHomeShortcutPreference(
+        selection: const {SettleoraHomeShortcut.recurringBills},
+      );
+      await pumpShell(
+        tester,
+        notificationRepository: repository,
+        homeShortcutPreference: preference,
+      );
+
+      expect(
+        find.byKey(const Key('server-shell-home-shortcut-notifications')),
+        findsNothing,
+      );
+      expect(repository.summary.unreadCount, 7);
+      expect(repository.mutationCalls, 0);
+      expect(preference.writeCalls, 0);
+
+      await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+      await tester.pumpAndSettle();
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-more-notifications'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Notifications'), findsWidgets);
+      expect(repository.listCalls, 1);
+      expect(repository.mutationCalls, 0);
+      expect(repository.summary.unreadCount, 7);
+      expect(preference.writeCalls, 0);
+    },
+  );
+
   testWidgets('App settings persists shortcuts and updates Home on success', (
     tester,
   ) async {
@@ -248,6 +312,17 @@ void main() {
     expect(find.byKey(const Key('home-shortcuts-save-error')), findsOneWidget);
     expect(find.text("Shortcuts weren't saved"), findsOneWidget);
     expect(
+      tester
+          .widgetList<Semantics>(
+            find.descendant(
+              of: find.byKey(const Key('home-shortcuts-sheet')),
+              matching: find.byType(Semantics),
+            ),
+          )
+          .where((semantics) => semantics.properties.liveRegion == true),
+      hasLength(1),
+    );
+    expect(
       preference.selection,
       isNot(contains(SettleoraHomeShortcut.reports)),
     );
@@ -266,6 +341,37 @@ void main() {
     expect(preference.selection, contains(SettleoraHomeShortcut.reports));
     expect(find.byKey(const Key('home-shortcuts-save-error')), findsNothing);
   });
+
+  testWidgets(
+    'customization exposes selected semantics and toggles from keyboard',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      final preference = FakeHomeShortcutPreference();
+      await pumpShell(tester, homeShortcutPreference: preference);
+      await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+      await tester.pumpAndSettle();
+      await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+      await tester.pumpAndSettle();
+      await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+      await tester.pumpAndSettle();
+
+      final reports = find.byKey(const Key('home-shortcuts-toggle-reports'));
+      final before = tester.getSemantics(reports).getSemanticsData();
+      expect(before.label, contains('Reports'));
+      expect(before.flagsCollection.isToggled, ui.Tristate.isFalse);
+      expect(await focusWithin(tester, reports), isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+
+      expect(preference.writeCalls, 1);
+      expect(preference.selection, contains(SettleoraHomeShortcut.reports));
+      final after = tester.getSemantics(reports).getSemanticsData();
+      expect(after.label, contains('Reports'));
+      expect(after.flagsCollection.isToggled, ui.Tristate.isTrue);
+      semantics.dispose();
+    },
+  );
 
   testWidgets('shortcut persistence suppresses a duplicate pending write', (
     tester,
@@ -2340,6 +2446,26 @@ Future<void> ensureAndTap(WidgetTester tester, Key key) async {
   await tester.pumpAndSettle();
 }
 
+Future<bool> focusWithin(WidgetTester tester, Finder target) async {
+  final targetElement = target.evaluate().single;
+  for (var index = 0; index < 48; index += 1) {
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    var isWithinTarget = focusContext == targetElement;
+    if (focusContext is Element && !isWithinTarget) {
+      focusContext.visitAncestorElements((ancestor) {
+        isWithinTarget = ancestor == targetElement;
+        return !isWithinTarget;
+      });
+    }
+    if (isWithinTarget) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Future<void> scrollShellToBottom(
   WidgetTester tester,
   Key scrollKey,
@@ -2931,6 +3057,8 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   final SettleoraNotificationSummary summary;
   final List<SettleoraNotificationRow> notifications;
   int summaryCalls = 0;
+  int listCalls = 0;
+  int mutationCalls = 0;
 
   @override
   Future<SettleoraNotificationSummary> getNotificationSummary() async {
@@ -2944,21 +3072,25 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
     int limit = 50,
     DateTime? before,
   }) async {
+    listCalls += 1;
     return notifications;
   }
 
   @override
   Future<SettleoraNotificationRow> markNotificationRead(String notificationId) {
+    mutationCalls += 1;
     throw UnimplementedError();
   }
 
   @override
   Future<SettleoraNotificationSummary> markAllNotificationsRead() {
+    mutationCalls += 1;
     throw UnimplementedError();
   }
 
   @override
   Future<SettleoraNotificationRow> archiveNotification(String notificationId) {
+    mutationCalls += 1;
     throw UnimplementedError();
   }
 }

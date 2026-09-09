@@ -1887,12 +1887,10 @@ class _DashboardQuickAccess extends StatelessWidget {
                     shortcuts.contains,
                   ))
                 const SizedBox(height: SettleoraSpacing.xs),
-              AppButton(
+              _DashboardShortcutAction(
                 key: Key('server-shell-home-shortcut-${shortcut.machineKey}'),
                 icon: _iconForShortcut(shortcut),
                 label: shortcut.label,
-                variant: AppButtonVariant.soft,
-                expanded: true,
                 onPressed: _callbackForShortcut(shortcut),
               ),
             ],
@@ -1917,6 +1915,72 @@ class _DashboardQuickAccess extends StatelessWidget {
       SettleoraHomeShortcut.receiptReviews => onOpenReceiptReviews,
       SettleoraHomeShortcut.reports => onOpenReports,
     };
+  }
+}
+
+class _DashboardShortcutAction extends StatefulWidget {
+  const _DashboardShortcutAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  State<_DashboardShortcutAction> createState() =>
+      _DashboardShortcutActionState();
+}
+
+class _DashboardShortcutActionState extends State<_DashboardShortcutAction> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode()..addListener(_handleFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_handleFocusChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _handleFocusChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(SettleoraRadius.md + 2),
+        border: Border.all(
+          color: _focusNode.hasFocus
+              ? context.settleoraColors.primary
+              : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: AppButton(
+        icon: widget.icon,
+        label: widget.label,
+        variant: AppButtonVariant.soft,
+        expanded: true,
+        focusNode: _focusNode,
+        onPressed: widget.onPressed,
+      ),
+    );
   }
 }
 
