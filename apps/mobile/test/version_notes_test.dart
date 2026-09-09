@@ -430,6 +430,7 @@ Future<void> _pumpApp(
       key: UniqueKey(),
       secureStorage: storage ?? _FakeSecureStorage(),
       versionSeenPreference: preference,
+      homeShortcutPreference: dashboard.FakeHomeShortcutPreference(),
       versionNotesProcessGuard:
           processGuard ?? SettleoraVersionNotesProcessGuard(),
       versionNotes: notes,
@@ -461,6 +462,7 @@ Future<void> _pumpShell(
         onSessionEnded: (_) async {},
         versionNotesProcessGuard: processGuard,
         versionSeenPreference: preference,
+        homeShortcutPreference: dashboard.FakeHomeShortcutPreference(),
       ),
     ),
   );

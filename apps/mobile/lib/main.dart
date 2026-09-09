@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app/app_bootstrap.dart';
+import 'app/home_shortcut_preferences.dart';
 import 'app/secure_storage.dart';
 import 'app/server_connection_probe.dart';
 import 'app/version_notes.dart';
@@ -18,6 +19,7 @@ class SettleoraMobileApp extends StatelessWidget {
     super.key,
     SettleoraSecureStorageBoundary? secureStorage,
     SettleoraVersionSeenPreference? versionSeenPreference,
+    SettleoraHomeShortcutPreference? homeShortcutPreference,
     this.versionNotesProcessGuard,
     this.versionNotes = currentBundledVersionNotes,
     this.receiptOcrReviewRepositoryFactory,
@@ -42,10 +44,13 @@ class SettleoraMobileApp extends StatelessWidget {
     ),
   }) : secureStorage = secureStorage ?? SettleoraSecureStorage(),
        versionSeenPreference =
-           versionSeenPreference ?? LocalSettleoraVersionSeenPreference();
+           versionSeenPreference ?? LocalSettleoraVersionSeenPreference(),
+       homeShortcutPreference =
+           homeShortcutPreference ?? LocalSettleoraHomeShortcutPreference();
 
   final SettleoraSecureStorageBoundary secureStorage;
   final SettleoraVersionSeenPreference versionSeenPreference;
+  final SettleoraHomeShortcutPreference homeShortcutPreference;
   final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
   final SettleoraBundledVersionNotes? versionNotes;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
@@ -78,6 +83,7 @@ class SettleoraMobileApp extends StatelessWidget {
           : SettleoraAppBootstrap(
               secureStorage: secureStorage,
               versionSeenPreference: versionSeenPreference,
+              homeShortcutPreference: homeShortcutPreference,
               versionNotesProcessGuard: versionNotesProcessGuard,
               versionNotes: versionNotes,
               receiptOcrReviewRepositoryFactory:

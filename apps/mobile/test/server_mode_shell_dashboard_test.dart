@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
+import 'package:mobile/app/home_shortcut_preferences.dart';
 import 'package:mobile/app/local_data_backup.dart';
 import 'package:mobile/app/secure_storage.dart';
 import 'package:mobile/app/server_mode_shell.dart';
@@ -25,6 +26,558 @@ import 'package:mobile/sync/sync_repository.dart';
 import 'package:mobile/ui/settleora_components.dart';
 
 void main() {
+  for (final routeCase in <({String key, String title})>[
+    (key: 'notifications', title: 'Notifications'),
+    (key: 'recurring_bills', title: 'Recurring bills'),
+    (key: 'receipt_reviews', title: 'Receipt Reviews'),
+    (key: 'reports', title: 'Monthly report'),
+  ]) {
+    testWidgets(
+      'Home ${routeCase.key} shortcut opens the canonical route without preference mutation',
+      (tester) async {
+        final preference = FakeHomeShortcutPreference(
+          selection: settleoraHomeShortcutFixedOrder.toSet(),
+        );
+        await pumpShell(tester, homeShortcutPreference: preference);
+        final shortcut = find.byKey(
+          Key('server-shell-home-shortcut-${routeCase.key}'),
+        );
+        await tester.ensureVisible(shortcut);
+        await tester.tap(shortcut);
+        await tester.pumpAndSettle();
+
+        expect(find.text(routeCase.title), findsWidgets);
+        expect(preference.writeCalls, 0);
+      },
+    );
+  }
+
+  testWidgets('Home shortcut supports deterministic keyboard activation', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      homeShortcutPreference: FakeHomeShortcutPreference(
+        selection: settleoraHomeShortcutFixedOrder.toSet(),
+      ),
+    );
+    final shortcut = find.byKey(
+      const Key('server-shell-home-shortcut-notifications'),
+    );
+    await tester.ensureVisible(shortcut);
+    expect(await focusWithin(tester, shortcut), isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notifications'), findsWidgets);
+  });
+
+  testWidgets('Home shows the default two shortcuts in fixed order', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await pumpShell(
+      tester,
+      homeShortcutPreference: FakeHomeShortcutPreference(),
+    );
+
+    expect(find.text('Quick access'), findsOneWidget);
+    expect(find.text('Notifications'), findsWidgets);
+    expect(find.text('Recurring bills'), findsWidgets);
+    expect(
+      find.byKey(const Key('server-shell-home-shortcut-receipt_reviews')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const Key('server-shell-home-shortcut-reports')),
+      findsNothing,
+    );
+    expect(
+      tester
+          .getTopLeft(
+            find.byKey(const Key('server-shell-home-shortcut-notifications')),
+          )
+          .dy,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.byKey(
+                const Key('server-shell-home-shortcut-recurring_bills'),
+              ),
+            )
+            .dy,
+      ),
+    );
+    for (final key in const ['notifications', 'recurring_bills']) {
+      final shortcut = find.byKey(Key('server-shell-home-shortcut-$key'));
+      expect(tester.getSize(shortcut).height, greaterThanOrEqualTo(48));
+      expect(
+        tester
+            .widgetList<Semantics>(
+              find.descendant(of: shortcut, matching: find.byType(Semantics)),
+            )
+            .any(
+              (semantics) =>
+                  semantics.properties.button == true &&
+                  semantics.properties.onTap != null,
+            ),
+        isTrue,
+      );
+    }
+    semantics.dispose();
+  });
+
+  testWidgets('Home renders only selected shortcuts in fixed product order', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      homeShortcutPreference: FakeHomeShortcutPreference(
+        selection: const {
+          SettleoraHomeShortcut.reports,
+          SettleoraHomeShortcut.receiptReviews,
+          SettleoraHomeShortcut.notifications,
+        },
+      ),
+    );
+
+    final notification = find.byKey(
+      const Key('server-shell-home-shortcut-notifications'),
+    );
+    final receipts = find.byKey(
+      const Key('server-shell-home-shortcut-receipt_reviews'),
+    );
+    final reports = find.byKey(const Key('server-shell-home-shortcut-reports'));
+    expect(notification, findsOneWidget);
+    expect(receipts, findsOneWidget);
+    expect(reports, findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-home-shortcut-recurring_bills')),
+      findsNothing,
+    );
+    expect(
+      tester.getTopLeft(notification).dy,
+      lessThan(tester.getTopLeft(receipts).dy),
+    );
+    expect(
+      tester.getTopLeft(receipts).dy,
+      lessThan(tester.getTopLeft(reports).dy),
+    );
+  });
+
+  testWidgets('empty Home shortcut selection omits Quick access', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      homeShortcutPreference: FakeHomeShortcutPreference(selection: const {}),
+    );
+
+    expect(find.text('Quick access'), findsNothing);
+    expect(find.text('Quick actions'), findsOneWidget);
+    expect(find.byKey(const Key('server-shell-open-more-hub')), findsOneWidget);
+  });
+
+  testWidgets('More routes remain available when Home shortcuts are hidden', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      homeShortcutPreference: FakeHomeShortcutPreference(selection: const {}),
+    );
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('server-shell-more-notifications')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('server-shell-more-recurring-bills')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('server-shell-receipt-reviews')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('server-shell-reports')), findsOneWidget);
+    expect(
+      find.byKey(const Key('server-shell-manual-finance')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'hiding Notifications preserves unread state and delivery behavior',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        summary: const SettleoraNotificationSummary(
+          unreadCount: 7,
+          attentionCount: 2,
+          urgentCount: 1,
+        ),
+        notifications: [sampleNotification()],
+      );
+      final preference = FakeHomeShortcutPreference(
+        selection: const {SettleoraHomeShortcut.recurringBills},
+      );
+      await pumpShell(
+        tester,
+        notificationRepository: repository,
+        homeShortcutPreference: preference,
+      );
+
+      expect(
+        find.byKey(const Key('server-shell-home-shortcut-notifications')),
+        findsNothing,
+      );
+      expect(repository.summary.unreadCount, 7);
+      expect(repository.mutationCalls, 0);
+      expect(preference.writeCalls, 0);
+
+      await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+      await tester.pumpAndSettle();
+      await scrollToAndTap(
+        tester,
+        const Key('server-shell-more-notifications'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Notifications'), findsWidgets);
+      expect(repository.listCalls, 1);
+      expect(repository.mutationCalls, 0);
+      expect(repository.summary.unreadCount, 7);
+      expect(preference.writeCalls, 0);
+    },
+  );
+
+  testWidgets('App settings persists shortcuts and updates Home on success', (
+    tester,
+  ) async {
+    final preference = FakeHomeShortcutPreference();
+    await pumpShell(tester, homeShortcutPreference: preference);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('home-shortcuts-sheet')), findsOneWidget);
+    for (final shortcut in settleoraHomeShortcutFixedOrder) {
+      expect(
+        find.byKey(Key('home-shortcuts-toggle-${shortcut.machineKey}')),
+        findsOneWidget,
+      );
+    }
+    await tester.tap(
+      find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+    );
+    await tester.pumpAndSettle();
+    expect(preference.writeCalls, 1);
+    expect(
+      preference.selection,
+      contains(SettleoraHomeShortcut.receiptReviews),
+    );
+
+    await tester.tap(find.byKey(const Key('home-shortcuts-close')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-home')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('server-shell-home-shortcut-receipt_reviews')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('App settings waits for the initial stored shortcut selection', (
+    tester,
+  ) async {
+    final storedSelection = Completer<Set<SettleoraHomeShortcut>>();
+    final preference = FakeHomeShortcutPreference(pendingRead: storedSelection);
+    await pumpShell(tester, homeShortcutPreference: preference);
+    expect(find.text('Quick access'), findsNothing);
+    expect(
+      find.byKey(const Key('server-shell-home-shortcut-notifications')),
+      findsNothing,
+    );
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsNothing);
+
+    storedSelection.complete(const {SettleoraHomeShortcut.reports});
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsOneWidget);
+    expect(find.text('1 shown'), findsOneWidget);
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('home-shortcuts-toggle-reports')),
+          )
+          .value,
+      isTrue,
+    );
+    expect(preference.writeCalls, 0);
+  });
+
+  testWidgets('App settings coalesces repeated opens during shortcut load', (
+    tester,
+  ) async {
+    final storedSelection = Completer<Set<SettleoraHomeShortcut>>();
+    final preference = FakeHomeShortcutPreference(pendingRead: storedSelection);
+    await pumpShell(tester, homeShortcutPreference: preference);
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    final settingsRow = find.byKey(const Key('server-shell-more-settings'));
+    await tester.dragUntilVisible(
+      settingsRow,
+      find.byType(Scrollable).first,
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(settingsRow);
+    await tester.pumpAndSettle();
+    await tester.tap(settingsRow);
+    await tester.tap(settingsRow);
+    await tester.pump();
+
+    storedSelection.complete(const {SettleoraHomeShortcut.reports});
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsNothing);
+    expect(find.byKey(const Key('server-shell-more-settings')), findsOneWidget);
+  });
+
+  testWidgets('failed shortcut save stays truthful and allows retry', (
+    tester,
+  ) async {
+    final preference = FakeHomeShortcutPreference(failNextWrite: true);
+    await pumpShell(tester, homeShortcutPreference: preference);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('home-shortcuts-toggle-reports')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('home-shortcuts-save-error')), findsOneWidget);
+    expect(find.text("Shortcuts weren't saved"), findsOneWidget);
+    expect(
+      tester
+          .widgetList<Semantics>(
+            find.descendant(
+              of: find.byKey(const Key('home-shortcuts-sheet')),
+              matching: find.byType(Semantics),
+            ),
+          )
+          .where((semantics) => semantics.properties.liveRegion == true),
+      hasLength(1),
+    );
+    expect(
+      preference.selection,
+      isNot(contains(SettleoraHomeShortcut.reports)),
+    );
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('home-shortcuts-toggle-reports')),
+          )
+          .value,
+      isFalse,
+    );
+
+    await tester.tap(find.byKey(const Key('home-shortcuts-retry')));
+    await tester.pumpAndSettle();
+    expect(preference.writeCalls, 2);
+    expect(preference.selection, contains(SettleoraHomeShortcut.reports));
+    expect(find.byKey(const Key('home-shortcuts-save-error')), findsNothing);
+  });
+
+  testWidgets(
+    'customization exposes selected semantics and toggles from keyboard',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      final preference = FakeHomeShortcutPreference();
+      await pumpShell(tester, homeShortcutPreference: preference);
+      await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+      await tester.pumpAndSettle();
+      await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+      await tester.pumpAndSettle();
+      await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+      await tester.pumpAndSettle();
+
+      final reports = find.byKey(const Key('home-shortcuts-toggle-reports'));
+      final before = tester.getSemantics(reports).getSemanticsData();
+      expect(before.label, contains('Reports'));
+      expect(before.flagsCollection.isToggled, ui.Tristate.isFalse);
+      expect(await focusWithin(tester, reports), isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+
+      expect(preference.writeCalls, 1);
+      expect(preference.selection, contains(SettleoraHomeShortcut.reports));
+      final after = tester.getSemantics(reports).getSemanticsData();
+      expect(after.label, contains('Reports'));
+      expect(after.flagsCollection.isToggled, ui.Tristate.isTrue);
+      semantics.dispose();
+    },
+  );
+
+  testWidgets('shortcut persistence suppresses a duplicate pending write', (
+    tester,
+  ) async {
+    final pendingWrite = Completer<void>();
+    final preference = FakeHomeShortcutPreference(pendingWrite: pendingWrite);
+    await pumpShell(tester, homeShortcutPreference: preference);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+    );
+    await tester.pump();
+
+    expect(preference.writeCalls, 1);
+    expect(find.byKey(const Key('home-shortcuts-saving')), findsOneWidget);
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('home-shortcuts-toggle-reports')),
+          )
+          .onChanged,
+      isNull,
+    );
+
+    pendingWrite.complete();
+    await tester.pumpAndSettle();
+    expect(preference.writeCalls, 1);
+  });
+
+  testWidgets('shortcut settings cannot reopen on stale pending values', (
+    tester,
+  ) async {
+    final pendingWrite = Completer<void>();
+    final preference = FakeHomeShortcutPreference(pendingWrite: pendingWrite);
+    await pumpShell(tester, homeShortcutPreference: preference);
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+    );
+    await tester.pump();
+    expect(preference.writeCalls, 1);
+    await tester.tap(find.byKey(const Key('home-shortcuts-close')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SettingsRow>(find.byKey(const Key('settings-home-shortcuts')))
+          .onTap,
+      isNull,
+    );
+    expect(find.text('Saving'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('settings-home-shortcuts')));
+    await tester.pump();
+    expect(find.byKey(const Key('home-shortcuts-sheet')), findsNothing);
+    expect(preference.writeCalls, 1);
+
+    pendingWrite.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('3 shown'), findsOneWidget);
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+          )
+          .value,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const Key('home-shortcuts-toggle-reports')));
+    await tester.pumpAndSettle();
+
+    expect(preference.writeCalls, 2);
+    expect(
+      preference.selection,
+      contains(SettleoraHomeShortcut.receiptReviews),
+    );
+    expect(preference.selection, contains(SettleoraHomeShortcut.reports));
+    expect(find.byKey(const Key('home-shortcuts-save-error')), findsNothing);
+  });
+
+  testWidgets('reopening App settings waits for a dismissed pending save', (
+    tester,
+  ) async {
+    final pendingWrite = Completer<void>();
+    final preference = FakeHomeShortcutPreference(pendingWrite: pendingWrite);
+    await pumpShell(tester, homeShortcutPreference: preference);
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('home-shortcuts-close')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    final settingsRow = find.byKey(const Key('server-shell-more-settings'));
+    await tester.ensureVisible(settingsRow);
+    await tester.tap(settingsRow);
+    await tester.tap(settingsRow);
+    await tester.pump();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsNothing);
+
+    pendingWrite.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsOneWidget);
+    expect(find.text('3 shown'), findsOneWidget);
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+          )
+          .value,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const Key('home-shortcuts-close')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsNothing);
+    expect(find.byKey(const Key('server-shell-more-settings')), findsOneWidget);
+  });
+
   testWidgets('dashboard overview renders repository summaries', (
     tester,
   ) async {
@@ -2064,6 +2617,26 @@ Future<void> ensureAndTap(WidgetTester tester, Key key) async {
   await tester.pumpAndSettle();
 }
 
+Future<bool> focusWithin(WidgetTester tester, Finder target) async {
+  final targetElement = target.evaluate().single;
+  for (var index = 0; index < 48; index += 1) {
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    var isWithinTarget = focusContext == targetElement;
+    if (focusContext is Element && !isWithinTarget) {
+      focusContext.visitAncestorElements((ancestor) {
+        isWithinTarget = ancestor == targetElement;
+        return !isWithinTarget;
+      });
+    }
+    if (isWithinTarget) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Future<void> scrollShellToBottom(
   WidgetTester tester,
   Key scrollKey,
@@ -2174,6 +2747,7 @@ Future<void> pumpShell(
   SettleoraBillSyncController? billSyncController,
   SettleoraLocalDataBackupService? dataBackupService,
   SettleoraSessionEndedCallback? onSessionEnded,
+  SettleoraHomeShortcutPreference? homeShortcutPreference,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -2195,10 +2769,44 @@ Future<void> pumpShell(
         authRepository: FakeAuthRepository(),
         accessTokenProvider: FakeAccessTokenProvider(),
         onSessionEnded: onSessionEnded ?? (_) async {},
+        homeShortcutPreference:
+            homeShortcutPreference ?? FakeHomeShortcutPreference(),
       ),
     ),
   );
   await tester.pumpAndSettle();
+}
+
+class FakeHomeShortcutPreference implements SettleoraHomeShortcutPreference {
+  FakeHomeShortcutPreference({
+    Set<SettleoraHomeShortcut>? selection,
+    this.failNextWrite = false,
+    this.pendingRead,
+    this.pendingWrite,
+  }) : selection = normalizeSettleoraHomeShortcuts(
+         selection ?? settleoraDefaultHomeShortcuts,
+       );
+
+  Set<SettleoraHomeShortcut> selection;
+  bool failNextWrite;
+  final Completer<Set<SettleoraHomeShortcut>>? pendingRead;
+  final Completer<void>? pendingWrite;
+  int writeCalls = 0;
+
+  @override
+  Future<Set<SettleoraHomeShortcut>> readShownShortcuts() async =>
+      pendingRead == null ? selection : pendingRead!.future;
+
+  @override
+  Future<void> writeShownShortcuts(Set<SettleoraHomeShortcut> shortcuts) async {
+    writeCalls += 1;
+    await pendingWrite?.future;
+    if (failNextWrite) {
+      failNextWrite = false;
+      throw StateError('raw storage detail must stay hidden');
+    }
+    selection = normalizeSettleoraHomeShortcuts(shortcuts);
+  }
 }
 
 Future<void> fillMinimalPersonalBillCreateForm(WidgetTester tester) async {
@@ -2624,6 +3232,8 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
   final SettleoraNotificationSummary summary;
   final List<SettleoraNotificationRow> notifications;
   int summaryCalls = 0;
+  int listCalls = 0;
+  int mutationCalls = 0;
 
   @override
   Future<SettleoraNotificationSummary> getNotificationSummary() async {
@@ -2637,21 +3247,25 @@ class FakeNotificationRepository implements SettleoraNotificationRepository {
     int limit = 50,
     DateTime? before,
   }) async {
+    listCalls += 1;
     return notifications;
   }
 
   @override
   Future<SettleoraNotificationRow> markNotificationRead(String notificationId) {
+    mutationCalls += 1;
     throw UnimplementedError();
   }
 
   @override
   Future<SettleoraNotificationSummary> markAllNotificationsRead() {
+    mutationCalls += 1;
     throw UnimplementedError();
   }
 
   @override
   Future<SettleoraNotificationRow> archiveNotification(String notificationId) {
+    mutationCalls += 1;
     throw UnimplementedError();
   }
 }

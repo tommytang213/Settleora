@@ -36,6 +36,7 @@ import '../sync/sync_queue_processor.dart';
 import '../ui/settleora_components.dart';
 import '../ui/settleora_theme.dart';
 import 'auth_session_repository.dart';
+import 'home_shortcut_preferences.dart';
 import 'local_data_backup.dart';
 import 'version_notes.dart';
 
@@ -72,6 +73,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
     this.versionNotes = currentBundledVersionNotes,
     this.versionNotesProcessGuard,
     this.versionSeenPreference,
+    this.homeShortcutPreference,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -99,6 +101,7 @@ class SettleoraAuthenticatedServerShell extends StatefulWidget {
   final SettleoraBundledVersionNotes? versionNotes;
   final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
   final SettleoraVersionSeenPreference? versionSeenPreference;
+  final SettleoraHomeShortcutPreference? homeShortcutPreference;
 
   @override
   State<SettleoraAuthenticatedServerShell> createState() =>
@@ -117,11 +120,70 @@ class _SettleoraAuthenticatedServerShellState
   SettleoraNavDestination _selectedDestination = SettleoraNavDestination.home;
   SettleoraNotificationPreferenceSettings _notificationPreferences =
       SettleoraNotificationPreferenceSettings.defaults();
+  Set<SettleoraHomeShortcut> _homeShortcuts = settleoraDefaultHomeShortcuts;
+  bool _homeShortcutsLoaded = false;
+  late final SettleoraHomeShortcutPreference _resolvedHomeShortcutPreference;
+  late final Future<void> _homeShortcutLoad;
+  Future<bool>? _homeShortcutWrite;
+  Set<SettleoraHomeShortcut>? _pendingHomeShortcutSelection;
+  Future<void>? _appSettingsOpen;
 
   @override
   void initState() {
     super.initState();
+    _resolvedHomeShortcutPreference =
+        widget.homeShortcutPreference ?? LocalSettleoraHomeShortcutPreference();
     Future<void>.microtask(_loadOverview);
+    _homeShortcutLoad = _loadHomeShortcuts();
+  }
+
+  Future<void> _loadHomeShortcuts() async {
+    final shortcuts = await _resolvedHomeShortcutPreference
+        .readShownShortcuts();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _homeShortcuts = normalizeSettleoraHomeShortcuts(shortcuts);
+      _homeShortcutsLoaded = true;
+    });
+  }
+
+  Future<bool> _persistHomeShortcuts(Set<SettleoraHomeShortcut> shortcuts) {
+    final normalized = normalizeSettleoraHomeShortcuts(shortcuts);
+    final activeWrite = _homeShortcutWrite;
+    if (activeWrite != null) {
+      final pending = _pendingHomeShortcutSelection;
+      if (pending != null &&
+          pending.length == normalized.length &&
+          pending.every(normalized.contains)) {
+        return activeWrite;
+      }
+      return activeWrite.then((_) => _persistHomeShortcuts(normalized));
+    }
+
+    late final Future<bool> write;
+    _pendingHomeShortcutSelection = normalized;
+    write = () async {
+      try {
+        await _resolvedHomeShortcutPreference.writeShownShortcuts(normalized);
+        if (mounted) {
+          setState(() {
+            _homeShortcuts = normalized;
+          });
+        }
+        return true;
+      } catch (_) {
+        return false;
+      } finally {
+        if (_homeShortcutWrite == write) {
+          _homeShortcutWrite = null;
+          _pendingHomeShortcutSelection = null;
+        }
+      }
+    }();
+    _homeShortcutWrite = write;
+    return write;
   }
 
   Future<void> _loadOverview() {
@@ -597,7 +659,32 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
-  Future<void> _openAppSettings() async {
+  Future<void> _openAppSettings() {
+    final activeOpen = _appSettingsOpen;
+    if (activeOpen != null) {
+      return activeOpen;
+    }
+
+    late final Future<void> open;
+    open = _runOpenAppSettings().whenComplete(() {
+      if (_appSettingsOpen == open) {
+        _appSettingsOpen = null;
+      }
+    });
+    _appSettingsOpen = open;
+    return open;
+  }
+
+  Future<void> _runOpenAppSettings() async {
+    await _homeShortcutLoad;
+    var activeWrite = _homeShortcutWrite;
+    while (activeWrite != null) {
+      await activeWrite;
+      activeWrite = _homeShortcutWrite;
+    }
+    if (!mounted) {
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => _AppSettingsScreen(
@@ -610,6 +697,8 @@ class _SettleoraAuthenticatedServerShellState
               widget.versionNotesProcessGuard ??
               defaultSettleoraVersionNotesProcessGuard,
           versionSeenPreference: widget.versionSeenPreference,
+          initialHomeShortcuts: _homeShortcuts,
+          onHomeShortcutsChanged: _persistHomeShortcuts,
         ),
       ),
     );
@@ -698,6 +787,17 @@ class _SettleoraAuthenticatedServerShellState
                               onCreateBill: _openCreateBillChooser,
                               onCreateGroup: _openCreateGroup,
                             ),
+                            if (_homeShortcutsLoaded &&
+                                _homeShortcuts.isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              _DashboardQuickAccess(
+                                shortcuts: _homeShortcuts,
+                                onOpenNotifications: _openNotifications,
+                                onOpenRecurringBills: _openRecurringBills,
+                                onOpenReceiptReviews: _openReceiptReviews,
+                                onOpenReports: _openMonthlyReport,
+                              ),
+                            ],
                             const SizedBox(height: 16),
                             if (_isLoadingOverview && overview == null)
                               const LoadingState(
@@ -884,6 +984,14 @@ class _SettleoraAuthenticatedServerShellState
                       _MoreHubSection(
                         title: 'Activity and records',
                         children: [
+                          SettingsRow(
+                            key: const Key('server-shell-more-recurring-bills'),
+                            icon: Icons.event_repeat_outlined,
+                            title: 'Recurring bills',
+                            subtitle:
+                                'Review recurring templates and upcoming occurrences.',
+                            onTap: _openRecurringBills,
+                          ),
                           SettingsRow(
                             key: const Key('server-shell-receipt-reviews'),
                             icon: Icons.receipt_long_outlined,
@@ -1790,6 +1898,131 @@ class _DashboardQuickActions extends StatelessWidget {
   }
 }
 
+class _DashboardQuickAccess extends StatelessWidget {
+  const _DashboardQuickAccess({
+    required this.shortcuts,
+    required this.onOpenNotifications,
+    required this.onOpenRecurringBills,
+    required this.onOpenReceiptReviews,
+    required this.onOpenReports,
+  });
+
+  final Set<SettleoraHomeShortcut> shortcuts;
+  final VoidCallback onOpenNotifications;
+  final VoidCallback onOpenRecurringBills;
+  final VoidCallback onOpenReceiptReviews;
+  final VoidCallback onOpenReports;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DashboardSection(
+      title: 'Quick access',
+      child: Column(
+        children: [
+          for (final shortcut in settleoraHomeShortcutFixedOrder)
+            if (shortcuts.contains(shortcut)) ...[
+              if (shortcut !=
+                  settleoraHomeShortcutFixedOrder.firstWhere(
+                    shortcuts.contains,
+                  ))
+                const SizedBox(height: SettleoraSpacing.xs),
+              _DashboardShortcutAction(
+                key: Key('server-shell-home-shortcut-${shortcut.machineKey}'),
+                icon: _iconForShortcut(shortcut),
+                label: shortcut.label,
+                onPressed: _callbackForShortcut(shortcut),
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+
+  IconData _iconForShortcut(SettleoraHomeShortcut shortcut) {
+    return switch (shortcut) {
+      SettleoraHomeShortcut.notifications => Icons.notifications_outlined,
+      SettleoraHomeShortcut.recurringBills => Icons.event_repeat_outlined,
+      SettleoraHomeShortcut.receiptReviews => Icons.receipt_long_outlined,
+      SettleoraHomeShortcut.reports => Icons.summarize_outlined,
+    };
+  }
+
+  VoidCallback _callbackForShortcut(SettleoraHomeShortcut shortcut) {
+    return switch (shortcut) {
+      SettleoraHomeShortcut.notifications => onOpenNotifications,
+      SettleoraHomeShortcut.recurringBills => onOpenRecurringBills,
+      SettleoraHomeShortcut.receiptReviews => onOpenReceiptReviews,
+      SettleoraHomeShortcut.reports => onOpenReports,
+    };
+  }
+}
+
+class _DashboardShortcutAction extends StatefulWidget {
+  const _DashboardShortcutAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  State<_DashboardShortcutAction> createState() =>
+      _DashboardShortcutActionState();
+}
+
+class _DashboardShortcutActionState extends State<_DashboardShortcutAction> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode()..addListener(_handleFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    _focusNode
+      ..removeListener(_handleFocusChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _handleFocusChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(SettleoraRadius.md + 2),
+        border: Border.all(
+          color: _focusNode.hasFocus
+              ? context.settleoraColors.primary
+              : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: AppButton(
+        icon: widget.icon,
+        label: widget.label,
+        variant: AppButtonVariant.soft,
+        expanded: true,
+        focusNode: _focusNode,
+        onPressed: widget.onPressed,
+      ),
+    );
+  }
+}
+
 class _DashboardMorePrompt extends StatelessWidget {
   const _DashboardMorePrompt({required this.onOpenMore});
 
@@ -1804,7 +2037,7 @@ class _DashboardMorePrompt extends StatelessWidget {
         icon: Icons.more_horiz,
         title: 'Open More',
         subtitle:
-            'Profile, payment details, sessions, notifications, reports, receipt reviews, data, and appearance readouts.',
+            'Profile, payment details, sessions, notifications, recurring bills, reports, receipt reviews, data, and appearance readouts.',
         onTap: onOpenMore,
       ),
     );
@@ -1888,6 +2121,8 @@ class _AppSettingsScreen extends StatefulWidget {
     required this.versionNotes,
     required this.versionNotesProcessGuard,
     required this.versionSeenPreference,
+    required this.initialHomeShortcuts,
+    required this.onHomeShortcutsChanged,
   });
 
   final SettleoraCurrentUser currentUser;
@@ -1898,6 +2133,9 @@ class _AppSettingsScreen extends StatefulWidget {
   final SettleoraBundledVersionNotes? versionNotes;
   final SettleoraVersionNotesProcessGuard versionNotesProcessGuard;
   final SettleoraVersionSeenPreference? versionSeenPreference;
+  final Set<SettleoraHomeShortcut> initialHomeShortcuts;
+  final Future<bool> Function(Set<SettleoraHomeShortcut>)
+  onHomeShortcutsChanged;
 
   @override
   State<_AppSettingsScreen> createState() => _AppSettingsScreenState();
@@ -1905,8 +2143,10 @@ class _AppSettingsScreen extends StatefulWidget {
 
 class _AppSettingsScreenState extends State<_AppSettingsScreen> {
   late SettleoraNotificationPreferenceSettings _notificationPreferences;
+  late Set<SettleoraHomeShortcut> _homeShortcuts;
   SettleoraLocalDataBackupExport? _latestBackupExport;
   bool _isBuildingBackup = false;
+  bool _isSavingHomeShortcuts = false;
   final FocusNode _whatsNewFocusNode = FocusNode(
     debugLabel: 'settings-whats-new',
   );
@@ -1915,6 +2155,7 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
   void initState() {
     super.initState();
     _notificationPreferences = widget.initialNotificationPreferences;
+    _homeShortcuts = widget.initialHomeShortcuts;
   }
 
   @override
@@ -1942,6 +2183,51 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
       _notificationPreferences = preferences;
     });
     widget.onNotificationPreferencesChanged(preferences);
+  }
+
+  Future<void> _openHomeShortcuts() async {
+    if (_isSavingHomeShortcuts) {
+      return;
+    }
+    await showSettleoraBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SettleoraBottomSheetFrame(
+        title: 'Home shortcuts',
+        subtitle: 'Choose which quick links appear on Home.',
+        actions: [
+          AppButton(
+            key: const Key('home-shortcuts-close'),
+            label: 'Done',
+            onPressed: () => Navigator.of(sheetContext).pop(),
+          ),
+        ],
+        child: _HomeShortcutSettingsSheet(
+          initialSelection: _homeShortcuts,
+          onSave: (selection) async {
+            if (mounted) {
+              setState(() {
+                _isSavingHomeShortcuts = true;
+              });
+            }
+            try {
+              final saved = await widget.onHomeShortcutsChanged(selection);
+              if (saved && mounted) {
+                setState(() {
+                  _homeShortcuts = normalizeSettleoraHomeShortcuts(selection);
+                });
+              }
+              return saved;
+            } finally {
+              if (mounted) {
+                setState(() {
+                  _isSavingHomeShortcuts = false;
+                });
+              }
+            }
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _buildLocalBackupExport() async {
@@ -2064,6 +2350,26 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
                           const SizedBox(height: 16),
                         ],
                         _MoreHubSection(
+                          title: 'Home',
+                          children: [
+                            SettingsRow(
+                              key: const Key('settings-home-shortcuts'),
+                              icon: Icons.push_pin_outlined,
+                              title: 'Home shortcuts',
+                              subtitle:
+                                  'Choose which quick links appear on Home.',
+                              statusLabel: _isSavingHomeShortcuts
+                                  ? 'Saving'
+                                  : '${_homeShortcuts.length} shown',
+                              statusVariant: StatusChipVariant.info,
+                              onTap: _isSavingHomeShortcuts
+                                  ? null
+                                  : _openHomeShortcuts,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        _MoreHubSection(
                           title: 'Notifications and delivery',
                           children: [
                             const SettingsRow(
@@ -2130,6 +2436,142 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
           },
         ),
       ),
+    );
+  }
+}
+
+class _HomeShortcutSettingsSheet extends StatefulWidget {
+  const _HomeShortcutSettingsSheet({
+    required this.initialSelection,
+    required this.onSave,
+  });
+
+  final Set<SettleoraHomeShortcut> initialSelection;
+  final Future<bool> Function(Set<SettleoraHomeShortcut>) onSave;
+
+  @override
+  State<_HomeShortcutSettingsSheet> createState() =>
+      _HomeShortcutSettingsSheetState();
+}
+
+class _HomeShortcutSettingsSheetState
+    extends State<_HomeShortcutSettingsSheet> {
+  late Set<SettleoraHomeShortcut> _selection;
+  Set<SettleoraHomeShortcut>? _failedSelection;
+  bool _isSaving = false;
+  bool _saveFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selection = normalizeSettleoraHomeShortcuts(widget.initialSelection);
+  }
+
+  Future<void> _setShortcut(SettleoraHomeShortcut shortcut, bool shown) async {
+    if (_isSaving) {
+      return;
+    }
+    final desired = normalizeSettleoraHomeShortcuts(
+      {..._selection, if (shown) shortcut}
+        ..removeWhere((item) => !shown && item == shortcut),
+    );
+    await _save(desired);
+  }
+
+  Future<void> _retry() async {
+    final failedSelection = _failedSelection;
+    if (failedSelection == null || _isSaving) {
+      return;
+    }
+    await _save(failedSelection);
+  }
+
+  Future<void> _save(Set<SettleoraHomeShortcut> desired) async {
+    setState(() {
+      _isSaving = true;
+      _saveFailed = false;
+    });
+    final saved = await widget.onSave(desired);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isSaving = false;
+      if (saved) {
+        _selection = desired;
+        _failedSelection = null;
+      } else {
+        _saveFailed = true;
+        _failedSelection = desired;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const Key('home-shortcuts-sheet'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_saveFailed) ...[
+          Semantics(
+            liveRegion: true,
+            child: WarningCard(
+              key: const Key('home-shortcuts-save-error'),
+              title: "Shortcuts weren't saved",
+              message: 'Try again.',
+              action: AppButton(
+                key: const Key('home-shortcuts-retry'),
+                label: 'Retry',
+                variant: AppButtonVariant.secondary,
+                onPressed: _isSaving ? null : _retry,
+              ),
+            ),
+          ),
+          const SizedBox(height: SettleoraSpacing.sm),
+        ],
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              for (
+                var index = 0;
+                index < settleoraHomeShortcutFixedOrder.length;
+                index += 1
+              ) ...[
+                if (index > 0) const Divider(height: 1),
+                Material(
+                  type: MaterialType.transparency,
+                  child: SwitchListTile(
+                    key: Key(
+                      'home-shortcuts-toggle-${settleoraHomeShortcutFixedOrder[index].machineKey}',
+                    ),
+                    title: Text(settleoraHomeShortcutFixedOrder[index].label),
+                    value: _selection.contains(
+                      settleoraHomeShortcutFixedOrder[index],
+                    ),
+                    onChanged: _isSaving
+                        ? null
+                        : (shown) => _setShortcut(
+                            settleoraHomeShortcutFixedOrder[index],
+                            shown,
+                          ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (_isSaving) ...[
+          const SizedBox(height: SettleoraSpacing.sm),
+          Semantics(
+            liveRegion: true,
+            label: 'Saving Home shortcuts',
+            child: LinearProgressIndicator(key: Key('home-shortcuts-saving')),
+          ),
+        ],
+      ],
     );
   }
 }

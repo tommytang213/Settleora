@@ -113,6 +113,7 @@ SettleoraAuthenticatedServerShell _buildShell() {
     dataBackupService: dashboard.FakeLocalDataBackupService(),
     authRepository: dashboard.FakeAuthRepository(),
     accessTokenProvider: dashboard.FakeAccessTokenProvider(),
+    homeShortcutPreference: dashboard.FakeHomeShortcutPreference(),
     onSessionEnded: (_) async {},
   );
 }
