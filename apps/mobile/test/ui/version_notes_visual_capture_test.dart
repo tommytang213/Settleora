@@ -211,6 +211,7 @@ SettleoraAuthenticatedServerShell _buildShell() {
     billSyncController: dashboard.sampleBillSyncController(),
     authRepository: dashboard.FakeAuthRepository(),
     accessTokenProvider: dashboard.FakeAccessTokenProvider(),
+    homeShortcutPreference: dashboard.FakeHomeShortcutPreference(),
     onSessionEnded: (_) async {},
   );
 }

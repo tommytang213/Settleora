@@ -122,7 +122,9 @@ class _SettleoraAuthenticatedServerShellState
       SettleoraNotificationPreferenceSettings.defaults();
   Set<SettleoraHomeShortcut> _homeShortcuts = settleoraDefaultHomeShortcuts;
   late final SettleoraHomeShortcutPreference _resolvedHomeShortcutPreference;
+  late final Future<void> _homeShortcutLoad;
   Future<bool>? _homeShortcutWrite;
+  Set<SettleoraHomeShortcut>? _pendingHomeShortcutSelection;
 
   @override
   void initState() {
@@ -130,7 +132,7 @@ class _SettleoraAuthenticatedServerShellState
     _resolvedHomeShortcutPreference =
         widget.homeShortcutPreference ?? LocalSettleoraHomeShortcutPreference();
     Future<void>.microtask(_loadOverview);
-    Future<void>.microtask(_loadHomeShortcuts);
+    _homeShortcutLoad = _loadHomeShortcuts();
   }
 
   Future<void> _loadHomeShortcuts() async {
@@ -145,13 +147,20 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<bool> _persistHomeShortcuts(Set<SettleoraHomeShortcut> shortcuts) {
+    final normalized = normalizeSettleoraHomeShortcuts(shortcuts);
     final activeWrite = _homeShortcutWrite;
     if (activeWrite != null) {
-      return activeWrite;
+      final pending = _pendingHomeShortcutSelection;
+      if (pending != null &&
+          pending.length == normalized.length &&
+          pending.every(normalized.contains)) {
+        return activeWrite;
+      }
+      return activeWrite.then((_) => _persistHomeShortcuts(normalized));
     }
 
-    final normalized = normalizeSettleoraHomeShortcuts(shortcuts);
     late final Future<bool> write;
+    _pendingHomeShortcutSelection = normalized;
     write = () async {
       try {
         await _resolvedHomeShortcutPreference.writeShownShortcuts(normalized);
@@ -166,6 +175,7 @@ class _SettleoraAuthenticatedServerShellState
       } finally {
         if (_homeShortcutWrite == write) {
           _homeShortcutWrite = null;
+          _pendingHomeShortcutSelection = null;
         }
       }
     }();
@@ -647,6 +657,10 @@ class _SettleoraAuthenticatedServerShellState
   }
 
   Future<void> _openAppSettings() async {
+    await _homeShortcutLoad;
+    if (!mounted) {
+      return;
+    }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => _AppSettingsScreen(

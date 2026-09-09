@@ -294,6 +294,36 @@ void main() {
     );
   });
 
+  testWidgets('App settings waits for the initial stored shortcut selection', (
+    tester,
+  ) async {
+    final storedSelection = Completer<Set<SettleoraHomeShortcut>>();
+    final preference = FakeHomeShortcutPreference(pendingRead: storedSelection);
+    await pumpShell(tester, homeShortcutPreference: preference);
+
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pump();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsNothing);
+
+    storedSelection.complete(const {SettleoraHomeShortcut.reports});
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsOneWidget);
+    expect(find.text('1 shown'), findsOneWidget);
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('home-shortcuts-toggle-reports')),
+          )
+          .value,
+      isTrue,
+    );
+    expect(preference.writeCalls, 0);
+  });
+
   testWidgets('failed shortcut save stays truthful and allows retry', (
     tester,
   ) async {
@@ -405,6 +435,40 @@ void main() {
     pendingWrite.complete();
     await tester.pumpAndSettle();
     expect(preference.writeCalls, 1);
+  });
+
+  testWidgets('distinct shortcut writes are serialized while one is pending', (
+    tester,
+  ) async {
+    final pendingWrite = Completer<void>();
+    final preference = FakeHomeShortcutPreference(pendingWrite: pendingWrite);
+    await pumpShell(tester, homeShortcutPreference: preference);
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+    );
+    await tester.pump();
+    expect(preference.writeCalls, 1);
+    await tester.tap(find.byKey(const Key('home-shortcuts-close')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('home-shortcuts-toggle-reports')));
+    await tester.pump();
+    expect(preference.writeCalls, 1);
+
+    pendingWrite.complete();
+    await tester.pumpAndSettle();
+
+    expect(preference.writeCalls, 2);
+    expect(preference.selection, contains(SettleoraHomeShortcut.reports));
+    expect(find.byKey(const Key('home-shortcuts-save-error')), findsNothing);
   });
 
   testWidgets('dashboard overview renders repository summaries', (
@@ -2598,7 +2662,8 @@ Future<void> pumpShell(
         authRepository: FakeAuthRepository(),
         accessTokenProvider: FakeAccessTokenProvider(),
         onSessionEnded: onSessionEnded ?? (_) async {},
-        homeShortcutPreference: homeShortcutPreference,
+        homeShortcutPreference:
+            homeShortcutPreference ?? FakeHomeShortcutPreference(),
       ),
     ),
   );
@@ -2609,6 +2674,7 @@ class FakeHomeShortcutPreference implements SettleoraHomeShortcutPreference {
   FakeHomeShortcutPreference({
     Set<SettleoraHomeShortcut>? selection,
     this.failNextWrite = false,
+    this.pendingRead,
     this.pendingWrite,
   }) : selection = normalizeSettleoraHomeShortcuts(
          selection ?? settleoraDefaultHomeShortcuts,
@@ -2616,11 +2682,13 @@ class FakeHomeShortcutPreference implements SettleoraHomeShortcutPreference {
 
   Set<SettleoraHomeShortcut> selection;
   bool failNextWrite;
+  final Completer<Set<SettleoraHomeShortcut>>? pendingRead;
   final Completer<void>? pendingWrite;
   int writeCalls = 0;
 
   @override
-  Future<Set<SettleoraHomeShortcut>> readShownShortcuts() async => selection;
+  Future<Set<SettleoraHomeShortcut>> readShownShortcuts() async =>
+      pendingRead == null ? selection : pendingRead!.future;
 
   @override
   Future<void> writeShownShortcuts(Set<SettleoraHomeShortcut> shortcuts) async {
