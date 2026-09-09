@@ -1,10 +1,12 @@
+import type { MessageKey } from "./localization/catalog";
+
 export type NavSection = "primary" | "more";
 
 export interface NavItem {
   id: string;
-  label: string;
-  description: string;
-  actionLabel: string;
+  labelKey: MessageKey;
+  descriptionKey: MessageKey;
+  actionLabelKey: MessageKey;
   section: NavSection;
   status: "available" | "placeholder" | "requiresSession";
 }
@@ -12,89 +14,89 @@ export interface NavItem {
 export const navItems: NavItem[] = [
   {
     id: "home",
-    label: "Home",
-    description: "Overview, balances, review queue, and recent activity.",
-    actionLabel: "Customize quick actions",
+    labelKey: "shell.nav.home.label",
+    descriptionKey: "shell.nav.home.description",
+    actionLabelKey: "shell.nav.home.action",
     section: "primary",
     status: "requiresSession"
   },
   {
     id: "bills",
-    label: "Bills",
-    description: "Personal and shared bill lists, filters, receipts, and review handoffs.",
-    actionLabel: "Add bill",
+    labelKey: "shell.nav.bills.label",
+    descriptionKey: "shell.nav.bills.description",
+    actionLabelKey: "shell.nav.bills.action",
     section: "primary",
     status: "requiresSession"
   },
   {
     id: "groups",
-    label: "Groups",
-    description: "Group workspaces, member readouts, and read-only group context.",
-    actionLabel: "Create group",
+    labelKey: "shell.nav.groups.label",
+    descriptionKey: "shell.nav.groups.description",
+    actionLabelKey: "shell.nav.groups.action",
     section: "primary",
     status: "requiresSession"
   },
   {
     id: "friends",
-    label: "Friends",
-    description: "Friends, requests, and direct sharing readiness.",
-    actionLabel: "Invite friend",
+    labelKey: "shell.nav.friends.label",
+    descriptionKey: "shell.nav.friends.description",
+    actionLabelKey: "shell.nav.friends.action",
     section: "more",
     status: "placeholder"
   },
   {
     id: "settlements",
-    label: "Settlements",
-    description: "Balances, requests, payment detail checks, proof summaries, and activity.",
-    actionLabel: "Request payment",
+    labelKey: "shell.nav.settlements.label",
+    descriptionKey: "shell.nav.settlements.description",
+    actionLabelKey: "shell.nav.settlements.action",
     section: "primary",
     status: "requiresSession"
   },
   {
     id: "reports",
-    label: "Reports",
-    description: "Search, filters, monthly summaries, statement-style rows, and exports.",
-    actionLabel: "Export report",
+    labelKey: "shell.nav.reports.label",
+    descriptionKey: "shell.nav.reports.description",
+    actionLabelKey: "shell.nav.reports.action",
     section: "primary",
     status: "requiresSession"
   },
   {
     id: "import-export",
-    label: "Import / Export",
-    description: "Data portability availability, local backup readiness, and sync status notes.",
-    actionLabel: "Review availability",
+    labelKey: "shell.nav.importExport.label",
+    descriptionKey: "shell.nav.importExport.description",
+    actionLabelKey: "shell.nav.importExport.action",
     section: "more",
     status: "placeholder"
   },
   {
     id: "notifications",
-    label: "Notifications",
-    description: "Unread queue, preferences, read/archive actions, and linked activity.",
-    actionLabel: "Review notifications",
+    labelKey: "shell.nav.notifications.label",
+    descriptionKey: "shell.nav.notifications.description",
+    actionLabelKey: "shell.nav.notifications.action",
     section: "more",
     status: "requiresSession"
   },
   {
     id: "profile",
-    label: "Profile and payment",
-    description: "Profile details, payment previews, visibility, and QR handoffs.",
-    actionLabel: "Update profile",
+    labelKey: "shell.nav.profile.label",
+    descriptionKey: "shell.nav.profile.description",
+    actionLabelKey: "shell.nav.profile.action",
     section: "more",
     status: "requiresSession"
   },
   {
     id: "security",
-    label: "Account and sessions",
-    description: "Session readouts, current device, sign-out actions, and security status.",
-    actionLabel: "Review sessions",
+    labelKey: "shell.nav.security.label",
+    descriptionKey: "shell.nav.security.description",
+    actionLabelKey: "shell.nav.security.action",
     section: "more",
     status: "requiresSession"
   },
   {
     id: "settings",
-    label: "Settings",
-    description: "Appearance, policy readouts, mode choices, and advanced tools.",
-    actionLabel: "Open settings",
+    labelKey: "shell.nav.settings.label",
+    descriptionKey: "shell.nav.settings.description",
+    actionLabelKey: "shell.nav.settings.action",
     section: "more",
     status: "placeholder"
   }
