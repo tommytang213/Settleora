@@ -450,13 +450,13 @@ Totals: **60 rows — complete 5, partial 37, missing 8, blocked 10**.
 
 ### M44 — Navigation / More / settings / lightweight shortcuts
 
-- Status: `partial`. Requirement/reference: PRD: discoverability; Shell, Settings.
-- Source: [_MoreHubSection](../../apps/mobile/lib/app/server_mode_shell.dart); [_AppSettingsScreen](../../apps/mobile/lib/app/server_mode_shell.dart); [SettleoraBottomNav](../../apps/mobile/lib/ui/settleora_components.dart).
-- Tests: [server_mode_shell_dashboard_test.dart](../../apps/mobile/test/server_mode_shell_dashboard_test.dart): `bottom nav uses canonical M2 labels on Home`; [server_mode_shell_dashboard_test.dart](../../apps/mobile/test/server_mode_shell_dashboard_test.dart): `dashboard final content clears bottom nav on phone viewport`.
-- States: E missing seams use honest unavailable; L parent loads; R navigable retry; D routing never grants access; O unavailable server features remain bounded.
-- Accessibility/visual: Five Home/Bills/Groups/Settle/More tabs, shared settings rows and safe-area shell exist; shell capture harness.
-- Owner: [#295](https://github.com/tommytang213/Settleora/issues/295). Remaining: Canonical More/settings and recurring/receipts/reports/session entry exist. Lightweight pin/show shortcuts still missing per live comment 4757022528; full drag/drop builder remains Day 2.
-- Gate/dependency: New layout/reference only if material; no auth bypass. Order: **W1**.
+- Status: `complete` for Day 1. Requirement/reference: PRD: discoverability; Shell, Settings; #295 comments `4756457520` and `4757022528`.
+- Source: [Home shortcut preference](../../apps/mobile/lib/app/home_shortcut_preferences.dart); [_MoreHubSection and Home/App settings integration](../../apps/mobile/lib/app/server_mode_shell.dart); [app composition](../../apps/mobile/lib/main.dart); [SettleoraBottomNav](../../apps/mobile/lib/ui/settleora_components.dart).
+- Tests: [home_shortcut_preferences_test.dart](../../apps/mobile/test/home_shortcut_preferences_test.dart): default/stable-key/fixed-order/duplicate/unknown/malformed/read-write failure/empty/reconstruction behavior; [server_mode_shell_dashboard_test.dart](../../apps/mobile/test/server_mode_shell_dashboard_test.dart): exact Home/More destinations, zero through all four, no navigation mutation, settings persistence/failure/retry/read-write-open races, 48dp/semantics/focus and fixed bottom-nav regressions; [home_shortcuts_visual_capture_test.dart](../../apps/mobile/test/ui/home_shortcuts_visual_capture_test.dart): required production-widget visual matrix.
+- States: E zero selection omits Quick access while More stays canonical; L Home/settings wait for device-local read; R failed save keeps persisted state and exposes bounded retry; D route visibility never grants access or mutates domain state; O unavailable domain destinations retain existing bounded behavior.
+- Accessibility/visual: Five Home/Bills/Groups/Settle/More tabs remain exact. Visible 48dp+ actions have one semantic action and deterministic keyboard focus/activation; switch controls expose label plus selected state. Fifteen tracked 390px/1x and 320px/2x captures prove default, zero/all, fixed/focused order, canonical More, settings sheet and reachable retry without critical clipping.
+- Owner: [#295](https://github.com/tommytang213/Settleora/issues/295), completed for Day 1 by implementation PR #1158 plus same-task ledger/checklist/evidence hygiene. Fixed-order candidates are Notifications, Recurring bills, Receipt reviews, Reports; defaults are the first two. `settleora.presentation.home_shortcuts.v1` is device-local presentation state only. More stays canonical, the five-tab shell stays locked, and Accounts & income stays unchanged. Remaining: full drag/drop/arbitrary custom-layout navigation remains Day 2, so #295 stays open as its owner.
+- Gate/dependency: Day 1 derivative layout required no new reference and introduced no auth bypass. Any Day 2 material layout still requires its own reference/approval. Order: **W1 complete**.
 
 ### M45 — Basic / Guided / Advanced / Help me decide
 
@@ -806,8 +806,8 @@ Each child needs a current allowed-path contract, exact validation and review.
 
 1. **W1 — bounded low-risk slices:** prioritize existing [#959](https://github.com/tommytang213/Settleora/issues/959) parser defect
    independently from UI work. For setup behavior, #1096 follows its supported-probe contract gate independently. For UI, first [#301](https://github.com/tommytang213/Settleora/issues/301) equivalent selector/sheet/state
-   adoption (2–4 related slices), then [#299](https://github.com/tommytang213/Settleora/issues/299) metric handoffs plus [#295](https://github.com/tommytang213/Settleora/issues/295) lightweight
-   shortcut visibility where validation/reference boundaries match. [#1092](https://github.com/tommytang213/Settleora/issues/1092) bundled
+   adoption (2–4 related slices). [#299](https://github.com/tommytang213/Settleora/issues/299) metric handoffs and [#295](https://github.com/tommytang213/Settleora/issues/295) Day 1 lightweight
+   shortcut visibility are complete; #295 retains Day 2 custom-layout ownership. [#1092](https://github.com/tommytang213/Settleora/issues/1092) bundled
    What’s New and [#1093](https://github.com/tommytang213/Settleora/issues/1093) static contextual help are complete local presentation
    slices and remain separate from security or financial actions. [#409](https://github.com/tommytang213/Settleora/issues/409) findings
    guide copy extraction without a repository-wide rewrite.
