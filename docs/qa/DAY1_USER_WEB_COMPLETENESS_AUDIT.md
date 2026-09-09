@@ -1,8 +1,11 @@
 # Day 1 User-Web Completeness Audit
 
-Issue: [#963](https://github.com/tommytang213/Settleora/issues/963)  
-Parent: [#373](https://github.com/tommytang213/Settleora/issues/373)  
-Task key: `20260909-1725`  
+Issue: [#963](https://github.com/tommytang213/Settleora/issues/963)
+
+Parent: [#373](https://github.com/tommytang213/Settleora/issues/373)
+
+Task key: `20260909-1725`
+
 Source baseline: `origin/main` at `c10285dbb9703923f2a34a58fd4d9e4785a1db80`
 
 ## 1. Decision
