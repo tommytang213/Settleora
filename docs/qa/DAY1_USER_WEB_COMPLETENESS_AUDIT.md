@@ -20,9 +20,9 @@ there is no sign-in, credential source, refresh, logout or protected-route
 redirect. The public password-reset completion route is the only complete
 user-facing operation.
 
-This audit inventories **40 canonical capability rows** exactly once:
-`implemented` 2, `partial` 18, `unavailable` 14, `blocked` 6, `superseded` 0.
-Thirty-eight non-complete rows have one execution packet below. A packet can
+This audit inventories **42 canonical capability rows** exactly once:
+`implemented` 2, `partial` 19, `unavailable` 14, `blocked` 7, `superseded` 0.
+Forty non-complete rows have one execution packet below. A packet can
 reuse an existing owner or recommend a focused child; it does not make an
 unnumbered recommendation runnable.
 
@@ -79,7 +79,7 @@ never supplies `A`.
 | 7 | `WEB-D1-005` | Personal bill detail and server readouts | `partial` | yes | yes* | yes | yes | `loadBillDetailReadout` loads bill, attachment metadata, revision list and settlement candidates; no item/review/action completeness | P03 |
 | 8 | `WEB-D1-006` | Personal/group bill creation | `unavailable` | disabled | no | yes | partial | Page action says `Add bill unavailable`; generated `createPersonalBill`/`createGroupBill` exist; rich Day 1 split/tax/FX/temporary-participant scope is not established | P03 |
 | 9 | `WEB-D1-007` | Bill edit, submit, archive/restore and participant actions | `unavailable` | disabled | no | partial | partial | Generated submit/archive/restore/accept/reject exist; no UI calls them and no general edit method exists | P03 |
-| 10 | `WEB-D1-008` | Bill revisions and review | `partial` | metadata | read only* | yes | yes | Detail loads `listBillRevisions`; generated proposal/review-context/snapshot/impact/approval/apply methods exist but no review/action UI | P04 |
+| 10 | `WEB-D1-008` | Bill revisions and review | `partial` | metadata | read only* | yes | partial | Detail loads `listBillRevisions`; generated proposal/review-context/snapshot/impact/approval/apply methods exist, but #967 must reconcile revision depth and the unmapped settlement-impact operation before UI | P04 |
 | 11 | `WEB-D1-009` | Attachments, receipt content and OCR handoff | `partial` | metadata | read only* | yes | yes | Personal detail lists attachment metadata only; generated personal/group content, upload/remove and OCR methods exist but are unused | P05 |
 | 12 | `WEB-D1-010` | Group list/detail/members/group-bill readouts | `partial` | yes | yes* | yes | yes | `GroupsReadoutPanel`, group/member/bill loaders and tests; PRs #583/#584 | P06 |
 | 13 | `WEB-D1-011` | Group create/rename/member mutations | `unavailable` | disabled | no | yes | yes | `Create group unavailable`; generated create/update/add/update/remove methods exist but are unused | P06 |
@@ -110,6 +110,8 @@ never supplies `A`.
 | 38 | `WEB-D1-036` | Bundled What’s New / release notes | `unavailable` | no | no | n/a | n/a | `MVP_DAY1_SCOPE.md` requires bundled offline-safe version notes; no source route, asset, component or test exists | P19 |
 | 39 | `WEB-D1-037` | Server-managed announcements | `blocked` | no | no | no | no | `MVP_DAY1_SCOPE.md` requires targeted user-web announcements; no contract/client/UI exists; #1094 owns server authority and currently only a mobile handoff | P20 |
 | 40 | `WEB-D1-038` | Contextual help for major Day 1 screens | `unavailable` | no | no | n/a | n/a | `MVP_DAY1_SCOPE.md` requires contextual help; no user-web help affordance, content module, component or test exists | P21 |
+| 41 | `WEB-D1-039` | Privacy-mode readout, selection/change and recovery warnings | `blocked` | no | no | no | partial | `MVP_DAY1_SCOPE.md` and `PRIVACY_VAULT_ARCHITECTURE.md` require `standard_secure`/`recoverable_private_vault` within policy; closed #421 is reference only and no user-web contract/UI exists | P22 |
+| 42 | `WEB-D1-040` | Product-safe labels instead of internal IDs/implementation details | `partial` | yes | no | n/a | n/a | `App.tsx` exposes generated-client/API terminology and raw file/profile/proof IDs despite `WEB_USER_REFERENCE_V1.md` privacy-safe-copy rules | P23 |
 
 `Yes*` is implementation credit, not launch readiness: all protected rows
 currently receive an absent access token. Row 23 is an actual staged import
@@ -160,11 +162,15 @@ the evidence and owner packet above.
 | `WEB-D1-036` | Users cannot review offline-safe version changes inside the web app. |
 | `WEB-D1-037` | Users cannot receive authoritative targeted service or policy announcements on web. |
 | `WEB-D1-038` | Users cannot open contextual explanations from major Day 1 web screens. |
+| `WEB-D1-039` | Users cannot inspect or safely change the allowed privacy mode or understand recovery consequences. |
+| `WEB-D1-040` | Users can see confusing internal identifiers or implementation terminology in normal readouts. |
 
 ## 5. State-vector evidence
 
-Codes: `Y` dedicated source plus test evidence; `P` present but generic,
-untested at the composed page, or unreachable; `N` absent/not applicable.
+Codes: `Y` dedicated source plus focused adapter/helper test evidence; `P`
+present but generic or unasserted even at that level; `N` absent/not
+applicable. Because the protected shell is unreachable, **no `Y` is composed
+page acceptance**; every family still requires P12/P23 page-level proof.
 
 | Family | Empty | Loading | Retryable error | Denied | Signed out / ended | Unavailable / unconfigured | Narrow | Accessibility / focus | Evidence conclusion |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
@@ -200,8 +206,8 @@ not assigned to #373 or #963.
 | P01 | 001, 002, 027, 028 | Existing [#965](https://github.com/tommytang213/Settleora/issues/965) must split web bootstrap/sign-in/session/security children; reuse #776 for MFA/passkey planning | `auth-session-security`; API/OpenAPI/client and `apps/web-user` children kept separate | `api-security` or `web-ui`; strong independent; **auth/security manual gate** | #965 audit first; close each child only with safe credential lifecycle, signed-out/expired/denied states, tests and exposure approval | Searches for web sign-in/session/security found #336-#339, #774, #776, #777, #784, #965 and #1059; no parallel web child is created. |
 | P02 | 003 | Recommend focused **user-web home/dashboard server-summary and actionability** child after P01, reusing #399 only for group-dashboard data | `web-user-ui`; dashboard component/tests only unless #399 identifies a contract prerequisite | `web-ui`; strong independent; visual evidence; no money mutation | P01 and any #399/#977 summary contract; close with server values plus all state-vector and desktop/narrow evidence | Searches found #373/#963 and group-specific #399, but no focused current user-web home implementation owner. Mobile #299 is not replayed. |
 | P03 | 004-007 | Recommend separate bill-readout acceptance, supported-create, and lifecycle/edit children under existing [#344](https://github.com/tommytang213/Settleora/issues/344) domain authority | `web-user-ui`; one cohesive bill UI/test slice each; contract child first where needed | `web-ui`; strong independent; money manual gate for writes | P01; #344 contract/domain adjudication for rich create/edit; close with actual operation, safe retry/no-duplicate behavior, server refresh and visual evidence | Source/PR search credits #582 and generated creates/actions; issue search found #344/#459/#526, no open focused user-web mutation child. |
-| P04 | 008 | Recommend focused **user-web revision review/context** child only after #344/#402 confirms accepted fields and action gates | `web-user-ui`; revision UI/tests, no calculations | `web-ui`; strong independent; **money/settlement manual gate** | P01, #344 and #402; close with server review-context/snapshot/impact, affected-user/payer states and action acceptance | PR #526 and closed #348/#423/#525/#527 are credited contract/domain work, not web UI. |
-| P05 | 009 | Existing [#966](https://github.com/tommytang213/Settleora/issues/966) must split metadata/content/upload/remove/OCR UI from file authority | `storage-file-privacy-authz` then `web-user-ui`; contract/file and UI paths separate | `api-storage` then `web-ui`; strong independent; **privacy/file manual gate** | P01 and #966; OCR extraction remains #959 untouched; close with authorized bytes, safe failures and visual/file acceptance | Search credits attachment/OCR generated methods and PR #590 proof metadata; no open focused user-web file child. |
+| P04 | 008 | Existing [#967](https://github.com/tommytang213/Settleora/issues/967) with #344/#402 must reconcile revision depth and split the later web review/context child | bills/money contract/domain before `web-user-ui`; revision UI/tests do no calculations | matching contract profile then `web-ui`; strong independent; **money/settlement manual gate** | P01, #967, #344 and #402; the missing settlement-impact endpoint/contract is resolved before UI; close with granular snapshots, server review context/impact, affected-user/payer states and action acceptance | #967 is the current completeness owner; PR #526 and closed #348/#423/#525/#527 are credited contract/domain work, not web UI. |
+| P05 | 009 | Existing [#966](https://github.com/tommytang213/Settleora/issues/966) must split metadata/content/upload/remove/OCR UI from file authority | `storage-file-privacy-authz` then `web-user-ui`; contract/file and UI paths separate | `api-storage` then `web-ui`; strong independent; **privacy/file manual gate** | P01 and #966; OCR extraction remains #959 untouched; close with policy-driven client normalization before upload/OCR/storage, temporary raw-source handling, correction preview/manual fallback, API enforcement, authorized bytes, safe failures and visual/file acceptance | Search credits attachment/OCR generated methods and PR #590 proof metadata; no open focused user-web file child. |
 | P06 | 010-011 | Recommend separate group-readout acceptance and group/member mutation children under existing [#399](https://github.com/tommytang213/Settleora/issues/399) | `web-user-ui`; group UI/tests only unless owner splits contract | `web-ui`; strong independent; authz/manual review for member writes | P01 and #399; close with server revalidation, no client authz, states and visual evidence | PRs #583/#584 and generated mutation methods credited; closed #459 is not reopened. |
 | P07 | 012 | Existing [#400](https://github.com/tommytang213/Settleora/issues/400) must split contract/server/UI children for friends, direct share and temporary participant claims | `api-openapi-generated-clients` before `web-user-ui`; exact domain paths per child | `openapi-client` then `web-ui`; strong independent; auth/privacy/abuse/money gates | P01, #400 and contract before UI; close only with exact-match discovery, relationship lifecycle, eligibility and claim/link authorization acceptance | Searches found #400 plus closed policy/reference #431-#434; generated client has no methods. |
 | P08 | 013-014 | Existing [#969](https://github.com/tommytang213/Settleora/issues/969)/#353 must split readout acceptance from request/payment/proof actions | `money-settlement-payment` and later `web-user-ui`; never mixed with generic UI | `money-settlement`/`web-ui`; strong independent; **money/settlement manual gate** | P01 and #969; files additionally P05; close with API-owned totals/status, no duplicate actions, residual/dispute and visual evidence | Searches found #353/#969 and credited #585/#587/#590; no duplicate web action issue created. |
@@ -218,6 +224,8 @@ not assigned to #373 or #963.
 | P19 | 036 | Recommend focused **user-web bundled What’s New** child | `web-user-ui`; bundled version-note content/component/tests only | `web-ui`; cheap independent; no provider or server contract | Independent after approved copy/source-of-version decision; close with offline-safe bundled notes, version visibility, empty/unavailable and narrow/accessibility evidence | Searches for user-web help, release notes and What’s New found no focused owner; #1094 explicitly excludes bundled What’s New. |
 | P20 | 037 | Existing [#1094](https://github.com/tommytang213/Settleora/issues/1094) must extend its post-authority handoff split to user web without bundling provider delivery or What’s New | `docs-planning` → API/OpenAPI/client → `web-user-ui`, each separate | matching contract/security then `web-ui`; strong independent; **admin exposure/auth manual gate** | #1094 server authority first and P01 for protected targeting; close web child with server-authored safe content, window/target/severity/read state, denied/offline/stale states and authz | #1094 is the existing announcement authority owner but currently names mobile handoff; notification #973 and bundled notes P19 are distinct. |
 | P21 | 038 | Recommend focused **user-web contextual help for major Day 1 screens** child | `web-user-ui`; bounded help affordance/content/tests, no autonomous policy engine | `web-ui`; cheap independent; visual evidence | May follow the corresponding stable screen/reference; close with accessible open/close/focus, offline-safe content, narrow behavior and no authority claims | Searches for user-web contextual help found no focused owner; #412 covers mode guidance, not all screen help, and #1094 explicitly excludes contextual help. |
+| P22 | 039 | Existing [#966](https://github.com/tommytang213/Settleora/issues/966) must split privacy-mode policy/contract and user-web children using closed #421 as the reference | `storage-file-privacy-authz` then API/OpenAPI/client then `web-user-ui`, kept separate | `api-storage`/contract then `web-ui`; strong independent; **privacy/auth/schema manual gates** | #966 and P01; close web child with policy readout, allowed/required/disabled states, explicit selection/change, recovery warnings, server revalidation and narrow/accessibility evidence | #421 completed only the UX reference; #966 is the live privacy completeness owner. P18 experience modes cannot grant privacy authority. |
+| P23 | 040 | Recommend focused **user-web product-safe identifier and implementation-copy cleanup** child | `web-user-ui`; presentation adapters/components/tests only, no identifier or API semantics change | `web-ui`; strong independent; privacy review and visual evidence | P01 and stable readout contracts; close when raw internal IDs and generated-client/API terminology are replaced by authorized labels or privacy-safe unavailable states across current pages | Exact open/closed searches for user-web internal-ID/generated-client copy found no focused owner; P17 localization maps catalog copy but does not decide authorized display identity. |
 
 ## 7. Localization reconciliation
 
@@ -252,7 +260,8 @@ not assigned to #373 or #963.
    richer bill create/edit, any new report/group-summary contract, and #1094's
    user-web announcement handoff after server authority exists.
 5. **After privacy/files:** attachment/OCR content and mutation, QR content,
-   proof content and file-byte backup sections.
+   proof content, file-byte backup sections, and #966's privacy-mode
+   policy/contract/UI split using the #421 reference.
 6. **After money/settlement:** bill/revision writes and settlement/payment/proof
    actions. Presentation formatting does not acquire calculation authority.
 7. **After sync/restore:** browser queue/local-only/conflict resolution and any
@@ -264,6 +273,8 @@ not assigned to #373 or #963.
 9. **Guidance/settings:** #412 owns the separately gated first-launch/settings
    reference and preference split; its pre-sign-in presentation is not blocked
    on auth. P21 contextual help follows each stable screen and its reference.
+   P23 product-safe identifier/copy cleanup follows stable readout contracts
+   and remains separate from catalog infrastructure.
 
 ## 9. Closed-work credit and Day 2 boundary
 
