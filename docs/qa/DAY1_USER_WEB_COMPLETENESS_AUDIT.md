@@ -20,9 +20,9 @@ there is no sign-in, credential source, refresh, logout or protected-route
 redirect. The public password-reset completion route is the only complete
 user-facing operation.
 
-This audit inventories **37 canonical capability rows** exactly once:
-`implemented` 2, `partial` 18, `unavailable` 12, `blocked` 5, `superseded` 0.
-Thirty-five non-complete rows have one execution packet below. A packet can
+This audit inventories **40 canonical capability rows** exactly once:
+`implemented` 2, `partial` 18, `unavailable` 14, `blocked` 6, `superseded` 0.
+Thirty-eight non-complete rows have one execution packet below. A packet can
 reuse an existing owner or recommend a focused child; it does not make an
 unnumbered recommendation runnable.
 
@@ -41,9 +41,12 @@ Evidence was reconciled from current source/tests, the generated web client,
 Day 1/Day 2 PRDs, the user-web reference, the #409 localization audit, live
 issues, and merge ancestry. Closed #458-#462 and only the runtime PRs named in
 section 9 are credited for behavior still present. The stale claim in
-`apps/web-user/README.md` that the portal is merely a foundation is
-superseded by source; the equally stale implication in old planning that
-generated methods make future UI readily available is also rejected.
+`apps/web-user/README.md` that the portal is merely a foundation and the root
+`README.md` claim that web/admin portals remain placeholders are superseded
+for user web by source. The root sentence also covers admin web, so #373 owns
+a bounded wording correction only after #964 reconciles that half; changing it
+here would exceed the two-file contract. The equally stale implication in old
+planning that generated methods make future UI readily available is rejected.
 
 - `implemented`: rendered and operable in the shipped route, with current
   contract/server authority and bounded state evidence.
@@ -104,6 +107,9 @@ never supplies `A`.
 | 35 | `WEB-D1-033` | Final visual/reference acceptance | `partial` | yes | n/a | n/a | n/a | `WEB_USER_REFERENCE_V1.md` governs; historical #580 captures do not cover later readouts/actions or exact current head | P12 |
 | 36 | `WEB-D1-034` | Localization-ready catalog/formatting/expansion | `unavailable` | English only | no | n/a | n/a | #409 `L10N-D1-005/006/012/013/016/020/024/025`; no catalog/bootstrap; manual formatting and physical CSS remain | P17 |
 | 37 | `WEB-D1-035` | Settings, appearance and experience-mode controls | `unavailable` | placeholder | no | planning only | partial | `shellModel.ts::navItems` exposes `settings` as a placeholder; `shellModel.test.ts` covers navigation only; no appearance, `help_me_decide`, policy or mode-control operation exists | P18 |
+| 38 | `WEB-D1-036` | Bundled What’s New / release notes | `unavailable` | no | no | n/a | n/a | `MVP_DAY1_SCOPE.md` requires bundled offline-safe version notes; no source route, asset, component or test exists | P19 |
+| 39 | `WEB-D1-037` | Server-managed announcements | `blocked` | no | no | no | no | `MVP_DAY1_SCOPE.md` requires targeted user-web announcements; no contract/client/UI exists; #1094 owns server authority and currently only a mobile handoff | P20 |
+| 40 | `WEB-D1-038` | Contextual help for major Day 1 screens | `unavailable` | no | no | n/a | n/a | `MVP_DAY1_SCOPE.md` requires contextual help; no user-web help affordance, content module, component or test exists | P21 |
 
 `Yes*` is implementation credit, not launch readiness: all protected rows
 currently receive an absent access token. Row 23 is an actual staged import
@@ -151,6 +157,9 @@ the evidence and owner packet above.
 | `WEB-D1-033` | Later runtime slices lack current-head visual/reference acceptance. |
 | `WEB-D1-034` | Hardcoded copy and formatting prevent a safe localization foundation and can expose transport labels. |
 | `WEB-D1-035` | Users cannot choose Day 1 experience modes, appearance, or supported settings. |
+| `WEB-D1-036` | Users cannot review offline-safe version changes inside the web app. |
+| `WEB-D1-037` | Users cannot receive authoritative targeted service or policy announcements on web. |
+| `WEB-D1-038` | Users cannot open contextual explanations from major Day 1 web screens. |
 
 ## 5. State-vector evidence
 
@@ -161,18 +170,19 @@ untested at the composed page, or unreachable; `N` absent/not applicable.
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
 | Shell/auth | P | Y | P | P | Y | Y | P | P | Auth helpers classify 401/403/error, but no sign-in/retry/logout control exists. |
 | Home/dashboard | P | P | P | P | Y | P | P | P | Generic safe panels only; no live dashboard state model. |
-| Bills/revisions/files | Y | Y | Y | Y | Y | Y | P | P | Adapter tests cover read failures; mutation/review/file and composed-page state acceptance absent. |
+| Bills/revisions/files | P | P | P | P | Y | P | P | P | Bill tests prove missing credential, successful load and filtering; other rendered state branches lack dedicated or composed-page tests. |
 | Groups/friends | Y | Y | Y | Y | Y | Y | P | P | Group readouts are covered; friends/direct sharing is only unavailable. |
 | Settlements/proof | Y | Y | Y | Y | Y | Y | P | P | Read paths and proof metadata covered; consequential actions absent. |
 | Profile/payment | P | Y | Y | Y | Y | Y | P | P | Read and metadata safety covered; no edit/file interaction states. |
 | Notifications | Y | Y | Y | Y | Y | Y | P | P | Read/filter states covered; open/mutation/template resolution absent. |
-| Reports/search | Y | Y | Y | Y | Y | Y | P | P | Server rows covered; group summary/action and composed narrow evidence absent. |
+| Reports/search | P | P | P | P | Y | Y | P | P | Tests prove missing credential, successful load, missing methods and summaries; other state branches and composed-page acceptance are untested. |
 | Export/import | Y | Y | Y | Y | Y | Y | P | P | Extensive adapter tests cover readiness/session/conflict paths; shell reachability and page focus/capture remain. |
 | Backup/restore | Y | Y | Y | Y | Y | Y | P | P | Package/preview/session states are strong; restore apply intentionally absent. |
 | Sync/offline | Y | Y | Y | Y | Y | Y | P | P | Server status only; queue/conflict-resolution/local-only states absent. |
 | Account/security | N | P | P | P | Y | Y | P | P | Generic route only; reset-complete form has focused semantics tests. |
 | Recurring | N | N | N | N | P | N | N | N | No dedicated surface; only the generic shell can represent signed-out state. |
 | Settings/modes | N | N | N | N | P | Y | P | P | Navigation reaches a placeholder; settings operations and dedicated state evidence are absent. |
+| User guidance | N | N | N | N | P | Y | N | N | What’s New, announcements and contextual help have no user-web surfaces; only generic shell/unavailable behavior applies. |
 
 No family is promoted to implemented from a happy path alone. The adapter
 tests are valuable but do not replace composed `App` interaction, narrow
@@ -204,7 +214,10 @@ not assigned to #373 or #963.
 | P15 | 025-026 | Existing #971/#361 owns queue/offline/local/conflict reconciliation and future split | `sync-import-export-restore`; persistence/domain before UI | `sync-import-export`; strong independent; sync/restore manual gate | P01 and #971; close only with local/server authority, queued-versus-accepted truth, persistence/retry/conflict tests and UI evidence | Search found #361/#364/#406/#971; browser storage is absent, so no duplicate web local-mode issue is created. |
 | P16 | 029 | Existing [#365](https://github.com/tommytang213/Settleora/issues/365) must decide user-web recurring/forecast child scope | `recurring-bills` then `web-user-ui`; domain and UI split | matching domain profile/`web-ui`; strong independent; money gate for draft generation | P01 and #365; close with server schedules/forecast, explicit draft action and state/visual evidence | Source-symbol and issue search found generated recurring methods and #365, but no web route/child. |
 | P17 | 034 | First child: #409 `L10N-D1-005`; later `006/012/013/024` inventories, `016/025` after #965, `008` after #973, and `020` after #963/#970/#971/#966 | `web-user-ui` for 005; later `docs-planning`, gated web/API children | `web-ui` or `docs-only`; cheap/strong per child; money/auth/storage gates retained | 005 depends only on #963 merge. Close with English catalog/locale provider, synchronized document `lang`, representative ordinary shell/shared-state migration and tests; no auth copy | Exact keyword searches found #409 but no focused catalog issue. #409 explicitly excludes auth/session, money, notification resolver and server strings from 005. |
-| P18 | 035 | Recommend focused **user-web settings and Day 1 experience-mode controls** child after P01 and product-mode authority are reconciled | `web-user-ui`; settings UI/tests only, with any preference contract split first | `web-ui`; strong independent; visual evidence; auth/privacy review for persisted choices | P01 and an exact product-mode contract decision; close with supported mode/appearance/policy readouts, server-refreshed preference changes, all state-vector evidence and desktop/narrow proof | Live searches for `settings`, `experience mode`, `appearance` and `help_me_decide` found no focused issue; the placeholder from #580 is credited, and broad customization remains later-day. |
+| P18 | 035 | Existing [#412](https://github.com/tommytang213/Settleora/issues/412) must split first-launch choice, later settings change, preference authority and user-web acceptance | `design-reference` then `web-user-ui`; any schema/API/OpenAPI/client persistence child remains separate | visual-reference gate then `web-ui`; strong independent; **product/visual and contract manual gates** | Pre-sign-in/local presentation need not wait for P01; server-persisted preference waits for #412 authority and P01. Close web children with mode/appearance/policy states, mandatory-state visibility and desktop/narrow evidence | #412 explicitly owns modes, settings, persistence and platform splits; `DAY1_UX_IMPLEMENTATION_READINESS_PLAN.md` requires first-launch/settings reference. #580 placeholder is credited; no duplicate child is proposed here. |
+| P19 | 036 | Recommend focused **user-web bundled What’s New** child | `web-user-ui`; bundled version-note content/component/tests only | `web-ui`; cheap independent; no provider or server contract | Independent after approved copy/source-of-version decision; close with offline-safe bundled notes, version visibility, empty/unavailable and narrow/accessibility evidence | Searches for user-web help, release notes and What’s New found no focused owner; #1094 explicitly excludes bundled What’s New. |
+| P20 | 037 | Existing [#1094](https://github.com/tommytang213/Settleora/issues/1094) must extend its post-authority handoff split to user web without bundling provider delivery or What’s New | `docs-planning` → API/OpenAPI/client → `web-user-ui`, each separate | matching contract/security then `web-ui`; strong independent; **admin exposure/auth manual gate** | #1094 server authority first and P01 for protected targeting; close web child with server-authored safe content, window/target/severity/read state, denied/offline/stale states and authz | #1094 is the existing announcement authority owner but currently names mobile handoff; notification #973 and bundled notes P19 are distinct. |
+| P21 | 038 | Recommend focused **user-web contextual help for major Day 1 screens** child | `web-user-ui`; bounded help affordance/content/tests, no autonomous policy engine | `web-ui`; cheap independent; visual evidence | May follow the corresponding stable screen/reference; close with accessible open/close/focus, offline-safe content, narrow behavior and no authority claims | Searches for user-web contextual help found no focused owner; #412 covers mode guidance, not all screen help, and #1094 explicitly excludes contextual help. |
 
 ## 7. Localization reconciliation
 
@@ -230,12 +243,14 @@ not assigned to #373 or #963.
    catalog/bootstrap/document-language child after #963 closes.
 2. **Parallel reconciliation:** #965 auth/session, #966 storage/privacy, #969
    settlement, #971 sync/import/restore, #973 notifications and #977
-   reports/search. These are audits, not substitute runtime owners.
+   reports/search. These are audits, not substitute runtime owners. P19 bundled
+   What’s New is also independent once its version/content source is approved.
 3. **After #965:** real web bootstrap/sign-in/session control; then protected
    readout acceptance and low-consequence group/profile/report UI children can
    run in parallel where their domain audit permits.
 4. **After API/OpenAPI/domain:** friends/direct sharing/temporary participants,
-   richer bill create/edit, and any new report/group-summary contract.
+   richer bill create/edit, any new report/group-summary contract, and #1094's
+   user-web announcement handoff after server authority exists.
 5. **After privacy/files:** attachment/OCR content and mutation, QR content,
    proof content and file-byte backup sections.
 6. **After money/settlement:** bill/revision writes and settlement/payment/proof
@@ -246,6 +261,9 @@ not assigned to #373 or #963.
    keyboard/focus/zoom/text-expansion checks and final #975 evidence. New Figma
    is needed only for a materially new/high-consequence interaction beyond
    `WEB_USER_REFERENCE_V1.md`.
+9. **Guidance/settings:** #412 owns the separately gated first-launch/settings
+   reference and preference split; its pre-sign-in presentation is not blocked
+   on auth. P21 contextual help follows each stable screen and its reference.
 
 ## 9. Closed-work credit and Day 2 boundary
 
