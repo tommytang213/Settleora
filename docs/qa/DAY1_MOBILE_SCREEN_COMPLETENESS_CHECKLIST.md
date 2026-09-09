@@ -34,7 +34,7 @@ screen acceptance.
   reproducible branch-rendered fixtures exist, not that [#407](https://github.com/tommytang213/Settleora/issues/407) rendered or approved
   unseen UI. No new Figma or screenshots were required or created here.
 
-Totals: **60 rows — complete 5, partial 37, missing 8, blocked 10**.
+Totals: **60 rows — complete 6, partial 36, missing 8, blocked 10**.
 
 ## Canonical inventory
 
