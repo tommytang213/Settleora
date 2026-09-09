@@ -101,6 +101,8 @@ import {
   type SyncLocalStatusRuntimeState
 } from "./importExportReadout";
 import { dashboardCards, navItems, safeStatePanels, type NavItem } from "./shellModel";
+import { useLocalization } from "./localization/LocaleProvider";
+import type { MessageKey } from "./localization/catalog";
 import { isPasswordResetCompletePath } from "./passwordResetComplete";
 import type {
   BillCsvImportConfirmationResponse,
@@ -125,13 +127,13 @@ import type {
 const primaryNav = navItems.filter((item) => item.section === "primary");
 const moreNav = navItems.filter((item) => item.section === "more");
 const mobileNav = [
-  { item: navItems.find((item) => item.id === "home") ?? navItems[0], label: "Home" },
-  { item: navItems.find((item) => item.id === "bills") ?? navItems[0], label: "Bills" },
-  { item: navItems.find((item) => item.id === "groups") ?? navItems[0], label: "Groups" },
-  { item: navItems.find((item) => item.id === "settlements") ?? navItems[0], label: "Settle" },
-  { item: navItems.find((item) => item.id === "import-export") ?? navItems[0], label: "Import" },
-  { item: navItems.find((item) => item.id === "notifications") ?? navItems[0], label: "Alerts" }
-];
+  { item: navItems.find((item) => item.id === "home") ?? navItems[0], labelKey: "shell.nav.compact.home" },
+  { item: navItems.find((item) => item.id === "bills") ?? navItems[0], labelKey: "shell.nav.compact.bills" },
+  { item: navItems.find((item) => item.id === "groups") ?? navItems[0], labelKey: "shell.nav.compact.groups" },
+  { item: navItems.find((item) => item.id === "settlements") ?? navItems[0], labelKey: "shell.nav.compact.settlements" },
+  { item: navItems.find((item) => item.id === "import-export") ?? navItems[0], labelKey: "shell.nav.compact.importExport" },
+  { item: navItems.find((item) => item.id === "notifications") ?? navItems[0], labelKey: "shell.nav.compact.notifications" }
+] satisfies Array<{ item: NavItem; labelKey: MessageKey }>;
 
 export function normalizeRouteId(routeId: string): string {
   const normalizedRouteId = routeId === "settle" ? "settlements" : routeId;
@@ -158,6 +160,7 @@ export function App() {
 }
 
 function UserPortalShell() {
+  const { t } = useLocalization();
   const [activeId, setActiveId] = useState(() => getInitialActiveId());
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -1032,7 +1035,7 @@ function UserPortalShell() {
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>
-      <aside className="sidebar" aria-label="Primary navigation">
+      <aside className="sidebar" aria-label={t("shell.navigation.primary.ariaLabel")}>
         <div className="brand-lockup">
           <div className="brand-mark" aria-hidden="true">
             S
@@ -1042,13 +1045,13 @@ function UserPortalShell() {
             <h1>User web</h1>
           </div>
         </div>
-        <nav className="nav-group" aria-label="Day 1 areas">
+        <nav className="nav-group" aria-label={t("shell.navigation.day1.ariaLabel")}>
           {primaryNav.map((item) => (
             <NavButton key={item.id} item={item} active={item.id === activeId} onClick={setActiveRoute} />
           ))}
         </nav>
         <div className="nav-divider" />
-        <nav className="nav-group nav-group-secondary" aria-label="More user areas">
+        <nav className="nav-group nav-group-secondary" aria-label={t("shell.navigation.more.ariaLabel")}>
           {moreNav.map((item) => (
             <NavButton key={item.id} item={item} active={item.id === activeId} onClick={setActiveRoute} />
           ))}
@@ -1079,15 +1082,15 @@ function UserPortalShell() {
           </div>
         </header>
 
-        <nav className="mobile-nav" aria-label="Compact navigation">
-          {mobileNav.map(({ item, label }) => (
+        <nav className="mobile-nav" aria-label={t("shell.navigation.compact.ariaLabel")}>
+          {mobileNav.map(({ item, labelKey }) => (
             <button
               key={item.id}
               type="button"
               className={item.id === activeId ? "mobile-nav-item active" : "mobile-nav-item"}
               onClick={() => setActiveRoute(item.id)}
             >
-              {label}
+              {t(labelKey)}
             </button>
           ))}
         </nav>
@@ -1096,8 +1099,8 @@ function UserPortalShell() {
           <section className="page-header" aria-labelledby="page-title">
             <div>
               <p className="eyebrow">Day 1 user web</p>
-              <h2 id="page-title">{activeItem.label}</h2>
-              <p>{activeItem.description}</p>
+              <h2 id="page-title">{t(activeItem.labelKey)}</h2>
+              <p>{t(activeItem.descriptionKey)}</p>
             </div>
             <div className="page-actions" aria-label="Page actions">
               <button className="secondary-button" type="button" disabled>
@@ -1116,7 +1119,7 @@ function UserPortalShell() {
                           ? "Report actions unavailable"
                           : activeId === "import-export"
                             ? "Readiness-gated export"
-                      : activeItem.actionLabel}
+                      : t(activeItem.actionLabelKey)}
               </button>
             </div>
           </section>
@@ -1242,7 +1245,7 @@ function UserPortalShell() {
                 <div className="panel-header">
                   <div>
                     <p className="eyebrow">Protected area</p>
-                    <h3 id="surface-title">{activeItem.label} stays private</h3>
+                    <h3 id="surface-title">{t(activeItem.labelKey)} stays private</h3>
                   </div>
                   <span className="status-chip status-sync">
                     {activeItem.status === "placeholder" ? "Planned surface" : "Session gated"}
@@ -1297,12 +1300,12 @@ function UserPortalShell() {
               </section>
 
               <section className="surface-panel compact-panel">
-                <p className="eyebrow">More</p>
-                <h3>All functions</h3>
+                <p className="eyebrow">{t("shell.navigation.more.eyebrow")}</p>
+                <h3>{t("shell.navigation.more.heading")}</h3>
                 <div className="quick-list">
                   {moreNav.slice(0, 5).map((item) => (
                     <button key={item.id} type="button" onClick={() => setActiveRoute(item.id)}>
-                      <span>{item.label}</span>
+                      <span>{t(item.labelKey)}</span>
                       <span>{item.status === "placeholder" ? "Planned" : "Protected"}</span>
                     </button>
                   ))}
@@ -4638,6 +4641,8 @@ function NavButton({
   active: boolean;
   onClick: (id: string) => void;
 }) {
+  const { t } = useLocalization();
+
   return (
     <button
       type="button"
@@ -4645,7 +4650,7 @@ function NavButton({
       aria-current={active ? "page" : undefined}
       onClick={() => onClick(item.id)}
     >
-      <span className="nav-label">{item.label}</span>
+      <span className="nav-label">{t(item.labelKey)}</span>
       <span className="nav-state">{item.status === "placeholder" ? "Planned" : "Protected"}</span>
     </button>
   );
