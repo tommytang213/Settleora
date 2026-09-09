@@ -329,6 +329,35 @@ void main() {
     expect(preference.writeCalls, 0);
   });
 
+  testWidgets('App settings coalesces repeated opens during shortcut load', (
+    tester,
+  ) async {
+    final storedSelection = Completer<Set<SettleoraHomeShortcut>>();
+    final preference = FakeHomeShortcutPreference(pendingRead: storedSelection);
+    await pumpShell(tester, homeShortcutPreference: preference);
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    final settingsRow = find.byKey(const Key('server-shell-more-settings'));
+    await tester.dragUntilVisible(
+      settingsRow,
+      find.byType(Scrollable).first,
+      const Offset(0, -300),
+    );
+    await tester.ensureVisible(settingsRow);
+    await tester.pumpAndSettle();
+    await tester.tap(settingsRow);
+    await tester.tap(settingsRow);
+    await tester.pump();
+
+    storedSelection.complete(const {SettleoraHomeShortcut.reports});
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsNothing);
+    expect(find.byKey(const Key('server-shell-more-settings')), findsOneWidget);
+  });
+
   testWidgets('failed shortcut save stays truthful and allows retry', (
     tester,
   ) async {
@@ -497,6 +526,56 @@ void main() {
     );
     expect(preference.selection, contains(SettleoraHomeShortcut.reports));
     expect(find.byKey(const Key('home-shortcuts-save-error')), findsNothing);
+  });
+
+  testWidgets('reopening App settings waits for a dismissed pending save', (
+    tester,
+  ) async {
+    final pendingWrite = Completer<void>();
+    final preference = FakeHomeShortcutPreference(pendingWrite: pendingWrite);
+    await pumpShell(tester, homeShortcutPreference: preference);
+    await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('server-shell-more-settings'));
+    await tester.pumpAndSettle();
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('home-shortcuts-close')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    final settingsRow = find.byKey(const Key('server-shell-more-settings'));
+    await tester.ensureVisible(settingsRow);
+    await tester.tap(settingsRow);
+    await tester.tap(settingsRow);
+    await tester.pump();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsNothing);
+
+    pendingWrite.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsOneWidget);
+    expect(find.text('3 shown'), findsOneWidget);
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+          )
+          .value,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const Key('home-shortcuts-close')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('settings-home-shortcuts')), findsNothing);
+    expect(find.byKey(const Key('server-shell-more-settings')), findsOneWidget);
   });
 
   testWidgets('dashboard overview renders repository summaries', (

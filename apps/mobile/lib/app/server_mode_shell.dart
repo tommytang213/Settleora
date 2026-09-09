@@ -126,6 +126,7 @@ class _SettleoraAuthenticatedServerShellState
   late final Future<void> _homeShortcutLoad;
   Future<bool>? _homeShortcutWrite;
   Set<SettleoraHomeShortcut>? _pendingHomeShortcutSelection;
+  Future<void>? _appSettingsOpen;
 
   @override
   void initState() {
@@ -658,8 +659,29 @@ class _SettleoraAuthenticatedServerShellState
     );
   }
 
-  Future<void> _openAppSettings() async {
+  Future<void> _openAppSettings() {
+    final activeOpen = _appSettingsOpen;
+    if (activeOpen != null) {
+      return activeOpen;
+    }
+
+    late final Future<void> open;
+    open = _runOpenAppSettings().whenComplete(() {
+      if (_appSettingsOpen == open) {
+        _appSettingsOpen = null;
+      }
+    });
+    _appSettingsOpen = open;
+    return open;
+  }
+
+  Future<void> _runOpenAppSettings() async {
     await _homeShortcutLoad;
+    var activeWrite = _homeShortcutWrite;
+    while (activeWrite != null) {
+      await activeWrite;
+      activeWrite = _homeShortcutWrite;
+    }
     if (!mounted) {
       return;
     }
