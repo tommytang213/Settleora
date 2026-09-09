@@ -38,6 +38,7 @@ import '../sync/sync_repository.dart';
 import '../ui/settleora_components.dart';
 import 'app_configuration.dart';
 import 'auth_session_repository.dart';
+import 'home_shortcut_preferences.dart';
 import 'local_data_backup.dart';
 import 'password_reset_repository.dart';
 import 'secure_session_access_token_provider.dart';
@@ -147,6 +148,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
     super.key,
     required this.secureStorage,
     required this.versionSeenPreference,
+    this.homeShortcutPreference,
     this.versionNotesProcessGuard,
     this.versionNotes = currentBundledVersionNotes,
     this.receiptOcrReviewRepositoryFactory,
@@ -174,6 +176,7 @@ class SettleoraAppBootstrap extends StatefulWidget {
 
   final SettleoraSecureStorageBoundary secureStorage;
   final SettleoraVersionSeenPreference versionSeenPreference;
+  final SettleoraHomeShortcutPreference? homeShortcutPreference;
   final SettleoraVersionNotesProcessGuard? versionNotesProcessGuard;
   final SettleoraBundledVersionNotes? versionNotes;
   final ReceiptOcrReviewRepositoryFactory? receiptOcrReviewRepositoryFactory;
@@ -599,6 +602,7 @@ class _SettleoraAppBootstrapState extends State<SettleoraAppBootstrap> {
       versionNotes: widget.versionNotes,
       versionNotesProcessGuard: _versionNotesProcessGuard,
       versionSeenPreference: widget.versionSeenPreference,
+      homeShortcutPreference: widget.homeShortcutPreference,
     );
   }
 
