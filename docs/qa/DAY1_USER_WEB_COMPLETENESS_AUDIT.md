@@ -103,7 +103,7 @@ never supplies `A`.
 | 34 | `WEB-D1-032` | Keyboard, focus, semantics and zoom/text scaling | `partial` | yes | partial | n/a | n/a | Skip link, labels, live regions and focus-visible styles exist; no shell keyboard order, focus restoration, zoom or screen-reader tests | P12 |
 | 35 | `WEB-D1-033` | Final visual/reference acceptance | `partial` | yes | n/a | n/a | n/a | `WEB_USER_REFERENCE_V1.md` governs; historical #580 captures do not cover later readouts/actions or exact current head | P12 |
 | 36 | `WEB-D1-034` | Localization-ready catalog/formatting/expansion | `unavailable` | English only | no | n/a | n/a | #409 `L10N-D1-005/006/012/013/016/020/024/025`; no catalog/bootstrap; manual formatting and physical CSS remain | P17 |
-| 37 | `WEB-D1-035` | Settings, appearance and experience-mode controls | `unavailable` | placeholder | no | planning only | partial | `shellModel.ts::routeDefinitions` exposes `settings` as a placeholder; `shellModel.test.ts` covers navigation only; no appearance, `help_me_decide`, policy or mode-control operation exists | P18 |
+| 37 | `WEB-D1-035` | Settings, appearance and experience-mode controls | `unavailable` | placeholder | no | planning only | partial | `shellModel.ts::navItems` exposes `settings` as a placeholder; `shellModel.test.ts` covers navigation only; no appearance, `help_me_decide`, policy or mode-control operation exists | P18 |
 
 `Yes*` is implementation credit, not launch readiness: all protected rows
 currently receive an absent access token. Row 23 is an actual staged import
