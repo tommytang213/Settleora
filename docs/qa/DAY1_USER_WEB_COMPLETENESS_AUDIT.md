@@ -168,7 +168,7 @@ untested at the composed page, or unreachable; `N` absent/not applicable.
 
 | Family | Empty | Loading | Retryable error | Denied | Signed out / ended | Unavailable / unconfigured | Narrow | Accessibility / focus | Evidence conclusion |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | --- |
-| Shell/auth | P | Y | P | P | Y | Y | P | P | Auth helpers classify 401/403/error, but no sign-in/retry/logout control exists. |
+| Shell/auth | P | P | P | P | Y | Y | P | P | Auth helpers classify 401/403/error; loading is generic and not directly asserted, and no sign-in/retry/logout control exists. |
 | Home/dashboard | P | P | P | P | Y | P | P | P | Generic safe panels only; no live dashboard state model. |
 | Bills/revisions/files | P | P | P | P | Y | P | P | P | Bill tests prove missing credential, successful load and filtering; other rendered state branches lack dedicated or composed-page tests. |
 | Groups/friends | Y | P | Y | Y | Y | Y | P | P | Group readouts are covered; loading is rendered but not directly tested, and friends/direct sharing is only unavailable. |
