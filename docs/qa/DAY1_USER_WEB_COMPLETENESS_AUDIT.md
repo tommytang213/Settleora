@@ -21,7 +21,7 @@ redirect. The public password-reset completion route is the only complete
 user-facing operation.
 
 This audit inventories **44 canonical capability rows** exactly once:
-`implemented` 2, `partial` 19, `unavailable` 14, `blocked` 9, `superseded` 0.
+`implemented` 2, `partial` 20, `unavailable` 13, `blocked` 9, `superseded` 0.
 Forty-two non-complete rows have one execution packet below. A packet can
 reuse an existing owner or recommend a focused child; it does not make an
 unnumbered recommendation runnable.
@@ -32,14 +32,13 @@ unresolved after merge. This same logical task strengthens the affected packet
 close rules below without changing the 44 capability, 42 gap, or 25 packet
 counts and without implementing runtime behavior.
 
-The first dependency-safe logical task after #963 is the already-deduplicated
+The first dependency-safe logical task after #963 was the already-deduplicated
 `L10N-D1-005` recommendation: **user-web English catalog, locale bootstrap and
-document-language metadata**. It is lower risk than protected runtime work,
-requires no API or credential decision, and must exclude auth/session copy.
-In parallel, the existing completeness audits #965, #966, #969, #971, #973 and
-#977 can establish their gated domain splits. No protected product workflow
-should outrank `L10N-D1-005` while the real web sign-in dependency is still
-owned by #965.
+document-language metadata**. #1164/PR #1165 completed that bounded foundation
+without an API or credential decision and excluded auth/session copy. The
+existing completeness audits #965, #966, #969, #971, #973 and #977 continue to
+govern their gated domain splits; the next execution candidate must be selected
+from current live dependencies rather than inferred from this historical queue.
 
 ## 2. Method and status vocabulary
 
@@ -111,7 +110,7 @@ never supplies `A`.
 | 33 | `WEB-D1-031` | Responsive/narrow behavior | `partial` | yes | n/a | n/a | n/a | CSS has 1060px/760px breakpoints, 320px minimum and overflow guards; no automated narrow rendering/capture suite | P12 |
 | 34 | `WEB-D1-032` | Keyboard, focus, semantics and zoom/text scaling | `partial` | yes | partial | n/a | n/a | Skip link, labels, live regions and focus-visible styles exist; no shell keyboard order, focus restoration, zoom or screen-reader tests | P12 |
 | 35 | `WEB-D1-033` | Final visual/reference acceptance | `partial` | yes | n/a | n/a | n/a | `WEB_USER_REFERENCE_V1.md` governs; historical #580 captures do not cover later readouts/actions or exact current head | P12 |
-| 36 | `WEB-D1-034` | Localization-ready catalog/formatting/expansion | `unavailable` | English only | no | n/a | n/a | #409 `L10N-D1-005/006/012/013/016/020/024/025`; no catalog/bootstrap; manual formatting and physical CSS remain | P17 |
+| 36 | `WEB-D1-034` | Localization-ready catalog/formatting/expansion | `partial` | English only | no | n/a | n/a | #1164/PR #1165 completed `L10N-D1-005` catalog/bootstrap/document language and ordinary navigation migration; `006/008/009/010/012/013/015/016/017/019/020/024/025/027` remain | P17 |
 | 37 | `WEB-D1-035` | Settings and Day 1 experience-mode controls | `unavailable` | placeholder | no | planning only | partial | `shellModel.ts::navItems` exposes `settings` as a placeholder; `shellModel.test.ts` covers navigation only; no `help_me_decide`, policy or mode-control operation exists; selectable themes remain Day 2 | P18 |
 | 38 | `WEB-D1-036` | Bundled What’s New / release notes | `unavailable` | no | no | n/a | n/a | `MVP_DAY1_SCOPE.md` requires bundled offline-safe version notes; no source route, asset, component or test exists | P19 |
 | 39 | `WEB-D1-037` | Server-managed announcements | `blocked` | no | no | no | no | `MVP_DAY1_SCOPE.md` requires targeted user-web announcements; no contract/client/UI exists; #1094 owns server authority and currently only a mobile handoff | P20 |
@@ -165,7 +164,7 @@ the evidence and owner packet above.
 | `WEB-D1-031` | Narrow-screen behavior is not proven against the complete current surface. |
 | `WEB-D1-032` | Keyboard, focus, zoom, and assistive-technology regressions can escape current evidence. |
 | `WEB-D1-033` | Later runtime slices lack current-head visual/reference acceptance. |
-| `WEB-D1-034` | Hardcoded copy and formatting prevent a safe localization foundation and can expose transport labels. |
+| `WEB-D1-034` | The safe English catalog/bootstrap foundation now exists, but distributed feature/auth copy, manual formatting and unresolved transport labels keep the full localization family incomplete. |
 | `WEB-D1-035` | Users cannot choose Day 1 experience modes or use supported Day 1 settings. |
 | `WEB-D1-036` | Users cannot review offline-safe version changes inside the web app. |
 | `WEB-D1-037` | Users cannot receive authoritative targeted service or policy announcements on web. |
@@ -274,7 +273,7 @@ not assigned to #373 or #963.
 | P14 | 022-024 | Existing #971/#406 with #966 must own package/preview/restore split; restore apply requires a new focused contract/server child before UI | `sync-import-export-restore`; storage and UI paths separated | `sync-import-export`; strong independent; **restore/destructive/privacy/money manual gates** | #971/#966 first; package close requires all authorized Day 1 record/file sections, encryption/integrity, retention and compatibility, plus a pre-download disclosure of artifact scope, sensitivity and retention risk followed by affirmative action. Package and manifest allowlist/denylist tests must prove exclusion of credentials; plaintext passwords; session, refresh, provider and reset tokens; reusable challenges; MFA/TOTP secrets and passkey private material; recovery codes; raw vault/data/recovery/private keys or secrets; storage object keys; signed URLs; local filesystem paths; and other internal storage authority. Encryption never makes those contents exportable. Preview/apply fail closed on source/destination local/server authority, manifest/app/schema versions, unsupported required features, encryption/key availability and privacy downgrade with explicit warnings. Ordinary successful restore must preserve newer and additional destination records absent from the package. Replacement is allowed only through an explicitly dangerous mode with warnings, separate confirmation, dependency checks, audit and retention policy. Apply also binds the exact unchanged preview digest/version to unexpired confirmation, supports cancel/expiry, and proves authz/audit, conflicts/idempotency, all-or-nothing failure, retry/recovery | PRs #618/#620/#623 and #610/#612/#614/#617/#619/#622/#624 are credited; current package is data-only/personal-bill-limited and generated client has no apply method. |
 | P15 | 025-026 | #971/#361 owns queue/offline/local/conflict reconciliation | sync/local domain before UI; locally authoritative records are not a server cache | sync profile; strong; **local-security gate** | #971 plus security design before persistence; close with first-launch local/server choice, local profile/workspace creation, locally authoritative Day 1 bill/OCR operations and backup, encryption/key handling, retention/device loss/sign-out, app PIN where feasible, biometric unlock after platform-capability detection where supported, and later PIN/biometric/encryption-setting changes that never convert local data into server authority. Also require the no-collaboration warning; durable queue/retry; and an actionable conflict list with authorized local-versus-server comparison, keep-server, keep-local/resubmit, explicit discard and supported field-by-field resolution, preserving retained work until a choice succeeds. Explicit connect/import movement is required. Server-mode acceptance waits for P01; local-only operation does not | #361/#364/#406/#971 found; browser storage and a local-only workspace are absent. |
 | P16 | 029 | Existing [#365](https://github.com/tommytang213/Settleora/issues/365) must decide user-web recurring/forecast child scope with #366/#367 after #972 policy disposition | `recurring-bills` then `web-user-ui`; domain and UI split | matching domain profile/`web-ui`; strong independent; **money/decision gate** | P01/#365-#367 and #972; #972 first decides future-only/effective-date edit scope, eligible generated entries, and explicit-draft versus automatic-generation semantics. Close with template create/edit, schedule/due-soon, confirmed pause/resume/archive, forecast, approved generation/instance confirmation, refreshed state, denied/stale/conflict/retry/no-duplicate and visual evidence | Search found generated methods and #365-#367/#972, but no web route/child; UI must not bypass the open policy decision. |
-| P17 | 034 | First child: #409 `L10N-D1-005`; later planning inventories `006/010/012/013/024`; gated runtime/template owners `009/015/017`; `016/025` after #965; `008/019` through #973; `020` after #963/#970/#971/#966; and `027` through #1094/P20 | `web-user-ui` for 005; later `docs-planning`, gated web/API/auth/template children | `web-ui` or `docs-only`; cheap/strong per child; money/auth/storage/admin gates retained | 005 depends only on #963 merge and closes only its English catalog/locale provider, synchronized document `lang`, representative ordinary shell/shared-state migration and tests. P17/row 034 remains open until bounded owners close locale-safe dates/numbers/plurals/collation/money, expansion/logical direction, ordinary/auth copy, notification resolution and dynamic arguments, locale-aware auth email/push/SMTP templates, localized announcements, non-problem server presentation, and `L10N-D1-010` stable problem-code adoption including catalog-resolvable field-validation identifiers instead of field-keyed English arrays; no child may absorb another gate | Exact keyword searches found #409 but no focused catalog issue. #409 explicitly excludes auth/session, money, notification resolver and server strings from 005, so completing 005 cannot close the family. |
+| P17 | 034 | Completed first child: #1164 / `L10N-D1-005` via PR #1165; later planning inventories `006/010/012/013/024`; gated runtime/template owners `009/015/017`; `016/025` after #965; `008/019` through #973; `020` after #970/#971/#966; and `027` through #1094/P20 | completed `web-user-ui` foundation; later `docs-planning`, gated web/API/auth/template children | `web-ui` or `docs-only`; cheap/strong per child; money/auth/storage/admin gates retained | 005 closed only its English catalog/locale provider, synchronized document `lang`, representative ordinary navigation/shared-chrome migration and tests. P17/row 034 remains open until bounded owners close locale-safe dates/numbers/plurals/collation/money, expansion/logical direction, ordinary/auth copy, notification resolution and dynamic arguments, locale-aware auth email/push/SMTP templates, localized announcements, non-problem server presentation, and `L10N-D1-010` stable problem-code adoption including catalog-resolvable field-validation identifiers instead of field-keyed English arrays; no child may absorb another gate | PR #1165 preserves all exclusions: no auth/session/password-reset state copy, money, notification resolver, formatting, feature-body, server-string, API/OpenAPI or generated-client change. |
 | P18 | 035 | Existing [#412](https://github.com/tommytang213/Settleora/issues/412) must split first-launch choice, later settings change, preference authority and user-web acceptance | `design-reference` then `web-user-ui`; any schema/API/OpenAPI/client persistence child remains separate | visual-reference gate then `web-ui`; strong independent; **product/visual and contract manual gates** | Pre-sign-in/local presentation need not wait for P01; server-persisted preference waits for #412 authority and P01. Close web children only when first launch offers Basic, Guided, Advanced and Help me decide; selection/policy/persistence and later mode-change states are proven; `help_me_decide` questions/recommendation work; one-or-two-area limited opt-ins exist or have a product-approved feasibility disposition; and Basic preserves required review/conflict/approval/error/security/privacy states, mandatory-state visibility and desktop/narrow evidence. Across every mode, Day 1 capabilities, server rules, authorization, financial truth, storage access, audit, sync behavior and status transitions remain invariant; modes change guidance and disclosure, never authority or outcomes. Selectable themes stay Day 2 | #412 explicitly owns modes, guidance, settings, persistence and platform splits; `DAY1_UX_IMPLEMENTATION_READINESS_PLAN.md` requires first-launch/settings reference. #580 placeholder is credited; no duplicate child is proposed here. |
 | P19 | 036 | Recommend focused **user-web bundled What’s New** child | `web-user-ui`; pre-shell bundled notes/component/tests and local seen state | `web-ui`; cheap; no server contract | After P17 catalog/bootstrap and approved product-copy/version source; close with localized, expansion-safe product copy, version-keyed seen persistence, automatic unseen-version display, skip/dismiss and settings/help/about reopen, plus zero-auth/network bootstrap evidence for signed-out, local-only and authenticated entry paths and narrow/a11y evidence | No focused owner; #1094 excludes What’s New, and P17 supplies localization infrastructure without absorbing this product surface. |
 | P20 | 037 | Existing [#1094](https://github.com/tommytang213/Settleora/issues/1094) must extend its post-authority handoff split to user web without bundling provider delivery or What’s New | `docs-planning` → API/OpenAPI/client → `web-user-ui`, each separate | matching contract/security then `web-ui`; strong independent; **admin exposure/auth manual gate** | #1094 server authority first and P01 for targeting; domain close must preserve maintenance-window, security-impacting, policy/configuration-change, feature-enablement and service-degradation announcement categories, with explicit category/severity, target surfaces, scheduled active window, read/dismiss or justified non-dismissible state, expiry, and redacted publish/policy audit acceptance. It rejects workflow-event and marketing/advertising categories. `L10N-D1-027` requires locale targeting, deterministic fallback and safe argument interpolation across platforms. Web close requires safe localized content/window/target/severity/read state, persistence, stale/expired/offline/denied handling, idempotent retry/authz, and proof announcements remain distinct from P10/#369 events and P19 notes | #1094 is the announcement owner; notification #973/#369 and bundled notes P19 are distinct and cannot be substituted. |
@@ -286,9 +285,11 @@ not assigned to #373 or #963.
 
 ## 8. Localization reconciliation
 
-- `L10N-D1-005` remains an independent, coherent first implementation
-  foundation. It must not absorb missing product runtime, auth/session copy,
-  notification resolution, formatting, money or server-authored strings.
+- `L10N-D1-005` is complete through #1164/PR #1165 as the independent,
+  coherent English catalog/provider/document-language foundation and ordinary
+  navigation/shared-chrome migration. It did not absorb missing product
+  runtime, auth/session/password-reset copy, notification resolution,
+  formatting, money, feature bodies or server-authored strings.
 - `006`, `012`, `013` and `024` remain separate planning/adoption boundaries
   after 005: ordinary formatting/collation, manually gated money display,
   expansion/logical CSS, and ordinary copy/visible enums respectively.
@@ -314,8 +315,10 @@ not assigned to #373 or #963.
 
 ## 9. Dependency-safe queue
 
-1. **First:** implement `L10N-D1-005` as one `web-user-ui` English
-   catalog/bootstrap/document-language child after #963 closes.
+1. **Completed foundation:** #1164/PR #1165 implemented `L10N-D1-005` as the
+   bounded `web-user-ui` English catalog/bootstrap/document-language child.
+   Select the next execution candidate from the remaining live dependencies;
+   P17 stays open.
 2. **Parallel reconciliation:** #965 auth/session, #966 storage/privacy, #969
    settlement, #971 sync/import/restore, #973 notifications and #977
    reports/search. These are audits, not substitute runtime owners. P19 bundled
