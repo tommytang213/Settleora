@@ -121,6 +121,7 @@ class _SettleoraAuthenticatedServerShellState
   SettleoraNotificationPreferenceSettings _notificationPreferences =
       SettleoraNotificationPreferenceSettings.defaults();
   Set<SettleoraHomeShortcut> _homeShortcuts = settleoraDefaultHomeShortcuts;
+  bool _homeShortcutsLoaded = false;
   late final SettleoraHomeShortcutPreference _resolvedHomeShortcutPreference;
   late final Future<void> _homeShortcutLoad;
   Future<bool>? _homeShortcutWrite;
@@ -143,6 +144,7 @@ class _SettleoraAuthenticatedServerShellState
     }
     setState(() {
       _homeShortcuts = normalizeSettleoraHomeShortcuts(shortcuts);
+      _homeShortcutsLoaded = true;
     });
   }
 
@@ -763,7 +765,8 @@ class _SettleoraAuthenticatedServerShellState
                               onCreateBill: _openCreateBillChooser,
                               onCreateGroup: _openCreateGroup,
                             ),
-                            if (_homeShortcuts.isNotEmpty) ...[
+                            if (_homeShortcutsLoaded &&
+                                _homeShortcuts.isNotEmpty) ...[
                               const SizedBox(height: 16),
                               _DashboardQuickAccess(
                                 shortcuts: _homeShortcuts,
@@ -2121,6 +2124,7 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
   late Set<SettleoraHomeShortcut> _homeShortcuts;
   SettleoraLocalDataBackupExport? _latestBackupExport;
   bool _isBuildingBackup = false;
+  bool _isSavingHomeShortcuts = false;
   final FocusNode _whatsNewFocusNode = FocusNode(
     debugLabel: 'settings-whats-new',
   );
@@ -2160,6 +2164,9 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
   }
 
   Future<void> _openHomeShortcuts() async {
+    if (_isSavingHomeShortcuts) {
+      return;
+    }
     await showSettleoraBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SettleoraBottomSheetFrame(
@@ -2175,13 +2182,26 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
         child: _HomeShortcutSettingsSheet(
           initialSelection: _homeShortcuts,
           onSave: (selection) async {
-            final saved = await widget.onHomeShortcutsChanged(selection);
-            if (saved && mounted) {
+            if (mounted) {
               setState(() {
-                _homeShortcuts = normalizeSettleoraHomeShortcuts(selection);
+                _isSavingHomeShortcuts = true;
               });
             }
-            return saved;
+            try {
+              final saved = await widget.onHomeShortcutsChanged(selection);
+              if (saved && mounted) {
+                setState(() {
+                  _homeShortcuts = normalizeSettleoraHomeShortcuts(selection);
+                });
+              }
+              return saved;
+            } finally {
+              if (mounted) {
+                setState(() {
+                  _isSavingHomeShortcuts = false;
+                });
+              }
+            }
           },
         ),
       ),
@@ -2316,9 +2336,13 @@ class _AppSettingsScreenState extends State<_AppSettingsScreen> {
                               title: 'Home shortcuts',
                               subtitle:
                                   'Choose which quick links appear on Home.',
-                              statusLabel: '${_homeShortcuts.length} shown',
+                              statusLabel: _isSavingHomeShortcuts
+                                  ? 'Saving'
+                                  : '${_homeShortcuts.length} shown',
                               statusVariant: StatusChipVariant.info,
-                              onTap: _openHomeShortcuts,
+                              onTap: _isSavingHomeShortcuts
+                                  ? null
+                                  : _openHomeShortcuts,
                             ),
                           ],
                         ),

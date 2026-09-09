@@ -300,6 +300,11 @@ void main() {
     final storedSelection = Completer<Set<SettleoraHomeShortcut>>();
     final preference = FakeHomeShortcutPreference(pendingRead: storedSelection);
     await pumpShell(tester, homeShortcutPreference: preference);
+    expect(find.text('Quick access'), findsNothing);
+    expect(
+      find.byKey(const Key('server-shell-home-shortcut-notifications')),
+      findsNothing,
+    );
 
     await tester.tap(bottomNavDestination(const Key('bottom-nav-more')));
     await tester.pumpAndSettle();
@@ -437,7 +442,7 @@ void main() {
     expect(preference.writeCalls, 1);
   });
 
-  testWidgets('distinct shortcut writes are serialized while one is pending', (
+  testWidgets('shortcut settings cannot reopen on stale pending values', (
     tester,
   ) async {
     final pendingWrite = Completer<void>();
@@ -457,16 +462,39 @@ void main() {
     expect(preference.writeCalls, 1);
     await tester.tap(find.byKey(const Key('home-shortcuts-close')));
     await tester.pumpAndSettle();
-    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('home-shortcuts-toggle-reports')));
+    expect(
+      tester
+          .widget<SettingsRow>(find.byKey(const Key('settings-home-shortcuts')))
+          .onTap,
+      isNull,
+    );
+    expect(find.text('Saving'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('settings-home-shortcuts')));
     await tester.pump();
+    expect(find.byKey(const Key('home-shortcuts-sheet')), findsNothing);
     expect(preference.writeCalls, 1);
 
     pendingWrite.complete();
     await tester.pumpAndSettle();
+    expect(find.text('3 shown'), findsOneWidget);
+    await scrollToAndTap(tester, const Key('settings-home-shortcuts'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('home-shortcuts-toggle-receipt_reviews')),
+          )
+          .value,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const Key('home-shortcuts-toggle-reports')));
+    await tester.pumpAndSettle();
 
     expect(preference.writeCalls, 2);
+    expect(
+      preference.selection,
+      contains(SettleoraHomeShortcut.receiptReviews),
+    );
     expect(preference.selection, contains(SettleoraHomeShortcut.reports));
     expect(find.byKey(const Key('home-shortcuts-save-error')), findsNothing);
   });
