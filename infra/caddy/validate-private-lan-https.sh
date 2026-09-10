@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+set -f
 
 fail() {
   printf '%s\n' "Settleora private HTTPS preflight failed: $1" >&2

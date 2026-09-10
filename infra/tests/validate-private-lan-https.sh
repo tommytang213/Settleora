@@ -68,6 +68,7 @@ expect_failure "link local" run_preflight 169.254.2.3 settleora.home.arpa 8443
 expect_failure "public address" run_preflight 203.0.113.10 settleora.home.arpa 8443
 expect_failure "ambiguous octet" run_preflight 192.168.050.10 settleora.home.arpa 8443
 expect_failure "malformed address" run_preflight 192.168.1 settleora.home.arpa 8443
+expect_failure "glob-shaped address" run_preflight '192.168.*.1' settleora.home.arpa 8443
 expect_failure "missing hostname" run_preflight 192.168.50.10 '' 8443
 expect_failure "single-label hostname" run_preflight 192.168.50.10 settleora 8443
 expect_failure "localhost hostname" run_preflight 192.168.50.10 api.localhost 8443
