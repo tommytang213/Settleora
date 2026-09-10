@@ -178,8 +178,8 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | --- | --- | --- | --- | --- |
 | API OCI image | `services/api/Dockerfile`; GHCR workflow | `ghcr.io/tommytang213/settleora-api:sha-<commit>` and digest; floating `:main` | Published on every `main` push and `v*` tag; GHCR retention not defined in repo | Build/publish implemented; promotion and retention partial |
 | Local Compose package | `infra/docker-compose.yml` | repository YAML plus example env | Source only | Development-only |
-| TrueNAS source package | `docker-compose.truenas-lan.yml` | repository YAML plus private operator env | Source only | Runnable foundation; broker identity and network/transport posture are not release-safe |
-| TrueNAS image package | `docker-compose.truenas-lan.image.yml` | operator-set exact image recommended; default is `:main` | Source only | Same persistence/transport gaps; API and dependency-image identities are not immutable |
+| TrueNAS source package | `docker-compose.truenas-lan.yml` | repository YAML plus private operator env | Source only | Stable repository-side broker identity is implemented; network/transport posture and live acceptance remain incomplete |
+| TrueNAS image package | `docker-compose.truenas-lan.image.yml` | operator-set exact image recommended; default is `:main` | Source only | Stable repository-side broker identity is implemented; transport and immutable API/dependency-image identities remain incomplete |
 | User web | Vite | `apps/web-user/dist/` | Local ignored output only | Builds, but has no automatic package/publish/serve path |
 | Admin web | none | none | none | Unavailable |
 | Android debug APK | Flutter | `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk` | Local ignored output only | Local build evidence only |
