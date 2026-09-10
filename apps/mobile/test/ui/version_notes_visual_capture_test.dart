@@ -107,6 +107,67 @@ void main() {
     );
   }, tags: ['visual']);
 
+  testWidgets('captures long 320px 2x scrollable injected notes', (
+    tester,
+  ) async {
+    await _prepare(tester, width: 320, height: 760);
+    final notes = SettleoraBundledVersionNotes(
+      releaseKey: '1.0.0+localized-preview',
+      heading: "What's New in this longer localized Settleora release",
+      description: 'Long localized description ' * 8,
+      points: List.generate(
+        8,
+        (index) => 'Long localized product guidance point ${index + 1} ' * 5,
+      ),
+    );
+
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: _captureKey,
+        child: MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: SettleoraTheme.midnight(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: SettleoraAppBootstrap(
+            secureStorage: _VisualSecureStorage(),
+            versionSeenPreference: _VisualVersionSeenPreference(),
+            versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
+            versionNotes: notes,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _capture(tester, 'long-whats-new-320x760-2x-top.png');
+    final sheetScroll = find
+        .ancestor(
+          of: find.byType(SettleoraGuidanceContent),
+          matching: find.byType(SingleChildScrollView),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.textContaining('product guidance point 8').first,
+      500,
+      scrollable: find
+          .descendant(of: sheetScroll, matching: find.byType(Scrollable))
+          .first,
+    );
+    await tester.ensureVisible(find.byKey(const Key('whats-new-close')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('whats-new-close')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _capture(tester, 'long-whats-new-320x760-2x-close-reachable.png');
+  }, tags: ['visual']);
+
   testWidgets('captures current catalog notes at 320px and 2x pixel ratio', (
     tester,
   ) async {
