@@ -204,7 +204,14 @@ persisted_node_name() {
       [ -d "$path" ] || continue
       name="${path##*/}"
       case "$name" in
-        *-plugins-expand) [ -d "${path%-plugins-expand}" ] && continue ;;
+        *-plugins-expand)
+          if [ -d "${path%-plugins-expand}" ] \
+            && [ ! -e "$path/schema.DAT" ] \
+            && [ ! -e "$path/node-type.txt" ] \
+            && [ ! -d "$path/msg_stores" ]; then
+            continue
+          fi
+          ;;
       esac
       [ -z "$found" ] || { echo "multiple persisted node databases" >&2; exit 1; }
       found="$name"
@@ -272,6 +279,7 @@ test_suffix_collision_refusal() (
   # -plugins-expand suffix. With no sibling primary database, this directory
   # must be treated as the primary and must block a different identity.
   mkdir -p "$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@queue-plugins-expand"
+  : >"$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@queue-plugins-expand/schema.DAT"
   export SETTLEORA_RABBITMQ_NODE_HOSTNAME=wrong-rabbitmq-identity
   wrong_id="$(compose_up_rabbitmq "$project" "$compose_file")"
   for _ in $(seq 1 30); do
@@ -285,6 +293,37 @@ test_suffix_collision_refusal() (
   [[ ! -d "$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@wrong-rabbitmq-identity" ]]
 
   printf 'PASS suffix-collision variant=%s persisted_node=rabbit@queue-plugins-expand wrong_identity=refused:66 new_database=absent cleanup=task-owned\n' \
+    "$variant"
+)
+
+test_suffix_sibling_ambiguity_refusal() (
+  local variant="$1"
+  local compose_file="$2"
+  local project="s1189ambiguous${variant//[^a-z0-9]/}$(date +%s)${BASHPID}"
+  local test_root refused_id database_count
+  test_root="$(mktemp -d "/tmp/settleora-issue-1189-ambiguous-${variant}-XXXXXX")"
+  trap 'cleanup_case "$project" "$compose_file" "$test_root"' EXIT
+  set_test_environment "$test_root"
+
+  mkdir -p \
+    "$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@queue" \
+    "$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@queue-plugins-expand"
+  : >"$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@queue/schema.DAT"
+  : >"$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@queue-plugins-expand/schema.DAT"
+  export SETTLEORA_RABBITMQ_NODE_HOSTNAME=queue
+
+  refused_id="$(compose_up_rabbitmq "$project" "$compose_file")"
+  for _ in $(seq 1 30); do
+    [[ "$(docker inspect --format '{{.State.Status}}' "$refused_id")" == "exited" ]] && break
+    sleep 1
+  done
+  [[ "$(docker inspect --format '{{.State.Status}}' "$refused_id")" == "exited" ]]
+  [[ "$(docker inspect --format '{{.State.ExitCode}}' "$refused_id")" == "65" ]]
+  docker logs "$refused_id" 2>&1 | grep -Fq 'data path contains more than one node database'
+  database_count="$(find "$SETTLEORA_RABBITMQ_HOST_PATH/mnesia" -mindepth 1 -maxdepth 1 -type d -name 'rabbit@*' | wc -l)"
+  [[ "$database_count" == "2" ]]
+
+  printf 'PASS suffix-sibling-ambiguity variant=%s databases=2 result=refused:65 broker_started=false new_database=absent cleanup=task-owned\n' \
     "$variant"
 )
 
@@ -312,6 +351,7 @@ for item in "${variants[@]}"; do
   test_clean_recreate "$variant" "$compose_file"
   test_prechange_adoption "$variant" "$compose_file"
   test_suffix_collision_refusal "$variant" "$compose_file"
+  test_suffix_sibling_ambiguity_refusal "$variant" "$compose_file"
 done
 
 echo "RabbitMQ persistence continuity validation passed for both LAN Compose variants."

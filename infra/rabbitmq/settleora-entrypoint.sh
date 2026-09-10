@@ -19,9 +19,15 @@ if [ -d "$mnesia_base" ]; then
       *-plugins-expand)
         # RabbitMQ creates <nodename>-plugins-expand beside the primary node
         # database. Treat the suffix as auxiliary only when that sibling
-        # primary database actually exists; the suffix itself is otherwise a
-        # valid persisted nodename.
-        [ -d "${candidate%-plugins-expand}" ] && continue
+        # exists and this directory has no primary-database markers. A
+        # database-shaped suffix directory is an additional identity and must
+        # make startup fail closed.
+        if [ -d "${candidate%-plugins-expand}" ] \
+          && [ ! -e "$candidate/schema.DAT" ] \
+          && [ ! -e "$candidate/node-type.txt" ] \
+          && [ ! -d "$candidate/msg_stores" ]; then
+          continue
+        fi
         ;;
     esac
 
