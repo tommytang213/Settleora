@@ -152,14 +152,14 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | G05 | Development/test/staging/production distinction | `documentation-only` | architecture requirements; environment variables | Names are described and mobile tokens accept build-environment labels, but no staged deployment/promotion system exists | R09 for any live environment; #946 later-day automation |
 | G06 | Post-deploy health/smoke and approvals | `documentation-only` | deployment guides/checklists | Endpoints and evidence fields exist; only historical #483 bounded health proof exists, not current release-candidate smoke | R05/#975 |
 | G07 | Incident/recovery and retention | `documentation-only` | rollback/backup docs | No product deployment incident drill, artifact-retention policy, or restore/rollback rehearsal exists | R05/R03 |
-| G08 | Production artifact promotion | `externally-gated` | no current production deployment workflow | Requires exact artifact, approval, backup, migration review, health/smoke, rollback, and exposure review; none executed | R09; immutable UAT-to-production automation is #946 later-day |
+| G08 | Production artifact promotion | `blocked` | no current production deployment workflow | No complete promotable candidate or cross-artifact release identity exists; after those prerequisites and a supported deployment path exist, promotion remains an explicit production/manual gate | R03/R05/R08 before R09; immutable UAT-to-production automation is #946 later-day |
 | H01 | Real Codemagic signed cloud build | `externally-gated` | repository config only | Not observable/run in #1185 or this audit | R06 |
 | H02 | App Store Connect upload/processing | `externally-gated` | repository upload block only | No current provider evidence | R06 |
 | H03 | TestFlight internal availability and real-device install | `externally-gated` | manual checklist only | No current tester/device evidence | R06/#975 |
 | H04 | Play Console/upload/install | `unavailable` | no publishing config | R07 must first establish the approved identity, signing, and valid AAB handoff; upload, processing, testing, and device installation become externally gated only after that repository preparation exists | R07, then #975 |
 | H05 | Current TrueNAS install/upgrade/rollback | `externally-gated` | historical #483 install/update subset | No current-baseline upgrade, backup/restore, rollback, or auth/mobile smoke | R05/#975 |
-| H06 | Staging/production deployment | `externally-gated` | no environment deployment record | No actual staging or production environment validation | R09 |
-| H07 | DNS/TLS/proxy/public/admin exposure | `externally-gated` | guardrails only | No approved live configuration/evidence; safe default remains LAN/private | R09 |
+| H06 | Staging/production deployment | `unavailable` | no supported environment/deployment path or record | R03/R05/R08 must first produce a complete candidate and supported deployment handoff; deployment becomes externally gated only after that preparation exists | R09 after prerequisites |
+| H07 | DNS/TLS/proxy/public/admin exposure | `unavailable` | guardrails only; no supported proxy/TLS/exposure path | Safe default remains LAN/private. Exposure becomes externally gated only after #777 and the applicable user/admin owners approve a supported path | R09 after #777 and #376/#463 as applicable |
 | I01 | Auto-runner operational program | `implemented` | `tools/auto-runner/**`; #910/#912 evidence | #910 and #912 are CLOSED; #912 accepted deployed automation source `ecf69d41...`; PR #968 merged `6182d714...` from head `43b2f02b...` as part of that chain | Completed development automation program; not a product deploy dependency |
 | I02 | Auto-runner authority boundary | `implemented` | issue close rules and `AGENTS.md` | Can coordinate approved development PR work; cannot authorize production, stores, exposure, secrets, or destructive migrations | Completed #910/#912; no gap |
 | I03 | Stale #974 dependency text | `superseded` | live #910/#912/PR #968 state and #974 reconciliation comment | “May run after #912” wording is historical; all are completed and separate evidence | #974 issue-body hygiene after merge |
@@ -189,7 +189,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | Trusted LAN/TrueNAS image | LAN image Compose | same private posture | same ordering; image can be exact but defaults floating | config validation only on current source | `partial` |
 | Polished TrueNAS catalog | no package | planned LAN/private default | planned forms/hooks/datasets/backups | docs #486/#487 only | `unavailable` |
 | Staging | none | undefined | undefined | none | `unavailable` |
-| Production/public | none | manual gate; no public/admin default | destructive and backup gates | none | `externally-gated` |
+| Production/public | none | no supported path; any future action is manual-gated and has no public/admin default | destructive and backup gates | none | `unavailable` until repository/product prerequisites exist; then externally gated |
 
 ## 6. Mobile release matrix
 
@@ -372,7 +372,9 @@ foundations, guarded migration ordering, a local user-web build, a debug Android
 build, and an iOS simulator compile path. It does **not** yet have a complete
 Day 1 release candidate: Android release packaging is broken; web/admin package
 and deployment boundaries are incomplete; release identity/retention is partial;
-TrueNAS catalog/upgrade/restore/rollback is unimplemented or unproven; and all
-signed mobile, store, current-host, staging/production, and exposure evidence
-remains manual/external. #380 must remain open. #975 remains the later acceptance
-consumer. #946 remains deferred. #959 remains isolated.
+TrueNAS catalog/upgrade/restore/rollback is unimplemented or unproven; signed
+iOS and current-host evidence remains manual/external; and Android store,
+staging/production, and exposure paths are unavailable until their repository
+and product prerequisites exist, after which live actions remain manually
+gated. #380 must remain open. #975 remains the later acceptance consumer. #946
+remains deferred. #959 remains isolated.
