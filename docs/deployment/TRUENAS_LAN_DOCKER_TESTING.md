@@ -405,7 +405,9 @@ Use the exact certificate hostname, not `localhost` or a bare IP absent from the
 certificate SAN. Keep the iPhone on the same private LAN and confirm normal iOS
 trust before testing. Ordinary LAN HTTP is intentionally rejected by the app.
 
-Do not use a public DNS name, public tunnel, or forwarded router port for this task.
+Do not publish a public A/AAAA service record, public listener, public tunnel,
+or forwarded router port. The registered certificate hostname remains resolved
+only through private DNS to the selected RFC1918 interface.
 
 ## LAN Validation Checklist
 
@@ -480,8 +482,9 @@ LAN host and compose posture:
   the API storage dataset, and any future admin web surface are not publicly
   reachable. Admin web, when implemented, must remain behind LAN, trusted VPN,
   Cloudflare Access-style protection, or an equivalent explicit access gate.
-- Confirm no router port forward, public DNS name, public tunnel, or direct
-  internet exposure is used for this LAN validation.
+- Confirm no router port forward, public A/AAAA service record, public listener,
+  public tunnel, or direct internet exposure is used. The registered certificate
+  hostname may resolve privately to the selected RFC1918 interface.
 
 Persistent storage and env evidence:
 

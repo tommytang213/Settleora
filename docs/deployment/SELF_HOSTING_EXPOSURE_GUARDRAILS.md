@@ -23,8 +23,9 @@ Safe Day 1 default:
 - Keep PostgreSQL, RabbitMQ, RabbitMQ management UI, storage datasets, workers,
   migration jobs, and maintenance surfaces private to the app host/network.
 - Do not forward router ports to Settleora.
-- Do not use public DNS, a public tunnel, or an internet-routable reverse proxy
-  for the LAN testing path.
+- Do not publish a public A/AAAA record pointing at the service, create a public
+  listener, use a public tunnel, or add an internet-routable reverse proxy. An
+  operator-owned registered hostname resolved only by private DNS is supported.
 - Treat admin APIs and any future admin web surface as protected even when the
   API is only LAN-exposed.
 
