@@ -1,0 +1,7 @@
+{
+  "@@locale": "en",
+  "appTitle": "Settleora",
+  "@appTitle": {
+    "description": "English application title used to prove localization generation."
+  }
+}

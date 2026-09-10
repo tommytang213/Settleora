@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "Settleora";
+"CFBundleName" = "Settleora";
+"NSCameraUsageDescription" = "Settleora uses the camera only when you take a receipt photo for bill OCR.";
+"NSPhotoLibraryUsageDescription" = "Settleora uses selected receipt photos only for bill OCR and receipt attachment review.";
+"NSLocationWhenInUseUsageDescription" = "Settleora does not track your location. If iOS asks, location access is only for system photo picker compatibility when selecting receipt images.";
