@@ -13,7 +13,7 @@ const runCommands = (job) => stepsFor(job).map((step) => step.run).filter(Boolea
 
 test('scaffold orchestration preserves the stable fail-closed aggregate', () => {
   const scaffold = workflow('scaffold-validation.yml');
-  assert.deepEqual(scaffold.on.pull_request.branches, ['main']);
+  assert.deepEqual(scaffold.on.pull_request.branches, ['main', 'ai/integration']);
   assert.equal(scaffold.on.pull_request.paths, undefined);
   assert.equal(scaffold.on.pull_request['paths-ignore'], undefined);
   assert.deepEqual(scaffold.permissions, { contents: 'read' });
