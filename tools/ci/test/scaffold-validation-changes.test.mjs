@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { classifyChanges } from '../scaffold-validation-changes.mjs';
+import { aggregateGateDecision, classifyChanges } from '../scaffold-validation-changes.mjs';
 
 function fixture(t, filename = 'docs/guide.md') {
   const root = mkdtempSync(path.join(tmpdir(), 'scaffold-classifier-'));
@@ -40,6 +40,41 @@ for (const [filename, full] of [['docs/guide.md', false], ['services/api/source.
   }
 }
 
+for (const [filename, expected] of [
+  ['README.md', { docs: true, full: false, mobile: false, ios: false }],
+  ['docs/workflow/something.md', { docs: true, full: false, mobile: false, ios: false }],
+  ['docs/static/diagram.png', { docs: true, full: false, mobile: false, ios: false }],
+  ['apps/mobile/lib/app.dart', { docs: false, full: true, mobile: true, ios: true }],
+  ['apps/mobile/test/app_test.dart', { docs: false, full: true, mobile: true, ios: true }],
+  ['apps/mobile/ios/Podfile', { docs: false, full: true, mobile: true, ios: true }],
+  ['apps/mobile/pubspec.yaml', { docs: false, full: true, mobile: true, ios: true }],
+  ['packages/client-dart/lib/generated/client.dart', { docs: false, full: true, mobile: true, ios: true }],
+  ['.github/workflows/scaffold-validation.yml', { docs: false, full: true, mobile: true, ios: true }],
+  ['.github/workflows/mobile-ios-validation.yml', { docs: false, full: true, mobile: true, ios: true }],
+  ['tools/ci/scaffold-validation-changes.mjs', { docs: false, full: true, mobile: true, ios: true }],
+  ['tools/ci/test/scaffold-validation-changes.test.mjs', { docs: false, full: true, mobile: true, ios: true }],
+  ['tools/ci/test/ci-workflow-policy.test.mjs', { docs: false, full: true, mobile: true, ios: true }],
+  ['package.json', { docs: false, full: true, mobile: true, ios: false }],
+  ['tools/doctor-validation.mjs', { docs: false, full: true, mobile: true, ios: false }],
+  ['codemagic.yaml', { docs: false, full: true, mobile: true, ios: true }],
+  ['services/api/source.cs', { docs: false, full: true, mobile: false, ios: false }],
+]) {
+  test(`routing matrix: ${filename}`, (t) => {
+    const f = fixture(t, filename);
+    Object.assign(f.env, { EVENT_NAME: 'pull_request', PR_BASE_SHA: f.base });
+    const result = classifyChanges(f.env, f.git);
+    assert.deepEqual(
+      {
+        docs: result.docs_only,
+        full: result.run_full_validation,
+        mobile: result.run_mobile_validation,
+        ios: result.run_ios_validation,
+      },
+      expected,
+    );
+  });
+}
+
 test('missing before on non-default branch uses fixed main proof', (t) => {
   const f = fixture(t); delete f.env.BEFORE_SHA;
   assert.equal(classifyChanges(f.env, f.git).docs_only, true);
@@ -47,7 +82,11 @@ test('missing before on non-default branch uses fixed main proof', (t) => {
 for (const ref of ['refs/heads/main', 'refs/tags/docs/test', '', undefined]) {
   test(`zero-before default/non-branch ref ${ref} fails closed`, (t) => {
     const f = fixture(t); f.env.EVENT_REF = ref;
-    assert.equal(classifyChanges(f.env, f.git).run_full_validation, true);
+    const result = classifyChanges(f.env, f.git);
+    assert.deepEqual(
+      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
+      [true, true, true],
+    );
   });
 }
 for (const [label, command, output] of [
@@ -71,32 +110,56 @@ for (const [label, command, output] of [
       }
       return f.git(args);
     };
-    assert.equal(classifyChanges(f.env, git).run_full_validation, true);
+    const result = classifyChanges(f.env, git);
+    assert.deepEqual(
+      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
+      [true, true, true],
+    );
   });
 }
 test('ancestry inconsistency fails closed', (t) => {
   const f = fixture(t);
   const git = (args) => { if (args.includes('--is-ancestor')) throw new Error('Not ancestor'); return f.git(args); };
-  assert.equal(classifyChanges(f.env, git).run_full_validation, true);
+  const result = classifyChanges(f.env, git);
+  assert.deepEqual(
+    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
+    [true, true, true],
+  );
 });
 test('shallow history fails closed', (t) => {
   const f = fixture(t);
   const git = (args) => args.includes('--is-shallow-repository') ? 'true\n' : f.git(args);
-  assert.equal(classifyChanges(f.env, git).run_full_validation, true);
+  const result = classifyChanges(f.env, git);
+  assert.deepEqual(
+    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
+    [true, true, true],
+  );
 });
 test('wrong current head and invalid event SHA fail closed', (t) => {
   const f = fixture(t);
   for (const head of [f.base, '0'.repeat(40), '--upload-pack=bad', undefined]) {
-    assert.equal(classifyChanges({ ...f.env, CURRENT_SHA: head }, f.git).run_full_validation, true);
+    const result = classifyChanges({ ...f.env, CURRENT_SHA: head }, f.git);
+    assert.deepEqual(
+      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
+      [true, true, true],
+    );
   }
   for (const base of ['--upload-pack=bad', 'f'.repeat(40)]) {
-    assert.equal(classifyChanges({ ...f.env, BEFORE_SHA: base }, f.git).run_full_validation, true);
+    const result = classifyChanges({ ...f.env, BEFORE_SHA: base }, f.git);
+    assert.deepEqual(
+      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
+      [true, true, true],
+    );
   }
 });
 test('real empty branch delta fails closed', (t) => {
   const f = fixture(t);
   f.git(['switch', 'main']); f.env.CURRENT_SHA = f.base;
-  assert.equal(classifyChanges(f.env, f.git).run_full_validation, true);
+  const result = classifyChanges(f.env, f.git);
+  assert.deepEqual(
+    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
+    [true, true, true],
+  );
 });
 test('source renamed into docs requires full validation', (t) => {
   const f = fixture(t, 'source.txt');
@@ -104,14 +167,9 @@ test('source renamed into docs requires full validation', (t) => {
   f.git(['mv', 'source.txt', 'docs/source.md']);
   f.git(['commit', '-m', 'rename']);
   Object.assign(f.env, { BEFORE_SHA: f.head, CURRENT_SHA: f.git(['rev-parse', 'HEAD']).trim() });
-  assert.equal(classifyChanges(f.env, f.git).run_full_validation, true);
-});
-test('workflow uses shared classifier and retains six expensive step gates', () => {
-  const workflow = readFileSync(new URL('../../../.github/workflows/scaffold-validation.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /run: node tools\/ci\/scaffold-validation-changes.mjs/);
-  assert.equal(workflow.match(/if: steps.changes.outputs.run_full_validation == 'true'/g)?.length, 6);
-  for (const command of ['npm ci', 'npm run validate:scaffold']) assert.ok(workflow.includes(`run: ${command}`));
-  assert.match(workflow, /contents: read/);
+  const result = classifyChanges(f.env, f.git);
+  assert.equal(result.docs_only, false);
+  assert.equal(result.run_full_validation, true);
 });
 
 for (const [filename, full] of [['docs/guide.md', false], ['services/api/source.cs', true]]) {
@@ -133,5 +191,60 @@ test('CLI stdout is fixed outputs only; evidence cannot inject workflow outputs'
   const stdout = execFileSync(process.execPath, [cli.pathname], {
     cwd: f.repo, env: { ...process.env, ...f.env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
   });
-  assert.equal(stdout, 'run_full_validation=false\ndocs_only=true\n');
+  assert.equal(
+    stdout,
+    'run_full_validation=false\n' +
+      'docs_only=true\n' +
+      'run_mobile_validation=false\n' +
+      'run_ios_validation=false\n',
+  );
+});
+
+const passingGate = {
+  EVENT_NAME: 'pull_request',
+  CLASSIFY_RESULT: 'success',
+  RUN_FULL_VALIDATION: 'true',
+  RUN_MOBILE_VALIDATION: 'true',
+  RUN_IOS_VALIDATION: 'true',
+  FULL_RESULT: 'success',
+  MOBILE_RESULT: 'success',
+  IOS_RESULT: 'success',
+};
+
+test('aggregate accepts required successful validation and intentional docs-only skips', () => {
+  assert.equal(aggregateGateDecision(passingGate).ok, true);
+  assert.equal(aggregateGateDecision({
+    ...passingGate,
+    RUN_FULL_VALIDATION: 'false',
+    RUN_MOBILE_VALIDATION: 'false',
+    RUN_IOS_VALIDATION: 'false',
+    FULL_RESULT: 'skipped',
+    MOBILE_RESULT: 'skipped',
+    IOS_RESULT: 'skipped',
+  }).ok, true);
+});
+
+for (const [label, patch] of [
+  ['mobile failure', { MOBILE_RESULT: 'failure' }],
+  ['mobile cancellation', { MOBILE_RESULT: 'cancelled' }],
+  ['iOS failure', { IOS_RESULT: 'failure' }],
+  ['iOS cancellation', { IOS_RESULT: 'cancelled' }],
+  ['full failure', { FULL_RESULT: 'failure' }],
+  ['classifier failure', { CLASSIFY_RESULT: 'failure' }],
+  ['missing classifier output', { RUN_MOBILE_VALIDATION: '' }],
+  ['required mobile skip', { MOBILE_RESULT: 'skipped' }],
+  ['unrequired mobile execution', { RUN_MOBILE_VALIDATION: 'false' }],
+]) {
+  test(`aggregate rejects ${label}`, () => {
+    assert.equal(aggregateGateDecision({ ...passingGate, ...patch }).ok, false);
+  });
+}
+
+test('aggregate accepts skipped PR-only lanes on a push but still requires full validation', () => {
+  assert.equal(aggregateGateDecision({
+    ...passingGate,
+    EVENT_NAME: 'push',
+    MOBILE_RESULT: 'skipped',
+    IOS_RESULT: 'skipped',
+  }).ok, true);
 });

@@ -4,13 +4,35 @@ import { pathToFileURL } from 'node:url';
 const shaPattern = /^[0-9a-f]{40}$/;
 const zeroSha = '0'.repeat(40);
 const docsPattern = /^docs\/.+\.(md|mdx|txt|png|jpg|jpeg|gif|svg|webp|avif|pdf)$/;
+const mobileAndIosPatterns = [
+  /^apps\/mobile\//,
+  /^packages\/client-dart\//,
+];
+const mobileAndIosExactPaths = new Set([
+  '.github/workflows/scaffold-validation.yml',
+  '.github/workflows/mobile-ios-validation.yml',
+  'tools/ci/scaffold-validation-changes.mjs',
+  'tools/ci/test/scaffold-validation-changes.test.mjs',
+  'tools/ci/test/ci-workflow-policy.test.mjs',
+  'codemagic.yaml',
+]);
+const mobileOnlyExactPaths = new Set([
+  'package.json',
+  'tools/doctor-validation.mjs',
+]);
 const gitCommand = (args) => execFileSync('git', args, {
   encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000,
 });
 
 // The workflow and offline tests use this same policy. Any failed proof is full.
 export function classifyChanges(env, git = gitCommand) {
-  const full = (reason) => ({ docs_only: false, run_full_validation: true, reason });
+  const full = (reason) => ({
+    docs_only: false,
+    run_full_validation: true,
+    run_mobile_validation: true,
+    run_ios_validation: true,
+    reason,
+  });
   try {
     const head = env.CURRENT_SHA;
     if (!shaPattern.test(head ?? '') || head === zeroSha) return full('Invalid current SHA');
@@ -50,15 +72,56 @@ export function classifyChanges(env, git = gitCommand) {
     const paths = raw.slice(0, -1).split('\0');
     if (paths.some((p) => !p || /[\r\n\uFFFD]/u.test(p))) return full('Untrusted changed-file evidence');
     const docsOnly = paths.every((p) => p === 'README.md' || docsPattern.test(p));
-    return { docs_only: docsOnly, run_full_validation: !docsOnly, reason: proof, base, head, paths };
+    const runIosValidation = paths.some((p) =>
+      mobileAndIosExactPaths.has(p) || mobileAndIosPatterns.some((pattern) => pattern.test(p)));
+    const runMobileValidation = runIosValidation || paths.some((p) => mobileOnlyExactPaths.has(p));
+    return {
+      docs_only: docsOnly,
+      run_full_validation: !docsOnly,
+      run_mobile_validation: runMobileValidation,
+      run_ios_validation: runIosValidation,
+      reason: proof,
+      base,
+      head,
+      paths,
+    };
   } catch {
     return full('Git proof failed');
   }
 }
 
+export function aggregateGateDecision(env) {
+  const booleanKeys = ['RUN_FULL_VALIDATION', 'RUN_MOBILE_VALIDATION', 'RUN_IOS_VALIDATION'];
+  const invalidBoolean = booleanKeys.find((key) => !['true', 'false'].includes(env[key]));
+  if (invalidBoolean) return { ok: false, reason: `Invalid or missing ${invalidBoolean}` };
+  if (env.CLASSIFY_RESULT !== 'success') return { ok: false, reason: 'Classifier/scaffold validation did not succeed' };
+
+  const requirements = [
+    ['full validation', env.RUN_FULL_VALIDATION === 'true', env.FULL_RESULT],
+    ['mobile validation', env.EVENT_NAME === 'pull_request' && env.RUN_MOBILE_VALIDATION === 'true', env.MOBILE_RESULT],
+    ['iOS validation', env.EVENT_NAME === 'pull_request' && env.RUN_IOS_VALIDATION === 'true', env.IOS_RESULT],
+  ];
+  for (const [label, required, result] of requirements) {
+    const expected = required ? 'success' : 'skipped';
+    if (result !== expected) return { ok: false, reason: `${label} was ${result || 'missing'}; expected ${expected}` };
+  }
+  return { ok: true, reason: 'All classifier-required validations succeeded' };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const result = classifyChanges(process.env);
-  // Stdout is only fixed booleans; evidence stays on stderr, never in outputs.
-  process.stdout.write(`run_full_validation=${result.run_full_validation}\ndocs_only=${result.docs_only}\n`);
-  console.error(JSON.stringify({ event: process.env.EVENT_NAME, before: process.env.BEFORE_SHA, ...result }));
+  if (process.argv[2] === '--validate-gate') {
+    const decision = aggregateGateDecision(process.env);
+    console.error(JSON.stringify(decision));
+    if (!decision.ok) process.exitCode = 1;
+  } else {
+    const result = classifyChanges(process.env);
+    // Stdout is only fixed booleans; evidence stays on stderr, never in outputs.
+    process.stdout.write(
+      `run_full_validation=${result.run_full_validation}\n` +
+      `docs_only=${result.docs_only}\n` +
+      `run_mobile_validation=${result.run_mobile_validation}\n` +
+      `run_ios_validation=${result.run_ios_validation}\n`,
+    );
+    console.error(JSON.stringify({ event: process.env.EVENT_NAME, before: process.env.BEFORE_SHA, ...result }));
+  }
 }
