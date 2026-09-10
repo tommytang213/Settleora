@@ -46,6 +46,14 @@ void main() {
       expect(notifications.single.id, _notificationId);
       expect(notifications.single.displayTitle, 'Bill submitted');
       expect(notifications.single.displaySummary, 'Dinner bill is ready.');
+      expect(
+        notifications.single.titleKey,
+        'notifications.bill.submitted.title',
+      );
+      expect(
+        notifications.single.messageKey,
+        'notifications.bill.submitted.message',
+      );
       expect(notifications.single.actionUrl, '/api/v1/bills/hidden');
       expect(notifications.single.groupId, isNull);
       expect(notifications.single.expenseBillId, _billId);
@@ -85,8 +93,12 @@ void main() {
       );
 
       expect(read.status, SettleoraNotificationStatusValues.read);
+      expect(read.titleKey, 'notifications.bill.submitted.title');
+      expect(read.messageKey, 'notifications.bill.submitted.message');
       expect(summary.unreadCount, 0);
       expect(archived.status, SettleoraNotificationStatusValues.archived);
+      expect(archived.titleKey, 'notifications.bill.submitted.title');
+      expect(archived.messageKey, 'notifications.bill.submitted.message');
       expect(client.markReadCalls, 1);
       expect(client.markAllReadCalls, 1);
       expect(client.archiveCalls, 1);

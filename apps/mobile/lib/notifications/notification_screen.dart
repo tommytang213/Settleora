@@ -18,6 +18,7 @@ import '../sync/sync_repository.dart';
 import '../ui/settleora_components.dart';
 import 'notification_preferences.dart';
 import 'notification_repository.dart';
+import 'notification_localization.dart';
 
 class SettleoraNotificationScreen extends StatefulWidget {
   const SettleoraNotificationScreen({
@@ -466,7 +467,10 @@ class _SettleoraNotificationScreenState
             repository: billRevisionRepository,
             billId: refreshedBillId,
             revisionId: refreshedRevisionId,
-            billLabel: refreshedNotification.displayTitle,
+            billLabel: settleoraLocalizedNotificationTitle(
+              context,
+              refreshedNotification,
+            ),
           ),
         ),
       );
@@ -1847,7 +1851,10 @@ class _NotificationTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      notification.displayTitle,
+                      settleoraLocalizedNotificationTitle(
+                        context,
+                        notification,
+                      ),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium,
@@ -1903,7 +1910,7 @@ class _NotificationTile extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            notification.displaySummary,
+            settleoraLocalizedNotificationSummary(context, notification),
             maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: bodyStyle,
@@ -2067,15 +2074,17 @@ class _NotificationDetailSheet extends StatelessWidget {
         : 'Refresh the inbox if this looks stale, or check the related section.';
 
     return SettleoraBottomSheetFrame(
-      title: notification.displayTitle,
-      subtitle: notification.displaySummary,
+      title: settleoraLocalizedNotificationTitle(context, notification),
+      subtitle: settleoraLocalizedNotificationSummary(context, notification),
       child: Column(
         key: const Key('notification-detail-sheet'),
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _NotificationDetailSection(
             title: 'What happened',
-            child: Text(notification.displaySummary),
+            child: Text(
+              settleoraLocalizedNotificationSummary(context, notification),
+            ),
           ),
           const SizedBox(height: 14),
           _NotificationDetailSection(
@@ -2879,6 +2888,8 @@ SettleoraNotificationRow _copyNotificationRead(
     priority: notification.priority,
     subjectType: notification.subjectType,
     safeSummary: notification.safeSummary,
+    titleKey: notification.titleKey,
+    messageKey: notification.messageKey,
     actionUrl: notification.actionUrl,
     groupId: notification.groupId,
     expenseBillId: notification.expenseBillId,

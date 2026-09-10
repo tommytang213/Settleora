@@ -224,6 +224,8 @@ class SettleoraNotificationRow {
     required this.priority,
     required this.subjectType,
     required this.safeSummary,
+    this.titleKey,
+    this.messageKey,
     required this.actionUrl,
     required this.groupId,
     required this.expenseBillId,
@@ -246,6 +248,8 @@ class SettleoraNotificationRow {
   final SettleoraNotificationPriority priority;
   final SettleoraNotificationSubjectType subjectType;
   final String? safeSummary;
+  final String? titleKey;
+  final String? messageKey;
   final String? actionUrl;
   final String? groupId;
   final String? expenseBillId;
@@ -341,8 +345,11 @@ class SettleoraNotificationRow {
 
   String get displayTitle => settleoraNotificationEventLabel(eventType);
 
+  String? get boundedSafeSummary =>
+      _boundedSafeText(safeSummary, maxLength: 240);
+
   String get displaySummary {
-    final summary = _boundedSafeText(safeSummary, maxLength: 240);
+    final summary = boundedSafeSummary;
     if (summary != null) {
       return summary;
     }

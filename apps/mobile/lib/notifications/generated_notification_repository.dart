@@ -266,6 +266,8 @@ SettleoraNotificationRow _mapRow(api.InAppNotificationResponse response) {
     priority: response.priority,
     subjectType: response.subjectType,
     safeSummary: response.safeSummary,
+    titleKey: response.titleKey,
+    messageKey: response.messageKey,
     actionUrl: response.actionUrl,
     groupId: response.groupId,
     expenseBillId: response.expenseBillId,
