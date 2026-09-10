@@ -1,15 +1,16 @@
 name: Mobile iOS Validation
 
 on:
-  pull_request:
-    # Automatic iOS builds are limited to native/dependency/workflow changes
-    # to conserve hosted macOS minutes. Use workflow_dispatch for large mobile
-    # PRs or release validation.
-    paths:
-      - "apps/mobile/ios/**"
-      - "apps/mobile/pubspec.yaml"
-      - "apps/mobile/pubspec.lock"
-      - ".github/workflows/mobile-ios-validation.yml"
+  workflow_call:
+    inputs:
+      checkout_ref:
+        description: "Exact candidate SHA to validate."
+        required: true
+        type: string
+      expected_head:
+        description: "Exact commit SHA expected after checkout."
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       checkout_ref:
@@ -34,11 +35,11 @@ jobs:
         # Pinned from actions/checkout@v6.
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.checkout_ref || github.event.pull_request.head.sha }}
+          ref: ${{ inputs.checkout_ref }}
           fetch-depth: 1
 
       - name: Verify expected head
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_head != '' }}
+        if: ${{ inputs.expected_head != '' }}
         env:
           EXPECTED_HEAD: ${{ inputs.expected_head }}
         run: |
@@ -52,6 +53,8 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: stable
+          # Keep Linux and macOS on the same repository-validated stable SDK.
+          flutter-version: "3.44.8"
           cache: true
 
       - name: Show Flutter version
