@@ -50,6 +50,8 @@ The LAN compose package:
 - Sets `Settleora__Storage__Provider=Local`.
 - Mounts persistent API local file storage at `SETTLEORA_STORAGE_ROOT`.
 - Uses bind mounts for PostgreSQL, RabbitMQ, and API file storage so the maintainer can point them at TrueNAS datasets.
+- Requires one stable RabbitMQ node hostname and refuses to start when an existing
+  node database belongs to a different identity.
 - Adds health checks for PostgreSQL and RabbitMQ before the API starts.
 
 The API health endpoints remain HTTP endpoints checked after startup:
@@ -87,6 +89,7 @@ Required LAN-test settings:
 | `SETTLEORA_POSTGRES_HOST_PATH` | Host dataset path for PostgreSQL data. | Must be persistent and writable by the Docker runtime. |
 | `RABBITMQ_DEFAULT_USER` | RabbitMQ user. | Use a non-default value. |
 | `RABBITMQ_DEFAULT_PASS` | RabbitMQ password. | Generate a strong secret; do not commit it. |
+| `SETTLEORA_RABBITMQ_NODE_HOSTNAME` | Stable RabbitMQ persistence identity host component. | Required. Use `settleora-rabbitmq` for a clean install and never casually change it after broker data exists. |
 | `SETTLEORA_RABBITMQ_HOST_PATH` | Host dataset path for RabbitMQ data. | Must be persistent and writable by the Docker runtime. |
 | `SETTLEORA_STORAGE_PROVIDER` | Storage provider. | Current compose path uses `Local`. |
 | `SETTLEORA_STORAGE_ROOT` | API local storage root inside the API container. | Defaults to `/var/lib/settleora/storage` for the LAN package. |
@@ -103,6 +106,41 @@ The compose file also sets service-internal connection strings:
 - PostgreSQL host: `postgres:5432`
 - RabbitMQ host: `rabbitmq:5672`
 - API listener: `http://+:8080`
+
+### RabbitMQ persistence identity and existing installs
+
+RabbitMQ stores definitions and messages in a node-specific database. Both LAN
+Compose variants therefore derive the container hostname and
+`RABBITMQ_NODENAME` from the single required
+`SETTLEORA_RABBITMQ_NODE_HOSTNAME` input. The clean-install example produces
+the node name `rabbit@settleora-rabbitmq`; changing that value after data exists
+does not rename or migrate the broker database.
+
+Before the first start of this hardened package against an existing RabbitMQ
+dataset, keep the old broker running long enough to record its current identity
+with this credential- and cookie-free command:
+
+```bash
+cd /workspace/repos/Settleora
+docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.yml -p settleora_lan exec -T rabbitmq rabbitmqctl eval 'node().'
+```
+
+For output such as `rabbit@<previous-hostname>`, set
+`SETTLEORA_RABBITMQ_NODE_HOSTNAME=<previous-hostname>` in the private LAN env
+file before replacing the container. If the old broker is already stopped,
+inspect only the directory names immediately below the dataset's `mnesia`
+directory using an operator-approved read-only host command. The one primary
+directory named `rabbit@<previous-hostname>` provides the value; do not read or
+copy `.erlang.cookie`.
+
+There is intentionally no fallback value. A missing identity fails Compose
+interpolation before startup. The broker entrypoint also refuses a non-empty
+dataset when its primary `rabbit@...` database directory differs from the
+configured identity, or when more than one primary node database is present.
+That refusal prevents a healthy but empty node from masking persisted state.
+Preserving the previous identity is a non-destructive adoption; node rename,
+dataset reset, cookie changes, or live-host migration remain separate manual
+gates.
 
 ## LAN-Only Network Rules
 
@@ -313,7 +351,14 @@ For this TrueNAS LAN package, also record the LAN compose config result:
 cd /workspace/repos/Settleora
 npm run validate:compose:truenas-lan
 npm run validate:compose:truenas-lan-image
+bash infra/tests/validate-rabbitmq-persistence.sh
 ```
+
+The focused RabbitMQ validator uses only unique Compose projects and temporary
+host directories. It proves two recreate cycles for each LAN variant, durable
+marker/message continuity, refusal of missing or mismatched identity, and
+non-destructive adoption of a disposable database created with the pre-change
+node-name semantics. It does not inspect or mutate an operator dataset.
 
 When the task or release gate requires API Docker image evidence, record:
 

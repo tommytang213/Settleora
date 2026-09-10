@@ -63,13 +63,24 @@ services:
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
+    hostname: "${SETTLEORA_RABBITMQ_NODE_HOSTNAME:?Set SETTLEORA_RABBITMQ_NODE_HOSTNAME to the persistent RabbitMQ node hostname}"
+    entrypoint:
+      - /bin/sh
+      - /usr/local/bin/settleora-rabbitmq-entrypoint.sh
+    command:
+      - rabbitmq-server
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+      RABBITMQ_NODENAME: "rabbit@${SETTLEORA_RABBITMQ_NODE_HOSTNAME:?Set SETTLEORA_RABBITMQ_NODE_HOSTNAME to the persistent RabbitMQ node hostname}"
     volumes:
       - type: bind
         source: ${SETTLEORA_RABBITMQ_HOST_PATH}
         target: /var/lib/rabbitmq
+      - type: bind
+        source: ./rabbitmq/settleora-entrypoint.sh
+        target: /usr/local/bin/settleora-rabbitmq-entrypoint.sh
+        read_only: true
     healthcheck:
       test:
         - CMD
