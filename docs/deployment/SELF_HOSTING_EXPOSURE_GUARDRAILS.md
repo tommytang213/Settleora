@@ -37,7 +37,7 @@ public exposure or another proxy tier.
 
 | Mode | Day 1 posture | Requirements before use |
 | --- | --- | --- |
-| LAN-only testing | Allowed default for trusted household/small-group testing. | API bound only to the needed trusted LAN interface/port; no router port forward; internals private. |
+| LAN-only testing | Allowed default for trusted household/small-group testing. | HTTPS ingress published only on the selected RFC1918 interface/port; API HTTP remains un-published; no router port forward; internals private. |
 | Trusted VPN/private access | Allowed only after maintainer review of the private network boundary. | VPN users are trusted operators/users; no public direct access; proxy/VPN logs follow redaction rules. |
 | Cloudflare Access or equivalent protected admin path | Future manual-gated option for admin and possibly API protection. | Identity-aware access policy reviewed; admin protection evidence captured; no assumption that Cloudflare Access alone makes admin safe for public exposure. |
 | Internet-facing/public user access | Blocked by default. | Requires public exposure, production deployment, auth/session/security, storage/privacy, reverse proxy/TLS, logging, rollback, and release gates. |

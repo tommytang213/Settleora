@@ -15,12 +15,18 @@ edge_network="settleora-r12-edge-$test_id"
 ingress_network="settleora-r12-ingress-$test_id"
 mock_container="settleora-r12-api-$test_id"
 ingress_container="settleora-r12-ingress-$test_id"
+helper_container="settleora-r12-key-owner-$test_id"
 edge_network_created=false
 ingress_network_created=false
 mock_created=false
 ingress_created=false
+helper_created=false
 
 cleanup() {
+  if [ "$helper_created" = true ] &&
+    [ "$(docker inspect -f '{{ index .Config.Labels "com.settleora.r12-run" }}' "$helper_container" 2>/dev/null || true)" = "$test_id" ]; then
+    docker rm -f "$helper_container" >/dev/null 2>&1 || true
+  fi
   if [ "$ingress_created" = true ] &&
     [ "$(docker inspect -f '{{ index .Config.Labels "com.settleora.r12-run" }}' "$ingress_container" 2>/dev/null || true)" = "$test_id" ]; then
     docker rm -f "$ingress_container" >/dev/null 2>&1 || true
@@ -153,10 +159,18 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
   -subj '/CN=settleora.home.arpa' \
   -addext 'subjectAltName=DNS:settleora.home.arpa' \
   -keyout "$tmp_dir/smoke.key" -out "$tmp_dir/smoke.crt" >/dev/null 2>&1
-# These are disposable synthetic files owned by the test UID. The key remains
-# group-readable only so the preflight proves it rejects other-user access.
+# These are disposable synthetic files. A labeled, cleanup-owned helper sets
+# the key's numeric owner independently of the invoking host user's UID/GID.
 chmod 0644 "$tmp_dir/smoke.crt"
-chmod 0640 "$tmp_dir/smoke.key"
+docker create --name "$helper_container" --label "$run_label" \
+  --entrypoint /bin/sh \
+  -v "$tmp_dir:/fixtures" \
+  caddy:2.11.4-alpine \
+  -c 'chown 1000:1000 /fixtures/smoke.key && chmod 0640 /fixtures/smoke.key' >/dev/null
+helper_created=true
+docker start --attach "$helper_container" >/dev/null
+docker rm "$helper_container" >/dev/null
+helper_created=false
 
 docker run --rm \
   -e SETTLEORA_HTTPS_HOSTNAME=settleora.home.arpa \
