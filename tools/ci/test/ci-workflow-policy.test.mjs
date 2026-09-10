@@ -57,10 +57,15 @@ test('full and mobile validation commands remain unweakened', () => {
 
   const mobile = scaffold.jobs['mobile-validation'];
   assert.equal(mobile.if, "${{ github.event_name == 'pull_request' && needs.classify.outputs.run_mobile_validation == 'true' }}");
-  assert.deepEqual(runCommands(mobile), ['npm run validate:mobile']);
+  assert.equal(runCommands(mobile).at(-1), 'npm run validate:mobile');
   const mobileFlutter = stepsFor(mobile).find((step) => step.uses?.startsWith('subosito/flutter-action@'));
   assert.equal(mobileFlutter.with.channel, 'stable');
   assert.equal(mobileFlutter.with['flutter-version'], '3.44.8');
+  const mobilePreparation = stepsFor(mobile).find(
+    (step) => step.name === 'Prepare repository mobile test paths',
+  );
+  assert.match(mobilePreparation.run, /\/opt\/flutter/);
+  assert.match(mobilePreparation.run, /\/workspace\/logs/);
   assert.doesNotMatch(JSON.stringify(mobile), /continue-on-error|--no-fatal-warnings|\|\|\s*true/);
 
   const packageJson = JSON.parse(read('package.json'));
