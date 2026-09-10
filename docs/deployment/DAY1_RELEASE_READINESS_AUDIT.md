@@ -105,8 +105,8 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | A01 | Every PR to `main` is classified; docs-only stays lightweight | `implemented` | `.github/workflows/scaffold-validation.yml`; `tools/ci/scaffold-validation-changes.mjs` | Local `node --test tools/ci/test/*.test.mjs`; automatic classifier has no PR path filter; [PR #1187](https://github.com/tommytang213/Settleora/pull/1187) proves docs-only full/mobile/iOS skips | Completed #1185; no gap |
 | A02 | Stable required aggregate and branch enforcement | `implemented` | `scaffold-validation.yml` job `aggregate` | Ruleset `17875790` is active for `main`/`prod`, requires only `Validate scaffold`, permits merge commits, blocks deletion/non-fast-forward, and has no bypass actor | Completed #1185/#382; no ruleset mutation required |
 | A03 | Non-doc OpenAPI, generated-client, API, Compose, API-Docker validation | `implemented` | `scaffold-validation.yml`; root `package.json` | `validate:openapi`, `validate:clients`, `validate:api`, `validate:compose`, `validate:api-docker`; all succeeded on [PR #1186](https://github.com/tommytang213/Settleora/pull/1186) | Completed #1185; no gap |
-| A04 | Mobile `pub get`, fatal analyze, and tests through one root authority | `implemented` | `package.json` exact `validate:mobile` script | Runs doctor, `flutter pub get`, `flutter analyze`, `flutter test`; no continue-on-error; automatic on `apps/mobile/**` or `packages/client-dart/**`; passed PR #1186 | Completed #1185; no gap |
-| A05 | GitHub-hosted iOS simulator compile | `implemented` | `.github/workflows/mobile-ios-validation.yml` | Reusable exact-head macOS job runs pub get, pods, `flutter build ios --debug --simulator`; passed PR #1186 | Completed #1185; simulator output is CI evidence, not a signed release artifact |
+| A04 | Mobile `pub get`, fatal analyze, and normal tests through one shared authority | `implemented` | `package.json`; `apps/mobile/tool/validate-release.sh` | Root validation keeps the mobile doctor, then the shared script runs pub get, analyze and 63 normal/mixed files with `--exclude-tags visual`; dedicated visual filenames remain separate; 1,051 tests passed locally on source `c38bcbf3...` and in PR #1193's synthetic merge `9b80cfe4...` | Completed #1185/#1192; no gap |
+| A05 | GitHub-hosted iOS simulator compile | `implemented` | `.github/workflows/mobile-ios-validation.yml` | Reusable exact-head macOS job pins Flutter 3.44.8 and runs pub get, pods, `flutter build ios --debug --simulator`; passed PR #1186 and source head `c38bcbf3...` for corrective PR #1193 | Completed #1185/#1192; simulator output is CI evidence, not a signed release artifact |
 | A06 | CI self-change and unknown-proof fail closed | `implemented` | classifier exact-path sets and `aggregateGateDecision`; `tools/ci/test/ci-workflow-policy.test.mjs` | CI/config/tool changes route mobile+iOS; invalid SHA/history/diff or missing result requires the expensive lanes/fails aggregate | Completed #1185; no gap |
 | A07 | Action pinning and fork/permission posture | `implemented` | all `.github/workflows/*.yml` | Policy test requires full action SHAs. Workflows use least-scope `contents: read`; SARIF upload is suppressed for forks/Dependabot while scans still run; no `pull_request_target` | #1185/#382; required enforcement remains A02 only |
 | A08 | Semgrep | `partial` | `.github/workflows/security-semgrep.yml` | PR/push/schedule scan and SARIF exist; workflow intentionally continues after scanner findings if SARIF exists, so it is evidence/scanning, not a blocking required context | #380; findings remain security-triage evidence, not waived |
@@ -144,11 +144,11 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | D04 | Backend rollback point | `documentation-only` | backup/restore and install/upgrade docs | Pre-upgrade consistency set and previous exact image are required; no proven rollback after current migrations/file interpretation | R05 |
 | E01 | User-web serving/deployment readiness | `blocked` | real Vite source and `dist` build; completed audit #963 | Build exists, but protected routes lack a normal credential lifecycle; no container/static host config, deploy workflow, env injection contract, exposure proof, or smoke evidence | R08 owns serving after #373's product/auth prerequisites and R02's build package |
 | E02 | Admin-web serving/deployment readiness | `blocked` | `apps/web-admin/README.md`; open audit #964 and umbrella #376 | No runtime/build exists. Admin exposure must remain private/protected and separately reviewed | R13 owns the future package after #964 reconciles the #376 runtime graph |
-| F01 | Automatic Linux mobile validation and macOS simulator compile | `implemented` | A04/A05 | #1186's Linux lane validated synthetic PR merge `a451c194...`; the reusable iOS lane explicitly validated reviewed head `8a12f344...`. Both passed, but only the latter is exact-head compile evidence; neither is signing/upload/install | Completed #1185; retain the distinct identities in release evidence and do not replace the lanes |
+| F01 | Automatic Linux mobile validation and macOS simulator compile | `implemented` | A04/A05 | PR #1193's Linux lane validated synthetic merge `9b80cfe4...`; the reusable hosted-macOS lane explicitly validated source head `c38bcbf3...`. Both used Flutter 3.44.8 and passed; neither is signing/upload/install | Completed #1185/#1192; retain both distinct identities and lanes |
 | F02 | Android package readiness | `blocked` | B08/B09/B12 | Debug APK works; release R8 fails; app ID/signing/store path is absent | R01 -> R07 |
 | F03 | iOS project/signing configuration | `partial` | bundle ID in Xcode project and Codemagic App Store signing integration reference | Repository identifiers and selection exist; credentials/profiles/certificates are external and unverified | R06 |
-| F04 | Codemagic trigger posture | `implemented` | `codemagic.yaml`; CI policy tests | No workflow has `triggering`; GitHub Actions invokes no Codemagic API/webhook. A provider webhook may observe events but does not select/start these YAML workflows | Completed #1185/#383; dashboard/account state remains external |
-| F05 | Manual internal-TestFlight workflow | `partial` | `mobile-ios-testflight-internal` | Uses `testFlightInternalTestingOnly`, `FLUTTER_BUILD_NAME=1.0.0`, Codemagic `$BUILD_NUMBER`, signed IPA build, and IPA/archive artifact declarations | R06 |
+| F04 | Codemagic trigger posture | `implemented` | `codemagic.yaml`; CI policy tests | Every mobile workflow pins Flutter 3.44.8; validation/TestFlight reuse the shared normal gate. No workflow has `triggering`; GitHub Actions invokes no Codemagic API/webhook. A provider webhook may observe events but does not select/start these YAML workflows | Completed #1185/#1192/#383; dashboard/account state remains external |
+| F05 | Manual internal-TestFlight workflow | `partial` | `mobile-ios-testflight-internal` | Pins Flutter 3.44.8, invokes the shared normal gate, uses `testFlightInternalTestingOnly`, `FLUTTER_BUILD_NAME=1.0.0`, Codemagic `$BUILD_NUMBER`, signed IPA build, and IPA/archive artifact declarations | R06; repository validation parity is complete, real cloud/signing/upload evidence is not |
 | F06 | App Store Connect publishing semantics | `partial` | Codemagic publishing block | Integration auth uploads the IPA to App Store Connect; `submit_to_testflight: false`, `submit_to_app_store: false`, no beta groups. Upload configuration is not upload evidence | R06 |
 | F07 | Internal tester/device/store acceptance | `externally-gated` | `CODEMAGIC_TESTFLIGHT_SETUP.md` | Missing current cloud run, signing success, upload/processing, internal tester availability, real-device install, server-mode smoke, and Apple warning recheck | R06 owns evidence production; #975 consumes it |
 | F08 | Android identity/signing/Play preparation | `unavailable` | B12 | Missing approved application ID, release-signing boundary, valid App Bundle, and Play publishing preparation. Play Console processing/testing and device install become `externally-gated` only after this repository preparation exists | R07 owns preparation and later evidence; #975 consumes it |
@@ -160,7 +160,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | G06 | Post-deploy health/smoke and approvals | `documentation-only` | deployment guides/checklists | Endpoints and evidence fields exist; only historical #483 bounded health proof exists, not current release-candidate smoke | R05 produces self-host evidence; #975 consumes it |
 | G07 | Incident/recovery and retention | `documentation-only` | rollback/backup docs | No product deployment incident drill, artifact-retention policy, or restore/rollback rehearsal exists | R05/R03 |
 | G08 | Production artifact promotion | `blocked` | no current production deployment workflow | No complete promotable candidate or cross-artifact release identity exists; after those prerequisites and a supported deployment path exist, promotion remains an explicit production/manual gate | R03/R05/R08 before R09; immutable UAT-to-production automation is #946 later-day |
-| H01 | Real Codemagic signed cloud build | `externally-gated` | repository config only | Not observable/run in #1185 or this audit | R06 |
+| H01 | Real Codemagic signed cloud build | `externally-gated` | repository config only | Not observable/run in #1185, #1192 or this audit | R06 |
 | H02 | App Store Connect upload/processing | `externally-gated` | repository upload block only | No current provider evidence | R06 |
 | H03 | TestFlight internal availability and real-device install | `externally-gated` | completed #383 manual checklist only | No current tester/device evidence | R06 owns evidence production; #975 consumes it |
 | H04 | Play Console/upload/install | `unavailable` | no publishing config | R07 must first establish the approved identity, signing, and valid AAB handoff; upload, processing, testing, and device installation become externally gated only after that repository preparation exists | R07 owns preparation and later manual evidence; #975 consumes it |
@@ -256,6 +256,28 @@ All entries below are future gates, not blockers to this documentation audit.
   Repository webhook observation cannot by itself select/start these workflows.
   No Codemagic cloud run, signing, upload, store action, backend/database/mobile
   deployment, or production release occurred in #1185.
+
+### #1192 Flutter release-validation parity correction
+
+- [PR #1193](https://github.com/tommytang213/Settleora/pull/1193)
+  merged corrective reviewed head `c38bcbf30980ac76af46e2f0cd5fb50b2ee6104e`
+  normally as `082e48e6e836e1648b416bc3fd65123aba1af9e1`.
+- Personal/group revision creation awaits asynchronous completion inside the
+  intended error-mapping catches. Root/GitHub and Codemagic validation now use
+  one normal-test script, and GitHub Linux/macOS plus all Codemagic workflows
+  pin Flutter `3.44.8`.
+- Dedicated visual files remain in the manual visual-evidence lane. Ordinary
+  tests in mixed files stay in the release gate while `--exclude-tags visual`
+  removes only visual-tagged cases.
+- Corrected source head `c38bcbf3...` passed 1,051 local non-visual Flutter
+  tests and the explicit-head hosted-macOS simulator job. GitHub synthetic merge
+  `9b80cfe4...` passed the Linux mobile job, full validation and stable
+  aggregate; scanners and exact-source reviews also passed. Repository checks
+  prove Codemagic remains manual-only and preserve its signing/upload
+  configuration.
+- No Codemagic build, signing, IPA upload, App Store Connect processing,
+  TestFlight installation or store action ran. R06 and #975 retain that
+  external/manual evidence.
 
 ### Earlier release-readiness work
 
