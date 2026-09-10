@@ -53,6 +53,8 @@ jobs:
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
         with:
           channel: stable
+          # Keep Linux and macOS on the same repository-validated stable SDK.
+          flutter-version: "3.44.8"
           cache: true
 
       - name: Show Flutter version

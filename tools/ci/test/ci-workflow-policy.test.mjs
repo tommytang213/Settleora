@@ -58,6 +58,9 @@ test('full and mobile validation commands remain unweakened', () => {
   const mobile = scaffold.jobs['mobile-validation'];
   assert.equal(mobile.if, "${{ github.event_name == 'pull_request' && needs.classify.outputs.run_mobile_validation == 'true' }}");
   assert.deepEqual(runCommands(mobile), ['npm run validate:mobile']);
+  const mobileFlutter = stepsFor(mobile).find((step) => step.uses?.startsWith('subosito/flutter-action@'));
+  assert.equal(mobileFlutter.with.channel, 'stable');
+  assert.equal(mobileFlutter.with['flutter-version'], '3.44.8');
   assert.doesNotMatch(JSON.stringify(mobile), /continue-on-error|--no-fatal-warnings|\|\|\s*true/);
 
   const packageJson = JSON.parse(read('package.json'));
@@ -83,7 +86,9 @@ test('iOS build procedure is reusable, manual, pinned, and simulator-only', () =
   const job = ios.jobs['ios-validation'];
   assert.equal(job['runs-on'], 'macos-latest');
   assert.ok(stepsFor(job).some((step) => step.uses === 'actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10'));
-  assert.ok(stepsFor(job).some((step) => step.uses === 'subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2'));
+  const iosFlutter = stepsFor(job).find((step) => step.uses === 'subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2');
+  assert.equal(iosFlutter.with.channel, 'stable');
+  assert.equal(iosFlutter.with['flutter-version'], '3.44.8');
   for (const command of ['flutter pub get', 'pod install', 'flutter build ios --debug --simulator']) {
     assert.ok(runCommands(job).includes(command));
   }
