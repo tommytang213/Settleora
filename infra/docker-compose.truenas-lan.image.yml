@@ -1,4 +1,55 @@
 services:
+  ingress:
+    image: caddy:2.11.4-alpine
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    entrypoint:
+      - /bin/sh
+      - /usr/local/bin/validate-private-lan-https.sh
+    environment:
+      SETTLEORA_API_BIND_ADDRESS: ${SETTLEORA_API_BIND_ADDRESS:?Set SETTLEORA_API_BIND_ADDRESS to one private RFC1918 host interface}
+      SETTLEORA_API_HTTPS_PORT: ${SETTLEORA_API_HTTPS_PORT:-8443}
+      SETTLEORA_HTTPS_HOSTNAME: ${SETTLEORA_HTTPS_HOSTNAME:?Set SETTLEORA_HTTPS_HOSTNAME to the certificate hostname}
+      SETTLEORA_START_CADDY: "1"
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "${SETTLEORA_API_BIND_ADDRESS:?Set SETTLEORA_API_BIND_ADDRESS to one private RFC1918 host interface}:${SETTLEORA_API_HTTPS_PORT:-8443}:8443"
+    read_only: true
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /config
+      - /data
+      - /tmp:exec
+    networks:
+      - edge
+      - ingress
+    volumes:
+      - type: bind
+        source: ./caddy/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      - type: bind
+        source: ./caddy/validate-private-lan-https.sh
+        target: /usr/local/bin/validate-private-lan-https.sh
+        read_only: true
+      - type: bind
+        source: ${SETTLEORA_TLS_CERTIFICATE_PATH:?Set SETTLEORA_TLS_CERTIFICATE_PATH to the external certificate chain file}
+        target: /run/settleora-tls/tls.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SETTLEORA_TLS_PRIVATE_KEY_PATH:?Set SETTLEORA_TLS_PRIVATE_KEY_PATH to the external private key file}
+        target: /run/settleora-tls/tls.key
+        read_only: true
+        bind:
+          create_host_path: false
+
   migrate:
     image: ${SETTLEORA_API_IMAGE:-ghcr.io/tommytang213/settleora-api:main}
     command: ["migrate-database", "--mode=${SETTLEORA_DATABASE_MIGRATION_MODE:-managed-auto}"]
@@ -9,6 +60,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - backend
     restart: "no"
 
   api:
@@ -31,8 +84,11 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "${SETTLEORA_API_BIND_ADDRESS:-0.0.0.0}:${SETTLEORA_API_HTTP_PORT:-8080}:8080"
+    expose:
+      - "8080"
+    networks:
+      - ingress
+      - backend
     volumes:
       - type: bind
         source: ${SETTLEORA_API_STORAGE_HOST_PATH}
@@ -56,6 +112,8 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    networks:
+      - backend
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
@@ -86,3 +144,12 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    networks:
+      - backend
+
+networks:
+  edge:
+  ingress:
+    internal: true
+  backend:
+    internal: true

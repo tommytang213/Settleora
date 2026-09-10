@@ -26,12 +26,13 @@ The compose stack defines these services:
 
 | Service | Current repo source | Purpose | LAN exposure guidance |
 | --- | --- | --- | --- |
+| `ingress` | `caddy:2.11.4-alpine` plus repository preflight and `infra/caddy/Caddyfile` | Refuses unsafe inputs, terminates operator-supplied HTTPS, and proxies to the internal API. | The only published port, bound to exactly one required RFC1918 host address. Caddy does not start listening unless preflight succeeds. |
 | `migrate` | Same API image/build as `api` | Runs the first-class EF Core migration command before API startup. | Private one-shot service; publishes no host ports. |
-| `api` | Built from `services/api/Dockerfile` | ASP.NET Core API on container port `8080`. | The LAN compose package publishes only this API port. Expose only to trusted LAN clients for testing. |
+| `api` | Built from `services/api/Dockerfile` | ASP.NET Core API on container port `8080`. | Internal Compose-network HTTP only; no host port is published. |
 | `postgres` | `postgres:16-alpine` | API-owned relational database. | The LAN compose package does not publish PostgreSQL by default. Never expose it to the internet. |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | Queue foundation for async jobs and future workers. | The LAN compose package does not publish AMQP or the management UI by default. Never expose either to the internet. |
 
-The repo does not currently provide a running OCR worker container, web user portal container, web admin portal container, MinIO/S3 service, reverse proxy, TLS automation, TrueNAS catalog metadata, or TrueNAS app form schema. `services/worker-ocr`, `apps/web-user`, and `apps/web-admin` are placeholders.
+The repo does not currently provide a running OCR worker container, web user portal container, web admin portal container, MinIO/S3 service, TLS issuance/renewal automation, TrueNAS catalog metadata, or TrueNAS app form schema. `services/worker-ocr`, `apps/web-user`, and `apps/web-admin` are placeholders. The LAN package includes a bounded private Caddy ingress only; it is not a public or production proxy package.
 
 The current storage provider is local file storage configured through `Settleora__Storage__Provider=Local` and `Settleora__Storage__RootPath`. File metadata lives in PostgreSQL; file bytes go through the API storage abstraction. Do not expose storage directories directly through SMB/NFS/web shares for app access.
 
@@ -42,10 +43,19 @@ Use `infra/docker-compose.truenas-lan.yml` for maintainer LAN testing. It is a c
 The LAN compose package:
 
 - Builds the API from `services/api/Dockerfile`.
-- Runs the current real services: `migrate`, `api`, `postgres`, and `rabbitmq`.
+- Runs `ingress`, `migrate`, `api`, `postgres`, and `rabbitmq`.
 - Runs `migrate-database --mode=${SETTLEORA_DATABASE_MIGRATION_MODE:-managed-auto}` as a first-class one-shot migration service.
 - Starts the API only after the migration service exits successfully when Docker Compose supports `depends_on.condition: service_completed_successfully`.
-- Publishes only the API host port through `SETTLEORA_API_BIND_ADDRESS` and `SETTLEORA_API_HTTP_PORT`.
+- Requires one explicit RFC1918 IPv4 host interface. Missing, wildcard,
+  loopback, malformed, ambiguous, link-local, documentation, and public bind
+  values fail before ingress startup.
+- Publishes only Caddy HTTPS through `SETTLEORA_API_BIND_ADDRESS` and
+  `SETTLEORA_API_HTTPS_PORT`; direct API HTTP has no host publication.
+- Requires an exact private hostname and externally managed certificate chain
+  and private key. Caddy automatic HTTPS/ACME and its admin API are disabled.
+- Drops all Linux capabilities, disables privilege escalation, uses a read-only
+  root filesystem, runs as UID/GID `1000:1000`, and keeps only ephemeral Caddy
+  data/config/tmpfs mounts.
 - Keeps PostgreSQL port `5432`, RabbitMQ AMQP port `5672`, and RabbitMQ management port `15672` private to the compose network.
 - Sets `Settleora__Storage__Provider=Local`.
 - Mounts persistent API local file storage at `SETTLEORA_STORAGE_ROOT`.
@@ -54,7 +64,7 @@ The LAN compose package:
   node database belongs to a different identity.
 - Adds health checks for PostgreSQL and RabbitMQ before the API starts.
 
-The API health endpoints remain HTTP endpoints checked after startup:
+The API health endpoints are checked through the private HTTPS ingress after startup:
 
 ```text
 GET /health
@@ -95,10 +105,13 @@ Required LAN-test settings:
 | `SETTLEORA_STORAGE_ROOT` | API local storage root inside the API container. | Defaults to `/var/lib/settleora/storage` for the LAN package. |
 | `SETTLEORA_API_STORAGE_HOST_PATH` | Host dataset path for API local file storage. | Must be persistent and writable; contains sensitive app files. |
 | `SETTLEORA_ENVIRONMENT` | ASP.NET Core environment. | `Development` is suitable only for LAN testing. |
-| `COMPOSE_PROJECT_NAME` | Stable Docker Compose project/network name. | Defaults to `settleora_lan` in the example so private-network migration commands can target `settleora_lan_default`. |
-| `SETTLEORA_API_BIND_ADDRESS` | Host bind address for the API port. | Use the TrueNAS LAN IP if you want to bind narrowly; `0.0.0.0` binds all host interfaces. |
-| `SETTLEORA_API_HTTP_PORT` | API host port. | Default is `8080`; choose an unused LAN port. |
-| `SETTLEORA_API_BASE_URL` | Maintainer reference URL for clients. | The current API does not consume this variable; use the equivalent URL in the iPhone app. |
+| `COMPOSE_PROJECT_NAME` | Stable Docker Compose project/network name. | Defaults to `settleora_lan`; Compose creates non-internal `settleora_lan_edge` plus internal `settleora_lan_ingress` and `settleora_lan_backend`. |
+| `SETTLEORA_API_BIND_ADDRESS` | Host bind address for the HTTPS ingress. | Required RFC1918 IPv4 assigned to exactly the intended host interface. Wildcard, loopback, public, malformed, and ambiguous values are rejected. |
+| `SETTLEORA_API_HTTPS_PORT` | HTTPS ingress host port. | Defaults to `8443`; choose an unused port. No HTTP client port is published. |
+| `SETTLEORA_HTTPS_HOSTNAME` | Exact private TLS/DNS hostname. | Required fully qualified name; it must resolve to the selected bind address and appear in the certificate SAN. |
+| `SETTLEORA_TLS_CERTIFICATE_PATH` | External certificate-chain file on the host. | Required readable non-empty file outside the repository; include the leaf and needed intermediates. |
+| `SETTLEORA_TLS_PRIVATE_KEY_PATH` | External private-key file on the host. | Required readable non-empty file outside the repository; restrict host permissions and never include it in evidence. |
+| `SETTLEORA_API_BASE_URL` | Maintainer reference URL for clients. | Use `https://<private-hostname>:<https-port>` in the phone. The API does not consume this variable. |
 | `SETTLEORA_DATABASE_MIGRATION_MODE` | Migration service mode. | Default `managed-auto`; use `check-only`/`manual` for pro hoster control, `validate-only` for connectivity/metadata checks, `apply-safe` for explicit safe application, and `force-allow-destructive` only after backup and review. |
 
 The compose file also sets service-internal connection strings:
@@ -106,6 +119,69 @@ The compose file also sets service-internal connection strings:
 - PostgreSQL host: `postgres:5432`
 - RabbitMQ host: `rabbitmq:5672`
 - API listener: `http://+:8080`
+- Caddy-to-API hop: private Compose-network HTTP at `api:8080`
+- Client ingress: HTTPS only at the explicit host bind and port
+
+### HTTPS certificate and device trust contract
+
+The repository neither issues nor installs certificates. Before starting the
+stack, the operator must supply a certificate chain and matching private key at
+the external paths in the private env file. The leaf certificate's DNS SAN must
+match `SETTLEORA_HTTPS_HOSTNAME`. The physical phone must resolve that exact
+name to `SETTLEORA_API_BIND_ADDRESS` and trust the issuing chain through normal
+platform trust. The supported cross-platform path uses a publicly/system-trusted
+certificate for an operator-owned registered hostname, resolved only by private
+DNS to the RFC1918 bind. The hostname and certificate may exist without any
+public listener; certificate issuance and DNS changes remain external manual
+actions.
+Both external TLS files must be readable by the ingress container's fixed
+UID/GID `1000:1000`; keep the private key otherwise narrowly permissioned and
+never grant any permissions to other users. The ingress preflight rejects a
+key whose final mode digit is nonzero; a narrowly owned `0400`/`0600` key or a
+deliberately group-readable `0440`/`0640` key is appropriate when UID/GID
+ownership matches the container.
+
+Do not present ordinary Android user-installed private-CA roots or a
+`.home.arpa` certificate as a supported Android path: the current Dart client
+uses default platform trust, and modern Android apps do not reliably trust the
+user-added CA store. A managed system-root/private-CA path remains unsupported
+until separately reviewed and proven on a physical Android device. An IP URL
+works only when the certificate carries the exact IP as an `iPAddress` SAN and
+the device trusts its issuer; entering an IP for a DNS-only certificate will
+correctly fail hostname validation. Never add a mobile certificate callback,
+global override, arbitrary self-signed trust, or LAN HTTP exception to work
+around a trust failure.
+
+Caddy is the first and only proxy in this package. No upstream proxies are
+trusted. Caddy's default reverse-proxy handling ignores client-supplied
+`X-Forwarded-*` values and sets the upstream forwarding metadata itself. The
+API currently has no forwarded-header middleware and does
+not use forwarded scheme, host, or client IP for an R12 security decision, so
+no trusted-proxy range is configured in ASP.NET. CORS is not enabled because
+the native mobile client does not require browser CORS. Although the API's
+generic `AllowedHosts` setting remains unchanged, API HTTP has no published host
+port, and Caddy's site address accepts only the configured external hostname.
+Docker-host administrators remain inside the trusted operator boundary. Any
+future web, second proxy, public exposure, link-generation, or
+client-IP security feature must reopen this boundary rather than inheriting it.
+This package deliberately does not enable Caddy request access logs. Its global
+runtime logger retains error-level diagnostics but deletes Caddy's complete
+request object, so proxy failures do not persist request URLs, headers, or
+client addressing in Docker logs. The disposable validation takes the API
+offline, sends unique synthetic path/header markers, requires an error record,
+and proves those markers are absent. Operators must not change request or
+runtime logging without a separate redaction and retention review.
+
+The ingress container attaches to a non-internal `edge` network so Docker can
+honor its exact-interface host publication, and to the internal `ingress`
+network shared only with the API. The API bridges `ingress` to a separate
+internal `backend` network; PostgreSQL, RabbitMQ, and the migration job are
+backend-only. Caddy therefore cannot open direct connections to either
+dependency. The proxy drops every Linux
+capability. Its preflight copies the official Caddy binary into a private
+`/tmp` tmpfs before launch because the upstream binary carries an unused
+low-port file capability; the copy runs on unprivileged container port `8443`
+without that capability.
 
 ### RabbitMQ persistence identity and existing installs
 
@@ -148,7 +224,8 @@ gates.
 
 ## LAN-Only Network Rules
 
-- Bind the API only on the TrueNAS host/LAN address needed for iPhone testing.
+- Bind the HTTPS ingress only on the explicit TrueNAS RFC1918 interface needed
+  for physical clients. The package refuses an omitted or wildcard bind.
 - Do not forward router ports to Settleora.
 - Do not expose PostgreSQL port `5432`, RabbitMQ AMQP port `5672`, RabbitMQ management port `15672`, or the storage dataset to the public internet.
 - Treat admin APIs as protected even when only LAN-exposed.
@@ -168,9 +245,11 @@ Edit `infra/env/.env.truenas-lan` before startup:
 - Replace `REPLACE_WITH_GENERATED_POSTGRES_PASSWORD` with a fresh generated secret.
 - Replace `REPLACE_WITH_GENERATED_RABBITMQ_PASSWORD` with a fresh generated secret.
 - Replace all `/mnt/POOL/apps/settleora/...` paths with real TrueNAS dataset paths.
-- Set `SETTLEORA_API_BIND_ADDRESS` to the TrueNAS LAN IP if a narrow bind is desired.
-- Set `SETTLEORA_API_HTTP_PORT` to an unused LAN port.
-- Set `SETTLEORA_API_BASE_URL` to the URL the iPhone should enter, for example `http://192.168.50.29:8080` if that is the actual server host.
+- Set `SETTLEORA_API_BIND_ADDRESS` to exactly one RFC1918 address assigned to the intended TrueNAS LAN interface.
+- Set `SETTLEORA_API_HTTPS_PORT` to an unused HTTPS port.
+- Set `SETTLEORA_HTTPS_HOSTNAME` to the exact private name in the certificate SAN and configure private name resolution separately.
+- Set `SETTLEORA_TLS_CERTIFICATE_PATH` and `SETTLEORA_TLS_PRIVATE_KEY_PATH` to readable external files; never copy either into the repository.
+- Set `SETTLEORA_API_BASE_URL` to the same HTTPS origin the physical phone should enter.
 
 Validate the LAN compose package without starting containers:
 
@@ -186,16 +265,10 @@ cd /workspace/repos/Settleora
 docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.yml -p settleora_lan up --build -d
 ```
 
-Expected default API URL on the Docker host:
+Expected client URL shape:
 
 ```text
-http://localhost:8080
-```
-
-Expected LAN URL from an iPhone on the same network:
-
-```text
-http://<truenas-lan-ip>:8080
+https://<private-hostname>:8443
 ```
 
 For the maintainer's DevBox host context, replace `<truenas-lan-ip>` with the actual TrueNAS host IP, not the DevBox IP unless the stack is running on the DevBox.
@@ -222,6 +295,14 @@ docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.tru
 ```
 
 Do not use `down -v` for maintainer data. The LAN package uses bind-mounted datasets, and dataset backup/removal must be an explicit TrueNAS maintenance action.
+
+To disable or roll back the external ingress without weakening mobile TLS,
+stop the `ingress` service or bring the package down without `-v`. For
+host-local diagnostics, use an explicit disposable loopback-only override that
+is never offered to a physical phone. Do not restore the old wildcard HTTP
+publication and do not add a LAN HTTP exception to mobile. Restoring the prior
+Compose revision is safe only as a host-local diagnostic posture; it is not an
+approved physical-mobile transport.
 
 ## Database Migrations
 
@@ -276,9 +357,9 @@ Compose/TrueNAS compatibility note: this package uses Docker Compose `depends_on
 Run these from a LAN client or from the Docker host after the stack starts:
 
 ```bash
-curl -i http://<truenas-lan-ip>:8080/health
-curl -i http://<truenas-lan-ip>:8080/health/ready
-curl -i http://<truenas-lan-ip>:8080/api/v1/auth/bootstrap/status
+curl -i https://<private-hostname>:8443/health
+curl -i https://<private-hostname>:8443/health/ready
+curl -i https://<private-hostname>:8443/api/v1/auth/bootstrap/status
 ```
 
 Expected health behavior:
@@ -299,7 +380,7 @@ curl -i \
   -H "Content-Type: application/json" \
   -X POST \
   -d '{"identifier":"owner@example.test","password":"REPLACE_WITH_BOOTSTRAP_OWNER_PASSWORD","displayName":"Owner","defaultCurrency":"USD"}' \
-  http://<truenas-lan-ip>:8080/api/v1/auth/bootstrap/local-owner
+  https://<private-hostname>:8443/api/v1/auth/bootstrap/local-owner
 ```
 
 Use a real private owner identifier and a strong generated password. Do not commit either value and do not paste real secrets into reports.
@@ -312,17 +393,21 @@ POST /api/v1/auth/sign-in
 
 The bootstrap endpoint does not return session tokens. The mobile app should sign in normally after owner bootstrap.
 
-## iPhone TestFlight Server URL
+## Physical iPhone Server URL
 
 On the iPhone TestFlight build, choose server mode during first launch or app configuration and enter:
 
 ```text
-http://<truenas-lan-ip>:8080
+https://<private-hostname>:8443
 ```
 
-Use `http://`, not `localhost`, because `localhost` on the iPhone points to the phone itself. Keep the iPhone on the same LAN or trusted VPN as the TrueNAS host.
+Use the exact certificate hostname, not `localhost` or a bare IP absent from the
+certificate SAN. Keep the iPhone on the same private LAN and confirm normal iOS
+trust before testing. Ordinary LAN HTTP is intentionally rejected by the app.
 
-Do not use a public DNS name, public tunnel, or forwarded router port for this task.
+Do not publish a public A/AAAA service record, public listener, public tunnel,
+or forwarded router port. The registered certificate hostname remains resolved
+only through private DNS to the selected RFC1918 interface.
 
 ## LAN Validation Checklist
 
@@ -355,6 +440,7 @@ For this TrueNAS LAN package, also record the LAN compose config result:
 cd /workspace/repos/Settleora
 npm run validate:compose:truenas-lan
 npm run validate:compose:truenas-lan-image
+npm run validate:private-lan-https
 bash infra/tests/validate-rabbitmq-persistence.sh
 ```
 
@@ -384,19 +470,21 @@ LAN host and compose posture:
 - Confirm the build-based package starts the API container from
   `services/api/Dockerfile`, or record the exact pinned
   `SETTLEORA_API_IMAGE` used for the image-based package.
-- Confirm the stack contains the current real services: `migrate`, `api`,
+- Confirm the stack contains `ingress`, `migrate`, `api`,
   `postgres`, and `rabbitmq`.
 - Confirm the `migrate` service runs before API startup, exits successfully, and
   uses the intended `SETTLEORA_DATABASE_MIGRATION_MODE`.
 - Confirm PostgreSQL and RabbitMQ containers start and remain healthy enough for
   `/health/ready`.
-- Confirm only the API host port is published by the LAN package.
+- Confirm only the HTTPS ingress host port is published and bound to the
+  selected RFC1918 interface; direct API HTTP is internal only.
 - Confirm PostgreSQL `5432`, RabbitMQ AMQP `5672`, RabbitMQ management `15672`,
   the API storage dataset, and any future admin web surface are not publicly
   reachable. Admin web, when implemented, must remain behind LAN, trusted VPN,
   Cloudflare Access-style protection, or an equivalent explicit access gate.
-- Confirm no router port forward, public DNS name, public tunnel, or direct
-  internet exposure is used for this LAN validation.
+- Confirm no router port forward, public A/AAAA service record, public listener,
+  public tunnel, or direct internet exposure is used. The registered certificate
+  hostname may resolve privately to the selected RFC1918 interface.
 
 Persistent storage and env evidence:
 
@@ -425,8 +513,9 @@ Health, readiness, and bootstrap evidence:
 - Confirm `GET /api/v1/auth/bootstrap/status`.
 - If supported in the test database state, perform first-owner bootstrap and
   then local sign-in from a trusted LAN client.
-- In the iPhone TestFlight build, enter `http://<truenas-lan-ip>:8080` and
-  confirm server-mode connection. Do not use `localhost` from the iPhone.
+- On a physical iPhone, enter the exact trusted
+  `https://<private-hostname>:<port>` origin and confirm server-mode connection.
+  This remains R05/#975 live evidence and is not proven by repository tests.
 - Smoke-test only implemented server-mode mobile flows: current user/session,
   self profile/payment details, group list/create where available, personal
   bill create/list/detail, group bill read/create where available, receipt
@@ -459,7 +548,9 @@ Manual gates and report fields:
 - No TrueNAS catalog app package exists yet; the planning path is documented in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md).
 - `infra/docker-compose.truenas-lan.yml` is a practical LAN Docker package path, but maintainer-run TrueNAS evidence is still pending.
 - No polished production install/upgrade orchestration exists beyond the current LAN package's first-class `migrate` service.
-- No backup/restore runbook exists for PostgreSQL, RabbitMQ, and local file storage as one consistency unit.
-- No reverse proxy/TLS/admin-surface protection package exists.
+- The backup/restore consistency runbook exists, but no automation or current
+  maintainer-run restore evidence exists.
+- The repository has a private HTTPS ingress contract, but real certificate,
+  private DNS, TrueNAS, and physical-device trust evidence remains pending.
 - Web user/admin portals and OCR worker runtime are placeholders.
 - Actual TrueNAS install/run evidence is pending maintainer execution.

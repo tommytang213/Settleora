@@ -2,40 +2,43 @@
 
 ## Status
 
-This document is a planning and safety checklist for future Settleora
-self-hosted exposure modes. It does not implement a reverse proxy, TLS
-automation, public tunnel, production deployment, admin web exposure, API
-behavior, Docker/Compose behavior, environment defaults, auth/session policy, or
-runtime configuration.
+This document governs current private-LAN ingress and future Settleora
+self-hosted exposure modes. The TrueNAS LAN Compose package now implements a
+bounded Caddy HTTPS ingress with external operator-supplied TLS material. It
+does not implement certificate issuance/renewal, public tunnel, production
+deployment, admin web exposure, public API exposure, or auth/session policy.
 
 Current Day 1 self-hosting defaults remain LAN-only. Public internet exposure,
 admin exposure beyond a trusted boundary, production deployment, and any
-reverse-proxy/TLS runtime change are blocked until explicit manual gates pass.
+expansion beyond the reviewed private ingress remain blocked until explicit
+manual gates pass.
 
 ## Current Default
 
 Safe Day 1 default:
 
 - Run the current TrueNAS LAN package only on a trusted LAN or trusted VPN.
-- Publish only the API port needed for trusted testing.
+- Publish only Caddy HTTPS on one explicitly selected RFC1918 host interface;
+  keep direct API HTTP internal to the Compose network.
 - Keep PostgreSQL, RabbitMQ, RabbitMQ management UI, storage datasets, workers,
   migration jobs, and maintenance surfaces private to the app host/network.
 - Do not forward router ports to Settleora.
-- Do not use public DNS, a public tunnel, or an internet-routable reverse proxy
-  for the LAN testing path.
+- Do not publish a public A/AAAA record pointing at the service, create a public
+  listener, use a public tunnel, or add an internet-routable reverse proxy. An
+  operator-owned registered hostname resolved only by private DNS is supported.
 - Treat admin APIs and any future admin web surface as protected even when the
   API is only LAN-exposed.
 
 The current repository does not provide a running web admin portal, web user
-portal, reverse proxy, TLS automation, public tunnel configuration, or TrueNAS
-catalog exposure form. Future docs may reference those surfaces only after the
-runtime exists and the relevant gates pass.
+portal, TLS issuance/renewal automation, public tunnel configuration, or
+TrueNAS catalog exposure form. The private Caddy sidecar is not authority for
+public exposure or another proxy tier.
 
 ## Exposure Modes
 
 | Mode | Day 1 posture | Requirements before use |
 | --- | --- | --- |
-| LAN-only testing | Allowed default for trusted household/small-group testing. | API bound only to the needed trusted LAN interface/port; no router port forward; internals private. |
+| LAN-only testing | Allowed default for trusted household/small-group testing. | HTTPS ingress published only on the selected RFC1918 interface/port; API HTTP remains un-published; no router port forward; internals private. |
 | Trusted VPN/private access | Allowed only after maintainer review of the private network boundary. | VPN users are trusted operators/users; no public direct access; proxy/VPN logs follow redaction rules. |
 | Cloudflare Access or equivalent protected admin path | Future manual-gated option for admin and possibly API protection. | Identity-aware access policy reviewed; admin protection evidence captured; no assumption that Cloudflare Access alone makes admin safe for public exposure. |
 | Internet-facing/public user access | Blocked by default. | Requires public exposure, production deployment, auth/session/security, storage/privacy, reverse proxy/TLS, logging, rollback, and release gates. |
@@ -44,9 +47,26 @@ runtime exists and the relevant gates pass.
 Admin web, admin APIs, user web, and user APIs are separate exposure decisions.
 Approving one surface for a network mode does not approve the others.
 
-## Reverse Proxy And TLS Requirements
+## Private LAN Proxy And TLS Boundary
 
-Future reverse proxy work must define and review these items before it changes
+The current LAN package terminates HTTPS at Caddy, using a required external
+certificate chain/private key and an exact configured private hostname. Caddy
+automatic HTTPS and its admin API are disabled. The API is reached over HTTP
+only inside the Compose network and has no published host port. Caddy is the
+first proxy, does not trust incoming forwarded-header values by default, and
+sets the upstream forwarding headers itself. The API does not currently consume
+those headers, so scheme/host/client identity cannot be overridden through
+them. The native mobile client retains normal platform certificate and hostname
+validation.
+
+Real certificate provisioning, private DNS, host file permissions, trust-root
+installation, TrueNAS activation, and physical-device proof are operator/manual
+work under R05/#975. Public ACME/DNS, router forwarding, tunnels, VPNs, and
+public/admin exposure are not enabled by this boundary.
+
+## Future Proxy And TLS Requirements
+
+Future proxy or exposure work must define and review these items before it changes
 runtime behavior:
 
 - HTTPS termination location, certificate source, renewal ownership, and

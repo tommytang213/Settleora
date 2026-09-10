@@ -30,15 +30,17 @@ not in automatic GitHub CI and no web serving/deployment package exists. Admin
 web has no application package. The TrueNAS catalog, automated install/upgrade,
 backup-before-upgrade, and tested restore/rollback paths do not exist. The LAN
 package now has a stable, fail-closed RabbitMQ persistence identity through
-[#1189](https://github.com/tommytang213/Settleora/issues/1189), but still binds
-its HTTP API to all host interfaces by default and offers no supported private
-HTTPS path that a physical mobile client accepts. iOS signing, App Store Connect processing, and TestFlight
+[#1189](https://github.com/tommytang213/Settleora/issues/1189). Issue
+[#1195](https://github.com/tommytang213/Settleora/issues/1195) adds a
+fail-closed RFC1918-interface bind and an external-trust-material HTTPS ingress;
+real private DNS, certificate installation, TrueNAS, and physical-device proof
+remain R05. iOS signing, App Store Connect processing, and TestFlight
 availability/install remain external/manual; current TrueNAS acceptance is
 blocked on the repository gaps, and production/staging exposure is unavailable.
 
-After the merged #1189 R11 slice, the 69 evaluated capabilities comprise 23
-`implemented`, 18 `partial`, 7 `documentation-only`, 5 `externally-gated`, 6
-`unavailable`, 8 `blocked`, 1 `superseded`, and 1 `later-day`.
+With the #1195 R12 repository slice, the 69 evaluated capabilities comprise 24
+`implemented`, 19 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
+`unavailable`, 7 `blocked`, 1 `superseded`, and 1 `later-day`.
 
 Method:
 
@@ -117,7 +119,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | B01 | API container image can build | `implemented` | `services/api/Dockerfile`; `validate:api-docker` | Automatic non-doc PR build validation; local Compose build command exists; image filesystem is the artifact | #1185/#380; build is not deployment |
 | B02 | GHCR publication and tags | `implemented` | `.github/workflows/api-image-ghcr.yml` | `main`, `v*`, and dispatch publish `sha-<40-sha>` plus `main`, tag, or input tag. Run [34480120543](https://github.com/tommytang213/Settleora/actions/runs/34480120543) published baseline SHA and digest `sha256:7052b043cb13698ef8aa638d78b6b18288ccd33fa5a81efc951026f0409c3b1f` | #380; `main` is floating and publication is not promotion/deployment |
 | B03 | Local development Compose package | `implemented` | `infra/docker-compose.yml`; `infra/env/.env.example` | `validate:compose` is automatic for non-doc PRs; builds API plus PostgreSQL/RabbitMQ, but exposes dependency ports and is explicitly development-only | #380; not a supported production package |
-| B04 | TrueNAS/LAN source-build package | `partial` | `infra/docker-compose.truenas-lan.yml`; `.env.truenas-lan.example` | Compose config validation exists; package builds `migrate`/`api`, privately wires PostgreSQL/RabbitMQ/storage, publishes only API. Historical #483 live evidence is not current-head install proof | R04/R05 |
+| B04 | TrueNAS/LAN source-build package | `partial` | `infra/docker-compose.truenas-lan.yml`; `.env.truenas-lan.example` | Compose validation exists; package builds `migrate`/`api`, publishes only exact-host private HTTPS, keeps API HTTP un-published, and separates ingress from PostgreSQL/RabbitMQ. Historical #483 live evidence is not current-head install proof | R04/R05 |
 | B05 | TrueNAS/LAN image package | `partial` | `infra/docker-compose.truenas-lan.image.yml` | Config validates; defaults to floating `ghcr.io/tommytang213/settleora-api:main`, while operators may set an exact SHA tag/digest | R03/R04; pinning/release identity is not enforced |
 | B06 | User-web production build artifact | `partial` | `apps/web-user/package.json`; `vite.config.ts` | `npm run build --prefix apps/web-user` passed on baseline and produced `apps/web-user/dist/`; no automatic CI, upload, retention, checksum, or serving package | R02; product completeness stays #373 |
 | B07 | Admin-web artifact | `unavailable` | `apps/web-admin/README.md` only | No package, build command, runtime, tests, or artifact path | R13 after #964 reconciles the #376 runtime graph; completed/planning issues are prerequisites, not artifact owners |
@@ -136,7 +138,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | C06 | Upgrade orchestration | `documentation-only` | `SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md` | Ordering, image identity, backup prerequisite, stop conditions, and health checks are plans only | R05 |
 | C07 | Rollback/recovery | `documentation-only` | install/upgrade and backup/restore docs | Limits are truthful: image-only rollback may be incompatible after schema/file changes; no automatic rollback or rehearsal evidence | R05 |
 | C08 | Backup/restore consistency | `documentation-only` | `TRUENAS_BACKUP_RESTORE_RUNBOOK.md` | PostgreSQL/files/RabbitMQ/config consistency and restore order are documented; no backup automation or maintainer-run restore proof | R05 |
-| C09 | Private/public/admin exposure posture | `blocked` | `SELF_HOSTING_EXPOSURE_GUARDRAILS.md`; LAN Compose | Dependencies/storage stay container-private, but the API defaults to `0.0.0.0`, the application permits wildcard hosts, and no firewall/proxy/TLS/interface enforcement is packaged. Privacy therefore depends on operator network controls rather than a safe repository default | R12 before R09 |
+| C09 | Private/public/admin exposure posture | `implemented` | `SELF_HOSTING_EXPOSURE_GUARDRAILS.md`; LAN Compose; `infra/caddy/**` | Both LAN variants require an exact RFC1918 host bind, publish only a hardened exact-host Caddy HTTPS ingress, isolate Caddy from backend dependencies, keep API HTTP internal, and require external trusted TLS material. Public/admin exposure remains unsupported | Completed R12/#1195 repository boundary; R05 owns live private-host/device proof and R09 owns any future wider exposure |
 | C10 | Current live self-host acceptance | `blocked` | issue #483 comments | Historical accepted proof is limited to TrueNAS SCALE `25.10.4`, custom app `1.0.0`, 21 migrations/0 pending, API/dependencies ready; it predates this baseline, omitted bootstrap/sign-in, and cannot supply physical-mobile smoke until R12 and R04 close | R05 owns acceptance after R12/R04; #975 only consumes the evidence |
 | D01 | Safe promotion order | `partial` | migration runner, LAN Compose, install/upgrade plan | Intended order: backup/quiesce -> exact image -> private dependencies -> migration gate -> API -> readiness -> compatible-client smoke. Only Compose start ordering is implemented | R05/R03 |
 | D02 | Migration safety/destructive gate | `implemented` | `services/api/src/Settleora.Api/Persistence/MigrationRunner/`; LAN migration service | Production API startup does not migrate. Managed/apply-safe blocks classified destructive work; `force-allow-destructive` remains an explicit dangerous manual gate | Schema/migration owner for future changes; no production run authorized |
@@ -164,9 +166,9 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | H02 | App Store Connect upload/processing | `externally-gated` | repository upload block only | No current provider evidence | R06 |
 | H03 | TestFlight internal availability and real-device install | `externally-gated` | completed #383 manual checklist only | No current tester/device evidence | R06 owns evidence production; #975 consumes it |
 | H04 | Play Console/upload/install | `unavailable` | no publishing config | R07 must first establish the approved identity, signing, and valid AAB handoff; upload, processing, testing, and device installation become externally gated only after that repository preparation exists | R07 owns preparation and later manual evidence; #975 consumes it |
-| H05 | Current TrueNAS install/upgrade/rollback | `blocked` | historical #483 install/update subset | No current-baseline upgrade, backup/restore, rollback, or auth/mobile smoke; #1189 now supplies repository-only broker continuity, while R12 must still provide an approved reachable private-mobile transport | R05 owns acceptance after R12/R04; #975 consumes it |
+| H05 | Current TrueNAS install/upgrade/rollback | `blocked` | historical #483 install/update subset | No current-baseline upgrade, backup/restore, rollback, or auth/mobile smoke; #1189 supplies repository-only broker continuity and #1195 supplies the private HTTPS repository contract, but neither is live host/device evidence | R05 owns acceptance after R04 and remaining prerequisites; #975 consumes it |
 | H06 | Staging/production deployment | `unavailable` | no supported environment/deployment path or record | R03/R05/R08 must first produce a complete candidate and supported deployment handoff; deployment becomes externally gated only after that preparation exists | R09 after prerequisites |
-| H07 | DNS/TLS/proxy/public/admin exposure | `unavailable` | guardrails only; no supported proxy/TLS/exposure path | The current wildcard API bind is operator-dependent, not a safe private default. R12 must first establish an explicit private bind/transport; wider exposure becomes externally gated only after #777 and the applicable product owners approve it | R09 owns wider exposure after R12 and the #777/#373/#376 prerequisites |
+| H07 | DNS/TLS/proxy/public/admin exposure | `partial` | guardrails; LAN Compose; `infra/caddy/**` | #1195 implements only a private exact-interface/exact-host HTTPS ingress using operator-supplied trusted material. It performs no DNS, certificate, host, public, or admin activation | R05 owns private live proof; R09 owns any wider exposure after #777 and the #373/#376 prerequisites |
 | I01 | Auto-runner operational program | `implemented` | `tools/auto-runner/**`; #910/#912 evidence | #910 and #912 are CLOSED; #912 accepted deployed automation source `ecf69d41...`; PR #968 merged `6182d714...` from head `43b2f02b...` as part of that chain | Completed development automation program; not a product deploy dependency |
 | I02 | Auto-runner authority boundary | `implemented` | issue close rules and `AGENTS.md` | Can coordinate approved development PR work; cannot authorize production, stores, exposure, secrets, or destructive migrations | Completed #910/#912; no gap |
 | I03 | Stale #974 dependency text | `superseded` | live #910/#912/PR #968 state and #974 reconciliation comment | “May run after #912” wording is historical; all are completed and separate evidence | #974 issue-body hygiene after merge |
@@ -178,8 +180,8 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | --- | --- | --- | --- | --- |
 | API OCI image | `services/api/Dockerfile`; GHCR workflow | `ghcr.io/tommytang213/settleora-api:sha-<commit>` and digest; floating `:main` | Published on every `main` push and `v*` tag; GHCR retention not defined in repo | Build/publish implemented; promotion and retention partial |
 | Local Compose package | `infra/docker-compose.yml` | repository YAML plus example env | Source only | Development-only |
-| TrueNAS source package | `docker-compose.truenas-lan.yml` | repository YAML plus private operator env | Source only | Stable repository-side broker identity is implemented; network/transport posture and live acceptance remain incomplete |
-| TrueNAS image package | `docker-compose.truenas-lan.image.yml` | operator-set exact image recommended; default is `:main` | Source only | Stable repository-side broker identity is implemented; transport and immutable API/dependency-image identities remain incomplete |
+| TrueNAS source package | `docker-compose.truenas-lan.yml` | repository YAML plus private operator env | Source only | Stable broker identity and fail-closed private HTTPS transport are implemented; live acceptance remains incomplete |
+| TrueNAS image package | `docker-compose.truenas-lan.image.yml` | operator-set exact image recommended; default is `:main` | Source only | Stable broker identity and fail-closed private HTTPS transport are implemented; immutable API/dependency-image identities and live acceptance remain incomplete |
 | User web | Vite | `apps/web-user/dist/` | Local ignored output only | Builds, but has no automatic package/publish/serve path |
 | Admin web | none | none | none | Unavailable |
 | Android debug APK | Flutter | `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk` | Local ignored output only | Local build evidence only |
@@ -192,8 +194,8 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | Environment/target | Package | Exposure | Data/migration | Evidence | Status |
 | --- | --- | --- | --- | --- | --- |
 | Developer Compose | `infra/docker-compose.yml` | API and dependency ports exposed locally | named volumes; API startup does not migrate | automatic config/image build on non-doc PRs | `implemented` for development only |
-| Trusted LAN/TrueNAS source build | LAN build Compose | API HTTP defaults to all host interfaces; dependencies/storage container-private; no physical-mobile-safe HTTPS | bind mounts; stable fail-closed RabbitMQ identity; one-shot guarded migrate before API | #1190 disposable recreate/adoption proof; historical #483 TrueNAS `25.10.4` | `partial`; R12 and live R04/R05 acceptance remain |
-| Trusted LAN/TrueNAS image | LAN image Compose | same operator-dependent bind/transport posture | stable fail-closed RabbitMQ identity and ordering; API plus PostgreSQL/RabbitMQ images use floating tags by default | #1190 disposable recreate/adoption proof; config validation | `partial`; R03/R12 and live R04/R05 acceptance remain |
+| Trusted LAN/TrueNAS source build | LAN build Compose | exact RFC1918 HTTPS bind; API HTTP internal; proxy separated from backend dependencies | bind mounts; stable fail-closed RabbitMQ identity; one-shot guarded migrate before API | #1190 broker proof; #1195 disposable HTTPS/config proof; historical #483 TrueNAS `25.10.4` | `partial`; live R04/R05 acceptance remains |
+| Trusted LAN/TrueNAS image | LAN image Compose | same fail-closed private HTTPS posture | stable broker identity and ordering; API plus PostgreSQL/RabbitMQ images use floating tags by default | #1190 broker proof; #1195 disposable HTTPS/config proof | `partial`; R03 and live R04/R05 acceptance remain |
 | Polished TrueNAS catalog | no package | planned LAN/private default | planned forms/hooks/datasets/backups | docs #486/#487 only | `unavailable` |
 | Staging | none | undefined | undefined | none | `unavailable` |
 | Production/public | none | no supported path; any future action is manual-gated and has no public/admin default | destructive and backup gates | none | `unavailable` until repository/product prerequisites exist; then externally gated |
@@ -333,10 +335,10 @@ Findings:
   open audit #970, so #970 must adopt or split R01 before implementation.
 - #381/#483-#487 completed bounded LAN evidence and plans but did not implement
   stable RabbitMQ recreate identity. #1189/PR #1190 has now completed that R11
-  repository prerequisite with disposable continuity and adoption evidence.
-  A polished catalog, fail-closed private bind/physical-mobile HTTPS path,
-  automated upgrade/backup/rollback, and current restore drill remain absent;
-  R12 remains the next narrow repository recommendation.
+  repository prerequisite with disposable continuity and adoption evidence;
+  #1195 implements the R12 private bind/HTTPS repository contract. A polished
+  catalog, live DNS/certificate/physical-device proof, automated upgrade/
+  backup/rollback, and current restore drill remain absent.
 - #946 owns post-Day-1 release epochs and UAT artifact promotion and must not be
   pulled into Day 1 minimum readiness.
 - #777 owns the auth production/public-exposure security-review gate; #376 is
@@ -362,7 +364,7 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 | R09 — **new focused manual/external recommendation:** final environment/network activation | Define/approve any staging/production deployment and any DNS/TLS/proxy activation only after the relevant domain reviews and R12 private baseline. Non-goals: automatic promotion, public default, or duplicating auth/admin review | Production, network, secrets, auth/security, storage/privacy, destructive migration | manual deployment/security lane | threat/exposure review, exact artifacts, backup/rollback, health/smoke, disable path | R12 closes the private baseline first; #777 must close the auth public-exposure review; user/admin product prerequisites must close; #485 is the completed planning baseline. Final activation closes only with explicit human approval and live evidence; #380 stays the umbrella and #946 owns later automation |
 | R10 — **new focused recommendation:** current user-web dependency-alert triage | Reconcile Dependabot alerts #32/#34-#36, update the smallest safe web build/test dependency set, and prove whether each advisory affects shipped output. Non-goals: suppress/dismiss alerts, deploy web, or broaden user-web product scope | Dependency/security review; no alert dismissal waiver | `web-user-ui`; `apps/web-user/package.json` and lockfile only unless evidence requires a separately scoped tool change | `npm ci`, `npm audit`, lint/test/build, docs/scaffold, exact alert reread; strong security review | Close only when current alerts are remediated by reviewed dependency updates or separately proven non-applicable through the repository's normal security process; depends only on current main and precedes R02 artifact publication |
 | R11 — **completed by Issue #1189:** stable RabbitMQ persistence identity | Both LAN Compose variants require one explicit stable node hostname/nodename and fail closed before an existing dataset can be masked by a new identity. No deploy, credential, clustering, or application messaging change | Repository Docker/Compose and persisted-data review completed; any real-host exercise remains separately manual | [PR #1190](https://github.com/tommytang213/Settleora/pull/1190); two LAN Compose files, example env, entrypoint, focused validator/runbook | Clean and repeated recreate, durable queue/message, pre-change direct discovery/adoption, missing/wrong/multiple/ambiguous refusal, health, Compose/full CI, Gemini/local/GitHub Codex | Completed from source `231cc64a3f481be556f09ff213807a48c704f878`, tree `2199949a64b9ca9bd9678f3c8be005f6ab6454db`, normal merge `861d5ef1c9462e04eca778a1375abce2aa786fd3`; live TrueNAS migration/reset remains manual-gated |
-| R12 — **new focused recommendation:** fail-closed private LAN bind and mobile-safe transport | Replace the operator-dependent wildcard HTTP posture with an explicit private-interface bind or equivalent reviewed control and a supported private HTTPS transport accepted by physical mobile clients. Non-goals: public DNS/exposure, weakening mobile HTTPS validation, committing certificates/secrets, or deploying a host | Docker/env/network/TLS/auth-security manual gate | `docker-compose-ci-deployment`; bounded LAN Compose/env/proxy or transport paths plus tests/docs | fail-closed config fixtures, allowed-host/origin and TLS trust review, physical-device-safe URI contract, rollback-to-private proof; strong security/deployment review | Repository slice closes only when defaults cannot silently bind every interface and the documented private HTTPS path is reproducible without committed secrets. R05 owns live host/device proof and #975 consumes it. No existing issue owns this gap; depends only on current main and precedes R04/R05/R09 |
+| R12 — **completed by Issue #1195:** fail-closed private LAN bind and mobile-safe transport | Both LAN variants require an RFC1918 interface, publish only exact-host HTTPS through Caddy, isolate the proxy from backend dependencies, and require operator-external trusted TLS material. Mobile retains strict platform trust and declares Android network/iOS local-network access | Repository network/TLS/security review completed; all live DNS/certificate/host/device actions remain manual | Issue #1195; LAN Compose/env/Caddy/tests/runbooks plus mobile platform declarations | fail-closed matrices, aligned Compose JSON, disposable trusted HTTPS readiness, R11 regressions, mobile validation, Gemini/local/GitHub security review | Repository contract complete; R05 owns real private DNS, certificate, TrueNAS and physical-device proof, while R09 owns any wider exposure. No public/admin activation or secret material is included |
 | R13 — **new focused recommendation after #964:** admin-web serving package | Add an unpublished private serving package only after #964 has split and the resulting focused admin runtime/auth prerequisites are complete. Non-goals: build the admin product, change auth/API, deploy, or expose publicly | Admin auth/security, storage/privacy, deployment/exposure gates | deployment lane; future focused admin serving/package paths | completed product tests/visual/authz evidence first, then package/render/private-smoke validation; strong security/deployment review | Close on a reproducible unpublished private package after #964's reconciled runtime graph; #376 remains the umbrella and completed/planning issues are dependencies, not execution owners |
 | #975 | Consume, but do not manufacture, final native/device/UI/operator evidence | Final human/platform acceptance | `docs-planning` acceptance audit | evidence-bound audit/review | Runs after relevant product/release gaps; cannot close gates from configuration alone |
 | #946 | Post-Day-1 release epochs, release cuts, UAT-to-production immutable promotion | Deferred activation gate | later-day release management | its own future validation | Start only after complete Day 1 implementation and integrated acceptance |
@@ -370,15 +372,14 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 ## 12. Dependency-safe remaining work graph
 
 1. **Critical blockers and owner prerequisites:** completed #1189/R11 supplies
-   RabbitMQ recreation continuity; R12 must establish a fail-closed private bind
-   and physical-mobile-safe transport; and #970 must reconcile/adopt or split R01's
+   RabbitMQ recreation continuity; completed #1195/R12 supplies the repository
+   private transport contract; and #970 must reconcile/adopt or split R01's
    Android release failure under #357/#359.
 2. **Product prerequisites:** completed #963 supplies user-web audit evidence and
    #373 remains its product umbrella; #964 must reconcile the #376 admin runtime
    graph before R13; broader mobile/product owners complete independently of
    release infrastructure.
-3. **New focused repository recommendations:** R12 private transport first in
-   its security-gated lane; R10 dependency-alert
+3. **New focused repository recommendations:** R10 dependency-alert
    remediation; then R02 additive user-web build/package CI; then R03 release
    identity with infrastructure digests; then R04 unpublished catalog skeleton.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
@@ -391,7 +392,7 @@ Dependency summary:
 
 ```text
 completed #1189/R11 --------+---------------------------> R04 -> R05 --+
-R12 private bind/transport -+---------------------------> R04 -> R05 --+--> #975
+completed #1195/R12 --------+---------------------------> R04 -> R05 --+--> #975
 R10 alerts -> R02 web package -> R03 identity ----------> R04 --------+
 #970 adopt/split -> R01 Android compile -> R03/R07 -------------------+
 #373 user web -> R08; #964 -> admin runtime -> R13 -------------------+
@@ -401,13 +402,11 @@ complete Day 1 + #975 acceptance -------------------------------> #946 (later da
 
 ### First dependency-safe next logical task for GPT review
 
-Select **R12's fail-closed private LAN bind and mobile-safe transport repository
-slice for GPT review**. R11 is complete and no longer blocks it; R12 is the next
-dependency-safe repository prerequisite for R04/R05/R09, but must retain its
-stronger network/TLS/auth-security and deployment manual gates. It must not
-deploy a host, commit secrets or certificate material, weaken mobile HTTPS
-validation, or claim physical-device acceptance. #970 independently controls
-R01 without touching #959.
+Select **R10's current user-web dependency-alert triage for GPT review**. R12's
+repository contract is complete; R10 depends only on current main and precedes
+R02 artifact publication. It must not dismiss/suppress alerts or broaden into
+deployment or product work. #970 independently controls R01 without touching
+#959, while R04 still waits for R03 as well as completed R12.
 
 ## 13. Final Day 1 readiness statement
 
@@ -416,8 +415,8 @@ foundations, guarded migration ordering, a local user-web build, a debug Android
 build, and an iOS simulator compile path. It does **not** yet have a complete
 Day 1 release candidate: Android release packaging is broken; web/admin package
 and deployment boundaries are incomplete; release identity/retention is partial;
-TrueNAS private binding/transport and catalog/upgrade/restore/rollback are
-incomplete or unproven; signed iOS evidence
+TrueNAS private transport is repository-implemented but live DNS/certificate/
+device proof, catalog/upgrade/restore/rollback remain incomplete; signed iOS evidence
 remains manual/external; and current-host, Android store, staging/production, and
 exposure acceptance is blocked or unavailable until repository and product
 prerequisites exist, after which live actions remain manually gated. #380 must
