@@ -1,8 +1,11 @@
 # Day 1 Release Readiness Audit
 
-Issue: [#974](https://github.com/tommytang213/Settleora/issues/974)  
-Parent: [#380](https://github.com/tommytang213/Settleora/issues/380)  
-Task key: `20260910-2119`  
+Issue: [#974](https://github.com/tommytang213/Settleora/issues/974)
+
+Parent: [#380](https://github.com/tommytang213/Settleora/issues/380)
+
+Task key: `20260910-2119`
+
 Source baseline: `origin/main` `f350e5f3ba6ff737cc38781dbc3348db68d45055`, tree `9d280ffff7385c7fd253aaf09a5108d192c9386f`
 
 ## 1. Scope, method, and conclusion
