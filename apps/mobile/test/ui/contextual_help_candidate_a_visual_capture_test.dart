@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/app/setup_screen.dart';
 import 'package:mobile/help/contextual_help.dart';
@@ -14,7 +15,7 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
 const _outputDirectory =
-    '/workspace/logs/settleora-visual-qa/20260908-1952-issue-1093/candidate-a';
+    '/workspace/logs/issue-1181-contextual-help-localization/visual-evidence/candidate-a';
 const _captureKey = Key('contextual-help-candidate-a-capture');
 
 void main() {
@@ -56,6 +57,12 @@ void main() {
   testWidgets('captures contextual help at 320px and 2x text scale', (
     tester,
   ) async {
+    final previousHighlightStrategy = FocusManager.instance.highlightStrategy;
+    FocusManager.instance.highlightStrategy =
+        FocusHighlightStrategy.alwaysTraditional;
+    addTearDown(() {
+      FocusManager.instance.highlightStrategy = previousHighlightStrategy;
+    });
     await _prepare(tester, width: 320, height: 760);
     await tester.pumpWidget(
       RepaintBoundary(
@@ -63,6 +70,8 @@ void main() {
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: SettleoraTheme.midnight(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(
               context,
@@ -83,6 +92,23 @@ void main() {
     await tester.tap(find.byKey(const Key('contextual-help-bills')));
     await tester.pumpAndSettle();
     await _capture(tester, 'help-long-copy-320x760-2x.png');
+    final close = find.byKey(const Key('contextual-help-close-bills'));
+    await tester.scrollUntilVisible(
+      close,
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await _capture(tester, 'help-long-copy-close-320x760-2x.png');
+    await tester.tap(close);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('contextual-help-bills')))
+          .focusNode
+          ?.hasPrimaryFocus,
+      isTrue,
+    );
+    await _capture(tester, 'help-focus-return-320x760-2x.png');
   }, tags: ['visual']);
 }
 
@@ -108,6 +134,8 @@ Future<void> _pump(WidgetTester tester, Widget home) async {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: SettleoraTheme.midnight(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: home,
       ),
     ),

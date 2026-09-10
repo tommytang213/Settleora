@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:mobile/app/server_mode_shell.dart';
 import 'package:mobile/help/contextual_help.dart';
 import 'package:mobile/receipt_ocr_review/receipt_ocr_review_screen.dart';
@@ -14,7 +15,7 @@ import '../receipt_ocr_review_screen_test.dart' as ocr;
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
 const _outputDirectory =
-    '/workspace/logs/settleora-visual-qa/20260908-1952-issue-1093/candidate-c';
+    '/workspace/logs/issue-1181-contextual-help-localization/visual-evidence/candidate-c';
 const _captureKey = Key('contextual-help-candidate-c-capture');
 
 void main() {
@@ -71,26 +72,83 @@ void main() {
       'backup-restore',
     );
   }, tags: ['visual']);
+
+  testWidgets('captures OCR help at 320px and 2x text scale', (tester) async {
+    await _prepare(tester, width: 320, height: 760);
+    await _pump(
+      tester,
+      ReceiptOcrReviewQueueScreen(
+        repository: ocr.FakeReceiptOcrReviewRepository(
+          listResponse: [ocr.sampleSummary()],
+        ),
+      ),
+      textScaler: const TextScaler.linear(2),
+    );
+    await _capturePair(
+      tester,
+      SettleoraHelpTopic.ocrReview,
+      'ocr-queue',
+      captureClose: true,
+      dimensions: '320x760-2x',
+    );
+  }, tags: ['visual']);
+
+  testWidgets('captures settings help at 320px and 2x text scale', (
+    tester,
+  ) async {
+    await _prepare(tester, width: 320, height: 760);
+    await _pump(tester, _buildShell(), textScaler: const TextScaler.linear(2));
+    await tester.tap(
+      dashboard.bottomNavDestination(const Key('bottom-nav-more')),
+    );
+    await tester.pumpAndSettle();
+    await dashboard.scrollToAndTap(
+      tester,
+      const Key('server-shell-more-settings'),
+    );
+    await tester.pumpAndSettle();
+    await _capturePair(
+      tester,
+      SettleoraHelpTopic.settingsSecurity,
+      'settings-security',
+      captureClose: true,
+      dimensions: '320x760-2x',
+    );
+  }, tags: ['visual']);
 }
 
-Future<void> _prepare(WidgetTester tester) async {
+Future<void> _prepare(
+  WidgetTester tester, {
+  double width = 390,
+  double height = 844,
+}) async {
   await tester.runAsync(() async {
     await loadSettleoraVisualTestFonts();
     await Directory(_outputDirectory).create(recursive: true);
   });
-  tester.view.physicalSize = const Size(390, 844);
+  tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-Future<void> _pump(WidgetTester tester, Widget home) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Widget home, {
+  TextScaler textScaler = TextScaler.noScaling,
+}) async {
   await tester.pumpWidget(
     RepaintBoundary(
       key: _captureKey,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: SettleoraTheme.midnight(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+          child: child!,
+        ),
         home: home,
       ),
     ),
@@ -121,12 +179,22 @@ SettleoraAuthenticatedServerShell _buildShell() {
 Future<void> _capturePair(
   WidgetTester tester,
   SettleoraHelpTopic topic,
-  String stem,
-) async {
-  await _capture(tester, '$stem-help-entry-390x844-1x.png');
+  String stem, {
+  bool captureClose = false,
+  String dimensions = '390x844-1x',
+}) async {
+  await _capture(tester, '$stem-help-entry-$dimensions.png');
   await tester.tap(find.byKey(Key('contextual-help-${topic.keyName}')));
   await tester.pumpAndSettle();
-  await _capture(tester, '$stem-help-open-390x844-1x.png');
+  await _capture(tester, '$stem-help-open-$dimensions.png');
+  if (captureClose) {
+    await tester.scrollUntilVisible(
+      find.byKey(Key('contextual-help-close-${topic.keyName}')),
+      120,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await _capture(tester, '$stem-help-close.png');
+  }
   await tester.tap(find.byKey(Key('contextual-help-close-${topic.keyName}')));
   await tester.pumpAndSettle();
 }
