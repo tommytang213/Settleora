@@ -103,7 +103,9 @@ cd apps/mobile
 flutter test <focused-test-files>
 ```
 
-Codemagic remains manual-only. Do not run or require hosted Codemagic for routine mobile docs or non-iOS work unless the task explicitly asks for mobile iOS build/release validation.
+The root `npm run validate:mobile` command remains the repository authority for mobile doctor, dependency, analyzer, and test validation. GitHub Actions invokes it automatically for classifier-selected mobile pull requests. Changes under `apps/mobile/**`, consumed `packages/client-dart/**`, and CI/release-control paths that can affect the gate also receive an automatic GitHub-hosted macOS iOS simulator compile.
+
+Codemagic remains manual-only. Do not run or require hosted Codemagic as a routine mobile/iOS PR gate; reserve it for explicitly requested visual evidence and signed release/TestFlight work.
 
 ### Docker, CI, Or Deployment
 
@@ -139,11 +141,11 @@ Before merge, confirm the worktree is clean, the PR base/head/head SHA match the
 
 ## Codemagic Budget Rule
 
-Codemagic must not auto-run on routine backend, API, docs, OpenAPI, generated-client, test-only, or security-hardening PRs. Hosted macOS minutes are reserved for mobile/iOS evidence that cannot be proven locally.
+Codemagic must not auto-run on PRs, pushes, or merges. GitHub Actions owns automatic PR CI, including classifier-required Linux mobile validation and GitHub-hosted macOS iOS simulator compilation. Codemagic minutes remain reserved for manually requested visual evidence, signing, App Store Connect upload, TestFlight, and release work that cannot be proven by normal PR CI.
 
 Maintainers manually trigger Codemagic only for:
 
-- Mobile/iOS validation gates.
+- Explicit supplementary mobile/iOS or visual-evidence checks.
 - Codemagic config changes.
 - Signing, TestFlight, App Store, or release preparation.
 - Release branches or tags.
@@ -153,9 +155,11 @@ The repository-side Codemagic setup remains documented in [CODEMAGIC_TESTFLIGHT_
 
 ## GitHub Actions Required Check Budget Rule
 
-The required `Scaffold Validation` workflow must keep the `Validate scaffold` job name stable for branch protection. Its changed-file classifier treats only `README.md` and Markdown/static documentation assets under `docs/` as docs-only. Docs-only runs install the Node repo tooling dependencies and run `npm run validate:scaffold`. A first push with a missing/zero before SHA on a non-default branch may qualify only after a successful fixed `origin/main` fetch, matching checked-out event SHA, complete history, one validated merge-base, consistent ancestry, and a successful non-empty docs-only diff. Default-main first pushes, any other changed path, unavailable or untrustworthy proof, and unsupported events default to full validation. The focused classifier regression suite runs in every Scaffold Validation job.
+The required `Scaffold Validation` workflow must keep the final `Validate scaffold` job name stable for branch protection. Its single changed-file classifier emits docs-only, full, mobile, and iOS routing decisions. The final `if: always()` aggregate accepts optional jobs as skipped only when trustworthy classifier output proves they were unnecessary; a failed classifier, missing/invalid output, or failed/cancelled/incorrectly skipped required lane fails the aggregate.
 
-Workflow, CI, package metadata, tooling, scripts, services, apps, contracts, generated clients, source, tests, Docker/compose, infrastructure, deployment, runtime config, OpenAPI, schema, migration, security, storage/privacy, money, settlement, payment, and bill-calculation changes must keep the broader GitHub Actions validation path enabled.
+The classifier treats only `README.md` and Markdown/static documentation assets under `docs/` as docs-only. Docs-only PRs install the Node repository tooling, run `npm run validate:scaffold`, and execute the classifier/workflow-policy tests; full API/generated-artifact, Linux Flutter, and macOS iOS jobs are intentionally skipped, while `Validate scaffold` still resolves successfully. A first push with a missing/zero before SHA on a non-default branch may qualify only after a successful fixed `origin/main` fetch, matching checked-out event SHA, complete history, one validated merge-base, consistent ancestry, and a successful non-empty docs-only diff. Default-main first pushes, any other changed path, unavailable or untrustworthy proof, and unsupported events default to full validation. Proof failures conservatively enable full, mobile, and iOS validation.
+
+Workflow, CI, package metadata, tooling, scripts, services, apps, contracts, generated clients, source, tests, Docker/compose, infrastructure, deployment, runtime config, OpenAPI, schema, migration, security, storage/privacy, money, settlement, payment, and bill-calculation changes keep the broader GitHub Actions validation path enabled. Mobile/iOS lanes are additionally selected for `apps/mobile/**`, `packages/client-dart/**`, the controlling CI workflow/classifier/tests, and `codemagic.yaml`; `package.json` and `tools/doctor-validation.mjs` select Linux mobile validation at minimum.
 
 ## Chat And Report Budget Rule
 

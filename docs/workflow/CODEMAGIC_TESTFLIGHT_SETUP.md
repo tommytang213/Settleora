@@ -1,6 +1,6 @@
 # Codemagic TestFlight Setup
 
-This document describes Settleora's repository-side Codemagic foundation for Flutter mobile validation and the guarded internal TestFlight upload workflow. It is preparation for internal testing only; it is not a production App Store release setup.
+This document describes Settleora's repository-side Codemagic foundation for manually initiated Flutter evidence and the guarded internal TestFlight upload workflow. GitHub Actions owns automatic pull-request validation; Codemagic is preparation for explicit internal testing and release work only, not a production App Store release setup.
 
 ## Repository Layout
 
@@ -21,9 +21,11 @@ Codemagic validates the whole YAML when detecting configuration, including workf
 
 ## Safe Validation Workflow
 
-`Mobile iOS validation` is manual-only in Codemagic to protect hosted macOS minutes. Do not rely on it as an automatic check for routine backend, API, OpenAPI, test-only, docs-only, or security-hardening PRs.
+Automatic pull-request validity no longer depends on starting Codemagic. The GitHub Actions `Scaffold Validation` workflow classifies every pull request targeting `main`, runs the root `npm run validate:mobile` command for mobile-affecting changes, compiles the iOS simulator on a GitHub-hosted macOS runner for iOS-affecting changes, and reports the stable required `Validate scaffold` aggregate. Docs-only pull requests retain lightweight scaffold and CI-policy checks while the expensive Linux Flutter and macOS lanes are intentionally skipped.
 
-Run `Mobile iOS validation` manually in Codemagic for mobile/iOS changes, Codemagic config changes, mobile build/release docs or scripts, signing/TestFlight/App Store preparation, release branches/tags, or an explicitly requested mobile validation gate. It uses Flutter stable, Xcode latest, and CocoaPods default, then runs:
+`Mobile iOS validation` remains manual-only in Codemagic. It is supplementary evidence and must not be treated as an automatic PR check for routine backend, API, OpenAPI, test-only, docs-only, or security-hardening changes.
+
+Run `Mobile iOS validation` manually only when supplementary Codemagic evidence is explicitly requested, such as Codemagic configuration diagnosis or release preparation. It uses Flutter stable, Xcode latest, and CocoaPods default, then runs:
 
 ```bash
 flutter pub get
@@ -273,11 +275,13 @@ Codex cannot verify a real Codemagic cloud build or TestFlight upload unless the
 
 Codemagic cloud build success, Apple signing success, App Store Connect upload/processing, manual internal tester availability, and real iPhone install through TestFlight remain external/manual evidence until a maintainer runs the workflow and records the result.
 
+The repository has no Codemagic `triggering.events` configuration, and GitHub Actions contains no Codemagic API, webhook, or build invocation. A repository webhook may still exist so Codemagic can observe repository events, but under the current YAML it does not make PRs, pushes, or merges start these workflows automatically. External Codemagic account/webhook settings require separate manual dashboard confirmation and are not proven by repository inspection alone.
+
 ## Recommended Order
 
 1. Merge the Codemagic/TestFlight repository setup.
 2. In Codemagic, confirm the branch with root `codemagic.yaml` is detected.
-3. Run `Mobile iOS validation`.
+3. Confirm the exact release candidate passed its classifier-required GitHub Actions lanes and stable `Validate scaffold` aggregate; run `Mobile iOS validation` manually only if supplementary Codemagic evidence is required.
 4. Confirm Apple Developer Program, App Store Connect app record, registered bundle ID `com.tommytang213.settleora`, internal tester access needs, and Codemagic integration `settleora-app-store-connect`.
 5. Manually run `Mobile iOS internal TestFlight` only at a milestone or release gate when signing and App Store Connect setup are ready.
 6. After upload processing, check App Store Connect > My Apps > Settleora > TestFlight / Builds and perform any manual internal tester setup needed in App Store Connect.
