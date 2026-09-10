@@ -96,7 +96,14 @@ set_test_environment() {
   export SETTLEORA_RABBITMQ_HOST_PATH="$test_root/rabbitmq"
   export SETTLEORA_API_STORAGE_HOST_PATH="$test_root/storage"
   export SETTLEORA_API_IMAGE=ghcr.io/tommytang213/settleora-api:main
+  export SETTLEORA_API_BIND_ADDRESS=192.168.50.10
+  export SETTLEORA_API_HTTPS_PORT=8443
+  export SETTLEORA_HTTPS_HOSTNAME=settleora.home.arpa
+  export SETTLEORA_TLS_CERTIFICATE_PATH="$test_root/tls.crt"
+  export SETTLEORA_TLS_PRIVATE_KEY_PATH="$test_root/tls.key"
   mkdir -p "$SETTLEORA_POSTGRES_HOST_PATH" "$SETTLEORA_RABBITMQ_HOST_PATH" "$SETTLEORA_API_STORAGE_HOST_PATH"
+  printf '%s\n' 'synthetic certificate placeholder' >"$SETTLEORA_TLS_CERTIFICATE_PATH"
+  printf '%s\n' 'synthetic private key placeholder' >"$SETTLEORA_TLS_PRIVATE_KEY_PATH"
 }
 
 cleanup_case() {
@@ -331,7 +338,13 @@ test_missing_identity() {
   local variant="$1"
   local compose_file="$2"
   local output
-  if output="$(env -u SETTLEORA_RABBITMQ_NODE_HOSTNAME docker compose --env-file /dev/null -f "$compose_file" config 2>&1)"; then
+  if output="$(env -u SETTLEORA_RABBITMQ_NODE_HOSTNAME \
+    SETTLEORA_API_BIND_ADDRESS=192.168.50.10 \
+    SETTLEORA_API_HTTPS_PORT=8443 \
+    SETTLEORA_HTTPS_HOSTNAME=settleora.home.arpa \
+    SETTLEORA_TLS_CERTIFICATE_PATH=/tmp/settleora-r12-synthetic.crt \
+    SETTLEORA_TLS_PRIVATE_KEY_PATH=/tmp/settleora-r12-synthetic.key \
+    docker compose --env-file /dev/null -f "$compose_file" config 2>&1)"; then
     echo "Missing identity unexpectedly passed Compose interpolation for $variant." >&2
     return 1
   fi

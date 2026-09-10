@@ -120,10 +120,12 @@ The future catalog form should expose only supported behavior. Suggested fields:
 | Field | Type | Default/posture | Notes |
 | --- | --- | --- | --- |
 | Deployment mode | Select | `LAN-only` | Future values such as trusted VPN or protected proxy require manual-gated docs and implementation. |
-| LAN API host port | Integer | `8080` or maintainer-selected | Include collision guidance; publish only the API port. |
-| API bind address | Text/select | Host/LAN interface | Encourage narrow binding where TrueNAS supports it. |
-| External base URL | Text | Empty | Only enable once server-mode client semantics and exposure gates approve host/origin behavior. |
-| Allowed hostnames/origins | Text/list | Empty or LAN-only | Future public/proxy/TLS work must define exact host/origin policy; no wildcard defaults. |
+| LAN HTTPS host port | Integer | `8443` or maintainer-selected | Include collision guidance; publish only the private HTTPS ingress. |
+| API bind address | Text/select | Required private host/LAN interface | Must reject wildcard, loopback, malformed, and non-RFC1918 selections. |
+| Private HTTPS hostname | Text | Required | Exact private DNS name present in the certificate SAN; no wildcard default. |
+| External base URL | Read-only/derived | Private HTTPS origin | Derive from the approved hostname and port; do not permit LAN HTTP. |
+| TLS certificate chain | External file/secret mount | Required | Operator-managed trusted chain; never embed it in catalog metadata or reports. |
+| TLS private key | External secret mount | Required | Operator-managed key with restricted permissions; never display or log it. |
 | Environment/profile | Select | Release-policy value | Do not expose development-only defaults as production guidance. |
 | PostgreSQL dataset | Dataset path picker | Operator-selected | Persistent, private, writable by the app runtime. |
 | PostgreSQL database/user | Text/generated | App-specific values | Avoid default/demo names where practical for persistent installs. |
@@ -137,10 +139,12 @@ The future catalog form should expose only supported behavior. Suggested fields:
 | LAN-only warning acknowledgement | Checkbox | Required | Confirms no public exposure is approved by the catalog install. |
 | Admin exposure protection | Future manual-gated select | Not exposed now | Later choices may include LAN, VPN, Cloudflare Access-style gate, or equivalent protection after implementation review. |
 
-Do not expose fields for unsupported runtime slices such as OIDC provider setup,
+The catalog does not yet implement these fields; R12 only supplies the Compose
+contract they must preserve. Do not expose fields for unsupported runtime slices such as OIDC provider setup,
 passkeys, MFA policy, push/email provider delivery, web/admin portal URLs, OCR
-worker enablement, MinIO/S3 storage, public registration, reverse proxy, TLS, or
-public exposure until those features exist and pass their own manual gates.
+worker enablement, MinIO/S3 storage, public registration, automatic certificate
+issuance/renewal, another proxy tier, or public exposure until those features
+exist and pass their own manual gates.
 
 ## Dataset And Volume Mappings
 
@@ -308,7 +312,8 @@ manual gates are complete.
 | Catalog implementation | Future manual-gated task. | Public exposure, production deployment, and catalog publishing unless explicitly scoped. |
 | Catalog publishing | Future release/manual-gated task. | Implementation branches that only draft package files. |
 | Production deployment | Future manual-gated task. | LAN testing and catalog packaging. |
-| Public exposure / proxy / TLS | Future manual-gated task. | Safe LAN default and admin exposure protection planning. |
+| Private LAN HTTPS ingress | Implemented in the LAN Compose templates; catalog wiring and live proof remain future work. | Public exposure, certificate automation, production deployment. |
+| Public exposure / additional proxy or TLS automation | Future manual-gated task. | Safe private LAN ingress and admin exposure protection planning. |
 
 Closing a planning issue may mean this document is accepted as a plan. It must
 not be treated as completing the future catalog package, publishing path,

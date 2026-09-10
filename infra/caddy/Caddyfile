@@ -1,0 +1,10 @@
+{
+	admin off
+	auto_https off
+}
+
+https://{$SETTLEORA_HTTPS_HOSTNAME}:8443 {
+	tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key
+
+	reverse_proxy api:8080
+}
