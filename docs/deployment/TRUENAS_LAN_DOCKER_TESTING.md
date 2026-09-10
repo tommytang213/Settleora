@@ -155,10 +155,12 @@ Docker-host administrators remain inside the trusted operator boundary. Any
 future web, second proxy, public exposure, link-generation, or
 client-IP security feature must reopen this boundary rather than inheriting it.
 
-The ingress container is attached only to the internal `ingress` network. The
-API bridges that network to a separate internal `backend` network; PostgreSQL,
-RabbitMQ, and the migration job are backend-only. Caddy therefore cannot open
-direct connections to either dependency. The proxy drops every Linux
+The ingress container attaches to a non-internal `edge` network so Docker can
+honor its exact-interface host publication, and to the internal `ingress`
+network shared only with the API. The API bridges `ingress` to a separate
+internal `backend` network; PostgreSQL, RabbitMQ, and the migration job are
+backend-only. Caddy therefore cannot open direct connections to either
+dependency. The proxy drops every Linux
 capability. Its preflight copies the official Caddy binary into a private
 `/tmp` tmpfs before launch because the upstream binary carries an unused
 low-port file capability; the copy runs on unprivileged container port `8443`

@@ -19,6 +19,9 @@ case "$bind_address" in
   0.0.0.0|::|\[::\]|\*|localhost)
     fail "the bind address must select one private RFC1918 IPv4 interface"
     ;;
+  .*|*.|*[!0-9.]*)
+    fail "the bind address must be an unambiguous IPv4 address"
+    ;;
 esac
 
 old_ifs=$IFS

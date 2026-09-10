@@ -11,10 +11,12 @@ ios_info_plist="$repo_root/apps/mobile/ios/Runner/Info.plist"
 tmp_dir=$(mktemp -d)
 test_id=$(basename "$tmp_dir" | tr -cd 'A-Za-z0-9')
 run_label="com.settleora.r12-run=$test_id"
-network="settleora-r12-$test_id"
+edge_network="settleora-r12-edge-$test_id"
+ingress_network="settleora-r12-ingress-$test_id"
 mock_container="settleora-r12-api-$test_id"
 ingress_container="settleora-r12-ingress-$test_id"
-network_created=false
+edge_network_created=false
+ingress_network_created=false
 mock_created=false
 ingress_created=false
 
@@ -27,9 +29,13 @@ cleanup() {
     [ "$(docker inspect -f '{{ index .Config.Labels "com.settleora.r12-run" }}' "$mock_container" 2>/dev/null || true)" = "$test_id" ]; then
     docker rm -f "$mock_container" >/dev/null 2>&1 || true
   fi
-  if [ "$network_created" = true ] &&
-    [ "$(docker network inspect -f '{{ index .Labels "com.settleora.r12-run" }}' "$network" 2>/dev/null || true)" = "$test_id" ]; then
-    docker network rm "$network" >/dev/null 2>&1 || true
+  if [ "$ingress_network_created" = true ] &&
+    [ "$(docker network inspect -f '{{ index .Labels "com.settleora.r12-run" }}' "$ingress_network" 2>/dev/null || true)" = "$test_id" ]; then
+    docker network rm "$ingress_network" >/dev/null 2>&1 || true
+  fi
+  if [ "$edge_network_created" = true ] &&
+    [ "$(docker network inspect -f '{{ index .Labels "com.settleora.r12-run" }}' "$edge_network" 2>/dev/null || true)" = "$test_id" ]; then
+    docker network rm "$edge_network" >/dev/null 2>&1 || true
   fi
   rm -rf "$tmp_dir"
 }
@@ -68,6 +74,7 @@ expect_failure "link local" run_preflight 169.254.2.3 settleora.home.arpa 8443
 expect_failure "public address" run_preflight 203.0.113.10 settleora.home.arpa 8443
 expect_failure "ambiguous octet" run_preflight 192.168.050.10 settleora.home.arpa 8443
 expect_failure "malformed address" run_preflight 192.168.1 settleora.home.arpa 8443
+expect_failure "trailing-dot address" run_preflight 192.168.1.1. settleora.home.arpa 8443
 expect_failure "glob-shaped address" run_preflight '192.168.*.1' settleora.home.arpa 8443
 expect_failure "missing hostname" run_preflight 192.168.50.10 '' 8443
 expect_failure "single-label hostname" run_preflight 192.168.50.10 settleora 8443
@@ -101,11 +108,12 @@ for rendered in "$tmp_dir/source.json" "$tmp_dir/image.json"; do
     (.services.ingress.user == "1000:1000") and
     (.services.ingress.read_only == true) and
     (.services.ingress.security_opt == ["no-new-privileges:true"]) and
-    (.services.ingress.networks == {"ingress":null}) and
+    (.services.ingress.networks == {"edge":null,"ingress":null}) and
     (.services.api.networks == {"backend":null,"ingress":null}) and
     (.services.migrate.networks == {"backend":null}) and
     (.services.postgres.networks == {"backend":null}) and
     (.services.rabbitmq.networks == {"backend":null}) and
+    (.networks.edge.internal != true) and
     (.networks.ingress.internal == true) and
     (.networks.backend.internal == true) and
     (.services.postgres.ports == null) and
@@ -159,13 +167,15 @@ jq -e '
   .apps.http.servers.srv0.routes[0].handle[0].routes[0].handle[0].upstreams == [{"dial":"api:8080"}]
 ' "$tmp_dir/caddy.json" >/dev/null
 
-docker network create --label "$run_label" "$network" >/dev/null
-network_created=true
-docker run -d --name "$mock_container" --label "$run_label" --network "$network" --network-alias api \
+docker network create --label "$run_label" "$edge_network" >/dev/null
+edge_network_created=true
+docker network create --internal --label "$run_label" "$ingress_network" >/dev/null
+ingress_network_created=true
+docker run -d --name "$mock_container" --label "$run_label" --network "$ingress_network" --network-alias api \
   busybox:1.36.1 sh -c \
   "mkdir -p /www/health/ready; printf '%s' ready >/www/health/ready/index.html; exec httpd -f -p 8080 -h /www" >/dev/null
 mock_created=true
-docker run -d --name "$ingress_container" --label "$run_label" --network "$network" \
+docker create --name "$ingress_container" --label "$run_label" --network "$edge_network" \
   --entrypoint /bin/sh \
   --user 1000:1000 \
   --cap-drop ALL --read-only --security-opt no-new-privileges \
@@ -181,6 +191,21 @@ docker run -d --name "$ingress_container" --label "$run_label" --network "$netwo
   -v "$tmp_dir/smoke.key:/run/settleora-tls/tls.key:ro" \
   caddy:2.11.4-alpine /usr/local/bin/validate-private-lan-https.sh >/dev/null
 ingress_created=true
+docker network connect "$ingress_network" "$ingress_container"
+docker start "$ingress_container" >/dev/null
+
+[ "$(docker inspect -f '{{len .HostConfig.PortBindings}}' "$mock_container")" -eq 0 ] || {
+  printf '%s\n' 'Disposable internal API unexpectedly publishes a host port.' >&2
+  exit 1
+}
+[ "$(docker network inspect -f '{{len .Containers}}' "$edge_network")" -eq 1 ] || {
+  printf '%s\n' 'Disposable edge network must contain only the HTTPS ingress.' >&2
+  exit 1
+}
+[ "$(docker network inspect -f '{{len .Containers}}' "$ingress_network")" -eq 2 ] || {
+  printf '%s\n' 'Disposable internal ingress network must contain only proxy and API.' >&2
+  exit 1
+}
 
 host_port=$(docker port "$ingress_container" 8443/tcp | sed -n 's/.*://p')
 [ -n "$host_port" ] || {

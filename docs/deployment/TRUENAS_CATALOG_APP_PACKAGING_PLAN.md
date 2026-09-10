@@ -191,7 +191,7 @@ Current supported catalog-relevant service model:
 
 | Service | Required now | Start/order rule |
 | --- | --- | --- |
-| `ingress` | Yes | Starts after API; attaches only to the internal ingress network and is the sole published client route. |
+| `ingress` | Yes | Starts after API; attaches to the non-internal edge network for exact-interface publication and the internal API ingress network, and is the sole published client route. |
 | `postgres` | Yes | Starts before migration job; readiness must pass before schema checks/apply. |
 | `rabbitmq` | Yes | Starts before API readiness; API readiness checks queue connectivity. |
 | `migrate` | Yes | First-class private job/service using the API image. Runs before API startup on install/upgrade. |

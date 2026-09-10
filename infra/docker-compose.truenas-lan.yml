@@ -26,6 +26,7 @@ services:
       - /data
       - /tmp:exec
     networks:
+      - edge
       - ingress
     volumes:
       - type: bind
@@ -151,6 +152,7 @@ services:
       - backend
 
 networks:
+  edge:
   ingress:
     internal: true
   backend:

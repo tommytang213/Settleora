@@ -13,7 +13,8 @@ A polished TrueNAS app for Settleora means the maintainer can install, configure
 Required app qualities:
 
 - Clear app name, icon, description, license note, source URL, support/no-warranty note, and version mapping to a Settleora release or commit.
-- Configurable API LAN port with collision guidance.
+- Configurable private HTTPS ingress port with collision guidance; direct API
+  HTTP remains un-published.
 - Private-by-default PostgreSQL, RabbitMQ, and storage wiring.
 - Persistent datasets/volumes for database, queue state, and API local file storage.
 - Generated or user-provided secrets for PostgreSQL and RabbitMQ.
@@ -128,11 +129,15 @@ Day 1 backup/restore planning is defined in [TrueNAS backup/restore consistency 
 - API local file storage dataset.
 - RabbitMQ data if queued work must survive restart/restore.
 - App configuration and generated secrets.
+- The external TLS certificate chain/private key or a secure re-provisioning
+  record; private keys remain outside the app repository and ordinary reports.
 
 Restore evidence should prove:
 
 - The API starts after restore.
-- `/health/ready` passes.
+- The private hostname still resolves to the selected RFC1918 interface, its
+  certificate chain remains platform-trusted with the hostname in the SAN, and
+  HTTPS `/health/ready` passes through the ingress.
 - Existing auth/session behavior is understood after restore.
 - Existing file metadata still maps to stored bytes.
 - A mobile server-mode client can sign in and access expected records.
