@@ -156,7 +156,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | H01 | Real Codemagic signed cloud build | `externally-gated` | repository config only | Not observable/run in #1185 or this audit | R06 |
 | H02 | App Store Connect upload/processing | `externally-gated` | repository upload block only | No current provider evidence | R06 |
 | H03 | TestFlight internal availability and real-device install | `externally-gated` | manual checklist only | No current tester/device evidence | R06/#975 |
-| H04 | Play Console/upload/install | `externally-gated` | no publishing config | No current provider/device evidence | R07/#975 |
+| H04 | Play Console/upload/install | `unavailable` | no publishing config | R07 must first establish the approved identity, signing, and valid AAB handoff; upload, processing, testing, and device installation become externally gated only after that repository preparation exists | R07, then #975 |
 | H05 | Current TrueNAS install/upgrade/rollback | `externally-gated` | historical #483 install/update subset | No current-baseline upgrade, backup/restore, rollback, or auth/mobile smoke | R05/#975 |
 | H06 | Staging/production deployment | `externally-gated` | no environment deployment record | No actual staging or production environment validation | R09 |
 | H07 | DNS/TLS/proxy/public/admin exposure | `externally-gated` | guardrails only | No approved live configuration/evidence; safe default remains LAN/private | R09 |
