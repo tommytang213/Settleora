@@ -24,30 +24,18 @@ case "$bind_address" in
     ;;
 esac
 
-old_ifs=$IFS
-IFS=.
-set -- $bind_address
-IFS=$old_ifs
-[ "$#" -eq 4 ] || fail "the bind address must be an unambiguous IPv4 address"
-
-for octet in "$@"; do
-  case "$octet" in
-    0|[1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) ;;
-    *) fail "the bind address contains an invalid or ambiguous IPv4 octet" ;;
-  esac
-done
-
-first=$1
-second=$2
-is_private=false
-if [ "$first" -eq 10 ]; then
-  is_private=true
-elif [ "$first" -eq 172 ] && [ "$second" -ge 16 ] && [ "$second" -le 31 ]; then
-  is_private=true
-elif [ "$first" -eq 192 ] && [ "$second" -eq 168 ]; then
-  is_private=true
-fi
-[ "$is_private" = true ] || fail "the bind address must be in an RFC1918 private range"
+printf '%s\n' "$bind_address" | awk -F. '
+  NF != 4 { exit 1 }
+  {
+    for (i = 1; i <= 4; i++) {
+      if ($i !~ /^(0|[1-9][0-9]{0,2})$/ || $i + 0 > 255) exit 1
+    }
+    if ($1 == 10 ||
+        ($1 == 172 && $2 >= 16 && $2 <= 31) ||
+        ($1 == 192 && $2 == 168)) exit 0
+    exit 1
+  }
+' || fail "the bind address must be an unambiguous RFC1918 IPv4 address"
 
 [ -n "$hostname" ] || fail "SETTLEORA_HTTPS_HOSTNAME is required"
 [ "${#hostname}" -le 253 ] || fail "the HTTPS hostname is too long"
@@ -60,18 +48,13 @@ printf '%s\n' "$hostname" | grep -Eq '(^|\.)localhost$' &&
 printf '%s\n' "$hostname" | grep -Eq '(^|\.)example$|(^|\.)example\.(com|net|org)$|(^|\.)invalid$|(^|\.)test$' &&
   fail "the HTTPS hostname must not use a documentation-only suffix"
 
-old_ifs=$IFS
-IFS=.
-set -- $hostname
-IFS=$old_ifs
-for label in "$@"; do
-  [ -n "$label" ] || fail "the HTTPS hostname contains an empty label"
-  [ "${#label}" -le 63 ] || fail "the HTTPS hostname contains an overlong label"
-  case "$label" in
-    -*) fail "the HTTPS hostname contains a label starting with a hyphen" ;;
-    *-) fail "the HTTPS hostname contains a label ending with a hyphen" ;;
-  esac
-done
+printf '%s\n' "$hostname" | awk -F. '
+  {
+    for (i = 1; i <= NF; i++) {
+      if (length($i) == 0 || length($i) > 63 || $i ~ /^-/ || $i ~ /-$/) exit 1
+    }
+  }
+' || fail "the HTTPS hostname contains an invalid label"
 
 case "$https_port" in
   ''|*[!0-9]*) fail "SETTLEORA_API_HTTPS_PORT must be a numeric port" ;;
