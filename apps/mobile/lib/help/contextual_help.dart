@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../ui/settleora_components.dart';
 
@@ -39,157 +40,208 @@ class SettleoraContextualHelpContent {
   final String entryLabel;
 }
 
-const settleoraContextualHelpRegistry = <SettleoraHelpTopic, SettleoraContextualHelpContent>{
-  SettleoraHelpTopic.firstLaunch: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.firstLaunch,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Setup help',
-    heading: 'Choose how this device starts',
-    description:
-        'Setup lets you connect this device to a Settleora server or keep it in Local Mode.',
-    points: [
-      'Server mode checks the address format before saving. Connecting still depends on server availability, and that server controls shared data and protected changes.',
-      'Local Mode keeps this device separate from server collaboration. You can continue without signing in.',
-      'Opening or closing help does not select a mode or save configuration.',
-    ],
-    entryLabel: 'Help with Settleora setup',
-  ),
-  SettleoraHelpTopic.dashboard: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.dashboard,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Home help',
-    heading: 'Your current Settleora overview',
-    description:
-        'Home brings together loaded balances, upcoming bills, activity, and shortcuts to the main mobile areas.',
-    points: [
-      'Summary cards reflect the overview currently returned by the server; they do not create or change records.',
-      'Use Refresh when you want to request a newer overview.',
-      'Quick actions open the existing create and group flows without changing their validation rules.',
-    ],
-    entryLabel: 'Help with Home',
-  ),
-  SettleoraHelpTopic.bills: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.bills,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Bills help',
-    heading: 'Review bills and receipt context',
-    description:
-        'Bills shows personal or group bill records that are currently available to this screen.',
-    points: [
-      'Receipt warnings and OCR suggestions are review signals, not confirmed financial truth.',
-      'Currency stays attached to each amount. This mobile build does not show or fetch live provider FX rates; help does not estimate a conversion.',
-      'Unavailable create, scan, archive, or restore actions remain unavailable; help does not bypass server validation or permissions.',
-    ],
-    entryLabel: 'Help with Bills',
-  ),
-  SettleoraHelpTopic.ocrReview: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.ocrReview,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Receipt review help',
-    heading: 'Check provisional receipt suggestions',
-    description:
-        'Receipt review shows saved OCR suggestions and the current review state for a receipt.',
-    points: [
-      'OCR text, amounts, currency, dates, and line classifications can be incomplete or wrong and should be reviewed against the receipt.',
-      'A preview is non-final. Applying reviewed data follows the existing guarded draft-only flow and server validation remains authoritative.',
-      'Actions that are disconnected, unsupported, or unavailable stay disabled and are not enabled by help.',
-    ],
-    entryLabel: 'Help with Receipt review',
-  ),
-  SettleoraHelpTopic.groups: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.groups,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Groups help',
-    heading: 'Understand groups and participants',
-    description:
-        'Groups lists the shared workspaces and participant details currently visible to your account.',
-    points: [
-      'Roles and membership statuses are server-provided readouts; hiding or showing an action does not grant authorization.',
-      'Group member changes use the existing protected server flow and may be unavailable for your role or the current group state.',
-      'Temporary participants are not available in this mobile build. The current group and bill flows use registered profiles and do not grant account permissions through visible controls.',
-    ],
-    entryLabel: 'Help with Groups',
-  ),
-  SettleoraHelpTopic.settlements: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.settlements,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Settlements help',
-    heading: 'Review balances and settlement requests',
-    description:
-        'Settlements presents server-provided balances, requests, payment records, and their current statuses.',
-    points: [
-      'Amounts and statuses describe current records; they are not a recommendation to send, accept, or confirm a payment.',
-      'Payment and confirmation actions remain subject to the existing confirmation, permission, and server-validation flow.',
-      'Unavailable actions stay unavailable and help never changes a balance or settlement status.',
-    ],
-    entryLabel: 'Help with Settlements',
-  ),
-  SettleoraHelpTopic.recurring: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.recurring,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Recurring bills help',
-    heading: 'Review templates and forecasts',
-    description:
-        'Recurring bills shows saved templates, forecast occurrences, and upcoming one-time bill drafts when available.',
-    points: [
-      'Forecast entries are derived planning views, not confirmed bills or financial truth.',
-      'Generating from a template uses the existing explicit draft flow; review and confirmation remain separate.',
-      'Unsupported payloads or unavailable lifecycle actions remain read-only or disabled.',
-    ],
-    entryLabel: 'Help with Recurring bills',
-  ),
-  SettleoraHelpTopic.reportsSearch: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.reportsSearch,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Reports and search help',
-    heading: 'Explore a read-only monthly summary',
-    description:
-        'Monthly reports summarize the report data returned for the selected month and optional group.',
-    points: [
-      'Search and filters narrow already-loaded report rows on this screen; they do not change saved records.',
-      'Amounts remain grouped by currency and are not combined through an inferred exchange rate.',
-      'Changing month or refreshing requests report data but does not mutate bills, settlements, or reconciliation states.',
-    ],
-    entryLabel: 'Help with Reports and search',
-  ),
-  SettleoraHelpTopic.backupRestore: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.backupRestore,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Backup and import help',
-    heading: 'Inspect local backup data safely',
-    description:
-        'Data safety can generate or inspect the mobile backup format supported by this build.',
-    points: [
-      'The import preview validates pasted backup JSON without overwriting local or server data.',
-      'Restore apply is disabled. A valid preview does not promise that a future guarded restore will be accepted.',
-      'Backups exclude passwords, session tokens, server-only records, and receipt or proof file contents.',
-    ],
-    entryLabel: 'Help with Backup and import preview',
-  ),
-  SettleoraHelpTopic.settingsSecurity: SettleoraContextualHelpContent(
-    topic: SettleoraHelpTopic.settingsSecurity,
-    contentVersion: '2026-09-08.1',
-    sheetTitle: 'Settings and security help',
-    heading: 'Understand device settings and protected account areas',
-    description:
-        'App settings collects notification readouts, appearance and mode boundaries, and local data tools.',
-    points: [
-      'Mobile-local notification choices on this screen do not replace server notification policy.',
-      'Session validity, shared-data access, and protected security changes remain server-authoritative.',
-      'Read-only or unavailable settings stay that way; help does not expose credentials or change security policy.',
-    ],
-    entryLabel: 'Help with Settings and security',
-  ),
-};
+class SettleoraContextualHelpMetadata {
+  const SettleoraContextualHelpMetadata({
+    required this.topic,
+    required this.contentVersion,
+  });
 
-SettleoraContextualHelpContent settleoraHelpContent(SettleoraHelpTopic topic) =>
-    settleoraContextualHelpRegistry[topic]!;
+  final SettleoraHelpTopic topic;
+  final String contentVersion;
+}
+
+const settleoraContextualHelpRegistry =
+    <SettleoraHelpTopic, SettleoraContextualHelpMetadata>{
+      SettleoraHelpTopic.firstLaunch: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.firstLaunch,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.dashboard: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.dashboard,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.bills: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.bills,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.ocrReview: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.ocrReview,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.groups: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.groups,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.settlements: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.settlements,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.recurring: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.recurring,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.reportsSearch: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.reportsSearch,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.backupRestore: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.backupRestore,
+        contentVersion: '2026-09-08.1',
+      ),
+      SettleoraHelpTopic.settingsSecurity: SettleoraContextualHelpMetadata(
+        topic: SettleoraHelpTopic.settingsSecurity,
+        contentVersion: '2026-09-08.1',
+      ),
+    };
+
+SettleoraContextualHelpContent settleoraHelpContent(
+  SettleoraHelpTopic topic, {
+  AppLocalizations? localizations,
+}) {
+  localizations ??= lookupAppLocalizations(const Locale('en'));
+  final metadata = settleoraContextualHelpRegistry[topic]!;
+  return switch (topic) {
+    SettleoraHelpTopic.firstLaunch => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.firstLaunch,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpFirstLaunchSheetTitle,
+      heading: localizations.contextualHelpFirstLaunchHeading,
+      description: localizations.contextualHelpFirstLaunchDescription,
+      points: [
+        localizations.contextualHelpFirstLaunchPoint1,
+        localizations.contextualHelpFirstLaunchPoint2,
+        localizations.contextualHelpFirstLaunchPoint3,
+      ],
+      entryLabel: localizations.contextualHelpFirstLaunchEntryLabel,
+    ),
+    SettleoraHelpTopic.dashboard => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.dashboard,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpDashboardSheetTitle,
+      heading: localizations.contextualHelpDashboardHeading,
+      description: localizations.contextualHelpDashboardDescription,
+      points: [
+        localizations.contextualHelpDashboardPoint1,
+        localizations.contextualHelpDashboardPoint2,
+        localizations.contextualHelpDashboardPoint3,
+      ],
+      entryLabel: localizations.contextualHelpDashboardEntryLabel,
+    ),
+    SettleoraHelpTopic.bills => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.bills,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpBillsSheetTitle,
+      heading: localizations.contextualHelpBillsHeading,
+      description: localizations.contextualHelpBillsDescription,
+      points: [
+        localizations.contextualHelpBillsPoint1,
+        localizations.contextualHelpBillsPoint2,
+        localizations.contextualHelpBillsPoint3,
+      ],
+      entryLabel: localizations.contextualHelpBillsEntryLabel,
+    ),
+    SettleoraHelpTopic.ocrReview => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.ocrReview,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpOcrReviewSheetTitle,
+      heading: localizations.contextualHelpOcrReviewHeading,
+      description: localizations.contextualHelpOcrReviewDescription,
+      points: [
+        localizations.contextualHelpOcrReviewPoint1,
+        localizations.contextualHelpOcrReviewPoint2,
+        localizations.contextualHelpOcrReviewPoint3,
+      ],
+      entryLabel: localizations.contextualHelpOcrReviewEntryLabel,
+    ),
+    SettleoraHelpTopic.groups => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.groups,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpGroupsSheetTitle,
+      heading: localizations.contextualHelpGroupsHeading,
+      description: localizations.contextualHelpGroupsDescription,
+      points: [
+        localizations.contextualHelpGroupsPoint1,
+        localizations.contextualHelpGroupsPoint2,
+        localizations.contextualHelpGroupsPoint3,
+      ],
+      entryLabel: localizations.contextualHelpGroupsEntryLabel,
+    ),
+    SettleoraHelpTopic.settlements => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.settlements,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpSettlementsSheetTitle,
+      heading: localizations.contextualHelpSettlementsHeading,
+      description: localizations.contextualHelpSettlementsDescription,
+      points: [
+        localizations.contextualHelpSettlementsPoint1,
+        localizations.contextualHelpSettlementsPoint2,
+        localizations.contextualHelpSettlementsPoint3,
+      ],
+      entryLabel: localizations.contextualHelpSettlementsEntryLabel,
+    ),
+    SettleoraHelpTopic.recurring => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.recurring,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpRecurringSheetTitle,
+      heading: localizations.contextualHelpRecurringHeading,
+      description: localizations.contextualHelpRecurringDescription,
+      points: [
+        localizations.contextualHelpRecurringPoint1,
+        localizations.contextualHelpRecurringPoint2,
+        localizations.contextualHelpRecurringPoint3,
+      ],
+      entryLabel: localizations.contextualHelpRecurringEntryLabel,
+    ),
+    SettleoraHelpTopic.reportsSearch => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.reportsSearch,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpReportsSearchSheetTitle,
+      heading: localizations.contextualHelpReportsSearchHeading,
+      description: localizations.contextualHelpReportsSearchDescription,
+      points: [
+        localizations.contextualHelpReportsSearchPoint1,
+        localizations.contextualHelpReportsSearchPoint2,
+        localizations.contextualHelpReportsSearchPoint3,
+      ],
+      entryLabel: localizations.contextualHelpReportsSearchEntryLabel,
+    ),
+    SettleoraHelpTopic.backupRestore => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.backupRestore,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpBackupRestoreSheetTitle,
+      heading: localizations.contextualHelpBackupRestoreHeading,
+      description: localizations.contextualHelpBackupRestoreDescription,
+      points: [
+        localizations.contextualHelpBackupRestorePoint1,
+        localizations.contextualHelpBackupRestorePoint2,
+        localizations.contextualHelpBackupRestorePoint3,
+      ],
+      entryLabel: localizations.contextualHelpBackupRestoreEntryLabel,
+    ),
+    SettleoraHelpTopic.settingsSecurity => SettleoraContextualHelpContent(
+      topic: SettleoraHelpTopic.settingsSecurity,
+      contentVersion: metadata.contentVersion,
+      sheetTitle: localizations.contextualHelpSettingsSecuritySheetTitle,
+      heading: localizations.contextualHelpSettingsSecurityHeading,
+      description: localizations.contextualHelpSettingsSecurityDescription,
+      points: [
+        localizations.contextualHelpSettingsSecurityPoint1,
+        localizations.contextualHelpSettingsSecurityPoint2,
+        localizations.contextualHelpSettingsSecurityPoint3,
+      ],
+      entryLabel: localizations.contextualHelpSettingsSecurityEntryLabel,
+    ),
+  };
+}
 
 Future<void> showSettleoraContextualHelp({
   required BuildContext context,
   required SettleoraHelpTopic topic,
 }) async {
-  final content = settleoraHelpContent(topic);
+  final content = settleoraHelpContent(
+    topic,
+    localizations: _contextualHelpLocalizations(context),
+  );
   await showSettleoraBottomSheet<void>(
     context: context,
     builder: (sheetContext) => SettleoraBottomSheetFrame(
@@ -242,7 +294,10 @@ class _SettleoraContextualHelpActionState
 
   @override
   Widget build(BuildContext context) {
-    final content = settleoraHelpContent(widget.topic);
+    final content = settleoraHelpContent(
+      widget.topic,
+      localizations: _contextualHelpLocalizations(context),
+    );
     return IconButton(
       key: ValueKey('contextual-help-${widget.topic.keyName}'),
       focusNode: _focusNode,
@@ -252,3 +307,7 @@ class _SettleoraContextualHelpActionState
     );
   }
 }
+
+AppLocalizations _contextualHelpLocalizations(BuildContext context) =>
+    Localizations.of<AppLocalizations>(context, AppLocalizations) ??
+    lookupAppLocalizations(const Locale('en'));

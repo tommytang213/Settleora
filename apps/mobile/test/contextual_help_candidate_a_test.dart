@@ -49,7 +49,10 @@ void main() {
       expect(content.points, isNotEmpty);
       expect(content.points.every((point) => point.trim().isNotEmpty), isTrue);
       expect(content.entryLabel.trim(), isNotEmpty);
-      expect(identical(content, settleoraHelpContent(topic)), isTrue);
+      expect(
+        settleoraHelpContent(topic).contentVersion,
+        content.contentVersion,
+      );
     }
 
     final groups = settleoraHelpContent(SettleoraHelpTopic.groups);
