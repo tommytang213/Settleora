@@ -28,10 +28,12 @@ fails in R8 on missing ML Kit recognizer classes. Android still has a placeholde
 application ID and debug release signing. User-web build/package validation is
 not in automatic GitHub CI and no web serving/deployment package exists. Admin
 web has no application package. The TrueNAS catalog, automated install/upgrade,
-backup-before-upgrade, and tested restore/rollback paths do not exist. iOS
-signing, App Store Connect processing, TestFlight availability/install, current
-TrueNAS install/upgrade/restore, and production/staging exposure remain external
-or manual gates.
+backup-before-upgrade, and tested restore/rollback paths do not exist. The LAN
+package also lacks stable RabbitMQ node identity, binds its HTTP API to all host
+interfaces by default, and offers no supported private HTTPS path that a physical
+mobile client accepts. iOS signing, App Store Connect processing, and TestFlight
+availability/install remain external/manual; current TrueNAS acceptance is
+blocked on the repository gaps, and production/staging exposure is unavailable.
 
 Method:
 
@@ -123,21 +125,21 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | B14 | Checksums/digests/version identity across artifacts | `partial` | GHCR labels/tags/digest; mobile `1.0.0+1`; Codemagic build number | API has exact SHA/digest evidence. Web/Android outputs have no published checksum/provenance; mobile version is static; no unified Day 1 release manifest | R03 |
 | C01 | Supported self-host targets | `partial` | deployment docs and LAN Compose files | Trusted LAN/TrueNAS custom-app is the only exercised target; production/public and polished catalog are not supported/accepted | R04/R05/R09 |
 | C02 | Environment example and secret boundary | `partial` | `infra/env/.env.truenas-lan.example` | Required variables and placeholders are documented; real values remain operator-managed. No catalog form, secret generation, rotation, or validation UI exists | R04; secret mutation is manual-gated |
-| C03 | PostgreSQL/RabbitMQ/storage persistence | `implemented` | both LAN Compose files | Private services, bind-mounted datasets, and local storage mount are wired; #483 observed all three ready on TrueNAS `25.10.4` | #483 evidence; R05 for current backup/restore acceptance |
+| C03 | PostgreSQL/RabbitMQ/storage persistence | `partial` | both LAN Compose files | Bind-mounted datasets/storage are wired and #483 observed all three dependencies ready, but RabbitMQ has neither stable `hostname` nor `RABBITMQ_NODENAME`; a recreated container can select a different node database, so readiness does not prove queue/definition continuity | R11 before R04/R05 |
 | C04 | Health/readiness/bootstrap checks | `implemented` | API `/health`, `/health/ready`, bootstrap endpoint; LAN guide | #483 recorded HTTP 200 liveness/readiness with postgres/rabbitmq/storage `ok`; bootstrap/sign-in was intentionally not exercised | #483 closed bounded evidence; #975 owns final app smoke |
 | C05 | First install and migration ordering | `partial` | LAN Compose `migrate` one-shot plus `service_completed_successfully`; install guide | Runner supports managed/safe/manual/check/validate/danger modes. Commands are manual; no catalog hook or polished installer exists | R04 |
 | C06 | Upgrade orchestration | `documentation-only` | `SELF_HOSTED_INSTALL_UPGRADE_ORCHESTRATION.md` | Ordering, image identity, backup prerequisite, stop conditions, and health checks are plans only | R05 |
 | C07 | Rollback/recovery | `documentation-only` | install/upgrade and backup/restore docs | Limits are truthful: image-only rollback may be incompatible after schema/file changes; no automatic rollback or rehearsal evidence | R05 |
 | C08 | Backup/restore consistency | `documentation-only` | `TRUENAS_BACKUP_RESTORE_RUNBOOK.md` | PostgreSQL/files/RabbitMQ/config consistency and restore order are documented; no backup automation or maintainer-run restore proof | R05 |
-| C09 | Private/public/admin exposure posture | `documentation-only` | `SELF_HOSTING_EXPOSURE_GUARDRAILS.md`; LAN Compose | LAN package keeps dependencies private, but proxy/TLS/DNS/allowed-host/public/admin implementation and proof are absent | R09 |
-| C10 | Current live self-host acceptance | `externally-gated` | issue #483 comments | Historical accepted proof is limited to TrueNAS SCALE `25.10.4`, custom app `1.0.0`, 21 migrations/0 pending, API/dependencies ready; it predates this baseline and omitted bootstrap/sign-in | #380/#975; R05 for current install/upgrade/rollback proof |
+| C09 | Private/public/admin exposure posture | `blocked` | `SELF_HOSTING_EXPOSURE_GUARDRAILS.md`; LAN Compose | Dependencies/storage stay container-private, but the API defaults to `0.0.0.0`, the application permits wildcard hosts, and no firewall/proxy/TLS/interface enforcement is packaged. Privacy therefore depends on operator network controls rather than a safe repository default | R12 before R09 |
+| C10 | Current live self-host acceptance | `blocked` | issue #483 comments | Historical accepted proof is limited to TrueNAS SCALE `25.10.4`, custom app `1.0.0`, 21 migrations/0 pending, API/dependencies ready; it predates this baseline, omitted bootstrap/sign-in, and cannot supply physical-mobile smoke until R11/R12 close | R11/R12, then R04/R05/#975 |
 | D01 | Safe promotion order | `partial` | migration runner, LAN Compose, install/upgrade plan | Intended order: backup/quiesce -> exact image -> private dependencies -> migration gate -> API -> readiness -> compatible-client smoke. Only Compose start ordering is implemented | R05/R03 |
 | D02 | Migration safety/destructive gate | `implemented` | `services/api/src/Settleora.Api/Persistence/MigrationRunner/`; LAN migration service | Production API startup does not migrate. Managed/apply-safe blocks classified destructive work; `force-allow-destructive` remains an explicit dangerous manual gate | Schema/migration owner for future changes; no production run authorized |
 | D03 | Client compatibility gate | `partial` | versioned `/api/v1`, OpenAPI, generated-client validation | Contract drift is tested, but no release manifest binds API compatibility, mobile/web versions, migrations, and artifact digests | R03 |
 | D04 | Backend rollback point | `documentation-only` | backup/restore and install/upgrade docs | Pre-upgrade consistency set and previous exact image are required; no proven rollback after current migrations/file interpretation | R05 |
 | E01 | User-web serving/deployment readiness | `blocked` | real Vite source and `dist` build; user-web audit | Build exists, but protected routes lack a normal credential lifecycle; no container/static host config, deploy workflow, env injection contract, exposure proof, or smoke evidence | #373 for product/auth; R02 for build package; R08 for serving after prerequisites |
 | E02 | Admin-web serving/deployment readiness | `blocked` | `apps/web-admin/README.md`; #964/#376 | No runtime/build exists. Admin exposure must remain private/protected and separately reviewed | #964 first, then #376/#378/#463; R08 only after runtime |
-| F01 | Automatic Linux mobile validation and macOS simulator compile | `implemented` | A04/A05 | Exact #1186 head ran both; this is validation, not signing/upload/install | Completed #1185; do not redo |
+| F01 | Automatic Linux mobile validation and macOS simulator compile | `implemented` | A04/A05 | #1186's Linux lane validated synthetic PR merge `a451c194...`; the reusable iOS lane explicitly validated reviewed head `8a12f344...`. Both passed, but only the latter is exact-head compile evidence; neither is signing/upload/install | Completed #1185; retain the distinct identities in release evidence and do not replace the lanes |
 | F02 | Android package readiness | `blocked` | B08/B09/B12 | Debug APK works; release R8 fails; app ID/signing/store path is absent | R01 -> R07 |
 | F03 | iOS project/signing configuration | `partial` | bundle ID in Xcode project and Codemagic App Store signing integration reference | Repository identifiers and selection exist; credentials/profiles/certificates are external and unverified | R06 |
 | F04 | Codemagic trigger posture | `implemented` | `codemagic.yaml`; CI policy tests | No workflow has `triggering`; GitHub Actions invokes no Codemagic API/webhook. A provider webhook may observe events but does not select/start these YAML workflows | Completed #1185/#383; dashboard/account state remains external |
@@ -157,9 +159,9 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | H02 | App Store Connect upload/processing | `externally-gated` | repository upload block only | No current provider evidence | R06 |
 | H03 | TestFlight internal availability and real-device install | `externally-gated` | manual checklist only | No current tester/device evidence | R06/#975 |
 | H04 | Play Console/upload/install | `unavailable` | no publishing config | R07 must first establish the approved identity, signing, and valid AAB handoff; upload, processing, testing, and device installation become externally gated only after that repository preparation exists | R07, then #975 |
-| H05 | Current TrueNAS install/upgrade/rollback | `externally-gated` | historical #483 install/update subset | No current-baseline upgrade, backup/restore, rollback, or auth/mobile smoke | R05/#975 |
+| H05 | Current TrueNAS install/upgrade/rollback | `blocked` | historical #483 install/update subset | No current-baseline upgrade, backup/restore, rollback, or auth/mobile smoke; R11 must first stabilize broker persistence and R12 must provide an approved reachable private-mobile transport | R11/R12, then R04/R05/#975; becomes externally gated only after repository prerequisites |
 | H06 | Staging/production deployment | `unavailable` | no supported environment/deployment path or record | R03/R05/R08 must first produce a complete candidate and supported deployment handoff; deployment becomes externally gated only after that preparation exists | R09 after prerequisites |
-| H07 | DNS/TLS/proxy/public/admin exposure | `unavailable` | guardrails only; no supported proxy/TLS/exposure path | Safe default remains LAN/private. Exposure becomes externally gated only after #777 and the applicable user/admin owners approve a supported path | R09 after #777 and #376/#463 as applicable |
+| H07 | DNS/TLS/proxy/public/admin exposure | `unavailable` | guardrails only; no supported proxy/TLS/exposure path | The current wildcard API bind is operator-dependent, not a safe private default. R12 must first establish an explicit private bind/transport; wider exposure becomes externally gated only after #777 and the applicable user/admin owners approve it | R12, then R09 after #777 and #376/#463 as applicable |
 | I01 | Auto-runner operational program | `implemented` | `tools/auto-runner/**`; #910/#912 evidence | #910 and #912 are CLOSED; #912 accepted deployed automation source `ecf69d41...`; PR #968 merged `6182d714...` from head `43b2f02b...` as part of that chain | Completed development automation program; not a product deploy dependency |
 | I02 | Auto-runner authority boundary | `implemented` | issue close rules and `AGENTS.md` | Can coordinate approved development PR work; cannot authorize production, stores, exposure, secrets, or destructive migrations | Completed #910/#912; no gap |
 | I03 | Stale #974 dependency text | `superseded` | live #910/#912/PR #968 state and #974 reconciliation comment | “May run after #912” wording is historical; all are completed and separate evidence | #974 issue-body hygiene after merge |
@@ -171,8 +173,8 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | --- | --- | --- | --- | --- |
 | API OCI image | `services/api/Dockerfile`; GHCR workflow | `ghcr.io/tommytang213/settleora-api:sha-<commit>` and digest; floating `:main` | Published on every `main` push and `v*` tag; GHCR retention not defined in repo | Build/publish implemented; promotion and retention partial |
 | Local Compose package | `infra/docker-compose.yml` | repository YAML plus example env | Source only | Development-only |
-| TrueNAS source package | `docker-compose.truenas-lan.yml` | repository YAML plus private operator env | Source only | Runnable LAN foundation, not polished install |
-| TrueNAS image package | `docker-compose.truenas-lan.image.yml` | operator-set exact image recommended; default is `:main` | Source only | Runnable foundation; default identity is not immutable |
+| TrueNAS source package | `docker-compose.truenas-lan.yml` | repository YAML plus private operator env | Source only | Runnable foundation; broker identity and network/transport posture are not release-safe |
+| TrueNAS image package | `docker-compose.truenas-lan.image.yml` | operator-set exact image recommended; default is `:main` | Source only | Same persistence/transport gaps; API and dependency-image identities are not immutable |
 | User web | Vite | `apps/web-user/dist/` | Local ignored output only | Builds, but has no automatic package/publish/serve path |
 | Admin web | none | none | none | Unavailable |
 | Android debug APK | Flutter | `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk` | Local ignored output only | Local build evidence only |
@@ -185,8 +187,8 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | Environment/target | Package | Exposure | Data/migration | Evidence | Status |
 | --- | --- | --- | --- | --- | --- |
 | Developer Compose | `infra/docker-compose.yml` | API and dependency ports exposed locally | named volumes; API startup does not migrate | automatic config/image build on non-doc PRs | `implemented` for development only |
-| Trusted LAN/TrueNAS source build | LAN build Compose | API host port only; dependencies/storage private | bind mounts; one-shot guarded migrate before API | historical #483 TrueNAS `25.10.4`; current config validation | `partial` |
-| Trusted LAN/TrueNAS image | LAN image Compose | same private posture | same ordering; image can be exact but defaults floating | config validation only on current source | `partial` |
+| Trusted LAN/TrueNAS source build | LAN build Compose | API HTTP defaults to all host interfaces; dependencies/storage container-private; no physical-mobile-safe HTTPS | bind mounts, but RabbitMQ node identity is unstable across recreation; one-shot guarded migrate before API | historical #483 TrueNAS `25.10.4`; current config validation | `partial`; R11/R12 block acceptance |
+| Trusted LAN/TrueNAS image | LAN image Compose | same operator-dependent bind/transport posture | same persistence gap and ordering; API plus PostgreSQL/RabbitMQ images use floating tags by default | config validation only on current source | `partial`; R03/R11/R12 block acceptance |
 | Polished TrueNAS catalog | no package | planned LAN/private default | planned forms/hooks/datasets/backups | docs #486/#487 only | `unavailable` |
 | Staging | none | undefined | undefined | none | `unavailable` |
 | Production/public | none | no supported path; any future action is manual-gated and has no public/admin default | destructive and backup gates | none | `unavailable` until repository/product prerequisites exist; then externally gated |
@@ -195,7 +197,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 
 | Concern | Repository state | Evidence state | Remaining gate |
 | --- | --- | --- | --- |
-| Linux validity | root `validate:mobile` | automatic/pass on mobile PR #1186 | none for this capability |
+| Linux validity | root `validate:mobile` | automatic/pass on #1186 synthetic merge `a451c194...`, associated with reviewed head `8a12f344...` | PR-validity evidence; not exact-head release identity |
 | iOS simulator | exact-head GitHub-hosted macOS build | automatic/pass on #1186 | not signing/device evidence |
 | Android debug | Flutter Gradle project | local pass on audit baseline | not a release artifact |
 | Android release | Flutter/Gradle | R8 failure; debug signing and placeholder app ID | R01, then signing/store R07 |
@@ -237,7 +239,9 @@ All entries below are future gates, not blockers to this documentation audit.
   `packages/client-dart/**` select mobile and iOS; CI self-files also select the
   native lanes. Root `npm run validate:mobile` remains the exact Linux authority.
 - #1186 proves full non-doc, mobile, iOS simulator, stable aggregate, CodeQL,
-  Semgrep, and Trivy success. #1187 proves a real docs-only PR: classifier and
+  Semgrep, and Trivy success. Its Linux checkout was the synthetic merge
+  `a451c194...`; its reusable iOS job explicitly checked reviewed head
+  `8a12f344...`. #1187 proves a real docs-only PR: classifier and
   scaffold/policy succeeded; full API/generated, Linux mobile, and iOS jobs
   skipped intentionally; `Validate scaffold` and security checks succeeded.
 - Live ruleset `17875790` still requires the stable `Validate scaffold` context.
@@ -299,7 +303,10 @@ Findings:
   explicitly reserve native-build reconciliation and duplicate prevention to
   open audit #970, so #970 must adopt or split R01 before implementation.
 - #381/#483-#487 completed bounded LAN evidence and plans; none implements a
-  polished catalog, automated upgrade/backup/rollback, or current restore drill.
+  polished catalog, stable RabbitMQ recreate identity, a fail-closed private
+  bind/physical-mobile HTTPS path, automated upgrade/backup/rollback, or current
+  restore drill. Focused live searches found no existing issue for either newly
+  observed LAN repository gap, so R11 and R12 are narrow new recommendations.
 - #946 owns post-Day-1 release epochs and UAT artifact promotion and must not be
   pulled into Day 1 minimum readiness.
 - #777 owns the auth production/public-exposure security-review gate;
@@ -316,28 +323,32 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 | --- | --- | --- | --- | --- | --- |
 | R01 — **new focused recommendation, conditional on #970:** Android release-build dependency/R8 closure | Make current Flutter Android release APK and AAB compile with the intended on-device OCR dependency set. Non-goals: application-ID decision, keystore/signing, Play upload, parser behavior, #959 mutation | Native dependency/build-config review; no signing secret | `mobile-build-config`; `apps/mobile/android/**`, dependency manifest/lock only if required | root `validate:mobile`; debug APK; release APK and AAB; strong independent + Android build review | #970 must first adopt this gap or authorize a non-duplicate focused split under #357/#359. The implementation closes only when exact-head release APK/AAB builds pass, ML Kit scripts used by current code are packaged, size/offline-model impact is recorded, and no debug-signed output is called store-ready |
 | R02 — **new focused recommendation:** additive user-web CI build/package lane | Preserve #1185 classifier/aggregate and add automatic `apps/web-user` install/test/build plus a discoverable `dist` artifact/checksum for web-affecting PRs. Non-goals: deploy, auth completion, public exposure, redesign | CI/workflow manual gate | `docker-compose-ci-deployment` plus web build files/workflow only | web lock install, tests, build, CI policy tests, full docs/scaffold; strong independent | Close on an exact web-affecting PR proving build/package and a docs-only PR proving intentional skip without changing required context. Depends on #1185 architecture; deployment waits for #373 |
-| R03 — **new focused recommendation:** Day 1 release identity manifest | Define a bounded generated evidence manifest binding source SHA/tree, API tag/digest, migration set, web checksum when available, mobile version/build, release notes, rollback artifact, and retention location. Non-goals: release epochs, environment promotion, deployment | Artifact publication/promotion remains manual | `docker-compose-ci-deployment`; focused release tooling/docs | deterministic unit tests, docs/scaffold, sample exact-SHA manifest; strong independent | Close when one non-production candidate manifest is reproducible and rejects mismatched identities. Depends on R01 for Android entry and R02 for web entry; #946 remains later-day |
-| R04 — **new focused recommendation:** TrueNAS catalog package skeleton and render validation | Implement unpublished metadata/form/topology/dataset/secret-input/migration-hook package from #486 plan, defaulting LAN/private and immutable image selection. Non-goals: publish, deploy, real secrets, public/admin exposure | Docker/Compose/deployment config manual gate | `docker-compose-ci-deployment`; new focused catalog paths plus tests | catalog schema/render tests, Compose checks, API image check as scoped; strong deployment/security review | Close with offline render/install-plan validation, private-service proof, migration failure surfacing, backup warning, exact image identity, and zero publication. Depends on R03 identity rules |
-| R05 — #380 manual/external acceptance owner plus a future separately approved evidence task | Current TrueNAS install/upgrade, pre-upgrade backup, bounded non-destructive operator restore evidence using the existing Day 1 runbook, rollback limits, health/auth/mobile smoke. Non-goals: destructive production restore, hidden env change, or product-integrated restore automation | Host, secret, database/storage, migration, deployment manual gates | external operator lane; no unattended repo mutation | exact version/digest, sanitized migration/health/readiness/smoke, consistency-set and recovery evidence; human + strong deployment review | Close only with current-candidate TrueNAS evidence and separately approved operator restore/rollback evidence. Depends on R03/R04 and product acceptance readiness. Automated integrity verification, disposable restore environments, freshness tracking, scheduling, and admin UX remain Day 2 under #1077 |
+| R03 — **new focused recommendation:** Day 1 release identity manifest | Define a bounded generated evidence manifest binding source SHA/tree, API tag/digest, resolved PostgreSQL/RabbitMQ image digests, migration set, web checksum when available, mobile version/build, release notes, rollback artifact, and retention location. Non-goals: release epochs, environment promotion, deployment | Artifact publication/promotion remains manual | `docker-compose-ci-deployment`; focused release tooling/docs | deterministic unit tests, docs/scaffold, sample exact-SHA manifest; strong independent | Close when one non-production candidate manifest is reproducible and rejects API or dependency-image identity mismatches. Depends on R01 for Android entry and R02 for web entry; #946 remains later-day |
+| R04 — **new focused recommendation:** TrueNAS catalog package skeleton and render validation | Implement unpublished metadata/form/topology/dataset/secret-input/migration-hook package from #486 plan, defaulting to the R12 private transport and immutable image selection. Non-goals: publish, deploy, real secrets, public/admin exposure | Docker/Compose/deployment config manual gate | `docker-compose-ci-deployment`; new focused catalog paths plus tests | catalog schema/render tests, Compose checks, API image check as scoped; strong deployment/security review | Close with offline render/install-plan validation, private-service proof, migration failure surfacing, backup warning, exact image identity, and zero publication. Depends on R03/R11/R12 |
+| R05 — #380 manual/external acceptance owner plus a future separately approved evidence task | After R11/R12, collect current TrueNAS install/upgrade, pre-upgrade backup, bounded non-destructive operator restore evidence using the existing Day 1 runbook, rollback limits, health/auth/mobile smoke. Non-goals: destructive production restore, hidden env change, or product-integrated restore automation | Host, secret, database/storage, migration, deployment manual gates | external operator lane; no unattended repo mutation | exact version/digest, sanitized migration/health/readiness/smoke, consistency-set and recovery evidence; human + strong deployment review | Close only with current-candidate TrueNAS evidence and separately approved operator restore/rollback evidence. Depends on R03/R04/R11/R12 and product acceptance readiness. Automated integrity verification, disposable restore environments, freshness tracking, scheduling, and admin UX remain Day 2 under #1077 |
 | R06 — #380/#383 manual iOS release-evidence owner | Run the existing Codemagic signed internal workflow, verify App Store Connect processing, tester availability, warning state, and real-device install. Non-goals: public App Store submission or automatic trigger | Apple/Codemagic/signing/store/tester manual gates | external provider action | build/run URL, exact SHA/version/build, redacted signing selection, processed IPA, device smoke; human release review | Close only from maintainer-approved external evidence. Depends on product candidate and #975 sequence; `submit_to_testflight`/`submit_to_app_store` stay false unless separately authorized |
 | R07 — **new focused recommendation plus later manual acceptance:** Android application identity/signing/store plan | After R01, select non-placeholder application ID, secure signing boundary, AAB output, and manual Play acceptance plan. Non-goals: commit keys, upload, public release | Identity, keystore, Play Console, tester/store manual gates | `mobile-build-config` for repo-safe config; external release action later | release AAB identity/signature inspection, no-secret scan, provider/device evidence; strong security/release review | Repository slice closes with approved external-secret contract and reproducible signed-build handoff; store evidence closes only after explicit manual action. Depends on R01 |
 | R08 — #373 for user web; #964/#376 for admin web | Add serving/deployment packages only after each surface has its required runtime/auth/privacy readiness. Non-goals: infer readiness from Vite or README | Auth/security, storage/privacy, and admin exposure gates | product owner first; deployment lane later | product tests/visual acceptance before container/static-host validation; strong review | User web waits for #373’s protected-route/product close rule; admin waits for #964 split and #376 runtime gates |
-| R09 — #380 final environment/network activation owner | Define/approve any staging/production deployment and any DNS/TLS/proxy activation only after the relevant domain reviews. Non-goals: automatic promotion, public default, or duplicating auth/admin review | Production, network, secrets, auth/security, storage/privacy, destructive migration | manual deployment/security lane | threat/exposure review, exact artifacts, backup/rollback, health/smoke, disable path | #777 must close the auth public-exposure review; #376/#463 must close admin runtime/exposure prerequisites; #485 is the completed planning baseline. Final activation closes only with explicit human approval and live evidence. #946 owns later automation |
+| R09 — #380 final environment/network activation owner | Define/approve any staging/production deployment and any DNS/TLS/proxy activation only after the relevant domain reviews and R12 private baseline. Non-goals: automatic promotion, public default, or duplicating auth/admin review | Production, network, secrets, auth/security, storage/privacy, destructive migration | manual deployment/security lane | threat/exposure review, exact artifacts, backup/rollback, health/smoke, disable path | R12 closes the private baseline first; #777 must close the auth public-exposure review; #376/#463 must close admin runtime/exposure prerequisites; #485 is the completed planning baseline. Final activation closes only with explicit human approval and live evidence. #946 owns later automation |
 | R10 — **new focused recommendation:** current user-web dependency-alert triage | Reconcile Dependabot alerts #32/#34-#36, update the smallest safe web build/test dependency set, and prove whether each advisory affects shipped output. Non-goals: suppress/dismiss alerts, deploy web, or broaden user-web product scope | Dependency/security review; no alert dismissal waiver | `web-user-ui`; `apps/web-user/package.json` and lockfile only unless evidence requires a separately scoped tool change | `npm ci`, `npm audit`, lint/test/build, docs/scaffold, exact alert reread; strong security review | Close only when current alerts are remediated by reviewed dependency updates or separately proven non-applicable through the repository's normal security process; depends only on current main and precedes R02 artifact publication |
+| R11 — **new focused recommendation:** stable RabbitMQ persistence identity | Give both LAN Compose variants one explicit stable RabbitMQ node identity and add a bounded recreate/reopen continuity test. Non-goals: deploy, inspect production queues, change credentials, add clustering, or alter application messaging semantics | Docker/Compose and persisted-data review; any real-host exercise is separately manual | `docker-compose-ci-deployment`; the two LAN Compose files, example env only if required, focused tests/docs | Compose config, clean-start/recreate test with a non-sensitive marker queue/definition, health/readiness, docs/scaffold; strong infrastructure review | Close when container recreation reopens the same node database and retained marker without exposing data or requiring a live host. No existing issue owns this gap; depends only on current main and precedes R04/R05 |
+| R12 — **new focused recommendation:** fail-closed private LAN bind and mobile-safe transport | Replace the operator-dependent wildcard HTTP posture with an explicit private-interface bind or equivalent reviewed control and a supported private HTTPS transport accepted by physical mobile clients. Non-goals: public DNS/exposure, weakening mobile HTTPS validation, committing certificates/secrets, or deploying a host | Docker/env/network/TLS/auth-security manual gate | `docker-compose-ci-deployment`; bounded LAN Compose/env/proxy or transport paths plus tests/docs | fail-closed config fixtures, allowed-host/origin and TLS trust review, physical-device-safe URI contract, rollback-to-private proof; strong security/deployment review | Repository slice closes only when defaults cannot silently bind every interface and the documented private HTTPS path is reproducible without committed secrets. Live host/device proof stays R05/#975. No existing issue owns this gap; depends only on current main and precedes R04/R05/R09 |
 | #975 | Consume, but do not manufacture, final native/device/UI/operator evidence | Final human/platform acceptance | `docs-planning` acceptance audit | evidence-bound audit/review | Runs after relevant product/release gaps; cannot close gates from configuration alone |
 | #946 | Post-Day-1 release epochs, release cuts, UAT-to-production immutable promotion | Deferred activation gate | later-day release management | its own future validation | Start only after complete Day 1 implementation and integrated acceptance |
 
 ## 12. Dependency-safe remaining work graph
 
-1. **Critical blocker and owner prerequisite:** the Android release failure is
-   real, but #970 must first reconcile/adopt or split R01 under #357/#359. Debug
-   success does not compensate for a failing release optimizer.
+1. **Critical blockers and owner prerequisites:** R11 must stabilize RabbitMQ
+   identity across recreation; R12 must establish a fail-closed private bind and
+   physical-mobile-safe transport; and #970 must reconcile/adopt or split R01's
+   Android release failure under #357/#359.
 2. **Already-owned executable product gaps:** #373/#963’s user-web graph, #964
    then #376/#378/#463 for admin, and the broader mobile/product owners must
    complete independently of release infrastructure.
-3. **New focused repository recommendations:** R10 dependency-alert remediation;
-   then R02 additive user-web build/package CI; then R03 release identity; then
-   R04 unpublished TrueNAS catalog skeleton.
+3. **New focused repository recommendations:** R11 persistence identity first;
+   R12 private transport in its security-gated lane; R10 dependency-alert
+   remediation; then R02 additive user-web build/package CI; then R03 release
+   identity with infrastructure digests; then R04 unpublished catalog skeleton.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
    signed/TestFlight/device, R07 Android identity/signing/Play/device, and R09
    any production/exposure action; #975 consumes the final evidence.
@@ -347,23 +358,26 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 Dependency summary:
 
 ```text
- #970 adopt/split -> R01 Android compile -> R03 identity -----> R04 catalog skeleton
- R10 alerts -> R02 user-web package ----/                            |
-#373 user-web product -----------------------------> R08 -------+--> R05/R09 --> #975
-#964 -> #376 admin product ------------------------> R08
-product-complete candidate + R01 -----------------> R06/R07 ----+--> #975
-complete Day 1 + #975 acceptance ----------------------------------> #946 (later day)
+R11 broker continuity ------+---------------------------> R04 -> R05 --+
+R12 private bind/transport -+---------------------------> R04 -> R05 --+--> #975
+R10 alerts -> R02 web package -> R03 identity ----------> R04 --------+
+#970 adopt/split -> R01 Android compile -> R03/R07 -------------------+
+#373 user web; #964 -> #376 admin -> R08 -----------------------------+
+R12 + domain reviews -> R09 production/exposure ---------------------+
+complete Day 1 + #975 acceptance -------------------------------> #946 (later day)
 ```
 
 ### First dependency-safe next logical task for GPT review
 
-Select **#970's bounded R01 ownership reconciliation for GPT review**. The
-review must decide whether #970 adopts R01 directly or emits the same narrow
-non-duplicate `mobile-build-config` child; only then is R01 implementation
-dependency-safe. This preserves the independently reproduced Android packaging
-blocker without bypassing #357/#359/#970 authority or touching #959. The eventual
-implementation remains repository-only and precedes signing, store action,
-production deployment, exposure, destructive migration, and Android acceptance.
+Select **R11's stable RabbitMQ persistence-identity repository slice for GPT
+review**. It has no unmet owner or product dependency, fixes a data-continuity
+precondition for every later TrueNAS package/evidence task, and can be validated
+with disposable non-sensitive Compose data without deploying or touching a live
+host. The reviewed task must retain the Docker/Compose manual gate, exclude
+credentials/clustering/application messaging changes, and close only on a
+recreate/reopen continuity test. R12 is next but requires the stronger
+network/TLS/auth-security gate; #970 independently controls R01 without touching
+#959.
 
 ## 13. Final Day 1 readiness statement
 
@@ -372,9 +386,10 @@ foundations, guarded migration ordering, a local user-web build, a debug Android
 build, and an iOS simulator compile path. It does **not** yet have a complete
 Day 1 release candidate: Android release packaging is broken; web/admin package
 and deployment boundaries are incomplete; release identity/retention is partial;
-TrueNAS catalog/upgrade/restore/rollback is unimplemented or unproven; signed
-iOS and current-host evidence remains manual/external; and Android store,
-staging/production, and exposure paths are unavailable until their repository
-and product prerequisites exist, after which live actions remain manually
-gated. #380 must remain open. #975 remains the later acceptance consumer. #946
-remains deferred. #959 remains isolated.
+TrueNAS broker persistence identity, private binding/transport,
+catalog/upgrade/restore/rollback are incomplete or unproven; signed iOS evidence
+remains manual/external; and current-host, Android store, staging/production, and
+exposure acceptance is blocked or unavailable until repository and product
+prerequisites exist, after which live actions remain manually gated. #380 must
+remain open. #975 remains the later acceptance consumer. #946 remains deferred.
+#959 remains isolated.
