@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:mobile/app/app_configuration.dart';
 import 'package:mobile/app/app_bootstrap.dart';
 import 'package:mobile/app/secure_storage.dart';
@@ -14,6 +15,31 @@ import 'package:mobile/ui/settleora_components.dart';
 import 'server_mode_shell_dashboard_test.dart' as dashboard;
 
 void main() {
+  test('current release and catalog content preserve exact identities', () {
+    expect(currentBundledVersionNotesKey, '1.0.0+1');
+    expect(currentBundledVersionNotes.isUsable, isTrue);
+    expect(currentBundledVersionNotes.heading, isEmpty);
+
+    final localizations = lookupAppLocalizations(const Locale('en'));
+    expect(localizations.whatsNewCurrentHeading, "What's New in Settleora 1.0");
+    expect(
+      localizations.whatsNewCurrentDescription,
+      'A quick look at what you can do in this self-hosted mobile build.',
+    );
+    expect(
+      localizations.whatsNewCurrentPointDeviceMode,
+      'Choose device-only Local Mode or connect to your self-hosted Settleora server.',
+    );
+    expect(
+      localizations.whatsNewCurrentPointFeatures,
+      'Work with bills, groups, settlements, recurring bills, reports, and notifications after signing in.',
+    );
+    expect(
+      localizations.whatsNewCurrentPointReceiptReview,
+      'Review receipt details before applying them to a draft bill.',
+    );
+  });
+
   group('local version-seen preference', () {
     test(
       'stores only the current release key through the low-level store',
@@ -27,6 +53,10 @@ void main() {
         await preference.writeSeenReleaseKey(' 1.0.0+1 ');
 
         expect(store.values.length, 1);
+        expect(
+          store.values.keys.single,
+          'settleora.presentation.whats_new.seen_release_key.v1',
+        );
         expect(store.values.values.single, '1.0.0+1');
         expect(await preference.readSeenReleaseKey(), '1.0.0+1');
       },
@@ -44,34 +74,64 @@ void main() {
     });
   });
 
-  testWidgets(
-    'unseen notes open over setup and explicit close marks seen once',
-    (tester) async {
-      final preference = _FakeVersionSeenPreference();
+  testWidgets('unseen notes open over setup and explicit close marks seen once', (
+    tester,
+  ) async {
+    final preference = _FakeVersionSeenPreference();
 
-      await _pumpApp(tester, preference: preference);
+    await _pumpApp(tester, preference: preference);
 
-      expect(find.text('Settleora Setup'), findsOneWidget);
-      expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
-      expect(find.text("What's New in Settleora 1.0"), findsOneWidget);
+    expect(find.text('Settleora Setup'), findsOneWidget);
+    expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
+    expect(find.text("What's New in Settleora 1.0"), findsOneWidget);
+    expect(
+      find.text(
+        'A quick look at what you can do in this self-hosted mobile build.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Choose device-only Local Mode or connect to your self-hosted Settleora server.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Work with bills, groups, settlements, recurring bills, reports, and notifications after signing in.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Review receipt details before applying them to a draft bill.'),
+      findsOneWidget,
+    );
+    for (final rawIdentifier in <String>[
+      'whatsNewCurrentHeading',
+      'whatsNewCurrentDescription',
+      'whatsNewCurrentPointDeviceMode',
+      'whatsNewCurrentPointFeatures',
+      'whatsNewCurrentPointReceiptReview',
+    ]) {
+      expect(find.text(rawIdentifier), findsNothing);
+    }
 
-      final close = find.byKey(const Key('whats-new-close'));
-      expect(tester.getSize(close).height, greaterThanOrEqualTo(48));
-      await tester.tap(close);
-      await tester.pumpAndSettle();
+    final close = find.byKey(const Key('whats-new-close'));
+    expect(tester.getSize(close).height, greaterThanOrEqualTo(48));
+    await tester.tap(close);
+    await tester.pumpAndSettle();
 
-      expect(find.byType(SettleoraGuidanceContent), findsNothing);
-      expect(find.text('Settleora Setup'), findsOneWidget);
-      expect(preference.writeCalls, 1);
-      expect(preference.seenKey, currentBundledVersionNotesKey);
-      final focusedContext = FocusManager.instance.primaryFocus?.context;
-      expect(
-        focusedContext
-            ?.findAncestorWidgetOfExactType<SettleoraBottomSheetFrame>(),
-        isNull,
-      );
-    },
-  );
+    expect(find.byType(SettleoraGuidanceContent), findsNothing);
+    expect(find.text('Settleora Setup'), findsOneWidget);
+    expect(preference.writeCalls, 1);
+    expect(preference.seenKey, currentBundledVersionNotesKey);
+    final focusedContext = FocusManager.instance.primaryFocus?.context;
+    expect(
+      focusedContext
+          ?.findAncestorWidgetOfExactType<SettleoraBottomSheetFrame>(),
+      isNull,
+    );
+  });
 
   testWidgets('ordinary modal dismissal is skippable and marks seen', (
     tester,
@@ -118,9 +178,39 @@ void main() {
       notes: const SettleoraBundledVersionNotes(
         releaseKey: '1.0.0+2',
         heading: "What's New in Settleora 1.0 build 2",
+        description: 'Caller-provided build 2 details.',
+        points: ['Caller-provided build 2 point.'],
       ),
     );
     expect(find.text("What's New in Settleora 1.0 build 2"), findsOneWidget);
+    expect(find.text('Caller-provided build 2 details.'), findsOneWidget);
+    expect(find.text('Caller-provided build 2 point.'), findsOneWidget);
+  });
+
+  testWidgets('catalog resolution failure remains fail-open', (tester) async {
+    bool? shown;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              shown = await showSettleoraVersionNotes(
+                context: context,
+                notes: currentBundledVersionNotes,
+              );
+            },
+            child: const Text('Open notes'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open notes'));
+    await tester.pumpAndSettle();
+
+    expect(shown, isFalse);
+    expect(find.byType(SettleoraGuidanceContent), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('preference read delay never blocks the setup surface', (
@@ -349,7 +439,7 @@ void main() {
 
     expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
     expect(processGuard.hasAttempted(currentBundledVersionNotesKey), isTrue);
-    expect(find.text(currentBundledVersionNotes.heading), findsOneWidget);
+    expect(find.text("What's New in Settleora 1.0"), findsOneWidget);
     await tester.tap(find.byKey(const Key('whats-new-close')));
     await tester.pumpAndSettle();
     expect(preference.seenKey, currentBundledVersionNotesKey);
@@ -446,6 +536,8 @@ Future<void> _pumpShell(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       home: SettleoraAuthenticatedServerShell(
         currentUser: dashboard.sampleCurrentUser(),
         receiptOcrReviewRepository: dashboard.FakeReceiptOcrReviewRepository(),

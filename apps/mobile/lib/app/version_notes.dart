@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../ui/settleora_components.dart';
 import 'secure_storage.dart';
@@ -10,17 +11,11 @@ import 'secure_storage.dart';
 const currentBundledVersionNotesKey = '1.0.0+1';
 const settleoraVersionNotesReleaseKeyMaxLength = 128;
 
-const currentBundledVersionNotes = SettleoraBundledVersionNotes(
+const currentBundledVersionNotes = SettleoraBundledVersionNotes._catalog(
   releaseKey: currentBundledVersionNotesKey,
-  heading: "What's New in Settleora 1.0",
-  description:
-      'A quick look at what you can do in this self-hosted mobile build.',
-  points: [
-    'Choose device-only Local Mode or connect to your self-hosted Settleora server.',
-    'Work with bills, groups, settlements, recurring bills, reports, and notifications after signing in.',
-    'Review receipt details before applying them to a draft bill.',
-  ],
 );
+
+enum _SettleoraVersionNotesContentSource { staticContent, currentCatalog }
 
 class SettleoraBundledVersionNotes {
   const SettleoraBundledVersionNotes({
@@ -28,16 +23,24 @@ class SettleoraBundledVersionNotes {
     required this.heading,
     this.description,
     this.points = const [],
-  });
+  }) : _contentSource = _SettleoraVersionNotesContentSource.staticContent;
+
+  const SettleoraBundledVersionNotes._catalog({required this.releaseKey})
+    : heading = '',
+      description = null,
+      points = const [],
+      _contentSource = _SettleoraVersionNotesContentSource.currentCatalog;
 
   final String releaseKey;
   final String heading;
   final String? description;
   final List<String> points;
+  final _SettleoraVersionNotesContentSource _contentSource;
 
   bool get isUsable =>
       isValidSettleoraVersionNotesReleaseKey(releaseKey) &&
-      heading.trim().isNotEmpty;
+      (_contentSource == _SettleoraVersionNotesContentSource.currentCatalog ||
+          heading.trim().isNotEmpty);
 }
 
 bool isValidSettleoraVersionNotesReleaseKey(String releaseKey) {
@@ -99,11 +102,61 @@ class LocalSettleoraVersionSeenPreference
   }
 }
 
+class _ResolvedSettleoraVersionNotesContent {
+  const _ResolvedSettleoraVersionNotesContent({
+    required this.heading,
+    this.description,
+    this.points = const [],
+  });
+
+  final String heading;
+  final String? description;
+  final List<String> points;
+
+  bool get isUsable => heading.trim().isNotEmpty;
+}
+
+_ResolvedSettleoraVersionNotesContent _resolveVersionNotesContent(
+  BuildContext context,
+  SettleoraBundledVersionNotes notes,
+) {
+  switch (notes._contentSource) {
+    case _SettleoraVersionNotesContentSource.staticContent:
+      return _ResolvedSettleoraVersionNotesContent(
+        heading: notes.heading,
+        description: notes.description,
+        points: notes.points,
+      );
+    case _SettleoraVersionNotesContentSource.currentCatalog:
+      final localizations = AppLocalizations.of(context);
+      return _ResolvedSettleoraVersionNotesContent(
+        heading: localizations.whatsNewCurrentHeading,
+        description: localizations.whatsNewCurrentDescription,
+        points: [
+          localizations.whatsNewCurrentPointDeviceMode,
+          localizations.whatsNewCurrentPointFeatures,
+          localizations.whatsNewCurrentPointReceiptReview,
+        ],
+      );
+  }
+}
+
 Future<bool> showSettleoraVersionNotes({
   required BuildContext context,
   required SettleoraBundledVersionNotes? notes,
 }) async {
   if (notes == null || !notes.isUsable) {
+    return false;
+  }
+
+  final _ResolvedSettleoraVersionNotesContent content;
+  try {
+    final resolved = _resolveVersionNotesContent(context, notes);
+    if (!resolved.isUsable) {
+      return false;
+    }
+    content = resolved;
+  } catch (_) {
     return false;
   }
 
@@ -120,9 +173,9 @@ Future<bool> showSettleoraVersionNotes({
       ],
       child: SettleoraGuidanceContent(
         key: const Key('whats-new-guidance-content'),
-        heading: notes.heading.trim(),
-        description: notes.description,
-        points: notes.points,
+        heading: content.heading.trim(),
+        description: content.description,
+        points: content.points,
       ),
     ),
   );

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:mobile/app/app_bootstrap.dart';
 import 'package:mobile/app/app_configuration.dart';
 import 'package:mobile/app/secure_storage.dart';
@@ -16,7 +17,7 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
 const _outputDirectory =
-    '/workspace/logs/settleora-visual-qa/20260908-1556-issue-1092-whats-new';
+    '/workspace/logs/issue-1176-mobile-whats-new/visual-evidence';
 const _captureKey = Key('version-notes-visual-capture');
 
 void main() {
@@ -69,6 +70,8 @@ void main() {
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: SettleoraTheme.midnight(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: _buildShell(),
         ),
       ),
@@ -104,17 +107,10 @@ void main() {
     );
   }, tags: ['visual']);
 
-  testWidgets('captures long 320px 2x scrollable notes', (tester) async {
-    await _prepare(tester, width: 320, height: 760);
-    final notes = SettleoraBundledVersionNotes(
-      releaseKey: '1.0.0+localized-preview',
-      heading: "What's New in this longer localized Settleora release",
-      description: 'Long localized description ' * 8,
-      points: List.generate(
-        8,
-        (index) => 'Long localized product guidance point ${index + 1} ' * 5,
-      ),
-    );
+  testWidgets('captures current catalog notes at 320px and 2x pixel ratio', (
+    tester,
+  ) async {
+    await _prepare(tester, width: 320, height: 760, devicePixelRatio: 2);
 
     await tester.pumpWidget(
       RepaintBoundary(
@@ -122,17 +118,14 @@ void main() {
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: SettleoraTheme.midnight(),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: const TextScaler.linear(2)),
-            child: child!,
-          ),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: SettleoraAppBootstrap(
-            secureStorage: _VisualSecureStorage(),
+            secureStorage: _VisualSecureStorage(
+              configuration: const SettleoraAppConfiguration.local(),
+            ),
             versionSeenPreference: _VisualVersionSeenPreference(),
             versionNotesProcessGuard: SettleoraVersionNotesProcessGuard(),
-            versionNotes: notes,
           ),
         ),
       ),
@@ -140,7 +133,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await _capture(tester, 'long-whats-new-320x760-2x-top.png');
+    expect(find.text("What's New in Settleora 1.0"), findsOneWidget);
+    expect(
+      find.text(
+        'A quick look at what you can do in this self-hosted mobile build.',
+      ),
+      findsOneWidget,
+    );
+    await _capture(tester, 'catalog-whats-new-320x760-2x-top.png');
     final sheetScroll = find
         .ancestor(
           of: find.byType(SettleoraGuidanceContent),
@@ -148,14 +148,26 @@ void main() {
         )
         .first;
     await tester.scrollUntilVisible(
-      find.textContaining('product guidance point 8').first,
+      find.text('Review receipt details before applying them to a draft bill.'),
       500,
       scrollable: find
           .descendant(of: sheetScroll, matching: find.byType(Scrollable))
           .first,
     );
+    await tester.ensureVisible(find.byKey(const Key('whats-new-close')));
     await tester.pumpAndSettle();
-    await _capture(tester, 'long-whats-new-320x760-2x-close-reachable.png');
+    expect(find.byKey(const Key('whats-new-close')), findsOneWidget);
+    await _capture(tester, 'catalog-whats-new-320x760-2x-close-reachable.png');
+
+    await tester.tap(find.byKey(const Key('whats-new-close')));
+    await tester.pumpAndSettle();
+    final manualLauncher = find.byKey(const Key('bootstrap-whats-new'));
+    await tester.ensureVisible(manualLauncher);
+    await tester.tap(manualLauncher);
+    await tester.pumpAndSettle();
+    expect(find.byType(SettleoraGuidanceContent), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _capture(tester, 'catalog-whats-new-manual-320x760-2x.png');
   }, tags: ['visual']);
 }
 
@@ -163,13 +175,17 @@ Future<void> _prepare(
   WidgetTester tester, {
   required double width,
   required double height,
+  double devicePixelRatio = 1,
 }) async {
   await tester.runAsync(() async {
     await loadSettleoraVisualTestFonts();
     await Directory(_outputDirectory).create(recursive: true);
   });
-  tester.view.physicalSize = Size(width, height);
-  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = Size(
+    width * devicePixelRatio,
+    height * devicePixelRatio,
+  );
+  tester.view.devicePixelRatio = devicePixelRatio;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 }
@@ -185,6 +201,8 @@ Future<void> _pumpBootstrap(
         key: UniqueKey(),
         debugShowCheckedModeBanner: false,
         theme: SettleoraTheme.midnight(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: SettleoraAppBootstrap(
           key: UniqueKey(),
           secureStorage: storage,
@@ -221,7 +239,9 @@ Future<void> _capture(WidgetTester tester, String name) async {
     final boundary = tester.renderObject<RenderRepaintBoundary>(
       find.byKey(_captureKey),
     );
-    final image = await boundary.toImage(pixelRatio: 1);
+    final image = await boundary.toImage(
+      pixelRatio: tester.view.devicePixelRatio,
+    );
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
     await File(
       '$_outputDirectory/$name',
