@@ -172,7 +172,7 @@ test('GitHub and Codemagic release gates share one non-visual Flutter contract',
   }
 });
 
-test('shared release selector excludes visual filenames and visual-tagged files', () => {
+test('shared release selector excludes visual filenames and only visual-tagged cases', () => {
   const script = read('apps/mobile/tool/validate-release.sh');
   assert.match(script, /flutter pub get/);
   assert.match(script, /flutter analyze/);
@@ -193,8 +193,8 @@ test('shared release selector excludes visual filenames and visual-tagged files'
   assert.ok(normalFiles.includes('test/bill_list_screen_test.dart'));
   assert.ok(normalFiles.includes('test/group_bill_list_screen_test.dart'));
   assert.equal(normalFiles.some((file) => /visual.*capture_test\.dart|visual.*evidence.*_test\.dart/.test(file)), false);
-  assert.equal(normalFiles.includes('test/ui/settleora_component_guardrail_test.dart'), false);
-  assert.equal(normalFiles.includes('test/ui/settlement_detail_search_shared_fields_test.dart'), false);
+  assert.ok(normalFiles.includes('test/ui/settleora_component_guardrail_test.dart'));
+  assert.ok(normalFiles.includes('test/ui/settlement_detail_search_shared_fields_test.dart'));
   assert.match(selection, /VISUAL_FILENAME_TEST_FILE=test\/ui\/.*visual_capture_test\.dart/);
   assert.match(selection, /VISUAL_TAGGED_TEST_FILE=test\/ui\/settleora_component_guardrail_test\.dart/);
 });

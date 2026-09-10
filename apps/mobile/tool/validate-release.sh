@@ -32,10 +32,9 @@ while IFS= read -r test_file; do
       visual_filename_test_files+=("$test_file")
       ;;
     *)
+      normal_test_files+=("$test_file")
       if grep -Eq 'tags:[^#]*visual' "$test_file"; then
         visual_tagged_test_files+=("$test_file")
-      else
-        normal_test_files+=("$test_file")
       fi
       ;;
   esac
@@ -45,7 +44,7 @@ echo "Selected non-visual Flutter test files: ${#normal_test_files[@]}"
 printf 'NON_VISUAL_TEST_FILE=%s\n' "${normal_test_files[@]}"
 echo "Visual filename-selected Flutter test files excluded: ${#visual_filename_test_files[@]}"
 printf 'VISUAL_FILENAME_TEST_FILE=%s\n' "${visual_filename_test_files[@]}"
-echo "Visual-tagged Flutter test files excluded: ${#visual_tagged_test_files[@]}"
+echo "Mixed Flutter test files with visual-tagged cases: ${#visual_tagged_test_files[@]}"
 printf 'VISUAL_TAGGED_TEST_FILE=%s\n' "${visual_tagged_test_files[@]}"
 
 if [[ ${#normal_test_files[@]} -eq 0 ]]; then

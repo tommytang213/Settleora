@@ -43,13 +43,13 @@ Normal mobile validation intentionally excludes:
 
 - `apps/mobile/test/**/*visual*capture_test.dart`
 - `apps/mobile/test/**/*visual*evidence*_test.dart`
-- files containing tests tagged `visual`.
+- individual tests tagged `visual`; ordinary tests in mixed files still run.
 
 Those visual capture, screenshot-helper, and screen-compare tests are useful
 review evidence, but they should not block app validity checks or an installable
 internal TestFlight preview build. The workflow prints the selected non-visual
-test count and file list, plus visual-tagged file exclusions, before running the
-tests.
+test count and file list, plus mixed files containing visual-tagged cases,
+before running the tests.
 
 ## Visual Evidence Workflow
 
@@ -130,10 +130,11 @@ The internal TestFlight workflow invokes the same repository-owned
 `./tool/validate-release.sh` contract as GitHub and `Mobile iOS validation`.
 It runs every Flutter test file except
 `*visual*capture_test.dart` and `*visual*evidence*_test.dart`, and it excludes
-files containing tests tagged `visual`, with `--exclude-tags visual` retained as
-a safeguard. Visual capture/screenshot-helper/screen-compare evidence remains
-available through `Mobile iOS visual evidence` without blocking the installable
-preview build path.
+individual tests tagged `visual` with `--exclude-tags visual`, while retaining
+ordinary tests from mixed files. Visual
+capture/screenshot-helper/screen-compare evidence remains available through
+`Mobile iOS visual evidence` without blocking the installable preview build
+path.
 
 ## App Store Connect Compliance Metadata
 
