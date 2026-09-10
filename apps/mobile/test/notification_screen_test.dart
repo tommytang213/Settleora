@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:mobile/api/settleora_api_client.dart';
 import 'package:mobile/app/auth_session_repository.dart';
 import 'package:mobile/app/secure_storage.dart';
@@ -147,6 +148,58 @@ void main() {
     expect(repository.summaryCalls, 1);
     expect(repository.listCalls, 1);
   });
+
+  testWidgets(
+    'notification screen resolves known keys and hides unknown raw keys',
+    (tester) async {
+      final repository = FakeNotificationRepository(
+        notifications: [
+          sampleNotification(
+            id: 'known-static',
+            titleKey: 'notifications.bill.submitted.title',
+            messageKey: 'notifications.bill.submitted.message',
+            safeSummary: '',
+          ),
+          sampleNotification(
+            id: 'known-safe-summary',
+            eventType: SettleoraNotificationEventTypeValues.billConfirmed,
+            titleKey: 'notifications.bill.confirmed.title',
+            messageKey: 'notifications.bill.confirmed.message',
+            safeSummary: 'Dinner bill is ready.',
+          ),
+          sampleNotification(
+            id: 'unknown-key',
+            eventType:
+                SettleoraNotificationEventTypeValues.settlementRequestCreated,
+            subjectType:
+                SettleoraNotificationSubjectTypeValues.settlementRequest,
+            titleKey: 'notifications.future.raw_title',
+            messageKey: 'notifications.future.raw_message',
+            safeSummary: '',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: SettleoraNotificationScreen(repository: repository),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView).first, const Offset(0, -1200));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bill submitted'), findsOneWidget);
+      expect(find.text('Bill'), findsOneWidget);
+      expect(find.text('Bill confirmed'), findsOneWidget);
+      expect(find.text('Dinner bill is ready.'), findsOneWidget);
+      expect(find.text('Settlement requested'), findsOneWidget);
+      expect(find.text('Settlement request'), findsOneWidget);
+      expect(visibleText(tester), isNot(contains('notifications.future')));
+    },
+  );
 
   testWidgets(
     'notification screen respects local preferences without archive',
@@ -3751,6 +3804,8 @@ SettleoraNotificationRow sampleNotification({
   String status = SettleoraNotificationStatusValues.unread,
   String priority = SettleoraNotificationPriorityValues.attention,
   String subjectType = SettleoraNotificationSubjectTypeValues.expenseBill,
+  String? titleKey,
+  String? messageKey,
   String? actionUrl,
   String? groupId,
   String? expenseBillId,
@@ -3773,6 +3828,8 @@ SettleoraNotificationRow sampleNotification({
     priority: priority,
     subjectType: subjectType,
     safeSummary: safeSummary,
+    titleKey: titleKey,
+    messageKey: messageKey,
     actionUrl: actionUrl,
     groupId: groupId,
     expenseBillId: expenseBillId,

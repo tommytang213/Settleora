@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mobile/.dart_tool/flutter_gen/gen_l10n/app_localizations.dart';
 
 import 'app/app_bootstrap.dart';
 import 'app/home_shortcut_preferences.dart';
@@ -76,7 +77,9 @@ class SettleoraMobileApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Settleora',
+      onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: SettleoraTheme.midnight(),
       home: showDashboardPreview
           ? const DashboardPreviewScreen()
