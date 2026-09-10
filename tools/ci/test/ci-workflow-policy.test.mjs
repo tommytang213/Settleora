@@ -178,6 +178,8 @@ test('shared release selector excludes visual filenames and visual-tagged files'
   assert.match(script, /flutter analyze/);
   assert.match(script, /flutter test -r expanded --exclude-tags visual/);
   assert.match(script, /\*visual\*capture_test\.dart\|\*visual\*evidence\*_test\.dart/);
+  assert.match(script, /LC_ALL=C sort/);
+  assert.doesNotMatch(script, /sort -z|find[^\n]*-print0/);
 
   const selection = execFileSync('bash', ['tool/validate-release.sh', '--selection-only'], {
     cwd: path.join(repoRoot, 'apps/mobile'),

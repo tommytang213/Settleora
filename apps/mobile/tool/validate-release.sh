@@ -26,7 +26,7 @@ normal_test_files=()
 visual_filename_test_files=()
 visual_tagged_test_files=()
 
-while IFS= read -r -d '' test_file; do
+while IFS= read -r test_file; do
   case "$test_file" in
     *visual*capture_test.dart|*visual*evidence*_test.dart)
       visual_filename_test_files+=("$test_file")
@@ -39,7 +39,7 @@ while IFS= read -r -d '' test_file; do
       fi
       ;;
   esac
-done < <(find test -type f -name '*test.dart' -print0 | sort -z)
+done < <(find test -type f -name '*test.dart' -print | LC_ALL=C sort)
 
 echo "Selected non-visual Flutter test files: ${#normal_test_files[@]}"
 printf 'NON_VISUAL_TEST_FILE=%s\n' "${normal_test_files[@]}"
