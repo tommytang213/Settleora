@@ -4,7 +4,6 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
 
-image="rabbitmq:3.13-management-alpine"
 expected_node="rabbit@settleora-rabbitmq"
 marker_queue="settleora.issue1189.persistence-marker"
 marker_payload="issue-1189-marker-v1"
@@ -199,7 +198,9 @@ persisted_node_name() {
     for path in /data/mnesia/rabbit@*; do
       [ -d "$path" ] || continue
       name="${path##*/}"
-      case "$name" in *-plugins-expand) continue ;; esac
+      case "$name" in
+        *-plugins-expand) [ -d "${path%-plugins-expand}" ] && continue ;;
+      esac
       [ -z "$found" ] || { echo "multiple persisted node databases" >&2; exit 1; }
       found="$name"
     done
@@ -253,6 +254,35 @@ test_prechange_adoption() (
     "$variant" "$old_node" "$old_node"
 )
 
+test_suffix_collision_refusal() (
+  local variant="$1"
+  local compose_file="$2"
+  local project="s1189suffix${variant//[^a-z0-9]/}$(date +%s)${BASHPID}"
+  local test_root wrong_id
+  test_root="$(mktemp -d "/tmp/settleora-issue-1189-suffix-${variant}-XXXXXX")"
+  trap 'cleanup_case "$project" "$compose_file" "$test_root"' EXIT
+  set_test_environment "$test_root"
+
+  # A persisted nodename may itself end in RabbitMQ's conventional
+  # -plugins-expand suffix. With no sibling primary database, this directory
+  # must be treated as the primary and must block a different identity.
+  mkdir -p "$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@queue-plugins-expand"
+  export SETTLEORA_RABBITMQ_NODE_HOSTNAME=wrong-rabbitmq-identity
+  wrong_id="$(compose_up_rabbitmq "$project" "$compose_file")"
+  for _ in $(seq 1 30); do
+    [[ "$(docker inspect --format '{{.State.Status}}' "$wrong_id")" == "exited" ]] && break
+    sleep 1
+  done
+  [[ "$(docker inspect --format '{{.State.Status}}' "$wrong_id")" == "exited" ]]
+  [[ "$(docker inspect --format '{{.State.ExitCode}}' "$wrong_id")" == "66" ]]
+  docker logs "$wrong_id" 2>&1 | grep -Fq 'configured node does not match the persisted node database'
+  [[ -d "$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@queue-plugins-expand" ]]
+  [[ ! -d "$SETTLEORA_RABBITMQ_HOST_PATH/mnesia/rabbit@wrong-rabbitmq-identity" ]]
+
+  printf 'PASS suffix-collision variant=%s persisted_node=rabbit@queue-plugins-expand wrong_identity=refused:66 new_database=absent cleanup=task-owned\n' \
+    "$variant"
+)
+
 test_missing_identity() {
   local variant="$1"
   local compose_file="$2"
@@ -276,6 +306,7 @@ for item in "${variants[@]}"; do
   test_missing_identity "$variant" "$compose_file"
   test_clean_recreate "$variant" "$compose_file"
   test_prechange_adoption "$variant" "$compose_file"
+  test_suffix_collision_refusal "$variant" "$compose_file"
 done
 
 echo "RabbitMQ persistence continuity validation passed for both LAN Compose variants."

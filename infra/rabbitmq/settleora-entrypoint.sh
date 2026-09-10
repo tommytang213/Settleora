@@ -17,7 +17,11 @@ if [ -d "$mnesia_base" ]; then
     candidate_nodename="${candidate##*/}"
     case "$candidate_nodename" in
       *-plugins-expand)
-        continue
+        # RabbitMQ creates <nodename>-plugins-expand beside the primary node
+        # database. Treat the suffix as auxiliary only when that sibling
+        # primary database actually exists; the suffix itself is otherwise a
+        # valid persisted nodename.
+        [ -d "${candidate%-plugins-expand}" ] && continue
         ;;
     esac
 
