@@ -11095,7 +11095,10 @@ class _SettleoraBillDetailScreenState extends State<SettleoraBillDetailScreen> {
         });
       }
       _assertCanCreateRevision(freshBill);
-      return revisionRepository.createBillRevision(freshBill.id, proposal);
+      return await revisionRepository.createBillRevision(
+        freshBill.id,
+        proposal,
+      );
     } catch (error) {
       throw _createRevisionFailureFrom(error);
     }
@@ -11697,7 +11700,10 @@ class _SettleoraGroupBillDetailScreenState
         });
       }
       _assertCanCreateRevision(freshBill);
-      return revisionRepository.createBillRevision(freshBill.id, proposal);
+      return await revisionRepository.createBillRevision(
+        freshBill.id,
+        proposal,
+      );
     } catch (error) {
       throw _createRevisionFailureFrom(error);
     }

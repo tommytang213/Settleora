@@ -25,13 +25,17 @@ Automatic pull-request validity no longer depends on starting Codemagic. The Git
 
 `Mobile iOS validation` remains manual-only in Codemagic. It is supplementary evidence and must not be treated as an automatic PR check for routine backend, API, OpenAPI, test-only, docs-only, or security-hardening changes.
 
-Run `Mobile iOS validation` manually only when supplementary Codemagic evidence is explicitly requested, such as Codemagic configuration diagnosis or release preparation. It uses Flutter stable, Xcode latest, and CocoaPods default, then runs:
+Run `Mobile iOS validation` manually only when supplementary Codemagic evidence is explicitly requested, such as Codemagic configuration diagnosis or release preparation. It uses the repository-validated exact Flutter 3.44.8 SDK, Xcode latest, and CocoaPods default, then invokes the same release-gating command used by GitHub PR validation:
 
 ```bash
-flutter pub get
-flutter analyze
-flutter test -r expanded --exclude-tags visual <non-visual test files only>
+./tool/validate-release.sh
 ```
+
+The root `npm run validate:mobile` command keeps the repository mobile doctor
+as its local/GitHub preflight and then invokes this script from `apps/mobile`.
+The shared script resolves Flutter dependencies, analyzes the app, prints and
+validates the non-visual test selection, and runs it with
+`--exclude-tags visual` as a final safeguard.
 
 This workflow does not publish, upload to App Store Connect, invite testers, or require Apple signing secrets.
 
@@ -39,13 +43,13 @@ Normal mobile validation intentionally excludes:
 
 - `apps/mobile/test/**/*visual*capture_test.dart`
 - `apps/mobile/test/**/*visual*evidence*_test.dart`
-- files containing tests tagged `visual`.
+- individual tests tagged `visual`; ordinary tests in mixed files still run.
 
 Those visual capture, screenshot-helper, and screen-compare tests are useful
 review evidence, but they should not block app validity checks or an installable
 internal TestFlight preview build. The workflow prints the selected non-visual
-test count and file list, plus visual-tagged file exclusions, before running the
-tests.
+test count and file list, plus mixed files containing visual-tagged cases,
+before running the tests.
 
 ## Visual Evidence Workflow
 
@@ -122,13 +126,15 @@ Do not configure `beta_groups: Internal Testers`. App Store Connect internal tes
 
 No public App Store release is configured. No external tester automation is configured. No `submit_to_app_store`, external beta groups, certificates, provisioning profiles, `.p8` files, passwords, or signing material are committed.
 
-The internal TestFlight workflow uses the same non-visual selection rule as
-`Mobile iOS validation`: it runs every Flutter test file except
+The internal TestFlight workflow invokes the same repository-owned
+`./tool/validate-release.sh` contract as GitHub and `Mobile iOS validation`.
+It runs every Flutter test file except
 `*visual*capture_test.dart` and `*visual*evidence*_test.dart`, and it excludes
-files containing tests tagged `visual`, with `--exclude-tags visual` retained as
-a safeguard. Visual capture/screenshot-helper/screen-compare evidence remains
-available through `Mobile iOS visual evidence` without blocking the installable
-preview build path.
+individual tests tagged `visual` with `--exclude-tags visual`, while retaining
+ordinary tests from mixed files. Visual
+capture/screenshot-helper/screen-compare evidence remains available through
+`Mobile iOS visual evidence` without blocking the installable preview build
+path.
 
 ## App Store Connect Compliance Metadata
 

@@ -8,7 +8,7 @@ workflows:
     # mobile/iOS, Codemagic config, signing, TestFlight, or release validation.
 
     environment:
-      flutter: stable
+      flutter: 3.44.8
       xcode: latest
       cocoapods: default
 
@@ -23,42 +23,9 @@ workflows:
           pwd
           flutter --version
 
-      - name: Install Flutter dependencies
+      - name: Validate Flutter release gate
         script: |
-          flutter pub get
-
-      - name: Analyze Flutter app
-        script: |
-          flutter analyze
-
-      - name: Run non-visual Flutter tests
-        script: |
-          # Normal validation proves app validity without blocking on visual
-          # evidence/screen-compare capture tests. Filename-selected visual
-          # capture/evidence tests and visual-tagged mixed-file tests run in
-          # mobile-ios-visual-evidence for Codex/Figma/UI review.
-          pwd
-          CANDIDATE_TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual*capture_test.dart' ! -name '*visual*evidence*_test.dart' | sort)
-          VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
-          VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
-          if [ "$VISUAL_TAGGED_COUNT" != "0" ]; then
-            VISUAL_TAGGED_LIST=$(mktemp)
-            printf '%s\n' "$VISUAL_TAGGED_FILES" > "$VISUAL_TAGGED_LIST"
-            TEST_FILES=$(printf '%s\n' "$CANDIDATE_TEST_FILES" | grep -F -x -v -f "$VISUAL_TAGGED_LIST" || true)
-            rm -f "$VISUAL_TAGGED_LIST"
-          else
-            TEST_FILES="$CANDIDATE_TEST_FILES"
-          fi
-          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
-          echo "Selected non-visual Flutter test files: $TEST_COUNT"
-          printf '%s\n' "$TEST_FILES"
-          echo "Visual-tagged Flutter test files excluded from non-visual selection: $VISUAL_TAGGED_COUNT"
-          printf '%s\n' "$VISUAL_TAGGED_FILES"
-          if [ "$TEST_COUNT" = "0" ]; then
-            echo "No non-visual Flutter tests were selected"
-            exit 1
-          fi
-          flutter test -r expanded --exclude-tags visual $TEST_FILES
+          ./tool/validate-release.sh
 
     artifacts:
       - build/**/outputs/**/*.log
@@ -74,7 +41,7 @@ workflows:
     # and TestFlight preview build validation.
 
     environment:
-      flutter: stable
+      flutter: 3.44.8
       xcode: latest
       cocoapods: default
 
@@ -134,7 +101,7 @@ workflows:
       app_store_connect: settleora-app-store-connect
 
     environment:
-      flutter: stable
+      flutter: 3.44.8
       xcode: latest
       cocoapods: default
       ios_signing:
@@ -154,41 +121,9 @@ workflows:
           pwd
           flutter --version
 
-      - name: Install Flutter dependencies
+      - name: Validate Flutter release gate
         script: |
-          flutter pub get
-
-      - name: Analyze Flutter app
-        script: |
-          flutter analyze
-
-      - name: Run non-visual Flutter tests
-        script: |
-          # TestFlight/internal preview builds validate app correctness and the
-          # installable IPA path without being blocked by visual evidence or
-          # screen-compare capture tests.
-          pwd
-          CANDIDATE_TEST_FILES=$(find test -type f -name '*test.dart' ! -name '*visual*capture_test.dart' ! -name '*visual*evidence*_test.dart' | sort)
-          VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
-          VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
-          if [ "$VISUAL_TAGGED_COUNT" != "0" ]; then
-            VISUAL_TAGGED_LIST=$(mktemp)
-            printf '%s\n' "$VISUAL_TAGGED_FILES" > "$VISUAL_TAGGED_LIST"
-            TEST_FILES=$(printf '%s\n' "$CANDIDATE_TEST_FILES" | grep -F -x -v -f "$VISUAL_TAGGED_LIST" || true)
-            rm -f "$VISUAL_TAGGED_LIST"
-          else
-            TEST_FILES="$CANDIDATE_TEST_FILES"
-          fi
-          TEST_COUNT=$(printf '%s\n' "$TEST_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
-          echo "Selected non-visual Flutter test files: $TEST_COUNT"
-          printf '%s\n' "$TEST_FILES"
-          echo "Visual-tagged Flutter test files excluded from non-visual selection: $VISUAL_TAGGED_COUNT"
-          printf '%s\n' "$VISUAL_TAGGED_FILES"
-          if [ "$TEST_COUNT" = "0" ]; then
-            echo "No non-visual Flutter tests were selected"
-            exit 1
-          fi
-          flutter test -r expanded --exclude-tags visual $TEST_FILES
+          ./tool/validate-release.sh
 
       - name: Set up iOS code signing settings
         script: |

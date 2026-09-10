@@ -2074,6 +2074,52 @@ void main() {
     expect(find.text('Revision review'), findsOneWidget);
   });
 
+  testWidgets('group bill detail maps asynchronous create bill failure', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final detail = sampleBillDetail(canCreateRevision: true);
+    final repository = FakeBillRepository(
+      groupBills: [sampleBillSummary()],
+      details: [detail, detail, detail],
+    );
+    final revisionRepository = FakeBillRevisionRepository(
+      createFailure: const SettleoraBillFailure(
+        kind: SettleoraBillFailureKind.denied,
+        message: 'You can no longer revise this group bill.',
+        statusCode: 403,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraGroupBillListScreen(
+          repository: repository,
+          groupRepository: FakeGroupRepository(),
+          revisionRepository: revisionRepository,
+          groupId: _groupId,
+          groupName: 'Trip Crew',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('group-bill-detail-propose-change')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(revisionRepository.createCalls, 1);
+    expect(find.text('Revision unavailable'), findsOneWidget);
+    expect(
+      find.text('You can no longer revise this group bill.'),
+      findsOneWidget,
+    );
+    expect(find.text('Revision review'), findsNothing);
+  });
+
   testWidgets(
     'group bill detail stops stale create capability before opening',
     (tester) async {
@@ -5761,12 +5807,14 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     this.revisions = const [],
     SettleoraBillRevision? detailResponse,
     SettleoraBillRevision? createResponse,
+    this.createFailure,
   }) : detailResponse = detailResponse ?? createResponse ?? sampleRevision(),
        createResponse = createResponse ?? detailResponse ?? sampleRevision();
 
   final List<SettleoraBillRevision> revisions;
   SettleoraBillRevision detailResponse;
   SettleoraBillRevision createResponse;
+  final Object? createFailure;
   int listCalls = 0;
   int getCalls = 0;
   int createCalls = 0;
@@ -5787,6 +5835,11 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     createCalls += 1;
     lastCreatedBillId = billId;
     lastProposal = proposal;
+    final failure = createFailure;
+    if (failure != null) {
+      await Future<void>.delayed(Duration.zero);
+      throw failure;
+    }
     detailResponse = createResponse;
     return createResponse;
   }
