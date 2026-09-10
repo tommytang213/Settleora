@@ -38,13 +38,14 @@ Required app qualities:
 | OCR worker | Future optional/required depending on OCR runtime slice. | Placeholder only. |
 | Web user portal | Future app workload if implemented. | Placeholder only. |
 | Web admin portal | Future app workload if implemented and protected. | Placeholder only. |
-| Reverse proxy/TLS | Future packaging option after security/deployment review. | Not present. |
+| Private ingress/TLS | Required exact-interface HTTPS workload using operator-external trusted TLS. | Implemented in LAN Compose with Caddy; live/certificate/catalog proof remains pending. |
 
 ## App Configuration Form
 
 A future TrueNAS app form should include:
 
-- API host port, defaulting to `8080` or a maintainer-selected LAN port.
+- Exact RFC1918 ingress bind, private TLS hostname, HTTPS port, and external
+  certificate/key paths; direct API HTTP must remain un-published.
 - API environment, with a Day 1 default chosen by release policy.
 - PostgreSQL database name, user, generated password, and data dataset.
 - RabbitMQ user, generated password, vhost if supported, and data dataset.
@@ -69,7 +70,8 @@ Secrets must not be committed to the repo, shown in screenshots, printed in repo
 
 Default network posture:
 
-- Publish only the API port needed for trusted LAN/iPhone testing.
+- Publish only exact-host HTTPS on the selected private interface; keep API HTTP
+  un-published and isolate ingress from backend dependencies.
 - Keep PostgreSQL private to the app network.
 - Keep RabbitMQ AMQP private to the app network.
 - Keep RabbitMQ management UI disabled or private by default.
@@ -82,7 +84,8 @@ Allowed Day 1 access patterns:
 
 Future/manual-gated access patterns:
 
-- Reverse proxy with TLS.
+- Any second proxy tier, automated certificate/DNS path, or change beyond the
+  implemented private Caddy ingress.
 - Cloudflare Access or similar identity-aware tunnel.
 - Any public DNS or internet-routable endpoint.
 - Any admin web surface exposure.

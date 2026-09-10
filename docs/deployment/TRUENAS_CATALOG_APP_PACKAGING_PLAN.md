@@ -61,13 +61,14 @@ Default catalog posture must be private by design:
 | RabbitMQ management UI | Disabled or private by default. | Do not publish port `15672` for normal catalog installs. |
 | API local storage | Private mounted dataset. | Do not serve the dataset through SMB, NFS, HTTP, or a direct file endpoint for app access. |
 | Migration job | Private install/upgrade job or service. | Publishes no host ports and runs before API startup. |
-| API | Trusted LAN/VPN only by default. | Publish only the configured API port needed for trusted clients. |
+| HTTPS ingress | Trusted LAN only by default. | Publish exact-host HTTPS only on the selected RFC1918 interface using operator-external trusted TLS material. |
+| API | Private ingress network plus backend network. | Do not publish API HTTP; only the HTTPS ingress may reach it on the ingress network. |
 | User web/API | Not public by default. | Future public access requires auth/session/authz/file privacy, proxy/TLS, logging, rollback, and manual release gates. |
 | Admin web/API | Not public by default. | Future admin access should default to LAN, VPN, Cloudflare Access-style protection, or equivalent reviewed access control. |
 | Workers | Private app-network workloads. | Current OCR worker runtime is placeholder only and must not be exposed. |
 
-Approving a LAN API port does not approve public user access, admin exposure,
-database access, queue access, storage access, reverse proxy behavior, TLS, or
+Approving the private LAN HTTPS ingress does not approve public user access,
+admin exposure, database access, queue access, storage access, another proxy tier, or
 catalog publishing.
 
 ## Catalog Metadata Plan
@@ -190,6 +191,7 @@ Current supported catalog-relevant service model:
 
 | Service | Required now | Start/order rule |
 | --- | --- | --- |
+| `ingress` | Yes | Starts after API; attaches only to the internal ingress network and is the sole published client route. |
 | `postgres` | Yes | Starts before migration job; readiness must pass before schema checks/apply. |
 | `rabbitmq` | Yes | Starts before API readiness; API readiness checks queue connectivity. |
 | `migrate` | Yes | First-class private job/service using the API image. Runs before API startup on install/upgrade. |

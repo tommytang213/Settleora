@@ -14,12 +14,17 @@ The current LAN deployment path is documented in [TrueNAS LAN Docker testing](TR
 
 | Service | Role | Persistent state |
 | --- | --- | --- |
+| `ingress` | Exact-host private HTTPS termination and API proxy. | No app data. Requires operator-external trusted certificate/key and private hostname configuration. |
 | `postgres` | API-owned PostgreSQL database. | Required. Mounted from `SETTLEORA_POSTGRES_HOST_PATH` to `/var/lib/postgresql/data`. |
 | `rabbitmq` | Queue foundation for async jobs and future workers. | Required for preserving queued work and RabbitMQ definitions/state. Mounted from `SETTLEORA_RABBITMQ_HOST_PATH` to `/var/lib/rabbitmq`. |
 | `api` | ASP.NET Core API and storage abstraction owner. | Required API local file bytes. Mounted from `SETTLEORA_API_STORAGE_HOST_PATH` to `SETTLEORA_STORAGE_ROOT`, default `/var/lib/settleora/storage`. |
 | `migrate` | One-shot EF Core migration runner using the API image. | No separate persistent dataset. Migration metadata is stored in PostgreSQL. |
 
-The LAN package publishes only the API port by default. PostgreSQL, RabbitMQ, and API local file storage remain private to the app host/network and must not be exposed directly for app access.
+The LAN package publishes only Caddy HTTPS on the explicitly selected RFC1918
+host interface. API HTTP has no host publication. PostgreSQL, RabbitMQ, and API
+local file storage remain private to their Compose networks and must not be
+exposed directly for app access. A trusted Docker-host administrator remains
+inside the operator boundary.
 
 ## Consistency Set
 
@@ -31,6 +36,7 @@ Back up or snapshot the following as one consistency set whenever preserving an 
 | API local file storage | `SETTLEORA_API_STORAGE_HOST_PATH` | Yes, always. | Contains sensitive file bytes such as receipts, supporting attachments, settlement proofs, and QR files. PostgreSQL metadata must match these bytes. |
 | RabbitMQ data | `SETTLEORA_RABBITMQ_HOST_PATH` | Yes for whole-environment restore. | Preserves queued work, broker state, and future worker job continuity. If intentionally discarded, document the reason and expected lost/retried work. |
 | Private environment/config file | Private copy of `infra/env/.env.truenas-lan` or equivalent TrueNAS app settings | Yes, securely. | Required to reconnect restored services. Contains secrets and must never be committed, pasted into issue comments, or shown unredacted in screenshots. |
+| TLS certificate chain/private key or re-provisioning record | Operator-controlled external TLS source | Preserve securely or re-provision through the issuing CA. | The key is secret material. Never place it in repository backups/reports. Restored files must be readable by ingress UID/GID `1000:1000`; the certificate SAN, configured hostname, DNS result, and device trust chain must still agree. |
 | API image or commit reference | Image tag/digest or repo commit SHA | Record with backup evidence. | Needed to know which runtime and migration set created the data. Prefer immutable image digests or exact commit SHAs in operator notes. |
 | Compose/app package version | `infra/docker-compose.truenas-lan.yml`, `infra/docker-compose.truenas-lan.image.yml`, or future catalog app version | Record with backup evidence. | Needed to reconstruct service wiring and mount paths. |
 
@@ -96,23 +102,27 @@ Before restore:
 - Confirm the backup set contains matching PostgreSQL, API storage, and RabbitMQ data, or document any intentionally omitted RabbitMQ state.
 - Confirm the exact API image/commit and compose/app package expected by the backup.
 - Confirm secrets and private env/app settings are available through a secure operator channel.
+- Confirm the external certificate/key can be securely restored or re-provisioned,
+  is readable by ingress UID/GID `1000:1000`, and still matches the private hostname.
 - Confirm no clients are writing to the target environment.
 - Preserve current target-state evidence before overwriting anything, if the target contains any maintainer data.
 
 Restore ordering for a fully stopped target:
 
-1. Stop API and future workers first.
+1. Stop ingress, then stop API and future workers.
 2. Ensure `migrate` is not running and no migration job is queued.
 3. Stop RabbitMQ.
 4. Stop PostgreSQL.
 5. Restore PostgreSQL data to the target PostgreSQL dataset.
 6. Restore API local file storage to the target storage dataset.
 7. Restore RabbitMQ data if the backup set includes it and queued work must be preserved.
-8. Restore private env/app settings through the operator's secure mechanism without committing or exposing them.
+8. Restore private env/app settings and securely restore or re-provision the
+   external trusted certificate/key through operator-controlled mechanisms.
 9. Start PostgreSQL and RabbitMQ.
 10. Run the migration service in a non-mutating status mode first, such as `check-only` or `validate-only`, when supported by the existing deployment package.
 11. If pending migrations exist, stop and escalate to migration/backup review. Do not silently apply schema changes as part of restore validation.
-12. Start API only after dependency health and migration state are understood.
+12. Start API only after dependency health and migration state are understood,
+    then start ingress only after its TLS preflight passes.
 
 Production API startup must not be described or treated as silently applying migrations. The TrueNAS LAN package uses a separate `migrate` service, defaulting to `managed-auto`, before API startup. For restore validation, prefer non-mutating migration checks first so the operator can distinguish "restored data is valid for this runtime" from "restore plus upgrade changed the database."
 
@@ -122,7 +132,9 @@ Validation should prove the restored deployment is internally consistent without
 
 Required checks:
 
-1. Confirm service state shows `postgres`, `rabbitmq`, and `api` running after the restore plan completes.
+1. Confirm service state shows `postgres`, `rabbitmq`, `api`, and `ingress`
+   running after the restore plan completes. If ingress fails, check only
+   redacted TLS-path/readability/hostname diagnostics; do not publish API HTTP.
 2. Check migration metadata with the repo-supported migration command in a non-mutating mode before any apply mode:
 
    ```bash
@@ -135,7 +147,7 @@ Required checks:
 3. Check API liveness:
 
    ```bash
-   curl -i http://<truenas-lan-ip>:8080/health
+   curl -i https://<private-hostname>:8443/health
    ```
 
    Expected result: HTTP `200` with no secrets, connection strings, dataset paths, or raw exception details.
@@ -143,7 +155,7 @@ Required checks:
 4. Check dependency readiness:
 
    ```bash
-   curl -i http://<truenas-lan-ip>:8080/health/ready
+   curl -i https://<private-hostname>:8443/health/ready
    ```
 
    Expected result: HTTP `200` only when PostgreSQL, RabbitMQ, and local storage readiness pass. The response must not expose connection strings, storage roots, provider internals, credentials, queue names, or raw exception details.
@@ -151,7 +163,7 @@ Required checks:
 5. Check bootstrap status:
 
    ```bash
-   curl -i http://<truenas-lan-ip>:8080/api/v1/auth/bootstrap/status
+   curl -i https://<private-hostname>:8443/api/v1/auth/bootstrap/status
    ```
 
    Expected result: status matches the restored environment. For an environment that already had an owner, bootstrap should not unexpectedly reopen.
@@ -163,7 +175,14 @@ Required checks:
    - If allowed by the reviewer, open attachment/proof metadata and verify one non-sensitive known file can be retrieved through the API, not through direct dataset access. Do not paste file bytes or private filenames into public evidence.
    - Confirm mobile server-mode can reach the restored API URL if iPhone TestFlight smoke evidence is in scope.
 
-If any validation step fails, keep the environment stopped or LAN-restricted and record the failure with redacted logs. Do not "fix" restore failures by manually editing database rows, deleting file bytes, clearing queues, applying destructive migrations, or changing secrets unless a separate manual-gated recovery plan approves the action.
+Use the exact configured hostname/port and normal CA/hostname verification for
+these checks. Private DNS, certificate issuance/reinstallation, and device trust
+remain manual operator actions. Never fall back to a LAN HTTP publication or a
+certificate-validation bypass. If any validation step fails, keep the
+environment stopped or LAN-restricted and record the failure with redacted
+logs. Do not "fix" restore failures by manually editing database rows, deleting
+file bytes, clearing queues, applying destructive migrations, or changing
+secrets unless a separate manual-gated recovery plan approves the action.
 
 ## Evidence And Redaction Rules
 

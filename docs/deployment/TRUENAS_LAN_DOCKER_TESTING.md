@@ -105,7 +105,7 @@ Required LAN-test settings:
 | `SETTLEORA_STORAGE_ROOT` | API local storage root inside the API container. | Defaults to `/var/lib/settleora/storage` for the LAN package. |
 | `SETTLEORA_API_STORAGE_HOST_PATH` | Host dataset path for API local file storage. | Must be persistent and writable; contains sensitive app files. |
 | `SETTLEORA_ENVIRONMENT` | ASP.NET Core environment. | `Development` is suitable only for LAN testing. |
-| `COMPOSE_PROJECT_NAME` | Stable Docker Compose project/network name. | Defaults to `settleora_lan` in the example so private-network migration commands can target `settleora_lan_default`. |
+| `COMPOSE_PROJECT_NAME` | Stable Docker Compose project/network name. | Defaults to `settleora_lan`; Compose creates `settleora_lan_ingress` and `settleora_lan_backend`. |
 | `SETTLEORA_API_BIND_ADDRESS` | Host bind address for the HTTPS ingress. | Required RFC1918 IPv4 assigned to exactly the intended host interface. Wildcard, loopback, public, malformed, and ambiguous values are rejected. |
 | `SETTLEORA_API_HTTPS_PORT` | HTTPS ingress host port. | Defaults to `8443`; choose an unused port. No HTTP client port is published. |
 | `SETTLEORA_HTTPS_HOSTNAME` | Exact private TLS/DNS hostname. | Required fully qualified name; it must resolve to the selected bind address and appear in the certificate SAN. |
@@ -149,9 +149,10 @@ API currently has no forwarded-header middleware and does
 not use forwarded scheme, host, or client IP for an R12 security decision, so
 no trusted-proxy range is configured in ASP.NET. CORS is not enabled because
 the native mobile client does not require browser CORS. Although the API's
-generic `AllowedHosts` setting remains unchanged, it is unreachable directly
-from the host and Caddy's site address accepts only the configured external
-hostname. Any future web, second proxy, public exposure, link-generation, or
+generic `AllowedHosts` setting remains unchanged, API HTTP has no published host
+port, and Caddy's site address accepts only the configured external hostname.
+Docker-host administrators remain inside the trusted operator boundary. Any
+future web, second proxy, public exposure, link-generation, or
 client-IP security feature must reopen this boundary rather than inheriting it.
 
 The ingress container is attached only to the internal `ingress` network. The

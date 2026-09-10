@@ -76,13 +76,14 @@ Self-hosted installs must default to private dependencies:
 | RabbitMQ management UI | Disabled or private; do not publish port `15672` for normal self-hosted installs. |
 | API local storage dataset | Private mounted dataset; do not serve by SMB, NFS, HTTP, or a direct file endpoint for app access. |
 | Migration job | Private install/upgrade job or one-shot service; publishes no host ports. |
-| API | Trusted LAN/VPN only by default; publish only the configured API port needed by trusted clients. |
+| HTTPS ingress | Trusted LAN only by default; publish exact-host HTTPS on one selected RFC1918 interface with external trusted TLS material. |
+| API | No host publication; attach to ingress and backend networks so only the private HTTPS ingress reaches it. |
 | Admin surfaces | LAN, trusted VPN, Cloudflare Access-style protection, or equivalent reviewed access gate only after runtime exists and gates pass. |
 | Workers | Private app-network workloads; current OCR worker runtime is placeholder only. |
 
-Publishing the API port for LAN testing does not approve public user access,
-admin access, database access, queue access, storage access, TLS/proxy
-configuration, or catalog publishing.
+Publishing the private HTTPS ingress for LAN testing does not approve public user
+access, admin access, database access, queue access, storage access, another proxy
+tier, TLS automation, or catalog publishing.
 
 ## First Install Flow
 
@@ -95,22 +96,25 @@ A safe first install should follow this order:
 4. Create or capture private app configuration through the supported env file
    or future catalog form. Use generated secrets; never use example placeholder
    values for persistent data.
-5. Select the image/source version and record the commit SHA, image tag, and
+5. Select one RFC1918 host interface and exact private hostname, then supply an
+   external trusted certificate/key readable by ingress UID/GID `1000:1000`.
+6. Select the image/source version and record the commit SHA, image tag, and
    image digest where available.
-6. Select the migration mode. Easy LAN installs may use `managed-auto`;
+7. Select the migration mode. Easy LAN installs may use `managed-auto`;
    stricter operators should use `manual`, `check-only`, `validate-only`, or
    explicit `apply-safe`.
-7. Start private dependencies.
-8. Run the private migration job before API startup.
-9. Start the API only after dependency readiness and migration job success are
+8. Start private dependencies.
+9. Run the private migration job before API startup.
+10. Start the API only after dependency readiness and migration job success are
    understood.
-10. Check `GET /health`, `GET /health/ready`, and
+11. Start ingress only after its bind/TLS preflight passes. Do not publish API HTTP.
+12. Check `GET /health`, `GET /health/ready`, and
     `GET /api/v1/auth/bootstrap/status`.
-11. If bootstrap is required, perform first-owner bootstrap from a trusted LAN
+13. If bootstrap is required, perform first-owner bootstrap from a trusted LAN
     client using a strong private password.
-12. Perform a minimal trusted-client smoke test without creating production
+14. Perform a minimal trusted-client smoke test without creating production
     claims of readiness.
-13. Record redacted operator evidence.
+15. Record redacted operator evidence.
 
 The first install flow must stop if the selected path requires public exposure,
 admin exposure, unsupported services, direct storage access, manual database
