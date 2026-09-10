@@ -106,6 +106,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | A09 | Trivy | `partial` | `.github/workflows/security-trivy.yml` | PR/push/schedule repository scan exists; `exit-code: "0"` makes findings non-blocking; current-main run `34480120189` succeeded | #380; same enforcement distinction as A08 |
 | A10 | Default CodeQL | `implemented` | GitHub default setup, not a repository workflow file | Live API: configured/default suite, weekly, standard runner, languages actions/C/C++/C#/JS/TS/Python/TypeScript; PR #1186 and #1187 analyses passed | GitHub/security settings; not the required ruleset context |
 | A11 | AI integration scope guard | `implemented` | `.github/workflows/ai-integration-scope-guard.yml` | Automatic only for PRs to `ai/integration`; exact script authority is `scripts/ai/v3-scope-guard.mjs`; does not protect `main` | Existing AI workflow program; main protection remains A02 |
+| A12 | Dependency alerts and build-toolchain audit | `partial` | Dependabot plus `apps/web-user/package-lock.json` | Live alerts #32/#34-#36 cover development-scope `browserslist`, `baseline-browser-mapping`, `@vitest/mocker`, and `vitest`: one high and three medium alerts. Baseline `npm audit` reports two high/three moderate advisories; this is build/test-toolchain risk, not proof that vulnerable code ships in the browser bundle | R10; triage before R02 publishes a web artifact |
 | B01 | API container image can build | `implemented` | `services/api/Dockerfile`; `validate:api-docker` | Automatic non-doc PR build validation; local Compose build command exists; image filesystem is the artifact | #1185/#380; build is not deployment |
 | B02 | GHCR publication and tags | `implemented` | `.github/workflows/api-image-ghcr.yml` | `main`, `v*`, and dispatch publish `sha-<40-sha>` plus `main`, tag, or input tag. Run [34480120543](https://github.com/tommytang213/Settleora/actions/runs/34480120543) published baseline SHA and digest `sha256:7052b043cb13698ef8aa638d78b6b18288ccd33fa5a81efc951026f0409c3b1f` | #380; `main` is floating and publication is not promotion/deployment |
 | B03 | Local development Compose package | `implemented` | `infra/docker-compose.yml`; `infra/env/.env.example` | `validate:compose` is automatic for non-doc PRs; builds API plus PostgreSQL/RabbitMQ, but exposes dependency ports and is explicitly development-only | #380; not a supported production package |
@@ -143,7 +144,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | F05 | Manual internal-TestFlight workflow | `partial` | `mobile-ios-testflight-internal` | Uses `testFlightInternalTestingOnly`, `FLUTTER_BUILD_NAME=1.0.0`, Codemagic `$BUILD_NUMBER`, signed IPA build, and IPA/archive artifact declarations | R06 |
 | F06 | App Store Connect publishing semantics | `partial` | Codemagic publishing block | Integration auth uploads the IPA to App Store Connect; `submit_to_testflight: false`, `submit_to_app_store: false`, no beta groups. Upload configuration is not upload evidence | R06 |
 | F07 | Internal tester/device/store acceptance | `externally-gated` | `CODEMAGIC_TESTFLIGHT_SETUP.md` | Missing current cloud run, signing success, upload/processing, internal tester availability, real-device install, server-mode smoke, and Apple warning recheck | R06 then #975 |
-| F08 | Android identity/signing/Play acceptance | `externally-gated` | B12 | Missing approved application ID, keystore/signing, App Bundle, Play Console processing/testing, and device install | R07 then #975 |
+| F08 | Android identity/signing/Play preparation | `unavailable` | B12 | Missing approved application ID, release-signing boundary, valid App Bundle, and Play publishing preparation. Play Console processing/testing and device install become `externally-gated` only after this repository preparation exists | R07 then #975 |
 | G01 | Exact source identity | `implemented` | Git commit/tree, OCI revision label | PR/check evidence is SHA-bound; audit baseline is recorded above | R03 only for cross-artifact manifest |
 | G02 | API image digest/tag discoverability | `partial` | GHCR workflow/run logs | Exact SHA tag and digest exist, but registry version listing was not readable with the current token and no repository release manifest retains the digest | R03 |
 | G03 | Mobile version/build identity | `partial` | `pubspec.yaml`; Codemagic vars | Static `1.0.0+1`; Codemagic overrides build number. No accepted cross-platform release/version policy or current signed build record | R03/R06/R07 |
@@ -294,11 +295,18 @@ Findings:
   packaging task is safe before them.
 - #359/#437 describe OCR/native validation, but #437 closed planning-only and
   explicitly recorded that Android/iOS native build proof was not performed.
-  #959 owns parser quality, not Gradle/R8 release-build closure.
+  #959 owns parser quality, not Gradle/R8 release-build closure. #357 and #359
+  explicitly reserve native-build reconciliation and duplicate prevention to
+  open audit #970, so #970 must adopt or split R01 before implementation.
 - #381/#483-#487 completed bounded LAN evidence and plans; none implements a
   polished catalog, automated upgrade/backup/rollback, or current restore drill.
 - #946 owns post-Day-1 release epochs and UAT artifact promotion and must not be
   pulled into Day 1 minimum readiness.
+- #777 owns the auth production/public-exposure security-review gate;
+  #376/#463 own admin exposure prerequisites; completed #485 supplies the
+  existing proxy/TLS/exposure planning baseline.
+- #1077 owns Day 2 product-integrated backup integrity and restore-drill
+  automation, not the bounded Day 1 operator-run evidence in R05.
 
 ## 11. Remaining owner and gate matrix
 
@@ -306,27 +314,30 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 
 | Owner | Scope and non-goals | Gate | Lane / paths | Validation / review | Close rule and dependencies |
 | --- | --- | --- | --- | --- | --- |
-| R01 — **new focused recommendation:** Android release-build dependency/R8 closure | Make current Flutter Android release APK and AAB compile with the intended on-device OCR dependency set. Non-goals: application-ID decision, keystore/signing, Play upload, parser behavior, #959 mutation | Native dependency/build-config review; no signing secret | `mobile-build-config`; `apps/mobile/android/**`, dependency manifest/lock only if required | root `validate:mobile`; debug APK; release APK and AAB; strong independent + Android build review | Close only when exact-head release APK/AAB builds pass, ML Kit scripts used by current code are packaged, size/offline-model impact is recorded, and no debug-signed output is called store-ready. Depends only on current main; first safe wave |
+| R01 — **new focused recommendation, conditional on #970:** Android release-build dependency/R8 closure | Make current Flutter Android release APK and AAB compile with the intended on-device OCR dependency set. Non-goals: application-ID decision, keystore/signing, Play upload, parser behavior, #959 mutation | Native dependency/build-config review; no signing secret | `mobile-build-config`; `apps/mobile/android/**`, dependency manifest/lock only if required | root `validate:mobile`; debug APK; release APK and AAB; strong independent + Android build review | #970 must first adopt this gap or authorize a non-duplicate focused split under #357/#359. The implementation closes only when exact-head release APK/AAB builds pass, ML Kit scripts used by current code are packaged, size/offline-model impact is recorded, and no debug-signed output is called store-ready |
 | R02 — **new focused recommendation:** additive user-web CI build/package lane | Preserve #1185 classifier/aggregate and add automatic `apps/web-user` install/test/build plus a discoverable `dist` artifact/checksum for web-affecting PRs. Non-goals: deploy, auth completion, public exposure, redesign | CI/workflow manual gate | `docker-compose-ci-deployment` plus web build files/workflow only | web lock install, tests, build, CI policy tests, full docs/scaffold; strong independent | Close on an exact web-affecting PR proving build/package and a docs-only PR proving intentional skip without changing required context. Depends on #1185 architecture; deployment waits for #373 |
 | R03 — **new focused recommendation:** Day 1 release identity manifest | Define a bounded generated evidence manifest binding source SHA/tree, API tag/digest, migration set, web checksum when available, mobile version/build, release notes, rollback artifact, and retention location. Non-goals: release epochs, environment promotion, deployment | Artifact publication/promotion remains manual | `docker-compose-ci-deployment`; focused release tooling/docs | deterministic unit tests, docs/scaffold, sample exact-SHA manifest; strong independent | Close when one non-production candidate manifest is reproducible and rejects mismatched identities. Depends on R01 for Android entry and R02 for web entry; #946 remains later-day |
 | R04 — **new focused recommendation:** TrueNAS catalog package skeleton and render validation | Implement unpublished metadata/form/topology/dataset/secret-input/migration-hook package from #486 plan, defaulting LAN/private and immutable image selection. Non-goals: publish, deploy, real secrets, public/admin exposure | Docker/Compose/deployment config manual gate | `docker-compose-ci-deployment`; new focused catalog paths plus tests | catalog schema/render tests, Compose checks, API image check as scoped; strong deployment/security review | Close with offline render/install-plan validation, private-service proof, migration failure surfacing, backup warning, exact image identity, and zero publication. Depends on R03 identity rules |
-| R05 — #380 manual/external acceptance owner plus a future separately approved evidence task | Current TrueNAS install/upgrade, pre-upgrade backup, non-destructive restore rehearsal, rollback limits, health/auth/mobile smoke. Non-goals: destructive production restore or hidden env change | Host, secret, database/storage, migration, deployment manual gates | external operator lane; no unattended repo mutation | exact version/digest, sanitized migration/health/readiness/smoke, consistency-set and recovery evidence; human + strong deployment review | Close only with current-candidate TrueNAS evidence and separately approved restore/rollback rehearsal. Depends on R03/R04 and product acceptance readiness |
+| R05 — #380 manual/external acceptance owner plus a future separately approved evidence task | Current TrueNAS install/upgrade, pre-upgrade backup, bounded non-destructive operator restore evidence using the existing Day 1 runbook, rollback limits, health/auth/mobile smoke. Non-goals: destructive production restore, hidden env change, or product-integrated restore automation | Host, secret, database/storage, migration, deployment manual gates | external operator lane; no unattended repo mutation | exact version/digest, sanitized migration/health/readiness/smoke, consistency-set and recovery evidence; human + strong deployment review | Close only with current-candidate TrueNAS evidence and separately approved operator restore/rollback evidence. Depends on R03/R04 and product acceptance readiness. Automated integrity verification, disposable restore environments, freshness tracking, scheduling, and admin UX remain Day 2 under #1077 |
 | R06 — #380/#383 manual iOS release-evidence owner | Run the existing Codemagic signed internal workflow, verify App Store Connect processing, tester availability, warning state, and real-device install. Non-goals: public App Store submission or automatic trigger | Apple/Codemagic/signing/store/tester manual gates | external provider action | build/run URL, exact SHA/version/build, redacted signing selection, processed IPA, device smoke; human release review | Close only from maintainer-approved external evidence. Depends on product candidate and #975 sequence; `submit_to_testflight`/`submit_to_app_store` stay false unless separately authorized |
 | R07 — **new focused recommendation plus later manual acceptance:** Android application identity/signing/store plan | After R01, select non-placeholder application ID, secure signing boundary, AAB output, and manual Play acceptance plan. Non-goals: commit keys, upload, public release | Identity, keystore, Play Console, tester/store manual gates | `mobile-build-config` for repo-safe config; external release action later | release AAB identity/signature inspection, no-secret scan, provider/device evidence; strong security/release review | Repository slice closes with approved external-secret contract and reproducible signed-build handoff; store evidence closes only after explicit manual action. Depends on R01 |
 | R08 — #373 for user web; #964/#376 for admin web | Add serving/deployment packages only after each surface has its required runtime/auth/privacy readiness. Non-goals: infer readiness from Vite or README | Auth/security, storage/privacy, and admin exposure gates | product owner first; deployment lane later | product tests/visual acceptance before container/static-host validation; strong review | User web waits for #373’s protected-route/product close rule; admin waits for #964 split and #376 runtime gates |
-| R09 — #380 manual production/exposure owner | Define/approve any staging/production deployment and any DNS/TLS/proxy/public/admin exposure. Non-goals: automatic promotion or public default | Production, network, secrets, auth/security, storage/privacy, destructive migration | manual deployment/security lane | threat/exposure review, exact artifacts, backup/rollback, health/smoke, disable path | Close only with explicit human approval and live evidence. #946 owns later automation, not this Day 1 gate |
+| R09 — #380 final environment/network activation owner | Define/approve any staging/production deployment and any DNS/TLS/proxy activation only after the relevant domain reviews. Non-goals: automatic promotion, public default, or duplicating auth/admin review | Production, network, secrets, auth/security, storage/privacy, destructive migration | manual deployment/security lane | threat/exposure review, exact artifacts, backup/rollback, health/smoke, disable path | #777 must close the auth public-exposure review; #376/#463 must close admin runtime/exposure prerequisites; #485 is the completed planning baseline. Final activation closes only with explicit human approval and live evidence. #946 owns later automation |
+| R10 — **new focused recommendation:** current user-web dependency-alert triage | Reconcile Dependabot alerts #32/#34-#36, update the smallest safe web build/test dependency set, and prove whether each advisory affects shipped output. Non-goals: suppress/dismiss alerts, deploy web, or broaden user-web product scope | Dependency/security review; no alert dismissal waiver | `web-user-ui`; `apps/web-user/package.json` and lockfile only unless evidence requires a separately scoped tool change | `npm ci`, `npm audit`, lint/test/build, docs/scaffold, exact alert reread; strong security review | Close only when current alerts are remediated by reviewed dependency updates or separately proven non-applicable through the repository's normal security process; depends only on current main and precedes R02 artifact publication |
 | #975 | Consume, but do not manufacture, final native/device/UI/operator evidence | Final human/platform acceptance | `docs-planning` acceptance audit | evidence-bound audit/review | Runs after relevant product/release gaps; cannot close gates from configuration alone |
 | #946 | Post-Day-1 release epochs, release cuts, UAT-to-production immutable promotion | Deferred activation gate | later-day release management | its own future validation | Start only after complete Day 1 implementation and integrated acceptance |
 
 ## 12. Dependency-safe remaining work graph
 
-1. **Critical blocker:** R01 Android release build closure. Debug success does not
-   compensate for a failing release optimizer.
+1. **Critical blocker and owner prerequisite:** the Android release failure is
+   real, but #970 must first reconcile/adopt or split R01 under #357/#359. Debug
+   success does not compensate for a failing release optimizer.
 2. **Already-owned executable product gaps:** #373/#963’s user-web graph, #964
    then #376/#378/#463 for admin, and the broader mobile/product owners must
    complete independently of release infrastructure.
-3. **New focused repository recommendations:** R02 additive user-web build/package
-   CI; then R03 release identity; then R04 unpublished TrueNAS catalog skeleton.
+3. **New focused repository recommendations:** R10 dependency-alert remediation;
+   then R02 additive user-web build/package CI; then R03 release identity; then
+   R04 unpublished TrueNAS catalog skeleton.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
    signed/TestFlight/device, R07 Android identity/signing/Play/device, and R09
    any production/exposure action; #975 consumes the final evidence.
@@ -336,8 +347,8 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 Dependency summary:
 
 ```text
-R01 Android release compile ---------> R03 identity -----> R04 catalog skeleton
-R02 user-web CI/package --------------/                         |
+ #970 adopt/split -> R01 Android compile -> R03 identity -----> R04 catalog skeleton
+ R10 alerts -> R02 user-web package ----/                            |
 #373 user-web product -----------------------------> R08 -------+--> R05/R09 --> #975
 #964 -> #376 admin product ------------------------> R08
 product-complete candidate + R01 -----------------> R06/R07 ----+--> #975
@@ -346,11 +357,13 @@ complete Day 1 + #975 acceptance ----------------------------------> #946 (later
 
 ### First dependency-safe next logical task for GPT review
 
-Select **R01: Android release-build dependency/R8 closure**. It is a bounded
-repository implementation task, it addresses an observed Day 1 package blocker,
-it can finish without signing credentials, store action, production deployment,
-public exposure, destructive migration, or #959 mutation, and it precedes any
-truthful Android release identity or acceptance work.
+Select **#970's bounded R01 ownership reconciliation for GPT review**. The
+review must decide whether #970 adopts R01 directly or emits the same narrow
+non-duplicate `mobile-build-config` child; only then is R01 implementation
+dependency-safe. This preserves the independently reproduced Android packaging
+blocker without bypassing #357/#359/#970 authority or touching #959. The eventual
+implementation remains repository-only and precedes signing, store action,
+production deployment, exposure, destructive migration, and Android acceptance.
 
 ## 13. Final Day 1 readiness statement
 
