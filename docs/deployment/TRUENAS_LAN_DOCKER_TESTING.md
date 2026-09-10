@@ -53,9 +53,8 @@ The LAN compose package:
   `SETTLEORA_API_HTTPS_PORT`; direct API HTTP has no host publication.
 - Requires an exact private hostname and externally managed certificate chain
   and private key. Caddy automatic HTTPS/ACME and its admin API are disabled.
-- Drops all Linux capabilities except the official Caddy binary's required
-  `NET_BIND_SERVICE`, disables privilege escalation, uses a read-only root
-  filesystem, and keeps only ephemeral Caddy data/config mounts.
+- Drops all Linux capabilities, disables privilege escalation, uses a read-only
+  root filesystem, and keeps only ephemeral Caddy data/config/tmpfs mounts.
 - Keeps PostgreSQL port `5432`, RabbitMQ AMQP port `5672`, and RabbitMQ management port `15672` private to the compose network.
 - Sets `Settleora__Storage__Provider=Local`.
 - Mounts persistent API local file storage at `SETTLEORA_STORAGE_ROOT`.
@@ -150,6 +149,15 @@ generic `AllowedHosts` setting remains unchanged, it is unreachable directly
 from the host and Caddy's site address accepts only the configured external
 hostname. Any future web, second proxy, public exposure, link-generation, or
 client-IP security feature must reopen this boundary rather than inheriting it.
+
+The ingress container is attached only to the internal `ingress` network. The
+API bridges that network to a separate internal `backend` network; PostgreSQL,
+RabbitMQ, and the migration job are backend-only. Caddy therefore cannot open
+direct connections to either dependency. The proxy drops every Linux
+capability. Its preflight copies the official Caddy binary into a private
+`/tmp` tmpfs before launch because the upstream binary carries an unused
+low-port file capability; the copy runs on unprivileged container port `8443`
+without that capability.
 
 ### RabbitMQ persistence identity and existing installs
 

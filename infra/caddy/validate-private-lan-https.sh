@@ -83,5 +83,10 @@ esac
 printf '%s\n' "Settleora private HTTPS preflight passed."
 
 if [ "${SETTLEORA_START_CADDY:-0}" = 1 ]; then
-  exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+  # The official image gives /usr/bin/caddy a low-port file capability. Copying
+  # it into the private tmpfs drops that capability so the proxy can run with
+  # every container capability removed; this package listens on port 8443.
+  cp "$(command -v caddy)" /tmp/settleora-caddy
+  chmod 0555 /tmp/settleora-caddy
+  exec /tmp/settleora-caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
 fi
