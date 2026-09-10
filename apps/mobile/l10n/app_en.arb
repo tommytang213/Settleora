@@ -4,6 +4,26 @@
   "@appTitle": {
     "description": "English application title used to prove localization generation."
   },
+  "whatsNewCurrentHeading": "What's New in Settleora 1.0",
+  "@whatsNewCurrentHeading": {
+    "description": "Heading for the current bundled What's New release content."
+  },
+  "whatsNewCurrentDescription": "A quick look at what you can do in this self-hosted mobile build.",
+  "@whatsNewCurrentDescription": {
+    "description": "Description for the current bundled What's New release content."
+  },
+  "whatsNewCurrentPointDeviceMode": "Choose device-only Local Mode or connect to your self-hosted Settleora server.",
+  "@whatsNewCurrentPointDeviceMode": {
+    "description": "First point in the current bundled What's New release content."
+  },
+  "whatsNewCurrentPointFeatures": "Work with bills, groups, settlements, recurring bills, reports, and notifications after signing in.",
+  "@whatsNewCurrentPointFeatures": {
+    "description": "Second point in the current bundled What's New release content."
+  },
+  "whatsNewCurrentPointReceiptReview": "Review receipt details before applying them to a draft bill.",
+  "@whatsNewCurrentPointReceiptReview": {
+    "description": "Third point in the current bundled What's New release content."
+  },
   "notificationBillSubmittedTitle": "Bill submitted",
   "notificationBillSubmittedMessage": "Bill",
   "notificationBillParticipantAcceptedTitle": "Bill accepted",
