@@ -83,6 +83,13 @@ esac
   fail "the external TLS certificate chain file is missing, unreadable, or empty"
 [ -f "$private_key_file" ] && [ -r "$private_key_file" ] && [ -s "$private_key_file" ] ||
   fail "the external TLS private key file is missing, unreadable, or empty"
+key_mode=$(stat -c '%a' "$private_key_file") ||
+  fail "the external TLS private key permissions could not be inspected"
+other_mode=${key_mode#${key_mode%?}}
+case "$other_mode" in
+  0) ;;
+  *) fail "the external TLS private key must not grant permissions to other users" ;;
+esac
 
 printf '%s\n' "Settleora private HTTPS preflight passed."
 

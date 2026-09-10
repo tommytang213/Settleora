@@ -43,6 +43,7 @@ trap cleanup EXIT HUP INT TERM
 
 printf '%s\n' 'synthetic certificate fixture' >"$tmp_dir/tls.crt"
 printf '%s\n' 'synthetic private key fixture' >"$tmp_dir/tls.key"
+chmod 0640 "$tmp_dir/tls.key"
 
 run_preflight() {
   SETTLEORA_API_BIND_ADDRESS=$1 \
@@ -85,6 +86,9 @@ expect_failure "malformed hostname" run_preflight 192.168.50.10 _settleora.home.
 expect_failure "invalid port" run_preflight 192.168.50.10 settleora.home.arpa 0
 expect_failure "missing certificate" run_preflight 192.168.50.10 settleora.home.arpa 8443 "$tmp_dir/missing.crt"
 expect_failure "missing private key" run_preflight 192.168.50.10 settleora.home.arpa 8443 "$tmp_dir/tls.crt" "$tmp_dir/missing.key"
+chmod 0644 "$tmp_dir/tls.key"
+expect_failure "world-readable private key" run_preflight 192.168.50.10 settleora.home.arpa 8443
+chmod 0640 "$tmp_dir/tls.key"
 
 [ "$(grep -c 'android.permission.INTERNET' "$android_manifest")" -eq 1 ] || {
   printf '%s\n' 'Android release manifest must declare INTERNET exactly once.' >&2
@@ -149,10 +153,10 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
   -subj '/CN=settleora.home.arpa' \
   -addext 'subjectAltName=DNS:settleora.home.arpa' \
   -keyout "$tmp_dir/smoke.key" -out "$tmp_dir/smoke.crt" >/dev/null 2>&1
-# These are disposable synthetic files. World-readable fixture permissions let
-# the capability-dropped container read them without granting DAC_OVERRIDE;
-# operators must instead use a narrowly owned/mode-readable external key.
-chmod 0644 "$tmp_dir/smoke.crt" "$tmp_dir/smoke.key"
+# These are disposable synthetic files owned by the test UID. The key remains
+# group-readable only so the preflight proves it rejects other-user access.
+chmod 0644 "$tmp_dir/smoke.crt"
+chmod 0640 "$tmp_dir/smoke.key"
 
 docker run --rm \
   -e SETTLEORA_HTTPS_HOSTNAME=settleora.home.arpa \
@@ -169,6 +173,7 @@ docker run --rm \
 jq -e '
   .admin.disabled == true and
   .apps.http.servers.srv0.automatic_https.disable == true and
+  (.apps.http.servers.srv0.logs == null) and
   (.apps.http.servers.srv0.trusted_proxies == null) and
   .apps.http.servers.srv0.listen == [":8443"] and
   .apps.http.servers.srv0.routes[0].match[0].host == ["settleora.home.arpa"] and

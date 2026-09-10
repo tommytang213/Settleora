@@ -136,7 +136,10 @@ public listener; certificate issuance and DNS changes remain external manual
 actions.
 Both external TLS files must be readable by the ingress container's fixed
 UID/GID `1000:1000`; keep the private key otherwise narrowly permissioned and
-never make it generally world-readable.
+never grant any permissions to other users. The ingress preflight rejects a
+key whose final mode digit is nonzero; a narrowly owned `0400`/`0600` key or a
+deliberately group-readable `0440`/`0640` key is appropriate when UID/GID
+ownership matches the container.
 
 Do not present ordinary Android user-installed private-CA roots or a
 `.home.arpa` certificate as a supported Android path: the current Dart client
@@ -161,6 +164,9 @@ port, and Caddy's site address accepts only the configured external hostname.
 Docker-host administrators remain inside the trusted operator boundary. Any
 future web, second proxy, public exposure, link-generation, or
 client-IP security feature must reopen this boundary rather than inheriting it.
+This package deliberately does not enable Caddy request access logs, preventing
+URLs, headers, and client metadata from being persisted by default. Operators
+must not add request logging without a separate redaction and retention review.
 
 The ingress container attaches to a non-internal `edge` network so Docker can
 honor its exact-interface host publication, and to the internal `ingress`
