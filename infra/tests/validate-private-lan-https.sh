@@ -172,6 +172,8 @@ docker run --rm \
   >"$tmp_dir/caddy.json"
 jq -e '
   .admin.disabled == true and
+  .logging.logs.default.level == "ERROR" and
+  .logging.logs.default.encoder.fields.request.filter == "delete" and
   .apps.http.servers.srv0.automatic_https.disable == true and
   (.apps.http.servers.srv0.logs == null) and
   (.apps.http.servers.srv0.trusted_proxies == null) and
@@ -248,5 +250,30 @@ done
   printf '%s\n' 'Disposable HTTPS readiness response was unexpected.' >&2
   exit 1
 }
+
+docker stop "$mock_container" >/dev/null
+log_marker="r12-private-marker-$test_id"
+curl --silent --output /dev/null \
+  --cacert "$tmp_dir/smoke.crt" \
+  --resolve "settleora.home.arpa:$host_port:127.0.0.1" \
+  --header "X-Settleora-Test-Marker: $log_marker" \
+  "https://settleora.home.arpa:$host_port/private/$log_marker?token=$log_marker" || true
+attempt=0
+while :; do
+  error_logs=$(docker logs "$ingress_container" 2>&1)
+  if printf '%s\n' "$error_logs" | grep -q 'http.log.error'; then
+    break
+  fi
+  attempt=$((attempt + 1))
+  [ "$attempt" -lt 10 ] || {
+    printf '%s\n' 'Disposable proxy failure did not emit a retained error diagnostic.' >&2
+    exit 1
+  }
+  sleep 1
+done
+if printf '%s\n' "$error_logs" | grep -Fq "$log_marker"; then
+  printf '%s\n' 'Caddy proxy-failure logs retained synthetic request metadata.' >&2
+  exit 1
+fi
 
 printf '%s\n' 'Private LAN bind and HTTPS transport validation passed.'

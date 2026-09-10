@@ -1,12 +1,21 @@
 {
 	admin off
 	auto_https off
+	log default {
+		level ERROR
+		format filter {
+			wrap json
+			fields {
+				request delete
+			}
+		}
+	}
 }
 
 https://{$SETTLEORA_HTTPS_HOSTNAME}:8443 {
 	tls /run/settleora-tls/tls.crt /run/settleora-tls/tls.key
 
-	# Request access logging stays disabled so URLs, headers, and client metadata
-	# are not persisted by this repository package.
+	# Request access logging stays disabled. The global error-log filter removes
+	# Caddy's request object before Docker can retain proxy-failure diagnostics.
 	reverse_proxy api:8080
 }

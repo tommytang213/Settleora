@@ -164,9 +164,13 @@ port, and Caddy's site address accepts only the configured external hostname.
 Docker-host administrators remain inside the trusted operator boundary. Any
 future web, second proxy, public exposure, link-generation, or
 client-IP security feature must reopen this boundary rather than inheriting it.
-This package deliberately does not enable Caddy request access logs, preventing
-URLs, headers, and client metadata from being persisted by default. Operators
-must not add request logging without a separate redaction and retention review.
+This package deliberately does not enable Caddy request access logs. Its global
+runtime logger retains error-level diagnostics but deletes Caddy's complete
+request object, so proxy failures do not persist request URLs, headers, or
+client addressing in Docker logs. The disposable validation takes the API
+offline, sends unique synthetic path/header markers, requires an error record,
+and proves those markers are absent. Operators must not change request or
+runtime logging without a separate redaction and retention review.
 
 The ingress container attaches to a non-internal `edge` network so Docker can
 honor its exact-interface host publication, and to the internal `ingress`

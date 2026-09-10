@@ -83,8 +83,13 @@ esac
   fail "the external TLS certificate chain file is missing, unreadable, or empty"
 [ -f "$private_key_file" ] && [ -r "$private_key_file" ] && [ -s "$private_key_file" ] ||
   fail "the external TLS private key file is missing, unreadable, or empty"
-key_mode=$(stat -c '%a' "$private_key_file") ||
+if key_mode=$(stat -c '%a' "$private_key_file" 2>/dev/null); then
+  :
+elif key_mode=$(stat -f '%Lp' "$private_key_file" 2>/dev/null); then
+  :
+else
   fail "the external TLS private key permissions could not be inspected"
+fi
 other_mode=${key_mode#${key_mode%?}}
 case "$other_mode" in
   0) ;;
