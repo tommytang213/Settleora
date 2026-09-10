@@ -11334,6 +11334,51 @@ void main() {
     expect(find.text('Revision review'), findsNothing);
   });
 
+  testWidgets('bill detail maps asynchronous create bill failure', (
+    tester,
+  ) async {
+    await useLargeSurface(tester);
+    final detail = sampleBillDetail(canCreateRevision: true);
+    final repository = FakeBillRepository(
+      bills: [sampleBillSummary()],
+      details: [detail, detail, detail],
+    );
+    final revisionRepository = FakeBillRevisionRepository(
+      listResponses: const [],
+      createFailure: const SettleoraBillFailure(
+        kind: SettleoraBillFailureKind.conflict,
+        message: 'The personal bill changed while the proposal was saving.',
+        statusCode: 409,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettleoraBillListScreen(
+          repository: repository,
+          revisionRepository: revisionRepository,
+          syncController: sampleBillSyncController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Corner Market'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-detail-propose-change')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('bill-revision-proposal-save')));
+    await tester.pumpAndSettle();
+
+    expect(revisionRepository.createCalls, 1);
+    expect(find.text('Refresh needed'), findsOneWidget);
+    expect(
+      find.text('The personal bill changed while the proposal was saving.'),
+      findsOneWidget,
+    );
+    expect(find.text('Revision review'), findsNothing);
+  });
+
   testWidgets('authenticated server shell opens bills', (tester) async {
     await useLargeSurface(tester);
     final store = MemorySyncQueueStore();
@@ -12079,7 +12124,7 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
   final List<SettleoraBillRevision> listResponses;
   SettleoraBillRevision detailResponse;
   SettleoraBillRevision createResponse;
-  final SettleoraBillRevisionFailure? createFailure;
+  final Object? createFailure;
   int listCalls = 0;
   int getCalls = 0;
   int createCalls = 0;
@@ -12102,6 +12147,7 @@ class FakeBillRevisionRepository implements SettleoraBillRevisionRepository {
     lastProposal = proposal;
     final failure = createFailure;
     if (failure != null) {
+      await Future<void>.delayed(Duration.zero);
       throw failure;
     }
     detailResponse = createResponse;

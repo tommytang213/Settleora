@@ -48,6 +48,7 @@ for (const [filename, expected] of [
   ['apps/mobile/test/app_test.dart', { docs: false, full: true, mobile: true, ios: true }],
   ['apps/mobile/ios/Podfile', { docs: false, full: true, mobile: true, ios: true }],
   ['apps/mobile/pubspec.yaml', { docs: false, full: true, mobile: true, ios: true }],
+  ['apps/mobile/tool/validate-release.sh', { docs: false, full: true, mobile: true, ios: true }],
   ['packages/client-dart/lib/generated/client.dart', { docs: false, full: true, mobile: true, ios: true }],
   ['.github/workflows/scaffold-validation.yml', { docs: false, full: true, mobile: true, ios: true }],
   ['.github/workflows/mobile-ios-validation.yml', { docs: false, full: true, mobile: true, ios: true }],
