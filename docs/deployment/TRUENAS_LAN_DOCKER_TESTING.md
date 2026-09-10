@@ -105,7 +105,7 @@ Required LAN-test settings:
 | `SETTLEORA_STORAGE_ROOT` | API local storage root inside the API container. | Defaults to `/var/lib/settleora/storage` for the LAN package. |
 | `SETTLEORA_API_STORAGE_HOST_PATH` | Host dataset path for API local file storage. | Must be persistent and writable; contains sensitive app files. |
 | `SETTLEORA_ENVIRONMENT` | ASP.NET Core environment. | `Development` is suitable only for LAN testing. |
-| `COMPOSE_PROJECT_NAME` | Stable Docker Compose project/network name. | Defaults to `settleora_lan`; Compose creates `settleora_lan_ingress` and `settleora_lan_backend`. |
+| `COMPOSE_PROJECT_NAME` | Stable Docker Compose project/network name. | Defaults to `settleora_lan`; Compose creates non-internal `settleora_lan_edge` plus internal `settleora_lan_ingress` and `settleora_lan_backend`. |
 | `SETTLEORA_API_BIND_ADDRESS` | Host bind address for the HTTPS ingress. | Required RFC1918 IPv4 assigned to exactly the intended host interface. Wildcard, loopback, public, malformed, and ambiguous values are rejected. |
 | `SETTLEORA_API_HTTPS_PORT` | HTTPS ingress host port. | Defaults to `8443`; choose an unused port. No HTTP client port is published. |
 | `SETTLEORA_HTTPS_HOSTNAME` | Exact private TLS/DNS hostname. | Required fully qualified name; it must resolve to the selected bind address and appear in the certificate SAN. |
@@ -129,18 +129,25 @@ stack, the operator must supply a certificate chain and matching private key at
 the external paths in the private env file. The leaf certificate's DNS SAN must
 match `SETTLEORA_HTTPS_HOSTNAME`. The physical phone must resolve that exact
 name to `SETTLEORA_API_BIND_ADDRESS` and trust the issuing chain through normal
-platform trust. For a private CA, installing and governing its root on the
-device is an explicit operator action; Caddy does not silently install a root.
+platform trust. The supported cross-platform path uses a publicly/system-trusted
+certificate for an operator-owned registered hostname, resolved only by private
+DNS to the RFC1918 bind. The hostname and certificate may exist without any
+public listener; certificate issuance and DNS changes remain external manual
+actions.
 Both external TLS files must be readable by the ingress container's fixed
 UID/GID `1000:1000`; keep the private key otherwise narrowly permissioned and
 never make it generally world-readable.
 
-Prefer a stable private DNS name such as an operator-controlled name under
-`home.arpa`. An IP URL works only when the certificate carries the exact IP as
-an `iPAddress` SAN and the device trusts its issuer; entering an IP for a
-DNS-only certificate will correctly fail hostname validation. Never add a
-mobile certificate callback, global override, arbitrary self-signed trust, or
-LAN HTTP exception to work around a trust failure.
+Do not present ordinary Android user-installed private-CA roots or a
+`.home.arpa` certificate as a supported Android path: the current Dart client
+uses default platform trust, and modern Android apps do not reliably trust the
+user-added CA store. A managed system-root/private-CA path remains unsupported
+until separately reviewed and proven on a physical Android device. An IP URL
+works only when the certificate carries the exact IP as an `iPAddress` SAN and
+the device trusts its issuer; entering an IP for a DNS-only certificate will
+correctly fail hostname validation. Never add a mobile certificate callback,
+global override, arbitrary self-signed trust, or LAN HTTP exception to work
+around a trust failure.
 
 Caddy is the first and only proxy in this package. No upstream proxies are
 trusted. Caddy's default reverse-proxy handling ignores client-supplied
@@ -528,7 +535,8 @@ Manual gates and report fields:
 - No TrueNAS catalog app package exists yet; the planning path is documented in [TrueNAS catalog app packaging plan](TRUENAS_CATALOG_APP_PACKAGING_PLAN.md).
 - `infra/docker-compose.truenas-lan.yml` is a practical LAN Docker package path, but maintainer-run TrueNAS evidence is still pending.
 - No polished production install/upgrade orchestration exists beyond the current LAN package's first-class `migrate` service.
-- No backup/restore runbook exists for PostgreSQL, RabbitMQ, and local file storage as one consistency unit.
+- The backup/restore consistency runbook exists, but no automation or current
+  maintainer-run restore evidence exists.
 - The repository has a private HTTPS ingress contract, but real certificate,
   private DNS, TrueNAS, and physical-device trust evidence remains pending.
 - Web user/admin portals and OCR worker runtime are placeholders.

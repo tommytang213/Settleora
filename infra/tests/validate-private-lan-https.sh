@@ -94,6 +94,14 @@ expect_failure "missing private key" run_preflight 192.168.50.10 settleora.home.
   printf '%s\n' 'iOS must declare its private-server local-network purpose exactly once.' >&2
   exit 1
 }
+grep -q '^SETTLEORA_HTTPS_HOSTNAME=settleora\.lan\.operator-domain\.tld$' "$example_env" || {
+  printf '%s\n' 'Example env must use the replaceable registered-hostname trust model.' >&2
+  exit 1
+}
+if grep -q '^SETTLEORA_HTTPS_HOSTNAME=.*home\.arpa$' "$example_env"; then
+  printf '%s\n' 'Example env must not imply Android supports an ordinary private-CA hostname.' >&2
+  exit 1
+fi
 
 docker compose --env-file "$example_env" -f "$source_compose" config --format json >"$tmp_dir/source.json"
 docker compose --env-file "$example_env" -f "$image_compose" config --format json >"$tmp_dir/image.json"

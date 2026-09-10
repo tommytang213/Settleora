@@ -77,7 +77,7 @@ Self-hosted installs must default to private dependencies:
 | API local storage dataset | Private mounted dataset; do not serve by SMB, NFS, HTTP, or a direct file endpoint for app access. |
 | Migration job | Private install/upgrade job or one-shot service; publishes no host ports. |
 | HTTPS ingress | Trusted LAN only by default; publish exact-host HTTPS on one selected RFC1918 interface with external trusted TLS material. |
-| API | No host publication; attach to ingress and backend networks so only the private HTTPS ingress reaches it. |
+| API | No host publication; external clients reach it only through private HTTPS ingress. Backend peers and Docker-host administrators remain inside the trusted container/host boundary. |
 | Admin surfaces | LAN, trusted VPN, Cloudflare Access-style protection, or equivalent reviewed access gate only after runtime exists and gates pass. |
 | Workers | Private app-network workloads; current OCR worker runtime is placeholder only. |
 
