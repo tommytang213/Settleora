@@ -117,12 +117,16 @@ the node name `rabbit@settleora-rabbitmq`; changing that value after data exists
 does not rename or migrate the broker database.
 
 Before the first start of this hardened package against an existing RabbitMQ
-dataset, keep the old broker running long enough to record its current identity
-with this credential- and cookie-free command:
+dataset, keep the old broker running long enough to record its current identity.
+First list only the existing project's RabbitMQ container, confirm exactly one
+expected container is returned, and then use its exact ID with the credential-
+and cookie-free command below. These commands do not parse the hardened Compose
+file, so they work before the new identity variable exists:
 
 ```bash
 cd /workspace/repos/Settleora
-docker compose --env-file infra/env/.env.truenas-lan -f infra/docker-compose.truenas-lan.yml -p settleora_lan exec -T rabbitmq rabbitmqctl eval 'node().'
+docker ps --filter label=com.docker.compose.project=settleora_lan --filter label=com.docker.compose.service=rabbitmq --format '{{.ID}} {{.Names}}'
+docker exec <exact-existing-rabbitmq-container-id> rabbitmqctl eval 'node().'
 ```
 
 For output such as `rabbit@<previous-hostname>`, set

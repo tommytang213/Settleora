@@ -43,6 +43,11 @@ node_name() {
   docker exec "$1" rabbitmqctl eval 'node().' 2>/dev/null | tr -d "'\r"
 }
 
+legacy_node_name_without_identity_config() {
+  env -u SETTLEORA_RABBITMQ_NODE_HOSTNAME docker exec "$1" \
+    rabbitmqctl eval 'node().' 2>/dev/null | tr -d "'\r"
+}
+
 declare_marker() {
   docker exec "$1" sh -ec \
     'rabbitmqadmin --username "$RABBITMQ_DEFAULT_USER" --password "$RABBITMQ_DEFAULT_PASS" declare queue name="$1" durable=true >/dev/null
@@ -223,7 +228,7 @@ test_prechange_adoption() (
   local baseline_id old_node adopted_hostname wrong_id adopted_id
   baseline_id="$(compose_up_rabbitmq "$project" "$baseline_compose")"
   wait_for_health "$baseline_id"
-  old_node="$(node_name "$baseline_id")"
+  old_node="$(legacy_node_name_without_identity_config "$baseline_id")"
   declare_marker "$baseline_id"
   assert_marker "$baseline_id"
   docker compose -p "$project" -f "$baseline_compose" rm -sf rabbitmq >/dev/null
@@ -250,7 +255,7 @@ test_prechange_adoption() (
   assert_identity "$adopted_id" "$old_node"
   assert_marker "$adopted_id"
 
-  printf 'PASS prechange-adoption variant=%s old_node=%s wrong_identity=refused:66 adopted_node=%s marker=durable:true,messages_ready:1,payload:verified health=healthy cleanup=task-owned\n' \
+  printf 'PASS prechange-adoption variant=%s old_node=%s discovery=direct-exec-without-new-env wrong_identity=refused:66 adopted_node=%s marker=durable:true,messages_ready:1,payload:verified health=healthy cleanup=task-owned\n' \
     "$variant" "$old_node" "$old_node"
 )
 
