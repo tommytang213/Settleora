@@ -97,6 +97,7 @@ for rendered in "$tmp_dir/source.json" "$tmp_dir/image.json"; do
     (.services.api.expose == ["8080"]) and
     (.services.ingress.cap_drop == ["ALL"]) and
     (.services.ingress.cap_add == null) and
+    (.services.ingress.user == "1000:1000") and
     (.services.ingress.read_only == true) and
     (.services.ingress.security_opt == ["no-new-privileges:true"]) and
     (.services.ingress.networks == {"ingress":null}) and
@@ -165,6 +166,7 @@ docker run -d --name "$mock_container" --label "$run_label" --network "$network"
 mock_created=true
 docker run -d --name "$ingress_container" --label "$run_label" --network "$network" \
   --entrypoint /bin/sh \
+  --user 1000:1000 \
   --cap-drop ALL --read-only --security-opt no-new-privileges \
   --tmpfs /config --tmpfs /data --tmpfs /tmp:exec \
   -e SETTLEORA_API_BIND_ADDRESS=192.168.50.10 \

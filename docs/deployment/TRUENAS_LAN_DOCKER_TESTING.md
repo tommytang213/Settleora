@@ -54,7 +54,8 @@ The LAN compose package:
 - Requires an exact private hostname and externally managed certificate chain
   and private key. Caddy automatic HTTPS/ACME and its admin API are disabled.
 - Drops all Linux capabilities, disables privilege escalation, uses a read-only
-  root filesystem, and keeps only ephemeral Caddy data/config/tmpfs mounts.
+  root filesystem, runs as UID/GID `1000:1000`, and keeps only ephemeral Caddy
+  data/config/tmpfs mounts.
 - Keeps PostgreSQL port `5432`, RabbitMQ AMQP port `5672`, and RabbitMQ management port `15672` private to the compose network.
 - Sets `Settleora__Storage__Provider=Local`.
 - Mounts persistent API local file storage at `SETTLEORA_STORAGE_ROOT`.
@@ -130,6 +131,9 @@ match `SETTLEORA_HTTPS_HOSTNAME`. The physical phone must resolve that exact
 name to `SETTLEORA_API_BIND_ADDRESS` and trust the issuing chain through normal
 platform trust. For a private CA, installing and governing its root on the
 device is an explicit operator action; Caddy does not silently install a root.
+Both external TLS files must be readable by the ingress container's fixed
+UID/GID `1000:1000`; keep the private key otherwise narrowly permissioned and
+never make it generally world-readable.
 
 Prefer a stable private DNS name such as an operator-controlled name under
 `home.arpa`. An IP URL works only when the certificate carries the exact IP as

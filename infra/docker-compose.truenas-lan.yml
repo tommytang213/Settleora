@@ -1,6 +1,7 @@
 services:
   ingress:
     image: caddy:2.11.4-alpine
+    user: "1000:1000"
     cap_drop:
       - ALL
     entrypoint:
