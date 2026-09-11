@@ -19,6 +19,7 @@ For a standalone Android preflight, use a disposable path that is not the
 canonical assembly destination:
 
 ```bash
+install -d -m 700 /workspace/logs/settleora-android-preflight
 node tools/release/day1-release-identity-cli.mjs collect-android \
   --flutter /trusted/flutter/bin/flutter \
   --output /workspace/logs/settleora-android-preflight/<source-sha>
