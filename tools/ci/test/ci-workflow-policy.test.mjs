@@ -14,6 +14,13 @@ const runCommands = (job) => stepsFor(job).map((step) => step.run).filter(Boolea
 const flutterVersion = '3.44.8';
 const sharedMobileReleaseGate = './tool/validate-release.sh';
 
+test('required-check budget documents every classifier lane', () => {
+  const policy = read('docs/workflow/CODEX_VALIDATION_REPORT_BUDGET.md');
+  assert.match(policy, /docs-only, full, mobile, iOS, and user-web routing decisions/);
+  assert.match(policy, /Proof failures conservatively emit full, mobile, iOS, and user-web requirements/);
+  assert.match(policy, /User-web validation is selected for `apps\/web-user\/\*\*` and `packages\/client-web\/\*\*`/);
+});
+
 test('scaffold orchestration preserves the stable fail-closed aggregate', () => {
   const scaffold = workflow('scaffold-validation.yml');
   assert.deepEqual(scaffold.on.pull_request.branches, ['main', 'ai/integration']);

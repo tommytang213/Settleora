@@ -28,7 +28,7 @@ const unsafeContentPatterns = [
   /\bsk-[A-Za-z0-9]{20,}\b/,
   /\b(?:gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/,
-  /\b(?:[A-Za-z_][A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|api[_-]?key|authorization|x-goog-api-key)\b\s*[:=]\s*(?![A-Za-z_$][A-Za-z0-9_$]*\.)["']?[A-Za-z0-9._~+/-]{8,}/i,
+  /\b(?:(?:[A-Za-z_][A-Za-z0-9_]*)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|authorization|x-goog-api-key)\b\s*[:=]\s*(?![A-Za-z_$][A-Za-z0-9_$]*\.)["']?[A-Za-z0-9._~+/-]{8,}/i,
   /\bbearer\s+[A-Za-z0-9._~+/-]{12,}/i,
   /["'](?:client_secret|private_key|refresh_token)["']\s*:/i,
   /(?::_authToken|_auth|npmAuthToken)\s*[:=]\s*[^\s"']+/i,

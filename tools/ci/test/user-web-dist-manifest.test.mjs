@@ -133,6 +133,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
       path.join(f.dist, 'config.txt'),
       ['API_', 'TOKEN=abcdefghijklmnop'].join(''),
     ), /Potential sensitive/],
+    ['standalone credential assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['TO', 'KEN=abcdefghijklmnop'].join(''),
+    ), /Potential sensitive/],
     ['bearer token', (f) => writeFileSync(
       path.join(f.dist, 'config.txt'),
       ['Authorization: Bearer ', 'abcdefghijklmnop'].join(''),
