@@ -17,8 +17,9 @@ import '../notification_screen_test.dart' as notifications;
 import '../recurring_bill_screen_test.dart' as recurring;
 import '../settlement_list_screen_test.dart' as settlements;
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260623-0120-mobile-chip-status-readiness-consolidation';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260623-0120-mobile-chip-status-readiness-consolidation',
+);
 
 void main() {
   testWidgets('captures shared chip status readiness visual evidence', (

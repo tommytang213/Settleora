@@ -17,8 +17,9 @@ const _captureKey = Key('group-member-add-capture');
 const _fieldKey = Key('group-member-profile-id');
 const _roleKey = Key('group-member-role');
 const _addKey = Key('group-member-add');
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260908-0945-group-member-add';
+final _output = settleoraVisualOutputDirectory(
+  '20260908-0945-group-member-add',
+);
 const _rawProfileId = '  88888888-8888-8888-8888-888888888888  ';
 
 Finder get _field => find.byKey(_fieldKey);

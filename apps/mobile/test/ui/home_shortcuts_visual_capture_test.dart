@@ -12,8 +12,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
-const _outputDir =
-    '/workspace/logs/settleora-visual-qa/20260909-0934-issue-295-home-shortcuts';
+final _outputDir = settleoraVisualOutputDirectory(
+  '20260909-0934-issue-295-home-shortcuts',
+);
 const _captureKey = Key('issue-295-capture');
 
 void main() {

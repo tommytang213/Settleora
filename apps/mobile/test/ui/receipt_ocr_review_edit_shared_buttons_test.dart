@@ -18,8 +18,9 @@ const _captureKey = Key('receipt-review-edit-actions-capture');
 const _cancelKey = Key('receipt-review-edit-cancel');
 const _saveKey = Key('receipt-review-edit-save');
 const _deleteKey = Key('receipt-review-edit-delete');
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260908-1224-receipt-review-edit-actions';
+final _output = settleoraVisualOutputDirectory(
+  '20260908-1224-receipt-review-edit-actions',
+);
 
 Future<void> _mountEditing(
   WidgetTester tester, {

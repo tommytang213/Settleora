@@ -12,8 +12,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../settlement_list_screen_test.dart' as settlements;
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-2355-mobile-shared-component-consolidation-bundle';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260622-2355-mobile-shared-component-consolidation-bundle',
+);
 
 void main() {
   testWidgets('captures settlement money readout visual evidence', (

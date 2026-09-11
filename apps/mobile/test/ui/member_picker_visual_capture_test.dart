@@ -14,8 +14,7 @@ import '../group_list_screen_test.dart' as groups;
 import '../helpers/settleora_visual_test_fonts.dart';
 import 'member_picker_test.dart' as component;
 
-const output =
-    '/workspace/logs/settleora-visual-qa/20260907-1043-member-picker';
+final output = settleoraVisualOutputDirectory('20260907-1043-member-picker');
 const boundaryKey = Key('member-picker-capture');
 
 Future<void> capture(WidgetTester tester, String name) async {

@@ -66,9 +66,15 @@ workflows:
           # Codex/Figma/UI review can collect screenshots without blocking
           # internal TestFlight preview builds.
           pwd
+          export SETTLEORA_VISUAL_OUTPUT_ROOT="$CM_BUILD_DIR/apps/mobile/build/settleora-visual-qa"
           VISUAL_CAPTURE_FILES=$(find test -type f \( -name '*visual*capture_test.dart' -o -name '*visual*evidence*_test.dart' \) | sort)
           VISUAL_CAPTURE_COUNT=$(printf '%s\n' "$VISUAL_CAPTURE_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
-          VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort || true)
+          VISUAL_TAGGED_FILES=$(grep -R -l "tags:.*visual" test --include='*test.dart' 2>/dev/null | sort | while IFS= read -r TEST_FILE; do
+            case "$TEST_FILE" in
+              *visual*capture_test.dart|*visual*evidence*_test.dart) ;;
+              *) printf '%s\n' "$TEST_FILE" ;;
+            esac
+          done || true)
           VISUAL_TAGGED_COUNT=$(printf '%s\n' "$VISUAL_TAGGED_FILES" | sed '/^$/d' | wc -l | tr -d ' ')
           TEST_COUNT=$((VISUAL_CAPTURE_COUNT + VISUAL_TAGGED_COUNT))
           echo "Selected visual capture Flutter test files: $VISUAL_CAPTURE_COUNT"
@@ -89,7 +95,7 @@ workflows:
     artifacts:
       - build/**/outputs/**/*.log
       - flutter_drive.log
-      - /workspace/logs/settleora-visual-qa/**/*.png
+      - $CM_BUILD_DIR/apps/mobile/build/settleora-visual-qa/**/*.png
 
   mobile-ios-testflight-internal:
     name: Mobile iOS internal TestFlight

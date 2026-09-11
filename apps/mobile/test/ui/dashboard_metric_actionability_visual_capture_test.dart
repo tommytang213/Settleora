@@ -13,8 +13,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260909-0108-issue-299-dashboard-metric-actionability';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260909-0108-issue-299-dashboard-metric-actionability',
+);
 const _captureKey = Key('dashboard-metric-actionability-capture');
 
 void main() {

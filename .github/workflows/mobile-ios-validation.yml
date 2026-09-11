@@ -64,6 +64,10 @@ jobs:
         working-directory: apps/mobile
         run: flutter pub get
 
+      - name: Prove portable Flutter test font discovery
+        working-directory: apps/mobile
+        run: flutter test test/helpers/settleora_visual_test_environment_test.dart --plain-name "loads the real Roboto and Material Icons font files"
+
       - name: Install iOS pods
         working-directory: apps/mobile/ios
         run: pod install

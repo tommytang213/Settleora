@@ -14,8 +14,9 @@ import '../bill_attachment_section_test.dart' as fixtures;
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _capture = Key('attachment-search-capture');
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260907-2138-attachment-search';
+final _output = settleoraVisualOutputDirectory(
+  '20260907-2138-attachment-search',
+);
 final _search = find.byKey(const Key('attachments-discovery-search'));
 final _clear = find.byKey(const Key('attachments-discovery-clear-field'));
 final _overall = find.byKey(const Key('attachments-discovery-clear'));

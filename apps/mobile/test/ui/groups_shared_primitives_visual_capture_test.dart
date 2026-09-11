@@ -11,8 +11,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../group_list_screen_test.dart' as groups;
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260623-0055-mobile-groups-notifications-shared-primitives';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260623-0055-mobile-groups-notifications-shared-primitives',
+);
 
 void main() {
   testWidgets('captures groups shared primitive visual evidence', (

@@ -14,8 +14,9 @@ import '../bill_list_screen_test.dart' as bills;
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../receipt_ocr_review_screen_test.dart' as ocr;
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-1612-mobile-ocr-line-item-money-fields';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260622-1612-mobile-ocr-line-item-money-fields',
+);
 
 void main() {
   testWidgets('captures bills OCR money date visual QA evidence', (

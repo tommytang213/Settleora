@@ -14,8 +14,7 @@ import '../bill_revision_review_screen_test.dart' as revision;
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../receipt_ocr_review_screen_test.dart' as ocr;
 
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260907-1141-status-chips';
+final _output = settleoraVisualOutputDirectory('20260907-1141-status-chips');
 const _captureKey = Key('status-chip-adoption-capture');
 
 void main() {

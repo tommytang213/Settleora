@@ -10,8 +10,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../bill_list_screen_test.dart' as bills;
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-1934-mobile-personal-bill-itemized-money-fields';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260622-1934-mobile-personal-bill-itemized-money-fields',
+);
 
 void main() {
   testWidgets(

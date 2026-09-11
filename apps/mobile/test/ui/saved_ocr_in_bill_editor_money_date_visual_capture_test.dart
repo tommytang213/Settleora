@@ -13,8 +13,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../bill_list_screen_test.dart' as bills;
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-2002-mobile-saved-ocr-in-bill-editor-money-date-fields';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260622-2002-mobile-saved-ocr-in-bill-editor-money-date-fields',
+);
 
 void main() {
   testWidgets('captures saved OCR in-bill editor money date visual evidence', (

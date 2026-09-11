@@ -94,14 +94,17 @@ Preferred capture path:
 
 - Use Flutter headless widget/golden screenshot capture on the DevBox when
   feasible.
-- Load both Material test fonts before capture:
-  - `/opt/flutter/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf`
-  - `/opt/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf`
+- Load both Material test fonts through
+  `apps/mobile/test/helpers/settleora_visual_test_fonts.dart`. The helper
+  resolves the active Flutter SDK from `FLUTTER_ROOT` or the Flutter test
+  runtime and loads its exact Roboto and Material Icons files.
 - Disable the Flutter debug banner for visual capture.
 - Use a mobile viewport that matches the task evidence request, commonly
   `390x844`.
-- Save task screenshots under
-  `/workspace/logs/settleora-visual-qa/<task-or-pr>/`.
+- Use the shared helper to resolve task screenshot directories under ignored
+  `apps/mobile/build/settleora-visual-qa/<task-or-pr>/` by default. Set
+  `SETTLEORA_VISUAL_OUTPUT_ROOT=/workspace/logs/settleora-visual-qa` explicitly
+  when durable DevBox operator evidence is required.
 - Include screenshot paths in the Codex report.
 
 When a matching approved reference exists under `docs/design/mobile/assets/`,

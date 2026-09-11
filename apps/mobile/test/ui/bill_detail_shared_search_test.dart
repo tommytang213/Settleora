@@ -14,8 +14,9 @@ import '../group_bill_list_screen_test.dart' as group;
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _capture = Key('bill-detail-search-capture');
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260907-2358-bill-detail-search';
+final _output = settleoraVisualOutputDirectory(
+  '20260907-2358-bill-detail-search',
+);
 const _filters = {
   'all': 'All',
   'items': 'Items',

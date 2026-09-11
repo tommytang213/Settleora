@@ -11,8 +11,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _guidanceVisualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260908-1504-issue-1146-product-guidance';
+final _guidanceVisualOutputDir = settleoraVisualOutputDirectory(
+  '20260908-1504-issue-1146-product-guidance',
+);
 
 void main() {
   testWidgets(
