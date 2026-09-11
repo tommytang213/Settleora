@@ -20,7 +20,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, canonicalAndroidInput, canonicalManifestPath, canonicalWebInput, parseSingleApkSigner, safeInput } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, parseSingleApkSigner, safeInput } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 
@@ -142,7 +142,7 @@ function fixture(t) {
     releaseNotes: { evidenceRoot, path: notesPath, source: 'bounded-input/release-notes.md', candidateSummary: 'Fixture candidate only.' },
     rollback: {
       sourceCommit: rollbackCommit,
-      apiImage: { repository: 'ghcr.io/tommytang213/settleora-api', configuredTag: `sha-${rollbackCommit}`, indexDigest: d('5'), platformDigest: d('6'), ociRevision: rollbackCommit },
+      apiImage: { repository: 'ghcr.io/tommytang213/settleora-api', configuredTag: `sha-${rollbackCommit}`, indexDigest: d('5'), platformDigest: d('6'), ociRevision: rollbackCommit, publicationRunUrl: 'https://github.com/tommytang213/Settleora/actions/runs/2' },
     },
     retention: {
       canonicalEvidenceDirectory: `/workspace/logs/settleora-release-candidates/day1-${commit.slice(0, 12)}`,
@@ -192,6 +192,9 @@ test('rejects source, API revision, API digest and floating-tag mismatches', (t)
   assert.equal(validatePublicationProvenance(publication, provenance, f.commit), true);
   provenance.runDetails.builder.id = 'https://github.com/other/repo/actions/runs/1/attempts/1';
   assert.throws(() => validatePublicationProvenance(publication, provenance, f.commit), /provenance attestation mismatch/);
+  const rollback = structuredClone(f.input.rollback);
+  delete rollback.apiImage.publicationRunUrl;
+  assert.throws(() => buildManifest(f.root, { ...f.input, rollback }), /publicationRunUrl/);
 });
 
 test('rejects dependency tag/platform/digest and migration-set mismatches', (t) => {
@@ -322,6 +325,7 @@ test('preserves expected Android identities and derives retained canonical paths
   assert.equal(canonicalManifestPath(input, manifestPath), manifestPath);
   assert.throws(() => canonicalManifestPath(input, `${f.evidenceRoot}/manifest-copy.json`), /canonical retained candidate manifest/);
   assert.equal(canonicalWebInput(input).userWeb.manifestPath, `${input.retention.canonicalEvidenceDirectory}/web/user-web-dist-manifest.json`);
+  assert.equal(canonicalReleaseNotesInput(input).releaseNotes.path, `${input.retention.canonicalEvidenceDirectory}/release-notes.md`);
 });
 
 test('accepts exactly one debug APK signer and rejects additional signers', () => {

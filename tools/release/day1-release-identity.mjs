@@ -548,6 +548,7 @@ export function validateManifest(manifest) {
   assertKeys(manifest.rollback, ['sourceCommit', 'apiImage', 'artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety', 'safetyCaveat'], 'rollback');
   if (manifest.rollback.safetyCaveat !== 'Artifact availability does not prove database, schema, or file rollback safety.') fail('Rollback safety caveat text is required');
   validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit, undefined, apiRepository);
+  if (manifest.rollback.apiImage.publicationRunUrl === undefined) fail('Rollback API image publication run provenance is required');
   if (manifest.retention?.canonicalEvidenceDirectory !== `/workspace/logs/settleora-release-candidates/${manifest.source.candidateId}`) {
     fail('Retention directory must exactly bind the candidate ID under the approved external root');
   }
@@ -581,7 +582,7 @@ function assertInput(input) {
   }
   assertKeys(input.releaseNotes, ['evidenceRoot', 'path', 'source', 'candidateSummary'], 'input.releaseNotes');
   assertKeys(input.rollback, ['sourceCommit', 'apiImage'], 'input.rollback');
-  assertKeys(input.rollback.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision'], 'input.rollback.apiImage');
+  assertKeys(input.rollback.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision', 'publicationRunUrl'], 'input.rollback.apiImage');
   assertKeys(input.retention, ['canonicalEvidenceDirectory', 'policy', 'apiRegistryIdentity'], 'input.retention');
   if (!Array.isArray(input.dependencyImages) || input.dependencyImages.length !== 3) fail('Input requires exactly three dependency images');
 }

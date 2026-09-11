@@ -35,24 +35,29 @@ function args(values) {
 }
 
 export function safeInput(candidate, label) {
+  const text = safeBytes(candidate, label).toString('utf8');
+  if (containsSensitiveMaterial(text)) {
+    throw new Error(`${label} contains potentially sensitive material`);
+  }
+  return JSON.parse(text);
+}
+
+function safeBytes(candidate, label) {
   const absolute = path.resolve(candidate);
   let descriptor;
-  let text;
+  let bytes;
   try {
     descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
     const opened = fstatSync(descriptor);
-    text = readFileSync(descriptor, 'utf8');
+    bytes = readFileSync(descriptor);
     const current = lstatSync(absolute);
-    if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute || Buffer.byteLength(text) !== opened.size) {
+    if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute || bytes.length !== opened.size) {
       throw new Error(`${label} changed or resolved through indirection while being read`);
     }
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
-  if (containsSensitiveMaterial(text)) {
-    throw new Error(`${label} contains potentially sensitive material`);
-  }
-  return JSON.parse(text);
+  return bytes;
 }
 
 function registryReference(image) {
@@ -87,29 +92,22 @@ function verifyLiveRegistry(input) {
     }
     return reference;
   };
-  const apiReference = verify(input.apiImage, 'apiImage', input.source.commit);
-  const publication = validatePublicationRunUrl(input.apiImage.publicationRunUrl, input.source.commit);
-  const run = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}`], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }));
-  validatePublicationRunDocument(publication, run, input.source.commit);
-  const jobs = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}/jobs?per_page=100`], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }));
-  const jobId = validatePublicationJobDocument(jobs, input.source.commit);
-  const jobLog = execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/jobs/${jobId}/logs`], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  validatePublicationJobLog(jobLog, input.apiImage, input.source.commit);
-  const provenance = inspect(apiReference, '{{json .Provenance.SLSA}}');
-  validatePublicationProvenance(publication, provenance, input.source.commit);
-  validateRegistryDocument(input.apiImage, inspectRecord(apiReference).manifest, platform, 'apiImage after provenance');
+  const verifyPublication = (image, sourceCommit, label) => {
+    const reference = verify(image, label, sourceCommit);
+    const publication = validatePublicationRunUrl(image.publicationRunUrl, sourceCommit);
+    const run = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    validatePublicationRunDocument(publication, run, sourceCommit);
+    const jobs = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}/jobs?per_page=100`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    const jobId = validatePublicationJobDocument(jobs, sourceCommit);
+    const jobLog = execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/jobs/${jobId}/logs`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 });
+    validatePublicationJobLog(jobLog, image, sourceCommit);
+    const provenance = inspect(reference, '{{json .Provenance.SLSA}}');
+    validatePublicationProvenance(publication, provenance, sourceCommit);
+    validateRegistryDocument(image, inspectRecord(reference).manifest, platform, `${label} after provenance`);
+  };
+  verifyPublication(input.apiImage, input.source.commit, 'apiImage');
   for (const image of input.dependencyImages) verify(image, `dependencyImages.${image.name}`);
-  verify(input.rollback.apiImage, 'rollback.apiImage', input.rollback.sourceCommit);
+  verifyPublication(input.rollback.apiImage, input.rollback.sourceCommit, 'rollback.apiImage');
 }
 
 function trustedTool(candidate, expectedName, label) {
@@ -132,29 +130,15 @@ export function parseSingleApkSigner(output) {
   return certificate;
 }
 
-function withHeldArtifact(candidate, label, callback) {
-  const absolute = path.resolve(candidate);
-  let descriptor;
-  let contentsDescriptor;
-  try {
-    descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const opened = fstatSync(descriptor);
-    if (!opened.isFile()) throw new Error(`${label} must be a regular file`);
-    contentsDescriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const contentsOpened = fstatSync(contentsDescriptor);
-    if (contentsOpened.dev !== opened.dev || contentsOpened.ino !== opened.ino) throw new Error(`${label} changed while being captured`);
-    const bytes = readFileSync(contentsDescriptor);
-    if (bytes.length !== opened.size) throw new Error(`${label} changed size while being captured`);
-    callback('/proc/self/fd/3', descriptor);
-    const current = lstatSync(absolute);
-    if (current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute) {
-      throw new Error(`${label} changed while its signature was verified`);
-    }
-    return { size: bytes.length, sha256: hash(bytes) };
-  } finally {
-    if (contentsDescriptor !== undefined) closeSync(contentsDescriptor);
-    if (descriptor !== undefined) closeSync(descriptor);
-  }
+function sealedAndroidVerification(kind, artifact, tools) {
+  const helper = path.join(repoRoot, 'tools/release/sealed_android_verifier.py');
+  const result = JSON.parse(execFileSync('/usr/bin/python3', [helper, kind, path.resolve(artifact), ...tools], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 4 * 1024 * 1024,
+  }));
+  if (!Number.isSafeInteger(result.size) || result.size < 1 || !/^[0-9a-f]{64}$/u.test(result.sha256)) throw new Error(`Android ${kind.toUpperCase()} sealed snapshot identity is invalid`);
+  return result;
 }
 
 export function verifyAndroidSignature(input, options) {
@@ -168,46 +152,24 @@ export function verifyAndroidSignature(input, options) {
     .at(-1);
   const apksigner = path.join(sdkRoot, 'build-tools', version ?? '', 'apksigner');
   const tool = trustedTool(apksigner, 'apksigner', 'Android apksigner');
-  let output;
-  const apk = withHeldArtifact(input.android.apkPath, 'Android APK', (heldPath, descriptor) => {
-    output = execFileSync(tool, ['verify', '--verbose', '--print-certs', heldPath], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe', descriptor],
-    });
-  });
-  const certificate = parseSingleApkSigner(output);
+  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, ['--apksigner', tool]);
+  const certificate = parseSingleApkSigner(apkObservation.verificationOutput);
+  const apk = { size: apkObservation.size, sha256: apkObservation.sha256 };
   const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
-  let aabVerification;
-  let aabCertificate;
-  let embeddedMapping;
-  let r8Metadata;
-  const mappingSize = statSync(path.resolve(input.android.mappingPath)).size;
-  if (mappingSize < 1 || mappingSize > 128 * 1024 * 1024) throw new Error('Android R8 mapping exceeds the bounded verification size');
-  const unzip = trustedTool('/usr/bin/unzip', 'unzip', 'System unzip');
-  const aab = withHeldArtifact(input.android.aabPath, 'Android AAB', (heldPath, descriptor) => {
-    const inherited = ['ignore', 'pipe', 'pipe', descriptor];
-    aabVerification = execFileSync(jarsigner, ['-J-Duser.language=en', '-J-Duser.country=US', '-verify', '-verbose', '-certs', heldPath], { encoding: 'utf8', stdio: inherited, maxBuffer: 128 * 1024 * 1024 });
-    aabCertificate = execFileSync(keytool, ['-J-Duser.language=en', '-J-Duser.country=US', '-printcert', '-jarfile', heldPath], { encoding: 'utf8', stdio: inherited });
-    embeddedMapping = execFileSync(unzip, ['-p', heldPath, 'BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map'], { stdio: inherited, maxBuffer: mappingSize + 1024 * 1024 });
-    r8Metadata = execFileSync(unzip, ['-p', heldPath, 'BUNDLE-METADATA/com.android.tools/r8.json'], { stdio: inherited, maxBuffer: 4 * 1024 * 1024 });
-  });
-  const signatureControl = /\sMETA-INF\/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$/u;
-  const contentEntries = aabVerification.split(/\r?\n/u).filter((line) => /^[smk? ]{3}\s+\d+\s+\w{3}\s/u.test(line));
-  const unsignedEntries = contentEntries.filter((line) => !/^s/u.test(line) && !signatureControl.test(line));
-  if (!/jar verified\./u.test(aabVerification) || contentEntries.length === 0 || unsignedEntries.length) throw new Error('Android AAB contains unsigned entries');
-  const aabDigests = new Set([...aabCertificate.matchAll(/SHA256:\s*([0-9A-F:]{95})/gu)].map((match) => match[1].replaceAll(':', '').toLowerCase()));
-  const signerNames = new Set([...aabVerification.matchAll(/^\s+X\.509,\s*(.+)$/gmu)].map((match) => match[1]));
-  if (aabDigests.size !== 1 || !aabDigests.has(certificate) || signerNames.size !== 1 || ![...signerNames][0]?.includes('CN=Android Debug')) {
+  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, ['--jarsigner', jarsigner, '--keytool', keytool]);
+  const aab = { size: aabObservation.size, sha256: aabObservation.sha256 };
+  if (aabObservation.jarVerified !== true || aabObservation.contentEntryCount < 1 || aabObservation.unsignedEntryCount !== 0) throw new Error('Android AAB contains unsigned entries');
+  if (aabObservation.certificateDigests?.length !== 1 || aabObservation.certificateDigests[0] !== certificate || aabObservation.signerNames?.length !== 1 || !aabObservation.signerNames[0].includes('CN=Android Debug')) {
     throw new Error('Android AAB signature observation mismatch');
   }
-  if (embeddedMapping.length === 0 || r8Metadata.length === 0) throw new Error('Android AAB is missing embedded R8 evidence');
+  if (!/^[0-9a-f]{64}$/u.test(aabObservation.embeddedR8MappingSha256) || aabObservation.r8MetadataPresent !== true) throw new Error('Android AAB is missing embedded R8 evidence');
   for (const [kind, identity] of Object.entries({ apk, aab })) {
     const expected = input.android.expected?.[kind];
     if (expected && (expected.size !== identity.size || expected.sha256 !== identity.sha256)) throw new Error(`Android ${kind.toUpperCase()} identity mismatch during signature verification`);
   }
-  return { certificate, embeddedR8MappingSha256: hash(embeddedMapping), apk, aab };
+  return { certificate, embeddedR8MappingSha256: aabObservation.embeddedR8MappingSha256, apk, aab };
 }
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -403,6 +365,16 @@ export function collectedWebInput(input, output) {
   };
 }
 
+function collectedReleaseNotesInput(input, notePath) {
+  return { ...input, releaseNotes: { ...input.releaseNotes, evidenceRoot: path.dirname(notePath), path: notePath } };
+}
+
+function retainReleaseNotes(input, output) {
+  const bytes = safeBytes(input.releaseNotes.path, 'Release-note evidence input');
+  if (bytes.length === 0 || containsSensitiveMaterial(bytes.toString('utf8'))) throw new Error('Release-note evidence input is empty or contains potentially sensitive material');
+  writeFileSync(output, bytes, { flag: 'wx', mode: 0o444 });
+}
+
 function safeOutput(input, candidate) {
   const expectedDirectory = path.resolve(input.retention.canonicalEvidenceDirectory);
   const output = path.resolve(candidate);
@@ -439,6 +411,10 @@ export function canonicalWebInput(input) {
   return collectedWebInput(input, path.join(canonicalCandidateDirectory(input), 'web'));
 }
 
+export function canonicalReleaseNotesInput(input) {
+  return collectedReleaseNotesInput(input, path.join(canonicalCandidateDirectory(input), 'release-notes.md'));
+}
+
 export function assertCleanCompletion(root, message) {
   assertTrackedWorktreeMatchesHead(root);
   if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error(message);
@@ -456,19 +432,25 @@ export function main(argv = process.argv.slice(2)) {
     const candidateRoot = canonicalCandidateDirectory(supplied);
     const androidRoot = path.join(candidateRoot, 'android');
     const webRoot = path.join(candidateRoot, 'web');
+    const notesPath = path.join(candidateRoot, 'release-notes.md');
     if (lstatSync(androidRoot, { throwIfNoEntry: false })) throw new Error('Canonical Android evidence directory must not already exist');
     if (lstatSync(webRoot, { throwIfNoEntry: false })) throw new Error('Canonical user-web evidence directory must not already exist');
+    if (lstatSync(notesPath, { throwIfNoEntry: false })) throw new Error('Canonical release-note evidence must not already exist');
     const androidStaging = path.join(candidateRoot, `.android-staging-${randomUUID()}`);
     const webStaging = path.join(candidateRoot, `.web-staging-${randomUUID()}`);
+    const notesStaging = path.join(candidateRoot, `.release-notes-staging-${randomUUID()}.md`);
     let androidPromoted = false;
     let webPromoted = false;
+    let notesPromoted = false;
     let completed = false;
     try {
       collectWebExactSource(webStaging);
+      retainReleaseNotes(supplied, notesStaging);
       collectAndroid({ ...options, output: androidStaging }, false);
-      const unsignedInput = collectedAndroidInput(collectedWebInput(supplied, webStaging), androidStaging, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
+      const stagedInputs = collectedReleaseNotesInput(collectedWebInput(supplied, webStaging), notesStaging);
+      const unsignedInput = collectedAndroidInput(stagedInputs, androidStaging, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
       const signature = verifyAndroidSignature(unsignedInput, options);
-      const input = collectedAndroidInput(collectedWebInput(supplied, webStaging), androidStaging, signature);
+      const input = collectedAndroidInput(stagedInputs, androidStaging, signature);
       const stagedManifest = buildManifest(repoRoot, input);
       verifyLiveRegistry(input);
       assertCleanCompletion(repoRoot, 'Source changed before final manifest write');
@@ -480,7 +462,9 @@ export function main(argv = process.argv.slice(2)) {
       webPromoted = true;
       renameSync(androidStaging, androidRoot);
       androidPromoted = true;
-      const retainedInput = canonicalAndroidInput(canonicalWebInput(supplied), signature);
+      renameSync(notesStaging, notesPath);
+      notesPromoted = true;
+      const retainedInput = canonicalAndroidInput(canonicalReleaseNotesInput(canonicalWebInput(supplied)), signature);
       const manifest = buildManifest(repoRoot, retainedInput);
       if (canonicalJson({ ...manifest, generatedAt: stagedManifest.generatedAt }) !== canonicalJson(stagedManifest)) throw new Error('Promoted evidence differs from verified staging evidence');
       writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
@@ -492,6 +476,9 @@ export function main(argv = process.argv.slice(2)) {
           const metadata = lstatSync(generated, { throwIfNoEntry: false });
           if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(generated, { recursive: true, force: false });
         }
+        const generatedNote = notesPromoted ? notesPath : notesStaging;
+        const noteMetadata = lstatSync(generatedNote, { throwIfNoEntry: false });
+        if (noteMetadata?.isFile() && !noteMetadata.isSymbolicLink()) rmSync(generatedNote, { force: false });
       }
       throw error;
     }
@@ -502,12 +489,13 @@ export function main(argv = process.argv.slice(2)) {
     const supplied = safeInput(options.input, 'Evidence input');
     const webValidation = path.join(canonicalCandidateDirectory(supplied), `.web-validation-${randomUUID()}`);
     try {
-      const unsignedInput = canonicalAndroidInput(canonicalWebInput(supplied), { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
+      const canonicalInputs = canonicalReleaseNotesInput(canonicalWebInput(supplied));
+      const unsignedInput = canonicalAndroidInput(canonicalInputs, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
       const signature = verifyAndroidSignature(unsignedInput, options);
-      const retainedInput = canonicalAndroidInput(canonicalWebInput(supplied), signature);
+      const retainedInput = canonicalAndroidInput(canonicalInputs, signature);
       const retained = buildManifest(repoRoot, retainedInput);
       collectWebExactSource(webValidation);
-      const rebuiltInput = canonicalAndroidInput(collectedWebInput(supplied, webValidation), signature);
+      const rebuiltInput = canonicalAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), signature);
       const rebuilt = buildManifest(repoRoot, rebuiltInput);
       verifyLiveRegistry(retainedInput);
       const retainedAfterRebuild = buildManifest(repoRoot, retainedInput);

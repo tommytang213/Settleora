@@ -61,13 +61,16 @@ only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
 migration and retained Android evidence; digest-only validation is intentionally absent.
 APK/AAB verification uses inherited read-only file descriptors and carries the
-same captured byte identities into manifest collection, preventing pathname
-replacement between signature checks and hashing. Repository-backed Compose,
+same captured byte identities into manifest collection. A Linux write-sealed
+memory snapshot ensures hashing, signer verification and embedded-R8 inspection
+all consume immutable identical bytes. Repository-backed Compose,
 migration, web-lock and mobile-config reads are compared with the initially
 captured source commit rather than a later movable `HEAD`.
 Android collection is staged under the private candidate directory and removed
 on assembly failure before promotion to canonical evidence. Validation accepts
 only that candidate's canonical retained `release-identity-manifest.json`.
+Assembly also copies the bounded release-note input into canonical retained
+`release-notes.md`; validation never depends on the caller's original path.
 
 The migration section describes repository source only and deliberately never
 claims that migrations are applied. A prior API artifact is availability
