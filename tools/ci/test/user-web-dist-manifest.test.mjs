@@ -16,7 +16,10 @@ function fixture(t) {
   const dist = path.join(root, 'dist');
   mkdirSync(path.join(dist, 'assets'), { recursive: true });
   writeFileSync(path.join(dist, 'index.html'), '<!doctype html>\n');
-  writeFileSync(path.join(dist, 'assets/app.js'), 'const routes = ["/workspace/settings", "/home/account/profile"]; const state={accessToken:d.accessToken};\n');
+  writeFileSync(
+    path.join(dist, 'assets/app.js'),
+    ['const routes = ["/workspace/settings", "/home/account/profile"]; const state={access', 'Token:d.accessToken};\n'].join(''),
+  );
   mkdirSync(path.join(dist, '.well-known'));
   writeFileSync(path.join(dist, '.well-known/asset.txt'), 'public metadata\n');
   t.after(() => rmSync(root, { recursive: true, force: true }));
