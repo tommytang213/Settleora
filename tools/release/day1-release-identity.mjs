@@ -188,6 +188,18 @@ function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
+function exactTrackedFile(repoRoot, relative, label) {
+  safeLabel(relative, `${label} path`);
+  const file = exactRegularFile(path.join(repoRoot, relative), label, repoRoot);
+  const committed = execFileSync('git', ['show', `HEAD:${relative}`], {
+    cwd: repoRoot,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: Math.max(file.size + 1024 * 1024, 2 * 1024 * 1024),
+  });
+  if (!file.bytes.equals(committed)) fail(`${label} does not match the committed HEAD blob`);
+  return file;
+}
+
 export function collectSource(repoRoot, expected) {
   if (lstatSync(repoRoot).isSymbolicLink()) fail('Repository root must not be a symlink');
   assertTrackedWorktreeMatchesHead(repoRoot);
@@ -241,15 +253,16 @@ export function collectMigrations(repoRoot, expectedDigest) {
   if (ids.length === 0) fail('No repository migrations found');
   const runtimeIds = new Set();
   for (const name of names.filter((candidate) => candidate.endsWith('.cs'))) {
-    const text = readFileSync(path.join(migrationRoot, name), 'utf8');
+    const text = exactTrackedFile(repoRoot, `${relativeRoot}/${name}`, `migration source ${name}`).bytes.toString('utf8');
     for (const match of text.matchAll(/\[Migration\("(\d{14}_[A-Za-z0-9_]+)"\)\]/gu)) runtimeIds.add(match[1]);
   }
   if (canonicalJson([...runtimeIds].sort()) !== canonicalJson(ids)) fail('Migration filename inventory differs from EF runtime migration attributes');
   const entries = ids.map((id) => ({
     id,
     files: [`${id}.cs`, `${id}.Designer.cs`].filter((name) => lstatSync(path.join(migrationRoot, name), { throwIfNoEntry: false })).sort().map((name) => {
-      const file = exactRegularFile(path.join(migrationRoot, name), `migration ${id}`, migrationRoot);
-      return { path: `${relativeRoot}/${name}`, sha256: sha256(file.bytes), size: file.size };
+      const relative = `${relativeRoot}/${name}`;
+      const file = exactTrackedFile(repoRoot, relative, `migration ${id}`);
+      return { path: relative, sha256: sha256(file.bytes), size: file.size };
     }),
   }));
   const setSha256 = sha256(canonicalJson(entries));
@@ -286,8 +299,7 @@ function validateImage(image, label, sourceCommit, expectedTag, expectedReposito
 
 function configuredImage(repoRoot, sourcePath, service) {
   safeLabel(sourcePath, 'dependency sourceComposePath');
-  const absolute = path.join(repoRoot, sourcePath);
-  const lines = exactRegularFile(absolute, 'dependency Compose source', repoRoot).bytes.toString('utf8').split(/\r?\n/u);
+  const lines = exactTrackedFile(repoRoot, sourcePath, 'dependency Compose source').bytes.toString('utf8').split(/\r?\n/u);
   const start = lines.findIndex((line) => line === `  ${service}:`);
   if (start < 0) fail(`Could not find service ${service} in ${sourcePath}`);
   for (let index = start + 1; index < lines.length && !/^  [A-Za-z0-9_-]+:\s*$/u.test(lines[index]); index += 1) {
@@ -302,7 +314,7 @@ function collectWeb(repoRoot, input, source) {
   const manifest = JSON.parse(file.bytes);
   if (manifest.schema !== 'settleora.user-web-dist-manifest.v1') fail('Unsupported user-web manifest schema');
   if (manifest.source?.commit !== source.commit || manifest.source?.tree !== source.tree) fail('User-web source/tree mismatch');
-  const lock = exactRegularFile(path.join(repoRoot, 'apps/web-user/package-lock.json'), 'userWeb dependency lock', repoRoot);
+  const lock = exactTrackedFile(repoRoot, 'apps/web-user/package-lock.json', 'userWeb dependency lock');
   if (manifest.dependencyLock?.path !== 'apps/web-user/package-lock.json' || manifest.dependencyLock?.sha256 !== sha256(lock.bytes)) {
     fail('User-web dependency lock mismatch');
   }
@@ -327,15 +339,17 @@ function collectWeb(repoRoot, input, source) {
   const distRoot = path.join(path.dirname(file.absolute), 'dist');
   const canonicalFiles = collectFiles(distRoot);
   scanPublicArtifact(canonicalFiles);
-  const records = manifest.artifact.files.map((entry) => {
+  const declared = manifest.artifact.files.map((entry) => {
     safeLabel(entry.path, 'userWeb artifact path');
-    const artifact = exactRegularFile(path.join(distRoot, entry.path), `userWeb artifact ${entry.path}`, distRoot);
-    const record = { path: entry.path, size: artifact.size, sha256: sha256(artifact.bytes) };
-    if (canonicalJson(record) !== canonicalJson(entry)) fail(`User-web artifact identity mismatch: ${entry.path}`);
-    return record;
+    return entry;
   }).sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
   const actualPaths = canonicalFiles.map((entry) => entry.path);
-  if (canonicalJson(actualPaths) !== canonicalJson(records.map((entry) => entry.path))) fail('User-web manifest file list is incomplete');
+  if (canonicalJson(actualPaths) !== canonicalJson(declared.map((entry) => entry.path))) fail('User-web manifest file list is incomplete');
+  const records = canonicalFiles.map((artifact, index) => {
+    const record = { path: artifact.path, size: artifact.size, sha256: sha256(artifact.contents) };
+    if (canonicalJson(record) !== canonicalJson(declared[index])) fail(`User-web artifact identity mismatch: ${artifact.path}`);
+    return record;
+  });
   if (records.length !== manifest.artifact.fileCount || records.reduce((sum, entry) => sum + entry.size, 0) !== manifest.artifact.totalBytes) {
     fail('User-web artifact aggregate mismatch');
   }
@@ -375,11 +389,11 @@ function collectAndroid(repoRoot, input) {
   }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));
   if (!element) fail('Android APK is absent from output metadata');
-  const pubspec = exactRegularFile(path.join(repoRoot, 'apps/mobile/pubspec.yaml'), 'mobile pubspec', repoRoot).bytes.toString('utf8');
+  const pubspec = exactTrackedFile(repoRoot, 'apps/mobile/pubspec.yaml', 'mobile pubspec').bytes.toString('utf8');
   const version = /^version:\s*([^+\s]+)\+(\d+)\s*$/mu.exec(pubspec);
   if (!version) fail('Mobile semantic version/build is missing from pubspec');
   if (element.versionName !== version[1] || String(element.versionCode) !== version[2]) fail('Android artifact version/build mismatch');
-  const gradle = exactRegularFile(path.join(repoRoot, 'apps/mobile/android/app/build.gradle.kts'), 'Android release config', repoRoot).bytes.toString('utf8');
+  const gradle = exactTrackedFile(repoRoot, 'apps/mobile/android/app/build.gradle.kts', 'Android release config').bytes.toString('utf8');
   if (!/applicationId\s*=\s*"com\.example\.mobile"/u.test(gradle) || metadata.applicationId !== 'com.example.mobile') {
     fail('Android application ID mismatch');
   }

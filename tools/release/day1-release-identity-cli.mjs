@@ -126,8 +126,10 @@ function verifyAndroidSignature(input, options) {
     throw new Error('Android AAB signature observation mismatch');
   }
   const unzip = trustedTool('/usr/bin/unzip', 'unzip', 'System unzip');
-  const embeddedMapping = execFileSync(unzip, ['-p', path.resolve(input.android.aabPath), 'BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map'], { stdio: ['ignore', 'pipe', 'pipe'] });
-  const r8Metadata = execFileSync(unzip, ['-p', path.resolve(input.android.aabPath), 'BUNDLE-METADATA/com.android.tools/r8.json'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const mappingSize = statSync(path.resolve(input.android.mappingPath)).size;
+  if (mappingSize < 1 || mappingSize > 128 * 1024 * 1024) throw new Error('Android R8 mapping exceeds the bounded verification size');
+  const embeddedMapping = execFileSync(unzip, ['-p', path.resolve(input.android.aabPath), 'BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map'], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: mappingSize + 1024 * 1024 });
+  const r8Metadata = execFileSync(unzip, ['-p', path.resolve(input.android.aabPath), 'BUNDLE-METADATA/com.android.tools/r8.json'], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024 });
   if (embeddedMapping.length === 0 || r8Metadata.length === 0) throw new Error('Android AAB is missing embedded R8 evidence');
   return { certificate, embeddedR8MappingSha256: hash(embeddedMapping) };
 }

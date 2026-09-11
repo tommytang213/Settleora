@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readlinkSync,
   readdirSync,
@@ -156,8 +160,19 @@ export function collectFiles(distRoot) {
         if (!relative || relative.startsWith('/') || relative.split('/').includes('..') || /[\r\n\0]/u.test(relative)) {
           throw new Error(`Unsafe dist path: ${JSON.stringify(relative)}`);
         }
-        const contents = readFileSync(absolute);
-        if (contents.length !== metadata.size) throw new Error(`User-web dist changed while reading: ${absolute}`);
+        let descriptor;
+        let contents;
+        try {
+          descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+          const opened = fstatSync(descriptor);
+          contents = readFileSync(descriptor);
+          const current = lstatSync(absolute);
+          if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute || contents.length !== opened.size) {
+            throw new Error(`User-web dist changed while reading: ${absolute}`);
+          }
+        } finally {
+          if (descriptor !== undefined) closeSync(descriptor);
+        }
         files.push({ absolute, path: relative, size: contents.length, contents });
       } else {
         throw new Error(`Only regular files are allowed in user-web dist: ${absolute}`);
