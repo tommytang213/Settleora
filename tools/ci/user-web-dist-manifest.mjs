@@ -21,7 +21,7 @@ const unsafePathPatterns = [
   /(^|\/)\.env($|[./-])/i,
   /(^|\/)(?:secrets?|credentials?|tokens?|ssh|private[-_]?keys?)(?:\/|$)/i,
   /(^|\/)[^/]*private[-_]?key[^/]*$/i,
-  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.map(?:\.[^/]*)?|[^/]+\.(?:pem|key|p12|pfx))$/i,
+  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.map[^/]*|[^/]+\.(?:pem|key|p12|pfx))$/i,
   /(^|\/)(?:\.ssh|\.aws|\.azure|\.config\/gcloud)(?:\/|$)/i,
 ];
 const unsafeContentPatterns = [
@@ -56,6 +56,7 @@ function assertTrackedWorktreeMatchesHead() {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }).split('\0').filter(Boolean);
+  const regularFiles = [];
   for (const record of records) {
     const match = /^(100644|100755|120000) blob ([0-9a-f]{40})\t([\s\S]+)$/u.exec(record);
     if (!match) throw new Error(`Unsupported tracked HEAD entry: ${JSON.stringify(record)}`);
@@ -65,19 +66,29 @@ function assertTrackedWorktreeMatchesHead() {
     if (!metadata) throw new Error(`Tracked build input is missing: ${relative}`);
     const actualMode = metadata.isSymbolicLink() ? '120000' : ((metadata.mode & 0o111) ? '100755' : '100644');
     if (actualMode !== expectedMode) throw new Error(`Tracked build input mode differs from HEAD: ${relative}`);
-    const actualObject = metadata.isSymbolicLink()
-      ? execFileSync('git', ['hash-object', '--stdin'], {
+    if (metadata.isSymbolicLink()) {
+      const actualObject = execFileSync('git', ['hash-object', '--stdin'], {
         cwd: repoRoot,
-        input: Buffer.from(readlinkSync(absolute)),
+        input: readlinkSync(absolute, { encoding: 'buffer' }),
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim()
-      : execFileSync('git', ['hash-object', '--no-filters', '--', absolute], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
       }).trim();
-    if (actualObject !== expectedObject) throw new Error(`Tracked build input differs from HEAD: ${relative}`);
+      if (actualObject !== expectedObject) throw new Error(`Tracked build input differs from HEAD: ${relative}`);
+    } else {
+      regularFiles.push({ relative, expectedObject });
+    }
+  }
+  const actualObjects = execFileSync('git', ['hash-object', '--no-filters', '--stdin-paths', '-z'], {
+    cwd: repoRoot,
+    input: Buffer.from(`${regularFiles.map(({ relative }) => relative).join('\0')}\0`),
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim().split('\n');
+  if (actualObjects.length !== regularFiles.length) throw new Error('Tracked build input hash count differs from HEAD');
+  for (let index = 0; index < regularFiles.length; index += 1) {
+    if (actualObjects[index] !== regularFiles[index].expectedObject) {
+      throw new Error(`Tracked build input differs from HEAD: ${regularFiles[index].relative}`);
+    }
   }
 }
 
