@@ -16,14 +16,28 @@ without changing identity. All source, image, migration, web, Android, release
 note, rollback and retention fields remain identity-relevant.
 
 ```bash
+node tools/release/day1-release-identity-cli.mjs collect-android \
+  --flutter /trusted/flutter/bin/flutter \
+  --output /workspace/logs/settleora-release-candidates/<candidate-id>/android
+
 node tools/release/day1-release-identity-cli.mjs assemble \
   --input /workspace/logs/settleora-release-candidates/<candidate-id>/inputs.json \
-  --output /workspace/logs/settleora-release-candidates/<candidate-id>/manifest.json
+  --output /workspace/logs/settleora-release-candidates/<candidate-id>/release-identity-manifest.json \
+  --android-sdk-root /trusted/Android/Sdk \
+  --java-home /trusted/jdk
 
 node tools/release/day1-release-identity-cli.mjs validate \
-  --manifest /workspace/logs/settleora-release-candidates/<candidate-id>/manifest.json \
-  --input /workspace/logs/settleora-release-candidates/<candidate-id>/inputs.json
+  --manifest /workspace/logs/settleora-release-candidates/<candidate-id>/release-identity-manifest.json \
+  --input /workspace/logs/settleora-release-candidates/<candidate-id>/inputs.json \
+  --android-sdk-root /trusted/Android/Sdk \
+  --java-home /trusted/jdk
 ```
+
+`collect-android` invokes the two fixed release-build commands and writes a
+source/tree/artifact attestation. Assembly and validation resolve `apksigner`
+only below the separately supplied trusted SDK root and verify both the APK and
+AAB debug certificate. Validation always recollects source, registry, web,
+migration and Android evidence; digest-only validation is intentionally absent.
 
 The migration section describes repository source only and deliberately never
 claims that migrations are applied. A prior API artifact is availability

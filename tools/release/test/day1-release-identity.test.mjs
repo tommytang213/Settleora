@@ -8,6 +8,7 @@ import {
   buildManifest,
   canonicalJson,
   computeIdentityDigest,
+  sha256,
   validateRegistryDocument,
   validateRegistryRevision,
   validateManifest,
@@ -47,15 +48,17 @@ function fixture(t) {
   const migrationRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   write(root, `${migrationRoot}/20260101000000_Initial.cs`, 'migration\n');
   write(root, `${migrationRoot}/20260101000000_Initial.Designer.cs`, 'designer\n');
+  write(root, `${migrationRoot}/20260102000000_SourceOnly.cs`, 'source-only migration\n');
+  write(root, 'apps/web-user/package-lock.json', '{"lockfileVersion":3}\n');
   write(root, 'apps/mobile/pubspec.yaml', 'version: 1.2.3+45\n');
   write(root, 'apps/mobile/android/app/build.gradle.kts', [
     'android {',
     '  defaultConfig { applicationId = "com.example.mobile" }',
-    '  buildTypes { release { signingConfig = signingConfigs.getByName("debug") } }',
+    '  buildTypes { release { isMinifyEnabled = true; signingConfig = signingConfigs.getByName("debug") } }',
     '}',
     '',
   ].join('\n'));
-  git(root, ['add', 'infra/docker-compose.truenas-lan.image.yml', migrationRoot, 'apps/mobile/pubspec.yaml', 'apps/mobile/android/app/build.gradle.kts']);
+  git(root, ['add', 'infra/docker-compose.truenas-lan.image.yml', migrationRoot, 'apps/web-user/package-lock.json', 'apps/mobile/pubspec.yaml', 'apps/mobile/android/app/build.gradle.kts']);
   git(root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
   const commit = git(root, ['rev-parse', 'HEAD']);
   const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
@@ -67,18 +70,31 @@ function fixture(t) {
     applicationId: 'com.example.mobile',
     elements: [{ outputFile: 'app-release.apk', versionName: '1.2.3', versionCode: 45 }],
   }));
+  const webFile = write(evidenceRoot, 'dist/index.html', '<!doctype html>\n');
+  const webRecord = { path: 'index.html', size: readFileSync(webFile).length, sha256: sha256(readFileSync(webFile)) };
+  const lockBytes = readFileSync(path.join(root, 'apps/web-user/package-lock.json'));
   const webManifestPath = write(evidenceRoot, 'user-web-dist-manifest.json', canonicalJson({
     schema: 'settleora.user-web-dist-manifest.v1',
     source: { commit, tree },
-    dependencyLock: { path: 'apps/web-user/package-lock.json', sha256: '1'.repeat(64), lockfileVersion: 3 },
+    dependencyLock: { path: 'apps/web-user/package-lock.json', sha256: sha256(lockBytes), lockfileVersion: 3 },
     artifact: {
       treeDigestAlgorithm: 'sha256(canonical-file-records-v1)',
-      treeSha256: '2'.repeat(64),
-      fileCount: 3,
-      totalBytes: 123,
+      treeSha256: sha256(`${webRecord.sha256}  ${webRecord.size}  ${webRecord.path}\n`),
+      fileCount: 1,
+      totalBytes: webRecord.size,
+      files: [webRecord],
     },
   }));
   const notesPath = write(evidenceRoot, 'release-notes.md', '# Candidate\nBounded test evidence.\n');
+  const buildProvenancePath = write(evidenceRoot, 'build-provenance.json', canonicalJson({
+    schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
+    commands: ['flutter build apk --release', 'flutter build appbundle --release'],
+    artifacts: {
+      apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
+      aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: readFileSync(aabPath).length, sha256: sha256(readFileSync(aabPath)) },
+      r8MappingSha256: sha256(readFileSync(mappingPath)),
+    },
+  }));
   const input = {
     generatedAt: '2026-09-11T12:00:00Z',
     platform: { os: 'linux', architecture: 'amd64' },
@@ -103,6 +119,7 @@ function fixture(t) {
       aabPath,
       mappingPath,
       outputMetadataPath,
+      buildProvenancePath,
       signerCertificateSha256: '3'.repeat(64),
     },
     releaseNotes: { evidenceRoot, path: notesPath, source: 'bounded-input/release-notes.md', candidateSummary: 'Fixture candidate only.' },
@@ -125,7 +142,8 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   const second = buildManifest(f.root, { ...f.input, generatedAt: '2026-09-11T12:01:00Z' });
   assert.equal(first.identityDigest, second.identityDigest);
   assert.equal(first.identityDigest, computeIdentityDigest(first));
-  assert.equal(first.migrations.count, 1);
+  assert.equal(first.migrations.count, 2);
+  assert.equal(first.migrations.entries[1].files.length, 1);
   assert.equal(first.migrations.stateClaim, 'repository-source-only-not-applied');
   assert.equal(first.rollback.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety, false);
   assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
@@ -134,6 +152,7 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
 
 test('rejects source, API revision, API digest and floating-tag mismatches', (t) => {
   const f = fixture(t);
+  assert.throws(() => buildManifest(f.root, { ...f.input, source: { ...f.input.source, commit: '9'.repeat(40) } }), /Source commit mismatch/);
   assert.throws(() => buildManifest(f.root, { ...f.input, source: { ...f.input.source, tree: '9'.repeat(40) } }), /Source tree mismatch/);
   assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, ociRevision: '8'.repeat(40) } }), /OCI revision mismatch/);
   assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, indexDigest: 'not-a-digest' } }), /immutable sha256 digest/);
@@ -164,6 +183,12 @@ test('rejects web source and Android artifact mismatches', (t) => {
   writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
   const expected = { apk: { size: 1, sha256: '8'.repeat(64) } };
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected } }), /APK identity mismatch/);
+  const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
+  assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected: expectedAab } }), /AAB identity mismatch/);
+  const provenance = JSON.parse(readFileSync(f.input.android.buildProvenancePath));
+  provenance.source.tree = '6'.repeat(40);
+  writeFileSync(f.input.android.buildProvenancePath, JSON.stringify(provenance));
+  assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source mismatch/);
 });
 
 test('rejects symlinked evidence and a tampered manifest identity digest', (t) => {
@@ -174,6 +199,9 @@ test('rejects symlinked evidence and a tampered manifest identity digest', (t) =
   const manifest = buildManifest(f.root, f.input);
   manifest.android.apk.sha256 = '9'.repeat(64);
   assert.throws(() => validateManifest(manifest), /Identity digest mismatch/);
+  const extra = buildManifest(f.root, f.input);
+  extra.apiImage.secret = 'must-not-pass';
+  assert.throws(() => validateManifest(extra), /unexpected properties/);
 });
 
 test('validates registry index/platform linkage and API revision from fixture documents', () => {

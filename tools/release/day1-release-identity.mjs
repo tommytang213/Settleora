@@ -16,7 +16,7 @@ const SHA40 = /^[0-9a-f]{40}$/u;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const HEX256 = /^[0-9a-f]{64}$/u;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._/+:-]*$/u;
-const MIGRATION_FILE = /^(\d{14}_[A-Za-z0-9_]+)\.Designer\.cs$/u;
+const MIGRATION_FILE = /^(\d{14}_[A-Za-z0-9_]+)\.cs$/u;
 
 const fail = (message) => { throw new Error(message); };
 export const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -77,7 +77,17 @@ function publicText(value, label) {
 function withPlatform(image, platform, label) {
   if (image.os !== undefined && image.os !== platform.os) fail(`${label} OS mismatch`);
   if (image.architecture !== undefined && image.architecture !== platform.architecture) fail(`${label} architecture mismatch`);
-  return { ...image, ...platform };
+  const result = {
+    repository: string(image.repository, `${label}.repository`),
+    configuredTag: string(image.configuredTag, `${label}.configuredTag`),
+    indexDigest: image.indexDigest,
+    platformDigest: image.platformDigest,
+    ...platform,
+  };
+  for (const key of ['name', 'sourceComposePath', 'ociRevision', 'publicationRunUrl']) {
+    if (image[key] !== undefined) result[key] = string(image[key], `${label}.${key}`);
+  }
+  return result;
 }
 
 function exactRegularFile(candidate, label, allowedRoot) {
@@ -147,13 +157,14 @@ export function collectMigrations(repoRoot, expectedDigest) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   const migrationRoot = path.join(repoRoot, relativeRoot);
   const ids = readdirSync(migrationRoot)
+    .filter((name) => !name.endsWith('.Designer.cs'))
     .map((name) => MIGRATION_FILE.exec(name)?.[1])
     .filter(Boolean)
     .sort();
   if (ids.length === 0) fail('No repository migrations found');
   const entries = ids.map((id) => ({
     id,
-    files: [`${id}.cs`, `${id}.Designer.cs`].sort().map((name) => {
+    files: [`${id}.cs`, `${id}.Designer.cs`].filter((name) => lstatSync(path.join(migrationRoot, name), { throwIfNoEntry: false })).sort().map((name) => {
       const file = exactRegularFile(path.join(migrationRoot, name), `migration ${id}`, migrationRoot);
       return { path: `${relativeRoot}/${name}`, sha256: sha256(file.bytes), size: file.size };
     }),
@@ -171,6 +182,7 @@ export function collectMigrations(repoRoot, expectedDigest) {
 }
 
 function validateImage(image, label, sourceCommit, expectedTag) {
+  assertKeys(image, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'name', 'sourceComposePath', 'ociRevision', 'publicationRunUrl'], label);
   string(image.repository, `${label}.repository`);
   string(image.configuredTag, `${label}.configuredTag`);
   digest(image.indexDigest, `${label}.indexDigest`);
@@ -205,14 +217,34 @@ function collectWeb(repoRoot, input, source) {
   const manifest = JSON.parse(file.bytes);
   if (manifest.schema !== 'settleora.user-web-dist-manifest.v1') fail('Unsupported user-web manifest schema');
   if (manifest.source?.commit !== source.commit || manifest.source?.tree !== source.tree) fail('User-web source/tree mismatch');
+  const lock = exactRegularFile(path.join(repoRoot, 'apps/web-user/package-lock.json'), 'userWeb dependency lock', repoRoot);
+  if (manifest.dependencyLock?.path !== 'apps/web-user/package-lock.json' || manifest.dependencyLock?.sha256 !== sha256(lock.bytes)) {
+    fail('User-web dependency lock mismatch');
+  }
   hexDigest(manifest.artifact?.treeSha256, 'userWeb treeSha256');
   hexDigest(manifest.dependencyLock?.sha256, 'userWeb dependency lock SHA-256');
   if (!Number.isSafeInteger(manifest.artifact.fileCount) || manifest.artifact.fileCount < 1) fail('Invalid user-web file count');
   if (!Number.isSafeInteger(manifest.artifact.totalBytes) || manifest.artifact.totalBytes < 1) fail('Invalid user-web byte count');
+  if (manifest.artifact.treeDigestAlgorithm !== 'sha256(canonical-file-records-v1)' || !Array.isArray(manifest.artifact.files)) {
+    fail('User-web canonical file records are required');
+  }
+  const distRoot = path.join(path.dirname(file.absolute), 'dist');
+  const records = manifest.artifact.files.map((entry) => {
+    safeLabel(entry.path, 'userWeb artifact path');
+    const artifact = exactRegularFile(path.join(distRoot, entry.path), `userWeb artifact ${entry.path}`, distRoot);
+    const record = { path: entry.path, size: artifact.size, sha256: sha256(artifact.bytes) };
+    if (canonicalJson(record) !== canonicalJson(entry)) fail(`User-web artifact identity mismatch: ${entry.path}`);
+    return record;
+  }).sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
+  if (records.length !== manifest.artifact.fileCount || records.reduce((sum, entry) => sum + entry.size, 0) !== manifest.artifact.totalBytes) {
+    fail('User-web artifact aggregate mismatch');
+  }
+  const treeInput = records.map((entry) => `${entry.sha256}  ${entry.size}  ${entry.path}\n`).join('');
+  if (sha256(treeInput) !== manifest.artifact.treeSha256) fail('User-web tree digest mismatch');
   return {
     schema: manifest.schema,
-    source: manifest.source,
-    dependencyLock: manifest.dependencyLock,
+    source: { commit: source.commit, tree: source.tree },
+    dependencyLock: { path: manifest.dependencyLock.path, sha256: manifest.dependencyLock.sha256, lockfileVersion: manifest.dependencyLock.lockfileVersion },
     artifact: {
       treeDigestAlgorithm: manifest.artifact.treeDigestAlgorithm,
       treeSha256: manifest.artifact.treeSha256,
@@ -230,6 +262,16 @@ function collectAndroid(repoRoot, input) {
   if (mapping.size === 0) fail('Android R8 mapping must not be empty');
   const metadataFile = exactRegularFile(input.outputMetadataPath, 'Android output metadata', input.evidenceRoot);
   const metadata = JSON.parse(metadataFile.bytes);
+  const provenanceFile = exactRegularFile(input.buildProvenancePath, 'Android build provenance', input.evidenceRoot);
+  const provenance = JSON.parse(provenanceFile.bytes);
+  const commit = git(repoRoot, ['rev-parse', 'HEAD']);
+  const tree = git(repoRoot, ['rev-parse', 'HEAD^{tree}']);
+  if (provenance.schema !== 'settleora.android-exact-source-build.v1' || provenance.source?.commit !== commit || provenance.source?.tree !== tree) {
+    fail('Android build provenance source mismatch');
+  }
+  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter build apk --release', 'flutter build appbundle --release'])) {
+    fail('Android build provenance command mismatch');
+  }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));
   if (!element) fail('Android APK is absent from output metadata');
   const pubspec = exactRegularFile(path.join(repoRoot, 'apps/mobile/pubspec.yaml'), 'mobile pubspec', repoRoot).bytes.toString('utf8');
@@ -243,7 +285,9 @@ function collectAndroid(repoRoot, input) {
   if (!/release\s*\{[\s\S]*?signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)/u.test(gradle)) {
     fail('Android signing state does not match the bounded debug-signing observation');
   }
+  if (!/release\s*\{[\s\S]*?isMinifyEnabled\s*=\s*true/u.test(gradle)) fail('Android release R8/minification is not enabled');
   const result = {
+    source: { commit, tree },
     semanticVersion: version[1],
     buildNumber: version[2],
     applicationId: metadata.applicationId,
@@ -253,7 +297,11 @@ function collectAndroid(repoRoot, input) {
     signerCertificateSha256: hexDigest(input.signerCertificateSha256, 'Android signer certificate SHA-256'),
     apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: apk.size, sha256: sha256(apk.bytes) },
     aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: aab.size, sha256: sha256(aab.bytes) },
+    buildProvenanceSha256: sha256(provenanceFile.bytes),
   };
+  if (canonicalJson(provenance.artifacts) !== canonicalJson({ apk: result.apk, aab: result.aab, r8MappingSha256: result.r8MappingSha256 })) {
+    fail('Android build provenance artifact mismatch');
+  }
   for (const kind of ['apk', 'aab']) {
     const expected = input.expected?.[kind];
     if (expected && (expected.size !== result[kind].size || expected.sha256 !== result[kind].sha256)) {
@@ -272,9 +320,11 @@ function collectReleaseNotes(input) {
 }
 
 export function validateManifest(manifest) {
+  assertKeys(manifest, ['schema', 'identityDigestAlgorithm', 'identityDigest', 'generatedAt', 'source', 'apiImage', 'dependencyImages', 'migrations', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention'], 'manifest');
   if (manifest.schema !== SCHEMA) fail('Unsupported Day 1 release-identity schema');
   if (manifest.identityDigestAlgorithm !== DIGEST_ALGORITHM) fail('Unsupported identity-digest algorithm');
   sha40(manifest.source?.commit, 'source.commit');
+  assertKeys(manifest.source, ['repository', 'commit', 'tree', 'candidateId', 'exactSource', 'cleanTrackedCheckout'], 'source');
   sha40(manifest.source?.tree, 'source.tree');
   if (manifest.source.exactSource !== true || manifest.source.cleanTrackedCheckout !== true) fail('Source exact/clean assertions are required');
   validateImage(manifest.apiImage, 'apiImage', manifest.source.commit);
@@ -287,23 +337,47 @@ export function validateManifest(manifest) {
   }
   if (expectedDependencies.size) fail('Missing dependency image');
   if (manifest.migrations?.stateClaim !== 'repository-source-only-not-applied') fail('Migrations must not be described as applied');
+  assertKeys(manifest.migrations, ['stateClaim', 'ordering', 'setDigestAlgorithm', 'setSha256', 'count', 'entries', 'source'], 'migrations');
+  assertKeys(manifest.migrations.source, ['commit', 'tree'], 'migrations.source');
+  for (const [index, entry] of manifest.migrations.entries?.entries?.() ?? []) {
+    assertKeys(entry, ['id', 'files'], `migrations.entries.${index}`);
+    for (const file of entry.files ?? []) assertKeys(file, ['path', 'sha256', 'size'], `migrations.entries.${index}.file`);
+  }
   hexDigest(manifest.migrations?.setSha256, 'migrations.setSha256');
   if (manifest.migrations.count !== manifest.migrations.entries?.length) fail('Migration count mismatch');
   if (sha256(canonicalJson(manifest.migrations.entries)) !== manifest.migrations.setSha256) fail('Migration-set content mismatch');
   if (manifest.userWeb?.schema !== 'settleora.user-web-dist-manifest.v1') fail('Canonical R02 user-web schema is required');
+  assertKeys(manifest.userWeb, ['schema', 'source', 'dependencyLock', 'artifact', 'manifestSha256'], 'userWeb');
+  assertKeys(manifest.userWeb.source, ['commit', 'tree'], 'userWeb.source');
+  assertKeys(manifest.userWeb.dependencyLock, ['path', 'sha256', 'lockfileVersion'], 'userWeb.dependencyLock');
+  assertKeys(manifest.userWeb.artifact, ['treeDigestAlgorithm', 'treeSha256', 'fileCount', 'totalBytes'], 'userWeb.artifact');
   if (manifest.userWeb.source?.commit !== manifest.source.commit || manifest.userWeb.source?.tree !== manifest.source.tree) fail('User-web source/tree mismatch');
+  if (manifest.android?.source?.commit !== manifest.source.commit || manifest.android?.source?.tree !== manifest.source.tree) fail('Android source/tree mismatch');
+  assertKeys(manifest.android, ['source', 'semanticVersion', 'buildNumber', 'applicationId', 'r8Minified', 'r8MappingSha256', 'signingState', 'signerCertificateSha256', 'apk', 'aab', 'buildProvenanceSha256'], 'android');
+  assertKeys(manifest.android.source, ['commit', 'tree'], 'android.source');
+  assertKeys(manifest.android.apk, ['path', 'size', 'sha256'], 'android.apk');
+  assertKeys(manifest.android.aab, ['path', 'size', 'sha256'], 'android.aab');
   hexDigest(manifest.android?.apk?.sha256, 'android.apk.sha256');
   hexDigest(manifest.android?.aab?.sha256, 'android.aab.sha256');
   if (manifest.android.signingState !== 'debug-signing-non-store-ready') fail('Android signing state must be recorded honestly');
   if (manifest.rollback?.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety !== false) fail('Rollback safety caveat must be false');
+  assertKeys(manifest.releaseNotes, ['source', 'sha256', 'size', 'candidateSummary'], 'releaseNotes');
+  assertKeys(manifest.rollback, ['sourceCommit', 'apiImage', 'artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety', 'safetyCaveat'], 'rollback');
   validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit);
   if (manifest.retention?.canonicalEvidenceDirectory !== `/workspace/logs/settleora-release-candidates/${manifest.source.candidateId}`) {
     fail('Retention directory must exactly bind the candidate ID under the approved external root');
   }
+  assertKeys(manifest.retention, ['canonicalEvidenceDirectory', 'policy', 'apiRegistryIdentity'], 'retention');
   string(manifest.retention?.policy, 'retention.policy');
   const expectedDigest = computeIdentityDigest(manifest);
   if (manifest.identityDigest !== expectedDigest) fail(`Identity digest mismatch: expected ${expectedDigest}`);
   return manifest;
+}
+
+function assertKeys(value, allowed, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object`);
+  const extras = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (extras.length) fail(`${label} has unexpected properties: ${extras.join(', ')}`);
 }
 
 export function buildManifest(repoRoot, input) {

@@ -3,56 +3,30 @@
   "$id": "https://github.com/tommytang213/Settleora/tools/release/day1-release-identity.schema.json",
   "title": "Settleora Day 1 release identity manifest v1",
   "type": "object",
-  "required": [
-    "schema",
-    "identityDigestAlgorithm",
-    "identityDigest",
-    "generatedAt",
-    "source",
-    "apiImage",
-    "dependencyImages",
-    "migrations",
-    "userWeb",
-    "android",
-    "releaseNotes",
-    "rollback",
-    "retention"
-  ],
+  "required": ["schema", "identityDigestAlgorithm", "identityDigest", "generatedAt", "source", "apiImage", "dependencyImages", "migrations", "userWeb", "android", "releaseNotes", "rollback", "retention"],
   "properties": {
     "schema": { "const": "settleora.day1-release-identity.v1" },
     "identityDigestAlgorithm": { "const": "sha256(canonical-json-v1;excludes=generatedAt,identityDigest)" },
     "identityDigest": { "$ref": "#/$defs/hexSha256" },
     "generatedAt": { "type": "string", "minLength": 1 },
-    "source": { "type": "object" },
+    "source": { "type": "object", "additionalProperties": false, "required": ["repository", "commit", "tree", "candidateId", "exactSource", "cleanTrackedCheckout"], "properties": { "repository": { "type": "string" }, "commit": { "$ref": "#/$defs/sha40" }, "tree": { "$ref": "#/$defs/sha40" }, "candidateId": { "type": "string" }, "exactSource": { "const": true }, "cleanTrackedCheckout": { "const": true } } },
     "apiImage": { "$ref": "#/$defs/image" },
     "dependencyImages": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/image" } },
-    "migrations": { "type": "object" },
-    "userWeb": { "type": "object" },
-    "android": { "type": "object" },
-    "releaseNotes": { "type": "object" },
-    "rollback": { "type": "object" },
-    "retention": { "type": "object" }
+    "migrations": { "type": "object", "additionalProperties": false, "required": ["stateClaim", "ordering", "setDigestAlgorithm", "setSha256", "count", "entries", "source"], "properties": { "stateClaim": { "const": "repository-source-only-not-applied" }, "ordering": { "const": "migration-id-byte-order-v1" }, "setDigestAlgorithm": { "const": "sha256(canonical-json-v1:migration-entries)" }, "setSha256": { "$ref": "#/$defs/hexSha256" }, "count": { "type": "integer", "minimum": 1 }, "source": { "$ref": "#/$defs/sourcePair" }, "entries": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["id", "files"], "properties": { "id": { "type": "string" }, "files": { "type": "array", "minItems": 1, "maxItems": 2, "items": { "$ref": "#/$defs/file" } } } } } } },
+    "userWeb": { "type": "object", "additionalProperties": false, "required": ["schema", "source", "dependencyLock", "artifact", "manifestSha256"], "properties": { "schema": { "const": "settleora.user-web-dist-manifest.v1" }, "source": { "$ref": "#/$defs/sourcePair" }, "manifestSha256": { "$ref": "#/$defs/hexSha256" }, "dependencyLock": { "type": "object", "additionalProperties": false, "required": ["path", "sha256", "lockfileVersion"], "properties": { "path": { "const": "apps/web-user/package-lock.json" }, "sha256": { "$ref": "#/$defs/hexSha256" }, "lockfileVersion": { "type": "integer" } } }, "artifact": { "type": "object", "additionalProperties": false, "required": ["treeDigestAlgorithm", "treeSha256", "fileCount", "totalBytes"], "properties": { "treeDigestAlgorithm": { "const": "sha256(canonical-file-records-v1)" }, "treeSha256": { "$ref": "#/$defs/hexSha256" }, "fileCount": { "type": "integer", "minimum": 1 }, "totalBytes": { "type": "integer", "minimum": 1 } } } } },
+    "android": { "type": "object", "additionalProperties": false, "required": ["source", "semanticVersion", "buildNumber", "applicationId", "r8Minified", "r8MappingSha256", "signingState", "signerCertificateSha256", "apk", "aab", "buildProvenanceSha256"], "properties": { "source": { "$ref": "#/$defs/sourcePair" }, "semanticVersion": { "type": "string" }, "buildNumber": { "type": "string" }, "applicationId": { "type": "string" }, "r8Minified": { "const": true }, "r8MappingSha256": { "$ref": "#/$defs/hexSha256" }, "signingState": { "const": "debug-signing-non-store-ready" }, "signerCertificateSha256": { "$ref": "#/$defs/hexSha256" }, "apk": { "$ref": "#/$defs/file" }, "aab": { "$ref": "#/$defs/file" }, "buildProvenanceSha256": { "$ref": "#/$defs/hexSha256" } } },
+    "releaseNotes": { "$ref": "#/$defs/note" },
+    "rollback": { "type": "object", "additionalProperties": false, "required": ["sourceCommit", "apiImage", "artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety", "safetyCaveat"], "properties": { "sourceCommit": { "$ref": "#/$defs/sha40" }, "apiImage": { "$ref": "#/$defs/image" }, "artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety": { "const": false }, "safetyCaveat": { "type": "string" } } },
+    "retention": { "type": "object", "additionalProperties": false, "required": ["canonicalEvidenceDirectory", "policy", "apiRegistryIdentity"], "properties": { "canonicalEvidenceDirectory": { "type": "string" }, "policy": { "type": "string" }, "apiRegistryIdentity": { "type": "string" } } }
   },
   "additionalProperties": false,
   "$defs": {
+    "sha40": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "hexSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "image": {
-      "type": "object",
-      "required": ["repository", "configuredTag", "indexDigest", "platformDigest", "os", "architecture"],
-      "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "configuredTag": { "type": "string", "minLength": 1 },
-        "indexDigest": { "$ref": "#/$defs/digest" },
-        "platformDigest": { "$ref": "#/$defs/digest" },
-        "os": { "type": "string", "minLength": 1 },
-        "architecture": { "type": "string", "minLength": 1 },
-        "ociRevision": { "type": "string" },
-        "name": { "type": "string" },
-        "sourceComposePath": { "type": "string" },
-        "publicationRunUrl": { "type": "string" }
-      },
-      "additionalProperties": false
-    }
+    "sourcePair": { "type": "object", "additionalProperties": false, "required": ["commit", "tree"], "properties": { "commit": { "$ref": "#/$defs/sha40" }, "tree": { "$ref": "#/$defs/sha40" } } },
+    "file": { "type": "object", "additionalProperties": false, "required": ["path", "size", "sha256"], "properties": { "path": { "type": "string" }, "size": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "#/$defs/hexSha256" } } },
+    "note": { "type": "object", "additionalProperties": false, "required": ["source", "sha256", "size", "candidateSummary"], "properties": { "source": { "type": "string" }, "sha256": { "$ref": "#/$defs/hexSha256" }, "size": { "type": "integer", "minimum": 1 }, "candidateSummary": { "type": "string" } } },
+    "image": { "type": "object", "additionalProperties": false, "required": ["repository", "configuredTag", "indexDigest", "platformDigest", "os", "architecture"], "properties": { "repository": { "type": "string" }, "configuredTag": { "type": "string" }, "indexDigest": { "$ref": "#/$defs/digest" }, "platformDigest": { "$ref": "#/$defs/digest" }, "os": { "type": "string" }, "architecture": { "type": "string" }, "ociRevision": { "type": "string" }, "name": { "type": "string" }, "sourceComposePath": { "type": "string" }, "publicationRunUrl": { "type": "string" } } }
   }
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -19,7 +20,7 @@ function args(values) {
   for (let index = 1; index < values.length; index += 2) {
     const key = values[index];
     const value = values[index + 1];
-    if (!key?.startsWith('--') || !value) throw new Error('Usage: day1-release-identity-cli.mjs <assemble|validate> --input PATH [--output PATH] [--manifest PATH]');
+    if (!key?.startsWith('--') || !value) throw new Error('Usage: day1-release-identity-cli.mjs <collect-android|assemble|validate> with required path options');
     result[key.slice(2)] = value;
   }
   return result;
@@ -32,8 +33,12 @@ function safeInput(candidate, label) {
   return JSON.parse(readFileSync(absolute, 'utf8'));
 }
 
-function registryReference(image, api = false) {
-  return api ? `${image.repository}:${image.configuredTag}` : image.configuredTag;
+function registryReference(image) {
+  const shortName = image.repository.split('/').at(-1);
+  const prefix = `${shortName}:`;
+  if (image.configuredTag.startsWith('sha-')) return `${image.repository}:${image.configuredTag}`;
+  if (!image.configuredTag.startsWith(prefix)) throw new Error(`Configured tag ${image.configuredTag} does not belong to ${image.repository}`);
+  return `${image.repository}:${image.configuredTag.slice(prefix.length)}`;
 }
 
 function inspect(reference, format) {
@@ -46,8 +51,8 @@ function inspect(reference, format) {
 function verifyLiveRegistry(input) {
   if (input.registryResolutionMode !== 'live-read-only') throw new Error('CLI requires registryResolutionMode=live-read-only');
   const platform = input.platform;
-  const verify = (image, label, api = false, revision) => {
-    const reference = registryReference(image, api);
+  const verify = (image, label, revision) => {
+    const reference = registryReference(image);
     const document = inspect(reference, '{{json .Manifest}}');
     validateRegistryDocument(image, document, platform, label);
     if (revision) {
@@ -55,15 +60,31 @@ function verifyLiveRegistry(input) {
       validateRegistryRevision(image, selected, revision, label);
     }
   };
-  verify(input.apiImage, 'apiImage', true, input.source.commit);
+  verify(input.apiImage, 'apiImage', input.source.commit);
   for (const image of input.dependencyImages) verify(image, `dependencyImages.${image.name}`);
-  verify(input.rollback.apiImage, 'rollback.apiImage', true, input.rollback.sourceCommit);
+  verify(input.rollback.apiImage, 'rollback.apiImage', input.rollback.sourceCommit);
 }
 
-function verifyAndroidSignature(input) {
-  const tool = path.resolve(input.android.apksignerPath ?? '');
+function trustedTool(candidate, expectedName, label) {
+  const tool = path.resolve(candidate ?? '');
   const metadata = lstatSync(tool, { throwIfNoEntry: false });
-  if (!metadata?.isFile() || metadata.isSymbolicLink() || realpathSync(tool) !== tool) throw new Error('Android apksigner must be a real executable without symlink indirection');
+  if (path.basename(tool) !== expectedName || !metadata?.isFile() || metadata.isSymbolicLink() || realpathSync(tool) !== tool || !(metadata.mode & 0o111)) {
+    throw new Error(`${label} must be an explicitly trusted real executable named ${expectedName}`);
+  }
+  return tool;
+}
+
+function verifyAndroidSignature(input, options) {
+  const sdkRoot = path.resolve(options['android-sdk-root'] ?? '');
+  const versions = lstatSync(path.join(sdkRoot, 'build-tools'), { throwIfNoEntry: false });
+  if (!versions?.isDirectory() || versions.isSymbolicLink()) throw new Error('Trusted Android SDK root is invalid');
+  const version = readdirSync(path.join(sdkRoot, 'build-tools'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+    .map((entry) => entry.name)
+    .sort(new Intl.Collator('en', { numeric: true }).compare)
+    .at(-1);
+  const apksigner = path.join(sdkRoot, 'build-tools', version ?? '', 'apksigner');
+  const tool = trustedTool(apksigner, 'apksigner', 'Android apksigner');
   const output = execFileSync(tool, ['verify', '--verbose', '--print-certs', path.resolve(input.android.apkPath)], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -72,32 +93,97 @@ function verifyAndroidSignature(input) {
   if (!/Signer #1 certificate DN:.*CN=Android Debug/u.test(output) || certificate !== input.android.signerCertificateSha256) {
     throw new Error('Android APK signature observation mismatch');
   }
+  const javaHome = path.resolve(options['java-home'] ?? '');
+  const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
+  const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
+  execFileSync(jarsigner, ['-verify', '-strict', path.resolve(input.android.aabPath)], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const aabCertificate = execFileSync(keytool, ['-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
+  const aabDigest = /SHA256:\s*([0-9A-F:]{95})/u.exec(aabCertificate)?.[1]?.replaceAll(':', '').toLowerCase();
+  if (!/Owner:.*CN=Android Debug/u.test(aabCertificate) || aabDigest !== input.android.signerCertificateSha256) {
+    throw new Error('Android AAB signature observation mismatch');
+  }
+}
+
+const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+function collectAndroid(options) {
+  const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool');
+  const output = path.resolve(options.output ?? '');
+  if (lstatSync(output, { throwIfNoEntry: false })) throw new Error('Android evidence output directory must not already exist');
+  const sourceBefore = {
+    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+  };
+  if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
+  execFileSync(flutter, ['build', 'apk', '--release'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
+  execFileSync(flutter, ['build', 'appbundle', '--release'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
+  const source = {
+    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+  };
+  if (canonicalJson(source) !== canonicalJson(sourceBefore) || execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) {
+    throw new Error('Android build source changed during collection');
+  }
+  const files = {
+    apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
+    aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
+    mapping: ['apps/mobile/build/app/outputs/mapping/release/mapping.txt', 'mapping.txt'],
+    metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
+  };
+  mkdirSync(output, { recursive: false, mode: 0o755 });
+  for (const [relative, name] of Object.values(files)) copyFileSync(path.join(repoRoot, relative), path.join(output, name));
+  const artifact = (kind) => {
+    const [relative, name] = files[kind];
+    const bytes = readFileSync(path.join(output, name));
+    return { path: relative, size: bytes.length, sha256: hash(bytes) };
+  };
+  const provenance = {
+    schema: 'settleora.android-exact-source-build.v1', source,
+    commands: ['flutter build apk --release', 'flutter build appbundle --release'],
+    artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: hash(readFileSync(path.join(output, files.mapping[1]))) },
+  };
+  writeFileSync(path.join(output, 'build-provenance.json'), canonicalJson(provenance), { flag: 'wx', mode: 0o444 });
+  process.stdout.write(`${JSON.stringify({ status: 'collected', output, source })}\n`);
+}
+
+function safeOutput(input, candidate) {
+  const expectedDirectory = path.resolve(input.retention.canonicalEvidenceDirectory);
+  const output = path.resolve(candidate);
+  if (path.dirname(output) !== expectedDirectory || path.basename(output) !== 'release-identity-manifest.json') throw new Error('Output must be the canonical manifest path inside the retained candidate directory');
+  let cursor = expectedDirectory;
+  while (cursor !== '/workspace/logs') {
+    const metadata = lstatSync(cursor, { throwIfNoEntry: false });
+    if (metadata?.isSymbolicLink()) throw new Error('Output path must not contain symlinks');
+    cursor = path.dirname(cursor);
+  }
+  if (lstatSync(output, { throwIfNoEntry: false })) throw new Error('Output must not already exist');
+  return output;
 }
 
 try {
   const options = args(process.argv.slice(2));
-  if (options.command === 'assemble') {
+  if (options.command === 'collect-android') {
+    if (!options.flutter || !options.output) throw new Error('collect-android requires --flutter and --output');
+    collectAndroid(options);
+  } else if (options.command === 'assemble') {
     if (!options.input || !options.output) throw new Error('assemble requires --input and --output');
     const input = safeInput(options.input, 'Evidence input');
     verifyLiveRegistry(input);
-    verifyAndroidSignature(input);
+    verifyAndroidSignature(input, options);
     const manifest = buildManifest(repoRoot, input);
-    const output = path.resolve(options.output);
-    if (lstatSync(output, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error('Output must not be a symlink');
+    const output = safeOutput(input, options.output);
     mkdirSync(path.dirname(output), { recursive: true, mode: 0o755 });
-    writeFileSync(output, canonicalJson(manifest), { flag: 'w', mode: 0o444 });
+    writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
     process.stdout.write(`${JSON.stringify({ status: 'assembled', identityDigest: manifest.identityDigest, output })}\n`);
   } else if (options.command === 'validate') {
-    if (!options.manifest) throw new Error('validate requires --manifest');
+    if (!options.manifest || !options.input) throw new Error('validate requires --manifest and --input for independent recollection');
     const manifest = validateManifest(safeInput(options.manifest, 'Manifest'));
-    if (options.input) {
-      const input = safeInput(options.input, 'Evidence input');
-      verifyLiveRegistry(input);
-      verifyAndroidSignature(input);
-      const rebuilt = buildManifest(repoRoot, input);
-      if (canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
-        throw new Error('Manifest differs from independently recollected evidence');
-      }
+    const input = safeInput(options.input, 'Evidence input');
+    verifyLiveRegistry(input);
+    verifyAndroidSignature(input, options);
+    const rebuilt = buildManifest(repoRoot, input);
+    if (canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
+      throw new Error('Manifest differs from independently recollected evidence');
     }
     process.stdout.write(`${JSON.stringify({ status: 'valid', identityDigest: computeIdentityDigest(manifest) })}\n`);
   } else {
