@@ -111,6 +111,7 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['malformed', (f) => writeFileSync(path.join(f.dist, 'bad\nname.txt'), 'bad'), /Unsafe dist path/],
     ['source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map'), '{}'), /Unsafe public artifact path/],
     ['compressed source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map.gz'), 'opaque'), /Unsafe public artifact path/],
+    ['arbitrary compressed source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map.lz4'), 'opaque'), /Unsafe public artifact path/],
     ['suffixed dotenv file', (f) => writeFileSync(path.join(f.dist, '.env.production.local'), 'TOKEN=fake'), /Unsafe public artifact path/],
     ['standalone source map payload', (f) => writeFileSync(
       path.join(f.dist, 'assets/source.txt'),

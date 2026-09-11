@@ -73,7 +73,8 @@ test('user-web lane builds an exact source head and uploads only bounded package
   assert.match(packageStep.run, /--staging "\$package_evidence_dir"/);
   assert.match(packageStep.run, /package_evidence_dir=\$package_evidence_dir/);
   assert.match(manifestHelper, /\['ls-tree', '-rz', '--full-tree', 'HEAD'\]/);
-  assert.match(manifestHelper, /\['hash-object', `--path=\$\{relative\}`, '--', absolute\]/);
+  assert.match(manifestHelper, /\['hash-object', '--no-filters', '--', absolute\]/);
+  assert.doesNotMatch(manifestHelper, /hash-object', `--path=/);
   assert.doesNotMatch(manifestHelper, /git\(\['status'/);
   const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.equal(upload.uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');

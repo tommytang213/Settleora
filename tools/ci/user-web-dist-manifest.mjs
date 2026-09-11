@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   realpathSync,
   statSync,
@@ -20,7 +21,7 @@ const unsafePathPatterns = [
   /(^|\/)\.env($|[./-])/i,
   /(^|\/)(?:secrets?|credentials?|tokens?|ssh|private[-_]?keys?)(?:\/|$)/i,
   /(^|\/)[^/]*private[-_]?key[^/]*$/i,
-  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.map(?:\.(?:br|bz2|gz|xz|zip|zst))?|[^/]+\.(?:pem|key|p12|pfx))$/i,
+  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.map(?:\.[^/]*)?|[^/]+\.(?:pem|key|p12|pfx))$/i,
   /(^|\/)(?:\.ssh|\.aws|\.azure|\.config\/gcloud)(?:\/|$)/i,
 ];
 const unsafeContentPatterns = [
@@ -64,11 +65,18 @@ function assertTrackedWorktreeMatchesHead() {
     if (!metadata) throw new Error(`Tracked build input is missing: ${relative}`);
     const actualMode = metadata.isSymbolicLink() ? '120000' : ((metadata.mode & 0o111) ? '100755' : '100644');
     if (actualMode !== expectedMode) throw new Error(`Tracked build input mode differs from HEAD: ${relative}`);
-    const actualObject = execFileSync(
-      'git',
-      ['hash-object', `--path=${relative}`, '--', absolute],
-      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-    ).trim();
+    const actualObject = metadata.isSymbolicLink()
+      ? execFileSync('git', ['hash-object', '--stdin'], {
+        cwd: repoRoot,
+        input: Buffer.from(readlinkSync(absolute)),
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim()
+      : execFileSync('git', ['hash-object', '--no-filters', '--', absolute], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
     if (actualObject !== expectedObject) throw new Error(`Tracked build input differs from HEAD: ${relative}`);
   }
 }
