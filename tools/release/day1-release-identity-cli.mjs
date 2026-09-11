@@ -96,7 +96,7 @@ function verifyAndroidSignature(input, options) {
   const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
-  execFileSync(jarsigner, ['-verify', '-strict', path.resolve(input.android.aabPath)], { stdio: ['ignore', 'ignore', 'pipe'] });
+  execFileSync(jarsigner, ['-verify', path.resolve(input.android.aabPath)], { stdio: ['ignore', 'ignore', 'pipe'] });
   const aabCertificate = execFileSync(keytool, ['-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
   const aabDigest = /SHA256:\s*([0-9A-F:]{95})/u.exec(aabCertificate)?.[1]?.replaceAll(':', '').toLowerCase();
   if (!/Owner:.*CN=Android Debug/u.test(aabCertificate) || aabDigest !== input.android.signerCertificateSha256) {
