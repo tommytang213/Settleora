@@ -142,7 +142,7 @@ function artifactRootLabel(distAbsolute, provenance) {
   return label;
 }
 
-function collectFiles(distRoot) {
+export function collectFiles(distRoot) {
   const files = [];
   const visit = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -168,7 +168,7 @@ function collectFiles(distRoot) {
   return files.sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
 }
 
-function scanPublicArtifact(files) {
+export function scanPublicArtifact(files) {
   for (const file of files) {
     if (unsafePathPatterns.some((pattern) => pattern.test(file.path))) {
       throw new Error(`Unsafe public artifact path: ${file.path}`);

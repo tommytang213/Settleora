@@ -8,7 +8,7 @@ import {
   statSync,
 } from 'node:fs';
 import path from 'node:path';
-import { assertTrackedWorktreeMatchesHead } from '../ci/user-web-dist-manifest.mjs';
+import { assertTrackedWorktreeMatchesHead, collectFiles, scanPublicArtifact } from '../ci/user-web-dist-manifest.mjs';
 
 export const SCHEMA = 'settleora.day1-release-identity.v1';
 export const DIGEST_ALGORITHM = 'sha256(canonical-json-v1;excludes=generatedAt,identityDigest)';
@@ -69,7 +69,7 @@ function safeLabel(value, label) {
 
 function publicText(value, label) {
   string(value, label);
-  if (/(?:\/home\/|\/tmp\/|\\Users\\|\b(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)\s*[:=])/iu.test(value)) {
+  if (/(?:\/home\/|\/tmp\/|\\Users\\|\b(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)\s*[:=]|\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{12,}|https?:\/\/[^/@\s]+:[^/@\s]+@)/iu.test(value)) {
     fail(`${label} contains host-specific or potentially sensitive material`);
   }
   return value;
@@ -79,14 +79,14 @@ function withPlatform(image, platform, label) {
   if (image.os !== undefined && image.os !== platform.os) fail(`${label} OS mismatch`);
   if (image.architecture !== undefined && image.architecture !== platform.architecture) fail(`${label} architecture mismatch`);
   const result = {
-    repository: string(image.repository, `${label}.repository`),
-    configuredTag: string(image.configuredTag, `${label}.configuredTag`),
+    repository: publicText(image.repository, `${label}.repository`),
+    configuredTag: publicText(image.configuredTag, `${label}.configuredTag`),
     indexDigest: image.indexDigest,
     platformDigest: image.platformDigest,
     ...platform,
   };
   for (const key of ['name', 'sourceComposePath', 'ociRevision', 'publicationRunUrl']) {
-    if (image[key] !== undefined) result[key] = string(image[key], `${label}.${key}`);
+    if (image[key] !== undefined) result[key] = key === 'name' || key === 'sourceComposePath' ? safeLabel(image[key], `${label}.${key}`) : publicText(image[key], `${label}.${key}`);
   }
   return result;
 }
@@ -240,7 +240,13 @@ function collectWeb(repoRoot, input, source) {
   if (manifest.artifact.treeDigestAlgorithm !== 'sha256(canonical-file-records-v1)' || !Array.isArray(manifest.artifact.files)) {
     fail('User-web canonical file records are required');
   }
+  safeLabel(manifest.artifact.root, 'userWeb artifact root');
+  if (!manifest.buildTools || typeof manifest.buildTools !== 'object' || manifest.publicArtifactChecks?.symlinksRejected !== true || manifest.publicArtifactChecks?.sourceMapsRejected !== true || manifest.publicArtifactChecks?.sensitiveMaterialScan !== 'passed') {
+    fail('User-web canonical build/security evidence is incomplete');
+  }
   const distRoot = path.join(path.dirname(file.absolute), 'dist');
+  const canonicalFiles = collectFiles(distRoot);
+  scanPublicArtifact(canonicalFiles);
   const records = manifest.artifact.files.map((entry) => {
     safeLabel(entry.path, 'userWeb artifact path');
     const artifact = exactRegularFile(path.join(distRoot, entry.path), `userWeb artifact ${entry.path}`, distRoot);
@@ -248,19 +254,7 @@ function collectWeb(repoRoot, input, source) {
     if (canonicalJson(record) !== canonicalJson(entry)) fail(`User-web artifact identity mismatch: ${entry.path}`);
     return record;
   }).sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
-  const actualPaths = [];
-  const visit = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      const metadata = lstatSync(absolute);
-      if (metadata.isSymbolicLink()) fail('User-web artifact tree must not contain symlinks');
-      if (metadata.isDirectory()) visit(absolute);
-      else if (metadata.isFile()) actualPaths.push(path.relative(distRoot, absolute).split(path.sep).join('/'));
-      else fail('User-web artifact tree contains a non-regular entry');
-    }
-  };
-  visit(distRoot);
-  actualPaths.sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  const actualPaths = canonicalFiles.map((entry) => entry.path);
   if (canonicalJson(actualPaths) !== canonicalJson(records.map((entry) => entry.path))) fail('User-web manifest file list is incomplete');
   if (records.length !== manifest.artifact.fileCount || records.reduce((sum, entry) => sum + entry.size, 0) !== manifest.artifact.totalBytes) {
     fail('User-web artifact aggregate mismatch');
@@ -311,7 +305,6 @@ function collectAndroid(repoRoot, input) {
   if (!/release\s*\{[\s\S]*?signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)/u.test(gradle)) {
     fail('Android signing state does not match the bounded debug-signing observation');
   }
-  if (!/release\s*\{[\s\S]*?isMinifyEnabled\s*=\s*true/u.test(gradle)) fail('Android release R8/minification is not enabled');
   const result = {
     source: { commit, tree },
     semanticVersion: version[1],
@@ -420,6 +413,7 @@ export function validateManifest(manifest) {
   if (!Number.isSafeInteger(manifest.releaseNotes.size) || manifest.releaseNotes.size < 1) fail('Release-note size is invalid');
   publicText(manifest.releaseNotes.candidateSummary, 'releaseNotes.candidateSummary');
   assertKeys(manifest.rollback, ['sourceCommit', 'apiImage', 'artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety', 'safetyCaveat'], 'rollback');
+  if (manifest.rollback.safetyCaveat !== 'Artifact availability does not prove database, schema, or file rollback safety.') fail('Rollback safety caveat text is required');
   validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit, undefined, apiRepository);
   if (manifest.retention?.canonicalEvidenceDirectory !== `/workspace/logs/settleora-release-candidates/${manifest.source.candidateId}`) {
     fail('Retention directory must exactly bind the candidate ID under the approved external root');

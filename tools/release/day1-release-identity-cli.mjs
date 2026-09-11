@@ -12,6 +12,7 @@ import {
   validateRegistryRevision,
   validateManifest,
 } from './day1-release-identity.mjs';
+import { assertTrackedWorktreeMatchesHead } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -96,8 +97,9 @@ function verifyAndroidSignature(input, options) {
   const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
-  const aabVerification = execFileSync(jarsigner, ['-verify', '-verbose', path.resolve(input.android.aabPath)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  const unsignedEntries = aabVerification.split(/\r?\n/u).filter((line) => /^\s*\d+\s+\w{3}\s/u.test(line) && !line.includes('META-INF/'));
+  const aabVerification = execFileSync(jarsigner, ['-J-Duser.language=en', '-J-Duser.country=US', '-verify', '-verbose', path.resolve(input.android.aabPath)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const signatureControl = /\sMETA-INF\/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$/u;
+  const unsignedEntries = aabVerification.split(/\r?\n/u).filter((line) => /^\s*\d+\s+\w{3}\s/u.test(line) && !signatureControl.test(line));
   if (!/jar verified\./u.test(aabVerification) || unsignedEntries.length) throw new Error('Android AAB contains unsigned entries');
   const aabCertificate = execFileSync(keytool, ['-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
   const aabDigest = /SHA256:\s*([0-9A-F:]{95})/u.exec(aabCertificate)?.[1]?.replaceAll(':', '').toLowerCase();
@@ -114,11 +116,13 @@ function collectAndroid(options, emit = true) {
   const output = path.resolve(options.output ?? '');
   const relative = path.relative('/workspace/logs', output);
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Android evidence output must remain under /workspace/logs');
+  assertNoSymlinkAncestors(output);
   if (lstatSync(output, { throwIfNoEntry: false })) throw new Error('Android evidence output directory must not already exist');
   const sourceBefore = {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
     tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
   };
+  assertTrackedWorktreeMatchesHead(repoRoot);
   if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
   execFileSync(flutter, ['clean'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
   execFileSync(flutter, ['build', 'apk', '--release'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
@@ -152,6 +156,17 @@ function collectAndroid(options, emit = true) {
   const result = { status: 'collected', output, source };
   if (emit) process.stdout.write(`${JSON.stringify(result)}\n`);
   return result;
+}
+
+function assertNoSymlinkAncestors(candidate) {
+  let cursor = path.resolve(candidate);
+  while (cursor !== '/workspace/logs') {
+    const metadata = lstatSync(cursor, { throwIfNoEntry: false });
+    if (metadata?.isSymbolicLink()) throw new Error('Evidence path must not contain symlink ancestors');
+    cursor = path.dirname(cursor);
+  }
+  const root = lstatSync('/workspace/logs');
+  if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('Evidence root must be a real directory');
 }
 
 function collectedAndroidInput(input, output, certificate) {

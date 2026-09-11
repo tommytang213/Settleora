@@ -78,13 +78,16 @@ function fixture(t) {
     schema: 'settleora.user-web-dist-manifest.v1',
     source: { commit, tree },
     dependencyLock: { path: 'apps/web-user/package-lock.json', sha256: sha256(lockBytes), lockfileVersion: 3 },
+    buildTools: { node: 'v22.0.0', npm: '10.0.0', typescript: '5.0.0', vite: '7.0.0' },
     artifact: {
+      root: 'fixture-dist',
       treeDigestAlgorithm: 'sha256(canonical-file-records-v1)',
       treeSha256: sha256(`${webRecord.sha256}  ${webRecord.size}  ${webRecord.path}\n`),
       fileCount: 1,
       totalBytes: webRecord.size,
       files: [webRecord],
     },
+    publicArtifactChecks: { symlinksRejected: true, sourceMapsRejected: true, sensitiveMaterialScan: 'passed' },
   }));
   const notesPath = write(evidenceRoot, 'release-notes.md', '# Candidate\nBounded test evidence.\n');
   const buildProvenancePath = write(evidenceRoot, 'build-provenance.json', canonicalJson({
@@ -188,6 +191,9 @@ test('rejects web source and Android artifact mismatches', (t) => {
   write(f.evidenceRoot, 'dist/omitted.js', 'omitted\n');
   assert.throws(() => buildManifest(f.root, f.input), /file list is incomplete/);
   rmSync(path.join(f.evidenceRoot, 'dist/omitted.js'));
+  writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), 'authorization = abcdefghijklmnop\n');
+  assert.throws(() => buildManifest(f.root, f.input), /Potential sensitive/);
+  writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), '<!doctype html>\n');
   const expected = { apk: { size: 1, sha256: '8'.repeat(64) } };
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected } }), /APK identity mismatch/);
   const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
@@ -220,6 +226,10 @@ test('rejects symlinked evidence and a tampered manifest identity digest', (t) =
   const extra = buildManifest(f.root, f.input);
   extra.apiImage.secret = 'must-not-pass';
   assert.throws(() => validateManifest(extra), /unexpected properties/);
+  const missingCaveat = buildManifest(f.root, f.input);
+  delete missingCaveat.rollback.safetyCaveat;
+  missingCaveat.identityDigest = computeIdentityDigest(missingCaveat);
+  assert.throws(() => validateManifest(missingCaveat), /caveat text is required/);
 });
 
 test('validates registry index/platform linkage and API revision from fixture documents', () => {
