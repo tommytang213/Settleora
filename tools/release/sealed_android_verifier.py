@@ -19,10 +19,12 @@ MAX_R8_METADATA_BYTES = 1024 * 1024
 MAX_TOOL_BYTES = 256 * 1024 * 1024
 MAX_VERIFIER_OUTPUT_BYTES = 32 * 1024 * 1024
 MAX_VERIFIER_ENTRIES = 200_000
+MAX_AAB_ENTRY_BYTES = 256 * 1024 * 1024
+MAX_AAB_EXPANDED_BYTES = 512 * 1024 * 1024
 
 
-def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 * 1024) -> str:
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=descriptors)
+def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 * 1024, executable: str | None = None) -> str:
+    process = subprocess.Popen(command, executable=executable, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=descriptors)
     assert process.stdout is not None
     chunks: list[bytes] = []
     size = 0
@@ -44,8 +46,8 @@ def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 
         process.stdout.close()
 
 
-def inspect_jar_signatures(command: list[str], descriptors: tuple[int, ...]) -> dict[str, object]:
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=descriptors)
+def inspect_jar_signatures(command: list[str], descriptors: tuple[int, ...], executable: str | None = None) -> dict[str, object]:
+    process = subprocess.Popen(command, executable=executable, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=descriptors)
     assert process.stdout is not None
     content_entry_count = 0
     unsigned_entry_count = 0
@@ -160,10 +162,11 @@ def sealed_snapshot(source_descriptor: int) -> tuple[int, int, str]:
         os.close(source_fd)
 
 
-def sealed_executable_snapshot(source_descriptor: int) -> int:
+def sealed_executable_snapshot(source_descriptor: int) -> tuple[int, str]:
     source_fd = os.dup(source_descriptor)
     sealed_fd = os.memfd_create("settleora-verifier-tool", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
     size = 0
+    digest = hashlib.sha256()
     try:
         metadata = os.fstat(source_fd)
         if not stat.S_ISREG(metadata.st_mode):
@@ -175,6 +178,7 @@ def sealed_executable_snapshot(source_descriptor: int) -> int:
             size += len(chunk)
             if size > MAX_TOOL_BYTES:
                 raise ValueError("Android verifier tool exceeds its snapshot limit")
+            digest.update(chunk)
             view = memoryview(chunk)
             while view:
                 written = os.write(sealed_fd, view)
@@ -188,7 +192,7 @@ def sealed_executable_snapshot(source_descriptor: int) -> int:
             fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL,
         )
         os.lseek(sealed_fd, 0, os.SEEK_SET)
-        return sealed_fd
+        return sealed_fd, digest.hexdigest()
     except Exception:
         os.close(sealed_fd)
         raise
@@ -196,32 +200,58 @@ def sealed_executable_snapshot(source_descriptor: int) -> int:
         os.close(source_fd)
 
 
+def preflight_aab(descriptor: int) -> None:
+    total = 0
+    count = 0
+    with os.fdopen(os.dup(descriptor), "rb") as artifact_file, zipfile.ZipFile(artifact_file) as bundle:
+        for info in bundle.infolist():
+            count += 1
+            if count > MAX_VERIFIER_ENTRIES:
+                raise ValueError("Android bundle exceeds its verifier entry-count limit")
+            if info.file_size < 0 or info.file_size > MAX_AAB_ENTRY_BYTES:
+                raise ValueError("Android bundle entry exceeds its expanded-size limit")
+            total += info.file_size
+            if total > MAX_AAB_EXPANDED_BYTES:
+                raise ValueError("Android bundle exceeds its aggregate expanded-size limit")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("kind", choices=("apk", "aab"))
+    parser.add_argument("tool_digests", nargs="+")
     arguments = parser.parse_args()
     descriptor, size, digest = sealed_snapshot(3)
-    java_path = os.readlink("/proc/self/fd/4")
-    if arguments.kind == "apk":
-        tool_descriptors = [sealed_executable_snapshot(5)]
-    else:
-        tool_descriptors = []
-    held_path = f"/proc/self/fd/{descriptor}"
+    tool_descriptors: list[int] = []
     try:
+        java_path = os.readlink("/proc/self/fd/4")
+        source_descriptors = (4, 5) if arguments.kind == "apk" else (4,)
+        if len(arguments.tool_digests) != len(source_descriptors):
+            raise ValueError(f"{arguments.kind.upper()} verification received the wrong trusted tool digest count")
+        for source_descriptor, expected_digest in zip(source_descriptors, arguments.tool_digests, strict=True):
+            tool_descriptor, observed_digest = sealed_executable_snapshot(source_descriptor)
+            tool_descriptors.append(tool_descriptor)
+            if observed_digest != expected_digest:
+                raise ValueError("Android verifier tool snapshot differs from its trusted bytes")
+        if arguments.kind == "aab":
+            preflight_aab(descriptor)
+        held_path = f"/proc/self/fd/{descriptor}"
         result: dict[str, object] = {"size": size, "sha256": digest}
         if arguments.kind == "apk":
             result["verificationOutput"] = run(
-                [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[0]}", "verify", "--verbose", "--print-certs", held_path],
-                (descriptor, tool_descriptors[0]),
+                [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[1]}", "verify", "--verbose", "--print-certs", held_path],
+                (descriptor, *tool_descriptors),
+                executable=f"/proc/self/fd/{tool_descriptors[0]}",
             )
         else:
             result.update(inspect_jar_signatures(
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.jarsigner.Main", "-verify", "-verbose", "-certs", held_path],
-                (descriptor,),
+                (descriptor, tool_descriptors[0]),
+                executable=f"/proc/self/fd/{tool_descriptors[0]}",
             ))
             certificate = run(
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.keytool.Main", "-printcert", "-jarfile", held_path],
-                (descriptor,),
+                (descriptor, tool_descriptors[0]),
+                executable=f"/proc/self/fd/{tool_descriptors[0]}",
             )
             result["certificateDigests"] = sorted(
                 set(match.group(1).replace(":", "").lower() for match in re.finditer(r"SHA256:\s*([0-9A-F:]{95})", certificate))

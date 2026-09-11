@@ -22,7 +22,7 @@ import {
 import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const sealedAndroidVerifierSource = readFileSync(new URL('./sealed_android_verifier.py', import.meta.url));
+const maxTrustedToolBytes = 256 * 1024 * 1024;
 
 function args(values) {
   const result = { command: values[0] };
@@ -128,7 +128,33 @@ function trustedFile(candidate, expectedName, label, executable = false) {
   if (path.basename(tool) !== expectedName || !metadata?.isFile() || metadata.isSymbolicLink() || realpathSync(tool) !== tool || (executable && !(metadata.mode & 0o111))) {
     throw new Error(`${label} must be an explicitly trusted real ${executable ? 'executable' : 'file'} named ${expectedName}`);
   }
-  return { path: tool, dev: metadata.dev, ino: metadata.ino };
+  let descriptor;
+  try {
+    descriptor = openSync(tool, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const opened = fstatSync(descriptor, { bigint: true });
+    if (!opened.isFile() || opened.size < 1n || opened.size > BigInt(maxTrustedToolBytes)) throw new Error(`${label} exceeds its trusted-tool size limit`);
+    const digest = createHash('sha256');
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let total = 0n;
+    while (true) {
+      const count = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      total += BigInt(count);
+      if (total > BigInt(maxTrustedToolBytes)) throw new Error(`${label} exceeds its trusted-tool size limit`);
+      digest.update(buffer.subarray(0, count));
+    }
+    const after = fstatSync(descriptor, { bigint: true });
+    const current = lstatSync(tool, { bigint: true });
+    if (total !== opened.size || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+      || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs || current.isSymbolicLink()
+      || current.dev !== opened.dev || current.ino !== opened.ino || current.size !== opened.size
+      || current.mtimeNs !== opened.mtimeNs || current.ctimeNs !== opened.ctimeNs) {
+      throw new Error(`${label} changed while its trusted bytes were captured`);
+    }
+    return { path: tool, dev: metadata.dev, ino: metadata.ino, sha256: digest.digest('hex') };
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
 }
 
 function trustedTool(candidate, expectedName, label) {
@@ -146,9 +172,9 @@ export function parseSingleApkSigner(output) {
   return certificate;
 }
 
-function sealedAndroidVerification(kind, artifact, tools) {
-  const committedHelper = execFileSync('git', ['show', 'HEAD:tools/release/sealed_android_verifier.py'], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1024 * 1024 });
-  if (!sealedAndroidVerifierSource.equals(committedHelper)) throw new Error('Android sealed verifier does not match the captured source checkout');
+function sealedAndroidVerification(kind, artifact, tools, sourceCommit) {
+  if (!/^[0-9a-f]{40}$/u.test(sourceCommit ?? '')) throw new Error('Android verifier requires a fixed source commit');
+  const committedHelper = execFileSync('git', ['show', `${sourceCommit}:tools/release/sealed_android_verifier.py`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1024 * 1024 });
   const absolute = path.resolve(artifact);
   let descriptor;
   const toolDescriptors = [];
@@ -165,9 +191,9 @@ function sealedAndroidVerification(kind, artifact, tools) {
       if (!toolOpened.isFile() || toolOpened.dev !== tool.dev || toolOpened.ino !== tool.ino || toolCurrent.isSymbolicLink() || toolCurrent.dev !== tool.dev || toolCurrent.ino !== tool.ino || realpathSync(tool.path) !== tool.path) throw new Error(`Android ${kind.toUpperCase()} verifier executable changed before use`);
       toolDescriptors.push(toolDescriptor);
     }
-    result = JSON.parse(execFileSync('/usr/bin/python3', ['-', kind], {
+    result = JSON.parse(execFileSync('/usr/bin/python3', ['-', kind, ...tools.map((tool) => tool.sha256)], {
       encoding: 'utf8',
-      input: sealedAndroidVerifierSource,
+      input: committedHelper,
       stdio: ['pipe', 'pipe', 'pipe', descriptor, ...toolDescriptors],
       env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
       maxBuffer: 4 * 1024 * 1024,
@@ -193,10 +219,10 @@ export function verifyAndroidSignature(input, options) {
   const javaHome = path.resolve(options['java-home'] ?? '');
   const java = trustedTool(path.join(javaHome, 'bin', 'java'), 'java', 'Java runtime');
   const apksignerJar = trustedFile(path.join(buildToolsRoot, 'lib', 'apksigner.jar'), 'apksigner.jar', 'Android apksigner JAR');
-  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [java, apksignerJar]);
+  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [java, apksignerJar], input.source?.commit);
   const certificate = parseSingleApkSigner(apkObservation.verificationOutput);
   const apk = { size: apkObservation.size, sha256: apkObservation.sha256 };
-  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [java]);
+  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [java], input.source?.commit);
   const aab = { size: aabObservation.size, sha256: aabObservation.sha256 };
   if (aabObservation.jarVerified !== true || aabObservation.contentEntryCount < 1 || aabObservation.unsignedEntryCount !== 0) throw new Error('Android AAB contains unsigned entries');
   if (aabObservation.certificateDigests?.length !== 1 || aabObservation.certificateDigests[0] !== certificate || aabObservation.signerNames?.length !== 1 || !aabObservation.signerNames[0].includes('CN=Android Debug')) {
@@ -270,7 +296,7 @@ function collectWebExactSource(output) {
   });
 }
 
-function collectAndroidUnsafe(options, emit = true, outputOwnership = {}) {
+function collectAndroidUnsafe(options, emit = true) {
   const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool').path;
   const output = path.resolve(options.output ?? '');
   const relative = path.relative('/workspace/logs', output);
@@ -278,9 +304,6 @@ function collectAndroidUnsafe(options, emit = true, outputOwnership = {}) {
   assertNoSymlinkAncestors(output);
   if (lstatSync(output, { throwIfNoEntry: false })) throw new Error('Android evidence output directory must not already exist');
   mkdirSync(output, { recursive: false, mode: 0o700 });
-  const created = lstatSync(output);
-  outputOwnership.dev = created.dev;
-  outputOwnership.ino = created.ino;
   const sourceBefore = {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
     tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
@@ -342,16 +365,7 @@ function collectAndroidUnsafe(options, emit = true, outputOwnership = {}) {
 }
 
 function collectAndroid(options, emit = true) {
-  const output = path.resolve(options.output ?? '');
-  const outputOwnership = {};
-  try {
-    return collectAndroidUnsafe(options, emit, outputOwnership);
-  } catch (error) {
-    const metadata = lstatSync(output, { throwIfNoEntry: false });
-    if (outputOwnership.dev !== undefined && metadata?.isDirectory() && !metadata.isSymbolicLink()
-      && metadata.dev === outputOwnership.dev && metadata.ino === outputOwnership.ino) rmSync(output, { recursive: true, force: false });
-    throw error;
-  }
+  return collectAndroidUnsafe(options, emit);
 }
 
 function assertNoSymlinkAncestors(candidate) {
@@ -524,7 +538,8 @@ export function main(argv = process.argv.slice(2)) {
     }
   } else if (options.command === 'validate') {
     if (!options.manifest || !options.input) throw new Error('validate requires --manifest and --input for independent recollection');
-    const manifest = validateManifest(safeInput(options.manifest, 'Manifest'));
+    const initialManifestBytes = safeBytes(options.manifest, 'Manifest');
+    const manifest = validateManifest(JSON.parse(initialManifestBytes.toString('utf8')));
     canonicalManifestPath(manifest, options.manifest);
     const supplied = safeInput(options.input, 'Evidence input');
     const webValidation = path.join(canonicalCandidateDirectory(supplied), `.web-validation-${randomUUID()}`);
@@ -545,6 +560,7 @@ export function main(argv = process.argv.slice(2)) {
         || canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
         throw new Error('Manifest differs from independently recollected evidence');
       }
+      if (!safeBytes(options.manifest, 'Manifest').equals(initialManifestBytes)) throw new Error('Canonical manifest changed during validation');
     } finally {
       const metadata = lstatSync(webValidation, { throwIfNoEntry: false });
       if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(webValidation, { recursive: true, force: false });

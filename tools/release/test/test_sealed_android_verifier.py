@@ -63,8 +63,9 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             source.write(b"first executable bytes")
             source.flush()
             source.seek(0)
-            sealed = VERIFIER.sealed_executable_snapshot(source.fileno())
+            sealed, digest = VERIFIER.sealed_executable_snapshot(source.fileno())
             try:
+                self.assertEqual(digest, hashlib.sha256(b"first executable bytes").hexdigest())
                 source.seek(0)
                 source.write(b"later executable bytes")
                 source.flush()
@@ -74,6 +75,22 @@ class SealedAndroidVerifierTests(unittest.TestCase):
                     os.write(sealed, b"tamper")
             finally:
                 os.close(sealed)
+
+    def test_aab_preflight_rejects_excessive_declared_expansion(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+            output.writestr("expanded", b"0" * 4096)
+        archive.seek(0)
+        prior = VERIFIER.MAX_AAB_ENTRY_BYTES
+        VERIFIER.MAX_AAB_ENTRY_BYTES = 1024
+        try:
+            with tempfile.TemporaryFile() as source:
+                source.write(archive.getvalue())
+                source.seek(0)
+                with self.assertRaisesRegex(ValueError, "expanded-size limit"):
+                    VERIFIER.preflight_aab(source.fileno())
+        finally:
+            VERIFIER.MAX_AAB_ENTRY_BYTES = prior
 
 
 if __name__ == "__main__":
