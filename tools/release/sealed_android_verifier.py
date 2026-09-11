@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import zipfile
@@ -28,15 +29,15 @@ def run(command: list[str], descriptor: int) -> str:
     return completed.stdout
 
 
-def sealed_snapshot(source: str) -> tuple[int, int, str]:
-    source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+def sealed_snapshot(source_descriptor: int) -> tuple[int, int, str]:
+    source_fd = os.dup(source_descriptor)
     sealed_fd = os.memfd_create("settleora-android-artifact", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
     digest = hashlib.sha256()
     size = 0
     try:
         metadata = os.fstat(source_fd)
-        if not os.path.isfile(source) or not os.path.samestat(metadata, os.stat(source, follow_symlinks=False)):
-            raise ValueError("Android artifact path changed while snapshotting")
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("Android artifact descriptor is not a regular file")
         while True:
             chunk = os.read(source_fd, 1024 * 1024)
             if not chunk:
@@ -68,26 +69,18 @@ def sealed_snapshot(source: str) -> tuple[int, int, str]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("kind", choices=("apk", "aab"))
-    parser.add_argument("artifact")
-    parser.add_argument("--apksigner")
-    parser.add_argument("--jarsigner")
-    parser.add_argument("--keytool")
     arguments = parser.parse_args()
-    descriptor, size, digest = sealed_snapshot(arguments.artifact)
+    descriptor, size, digest = sealed_snapshot(3)
     held_path = f"/proc/self/fd/{descriptor}"
     try:
         result: dict[str, object] = {"size": size, "sha256": digest}
         if arguments.kind == "apk":
-            if not arguments.apksigner:
-                raise ValueError("APK verifier requires apksigner")
             result["verificationOutput"] = run(
-                [arguments.apksigner, "verify", "--verbose", "--print-certs", held_path], descriptor
+                ["apksigner", "verify", "--verbose", "--print-certs", held_path], descriptor
             )
         else:
-            if not arguments.jarsigner or not arguments.keytool:
-                raise ValueError("AAB verifier requires jarsigner and keytool")
             verification = run(
-                [arguments.jarsigner, "-J-Duser.language=en", "-J-Duser.country=US", "-verify", "-verbose", "-certs", held_path],
+                ["jarsigner", "-J-Duser.language=en", "-J-Duser.country=US", "-verify", "-verbose", "-certs", held_path],
                 descriptor,
             )
             content_entries = [line for line in verification.splitlines() if re.match(r"^[smk? ]{3}\s+\d+\s+\w{3}\s", line)]
@@ -101,7 +94,7 @@ def main() -> None:
                 }
             )
             certificate = run(
-                [arguments.keytool, "-J-Duser.language=en", "-J-Duser.country=US", "-printcert", "-jarfile", held_path],
+                ["keytool", "-J-Duser.language=en", "-J-Duser.country=US", "-printcert", "-jarfile", held_path],
                 descriptor,
             )
             result["certificateDigests"] = sorted(
