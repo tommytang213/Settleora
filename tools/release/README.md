@@ -59,7 +59,10 @@ walking is bounded by file, byte, directory-count, and directory-depth limits.
 `collect-android` cleans generated state, invokes the two fixed release-build commands, and writes a
 source/tree/artifact attestation. Assembly always performs that collection itself
 inside the canonical candidate directory, so it cannot accept caller-selected
-stale Android binaries. Assembly and validation resolve `apksigner`
+stale Android binaries. The collector captures the Flutter SDK's Dart executable
+and Flutter tool snapshot, invokes both through held read-only descriptors, and
+revalidates their device, inode, size, timestamps, and SHA-256 after every command.
+Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
 migration and retained Android evidence; digest-only validation is intentionally absent.
@@ -81,8 +84,10 @@ Assembly also copies the bounded release-note input into canonical retained
 The migration section describes repository source only and deliberately never
 claims that migrations are applied. A prior API artifact is availability
 evidence only; it is never proof of database, schema, or file rollback safety.
-Runtime migration IDs come from a freshly published local helper that reflects
-the exact API assembly's EF `MigrationAttribute` metadata; the tooling compares
-that compiled inventory with deterministic repository migration filenames and
-source hashes. All provenance Git reads disable replacement objects, and any
+Runtime migration IDs come from a freshly published local helper that asks the
+exact API assembly's configured `SettleoraDbContext` `IMigrationsAssembly`; the
+tooling compares that runtime inventory with deterministic repository migration
+filenames and source hashes. The helper is built and run through a held descriptor
+for the root-owned `/usr/lib/dotnet/dotnet` runtime, whose protected ancestor chain
+and captured identity are verified. All provenance Git reads disable replacement objects, and any
 local `refs/replace/*` makes collection fail closed.

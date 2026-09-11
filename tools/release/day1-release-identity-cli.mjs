@@ -170,7 +170,15 @@ function trustedFile(candidate, expectedName, label, executable = false) {
       || current.mtimeNs !== opened.mtimeNs || current.ctimeNs !== opened.ctimeNs) {
       throw new Error(`${label} changed while its trusted bytes were captured`);
     }
-    return { path: tool, dev: metadata.dev, ino: metadata.ino, sha256: digest.digest('hex') };
+    return {
+      path: tool,
+      dev: metadata.dev,
+      ino: metadata.ino,
+      size: metadata.size,
+      mtimeMs: metadata.mtimeMs,
+      ctimeMs: metadata.ctimeMs,
+      sha256: digest.digest('hex'),
+    };
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
@@ -178,6 +186,107 @@ function trustedFile(candidate, expectedName, label, executable = false) {
 
 function trustedTool(candidate, expectedName, label) {
   return trustedFile(candidate, expectedName, label, true);
+}
+
+function openVerifiedTool(tool, label) {
+  const descriptor = openSync(tool.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const opened = fstatSync(descriptor);
+    const current = lstatSync(tool.path);
+    const digest = createHash('sha256');
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let offset = 0;
+    while (true) {
+      const count = readSync(descriptor, buffer, 0, buffer.length, offset);
+      if (count === 0) break;
+      offset += count;
+      if (offset > maxTrustedToolBytes) throw new Error(`${label} exceeds its trusted-tool size limit`);
+      digest.update(buffer.subarray(0, count));
+    }
+    if (!opened.isFile() || current.isSymbolicLink() || realpathSync(tool.path) !== tool.path
+      || opened.dev !== tool.dev || opened.ino !== tool.ino || opened.size !== tool.size
+      || opened.mtimeMs !== tool.mtimeMs || opened.ctimeMs !== tool.ctimeMs
+      || current.dev !== tool.dev || current.ino !== tool.ino || current.size !== tool.size
+      || current.mtimeMs !== tool.mtimeMs || current.ctimeMs !== tool.ctimeMs
+      || digest.digest('hex') !== tool.sha256) {
+      throw new Error(`${label} changed after its trusted identity was captured`);
+    }
+    return descriptor;
+  } catch (error) {
+    closeSync(descriptor);
+    throw error;
+  }
+}
+
+function revalidateToolDescriptor(tool, descriptor, label) {
+  const opened = fstatSync(descriptor);
+  const current = lstatSync(tool.path);
+  if (!opened.isFile() || current.isSymbolicLink() || realpathSync(tool.path) !== tool.path
+    || opened.dev !== tool.dev || opened.ino !== tool.ino || opened.size !== tool.size
+    || opened.mtimeMs !== tool.mtimeMs || opened.ctimeMs !== tool.ctimeMs
+    || current.dev !== tool.dev || current.ino !== tool.ino || current.size !== tool.size
+    || current.mtimeMs !== tool.mtimeMs || current.ctimeMs !== tool.ctimeMs) {
+    throw new Error(`${label} changed during sealed execution`);
+  }
+}
+
+function executeSealedTool(executable, values, options = {}, additionalFiles = []) {
+  const tools = [executable, ...additionalFiles];
+  const descriptors = [];
+  let executionError;
+  try {
+    for (const [index, tool] of tools.entries()) descriptors.push(openVerifiedTool(tool, index === 0 ? 'Executable' : 'Executable input'));
+    let result;
+    try {
+      result = execFileSync('/proc/self/fd/3', values, {
+        ...options,
+        stdio: [...(options.stdio ?? ['ignore', 'inherit', 'pipe']).slice(0, 3), ...descriptors],
+      });
+    } catch (error) {
+      executionError = error;
+    }
+    for (const [index, tool] of tools.entries()) revalidateToolDescriptor(tool, descriptors[index], index === 0 ? 'Executable' : 'Executable input');
+    if (executionError) throw executionError;
+    return result;
+  } finally {
+    for (const descriptor of descriptors) closeSync(descriptor);
+  }
+}
+
+function assertRootProtectedTool(tool, expectedPath, label) {
+  if (tool.path !== expectedPath) throw new Error(`${label} must resolve to ${expectedPath}`);
+  let cursor = tool.path;
+  while (true) {
+    const metadata = lstatSync(cursor);
+    if (metadata.uid !== 0 || (metadata.mode & 0o022) !== 0) throw new Error(`${label} must be protected by root-owned non-writable ancestors`);
+    if (cursor === '/') break;
+    cursor = path.dirname(cursor);
+  }
+}
+
+function trustedDotnet() {
+  const expected = '/usr/lib/dotnet/dotnet';
+  const tool = trustedTool(expected, 'dotnet', 'dotnet runtime');
+  assertRootProtectedTool(tool, expected, 'dotnet runtime');
+  return tool;
+}
+
+function trustedFlutter(candidate) {
+  const launcher = trustedTool(candidate, 'flutter', 'Flutter launcher');
+  const root = path.dirname(path.dirname(launcher.path));
+  return {
+    root,
+    dart: trustedTool(path.join(root, 'bin/cache/dart-sdk/bin/dart'), 'dart', 'Flutter Dart runtime'),
+    snapshot: trustedFile(path.join(root, 'bin/cache/flutter_tools.snapshot'), 'flutter_tools.snapshot', 'Flutter tool snapshot'),
+  };
+}
+
+function executeSealedFlutter(flutter, values, cwd) {
+  return executeSealedTool(flutter.dart, ['/proc/self/fd/4', ...values], {
+    cwd,
+    env: { ...process.env, FLUTTER_ROOT: flutter.root },
+    stdio: undefined,
+  }, [flutter.snapshot]);
 }
 
 function assertSystemRuntime(root) {
@@ -417,7 +526,7 @@ function collectWebExactSource(output) {
 }
 
 function collectAndroidUnsafe(options, emit = true) {
-  const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool').path;
+  const flutter = trustedFlutter(options.flutter);
   const output = path.resolve(options.output ?? '');
   const relative = path.relative('/workspace/logs', output);
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Android evidence output must remain under /workspace/logs');
@@ -441,9 +550,9 @@ function collectAndroidUnsafe(options, emit = true) {
     gitExec(['archive', '--format=tar', `--output=${archive}`, sourceBefore.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
     execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshotRoot], { stdio: ['ignore', 'ignore', 'pipe'] });
     rmSync(archive, { force: false });
-    execFileSync(flutter, ['clean'], { cwd: path.join(snapshotRoot, 'apps/mobile'), stdio: 'inherit' });
-    execFileSync(flutter, ['build', 'apk', '--release'], { cwd: path.join(snapshotRoot, 'apps/mobile'), stdio: 'inherit' });
-    execFileSync(flutter, ['build', 'appbundle', '--release'], { cwd: path.join(snapshotRoot, 'apps/mobile'), stdio: 'inherit' });
+    executeSealedFlutter(flutter, ['clean'], path.join(snapshotRoot, 'apps/mobile'));
+    executeSealedFlutter(flutter, ['build', 'apk', '--release'], path.join(snapshotRoot, 'apps/mobile'));
+    executeSealedFlutter(flutter, ['build', 'appbundle', '--release'], path.join(snapshotRoot, 'apps/mobile'));
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
       aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
@@ -600,17 +709,18 @@ export function assertCleanCompletion(root, message) {
 
 export function collectCompiledMigrationIds(privateParent) {
   assertOwnedEvidenceDirectory(privateParent);
+  const dotnet = trustedDotnet();
   return exactSourceSnapshot('migrations', privateParent, (snapshot, source) => {
     if (canonicalJson(source) !== canonicalJson(processSource)) throw new Error('Compiled migration snapshot differs from process-bound source');
     const output = path.join(snapshot, '.release-ef-migration-output');
     mkdirSync(output, { recursive: false, mode: 0o700 });
     const project = path.join(snapshot, 'tools/release/ef-migration-inventory/Settleora.EfMigrationInventory.csproj');
-    execFileSync('dotnet', ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--verbosity', 'quiet'], {
+    executeSealedTool(dotnet, ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--verbosity', 'quiet'], {
       cwd: snapshot,
       stdio: ['ignore', 'ignore', 'pipe'],
       maxBuffer: 16 * 1024 * 1024,
     });
-    const stdout = execFileSync('dotnet', [path.join(output, 'Settleora.EfMigrationInventory.dll')], {
+    const stdout = executeSealedTool(dotnet, [path.join(output, 'Settleora.EfMigrationInventory.dll')], {
       cwd: output,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],

@@ -1,21 +1,19 @@
-using System.Reflection;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Settleora.Api.Persistence;
 
-var migrationBase = typeof(Migration);
-var migrations = typeof(SettleoraDbContext).Assembly
-    .GetTypes()
-    .Where(type => !type.IsAbstract && migrationBase.IsAssignableFrom(type))
-    .Select(type => new
-    {
-        Type = type.FullName ?? throw new InvalidOperationException("Migration type has no full name."),
-        Attribute = type.GetCustomAttribute<MigrationAttribute>(inherit: false),
-    })
+var options = new DbContextOptionsBuilder<SettleoraDbContext>()
+    .UseNpgsql("Host=127.0.0.1;Database=settleora_release_identity;Username=settleora;Password=not-used")
+    .Options;
+using var dbContext = new SettleoraDbContext(options);
+var runtimeMigrations = dbContext.GetService<IMigrationsAssembly>().Migrations;
+var migrations = runtimeMigrations
     .Select(item => new
     {
-        item.Type,
-        Id = item.Attribute?.Id ?? throw new InvalidOperationException($"Migration {item.Type} has no EF MigrationAttribute."),
+        Type = item.Value.AsType().FullName ?? throw new InvalidOperationException("Migration type has no full name."),
+        Id = item.Key,
     })
     .OrderBy(item => item.Id, StringComparer.Ordinal)
     .ToArray();
