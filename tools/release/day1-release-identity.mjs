@@ -99,7 +99,7 @@ function safeLabel(value, label) {
 
 export function validateCandidateId(value) {
   string(value, 'source.candidateId');
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value) || value.includes('..')) {
+  if (value === '.' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value) || value.includes('..')) {
     fail('source.candidateId must be a single safe evidence-directory name');
   }
   return value;
@@ -326,6 +326,9 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
 }
 
 export function migrationAttributeIds(text) {
+  if (/^\s*#\s*(?:if|elif|else|endif)\b/mu.test(text)) {
+    fail('Migration source contains conditional-compilation directives that cannot be reproduced by the bounded parser');
+  }
   const ids = [];
   for (let index = 0; index < text.length;) {
     if (text.startsWith('//', index)) {

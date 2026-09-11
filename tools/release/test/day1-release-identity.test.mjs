@@ -274,6 +274,11 @@ test('migration attribute parsing ignores comments and string literals', () => {
     `[Migration("${active}")]`,
     '',
   ].join('\n')), [active]);
+  assert.throws(() => migrationAttributeIds([
+    '#if false',
+    '[Migration("20260911123456_InactiveMigration")]',
+    '#endif',
+  ].join('\n')), /conditional-compilation directives/);
 });
 
 test('rejects symlinked evidence and a tampered manifest identity digest', (t) => {
@@ -333,6 +338,8 @@ test('preserves expected Android identities and derives retained canonical paths
   assert.throws(() => canonicalAndroidInput(traversal, signature), /single safe evidence-directory name/);
   const nested = { ...input, source: { ...input.source, candidateId: 'nested/name' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/nested/name' } };
   assert.throws(() => canonicalAndroidInput(nested, signature), /single safe evidence-directory name/);
+  const dot = { ...input, source: { ...input.source, candidateId: '.' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/.' } };
+  assert.throws(() => canonicalAndroidInput(dot, signature), /single safe evidence-directory name/);
   const manifestPath = `${input.retention.canonicalEvidenceDirectory}/release-identity-manifest.json`;
   assert.equal(canonicalManifestPath(input, manifestPath), manifestPath);
   assert.throws(() => canonicalManifestPath(input, `${f.evidenceRoot}/manifest-copy.json`), /canonical retained candidate manifest/);

@@ -210,14 +210,18 @@ def preflight_aab(descriptor: int) -> None:
     if eocd_offset < 0 or len(tail) - eocd_offset < 22:
         raise ValueError("Android bundle has no bounded ZIP end record")
     disk, central_disk, disk_entries, total_entries, central_size, central_offset = struct.unpack_from("<HHHHII", tail, eocd_offset + 4)
+    comment_size = struct.unpack_from("<H", tail, eocd_offset + 20)[0]
+    absolute_eocd_offset = metadata.st_size - tail_size + eocd_offset
     if disk != 0 or central_disk != 0 or disk_entries != total_entries:
         raise ValueError("Android bundle must be a single-disk ZIP")
     if total_entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:
         raise ValueError("Android bundle ZIP64 metadata is not accepted")
     if total_entries < 1 or total_entries > MAX_VERIFIER_ENTRIES or central_size > MAX_AAB_CENTRAL_DIRECTORY_BYTES:
         raise ValueError("Android bundle central directory exceeds its evidence limit")
-    if central_offset + central_size > metadata.st_size:
-        raise ValueError("Android bundle central directory is outside the sealed artifact")
+    if absolute_eocd_offset + 22 + comment_size != metadata.st_size:
+        raise ValueError("Android bundle end record does not terminate the sealed artifact")
+    if central_offset + central_size != absolute_eocd_offset:
+        raise ValueError("Android bundle central directory is not contiguous with its end record")
     central = os.pread(descriptor, central_size, central_offset)
     if len(central) != central_size:
         raise ValueError("Android bundle central directory changed during preflight")

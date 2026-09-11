@@ -23,6 +23,16 @@ import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const maxTrustedToolBytes = 256 * 1024 * 1024;
+const processCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+const processSource = Object.freeze({
+  commit: processCommit,
+  tree: execFileSync('git', ['rev-parse', `${processCommit}^{tree}`], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+});
+const committedVerifierHelper = execFileSync('git', ['show', `${processSource.commit}:tools/release/sealed_android_verifier.py`], {
+  cwd: repoRoot,
+  stdio: ['ignore', 'pipe', 'pipe'],
+  maxBuffer: 1024 * 1024,
+});
 
 function args(values) {
   const result = { command: values[0] };
@@ -171,7 +181,7 @@ function assertSystemRuntime(root) {
       try {
         target = realpathSync(candidate);
       } catch (error) {
-        if (error?.code === 'ENOENT') return;
+        if (error?.code === 'ENOENT') throw new Error('Java runtime contains a broken symlink');
         throw error;
       }
       return visit(target);
@@ -200,9 +210,7 @@ export function parseSingleApkSigner(output) {
   return certificate;
 }
 
-function sealedAndroidVerification(kind, artifact, tools, sourceCommit, javaPath) {
-  if (!/^[0-9a-f]{40}$/u.test(sourceCommit ?? '')) throw new Error('Android verifier requires a fixed source commit');
-  const committedHelper = execFileSync('git', ['show', `${sourceCommit}:tools/release/sealed_android_verifier.py`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1024 * 1024 });
+function sealedAndroidVerification(kind, artifact, tools, javaPath) {
   const absolute = path.resolve(artifact);
   let descriptor;
   const toolDescriptors = [];
@@ -221,7 +229,7 @@ function sealedAndroidVerification(kind, artifact, tools, sourceCommit, javaPath
     }
     result = JSON.parse(execFileSync('/usr/bin/python3', ['-', kind, javaPath, ...tools.map((tool) => tool.sha256)], {
       encoding: 'utf8',
-      input: committedHelper,
+      input: committedVerifierHelper,
       stdio: ['pipe', 'pipe', 'pipe', descriptor, ...toolDescriptors],
       env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
       maxBuffer: 4 * 1024 * 1024,
@@ -235,11 +243,7 @@ function sealedAndroidVerification(kind, artifact, tools, sourceCommit, javaPath
 }
 
 export function verifyAndroidSignature(input, options) {
-  const checkout = {
-    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
-    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
-  };
-  if (input.source?.commit !== checkout.commit || input.source?.tree !== checkout.tree) throw new Error('Android verifier source does not match the captured checkout');
+  if (input.source?.commit !== processSource.commit || input.source?.tree !== processSource.tree) throw new Error('Android verifier source does not match the process-bound checkout');
   const sdkRoot = path.resolve(options['android-sdk-root'] ?? '');
   const versions = lstatSync(path.join(sdkRoot, 'build-tools'), { throwIfNoEntry: false });
   if (!versions?.isDirectory() || versions.isSymbolicLink()) throw new Error('Trusted Android SDK root is invalid');
@@ -253,10 +257,10 @@ export function verifyAndroidSignature(input, options) {
   const java = trustedTool(path.join(javaHome, 'bin', 'java'), 'java', 'Java runtime');
   assertSystemRuntime(javaHome);
   const apksignerJar = trustedFile(path.join(buildToolsRoot, 'lib', 'apksigner.jar'), 'apksigner.jar', 'Android apksigner JAR');
-  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [apksignerJar], input.source?.commit, java.path);
+  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [apksignerJar], java.path);
   const certificate = parseSingleApkSigner(apkObservation.verificationOutput);
   const apk = { size: apkObservation.size, sha256: apkObservation.sha256 };
-  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [], input.source?.commit, java.path);
+  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [], java.path);
   const aab = { size: aabObservation.size, sha256: aabObservation.sha256 };
   if (aabObservation.jarVerified !== true || aabObservation.contentEntryCount < 1 || aabObservation.unsignedEntryCount !== 0) throw new Error('Android AAB contains unsigned entries');
   if (aabObservation.certificateDigests?.length !== 1 || aabObservation.certificateDigests[0] !== certificate || aabObservation.signerNames?.length !== 1 || !aabObservation.signerNames[0].includes('CN=Android Debug')) {

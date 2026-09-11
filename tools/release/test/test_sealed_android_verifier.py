@@ -92,6 +92,16 @@ class SealedAndroidVerifierTests(unittest.TestCase):
         finally:
             VERIFIER.MAX_AAB_ENTRY_BYTES = prior
 
+    def test_aab_preflight_rejects_prepended_directory_adjustment(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("entry", b"content")
+        with tempfile.TemporaryFile() as source:
+            source.write(b"prepended" + archive.getvalue())
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "not contiguous"):
+                VERIFIER.preflight_aab(source.fileno())
+
 
 if __name__ == "__main__":
     unittest.main()
