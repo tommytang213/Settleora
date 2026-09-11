@@ -308,10 +308,13 @@ All entries below are future gates, not blockers to this documentation audit.
   retain their roles. Local release validation and root mobile validation each
   passed 1,059 tests; dedicated/mixed visual proofs produced 24 byte-identical
   PNGs relative to their pre-fix counterparts.
-- All exact-head GitHub jobs and scanners passed, including Linux mobile,
-  hosted-macOS font proof/iOS simulator, stable aggregate, CodeQL, Semgrep and
-  Trivy. Gemini strong-independent, local Codex and GitHub Codex reviews had no
-  findings or unresolved threads.
+- GitHub synthetic merge `f7d73d30e551f3be359800d0257ac67094d95a48`
+  (tree `483f095291e2c39051586b408dd4127d4d0a2e58`, identical to the reviewed
+  source tree) passed Linux mobile, full validation, stable aggregate, Semgrep
+  CE and Trivy repository checks. The hosted-macOS font proof/iOS simulator and
+  five CodeQL analyzers checked source head `f5e2802a...`; provider CodeQL,
+  Semgrep OSS and Trivy summaries also passed. Gemini strong-independent, local
+  Codex and GitHub Codex reviewed the exact source with no other findings.
 - No Codemagic workflow was triggered. A maintainer still manually runs
   `mobile-ios-validation` and optionally `mobile-ios-visual-evidence` to obtain
   provider proof; `mobile-ios-testflight-internal` remains the distinct R06
