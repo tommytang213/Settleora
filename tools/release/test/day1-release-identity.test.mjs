@@ -254,6 +254,13 @@ test('rejects broad credential forms before retained evidence can be built', (t)
   const f = fixture(t);
   const tokenUrl = `https://github.com/actions/runs/1?access_token=${['gho', 'A'.repeat(30)].join('_')}`;
   assert.equal(containsSensitiveMaterial(tokenUrl), true);
+  for (const sensitive of [
+    ['to', 'ken=abcdefgh'].join(''),
+    ['pass', 'word=abcdefgh'].join(''),
+    ['Bearer', ' abcdefghijklmnop'].join(''),
+    ['AKIA', 'A'.repeat(16)].join(''),
+    `{"${['client', 'secret'].join('_')}":"placeholder"}`,
+  ]) assert.equal(containsSensitiveMaterial(sensitive), true);
   assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, publicationRunUrl: tokenUrl } }), /potentially sensitive material/);
   writeFileSync(f.paths.notesPath, `candidate notes\n${tokenUrl}\n`);
   assert.throws(() => buildManifest(f.root, f.input), /potentially sensitive material/);

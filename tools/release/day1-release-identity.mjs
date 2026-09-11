@@ -25,9 +25,15 @@ const HEX256 = /^[0-9a-f]{64}$/u;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._/+:-]*$/u;
 const MIGRATION_FILE = /^(\d{14}_[A-Za-z0-9_]+)\.cs$/u;
 const SENSITIVE_MATERIAL_PATTERNS = [
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/iu,
+  /-----BEGIN [^-\r\n]*PRIVATE KEY[^-\r\n]*-----/u,
+  /\bAKIA[0-9A-Z]{16}\b/u,
+  /\bAIza[0-9A-Za-z_-]{24,}\b/u,
   /\b(?:gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{12,})\b/u,
-  /\b(?:[A-Za-z_][A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|api[_-]?key|authorization|x-goog-api-key)\b\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{8,}/iu,
+  /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/u,
+  /\b(?:(?:[A-Za-z_][A-Za-z0-9_]*)?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|authorization|x-goog-api-key)\b\s*[:=]\s*(?![A-Za-z_$][A-Za-z0-9_$]*\.)["']?[A-Za-z0-9._~+/-]{8,}/iu,
+  /\bbearer\s+[A-Za-z0-9._~+/-]{12,}/iu,
+  /["'](?:client_secret|private_key|refresh_token)["']\s*:/iu,
+  /(?::_authToken|_auth|npmAuthToken)\s*[:=]\s*[^\s"']+/iu,
   /https?:\/\/[^/@\s]+:[^/@\s]+@/iu,
 ];
 
