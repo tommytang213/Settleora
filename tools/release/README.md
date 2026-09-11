@@ -33,7 +33,7 @@ node tools/release/day1-release-identity-cli.mjs validate \
   --java-home /trusted/jdk
 ```
 
-`collect-android` invokes the two fixed release-build commands and writes a
+`collect-android` cleans generated state, invokes the two fixed release-build commands, and writes a
 source/tree/artifact attestation. Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate. Validation always recollects source, registry, web,

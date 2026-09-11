@@ -88,7 +88,7 @@ function fixture(t) {
   const notesPath = write(evidenceRoot, 'release-notes.md', '# Candidate\nBounded test evidence.\n');
   const buildProvenancePath = write(evidenceRoot, 'build-provenance.json', canonicalJson({
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
-    commands: ['flutter build apk --release', 'flutter build appbundle --release'],
+    commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
       aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: readFileSync(aabPath).length, sha256: sha256(readFileSync(aabPath)) },

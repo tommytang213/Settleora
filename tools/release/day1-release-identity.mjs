@@ -269,7 +269,7 @@ function collectAndroid(repoRoot, input) {
   if (provenance.schema !== 'settleora.android-exact-source-build.v1' || provenance.source?.commit !== commit || provenance.source?.tree !== tree) {
     fail('Android build provenance source mismatch');
   }
-  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter build apk --release', 'flutter build appbundle --release'])) {
+  if (canonicalJson(provenance.commands) !== canonicalJson(['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'])) {
     fail('Android build provenance command mismatch');
   }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));

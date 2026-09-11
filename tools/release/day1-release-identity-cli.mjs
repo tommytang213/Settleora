@@ -115,6 +115,7 @@ function collectAndroid(options) {
     tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
   };
   if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
+  execFileSync(flutter, ['clean'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
   execFileSync(flutter, ['build', 'apk', '--release'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
   execFileSync(flutter, ['build', 'appbundle', '--release'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
   const source = {
@@ -139,7 +140,7 @@ function collectAndroid(options) {
   };
   const provenance = {
     schema: 'settleora.android-exact-source-build.v1', source,
-    commands: ['flutter build apk --release', 'flutter build appbundle --release'],
+    commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
     artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: hash(readFileSync(path.join(output, files.mapping[1]))) },
   };
   writeFileSync(path.join(output, 'build-provenance.json'), canonicalJson(provenance), { flag: 'wx', mode: 0o444 });
