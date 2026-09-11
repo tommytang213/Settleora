@@ -201,14 +201,19 @@ def main() -> None:
     parser.add_argument("kind", choices=("apk", "aab"))
     arguments = parser.parse_args()
     descriptor, size, digest = sealed_snapshot(3)
-    tool_descriptors = [sealed_executable_snapshot(value) for value in (4, 5)]
+    if arguments.kind == "apk":
+        java_path = os.readlink("/proc/self/fd/4")
+        tool_descriptors = [sealed_executable_snapshot(5)]
+    else:
+        java_path = ""
+        tool_descriptors = [sealed_executable_snapshot(value) for value in (4, 5)]
     held_path = f"/proc/self/fd/{descriptor}"
     try:
         result: dict[str, object] = {"size": size, "sha256": digest}
         if arguments.kind == "apk":
             result["verificationOutput"] = run(
-                [f"/proc/self/fd/{tool_descriptors[0]}", "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[1]}", "verify", "--verbose", "--print-certs", held_path],
-                (descriptor, *tool_descriptors),
+                [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[0]}", "verify", "--verbose", "--print-certs", held_path],
+                (descriptor, tool_descriptors[0]),
             )
         else:
             result.update(inspect_jar_signatures(
