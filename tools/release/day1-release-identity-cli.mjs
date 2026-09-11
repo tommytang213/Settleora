@@ -90,25 +90,30 @@ function verifyAndroidSignature(input, options) {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const certificate = /Signer #1 certificate SHA-256 digest:\s*([0-9a-f]{64})/iu.exec(output)?.[1]?.toLowerCase();
-  if (!/Signer #1 certificate DN:.*CN=Android Debug/u.test(output) || certificate !== input.android.signerCertificateSha256) {
+  if (!/Signer #1 certificate DN:.*CN=Android Debug/u.test(output) || !certificate) {
     throw new Error('Android APK signature observation mismatch');
   }
   const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
-  execFileSync(jarsigner, ['-verify', path.resolve(input.android.aabPath)], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const aabVerification = execFileSync(jarsigner, ['-verify', '-verbose', path.resolve(input.android.aabPath)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const unsignedEntries = aabVerification.split(/\r?\n/u).filter((line) => /^\s*\d+\s+\w{3}\s/u.test(line) && !line.includes('META-INF/'));
+  if (!/jar verified\./u.test(aabVerification) || unsignedEntries.length) throw new Error('Android AAB contains unsigned entries');
   const aabCertificate = execFileSync(keytool, ['-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
   const aabDigest = /SHA256:\s*([0-9A-F:]{95})/u.exec(aabCertificate)?.[1]?.replaceAll(':', '').toLowerCase();
-  if (!/Owner:.*CN=Android Debug/u.test(aabCertificate) || aabDigest !== input.android.signerCertificateSha256) {
+  if (!/Owner:.*CN=Android Debug/u.test(aabCertificate) || aabDigest !== certificate) {
     throw new Error('Android AAB signature observation mismatch');
   }
+  return certificate;
 }
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
-function collectAndroid(options) {
+function collectAndroid(options, emit = true) {
   const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool');
   const output = path.resolve(options.output ?? '');
+  const relative = path.relative('/workspace/logs', output);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Android evidence output must remain under /workspace/logs');
   if (lstatSync(output, { throwIfNoEntry: false })) throw new Error('Android evidence output directory must not already exist');
   const sourceBefore = {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
@@ -144,7 +149,24 @@ function collectAndroid(options) {
     artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: hash(readFileSync(path.join(output, files.mapping[1]))) },
   };
   writeFileSync(path.join(output, 'build-provenance.json'), canonicalJson(provenance), { flag: 'wx', mode: 0o444 });
-  process.stdout.write(`${JSON.stringify({ status: 'collected', output, source })}\n`);
+  const result = { status: 'collected', output, source };
+  if (emit) process.stdout.write(`${JSON.stringify(result)}\n`);
+  return result;
+}
+
+function collectedAndroidInput(input, output, certificate) {
+  return {
+    ...input,
+    android: {
+      evidenceRoot: output,
+      apkPath: path.join(output, 'app-release.apk'),
+      aabPath: path.join(output, 'app-release.aab'),
+      mappingPath: path.join(output, 'mapping.txt'),
+      outputMetadataPath: path.join(output, 'output-metadata.json'),
+      buildProvenancePath: path.join(output, 'build-provenance.json'),
+      signerCertificateSha256: certificate,
+    },
+  };
 }
 
 function safeOutput(input, candidate) {
@@ -161,17 +183,27 @@ function safeOutput(input, candidate) {
   return output;
 }
 
+function canonicalCandidateDirectory(input) {
+  const expected = `/workspace/logs/settleora-release-candidates/${input.source?.candidateId}`;
+  if (input.retention?.canonicalEvidenceDirectory !== expected) throw new Error('Retention directory must exactly bind the candidate ID before collection');
+  return expected;
+}
+
 try {
   const options = args(process.argv.slice(2));
   if (options.command === 'collect-android') {
     if (!options.flutter || !options.output) throw new Error('collect-android requires --flutter and --output');
     collectAndroid(options);
   } else if (options.command === 'assemble') {
-    if (!options.input || !options.output) throw new Error('assemble requires --input and --output');
-    const input = safeInput(options.input, 'Evidence input');
-    verifyLiveRegistry(input);
-    verifyAndroidSignature(input, options);
+    if (!options.input || !options.output || !options.flutter) throw new Error('assemble requires --input, --output and --flutter');
+    const supplied = safeInput(options.input, 'Evidence input');
+    const androidRoot = path.join(canonicalCandidateDirectory(supplied), 'android');
+    collectAndroid({ ...options, output: androidRoot }, false);
+    const unsignedInput = collectedAndroidInput(supplied, androidRoot, '0'.repeat(64));
+    const certificate = verifyAndroidSignature(unsignedInput, options);
+    const input = collectedAndroidInput(supplied, androidRoot, certificate);
     const manifest = buildManifest(repoRoot, input);
+    verifyLiveRegistry(input);
     const output = safeOutput(input, options.output);
     mkdirSync(path.dirname(output), { recursive: true, mode: 0o755 });
     writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
@@ -179,10 +211,11 @@ try {
   } else if (options.command === 'validate') {
     if (!options.manifest || !options.input) throw new Error('validate requires --manifest and --input for independent recollection');
     const manifest = validateManifest(safeInput(options.manifest, 'Manifest'));
-    const input = safeInput(options.input, 'Evidence input');
-    verifyLiveRegistry(input);
-    verifyAndroidSignature(input, options);
+    const supplied = safeInput(options.input, 'Evidence input');
+    const certificate = verifyAndroidSignature(supplied, options);
+    const input = { ...supplied, android: { ...supplied.android, signerCertificateSha256: certificate } };
     const rebuilt = buildManifest(repoRoot, input);
+    verifyLiveRegistry(input);
     if (canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
       throw new Error('Manifest differs from independently recollected evidence');
     }

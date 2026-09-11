@@ -23,6 +23,7 @@ node tools/release/day1-release-identity-cli.mjs collect-android \
 node tools/release/day1-release-identity-cli.mjs assemble \
   --input /workspace/logs/settleora-release-candidates/<candidate-id>/inputs.json \
   --output /workspace/logs/settleora-release-candidates/<candidate-id>/release-identity-manifest.json \
+  --flutter /trusted/flutter/bin/flutter \
   --android-sdk-root /trusted/Android/Sdk \
   --java-home /trusted/jdk
 
@@ -34,10 +35,12 @@ node tools/release/day1-release-identity-cli.mjs validate \
 ```
 
 `collect-android` cleans generated state, invokes the two fixed release-build commands, and writes a
-source/tree/artifact attestation. Assembly and validation resolve `apksigner`
+source/tree/artifact attestation. Assembly always performs that collection itself
+inside the canonical candidate directory, so it cannot accept caller-selected
+stale Android binaries. Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate. Validation always recollects source, registry, web,
-migration and Android evidence; digest-only validation is intentionally absent.
+migration and retained Android evidence; digest-only validation is intentionally absent.
 
 The migration section describes repository source only and deliberately never
 claims that migrations are applied. A prior API artifact is availability

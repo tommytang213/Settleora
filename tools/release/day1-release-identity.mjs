@@ -8,6 +8,7 @@ import {
   statSync,
 } from 'node:fs';
 import path from 'node:path';
+import { assertTrackedWorktreeMatchesHead } from '../ci/user-web-dist-manifest.mjs';
 
 export const SCHEMA = 'settleora.day1-release-identity.v1';
 export const DIGEST_ALGORITHM = 'sha256(canonical-json-v1;excludes=generatedAt,identityDigest)';
@@ -117,6 +118,7 @@ function git(root, args) {
 
 export function collectSource(repoRoot, expected) {
   if (lstatSync(repoRoot).isSymbolicLink()) fail('Repository root must not be a symlink');
+  assertTrackedWorktreeMatchesHead(repoRoot);
   const status = git(repoRoot, ['status', '--porcelain=v1', '--untracked-files=all']);
   if (status) fail('Source checkout is not clean');
   const commit = git(repoRoot, ['rev-parse', 'HEAD']);
@@ -156,12 +158,21 @@ export function validateRegistryRevision(image, imageDocument, expectedRevision,
 export function collectMigrations(repoRoot, expectedDigest) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   const migrationRoot = path.join(repoRoot, relativeRoot);
-  const ids = readdirSync(migrationRoot)
+  const names = readdirSync(migrationRoot);
+  const unexpected = names.filter((name) => name.endsWith('.cs') && name !== 'SettleoraDbContextModelSnapshot.cs' && !/^(\d{14}_[A-Za-z0-9_]+)(?:\.Designer)?\.cs$/u.test(name));
+  if (unexpected.length) fail(`Unrecognized migration source files: ${unexpected.join(', ')}`);
+  const ids = names
     .filter((name) => !name.endsWith('.Designer.cs'))
     .map((name) => MIGRATION_FILE.exec(name)?.[1])
     .filter(Boolean)
     .sort();
   if (ids.length === 0) fail('No repository migrations found');
+  const runtimeIds = new Set();
+  for (const name of names.filter((candidate) => candidate.endsWith('.cs'))) {
+    const text = readFileSync(path.join(migrationRoot, name), 'utf8');
+    for (const match of text.matchAll(/\[Migration\("(\d{14}_[A-Za-z0-9_]+)"\)\]/gu)) runtimeIds.add(match[1]);
+  }
+  if (canonicalJson([...runtimeIds].sort()) !== canonicalJson(ids)) fail('Migration filename inventory differs from EF runtime migration attributes');
   const entries = ids.map((id) => ({
     id,
     files: [`${id}.cs`, `${id}.Designer.cs`].filter((name) => lstatSync(path.join(migrationRoot, name), { throwIfNoEntry: false })).sort().map((name) => {
@@ -181,7 +192,7 @@ export function collectMigrations(repoRoot, expectedDigest) {
   };
 }
 
-function validateImage(image, label, sourceCommit, expectedTag) {
+function validateImage(image, label, sourceCommit, expectedTag, expectedRepository) {
   assertKeys(image, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'name', 'sourceComposePath', 'ociRevision', 'publicationRunUrl'], label);
   string(image.repository, `${label}.repository`);
   string(image.configuredTag, `${label}.configuredTag`);
@@ -189,6 +200,7 @@ function validateImage(image, label, sourceCommit, expectedTag) {
   digest(image.platformDigest, `${label}.platformDigest`);
   string(image.os, `${label}.os`);
   string(image.architecture, `${label}.architecture`);
+  if (expectedRepository && image.repository !== expectedRepository) fail(`${label} repository mismatch`);
   if (image.indexDigest === image.platformDigest) fail(`${label} index and selected platform digests must remain distinct`);
   if (expectedTag && image.configuredTag !== expectedTag) fail(`${label} configured tag mismatch`);
   if (/(?:^|:)(?:main|latest)$/u.test(image.configuredTag)) fail(`${label} floating tag is not authoritative`);
@@ -236,6 +248,20 @@ function collectWeb(repoRoot, input, source) {
     if (canonicalJson(record) !== canonicalJson(entry)) fail(`User-web artifact identity mismatch: ${entry.path}`);
     return record;
   }).sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
+  const actualPaths = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      const metadata = lstatSync(absolute);
+      if (metadata.isSymbolicLink()) fail('User-web artifact tree must not contain symlinks');
+      if (metadata.isDirectory()) visit(absolute);
+      else if (metadata.isFile()) actualPaths.push(path.relative(distRoot, absolute).split(path.sep).join('/'));
+      else fail('User-web artifact tree contains a non-regular entry');
+    }
+  };
+  visit(distRoot);
+  actualPaths.sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  if (canonicalJson(actualPaths) !== canonicalJson(records.map((entry) => entry.path))) fail('User-web manifest file list is incomplete');
   if (records.length !== manifest.artifact.fileCount || records.reduce((sum, entry) => sum + entry.size, 0) !== manifest.artifact.totalBytes) {
     fail('User-web artifact aggregate mismatch');
   }
@@ -323,25 +349,41 @@ export function validateManifest(manifest) {
   assertKeys(manifest, ['schema', 'identityDigestAlgorithm', 'identityDigest', 'generatedAt', 'source', 'apiImage', 'dependencyImages', 'migrations', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention'], 'manifest');
   if (manifest.schema !== SCHEMA) fail('Unsupported Day 1 release-identity schema');
   if (manifest.identityDigestAlgorithm !== DIGEST_ALGORITHM) fail('Unsupported identity-digest algorithm');
+  string(manifest.generatedAt, 'generatedAt');
   sha40(manifest.source?.commit, 'source.commit');
   assertKeys(manifest.source, ['repository', 'commit', 'tree', 'candidateId', 'exactSource', 'cleanTrackedCheckout'], 'source');
+  if (manifest.source.repository !== 'tommytang213/Settleora') fail('Source repository mismatch');
+  safeLabel(manifest.source.candidateId, 'source.candidateId');
   sha40(manifest.source?.tree, 'source.tree');
   if (manifest.source.exactSource !== true || manifest.source.cleanTrackedCheckout !== true) fail('Source exact/clean assertions are required');
-  validateImage(manifest.apiImage, 'apiImage', manifest.source.commit);
+  const apiRepository = 'ghcr.io/tommytang213/settleora-api';
+  validateImage(manifest.apiImage, 'apiImage', manifest.source.commit, undefined, apiRepository);
   if (!Array.isArray(manifest.dependencyImages) || manifest.dependencyImages.length !== 3) fail('Exactly three dependency images are required');
   const expectedDependencies = new Set(['caddy', 'postgres', 'rabbitmq']);
+  const dependencyRepositories = { postgres: 'docker.io/library/postgres', rabbitmq: 'docker.io/library/rabbitmq', caddy: 'docker.io/library/caddy' };
   for (const image of manifest.dependencyImages) {
     if (!expectedDependencies.delete(image.name)) fail(`Unexpected or duplicate dependency image ${image.name}`);
-    validateImage(image, `dependencyImages.${image.name}`);
+    validateImage(image, `dependencyImages.${image.name}`, undefined, undefined, dependencyRepositories[image.name]);
     safeLabel(image.sourceComposePath, `dependencyImages.${image.name}.sourceComposePath`);
   }
   if (expectedDependencies.size) fail('Missing dependency image');
   if (manifest.migrations?.stateClaim !== 'repository-source-only-not-applied') fail('Migrations must not be described as applied');
   assertKeys(manifest.migrations, ['stateClaim', 'ordering', 'setDigestAlgorithm', 'setSha256', 'count', 'entries', 'source'], 'migrations');
   assertKeys(manifest.migrations.source, ['commit', 'tree'], 'migrations.source');
+  if (manifest.migrations.ordering !== 'migration-id-byte-order-v1' || manifest.migrations.setDigestAlgorithm !== 'sha256(canonical-json-v1:migration-entries)') fail('Migration algorithm mismatch');
+  if (manifest.migrations.source.commit !== manifest.source.commit || manifest.migrations.source.tree !== manifest.source.tree) fail('Migration source mismatch');
+  let priorMigration = '';
   for (const [index, entry] of manifest.migrations.entries?.entries?.() ?? []) {
     assertKeys(entry, ['id', 'files'], `migrations.entries.${index}`);
-    for (const file of entry.files ?? []) assertKeys(file, ['path', 'sha256', 'size'], `migrations.entries.${index}.file`);
+    if (!/^\d{14}_[A-Za-z0-9_]+$/u.test(entry.id) || entry.id <= priorMigration) fail('Migration IDs must be valid and strictly ordered');
+    priorMigration = entry.id;
+    if (!Array.isArray(entry.files) || entry.files.length < 1 || entry.files.length > 2) fail('Migration file list is invalid');
+    for (const file of entry.files) {
+      assertKeys(file, ['path', 'sha256', 'size'], `migrations.entries.${index}.file`);
+      safeLabel(file.path, `migrations.entries.${index}.path`);
+      hexDigest(file.sha256, `migrations.entries.${index}.sha256`);
+      if (!Number.isSafeInteger(file.size) || file.size < 1) fail('Migration file size is invalid');
+    }
   }
   hexDigest(manifest.migrations?.setSha256, 'migrations.setSha256');
   if (manifest.migrations.count !== manifest.migrations.entries?.length) fail('Migration count mismatch');
@@ -351,24 +393,40 @@ export function validateManifest(manifest) {
   assertKeys(manifest.userWeb.source, ['commit', 'tree'], 'userWeb.source');
   assertKeys(manifest.userWeb.dependencyLock, ['path', 'sha256', 'lockfileVersion'], 'userWeb.dependencyLock');
   assertKeys(manifest.userWeb.artifact, ['treeDigestAlgorithm', 'treeSha256', 'fileCount', 'totalBytes'], 'userWeb.artifact');
+  if (manifest.userWeb.dependencyLock.path !== 'apps/web-user/package-lock.json' || manifest.userWeb.artifact.treeDigestAlgorithm !== 'sha256(canonical-file-records-v1)') fail('User-web algorithm/path mismatch');
+  hexDigest(manifest.userWeb.dependencyLock.sha256, 'userWeb.dependencyLock.sha256');
+  hexDigest(manifest.userWeb.artifact.treeSha256, 'userWeb.artifact.treeSha256');
+  hexDigest(manifest.userWeb.manifestSha256, 'userWeb.manifestSha256');
+  if (!Number.isSafeInteger(manifest.userWeb.artifact.fileCount) || manifest.userWeb.artifact.fileCount < 1 || !Number.isSafeInteger(manifest.userWeb.artifact.totalBytes) || manifest.userWeb.artifact.totalBytes < 1) fail('User-web aggregate values are invalid');
   if (manifest.userWeb.source?.commit !== manifest.source.commit || manifest.userWeb.source?.tree !== manifest.source.tree) fail('User-web source/tree mismatch');
   if (manifest.android?.source?.commit !== manifest.source.commit || manifest.android?.source?.tree !== manifest.source.tree) fail('Android source/tree mismatch');
   assertKeys(manifest.android, ['source', 'semanticVersion', 'buildNumber', 'applicationId', 'r8Minified', 'r8MappingSha256', 'signingState', 'signerCertificateSha256', 'apk', 'aab', 'buildProvenanceSha256'], 'android');
   assertKeys(manifest.android.source, ['commit', 'tree'], 'android.source');
   assertKeys(manifest.android.apk, ['path', 'size', 'sha256'], 'android.apk');
   assertKeys(manifest.android.aab, ['path', 'size', 'sha256'], 'android.aab');
+  for (const key of ['semanticVersion', 'buildNumber', 'applicationId']) string(manifest.android[key], `android.${key}`);
+  if (manifest.android.r8Minified !== true) fail('Android R8/minification assertion is required');
+  hexDigest(manifest.android.r8MappingSha256, 'android.r8MappingSha256');
+  hexDigest(manifest.android.signerCertificateSha256, 'android.signerCertificateSha256');
+  hexDigest(manifest.android.buildProvenanceSha256, 'android.buildProvenanceSha256');
+  for (const artifact of [manifest.android.apk, manifest.android.aab]) if (!Number.isSafeInteger(artifact.size) || artifact.size < 1) fail('Android artifact size is invalid');
   hexDigest(manifest.android?.apk?.sha256, 'android.apk.sha256');
   hexDigest(manifest.android?.aab?.sha256, 'android.aab.sha256');
   if (manifest.android.signingState !== 'debug-signing-non-store-ready') fail('Android signing state must be recorded honestly');
   if (manifest.rollback?.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety !== false) fail('Rollback safety caveat must be false');
   assertKeys(manifest.releaseNotes, ['source', 'sha256', 'size', 'candidateSummary'], 'releaseNotes');
+  safeLabel(manifest.releaseNotes.source, 'releaseNotes.source');
+  hexDigest(manifest.releaseNotes.sha256, 'releaseNotes.sha256');
+  if (!Number.isSafeInteger(manifest.releaseNotes.size) || manifest.releaseNotes.size < 1) fail('Release-note size is invalid');
+  publicText(manifest.releaseNotes.candidateSummary, 'releaseNotes.candidateSummary');
   assertKeys(manifest.rollback, ['sourceCommit', 'apiImage', 'artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety', 'safetyCaveat'], 'rollback');
-  validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit);
+  validateImage(manifest.rollback.apiImage, 'rollback.apiImage', manifest.rollback.sourceCommit, undefined, apiRepository);
   if (manifest.retention?.canonicalEvidenceDirectory !== `/workspace/logs/settleora-release-candidates/${manifest.source.candidateId}`) {
     fail('Retention directory must exactly bind the candidate ID under the approved external root');
   }
   assertKeys(manifest.retention, ['canonicalEvidenceDirectory', 'policy', 'apiRegistryIdentity'], 'retention');
-  string(manifest.retention?.policy, 'retention.policy');
+  publicText(manifest.retention?.policy, 'retention.policy');
+  publicText(manifest.retention?.apiRegistryIdentity, 'retention.apiRegistryIdentity');
   const expectedDigest = computeIdentityDigest(manifest);
   if (manifest.identityDigest !== expectedDigest) fail(`Identity digest mismatch: expected ${expectedDigest}`);
   return manifest;
@@ -383,13 +441,15 @@ function assertKeys(value, allowed, label) {
 export function buildManifest(repoRoot, input) {
   const source = collectSource(repoRoot, input.source);
   const platform = { os: string(input.platform?.os, 'platform.os'), architecture: string(input.platform?.architecture, 'platform.architecture') };
-  const apiImage = validateImage(withPlatform(input.apiImage, platform, 'apiImage'), 'apiImage', source.commit);
+  const apiRepository = 'ghcr.io/tommytang213/settleora-api';
+  const apiImage = validateImage(withPlatform(input.apiImage, platform, 'apiImage'), 'apiImage', source.commit, undefined, apiRepository);
   const services = { postgres: 'postgres', rabbitmq: 'rabbitmq', caddy: 'ingress' };
+  const repositories = { postgres: 'docker.io/library/postgres', rabbitmq: 'docker.io/library/rabbitmq', caddy: 'docker.io/library/caddy' };
   const dependencyImages = [...input.dependencyImages]
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((image) => {
       const expectedTag = configuredImage(repoRoot, image.sourceComposePath, services[image.name]);
-      return validateImage(withPlatform(image, platform, `dependencyImages.${image.name}`), `dependencyImages.${image.name}`, undefined, expectedTag);
+      return validateImage(withPlatform(image, platform, `dependencyImages.${image.name}`), `dependencyImages.${image.name}`, undefined, expectedTag, repositories[image.name]);
     });
   const migrations = collectMigrations(repoRoot, input.expectedMigrationSetSha256);
   migrations.source = { commit: source.commit, tree: source.tree };
@@ -406,7 +466,7 @@ export function buildManifest(repoRoot, input) {
     releaseNotes: collectReleaseNotes(input.releaseNotes),
     rollback: {
       sourceCommit: sha40(input.rollback.sourceCommit, 'rollback.sourceCommit'),
-      apiImage: validateImage(withPlatform(input.rollback.apiImage, platform, 'rollback.apiImage'), 'rollback.apiImage', input.rollback.sourceCommit),
+      apiImage: validateImage(withPlatform(input.rollback.apiImage, platform, 'rollback.apiImage'), 'rollback.apiImage', input.rollback.sourceCommit, undefined, apiRepository),
       artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety: false,
       safetyCaveat: 'Artifact availability does not prove database, schema, or file rollback safety.',
     },

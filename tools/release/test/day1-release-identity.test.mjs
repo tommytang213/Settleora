@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   buildManifest,
   canonicalJson,
+  collectMigrations,
   computeIdentityDigest,
   sha256,
   validateRegistryDocument,
@@ -47,8 +48,8 @@ function fixture(t) {
   ].join('\n'));
   const migrationRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   write(root, `${migrationRoot}/20260101000000_Initial.cs`, 'migration\n');
-  write(root, `${migrationRoot}/20260101000000_Initial.Designer.cs`, 'designer\n');
-  write(root, `${migrationRoot}/20260102000000_SourceOnly.cs`, 'source-only migration\n');
+  write(root, `${migrationRoot}/20260101000000_Initial.Designer.cs`, '[Migration("20260101000000_Initial")]\ndesigner\n');
+  write(root, `${migrationRoot}/20260102000000_SourceOnly.cs`, '[Migration("20260102000000_SourceOnly")]\nsource-only migration\n');
   write(root, 'apps/web-user/package-lock.json', '{"lockfileVersion":3}\n');
   write(root, 'apps/mobile/pubspec.yaml', 'version: 1.2.3+45\n');
   write(root, 'apps/mobile/android/app/build.gradle.kts', [
@@ -164,6 +165,9 @@ test('rejects dependency tag/platform/digest and migration-set mismatches', (t) 
   const deps = f.input.dependencyImages.map((image) => ({ ...image }));
   deps[0].configuredTag = 'postgres:15-alpine';
   assert.throws(() => buildManifest(f.root, { ...f.input, dependencyImages: deps }), /configured tag mismatch/);
+  const wrongRepository = f.input.dependencyImages.map((image) => ({ ...image }));
+  wrongRepository[0].repository = 'example.invalid/library/postgres';
+  assert.throws(() => buildManifest(f.root, { ...f.input, dependencyImages: wrongRepository }), /repository mismatch/);
   const sameDigest = f.input.dependencyImages.map((image) => ({ ...image }));
   sameDigest[1].platformDigest = sameDigest[1].indexDigest;
   assert.throws(() => buildManifest(f.root, { ...f.input, dependencyImages: sameDigest }), /must remain distinct/);
@@ -181,6 +185,9 @@ test('rejects web source and Android artifact mismatches', (t) => {
   assert.throws(() => buildManifest(f.root, f.input), /User-web source\/tree mismatch/);
   web.source.commit = f.commit;
   writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  write(f.evidenceRoot, 'dist/omitted.js', 'omitted\n');
+  assert.throws(() => buildManifest(f.root, f.input), /file list is incomplete/);
+  rmSync(path.join(f.evidenceRoot, 'dist/omitted.js'));
   const expected = { apk: { size: 1, sha256: '8'.repeat(64) } };
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected } }), /APK identity mismatch/);
   const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
@@ -189,6 +196,17 @@ test('rejects web source and Android artifact mismatches', (t) => {
   provenance.source.tree = '6'.repeat(40);
   writeFileSync(f.input.android.buildProvenancePath, JSON.stringify(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source mismatch/);
+});
+
+test('rejects hidden tracked-source changes and nonconforming migration sources', (t) => {
+  const f = fixture(t);
+  git(f.root, ['update-index', '--assume-unchanged', 'apps/mobile/pubspec.yaml']);
+  writeFileSync(path.join(f.root, 'apps/mobile/pubspec.yaml'), 'version: 9.9.9+99\n');
+  assert.throws(() => buildManifest(f.root, f.input), /differs from HEAD/);
+  git(f.root, ['update-index', '--no-assume-unchanged', 'apps/mobile/pubspec.yaml']);
+  writeFileSync(path.join(f.root, 'apps/mobile/pubspec.yaml'), 'version: 1.2.3+45\n');
+  write(f.root, 'services/api/src/Settleora.Api/Persistence/Migrations/CustomMigration.cs', '[Migration("20260103000000_Custom")]\n');
+  assert.throws(() => collectMigrations(f.root), /Unrecognized migration source files/);
 });
 
 test('rejects symlinked evidence and a tampered manifest identity digest', (t) => {
