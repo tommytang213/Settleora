@@ -14,7 +14,7 @@ R10 completion addendum: [Issue #1198](https://github.com/tommytang213/Settleora
 
 Mobile portability addendum: [Issue #1201](https://github.com/tommytang213/Settleora/issues/1201) is implemented by [PR #1202](https://github.com/tommytang213/Settleora/pull/1202), reviewed source `f5e2802a9decd4eb26185d3c6cd55fd6d5d5d0e0`, tree `483f095291e2c39051586b408dd4127d4d0a2e58`, normal merge `c6bcab3bf42cfe61b88e55131676cc1fe05de65c`. Shared font and visual-output discovery is portable across ordinary hosts and Codemagic configuration, GitHub Linux/macOS proof passed without `/opt/flutter`, and release/visual selection remains intact. The repository record does not infer source-bound provider acceptance beyond separately supplied operator evidence. This correction subsequently unblocked R02.
 
-R02 completion addendum: [Issue #1205](https://github.com/tommytang213/Settleora/issues/1205) is implemented by [PR #1206](https://github.com/tommytang213/Settleora/pull/1206) plus corrective convergence [PR #1207](https://github.com/tommytang213/Settleora/pull/1207). Final reviewed source `4df10f7d9ae5478288327cc24ad68ad78116110d`, tree `537684248fbc909a4939ac2522d5e049ba9c2a58`, normally merged as `01bf000ecfb718fa5708202892d77178fc9a7fb4`. Web-affecting PRs now produce source-bound, deterministic `dist` checksum/provenance and a retained GitHub artifact without deployment or serving. R03 is now the next dependency-safe repository recommendation; #373 still owns product completeness and R08 remains blocked on it.
+R02 completion addendum: [Issue #1205](https://github.com/tommytang213/Settleora/issues/1205) is implemented by [PR #1206](https://github.com/tommytang213/Settleora/pull/1206) plus corrective convergence [PR #1207](https://github.com/tommytang213/Settleora/pull/1207). Final reviewed source `4df10f7d9ae5478288327cc24ad68ad78116110d`, tree `537684248fbc909a4939ac2522d5e049ba9c2a58`, normally merged as `01bf000ecfb718fa5708202892d77178fc9a7fb4`. Web-affecting PRs now produce source-bound, deterministic `dist` checksum/provenance and a retained GitHub artifact without deployment or serving. Open #970's adoption/split of R01 is the next dependency-safe step before full R03; #373 still owns product completeness and R08 remains blocked on it.
 
 ## 1. Scope, method, and conclusion
 
@@ -29,8 +29,9 @@ release**. Automatic pull-request routing is implemented and credited to
 built and is published to GHCR on `main`; source-build and image-based LAN
 Compose packages exist; a historical maintainer-run TrueNAS SCALE `25.10.4`
 custom-app check passed bounded migration, liveness, and readiness checks. The
-user web produces exact-source CI build/package evidence with a deterministic
-`dist` manifest and retained artifact, and Android produces a debug APK.
+user web produces exact-source pull-request build/package evidence with a
+deterministic `dist` manifest and retained artifact, and Android produces a
+debug APK.
 
 Those facts do not close the release gate. The Android release build currently
 fails in R8 on missing ML Kit recognizer classes. Android still has a placeholder
@@ -49,7 +50,7 @@ availability/install remain external/manual; current TrueNAS acceptance is
 blocked on the repository gaps, and production/staging exposure is unavailable.
 
 With the #1195 R12, #1198 R10, #1201 mobile-portability and #1205 R02 repository slices, the 69 evaluated
-capabilities comprise 26 `implemented`, 17 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
+capabilities comprise 25 `implemented`, 18 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
 `unavailable`, 7 `blocked`, 1 `superseded`, and 1 `later-day`.
 
 Method:
@@ -131,7 +132,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | B03 | Local development Compose package | `implemented` | `infra/docker-compose.yml`; `infra/env/.env.example` | `validate:compose` is automatic for non-doc PRs; builds API plus PostgreSQL/RabbitMQ, but exposes dependency ports and is explicitly development-only | #380; not a supported production package |
 | B04 | TrueNAS/LAN source-build package | `partial` | `infra/docker-compose.truenas-lan.yml`; `.env.truenas-lan.example` | Compose validation exists; package builds `migrate`/`api`, publishes only exact-host private HTTPS, keeps API HTTP un-published, and separates ingress from PostgreSQL/RabbitMQ. Historical #483 live evidence is not current-head install proof | R04/R05 |
 | B05 | TrueNAS/LAN image package | `partial` | `infra/docker-compose.truenas-lan.image.yml` | Config validates; defaults to floating `ghcr.io/tommytang213/settleora-api:main`, while operators may set an exact SHA tag/digest | R03/R04; pinning/release identity is not enforced |
-| B06 | User-web production build artifact | `implemented` | `apps/web-user/package.json`; `vite.config.ts`; `scaffold-validation.yml`; manifest helper | Web-affecting PRs run clean install, lint, 139 tests and production build from the exact source head, then upload staged `dist/` plus deterministic source/lock/tool/per-file/tree provenance for 14 days. Final #1207 evidence is artifact ID `10190883387`, tree digest `6bf6cd64...` | Completed R02/#1205; this is build/package evidence, not serving, deployment or #373 completion |
+| B06 | User-web production build artifact | `partial` | `apps/web-user/package.json`; `vite.config.ts`; `scaffold-validation.yml`; manifest helper | Web-affecting PRs run clean install, lint, 139 tests and production build from the exact source head, then upload staged `dist/` plus deterministic source/lock/tool/per-file/tree provenance for 14 days. Final #1207 evidence is artifact ID `10190883387`, tree digest `6bf6cd64...`; the PR-only job intentionally skips protected-branch pushes | Completed R02/#1205 satisfies its PR close rule. Protected-push artifact coverage required by the broader CI/CD architecture remains absent; this is not serving, deployment or #373 completion |
 | B07 | Admin-web artifact | `unavailable` | `apps/web-admin/README.md` only | No package, build command, runtime, tests, or artifact path | R13 after #964 reconciles the #376 runtime graph; completed/planning issues are prerequisites, not artifact owners |
 | B08 | Android debug artifact | `implemented` | `apps/mobile/android/`; `apps/mobile/pubspec.yaml` | `flutter build apk --debug` passed on baseline; artifact `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`; not automatic CI or releasable | R01 owns release-build preparation; #975 only consumes later platform evidence |
 | B09 | Android release APK/AAB | `blocked` | `apps/mobile/android/app/build.gradle.kts` | `flutter build apk --release` failed on baseline in `:app:minifyReleaseWithR8`: missing ML Kit Chinese/Japanese/Korean/Devanagari recognizer option classes. No valid AAB evidence | R01 first; R07 after compile succeeds |
