@@ -49,11 +49,13 @@ node tools/release/day1-release-identity-cli.mjs validate \
   --java-home /trusted/jdk
 ```
 
-Assembly also performs `npm ci` and the canonical user-web build in a disposable
-exact-source Git archive, then retains the R02 package manifest and `dist/` under
+Assembly also performs `npm ci` through the protected system npm executable and
+the canonical user-web build with a bounded environment and private cache in a
+disposable exact-source snapshot, then retains the R02 package manifest and `dist/` under
 the candidate directory. Validation repeats that exact-source web build and
 compares it with the retained identity, so caller-authored source claims are not
-trusted. Executable source snapshots reject tracked symlinks, and web artifact
+trusted. Executable source snapshots are materialized directly from committed
+Git blobs so export attributes cannot omit or rewrite inputs. They reject tracked symlinks, and web artifact
 walking is bounded by file, byte, directory-count, and directory-depth limits.
 
 `collect-android` cleans generated state, invokes the two fixed release-build commands, and writes a
@@ -62,6 +64,9 @@ inside the canonical candidate directory, so it cannot accept caller-selected
 stale Android binaries. The collector captures the Flutter SDK's Dart executable
 and Flutter tool snapshot, invokes both through held read-only descriptors, and
 revalidates their device, inode, size, timestamps, and SHA-256 after every command.
+Flutter and Android SDK content inventories are compared across the build, while
+pub and Gradle use fresh private caches and a bounded environment. The committed
+Gradle wrapper distribution SHA-256 prevents distribution substitution.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
@@ -89,5 +94,9 @@ exact API assembly's configured `SettleoraDbContext` `IMigrationsAssembly`; the
 tooling compares that runtime inventory with deterministic repository migration
 filenames and source hashes. The helper is built and run through a held descriptor
 for the root-owned `/usr/lib/dotnet/dotnet` runtime, whose protected ancestor chain
-and captured identity are verified. All provenance Git reads disable replacement objects, and any
+and captured identity are verified. Restore uses committed NuGet lock files, a
+repository-owned source configuration, a fresh private package cache, locked mode,
+and a bounded environment; publish then uses `--no-restore`. Git, Docker, GitHub
+CLI, and npm calls use explicit protected system executables. All provenance Git
+reads disable replacement objects, and any
 local `refs/replace/*` makes collection fail closed.

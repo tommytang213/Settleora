@@ -53,7 +53,7 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const canonicalJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
 function git(args) {
-  return execFileSync('git', ['--no-replace-objects', ...args], {
+  return execFileSync('/usr/bin/git', ['--no-replace-objects', ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -66,7 +66,7 @@ const gitBlobObjectId = (contents) => createHash('sha1')
   .digest('hex');
 
 export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
-  const replacements = execFileSync('git', ['--no-replace-objects', 'for-each-ref', '--format=%(refname)', 'refs/replace'], {
+  const replacements = execFileSync('/usr/bin/git', ['--no-replace-objects', 'for-each-ref', '--format=%(refname)', 'refs/replace'], {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -93,7 +93,7 @@ export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
       verifiedDirectories.add(key);
     }
   };
-  const output = execFileSync('git', ['--no-replace-objects', 'ls-tree', '-rz', '--full-tree', 'HEAD'], {
+  const output = execFileSync('/usr/bin/git', ['--no-replace-objects', 'ls-tree', '-rz', '--full-tree', 'HEAD'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -302,7 +302,7 @@ export function createUserWebDistManifest({
     },
     buildTools: provenance?.buildTools ?? {
       node: process.version,
-      npm: execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim(),
+      npm: execFileSync('/usr/bin/npm', ['--version'], { encoding: 'utf8' }).trim(),
       typescript: packageVersion(lock, 'typescript'),
       vite: packageVersion(lock, 'vite'),
     },

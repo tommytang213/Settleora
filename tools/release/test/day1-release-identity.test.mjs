@@ -107,6 +107,10 @@ function fixture(t) {
   const buildProvenancePath = write(evidenceRoot, 'build-provenance.json', canonicalJson({
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
     commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
+    toolchains: {
+      flutter: { algorithm: 'sha256(canonical-toolchain-tree-v1)', sha256: '8'.repeat(64), fileCount: 1, totalBytes: 1 },
+      android: { algorithm: 'sha256(canonical-toolchain-tree-v1)', sha256: '9'.repeat(64), fileCount: 1, totalBytes: 1 },
+    },
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
       aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: readFileSync(aabPath).length, sha256: sha256(readFileSync(aabPath)) },
@@ -189,9 +193,10 @@ test('rejects source, API revision, API digest and floating-tag mismatches', (t)
   assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, publicationRunUrl: 'https://github.com/other/repo/actions/runs/1' } }), /canonical GitHub Actions run URL/);
   assert.deepEqual(validatePublicationRunUrl(f.input.apiImage.publicationRunUrl, f.commit), { url: f.input.apiImage.publicationRunUrl, runId: '1' });
   const publication = validatePublicationRunUrl(f.input.apiImage.publicationRunUrl, f.commit);
-  const run = { html_url: publication.url, head_repository: { full_name: 'tommytang213/Settleora' }, head_sha: f.commit, event: 'push', conclusion: 'success', path: '.github/workflows/api-image-ghcr.yml' };
+  const run = { html_url: publication.url, head_repository: { full_name: 'tommytang213/Settleora' }, head_sha: f.commit, head_branch: 'main', event: 'push', conclusion: 'success', path: '.github/workflows/api-image-ghcr.yml' };
   assert.equal(validatePublicationRunDocument(publication, run, f.commit), true);
   assert.throws(() => validatePublicationRunDocument(publication, { ...run, head_sha: '0'.repeat(40) }, f.commit), /publication run provenance mismatch/);
+  assert.throws(() => validatePublicationRunDocument(publication, { ...run, head_branch: 'v1.0.0' }, f.commit), /publication run provenance mismatch/);
   const jobs = { total_count: 1, jobs: [{ id: 123, name: 'Publish API image', conclusion: 'success', steps: [{ name: 'Build and publish API image', conclusion: 'success' }] }] };
   assert.equal(validatePublicationJobDocument(jobs, f.commit), 123);
   assert.throws(() => validatePublicationJobDocument({ ...jobs, jobs: [{ ...jobs.jobs[0], conclusion: 'failure' }] }, f.commit), /publication job provenance mismatch/);

@@ -24,7 +24,29 @@ import {
 import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const gitExec = (args, options) => execFileSync('git', ['--no-replace-objects', ...args], options);
+function protectedSystemCommand(candidate, expectedName) {
+  const command = path.resolve(candidate);
+  const resolved = realpathSync(command);
+  if (path.basename(command) !== expectedName) throw new Error(`Protected command must be named ${expectedName}`);
+  for (const target of new Set([command, resolved])) {
+    let cursor = target;
+    while (true) {
+      const metadata = lstatSync(cursor);
+      if (metadata.uid !== 0 || (!metadata.isSymbolicLink() && (metadata.mode & 0o022) !== 0)) throw new Error(`${expectedName} command is not protected by root-owned non-writable ancestors`);
+      if (cursor === '/') break;
+      cursor = path.dirname(cursor);
+    }
+  }
+  const metadata = statSync(resolved);
+  if (!metadata.isFile() || !(metadata.mode & 0o111)) throw new Error(`${expectedName} command is not a protected executable`);
+  return command;
+}
+
+const gitCommand = protectedSystemCommand('/usr/bin/git', 'git');
+const dockerCommand = protectedSystemCommand('/usr/bin/docker', 'docker');
+const ghCommand = protectedSystemCommand('/usr/bin/gh', 'gh');
+const npmCommand = protectedSystemCommand('/usr/bin/npm', 'npm');
+const gitExec = (args, options) => execFileSync(gitCommand, ['--no-replace-objects', ...args], options);
 const replacementRefs = gitExec(['for-each-ref', '--format=%(refname)', 'refs/replace'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 if (replacementRefs) throw new Error('Git replacement refs are not allowed for provenance collection');
 const maxTrustedToolBytes = 256 * 1024 * 1024;
@@ -99,7 +121,7 @@ function registryReference(image) {
 }
 
 function inspect(reference, format) {
-  return JSON.parse(execFileSync('docker', ['buildx', 'imagetools', 'inspect', reference, '--format', format], {
+  return JSON.parse(execFileSync(dockerCommand, ['buildx', 'imagetools', 'inspect', reference, '--format', format], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }));
@@ -126,11 +148,11 @@ function verifyLiveRegistry(input, retained = false) {
   const verifyPublication = (image, sourceCommit, label) => {
     const reference = verify(image, label, sourceCommit);
     const publication = validatePublicationRunUrl(image.publicationRunUrl, sourceCommit);
-    const run = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    const run = JSON.parse(execFileSync(ghCommand, ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
     validatePublicationRunDocument(publication, run, sourceCommit);
-    const jobs = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}/jobs?per_page=100`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+    const jobs = JSON.parse(execFileSync(ghCommand, ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}/jobs?per_page=100`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
     const jobId = validatePublicationJobDocument(jobs, sourceCommit);
-    const jobLog = execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/jobs/${jobId}/logs`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 });
+    const jobLog = execFileSync(ghCommand, ['api', `repos/tommytang213/Settleora/actions/jobs/${jobId}/logs`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 });
     validatePublicationJobLog(jobLog, image, sourceCommit);
     const provenance = inspect(reference, '{{json .Provenance.SLSA}}');
     validatePublicationProvenance(publication, provenance, sourceCommit);
@@ -284,9 +306,65 @@ function trustedFlutter(candidate) {
 function executeSealedFlutter(flutter, values, cwd) {
   return executeSealedTool(flutter.dart, ['/proc/self/fd/4', ...values], {
     cwd,
-    env: { ...process.env, FLUTTER_ROOT: flutter.root },
+    env: flutter.environment ?? { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', FLUTTER_ROOT: flutter.root },
     stdio: undefined,
   }, [flutter.snapshot]);
+}
+
+function toolchainTreeDigest(root, label) {
+  const absoluteRoot = path.resolve(root);
+  const rootMetadata = lstatSync(absoluteRoot, { throwIfNoEntry: false });
+  if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(absoluteRoot) !== absoluteRoot) throw new Error(`${label} root is not a stable directory`);
+  const records = [];
+  let fileCount = 0;
+  let totalBytes = 0;
+  const walk = (directory, depth) => {
+    if (depth > 64) throw new Error(`${label} exceeds its directory-depth boundary`);
+    const entries = readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)));
+    for (const entry of entries) {
+      const target = path.join(directory, entry.name);
+      const relative = path.relative(absoluteRoot, target).split(path.sep).join('/');
+      if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) throw new Error(`${label} contains an unsafe path`);
+      const metadata = lstatSync(target);
+      if (metadata.isDirectory()) {
+        walk(target, depth + 1);
+      } else if (metadata.isSymbolicLink()) {
+        const link = readlinkSync(target);
+        const resolved = path.resolve(path.dirname(target), link);
+        if (path.relative(absoluteRoot, resolved).startsWith('..') || path.isAbsolute(path.relative(absoluteRoot, resolved))) throw new Error(`${label} contains an external symlink`);
+        records.push(`link\0${relative}\0${link}\n`);
+      } else if (metadata.isFile()) {
+        fileCount += 1;
+        totalBytes += metadata.size;
+        if (fileCount > 100_000 || totalBytes > 12 * 1024 * 1024 * 1024) throw new Error(`${label} exceeds its inventory boundary`);
+        const descriptor = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          const opened = fstatSync(descriptor);
+          const digest = createHash('sha256');
+          const buffer = Buffer.allocUnsafe(1024 * 1024);
+          let offset = 0;
+          while (true) {
+            const count = readSync(descriptor, buffer, 0, buffer.length, offset);
+            if (count === 0) break;
+            offset += count;
+            digest.update(buffer.subarray(0, count));
+          }
+          const after = fstatSync(descriptor);
+          const current = lstatSync(target);
+          if (offset !== opened.size || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+            || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || current.size !== opened.size) throw new Error(`${label} changed during inventory`);
+          records.push(`file\0${relative}\0${opened.mode & 0o111 ? 'x' : '-'}\0${opened.size}\0${digest.digest('hex')}\n`);
+        } finally {
+          closeSync(descriptor);
+        }
+      } else {
+        throw new Error(`${label} contains an unsupported filesystem entry`);
+      }
+    }
+  };
+  walk(absoluteRoot, 0);
+  return { algorithm: 'sha256(canonical-toolchain-tree-v1)', sha256: createHash('sha256').update(records.join('')).digest('hex'), fileCount, totalBytes };
 }
 
 function assertSystemRuntime(root) {
@@ -465,6 +543,23 @@ export function copyBoundedFile(source, target, maxBytes, label) {
   }
 }
 
+function materializeExactTree(commit, destination, label) {
+  const records = gitExec(['ls-tree', '-r', '-z', commit], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+    .toString('utf8').split('\0').filter(Boolean);
+  if (records.length === 0) throw new Error(`${label} source tree is empty`);
+  for (const record of records) {
+    const match = /^(100644|100755) blob ([0-9a-f]{40,64})\t(.+)$/u.exec(record);
+    if (!match) throw new Error(`${label} source tree contains an unsupported entry`);
+    const relative = match[3];
+    if (relative.includes('\\') || relative.split('/').some((part) => !part || part === '.' || part === '..')) throw new Error(`${label} source tree contains an unsafe path`);
+    const target = path.resolve(destination, relative);
+    if (path.relative(destination, target).startsWith('..') || path.isAbsolute(path.relative(destination, target))) throw new Error(`${label} source tree escapes its snapshot`);
+    mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+    const bytes = gitExec(['cat-file', 'blob', match[2]], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: maxAndroidArtifactBytes });
+    writeFileSync(target, bytes, { flag: 'wx', mode: match[1] === '100755' ? 0o755 : 0o644 });
+  }
+}
+
 function exactSourceSnapshot(prefix, privateParent, callback) {
   const source = {
     commit: gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
@@ -474,14 +569,11 @@ function exactSourceSnapshot(prefix, privateParent, callback) {
   assertOwnedEvidenceDirectory(privateParent);
   const container = path.join(privateParent, `.settleora-${prefix}-source-${randomUUID()}`);
   const snapshot = path.join(container, 'source');
-  const archive = path.join(container, 'source.tar');
   mkdirSync(container, { recursive: false, mode: 0o700 });
   mkdirSync(snapshot, { recursive: false, mode: 0o700 });
   try {
     assertCommitHasNoSymlinks(source.commit, prefix);
-    gitExec(['archive', '--format=tar', `--output=${archive}`, source.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
-    execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshot], { stdio: ['ignore', 'ignore', 'pipe'] });
-    rmSync(archive, { force: false });
+    materializeExactTree(source.commit, snapshot, prefix);
     return callback(snapshot, source);
   } finally {
     const metadata = lstatSync(container, { throwIfNoEntry: false });
@@ -503,8 +595,16 @@ function collectWebExactSource(output) {
   if (lstatSync(absolute, { throwIfNoEntry: false })) throw new Error('User-web evidence output directory must not already exist');
   return exactSourceSnapshot('web', path.dirname(absolute), (snapshot, source) => {
     const webRoot = path.join(snapshot, 'apps/web-user');
-    execFileSync('npm', ['ci'], { cwd: webRoot, stdio: 'inherit' });
-    execFileSync('npm', ['run', 'build'], { cwd: webRoot, stdio: 'inherit' });
+    const npmEnvironment = {
+      PATH: '/usr/bin:/bin',
+      LANG: 'C.UTF-8',
+      LC_ALL: 'C.UTF-8',
+      npm_config_cache: path.join(snapshot, '.release-npm-cache'),
+      npm_config_audit: 'false',
+      npm_config_fund: 'false',
+    };
+    execFileSync(npmCommand, ['ci'], { cwd: webRoot, env: npmEnvironment, stdio: 'inherit' });
+    execFileSync(npmCommand, ['run', 'build'], { cwd: webRoot, env: npmEnvironment, stdio: 'inherit' });
     const lock = JSON.parse(readFileSync(path.join(webRoot, 'package-lock.json'), 'utf8'));
     const version = (name) => {
       const value = lock.packages?.[`node_modules/${name}`]?.version;
@@ -518,7 +618,7 @@ function collectWebExactSource(output) {
       provenance: {
         source,
         artifactRoot: 'apps/web-user/dist',
-        buildTools: { node: process.version, npm: execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim(), typescript: version('typescript'), vite: version('vite') },
+        buildTools: { node: process.version, npm: execFileSync(npmCommand, ['--version'], { encoding: 'utf8', env: npmEnvironment }).trim(), typescript: version('typescript'), vite: version('vite') },
       },
     });
     return source;
@@ -527,6 +627,9 @@ function collectWebExactSource(output) {
 
 function collectAndroidUnsafe(options, emit = true) {
   const flutter = trustedFlutter(options.flutter);
+  const androidSdkRoot = path.resolve(options['android-sdk-root'] ?? '');
+  const javaHome = path.resolve(options['java-home'] ?? '');
+  assertSystemRuntime(javaHome);
   const output = path.resolve(options.output ?? '');
   const relative = path.relative('/workspace/logs', output);
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Android evidence output must remain under /workspace/logs');
@@ -541,18 +644,38 @@ function collectAndroidUnsafe(options, emit = true) {
   if (gitExec(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
   const snapshotContainer = path.join(output, `.settleora-android-source-${randomUUID()}`);
   const snapshotRoot = path.join(snapshotContainer, 'source');
-  const archive = path.join(snapshotContainer, 'source.tar');
   mkdirSync(snapshotContainer, { recursive: false, mode: 0o700 });
   mkdirSync(snapshotRoot, { recursive: false, mode: 0o700 });
   let copiedIdentities;
   try {
     assertCommitHasNoSymlinks(sourceBefore.commit, 'Android');
-    gitExec(['archive', '--format=tar', `--output=${archive}`, sourceBefore.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
-    execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshotRoot], { stdio: ['ignore', 'ignore', 'pipe'] });
-    rmSync(archive, { force: false });
+    materializeExactTree(sourceBefore.commit, snapshotRoot, 'Android');
+    const toolchainsBefore = {
+      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK'),
+      android: toolchainTreeDigest(androidSdkRoot, 'Android SDK'),
+    };
+    const buildCaches = path.join(snapshotContainer, 'build-caches');
+    mkdirSync(buildCaches, { recursive: false, mode: 0o700 });
+    const buildEnvironment = {
+      PATH: '/usr/bin:/bin',
+      LANG: 'C.UTF-8',
+      LC_ALL: 'C.UTF-8',
+      FLUTTER_ROOT: flutter.root,
+      ANDROID_HOME: androidSdkRoot,
+      ANDROID_SDK_ROOT: androidSdkRoot,
+      JAVA_HOME: javaHome,
+      PUB_CACHE: path.join(buildCaches, 'pub'),
+      GRADLE_USER_HOME: path.join(buildCaches, 'gradle'),
+    };
+    flutter.environment = buildEnvironment;
     executeSealedFlutter(flutter, ['clean'], path.join(snapshotRoot, 'apps/mobile'));
     executeSealedFlutter(flutter, ['build', 'apk', '--release'], path.join(snapshotRoot, 'apps/mobile'));
     executeSealedFlutter(flutter, ['build', 'appbundle', '--release'], path.join(snapshotRoot, 'apps/mobile'));
+    const toolchainsAfter = {
+      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK'),
+      android: toolchainTreeDigest(androidSdkRoot, 'Android SDK'),
+    };
+    if (canonicalJson(toolchainsAfter) !== canonicalJson(toolchainsBefore)) throw new Error('Android build toolchain changed during collection');
     const files = {
       apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
       aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
@@ -564,6 +687,7 @@ function collectAndroidUnsafe(options, emit = true) {
       apk: copyBoundedFile(path.join(snapshotRoot, files.apk[0]), path.join(output, files.apk[1]), maxAndroidArtifactBytes, 'Android APK'),
       aab: copyBoundedFile(path.join(snapshotRoot, files.aab[0]), path.join(output, files.aab[1]), maxAndroidArtifactBytes, 'Android AAB'),
       mapping: copyBoundedFile(path.join(snapshotRoot, files.mapping[0]), path.join(output, files.mapping[1]), maxAndroidMappingBytes, 'Android R8 mapping'),
+      toolchains: toolchainsBefore,
     };
     copyBoundedFile(path.join(snapshotRoot, files.metadata[0]), path.join(output, files.metadata[1]), maxAndroidMetadataBytes, 'Android output metadata');
   } finally {
@@ -590,6 +714,7 @@ function collectAndroidUnsafe(options, emit = true) {
     schema: 'settleora.android-exact-source-build.v1', source,
     commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
     artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256 },
+    toolchains: copiedIdentities.toolchains,
   };
   writeFileSync(path.join(output, 'build-provenance.json'), canonicalJson(provenance), { flag: 'wx', mode: 0o444 });
   const result = { status: 'collected', output, source };
@@ -713,15 +838,38 @@ export function collectCompiledMigrationIds(privateParent) {
   return exactSourceSnapshot('migrations', privateParent, (snapshot, source) => {
     if (canonicalJson(source) !== canonicalJson(processSource)) throw new Error('Compiled migration snapshot differs from process-bound source');
     const output = path.join(snapshot, '.release-ef-migration-output');
+    const packages = path.join(snapshot, '.release-nuget-packages');
+    const cliHome = path.join(snapshot, '.release-dotnet-home');
     mkdirSync(output, { recursive: false, mode: 0o700 });
+    mkdirSync(packages, { recursive: false, mode: 0o700 });
+    mkdirSync(cliHome, { recursive: false, mode: 0o700 });
     const project = path.join(snapshot, 'tools/release/ef-migration-inventory/Settleora.EfMigrationInventory.csproj');
-    executeSealedTool(dotnet, ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--verbosity', 'quiet'], {
+    const nugetConfig = path.join(snapshot, 'tools/release/ef-migration-inventory/NuGet.Config');
+    const dotnetEnvironment = {
+      PATH: '/usr/bin:/bin',
+      LANG: 'C.UTF-8',
+      LC_ALL: 'C.UTF-8',
+      DOTNET_ROOT: '/usr/lib/dotnet',
+      DOTNET_CLI_HOME: cliHome,
+      DOTNET_NOLOGO: '1',
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1',
+      NUGET_PACKAGES: packages,
+    };
+    executeSealedTool(dotnet, ['restore', project, '--locked-mode', '--configfile', nugetConfig, '--packages', packages, '--verbosity', 'quiet'], {
       cwd: snapshot,
+      env: dotnetEnvironment,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    executeSealedTool(dotnet, ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--no-restore', '--verbosity', 'quiet'], {
+      cwd: snapshot,
+      env: dotnetEnvironment,
       stdio: ['ignore', 'ignore', 'pipe'],
       maxBuffer: 16 * 1024 * 1024,
     });
     const stdout = executeSealedTool(dotnet, [path.join(output, 'Settleora.EfMigrationInventory.dll')], {
       cwd: output,
+      env: dotnetEnvironment,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       maxBuffer: 4 * 1024 * 1024,

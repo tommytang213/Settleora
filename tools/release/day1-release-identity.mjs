@@ -125,7 +125,9 @@ export function validatePublicationRunUrl(value, sourceCommit) {
 }
 
 export function validatePublicationRunDocument(publication, run, sourceCommit) {
-  if (run?.html_url !== publication.url || run?.head_repository?.full_name !== 'tommytang213/Settleora' || run?.head_sha !== sourceCommit || run?.event !== 'push' || run?.conclusion !== 'success' || run?.path !== '.github/workflows/api-image-ghcr.yml') {
+  if (run?.html_url !== publication.url || run?.head_repository?.full_name !== 'tommytang213/Settleora' || run?.head_sha !== sourceCommit
+    || run?.event !== 'push' || run?.head_branch !== 'main' || run?.conclusion !== 'success'
+    || run?.path !== '.github/workflows/api-image-ghcr.yml') {
     fail('API image publication run provenance mismatch');
   }
   return true;
@@ -234,14 +236,14 @@ function exactRegularFile(candidate, label, allowedRoot, maxBytes = 256 * 1024 *
 }
 
 function git(root, args) {
-  return execFileSync('git', ['--no-replace-objects', ...args], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  return execFileSync('/usr/bin/git', ['--no-replace-objects', ...args], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
 function exactTrackedFile(repoRoot, relative, label, sourceCommit) {
   safeLabel(relative, `${label} path`);
   sha40(sourceCommit, `${label} source commit`);
   const file = exactRegularFile(path.join(repoRoot, relative), label, repoRoot);
-  const committed = execFileSync('git', ['--no-replace-objects', 'show', `${sourceCommit}:${relative}`], {
+  const committed = execFileSync('/usr/bin/git', ['--no-replace-objects', 'show', `${sourceCommit}:${relative}`], {
     cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: Math.max(file.size + 1024 * 1024, 2 * 1024 * 1024),
@@ -302,7 +304,7 @@ export function validateSelectedPlatformDocument(image, record, platform, label 
 export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD']), compiledRuntimeIds) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   sha40(capturedCommit, 'migration captured source commit');
-  const names = execFileSync('git', ['--no-replace-objects', 'ls-tree', '-r', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
+  const names = execFileSync('/usr/bin/git', ['--no-replace-objects', 'ls-tree', '-r', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
     .toString('utf8').split('\0').filter(Boolean);
   const unexpected = names.filter((name) => {
     const basename = path.posix.basename(name);
@@ -448,6 +450,15 @@ function collectAndroid(repoRoot, input, source) {
   }
   if (canonicalJson(provenance.commands) !== canonicalJson(['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'])) {
     fail('Android build provenance command mismatch');
+  }
+  assertKeys(provenance.toolchains, ['flutter', 'android'], 'Android build provenance toolchains');
+  for (const [name, inventory] of Object.entries(provenance.toolchains)) {
+    assertKeys(inventory, ['algorithm', 'sha256', 'fileCount', 'totalBytes'], `Android ${name} toolchain inventory`);
+    if (inventory.algorithm !== 'sha256(canonical-toolchain-tree-v1)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
+    hexDigest(inventory.sha256, `Android ${name} toolchain inventory SHA-256`);
+    if (!Number.isSafeInteger(inventory.fileCount) || inventory.fileCount < 1 || !Number.isSafeInteger(inventory.totalBytes) || inventory.totalBytes < 1) {
+      fail(`Android ${name} toolchain inventory is invalid`);
+    }
   }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));
   if (!element) fail('Android APK is absent from output metadata');
