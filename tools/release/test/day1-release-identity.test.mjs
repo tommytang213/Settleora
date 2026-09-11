@@ -280,6 +280,15 @@ test('migration inventory includes normalized nested source paths', (t) => {
   assert.equal(migrations.entries.at(-1).files[0].path, `${root}/nested/20260103000000_Nested.cs`);
 });
 
+test('migration inventory rejects duplicate runtime attribute occurrences', (t) => {
+  const f = fixture(t);
+  const migration = 'services/api/src/Settleora.Api/Persistence/Migrations/20260102000000_SourceOnly.cs';
+  writeFileSync(path.join(f.root, migration), '[Migration("20260101000000_Initial")]\n[Migration("20260102000000_SourceOnly")]\n');
+  git(f.root, ['add', migration]);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'duplicate runtime migration fixture']);
+  assert.throws(() => collectMigrations(f.root), /Duplicate EF runtime migration IDs/);
+});
+
 test('migration attribute parsing ignores comments and string literals', () => {
   const active = '20260101000000_Active';
   assert.deepEqual(migrationAttributeIds([
@@ -307,14 +316,14 @@ test('rejects symlinked evidence and a tampered manifest identity digest', (t) =
   assert.throws(() => validateManifest(manifest), /Identity digest mismatch/);
   const extra = buildManifest(f.root, f.input);
   extra.apiImage.unexpected = 'must-not-pass';
-  assert.throws(() => validateManifest(extra), /JSON schema mismatch/);
+  assert.throws(() => validateManifest(extra), /unexpected properties/);
   const missingCaveat = buildManifest(f.root, f.input);
   delete missingCaveat.rollback.safetyCaveat;
   missingCaveat.identityDigest = computeIdentityDigest(missingCaveat);
-  assert.throws(() => validateManifest(missingCaveat), /JSON schema mismatch/);
+  assert.throws(() => validateManifest(missingCaveat), /missing required properties/);
   const missingRequired = buildManifest(f.root, f.input);
   delete missingRequired.source.tree;
-  assert.throws(() => validateManifest(missingRequired), /JSON schema mismatch/);
+  assert.throws(() => validateManifest(missingRequired), /missing required properties/);
 });
 
 test('rejects a non-ancestor rollback and an R8 mapping not bound to the AAB', (t) => {

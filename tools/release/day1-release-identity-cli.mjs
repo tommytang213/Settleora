@@ -302,13 +302,14 @@ export function verifyAndroidSignature(input, options) {
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
-function exactSourceSnapshot(prefix, callback) {
+function exactSourceSnapshot(prefix, privateParent, callback) {
   const source = {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
     tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
   };
   assertCleanCompletion(repoRoot, `${prefix} requires a clean exact-source checkout`);
-  const container = path.join('/workspace/logs', `.settleora-${prefix}-source-${randomUUID()}`);
+  assertOwnedEvidenceDirectory(privateParent);
+  const container = path.join(privateParent, `.settleora-${prefix}-source-${randomUUID()}`);
   const snapshot = path.join(container, 'source');
   const archive = path.join(container, 'source.tar');
   mkdirSync(container, { recursive: false, mode: 0o700 });
@@ -336,7 +337,7 @@ function collectWebExactSource(output) {
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('User-web evidence output must remain under /workspace/logs');
   assertNoSymlinkAncestors(absolute);
   if (lstatSync(absolute, { throwIfNoEntry: false })) throw new Error('User-web evidence output directory must not already exist');
-  return exactSourceSnapshot('web', (snapshot, source) => {
+  return exactSourceSnapshot('web', path.dirname(absolute), (snapshot, source) => {
     const webRoot = path.join(snapshot, 'apps/web-user');
     execFileSync('npm', ['ci'], { cwd: webRoot, stdio: 'inherit' });
     execFileSync('npm', ['run', 'build'], { cwd: webRoot, stdio: 'inherit' });
@@ -374,7 +375,7 @@ function collectAndroidUnsafe(options, emit = true) {
   };
   assertTrackedWorktreeMatchesHead(repoRoot);
   if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
-  const snapshotContainer = path.join('/workspace/logs', `.settleora-android-source-${randomUUID()}`);
+  const snapshotContainer = path.join(output, `.settleora-android-source-${randomUUID()}`);
   const snapshotRoot = path.join(snapshotContainer, 'source');
   const archive = path.join(snapshotContainer, 'source.tar');
   mkdirSync(snapshotContainer, { recursive: false, mode: 0o700 });

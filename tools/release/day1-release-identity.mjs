@@ -11,13 +11,7 @@ import {
   realpathSync,
 } from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { assertTrackedWorktreeMatchesHead, collectFiles, scanPublicArtifact } from '../ci/user-web-dist-manifest.mjs';
-
-const require = createRequire(import.meta.url);
-const Ajv2020 = require('ajv/dist/2020').default;
-const manifestSchema = require('./day1-release-identity.schema.json');
-const schemaValidator = new Ajv2020({ allErrors: true, strict: true }).compile(manifestSchema);
 
 export const SCHEMA = 'settleora.day1-release-identity.v1';
 export const DIGEST_ALGORITHM = 'sha256(canonical-json-v1;excludes=generatedAt,identityDigest)';
@@ -303,11 +297,13 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
     .sort();
   if (ids.length === 0) fail('No repository migrations found');
   if (new Set(ids).size !== ids.length) fail('Duplicate migration IDs exist in repository source');
-  const runtimeIds = new Set();
+  const runtimeOccurrences = [];
   for (const name of names.filter((candidate) => candidate.endsWith('.cs'))) {
     const text = exactTrackedFile(repoRoot, `${relativeRoot}/${name}`, `migration source ${name}`, capturedCommit).bytes.toString('utf8');
-    for (const id of migrationAttributeIds(text)) runtimeIds.add(id);
+    runtimeOccurrences.push(...migrationAttributeIds(text));
   }
+  const runtimeIds = new Set(runtimeOccurrences);
+  if (runtimeIds.size !== runtimeOccurrences.length) fail('Duplicate EF runtime migration IDs exist in repository source');
   if (canonicalJson([...runtimeIds].sort()) !== canonicalJson(ids)) fail('Migration filename inventory differs from EF runtime migration attributes');
   const entries = ids.map((id) => ({
     id,
@@ -535,7 +531,6 @@ function collectReleaseNotes(input) {
 }
 
 export function validateManifest(manifest) {
-  if (!schemaValidator(manifest)) fail(`Manifest JSON schema mismatch: ${schemaValidator.errors.map((error) => `${error.instancePath || '/'} ${error.message}`).join('; ')}`);
   assertKeys(manifest, ['schema', 'identityDigestAlgorithm', 'identityDigest', 'generatedAt', 'source', 'apiImage', 'dependencyImages', 'migrations', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention'], 'manifest');
   if (manifest.schema !== SCHEMA) fail('Unsupported Day 1 release-identity schema');
   if (manifest.identityDigestAlgorithm !== DIGEST_ALGORITHM) fail('Unsupported identity-digest algorithm');
