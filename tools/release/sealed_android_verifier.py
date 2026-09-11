@@ -218,13 +218,14 @@ def preflight_aab(descriptor: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("kind", choices=("apk", "aab"))
-    parser.add_argument("tool_digests", nargs="+")
+    parser.add_argument("java_path")
+    parser.add_argument("tool_digests", nargs="*")
     arguments = parser.parse_args()
     descriptor, size, digest = sealed_snapshot(3)
     tool_descriptors: list[int] = []
     try:
-        java_path = os.readlink("/proc/self/fd/4")
-        source_descriptors = (4, 5) if arguments.kind == "apk" else (4,)
+        java_path = arguments.java_path
+        source_descriptors = (4,) if arguments.kind == "apk" else ()
         if len(arguments.tool_digests) != len(source_descriptors):
             raise ValueError(f"{arguments.kind.upper()} verification received the wrong trusted tool digest count")
         for source_descriptor, expected_digest in zip(source_descriptors, arguments.tool_digests, strict=True):
@@ -238,20 +239,17 @@ def main() -> None:
         result: dict[str, object] = {"size": size, "sha256": digest}
         if arguments.kind == "apk":
             result["verificationOutput"] = run(
-                [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[1]}", "verify", "--verbose", "--print-certs", held_path],
+                [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[0]}", "verify", "--verbose", "--print-certs", held_path],
                 (descriptor, *tool_descriptors),
-                executable=f"/proc/self/fd/{tool_descriptors[0]}",
             )
         else:
             result.update(inspect_jar_signatures(
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.jarsigner.Main", "-verify", "-verbose", "-certs", held_path],
-                (descriptor, tool_descriptors[0]),
-                executable=f"/proc/self/fd/{tool_descriptors[0]}",
+                (descriptor,),
             ))
             certificate = run(
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.keytool.Main", "-printcert", "-jarfile", held_path],
-                (descriptor, tool_descriptors[0]),
-                executable=f"/proc/self/fd/{tool_descriptors[0]}",
+                (descriptor,),
             )
             result["certificateDigests"] = sorted(
                 set(match.group(1).replace(":", "").lower() for match in re.finditer(r"SHA256:\s*([0-9A-F:]{95})", certificate))
