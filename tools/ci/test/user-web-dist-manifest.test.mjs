@@ -63,7 +63,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['malformed', (f) => writeFileSync(path.join(f.dist, 'bad\nname.txt'), 'bad'), /Unsafe dist path/],
     ['source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map'), '{}'), /Unsafe public artifact path/],
     ['credentials', (f) => writeFileSync(path.join(f.dist, 'credentials.json'), '{}'), /Unsafe public artifact path/],
-    ['private key', (f) => writeFileSync(path.join(f.dist, 'material.txt'), '-----BEGIN PRIVATE KEY-----'), /Potential sensitive/],
+    ['private key', (f) => writeFileSync(
+      path.join(f.dist, 'material.txt'),
+      ['-----BEGIN ', 'PRIVATE KEY-----'].join(''),
+    ), /Potential sensitive/],
     ['host path', (f) => writeFileSync(path.join(f.dist, 'path.txt'), '/workspace/repos/project'), /Potential sensitive/],
   ];
   for (const [label, mutate, expected] of cases) {
