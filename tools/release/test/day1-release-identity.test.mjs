@@ -14,6 +14,7 @@ import {
   validateRegistryDocument,
   validateRegistryRevision,
   validateManifest,
+  validatePublicationProvenance,
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
@@ -179,6 +180,10 @@ test('rejects source, API revision, API digest and floating-tag mismatches', (t)
   const run = { html_url: publication.url, head_repository: { full_name: 'tommytang213/Settleora' }, head_sha: f.commit, event: 'push', conclusion: 'success', path: '.github/workflows/api-image-ghcr.yml' };
   assert.equal(validatePublicationRunDocument(publication, run, f.commit), true);
   assert.throws(() => validatePublicationRunDocument(publication, { ...run, head_sha: '0'.repeat(40) }, f.commit), /publication run provenance mismatch/);
+  const provenance = { runDetails: { builder: { id: `${publication.url}/attempts/1` } }, buildDefinition: { externalParameters: { request: { root: { configSource: { request: { args: { 'vcs:revision': f.commit, 'vcs:source': 'https://github.com/tommytang213/Settleora' } } } } } } } };
+  assert.equal(validatePublicationProvenance(publication, provenance, f.commit), true);
+  provenance.runDetails.builder.id = 'https://github.com/other/repo/actions/runs/1/attempts/1';
+  assert.throws(() => validatePublicationProvenance(publication, provenance, f.commit), /provenance attestation mismatch/);
 });
 
 test('rejects dependency tag/platform/digest and migration-set mismatches', (t) => {

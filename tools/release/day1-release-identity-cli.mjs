@@ -10,6 +10,7 @@ import {
   computeIdentityDigest,
   containsSensitiveMaterial,
   validateCandidateId,
+  validatePublicationProvenance,
   validatePublicationRunDocument,
   validatePublicationRunUrl,
   validateRegistryDocument,
@@ -72,14 +73,18 @@ function verifyLiveRegistry(input) {
       const selected = inspectRecord(`${reference}@${image.platformDigest}`);
       validateRegistryRevision(image, selected.image, revision, label);
     }
+    return reference;
   };
-  verify(input.apiImage, 'apiImage', input.source.commit);
+  const apiReference = verify(input.apiImage, 'apiImage', input.source.commit);
   const publication = validatePublicationRunUrl(input.apiImage.publicationRunUrl, input.source.commit);
   const run = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}`], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }));
   validatePublicationRunDocument(publication, run, input.source.commit);
+  const provenance = inspect(apiReference, '{{json .Provenance.SLSA}}');
+  validatePublicationProvenance(publication, provenance, input.source.commit);
+  validateRegistryDocument(input.apiImage, inspectRecord(apiReference).manifest, platform, 'apiImage after provenance');
   for (const image of input.dependencyImages) verify(image, `dependencyImages.${image.name}`);
   verify(input.rollback.apiImage, 'rollback.apiImage', input.rollback.sourceCommit);
 }
@@ -115,14 +120,15 @@ function verifyAndroidSignature(input, options) {
   const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
-  const aabVerification = execFileSync(jarsigner, ['-J-Duser.language=en', '-J-Duser.country=US', '-verify', '-verbose', path.resolve(input.android.aabPath)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const aabVerification = execFileSync(jarsigner, ['-J-Duser.language=en', '-J-Duser.country=US', '-verify', '-verbose', '-certs', path.resolve(input.android.aabPath)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 128 * 1024 * 1024 });
   const signatureControl = /\sMETA-INF\/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$/u;
   const contentEntries = aabVerification.split(/\r?\n/u).filter((line) => /^[smk? ]{3}\s+\d+\s+\w{3}\s/u.test(line));
   const unsignedEntries = contentEntries.filter((line) => !/^s/u.test(line) && !signatureControl.test(line));
   if (!/jar verified\./u.test(aabVerification) || contentEntries.length === 0 || unsignedEntries.length) throw new Error('Android AAB contains unsigned entries');
   const aabCertificate = execFileSync(keytool, ['-J-Duser.language=en', '-J-Duser.country=US', '-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
-  const aabDigest = /SHA256:\s*([0-9A-F:]{95})/u.exec(aabCertificate)?.[1]?.replaceAll(':', '').toLowerCase();
-  if (!/Owner:.*CN=Android Debug/u.test(aabCertificate) || aabDigest !== certificate) {
+  const aabDigests = new Set([...aabCertificate.matchAll(/SHA256:\s*([0-9A-F:]{95})/gu)].map((match) => match[1].replaceAll(':', '').toLowerCase()));
+  const signerNames = new Set([...aabVerification.matchAll(/^\s+X\.509,\s*(.+)$/gmu)].map((match) => match[1]));
+  if (aabDigests.size !== 1 || !aabDigests.has(certificate) || signerNames.size !== 1 || ![...signerNames][0]?.includes('CN=Android Debug')) {
     throw new Error('Android AAB signature observation mismatch');
   }
   const unzip = trustedTool('/usr/bin/unzip', 'unzip', 'System unzip');
@@ -136,7 +142,7 @@ function verifyAndroidSignature(input, options) {
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
-function collectAndroid(options, emit = true) {
+function collectAndroidUnsafe(options, emit = true) {
   const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool');
   const output = path.resolve(options.output ?? '');
   const relative = path.relative('/workspace/logs', output);
@@ -150,9 +156,30 @@ function collectAndroid(options, emit = true) {
   };
   assertTrackedWorktreeMatchesHead(repoRoot);
   if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
-  execFileSync(flutter, ['clean'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
-  execFileSync(flutter, ['build', 'apk', '--release'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
-  execFileSync(flutter, ['build', 'appbundle', '--release'], { cwd: path.join(repoRoot, 'apps/mobile'), stdio: 'inherit' });
+  const snapshotContainer = path.join('/workspace/logs', `.settleora-android-source-${randomUUID()}`);
+  const snapshotRoot = path.join(snapshotContainer, 'source');
+  const archive = path.join(snapshotContainer, 'source.tar');
+  mkdirSync(snapshotContainer, { recursive: false, mode: 0o700 });
+  mkdirSync(snapshotRoot, { recursive: false, mode: 0o700 });
+  try {
+    execFileSync('git', ['archive', '--format=tar', `--output=${archive}`, sourceBefore.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
+    execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshotRoot], { stdio: ['ignore', 'ignore', 'pipe'] });
+    rmSync(archive, { force: false });
+    execFileSync(flutter, ['clean'], { cwd: path.join(snapshotRoot, 'apps/mobile'), stdio: 'inherit' });
+    execFileSync(flutter, ['build', 'apk', '--release'], { cwd: path.join(snapshotRoot, 'apps/mobile'), stdio: 'inherit' });
+    execFileSync(flutter, ['build', 'appbundle', '--release'], { cwd: path.join(snapshotRoot, 'apps/mobile'), stdio: 'inherit' });
+    const files = {
+      apk: ['apps/mobile/build/app/outputs/flutter-apk/app-release.apk', 'app-release.apk'],
+      aab: ['apps/mobile/build/app/outputs/bundle/release/app-release.aab', 'app-release.aab'],
+      mapping: ['apps/mobile/build/app/outputs/mapping/release/mapping.txt', 'mapping.txt'],
+      metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
+    };
+    assertOwnedEvidenceDirectory(output);
+    for (const [relative, name] of Object.values(files)) copyFileSync(path.join(snapshotRoot, relative), path.join(output, name), constants.COPYFILE_EXCL);
+  } finally {
+    const metadata = lstatSync(snapshotContainer, { throwIfNoEntry: false });
+    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(snapshotContainer, { recursive: true, force: false });
+  }
   const source = {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
     tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
@@ -167,8 +194,6 @@ function collectAndroid(options, emit = true) {
     mapping: ['apps/mobile/build/app/outputs/mapping/release/mapping.txt', 'mapping.txt'],
     metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
   };
-  assertOwnedEvidenceDirectory(output);
-  for (const [relative, name] of Object.values(files)) copyFileSync(path.join(repoRoot, relative), path.join(output, name), constants.COPYFILE_EXCL);
   const artifact = (kind) => {
     const [relative, name] = files[kind];
     const bytes = readFileSync(path.join(output, name));
@@ -183,6 +208,20 @@ function collectAndroid(options, emit = true) {
   const result = { status: 'collected', output, source };
   if (emit) process.stdout.write(`${JSON.stringify(result)}\n`);
   return result;
+}
+
+function collectAndroid(options, emit = true) {
+  const output = path.resolve(options.output ?? '');
+  const existed = lstatSync(output, { throwIfNoEntry: false }) !== undefined;
+  try {
+    return collectAndroidUnsafe(options, emit);
+  } catch (error) {
+    if (!existed) {
+      const metadata = lstatSync(output, { throwIfNoEntry: false });
+      if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(output, { recursive: true, force: false });
+    }
+    throw error;
+  }
 }
 
 function assertNoSymlinkAncestors(candidate) {
