@@ -9,6 +9,9 @@ import {
   canonicalJson,
   computeIdentityDigest,
   containsSensitiveMaterial,
+  validateCandidateId,
+  validatePublicationRunDocument,
+  validatePublicationRunUrl,
   validateRegistryDocument,
   validateRegistryRevision,
   validateManifest,
@@ -71,6 +74,12 @@ function verifyLiveRegistry(input) {
     }
   };
   verify(input.apiImage, 'apiImage', input.source.commit);
+  const publication = validatePublicationRunUrl(input.apiImage.publicationRunUrl, input.source.commit);
+  const run = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}`], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }));
+  validatePublicationRunDocument(publication, run, input.source.commit);
   for (const image of input.dependencyImages) verify(image, `dependencyImages.${image.name}`);
   verify(input.rollback.apiImage, 'rollback.apiImage', input.rollback.sourceCommit);
 }
@@ -225,7 +234,8 @@ function safeOutput(input, candidate) {
 }
 
 function canonicalCandidateDirectory(input) {
-  const expected = `/workspace/logs/settleora-release-candidates/${input.source?.candidateId}`;
+  const candidateId = validateCandidateId(input.source?.candidateId);
+  const expected = `/workspace/logs/settleora-release-candidates/${candidateId}`;
   if (input.retention?.canonicalEvidenceDirectory !== expected) throw new Error('Retention directory must exactly bind the candidate ID before collection');
   return expected;
 }

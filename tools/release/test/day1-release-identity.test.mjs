@@ -14,6 +14,8 @@ import {
   validateRegistryDocument,
   validateRegistryRevision,
   validateManifest,
+  validatePublicationRunDocument,
+  validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
 import { assertCleanCompletion, canonicalAndroidInput, safeInput } from '../day1-release-identity-cli.mjs';
 
@@ -170,6 +172,13 @@ test('rejects source, API revision, API digest and floating-tag mismatches', (t)
   assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, ociRevision: '8'.repeat(40) } }), /OCI revision mismatch/);
   assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, indexDigest: 'not-a-digest' } }), /immutable sha256 digest/);
   assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, configuredTag: 'main' } }), /floating tag is not authoritative/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, publicationRunUrl: 'not-a-run' } }), /canonical GitHub Actions run URL/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, publicationRunUrl: 'https://github.com/other/repo/actions/runs/1' } }), /canonical GitHub Actions run URL/);
+  assert.deepEqual(validatePublicationRunUrl(f.input.apiImage.publicationRunUrl, f.commit), { url: f.input.apiImage.publicationRunUrl, runId: '1' });
+  const publication = validatePublicationRunUrl(f.input.apiImage.publicationRunUrl, f.commit);
+  const run = { html_url: publication.url, head_repository: { full_name: 'tommytang213/Settleora' }, head_sha: f.commit, event: 'push', conclusion: 'success', path: '.github/workflows/api-image-ghcr.yml' };
+  assert.equal(validatePublicationRunDocument(publication, run, f.commit), true);
+  assert.throws(() => validatePublicationRunDocument(publication, { ...run, head_sha: '0'.repeat(40) }, f.commit), /publication run provenance mismatch/);
 });
 
 test('rejects dependency tag/platform/digest and migration-set mismatches', (t) => {
@@ -277,6 +286,8 @@ test('preserves expected Android identities and derives retained canonical paths
   assert.equal(canonical.android.evidenceRoot, androidRoot);
   assert.equal(canonical.android.apkPath, `${androidRoot}/app-release.apk`);
   assert.equal(canonical.android.aabPath, `${androidRoot}/app-release.aab`);
+  const traversal = { ...input, source: { ...input.source, candidateId: '../../../../tmp/x' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/../../../../tmp/x' } };
+  assert.throws(() => canonicalAndroidInput(traversal, signature), /safe non-absolute evidence label/);
 });
 
 test('safe inputs reject URL query credentials and completion rejects untracked files', (t) => {

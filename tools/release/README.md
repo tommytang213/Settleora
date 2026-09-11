@@ -9,6 +9,9 @@ The input is a bounded JSON evidence packet populated from read-only registry
 resolution and exact-source local builds. Local paths are collector inputs and
 are not copied into identity fields. Candidate manifests belong outside Git at
 `/workspace/logs/settleora-release-candidates/<candidate-id>/`.
+Assembly and validation require `gh` access to read the canonical GitHub Actions
+publication-run URL and fail unless it is the successful API image workflow
+push run for the exact source commit.
 
 The identity digest is SHA-256 over canonical, recursively key-sorted JSON after
 removing only `generatedAt` and `identityDigest`. Thus collection time may vary

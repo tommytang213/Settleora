@@ -94,6 +94,33 @@ function safeLabel(value, label) {
   return value;
 }
 
+export function validateCandidateId(value) {
+  return safeLabel(value, 'source.candidateId');
+}
+
+export function validatePublicationRunUrl(value, sourceCommit) {
+  publicText(value, 'apiImage.publicationRunUrl');
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    fail('apiImage.publicationRunUrl must be a canonical GitHub Actions run URL');
+  }
+  const match = /^\/tommytang213\/Settleora\/actions\/runs\/([1-9][0-9]*)$/u.exec(url.pathname);
+  if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.username || url.password || url.port || url.search || url.hash || !match) {
+    fail('apiImage.publicationRunUrl must be a canonical GitHub Actions run URL for tommytang213/Settleora');
+  }
+  sha40(sourceCommit, 'source.commit');
+  return { url: value, runId: match[1] };
+}
+
+export function validatePublicationRunDocument(publication, run, sourceCommit) {
+  if (run?.html_url !== publication.url || run?.head_repository?.full_name !== 'tommytang213/Settleora' || run?.head_sha !== sourceCommit || run?.event !== 'push' || run?.conclusion !== 'success' || run?.path !== '.github/workflows/api-image-ghcr.yml') {
+    fail('API image publication run provenance mismatch');
+  }
+  return true;
+}
+
 function publicText(value, label) {
   string(value, label);
   if (/(?:\/home\/|\/tmp\/|\\Users\\)/u.test(value) || containsSensitiveMaterial(value)) {
@@ -158,7 +185,7 @@ export function collectSource(repoRoot, expected) {
     repository: string(expected.repository, 'source.repository'),
     commit,
     tree,
-    candidateId: safeLabel(expected.candidateId, 'source.candidateId'),
+    candidateId: validateCandidateId(expected.candidateId),
     exactSource: true,
     cleanTrackedCheckout: true,
   };
@@ -234,6 +261,7 @@ function validateImage(image, label, sourceCommit, expectedTag, expectedReposito
   if (sourceCommit) {
     if (image.configuredTag !== `sha-${sourceCommit}`) fail('API image tag must be exactly sha-<source commit>');
     if (image.ociRevision !== sourceCommit) fail('API image OCI revision mismatch');
+    if (image.publicationRunUrl !== undefined) validatePublicationRunUrl(image.publicationRunUrl, sourceCommit);
   }
   return image;
 }
@@ -376,11 +404,12 @@ export function validateManifest(manifest) {
   sha40(manifest.source?.commit, 'source.commit');
   assertKeys(manifest.source, ['repository', 'commit', 'tree', 'candidateId', 'exactSource', 'cleanTrackedCheckout'], 'source');
   if (manifest.source.repository !== 'tommytang213/Settleora') fail('Source repository mismatch');
-  safeLabel(manifest.source.candidateId, 'source.candidateId');
+  validateCandidateId(manifest.source.candidateId);
   sha40(manifest.source?.tree, 'source.tree');
   if (manifest.source.exactSource !== true || manifest.source.cleanTrackedCheckout !== true) fail('Source exact/clean assertions are required');
   const apiRepository = 'ghcr.io/tommytang213/settleora-api';
   validateImage(manifest.apiImage, 'apiImage', manifest.source.commit, undefined, apiRepository);
+  if (manifest.apiImage.publicationRunUrl === undefined) fail('API image publication run provenance is required');
   if (!Array.isArray(manifest.dependencyImages) || manifest.dependencyImages.length !== 3) fail('Exactly three dependency images are required');
   const expectedDependencies = new Set(['caddy', 'postgres', 'rabbitmq']);
   const dependencyRepositories = { postgres: 'docker.io/library/postgres', rabbitmq: 'docker.io/library/rabbitmq', caddy: 'docker.io/library/caddy' };
