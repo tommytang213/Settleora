@@ -50,64 +50,62 @@ function git(args) {
   }).trim();
 }
 
-function assertTrackedWorktreeMatchesHead() {
-  const verifiedDirectories = new Set([repoRoot]);
-  const assertRealDirectoryAncestors = (absolute) => {
-    const pending = [];
-    for (let directory = path.dirname(absolute); !verifiedDirectories.has(directory); directory = path.dirname(directory)) {
-      assertInside(repoRoot, directory, 'Tracked input directory');
-      pending.push(directory);
+const gitBlobObjectId = (contents) => createHash('sha1')
+  .update(`blob ${contents.length}\0`)
+  .update(contents)
+  .digest('hex');
+
+export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
+  const rootBytes = Buffer.from(root);
+  const verifiedDirectories = new Set(['']);
+  const displayPath = (relative) => JSON.stringify(relative.toString('utf8'));
+  const absolutePath = (relative) => Buffer.concat([rootBytes, Buffer.from(path.sep), relative]);
+  const assertRealDirectoryAncestors = (relative) => {
+    const separatorOffsets = [];
+    for (let index = 0; index < relative.length; index += 1) {
+      if (relative[index] === 0x2f) separatorOffsets.push(index);
     }
-    for (const directory of pending.reverse()) {
+    for (const offset of separatorOffsets) {
+      const directoryRelative = relative.subarray(0, offset);
+      const key = directoryRelative.toString('hex');
+      if (verifiedDirectories.has(key)) continue;
+      const directory = absolutePath(directoryRelative);
       const metadata = lstatSync(directory, { throwIfNoEntry: false });
       if (!metadata?.isDirectory() || metadata.isSymbolicLink()) {
-        throw new Error(`Tracked build input ancestor is not a real directory: ${directory}`);
+        throw new Error(`Tracked build input ancestor is not a real directory: ${displayPath(directoryRelative)}`);
       }
-      verifiedDirectories.add(directory);
+      verifiedDirectories.add(key);
     }
   };
-  const records = execFileSync('git', ['ls-tree', '-rz', '--full-tree', 'HEAD'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
+  const output = execFileSync('git', ['ls-tree', '-rz', '--full-tree', 'HEAD'], {
+    cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
-  }).split('\0').filter(Boolean);
-  const regularFiles = [];
-  for (const record of records) {
-    const match = /^(100644|100755|120000) blob ([0-9a-f]{40})\t([\s\S]+)$/u.exec(record);
-    if (!match) throw new Error(`Unsupported tracked HEAD entry: ${JSON.stringify(record)}`);
-    const [, expectedMode, expectedObject, relative] = match;
-    const absolute = path.join(repoRoot, relative);
-    assertRealDirectoryAncestors(absolute);
-    const metadata = lstatSync(absolute, { throwIfNoEntry: false });
-    if (!metadata) throw new Error(`Tracked build input is missing: ${relative}`);
-    const actualMode = metadata.isSymbolicLink() ? '120000' : ((metadata.mode & 0o111) ? '100755' : '100644');
-    if (actualMode !== expectedMode) throw new Error(`Tracked build input mode differs from HEAD: ${relative}`);
-    if (metadata.isSymbolicLink()) {
-      const actualObject = execFileSync('git', ['hash-object', '--stdin'], {
-        cwd: repoRoot,
-        input: readlinkSync(absolute, { encoding: 'buffer' }),
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }).trim();
-      if (actualObject !== expectedObject) throw new Error(`Tracked build input differs from HEAD: ${relative}`);
-    } else {
-      regularFiles.push({ absolute, relative, expectedObject });
+  });
+  for (let start = 0; start < output.length;) {
+    const end = output.indexOf(0, start);
+    if (end < 0) throw new Error('Malformed NUL-delimited tracked HEAD listing');
+    const record = output.subarray(start, end);
+    start = end + 1;
+    if (record.length === 0) continue;
+    const tab = record.indexOf(0x09);
+    const header = tab < 0 ? '' : record.subarray(0, tab).toString('ascii');
+    const match = /^(100644|100755|120000) blob ([0-9a-f]{40})$/u.exec(header);
+    if (!match || tab === record.length - 1) {
+      throw new Error(`Unsupported tracked HEAD entry header: ${JSON.stringify(header)}`);
     }
-  }
-  const actualObjects = execFileSync('git', [
-    'hash-object',
-    '--no-filters',
-    '--',
-    ...regularFiles.map(({ absolute }) => absolute),
-  ], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim().split('\n');
-  if (actualObjects.length !== regularFiles.length) throw new Error('Tracked build input hash count differs from HEAD');
-  for (let index = 0; index < regularFiles.length; index += 1) {
-    if (actualObjects[index] !== regularFiles[index].expectedObject) {
-      throw new Error(`Tracked build input differs from HEAD: ${regularFiles[index].relative}`);
+    const [, expectedMode, expectedObject] = match;
+    const relative = record.subarray(tab + 1);
+    const absolute = absolutePath(relative);
+    assertRealDirectoryAncestors(relative);
+    const metadata = lstatSync(absolute, { throwIfNoEntry: false });
+    if (!metadata) throw new Error(`Tracked build input is missing: ${displayPath(relative)}`);
+    const actualMode = metadata.isSymbolicLink() ? '120000' : ((metadata.mode & 0o111) ? '100755' : '100644');
+    if (actualMode !== expectedMode) throw new Error(`Tracked build input mode differs from HEAD: ${displayPath(relative)}`);
+    const contents = metadata.isSymbolicLink()
+      ? readlinkSync(absolute, { encoding: 'buffer' })
+      : readFileSync(absolute);
+    if (gitBlobObjectId(contents) !== expectedObject) {
+      throw new Error(`Tracked build input differs from HEAD: ${displayPath(relative)}`);
     }
   }
 }

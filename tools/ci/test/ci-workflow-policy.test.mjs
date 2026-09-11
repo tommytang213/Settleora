@@ -73,9 +73,12 @@ test('user-web lane builds an exact source head and uploads only bounded package
   assert.match(packageStep.run, /--staging "\$package_evidence_dir"/);
   assert.match(packageStep.run, /package_evidence_dir=\$package_evidence_dir/);
   assert.match(manifestHelper, /\['ls-tree', '-rz', '--full-tree', 'HEAD'\]/);
-  assert.match(manifestHelper, /'hash-object',[\s\S]*'--no-filters',[\s\S]*\.\.\.regularFiles\.map/);
-  assert.doesNotMatch(manifestHelper, /hash-object', `--path=/);
+  assert.match(manifestHelper, /const record = output\.subarray\(start, end\)/);
+  assert.match(manifestHelper, /const relative = record\.subarray\(tab \+ 1\)/);
+  assert.match(manifestHelper, /createHash\('sha1'\)[\s\S]*`blob \$\{contents\.length\}\\0`/);
+  assert.doesNotMatch(manifestHelper, /ls-tree[\s\S]{0,200}encoding: 'utf8'/);
   assert.match(manifestHelper, /readlinkSync\(absolute, \{ encoding: 'buffer' \}\)/);
+  assert.match(manifestHelper, /readFileSync\(absolute\)/);
   assert.match(manifestHelper, /Tracked build input ancestor is not a real directory/);
   assert.doesNotMatch(manifestHelper, /git\(\['status'/);
   const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
