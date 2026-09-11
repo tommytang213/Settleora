@@ -101,6 +101,9 @@ export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
     if (!metadata) throw new Error(`Tracked build input is missing: ${displayPath(relative)}`);
     const actualMode = metadata.isSymbolicLink() ? '120000' : ((metadata.mode & 0o111) ? '100755' : '100644');
     if (actualMode !== expectedMode) throw new Error(`Tracked build input mode differs from HEAD: ${displayPath(relative)}`);
+    if (expectedMode !== '120000' && !metadata.isFile()) {
+      throw new Error(`Tracked build input is not a regular file: ${displayPath(relative)}`);
+    }
     const contents = metadata.isSymbolicLink()
       ? readlinkSync(absolute, { encoding: 'buffer' })
       : readFileSync(absolute);

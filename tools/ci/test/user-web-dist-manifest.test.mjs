@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../user-web-dist-manifest.mjs';
@@ -34,7 +34,10 @@ test('tracked-input verification preserves non-UTF-8 path bytes', (t) => {
   const relative = Buffer.from([0x6e, 0x6f, 0x6e, 0x75, 0x74, 0x66, 0x38, 0x2d, 0x80, 0x2e, 0x74, 0x78, 0x74]);
   const absolute = Buffer.concat([Buffer.from(root), Buffer.from(path.sep), relative]);
   const contents = Buffer.from('exact tracked bytes\n');
+  const fifoRelative = Buffer.from('tracked-fifo-candidate');
+  const fifoAbsolute = path.join(root, fifoRelative.toString());
   writeFileSync(absolute, contents);
+  writeFileSync(fifoAbsolute, contents);
   const object = execFileSync('git', ['hash-object', '-w', '--stdin'], {
     cwd: root,
     input: contents,
@@ -42,7 +45,10 @@ test('tracked-input verification preserves non-UTF-8 path bytes', (t) => {
   }).trim();
   execFileSync('git', ['update-index', '-z', '--index-info'], {
     cwd: root,
-    input: Buffer.concat([Buffer.from(`100644 ${object}\t`), relative, Buffer.from([0])]),
+    input: Buffer.concat([
+      Buffer.from(`100644 ${object}\t`), relative, Buffer.from([0]),
+      Buffer.from(`100644 ${object}\t`), fifoRelative, Buffer.from([0]),
+    ]),
   });
   const tree = execFileSync('git', ['write-tree'], { cwd: root, encoding: 'utf8' }).trim();
   const commit = execFileSync('git', ['commit-tree', tree, '-m', 'fixture'], {
@@ -61,6 +67,10 @@ test('tracked-input verification preserves non-UTF-8 path bytes', (t) => {
   assert.doesNotThrow(() => assertTrackedWorktreeMatchesHead(root));
   writeFileSync(absolute, 'changed\n');
   assert.throws(() => assertTrackedWorktreeMatchesHead(root), /differs from HEAD/);
+  writeFileSync(absolute, contents);
+  unlinkSync(fifoAbsolute);
+  execFileSync('mkfifo', [fifoAbsolute]);
+  assert.throws(() => assertTrackedWorktreeMatchesHead(root), /is not a regular file/);
 });
 
 test('manifest is stable, sorted, bounded and contains no raw environment', (t) => {
