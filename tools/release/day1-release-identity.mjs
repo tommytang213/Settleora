@@ -7,7 +7,6 @@ import {
   lstatSync,
   openSync,
   readFileSync,
-  readdirSync,
   realpathSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -143,9 +142,10 @@ export function validatePublicationJobLog(log, image, sourceCommit) {
   if (typeof log !== 'string' || log.length === 0 || log.includes('\0')) fail('API image publication job log must be non-empty text');
   sha40(sourceCommit, 'source.commit');
   digest(image.indexDigest, 'apiImage.indexDigest');
-  const reference = `${image.repository}:sha-${sourceCommit}@`;
-  const escaped = reference.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-  const pushed = new Set([...log.matchAll(new RegExp(`pushing manifest for ${escaped}(sha256:[0-9a-f]{64})(?:\\s|$)`, 'gu'))].map((match) => match[1]));
+  const reference = `${image.repository}:sha-${sourceCommit}`;
+  const pushed = new Set([...log.matchAll(/pushing manifest for\s+(\S+)@(sha256:[0-9a-f]{64})(?:\s|$)/gu)]
+    .filter((match) => match[1] === reference)
+    .map((match) => match[2]));
   const actionOutputs = new Set([...log.matchAll(/"containerimage\.digest":\s*"(sha256:[0-9a-f]{64})"/gu)].map((match) => match[1]));
   if (pushed.size !== 1 || !pushed.has(image.indexDigest) || actionOutputs.size !== 1 || !actionOutputs.has(image.indexDigest)) {
     fail('Authenticated API publication log digest mismatch');
@@ -222,15 +222,16 @@ function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-function exactTrackedFile(repoRoot, relative, label) {
+function exactTrackedFile(repoRoot, relative, label, sourceCommit) {
   safeLabel(relative, `${label} path`);
+  sha40(sourceCommit, `${label} source commit`);
   const file = exactRegularFile(path.join(repoRoot, relative), label, repoRoot);
-  const committed = execFileSync('git', ['show', `HEAD:${relative}`], {
+  const committed = execFileSync('git', ['show', `${sourceCommit}:${relative}`], {
     cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: Math.max(file.size + 1024 * 1024, 2 * 1024 * 1024),
   });
-  if (!file.bytes.equals(committed)) fail(`${label} does not match the committed HEAD blob`);
+  if (!file.bytes.equals(committed)) fail(`${label} does not match the captured source blob`);
   return file;
 }
 
@@ -273,10 +274,11 @@ export function validateRegistryRevision(image, imageDocument, expectedRevision,
   return true;
 }
 
-export function collectMigrations(repoRoot, expectedDigest) {
+export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD'])) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
-  const migrationRoot = path.join(repoRoot, relativeRoot);
-  const names = readdirSync(migrationRoot);
+  sha40(capturedCommit, 'migration captured source commit');
+  const names = execFileSync('git', ['ls-tree', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
+    .toString('utf8').split('\0').filter(Boolean);
   const unexpected = names.filter((name) => name.endsWith('.cs') && name !== 'SettleoraDbContextModelSnapshot.cs' && !/^(\d{14}_[A-Za-z0-9_]+)(?:\.Designer)?\.cs$/u.test(name));
   if (unexpected.length) fail(`Unrecognized migration source files: ${unexpected.join(', ')}`);
   const ids = names
@@ -287,15 +289,15 @@ export function collectMigrations(repoRoot, expectedDigest) {
   if (ids.length === 0) fail('No repository migrations found');
   const runtimeIds = new Set();
   for (const name of names.filter((candidate) => candidate.endsWith('.cs'))) {
-    const text = exactTrackedFile(repoRoot, `${relativeRoot}/${name}`, `migration source ${name}`).bytes.toString('utf8');
+    const text = exactTrackedFile(repoRoot, `${relativeRoot}/${name}`, `migration source ${name}`, capturedCommit).bytes.toString('utf8');
     for (const match of text.matchAll(/\[Migration\("(\d{14}_[A-Za-z0-9_]+)"\)\]/gu)) runtimeIds.add(match[1]);
   }
   if (canonicalJson([...runtimeIds].sort()) !== canonicalJson(ids)) fail('Migration filename inventory differs from EF runtime migration attributes');
   const entries = ids.map((id) => ({
     id,
-    files: [`${id}.cs`, `${id}.Designer.cs`].filter((name) => lstatSync(path.join(migrationRoot, name), { throwIfNoEntry: false })).sort().map((name) => {
+    files: [`${id}.cs`, `${id}.Designer.cs`].filter((name) => names.includes(name)).sort().map((name) => {
       const relative = `${relativeRoot}/${name}`;
-      const file = exactTrackedFile(repoRoot, relative, `migration ${id}`);
+      const file = exactTrackedFile(repoRoot, relative, `migration ${id}`, capturedCommit);
       return { path: relative, sha256: sha256(file.bytes), size: file.size };
     }),
   }));
@@ -331,9 +333,9 @@ function validateImage(image, label, sourceCommit, expectedTag, expectedReposito
   return image;
 }
 
-function configuredImage(repoRoot, sourcePath, service) {
+function configuredImage(repoRoot, sourcePath, service, capturedCommit) {
   safeLabel(sourcePath, 'dependency sourceComposePath');
-  const lines = exactTrackedFile(repoRoot, sourcePath, 'dependency Compose source').bytes.toString('utf8').split(/\r?\n/u);
+  const lines = exactTrackedFile(repoRoot, sourcePath, 'dependency Compose source', capturedCommit).bytes.toString('utf8').split(/\r?\n/u);
   const start = lines.findIndex((line) => line === `  ${service}:`);
   if (start < 0) fail(`Could not find service ${service} in ${sourcePath}`);
   for (let index = start + 1; index < lines.length && !/^  [A-Za-z0-9_-]+:\s*$/u.test(lines[index]); index += 1) {
@@ -348,7 +350,7 @@ function collectWeb(repoRoot, input, source) {
   const manifest = JSON.parse(file.bytes);
   if (manifest.schema !== 'settleora.user-web-dist-manifest.v1') fail('Unsupported user-web manifest schema');
   if (manifest.source?.commit !== source.commit || manifest.source?.tree !== source.tree) fail('User-web source/tree mismatch');
-  const lock = exactTrackedFile(repoRoot, 'apps/web-user/package-lock.json', 'userWeb dependency lock');
+  const lock = exactTrackedFile(repoRoot, 'apps/web-user/package-lock.json', 'userWeb dependency lock', source.commit);
   if (manifest.dependencyLock?.path !== 'apps/web-user/package-lock.json' || manifest.dependencyLock?.sha256 !== sha256(lock.bytes)) {
     fail('User-web dependency lock mismatch');
   }
@@ -403,7 +405,7 @@ function collectWeb(repoRoot, input, source) {
   };
 }
 
-function collectAndroid(repoRoot, input) {
+function collectAndroid(repoRoot, input, source) {
   const apk = exactRegularFile(input.apkPath, 'Android APK', input.evidenceRoot);
   const aab = exactRegularFile(input.aabPath, 'Android AAB', input.evidenceRoot);
   const mapping = exactRegularFile(input.mappingPath, 'Android R8 mapping', input.evidenceRoot);
@@ -413,8 +415,7 @@ function collectAndroid(repoRoot, input) {
   const metadata = JSON.parse(metadataFile.bytes);
   const provenanceFile = exactRegularFile(input.buildProvenancePath, 'Android build provenance', input.evidenceRoot);
   const provenance = JSON.parse(provenanceFile.bytes);
-  const commit = git(repoRoot, ['rev-parse', 'HEAD']);
-  const tree = git(repoRoot, ['rev-parse', 'HEAD^{tree}']);
+  const { commit, tree } = source;
   if (provenance.schema !== 'settleora.android-exact-source-build.v1' || provenance.source?.commit !== commit || provenance.source?.tree !== tree) {
     fail('Android build provenance source mismatch');
   }
@@ -423,11 +424,11 @@ function collectAndroid(repoRoot, input) {
   }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));
   if (!element) fail('Android APK is absent from output metadata');
-  const pubspec = exactTrackedFile(repoRoot, 'apps/mobile/pubspec.yaml', 'mobile pubspec').bytes.toString('utf8');
+  const pubspec = exactTrackedFile(repoRoot, 'apps/mobile/pubspec.yaml', 'mobile pubspec', commit).bytes.toString('utf8');
   const version = /^version:\s*([^+\s]+)\+(\d+)\s*$/mu.exec(pubspec);
   if (!version) fail('Mobile semantic version/build is missing from pubspec');
   if (element.versionName !== version[1] || String(element.versionCode) !== version[2]) fail('Android artifact version/build mismatch');
-  const gradle = exactTrackedFile(repoRoot, 'apps/mobile/android/app/build.gradle.kts', 'Android release config').bytes.toString('utf8');
+  const gradle = exactTrackedFile(repoRoot, 'apps/mobile/android/app/build.gradle.kts', 'Android release config', commit).bytes.toString('utf8');
   if (!/applicationId\s*=\s*"com\.example\.mobile"/u.test(gradle) || metadata.applicationId !== 'com.example.mobile') {
     fail('Android application ID mismatch');
   }
@@ -596,10 +597,10 @@ export function buildManifest(repoRoot, input) {
   const dependencyImages = [...input.dependencyImages]
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((image) => {
-      const expectedTag = configuredImage(repoRoot, image.sourceComposePath, services[image.name]);
+      const expectedTag = configuredImage(repoRoot, image.sourceComposePath, services[image.name], source.commit);
       return validateImage(withPlatform(image, platform, `dependencyImages.${image.name}`), `dependencyImages.${image.name}`, undefined, expectedTag, repositories[image.name]);
     });
-  const migrations = collectMigrations(repoRoot, input.expectedMigrationSetSha256);
+  const migrations = collectMigrations(repoRoot, input.expectedMigrationSetSha256, source.commit);
   migrations.source = { commit: source.commit, tree: source.tree };
   const rollbackCommit = sha40(input.rollback.sourceCommit, 'rollback.sourceCommit');
   try {
@@ -619,7 +620,7 @@ export function buildManifest(repoRoot, input) {
     dependencyImages,
     migrations,
     userWeb: collectWeb(repoRoot, input.userWeb, source),
-    android: collectAndroid(repoRoot, input.android),
+    android: collectAndroid(repoRoot, input.android, source),
     releaseNotes: collectReleaseNotes(input.releaseNotes),
     rollback: {
       sourceCommit: rollbackCommit,

@@ -132,7 +132,32 @@ export function parseSingleApkSigner(output) {
   return certificate;
 }
 
-function verifyAndroidSignature(input, options) {
+function withHeldArtifact(candidate, label, callback) {
+  const absolute = path.resolve(candidate);
+  let descriptor;
+  let contentsDescriptor;
+  try {
+    descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const opened = fstatSync(descriptor);
+    if (!opened.isFile()) throw new Error(`${label} must be a regular file`);
+    contentsDescriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const contentsOpened = fstatSync(contentsDescriptor);
+    if (contentsOpened.dev !== opened.dev || contentsOpened.ino !== opened.ino) throw new Error(`${label} changed while being captured`);
+    const bytes = readFileSync(contentsDescriptor);
+    if (bytes.length !== opened.size) throw new Error(`${label} changed size while being captured`);
+    callback('/proc/self/fd/3', descriptor);
+    const current = lstatSync(absolute);
+    if (current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute) {
+      throw new Error(`${label} changed while its signature was verified`);
+    }
+    return { size: bytes.length, sha256: hash(bytes) };
+  } finally {
+    if (contentsDescriptor !== undefined) closeSync(contentsDescriptor);
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+export function verifyAndroidSignature(input, options) {
   const sdkRoot = path.resolve(options['android-sdk-root'] ?? '');
   const versions = lstatSync(path.join(sdkRoot, 'build-tools'), { throwIfNoEntry: false });
   if (!versions?.isDirectory() || versions.isSymbolicLink()) throw new Error('Trusted Android SDK root is invalid');
@@ -143,32 +168,46 @@ function verifyAndroidSignature(input, options) {
     .at(-1);
   const apksigner = path.join(sdkRoot, 'build-tools', version ?? '', 'apksigner');
   const tool = trustedTool(apksigner, 'apksigner', 'Android apksigner');
-  const output = execFileSync(tool, ['verify', '--verbose', '--print-certs', path.resolve(input.android.apkPath)], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
+  let output;
+  const apk = withHeldArtifact(input.android.apkPath, 'Android APK', (heldPath, descriptor) => {
+    output = execFileSync(tool, ['verify', '--verbose', '--print-certs', heldPath], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe', descriptor],
+    });
   });
   const certificate = parseSingleApkSigner(output);
   const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
-  const aabVerification = execFileSync(jarsigner, ['-J-Duser.language=en', '-J-Duser.country=US', '-verify', '-verbose', '-certs', path.resolve(input.android.aabPath)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 128 * 1024 * 1024 });
+  let aabVerification;
+  let aabCertificate;
+  let embeddedMapping;
+  let r8Metadata;
+  const mappingSize = statSync(path.resolve(input.android.mappingPath)).size;
+  if (mappingSize < 1 || mappingSize > 128 * 1024 * 1024) throw new Error('Android R8 mapping exceeds the bounded verification size');
+  const unzip = trustedTool('/usr/bin/unzip', 'unzip', 'System unzip');
+  const aab = withHeldArtifact(input.android.aabPath, 'Android AAB', (heldPath, descriptor) => {
+    const inherited = ['ignore', 'pipe', 'pipe', descriptor];
+    aabVerification = execFileSync(jarsigner, ['-J-Duser.language=en', '-J-Duser.country=US', '-verify', '-verbose', '-certs', heldPath], { encoding: 'utf8', stdio: inherited, maxBuffer: 128 * 1024 * 1024 });
+    aabCertificate = execFileSync(keytool, ['-J-Duser.language=en', '-J-Duser.country=US', '-printcert', '-jarfile', heldPath], { encoding: 'utf8', stdio: inherited });
+    embeddedMapping = execFileSync(unzip, ['-p', heldPath, 'BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map'], { stdio: inherited, maxBuffer: mappingSize + 1024 * 1024 });
+    r8Metadata = execFileSync(unzip, ['-p', heldPath, 'BUNDLE-METADATA/com.android.tools/r8.json'], { stdio: inherited, maxBuffer: 4 * 1024 * 1024 });
+  });
   const signatureControl = /\sMETA-INF\/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$/u;
   const contentEntries = aabVerification.split(/\r?\n/u).filter((line) => /^[smk? ]{3}\s+\d+\s+\w{3}\s/u.test(line));
   const unsignedEntries = contentEntries.filter((line) => !/^s/u.test(line) && !signatureControl.test(line));
   if (!/jar verified\./u.test(aabVerification) || contentEntries.length === 0 || unsignedEntries.length) throw new Error('Android AAB contains unsigned entries');
-  const aabCertificate = execFileSync(keytool, ['-J-Duser.language=en', '-J-Duser.country=US', '-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
   const aabDigests = new Set([...aabCertificate.matchAll(/SHA256:\s*([0-9A-F:]{95})/gu)].map((match) => match[1].replaceAll(':', '').toLowerCase()));
   const signerNames = new Set([...aabVerification.matchAll(/^\s+X\.509,\s*(.+)$/gmu)].map((match) => match[1]));
   if (aabDigests.size !== 1 || !aabDigests.has(certificate) || signerNames.size !== 1 || ![...signerNames][0]?.includes('CN=Android Debug')) {
     throw new Error('Android AAB signature observation mismatch');
   }
-  const unzip = trustedTool('/usr/bin/unzip', 'unzip', 'System unzip');
-  const mappingSize = statSync(path.resolve(input.android.mappingPath)).size;
-  if (mappingSize < 1 || mappingSize > 128 * 1024 * 1024) throw new Error('Android R8 mapping exceeds the bounded verification size');
-  const embeddedMapping = execFileSync(unzip, ['-p', path.resolve(input.android.aabPath), 'BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map'], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: mappingSize + 1024 * 1024 });
-  const r8Metadata = execFileSync(unzip, ['-p', path.resolve(input.android.aabPath), 'BUNDLE-METADATA/com.android.tools/r8.json'], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 * 1024 * 1024 });
   if (embeddedMapping.length === 0 || r8Metadata.length === 0) throw new Error('Android AAB is missing embedded R8 evidence');
-  return { certificate, embeddedR8MappingSha256: hash(embeddedMapping) };
+  for (const [kind, identity] of Object.entries({ apk, aab })) {
+    const expected = input.android.expected?.[kind];
+    if (expected && (expected.size !== identity.size || expected.sha256 !== identity.sha256)) throw new Error(`Android ${kind.toUpperCase()} identity mismatch during signature verification`);
+  }
+  return { certificate, embeddedR8MappingSha256: hash(embeddedMapping), apk, aab };
 }
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -345,6 +384,11 @@ export function collectedAndroidInput(input, output, signature) {
       buildProvenancePath: path.join(output, 'build-provenance.json'),
       signerCertificateSha256: signature.certificate,
       embeddedR8MappingSha256: signature.embeddedR8MappingSha256,
+      expected: {
+        ...input.android.expected,
+        ...(signature.apk ? { apk: signature.apk } : {}),
+        ...(signature.aab ? { aab: signature.aab } : {}),
+      },
     },
   };
 }
@@ -425,7 +469,7 @@ export function main(argv = process.argv.slice(2)) {
       const unsignedInput = collectedAndroidInput(collectedWebInput(supplied, webStaging), androidStaging, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
       const signature = verifyAndroidSignature(unsignedInput, options);
       const input = collectedAndroidInput(collectedWebInput(supplied, webStaging), androidStaging, signature);
-      const manifest = buildManifest(repoRoot, input);
+      const stagedManifest = buildManifest(repoRoot, input);
       verifyLiveRegistry(input);
       assertCleanCompletion(repoRoot, 'Source changed before final manifest write');
       const output = safeOutput(input, options.output);
@@ -436,6 +480,9 @@ export function main(argv = process.argv.slice(2)) {
       webPromoted = true;
       renameSync(androidStaging, androidRoot);
       androidPromoted = true;
+      const retainedInput = canonicalAndroidInput(canonicalWebInput(supplied), signature);
+      const manifest = buildManifest(repoRoot, retainedInput);
+      if (canonicalJson({ ...manifest, generatedAt: stagedManifest.generatedAt }) !== canonicalJson(stagedManifest)) throw new Error('Promoted evidence differs from verified staging evidence');
       writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
       completed = true;
       process.stdout.write(`${JSON.stringify({ status: 'assembled', identityDigest: manifest.identityDigest, output })}\n`);
@@ -463,8 +510,10 @@ export function main(argv = process.argv.slice(2)) {
       const rebuiltInput = canonicalAndroidInput(collectedWebInput(supplied, webValidation), signature);
       const rebuilt = buildManifest(repoRoot, rebuiltInput);
       verifyLiveRegistry(retainedInput);
+      const retainedAfterRebuild = buildManifest(repoRoot, retainedInput);
       assertCleanCompletion(repoRoot, 'Source changed before validation completed');
       if (canonicalJson({ ...retained, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)
+        || canonicalJson({ ...retainedAfterRebuild, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)
         || canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
         throw new Error('Manifest differs from independently recollected evidence');
       }

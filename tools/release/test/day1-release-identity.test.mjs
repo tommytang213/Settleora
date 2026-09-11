@@ -247,7 +247,18 @@ test('rejects hidden tracked-source changes and nonconforming migration sources'
   git(f.root, ['update-index', '--no-assume-unchanged', 'apps/mobile/pubspec.yaml']);
   writeFileSync(path.join(f.root, 'apps/mobile/pubspec.yaml'), 'version: 1.2.3+45\n');
   write(f.root, 'services/api/src/Settleora.Api/Persistence/Migrations/CustomMigration.cs', '[Migration("20260103000000_Custom")]\n');
+  git(f.root, ['add', 'services/api/src/Settleora.Api/Persistence/Migrations/CustomMigration.cs']);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'invalid migration fixture']);
   assert.throws(() => collectMigrations(f.root), /Unrecognized migration source files/);
+});
+
+test('binds migration bytes to the initially captured source commit', (t) => {
+  const f = fixture(t);
+  const migration = path.join(f.root, 'services/api/src/Settleora.Api/Persistence/Migrations/20260101000000_Initial.cs');
+  writeFileSync(migration, 'different migration bytes\n');
+  git(f.root, ['add', 'services/api/src/Settleora.Api/Persistence/Migrations/20260101000000_Initial.cs']);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'move mutable head']);
+  assert.throws(() => collectMigrations(f.root, undefined, f.commit), /captured source blob/);
 });
 
 test('rejects symlinked evidence and a tampered manifest identity digest', (t) => {

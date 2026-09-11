@@ -60,6 +60,11 @@ stale Android binaries. Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
 migration and retained Android evidence; digest-only validation is intentionally absent.
+APK/AAB verification uses inherited read-only file descriptors and carries the
+same captured byte identities into manifest collection, preventing pathname
+replacement between signature checks and hashing. Repository-backed Compose,
+migration, web-lock and mobile-config reads are compared with the initially
+captured source commit rather than a later movable `HEAD`.
 Android collection is staged under the private candidate directory and removed
 on assembly failure before promotion to canonical evidence. Validation accepts
 only that candidate's canonical retained `release-identity-manifest.json`.
