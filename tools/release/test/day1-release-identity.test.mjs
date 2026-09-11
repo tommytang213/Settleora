@@ -339,6 +339,8 @@ test('safe inputs reject URL query credentials and completion rejects untracked 
   const f = fixture(t);
   const inputPath = write(f.evidenceRoot, 'unsafe-input.json', JSON.stringify({ publicationRunUrl: `https://example.invalid/?access_token=${['gho', 'A'.repeat(30)].join('_')}` }));
   assert.throws(() => safeInput(inputPath, 'Evidence input'), /potentially sensitive material/);
+  const oversizedInput = write(f.evidenceRoot, 'oversized-input.json', 'x'.repeat((4 * 1024 * 1024) + 1));
+  assert.throws(() => safeInput(oversizedInput, 'Evidence input'), /evidence size limit/);
   assert.doesNotThrow(() => assertCleanCompletion(f.root, 'source changed'));
   write(f.root, 'untracked-after-registry.txt', 'race\n');
   assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /source changed/);

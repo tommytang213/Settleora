@@ -17,11 +17,11 @@ class SealedAndroidVerifierTests(unittest.TestCase):
     def test_unsigned_count_ignores_directory_and_signature_control_records(self):
         verification = "\n".join(
             (
-                "    0 Fri Jan 01 00:00:00 UTC 2026 BUNDLE-METADATA/",
-                "    5 Fri Jan 01 00:00:00 UTC 2026 META-INF/CERT.SF",
-                "s   7 Fri Jan 01 00:00:00 UTC 2026 base/assets/signed.txt",
-                "    9 Fri Jan 01 00:00:00 UTC 2026 base/assets/unsigned.txt",
-                "    16 Fri Jan 01 00:00:00 UTC 2026 base/assets/payload/",
+                "      0 Fri Jan 01 00:00:00 UTC 2026 BUNDLE-METADATA/",
+                "      5 Fri Jan 01 00:00:00 UTC 2026 META-INF/CERT.SF",
+                "sm    7 Fri Jan 01 00:00:00 UTC 2026 base/assets/signed.txt",
+                "    ?      9 Fri Jan 01 00:00:00 UTC 2026 base/assets/unsigned.txt",
+                "    ?     16 Fri Jan 01 00:00:00 UTC 2026 base/assets/payload/",
             )
         )
         self.assertEqual(VERIFIER.unsigned_content_entry_count(verification), (5, 2))

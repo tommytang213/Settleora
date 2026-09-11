@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,20 +45,31 @@ export function safeInput(candidate, label) {
 
 function safeBytes(candidate, label) {
   const absolute = path.resolve(candidate);
+  const maxBytes = 4 * 1024 * 1024;
   let descriptor;
-  let bytes;
   try {
     descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
     const opened = fstatSync(descriptor);
-    bytes = readFileSync(descriptor);
+    if (!opened.isFile() || opened.size < 1 || opened.size > maxBytes) throw new Error(`${label} exceeds its evidence size limit`);
+    const chunks = [];
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let total = 0;
+    while (true) {
+      const count = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      total += count;
+      if (total > maxBytes) throw new Error(`${label} exceeds its evidence size limit`);
+      chunks.push(Buffer.from(buffer.subarray(0, count)));
+    }
+    const bytes = Buffer.concat(chunks, total);
     const current = lstatSync(absolute);
     if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute || bytes.length !== opened.size) {
       throw new Error(`${label} changed or resolved through indirection while being read`);
     }
+    return bytes;
   } finally {
     if (descriptor !== undefined) closeSync(descriptor);
   }
-  return bytes;
 }
 
 function registryReference(image) {
@@ -117,7 +128,7 @@ function trustedTool(candidate, expectedName, label) {
   if (path.basename(tool) !== expectedName || !metadata?.isFile() || metadata.isSymbolicLink() || realpathSync(tool) !== tool || !(metadata.mode & 0o111)) {
     throw new Error(`${label} must be an explicitly trusted real executable named ${expectedName}`);
   }
-  return tool;
+  return { path: tool, dev: metadata.dev, ino: metadata.ino };
 }
 
 export function parseSingleApkSigner(output) {
@@ -131,7 +142,7 @@ export function parseSingleApkSigner(output) {
   return certificate;
 }
 
-function sealedAndroidVerification(kind, artifact, toolPaths) {
+function sealedAndroidVerification(kind, artifact, tools) {
   const committedHelper = execFileSync('git', ['show', 'HEAD:tools/release/sealed_android_verifier.py'], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1024 * 1024 });
   if (!sealedAndroidVerifierSource.equals(committedHelper)) throw new Error('Android sealed verifier does not match the captured source checkout');
   const absolute = path.resolve(artifact);
@@ -143,11 +154,11 @@ function sealedAndroidVerification(kind, artifact, toolPaths) {
     const opened = fstatSync(descriptor);
     const current = lstatSync(absolute);
     if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute) throw new Error(`Android ${kind.toUpperCase()} artifact path is not stable`);
-    for (const toolPath of toolPaths) {
-      const toolDescriptor = openSync(toolPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    for (const tool of tools) {
+      const toolDescriptor = openSync(tool.path, constants.O_RDONLY | constants.O_NOFOLLOW);
       const toolOpened = fstatSync(toolDescriptor);
-      const toolCurrent = lstatSync(toolPath);
-      if (!toolOpened.isFile() || toolCurrent.isSymbolicLink() || toolCurrent.dev !== toolOpened.dev || toolCurrent.ino !== toolOpened.ino || realpathSync(toolPath) !== toolPath) throw new Error(`Android ${kind.toUpperCase()} verifier executable changed before use`);
+      const toolCurrent = lstatSync(tool.path);
+      if (!toolOpened.isFile() || toolOpened.dev !== tool.dev || toolOpened.ino !== tool.ino || toolCurrent.isSymbolicLink() || toolCurrent.dev !== tool.dev || toolCurrent.ino !== tool.ino || realpathSync(tool.path) !== tool.path) throw new Error(`Android ${kind.toUpperCase()} verifier executable changed before use`);
       toolDescriptors.push(toolDescriptor);
     }
     result = JSON.parse(execFileSync('/usr/bin/python3', ['-', kind], {
@@ -257,7 +268,7 @@ function collectWebExactSource(output) {
 }
 
 function collectAndroidUnsafe(options, emit = true) {
-  const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool');
+  const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool').path;
   const output = path.resolve(options.output ?? '');
   const relative = path.relative('/workspace/logs', output);
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Android evidence output must remain under /workspace/logs');
