@@ -45,7 +45,14 @@ function protectedSystemCommand(candidate, expectedName) {
 const gitCommand = protectedSystemCommand('/usr/bin/git', 'git');
 const dockerCommand = protectedSystemCommand('/usr/bin/docker', 'docker');
 const ghCommand = protectedSystemCommand('/usr/bin/gh', 'gh');
-const npmCommand = protectedSystemCommand('/usr/bin/npm', 'npm');
+const nodeCommand = protectedSystemCommand(process.execPath, 'node');
+const npmCliCandidate = [
+  process.env.npm_execpath,
+  path.resolve(path.dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js'),
+  '/usr/lib/node_modules/npm/bin/npm-cli.js',
+].find((candidate) => candidate && lstatSync(candidate, { throwIfNoEntry: false }));
+const npmCli = protectedSystemCommand(npmCliCandidate ?? '', 'npm-cli.js');
+const npmExec = (values, options) => execFileSync(nodeCommand, [npmCli, ...values], options);
 const gitExec = (args, options) => execFileSync(gitCommand, ['--no-replace-objects', ...args], options);
 const replacementRefs = gitExec(['for-each-ref', '--format=%(refname)', 'refs/replace'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 if (replacementRefs) throw new Error('Git replacement refs are not allowed for provenance collection');
@@ -604,8 +611,8 @@ function collectWebExactSource(output) {
       npm_config_audit: 'false',
       npm_config_fund: 'false',
     };
-    execFileSync(npmCommand, ['ci'], { cwd: webRoot, env: npmEnvironment, stdio: 'inherit' });
-    execFileSync(npmCommand, ['run', 'build'], { cwd: webRoot, env: npmEnvironment, stdio: 'inherit' });
+    npmExec(['ci'], { cwd: webRoot, env: npmEnvironment, stdio: 'inherit' });
+    npmExec(['run', 'build'], { cwd: webRoot, env: npmEnvironment, stdio: 'inherit' });
     const lock = JSON.parse(readFileSync(path.join(webRoot, 'package-lock.json'), 'utf8'));
     const version = (name) => {
       const value = lock.packages?.[`node_modules/${name}`]?.version;
@@ -619,7 +626,7 @@ function collectWebExactSource(output) {
       provenance: {
         source,
         artifactRoot: 'apps/web-user/dist',
-        buildTools: { node: process.version, npm: execFileSync(npmCommand, ['--version'], { encoding: 'utf8', env: npmEnvironment }).trim(), typescript: version('typescript'), vite: version('vite') },
+        buildTools: { node: process.version, npm: npmExec(['--version'], { encoding: 'utf8', env: npmEnvironment }).trim(), typescript: version('typescript'), vite: version('vite') },
       },
     });
     return source;

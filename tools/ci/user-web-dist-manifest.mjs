@@ -302,7 +302,7 @@ export function createUserWebDistManifest({
     },
     buildTools: provenance?.buildTools ?? {
       node: process.version,
-      npm: execFileSync('/usr/bin/npm', ['--version'], { encoding: 'utf8' }).trim(),
+      npm: execFileSync(process.env.npm_execpath || '/usr/bin/npm', ['--version'], { encoding: 'utf8' }).trim(),
       typescript: packageVersion(lock, 'typescript'),
       vite: packageVersion(lock, 'vite'),
     },
