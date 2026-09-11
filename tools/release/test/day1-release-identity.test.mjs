@@ -279,6 +279,7 @@ test('migration attribute parsing ignores comments and string literals', () => {
     '[Migration("20260911123456_InactiveMigration")]',
     '#endif',
   ].join('\n')), /conditional-compilation directives/);
+  assert.throws(() => migrationAttributeIds('var value = """[Migration("20260911123456_Decoy")]""";'), /raw string syntax/);
 });
 
 test('rejects symlinked evidence and a tampered manifest identity digest', (t) => {

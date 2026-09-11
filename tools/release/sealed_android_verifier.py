@@ -56,8 +56,8 @@ def inspect_jar_signatures(command: list[str], descriptors: tuple[int, ...], exe
     signer_names: set[str] = set()
     jar_verified = False
     output_bytes = 0
-    entry_pattern = re.compile(rb"^([smk? ]{5})\s+(\d+)\s+\w{3}\s")
-    signature_control = re.compile(rb"\sMETA-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
+    entry_pattern = re.compile(rb"^([smk? ]{5})\s+(\d+)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\d{4}\s+(.+?)\r?\n?$")
+    signature_control = re.compile(rb"^META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
     signer_pattern = re.compile(rb"^\s+X\.509,\s*(.+)$")
     try:
         for line in process.stdout:
@@ -71,7 +71,8 @@ def inspect_jar_signatures(command: list[str], descriptors: tuple[int, ...], exe
                     raise ValueError("Android bundle exceeds its verifier entry-count limit")
                 status = match.group(1)
                 size = int(match.group(2))
-                if b"s" not in status and not (size == 0 and line.rstrip().endswith(b"/")) and not signature_control.search(line.rstrip()):
+                entry_name = match.group(3)
+                if b"s" not in status and not (size == 0 and entry_name.endswith(b"/")) and not signature_control.fullmatch(entry_name):
                     unsigned_entry_count += 1
             signer = signer_pattern.match(line.rstrip(b"\r\n"))
             if signer:
@@ -98,14 +99,14 @@ def inspect_jar_signatures(command: list[str], descriptors: tuple[int, ...], exe
 def unsigned_content_entry_count(verification: str) -> tuple[int, int]:
     content_entries = []
     for line in verification.splitlines():
-        match = re.match(r"^([smk? ]{5})\s+(\d+)\s+\w{3}\s", line)
+        match = re.match(r"^([smk? ]{5})\s+(\d+)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\d{4}\s+(.+)$", line)
         if match:
-            content_entries.append((line, match.group(1), int(match.group(2))))
-    signature_control = re.compile(r"\sMETA-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
+            content_entries.append((match.group(3), match.group(1), int(match.group(2))))
+    signature_control = re.compile(r"^META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
     unsigned = sum(
         1
-        for line, status, size in content_entries
-        if "s" not in status and not (size == 0 and line.rstrip().endswith("/")) and not signature_control.search(line)
+        for entry_name, status, size in content_entries
+        if "s" not in status and not (size == 0 and entry_name.endswith("/")) and not signature_control.fullmatch(entry_name)
     )
     return len(content_entries), unsigned
 

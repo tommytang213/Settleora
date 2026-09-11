@@ -329,6 +329,7 @@ export function migrationAttributeIds(text) {
   if (/^\s*#\s*(?:if|elif|else|endif)\b/mu.test(text)) {
     fail('Migration source contains conditional-compilation directives that cannot be reproduced by the bounded parser');
   }
+  if (/"{3,}/u.test(text)) fail('Migration source contains raw string syntax that cannot be reproduced by the bounded parser');
   const ids = [];
   for (let index = 0; index < text.length;) {
     if (text.startsWith('//', index)) {

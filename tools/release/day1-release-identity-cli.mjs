@@ -252,10 +252,11 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
       if (!toolOpened.isFile() || toolOpened.dev !== tool.dev || toolOpened.ino !== tool.ino || toolCurrent.isSymbolicLink() || toolCurrent.dev !== tool.dev || toolCurrent.ino !== tool.ino || realpathSync(tool.path) !== tool.path) throw new Error(`Android ${kind.toUpperCase()} verifier executable changed before use`);
       toolDescriptors.push(toolDescriptor);
     }
-    result = JSON.parse(execFileSync('/usr/bin/python3', ['-', kind, javaPath, ...tools.map((tool) => tool.sha256)], {
+    result = JSON.parse(execFileSync('/usr/bin/python3', ['-I', '-S', '-', kind, javaPath, ...tools.map((tool) => tool.sha256)], {
       encoding: 'utf8',
       input: committedVerifierHelper,
       stdio: ['pipe', 'pipe', 'pipe', descriptor, ...toolDescriptors],
+      cwd: '/usr/bin',
       env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
       maxBuffer: 4 * 1024 * 1024,
     }));
