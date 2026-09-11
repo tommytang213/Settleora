@@ -12,6 +12,8 @@ R12 completion addendum: [Issue #1195](https://github.com/tommytang213/Settleora
 
 R10 completion addendum: [Issue #1198](https://github.com/tommytang213/Settleora/issues/1198) is implemented by [PR #1199](https://github.com/tommytang213/Settleora/pull/1199), reviewed source `439cbe7f33edf82f4b7e752c08c32056799fc58d`, tree `8a8b751b0115e2ceac02d54afb9951e7d6cd201c`, normal merge `5fc712695657be51baf54548ecefc1892497fdb7`. Dependabot #32/#34-#36 closed automatically as fixed with no dismissal/suppression; affected development tooling is absent from the byte-identical browser artifact. R02 is now the next dependency-safe repository recommendation.
 
+Mobile portability addendum: [Issue #1201](https://github.com/tommytang213/Settleora/issues/1201) is implemented by [PR #1202](https://github.com/tommytang213/Settleora/pull/1202), reviewed source `f5e2802a9decd4eb26185d3c6cd55fd6d5d5d0e0`, tree `483f095291e2c39051586b408dd4127d4d0a2e58`, normal merge `c6bcab3bf42cfe61b88e55131676cc1fe05de65c`. Shared font and visual-output discovery is portable across ordinary hosts and Codemagic configuration, GitHub Linux/macOS proof passed without `/opt/flutter`, and release/visual selection remains intact. No Codemagic cloud run is claimed; manual provider evidence remains pending. R02 remains the next dependency-safe repository recommendation.
+
 ## 1. Scope, method, and conclusion
 
 This is a source-of-truth inventory, not a release. It reconciles the current
@@ -43,7 +45,7 @@ remain R05. iOS signing, App Store Connect processing, and TestFlight
 availability/install remain external/manual; current TrueNAS acceptance is
 blocked on the repository gaps, and production/staging exposure is unavailable.
 
-With the #1195 R12 and #1198 R10 repository slices, the 69 evaluated
+With the #1195 R12, #1198 R10 and #1201 mobile-portability repository slices, the 69 evaluated
 capabilities comprise 25 `implemented`, 18 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
 `unavailable`, 7 `blocked`, 1 `superseded`, and 1 `later-day`.
 
@@ -112,8 +114,8 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | A01 | Every PR to `main` is classified; docs-only stays lightweight | `implemented` | `.github/workflows/scaffold-validation.yml`; `tools/ci/scaffold-validation-changes.mjs` | Local `node --test tools/ci/test/*.test.mjs`; automatic classifier has no PR path filter; [PR #1187](https://github.com/tommytang213/Settleora/pull/1187) proves docs-only full/mobile/iOS skips | Completed #1185; no gap |
 | A02 | Stable required aggregate and branch enforcement | `implemented` | `scaffold-validation.yml` job `aggregate` | Ruleset `17875790` is active for `main`/`prod`, requires only `Validate scaffold`, permits merge commits, blocks deletion/non-fast-forward, and has no bypass actor | Completed #1185/#382; no ruleset mutation required |
 | A03 | Non-doc OpenAPI, generated-client, API, Compose, API-Docker validation | `implemented` | `scaffold-validation.yml`; root `package.json` | `validate:openapi`, `validate:clients`, `validate:api`, `validate:compose`, `validate:api-docker`; all succeeded on [PR #1186](https://github.com/tommytang213/Settleora/pull/1186) | Completed #1185; no gap |
-| A04 | Mobile `pub get`, fatal analyze, and normal tests through one shared authority | `implemented` | `package.json`; `apps/mobile/tool/validate-release.sh` | Root validation keeps the mobile doctor, then the shared script runs pub get, analyze and 63 normal/mixed files with `--exclude-tags visual`; dedicated visual filenames remain separate; 1,051 tests passed locally on source `c38bcbf3...` and in PR #1193's synthetic merge `9b80cfe4...` | Completed #1185/#1192; no gap |
-| A05 | GitHub-hosted iOS simulator compile | `implemented` | `.github/workflows/mobile-ios-validation.yml` | Reusable exact-head macOS job pins Flutter 3.44.8 and runs pub get, pods, `flutter build ios --debug --simulator`; passed PR #1186 and source head `c38bcbf3...` for corrective PR #1193 | Completed #1185/#1192; simulator output is CI evidence, not a signed release artifact |
+| A04 | Mobile `pub get`, fatal analyze, and normal tests through one shared authority | `implemented` | `package.json`; `apps/mobile/tool/validate-release.sh`; portable font/output helper | Root validation keeps the mobile doctor, then the shared script runs pub get, analyze and 64 normal/mixed files with `--exclude-tags visual`; 31 dedicated visual filenames remain separate and only visual-tagged cases are excluded. PR #1202 passed 1,059 tests without GitHub's former `/opt/flutter` alias | Completed #1185/#1192/#1201; no gap |
+| A05 | GitHub-hosted iOS simulator compile and font portability proof | `implemented` | `.github/workflows/mobile-ios-validation.yml` | Reusable exact-head macOS job pins Flutter 3.44.8, loads real Roboto/Material Icons through runtime SDK discovery, then runs pods and `flutter build ios --debug --simulator`; all passed source head `f5e2802a...` on PR #1202 | Completed #1185/#1192/#1201; simulator output is CI evidence, not a signed release artifact |
 | A06 | CI self-change and unknown-proof fail closed | `implemented` | classifier exact-path sets and `aggregateGateDecision`; `tools/ci/test/ci-workflow-policy.test.mjs` | CI/config/tool changes route mobile+iOS; invalid SHA/history/diff or missing result requires the expensive lanes/fails aggregate | Completed #1185; no gap |
 | A07 | Action pinning and fork/permission posture | `implemented` | all `.github/workflows/*.yml` | Policy test requires full action SHAs. Workflows use least-scope `contents: read`; SARIF upload is suppressed for forks/Dependabot while scans still run; no `pull_request_target` | #1185/#382; required enforcement remains A02 only |
 | A08 | Semgrep | `partial` | `.github/workflows/security-semgrep.yml` | PR/push/schedule scan and SARIF exist; workflow intentionally continues after scanner findings if SARIF exists, so it is evidence/scanning, not a blocking required context | #380; findings remain security-triage evidence, not waived |
@@ -151,10 +153,10 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | D04 | Backend rollback point | `documentation-only` | backup/restore and install/upgrade docs | Pre-upgrade consistency set and previous exact image are required; no proven rollback after current migrations/file interpretation | R05 |
 | E01 | User-web serving/deployment readiness | `blocked` | real Vite source and `dist` build; completed audit #963 | Build exists, but protected routes lack a normal credential lifecycle; no container/static host config, deploy workflow, env injection contract, exposure proof, or smoke evidence | R08 owns serving after #373's product/auth prerequisites and R02's build package |
 | E02 | Admin-web serving/deployment readiness | `blocked` | `apps/web-admin/README.md`; open audit #964 and umbrella #376 | No runtime/build exists. Admin exposure must remain private/protected and separately reviewed | R13 owns the future package after #964 reconciles the #376 runtime graph |
-| F01 | Automatic Linux mobile validation and macOS simulator compile | `implemented` | A04/A05 | PR #1193's Linux lane validated synthetic merge `9b80cfe4...`; the reusable hosted-macOS lane explicitly validated source head `c38bcbf3...`. Both used Flutter 3.44.8 and passed; neither is signing/upload/install | Completed #1185/#1192; retain both distinct identities and lanes |
+| F01 | Automatic Linux mobile validation and macOS simulator compile | `implemented` | A04/A05 | PR #1202's Linux lane passed the shared 1,059-test release gate without `/opt/flutter`; the reusable hosted-macOS lane explicitly validated source head `f5e2802a...`, including real material-font loading before the simulator build. Both used Flutter 3.44.8; neither is signing/upload/install | Completed #1185/#1192/#1201; retain both distinct identities and lanes |
 | F02 | Android package readiness | `blocked` | B08/B09/B12 | Debug APK works; release R8 fails; app ID/signing/store path is absent | R01 -> R07 |
 | F03 | iOS project/signing configuration | `partial` | bundle ID in Xcode project and Codemagic App Store signing integration reference | Repository identifiers and selection exist; credentials/profiles/certificates are external and unverified | R06 |
-| F04 | Codemagic trigger posture | `implemented` | `codemagic.yaml`; CI policy tests | Every mobile workflow pins Flutter 3.44.8; validation/TestFlight reuse the shared normal gate. No workflow has `triggering`; GitHub Actions invokes no Codemagic API/webhook. A provider webhook may observe events but does not select/start these YAML workflows | Completed #1185/#1192/#383; dashboard/account state remains external |
+| F04 | Codemagic trigger and portable test-output posture | `implemented` | `codemagic.yaml`; CI policy tests | Every mobile workflow pins Flutter 3.44.8; validation/TestFlight reuse the shared normal gate. Visual output binds `SETTLEORA_VISUAL_OUTPUT_ROOT` and artifact collection to `$CM_BUILD_DIR`, while 31 dedicated and 2 mixed tagged files remain separate without overlap. No workflow has `triggering`; GitHub Actions invokes no Codemagic API/webhook | Completed #1185/#1192/#1201/#383; dashboard/account and cloud-run state remain external |
 | F05 | Manual internal-TestFlight workflow | `partial` | `mobile-ios-testflight-internal` | Pins Flutter 3.44.8, invokes the shared normal gate, uses `testFlightInternalTestingOnly`, `FLUTTER_BUILD_NAME=1.0.0`, Codemagic `$BUILD_NUMBER`, signed IPA build, and IPA/archive artifact declarations | R06; repository validation parity is complete, real cloud/signing/upload evidence is not |
 | F06 | App Store Connect publishing semantics | `partial` | Codemagic publishing block | Integration auth uploads the IPA to App Store Connect; `submit_to_testflight: false`, `submit_to_app_store: false`, no beta groups. Upload configuration is not upload evidence | R06 |
 | F07 | Internal tester/device/store acceptance | `externally-gated` | `CODEMAGIC_TESTFLIGHT_SETUP.md` | Missing current cloud run, signing success, upload/processing, internal tester availability, real-device install, server-mode smoke, and Apple warning recheck | R06 owns evidence production; #975 consumes it |
@@ -167,7 +169,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | G06 | Post-deploy health/smoke and approvals | `documentation-only` | deployment guides/checklists | Endpoints and evidence fields exist; only historical #483 bounded health proof exists, not current release-candidate smoke | R05 produces self-host evidence; #975 consumes it |
 | G07 | Incident/recovery and retention | `documentation-only` | rollback/backup docs | No product deployment incident drill, artifact-retention policy, or restore/rollback rehearsal exists | R05/R03 |
 | G08 | Production artifact promotion | `blocked` | no current production deployment workflow | No complete promotable candidate or cross-artifact release identity exists; after those prerequisites and a supported deployment path exist, promotion remains an explicit production/manual gate | R03/R05/R08 before R09; immutable UAT-to-production automation is #946 later-day |
-| H01 | Real Codemagic signed cloud build | `externally-gated` | repository config only | Not observable/run in #1185, #1192 or this audit | R06 |
+| H01 | Real Codemagic cloud validation/signed build | `externally-gated` | portable repository config only | Not run in #1201: `mobile-ios-validation` and optional `mobile-ios-visual-evidence` still need manual post-merge provider proof; signed TestFlight remains separate | R06 for signed release evidence; #1201 records the pending unsigned validation/visual reruns |
 | H02 | App Store Connect upload/processing | `externally-gated` | repository upload block only | No current provider evidence | R06 |
 | H03 | TestFlight internal availability and real-device install | `externally-gated` | completed #383 manual checklist only | No current tester/device evidence | R06 owns evidence production; #975 consumes it |
 | H04 | Play Console/upload/install | `unavailable` | no publishing config | R07 must first establish the approved identity, signing, and valid AAB handoff; upload, processing, testing, and device installation become externally gated only after that repository preparation exists | R07 owns preparation and later manual evidence; #975 consumes it |
@@ -209,8 +211,8 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 
 | Concern | Repository state | Evidence state | Remaining gate |
 | --- | --- | --- | --- |
-| Linux validity | root `validate:mobile` | automatic/pass on #1186 synthetic merge `a451c194...`, associated with reviewed head `8a12f344...` | PR-validity evidence; not exact-head release identity |
-| iOS simulator | exact-head GitHub-hosted macOS build | automatic/pass on #1186 | not signing/device evidence |
+| Linux validity | root `validate:mobile` and portable Flutter test fonts | automatic/pass on #1202 for reviewed head `f5e2802a...`; 1,059 tests and no `/opt/flutter` compatibility alias | PR-validity evidence; not a signed/released artifact identity |
+| iOS simulator | exact-head GitHub-hosted macOS font proof and build | automatic/pass on #1202 source `f5e2802a...` | proves SDK/font portability plus simulator compile, not signing/device evidence |
 | Android debug | Flutter Gradle project | local pass on audit baseline | not a release artifact |
 | Android release | Flutter/Gradle | R8 failure; debug signing and placeholder app ID | R01, then signing/store R07 |
 | iOS signing | App Store distribution/bundle ID configured in Codemagic | no certificate/profile/cloud result observed | manual Apple/Codemagic gate |
@@ -285,6 +287,35 @@ All entries below are future gates, not blockers to this documentation audit.
 - No Codemagic build, signing, IPA upload, App Store Connect processing,
   TestFlight installation or store action ran. R06 and #975 retain that
   external/manual evidence.
+
+### #1201 mobile test-environment portability correction
+
+- [PR #1202](https://github.com/tommytang213/Settleora/pull/1202) merged exact
+  reviewed head `f5e2802a9decd4eb26185d3c6cd55fd6d5d5d0e0` (tree
+  `483f095291e2c39051586b408dd4127d4d0a2e58`) normally as
+  `c6bcab3bf42cfe61b88e55131676cc1fe05de65c`.
+- Test fonts now resolve from supported `FLUTTER_ROOT` or the actual Flutter
+  test runtime, with canonical existence/containment checks for the same Roboto
+  and Material Icons files. GitHub Linux no longer creates `/opt/flutter`, and
+  the exact-head hosted-macOS lane loads both fonts before its simulator build.
+- Current visual writers share `SETTLEORA_VISUAL_OUTPUT_ROOT`; the ignored local
+  default is `apps/mobile/build/settleora-visual-qa`, while Codemagic binds the
+  path and PNG artifact glob under `$CM_BUILD_DIR`. An explicit DevBox evidence
+  root remains supported; historical evidence records remain factual and
+  unchanged.
+- Selection changed only from 63 to 64 normal files by adding the resolver
+  regression suite. All 31 dedicated visual files and both mixed tagged files
+  retain their roles. Local release validation and root mobile validation each
+  passed 1,059 tests; dedicated/mixed visual proofs produced 24 byte-identical
+  PNGs relative to their pre-fix counterparts.
+- All exact-head GitHub jobs and scanners passed, including Linux mobile,
+  hosted-macOS font proof/iOS simulator, stable aggregate, CodeQL, Semgrep and
+  Trivy. Gemini strong-independent, local Codex and GitHub Codex reviews had no
+  findings or unresolved threads.
+- No Codemagic workflow was triggered. A maintainer still manually runs
+  `mobile-ios-validation` and optionally `mobile-ios-visual-evidence` to obtain
+  provider proof; `mobile-ios-testflight-internal` remains the distinct R06
+  signing/upload action and is unnecessary for this portability check.
 
 ### #1198 R10 user-web dependency-alert remediation
 
