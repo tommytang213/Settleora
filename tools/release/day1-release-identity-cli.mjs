@@ -578,7 +578,7 @@ function exactSourceSnapshot(prefix, privateParent, callback) {
     return callback(snapshot, source);
   } finally {
     const metadata = lstatSync(container, { throwIfNoEntry: false });
-    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(container, { recursive: true, force: false });
+    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(container, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
     const after = {
       commit: gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
       tree: gitExec(['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
@@ -667,6 +667,7 @@ function collectAndroidUnsafe(options, emit = true) {
       JAVA_HOME: javaHome,
       PUB_CACHE: path.join(buildCaches, 'pub'),
       GRADLE_USER_HOME: path.join(buildCaches, 'gradle'),
+      GRADLE_OPTS: '-Dorg.gradle.daemon=false',
     };
     flutter.environment = buildEnvironment;
     executeSealedFlutter(flutter, ['clean'], path.join(snapshotRoot, 'apps/mobile'));
@@ -693,7 +694,7 @@ function collectAndroidUnsafe(options, emit = true) {
     copyBoundedFile(path.join(snapshotRoot, files.metadata[0]), path.join(output, files.metadata[1]), maxAndroidMetadataBytes, 'Android output metadata');
   } finally {
     const metadata = lstatSync(snapshotContainer, { throwIfNoEntry: false });
-    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(snapshotContainer, { recursive: true, force: false });
+    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(snapshotContainer, { recursive: true, force: false, maxRetries: 5, retryDelay: 200 });
   }
   const source = {
     commit: gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
