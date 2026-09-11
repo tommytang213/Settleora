@@ -10,6 +10,17 @@ Source baseline: `origin/main` `d2472faaf855f326e9928a02e7efa89ae7415430`, tree 
 
 R01 owner: [#1209](https://github.com/tommytang213/Settleora/issues/1209), **R01: fix Android OCR release APK/AAB R8 dependency closure**
 
+R01 completion addendum: [PR #1212](https://github.com/tommytang213/Settleora/pull/1212)
+merged reviewed source `2d7ceac310433870aef9bdf4ed93f84feec9dac3`, tree
+`fa21fe8238e6753b969dc6107f5b5c838edd1014`, normally as
+`6ee8250b7e7c1a1bdb425daaec50f32d14dabaca`. The bounded Android release
+configuration now accepts only the eight absent optional-script ML Kit option
+types that R8 reports. It does not add their Chinese, Devanagari, Japanese, or
+Korean model artifacts; current source still selects the bundled Latin
+recognizer. Exact-source debug APK, minified release APK, and minified release
+AAB builds passed. Android application identity, production signing, Play, and
+physical-device acceptance remain separate R07/#975 gates.
+
 ## 1. Decision
 
 The Day 1 receipt/OCR workflow is **partial**. It is no longer an unimplemented
@@ -20,15 +31,17 @@ duplicate guidance, explicit draft apply, and server-side non-draft revision
 routing. Those are separate capabilities and are not one claim that “OCR
 works.”
 
-This audit inventories **25 capabilities exactly once**: 6 `implemented`, 12
-`partial`, 4 `blocked`, 2 `externally-gated`, 1 `documentation-only`, and 0
+This audit inventories **25 capabilities exactly once**: 9 `implemented`, 12
+`partial`, 1 `blocked`, 2 `externally-gated`, 1 `documentation-only`, and 0
 `unavailable`. No row is currently `superseded` or `later-day`; section 8 names
 superseded claims and later-day scope without manufacturing capability rows.
 
-The first dependency-safe implementation task is R01/#1209. A bounded build on
-the exact source baseline reproduced `:app:minifyReleaseWithR8` failure for the
-ML Kit Chinese, Devanagari, Japanese, and Korean recognizer option classes.
-Closed #437 planned native validation and did not implement this closure. #959
+R01/#1209 has now closed that bounded compile/package gap. The original exact
+source failure at `:app:minifyReleaseWithR8` named ML Kit Chinese, Devanagari,
+Japanese, and Korean recognizer option classes. PR #1212 added exact suppressions
+for those compile-only bridge arms while retaining the Latin runtime graph and
+proved debug APK, minified release APK, and minified release AAB outputs. Closed
+#437 planned native validation and did not implement this closure. #959
 owns a preserved HK Chinese parser candidate/recovery chain and is not an
 Android dependency, Gradle, R8, or release-build owner.
 
@@ -76,13 +89,13 @@ profile, reviewer tier, gates, dependency order, and close rule.
 | 2 | Image preprocessing/safety/normalization | `partial` | `receipt_image_artifact_processor.dart`, `receipt_image_normalization_policy.dart`, `receipt_intake_safety.dart`; `_processedReceiptAttachmentArtifact`/`_runReceiptOcrPreview`, both `_changeDraftAttachmentPurpose` implementations and upload loops in `bill_list_screen.dart`; existing-bill `_upload` in `bill_attachment_section.dart`; artifact tests; normalization/artifact PRs #212/#213 | JPEG/PNG/WebP intake bytes are decoded and re-encoded as normalized JPEG plus thumbnail in memory; that derivative becomes draft attachment/upload bytes on the processed create paths. Four live bypasses remain: ML Kit reads the derivative's inherited original `localPath`; failed/unsupported normalization leaves the original selection uploadable; existing-bill attachment upload forwards picked bytes directly; and changing a draft supporting attachment to receipt only relabels it. | OCR, saved-detail uploads, purpose changes and failed/unsupported normalization can bypass the derivative or normalized upload/storage policy. There is no orientation/crop/document-boundary/perspective/enhancement proof, explicit metadata-strip proof, encrypted cache, offline/replacement/web policy convergence, or API-policy acceptance. | P01/#358 |
 | 3 | Platform support and permission behavior | `partial` | Android manifest camera permission; iOS `Info.plist` and English purpose strings; `receipt_image_intake.dart`; intake/widget tests; PR #1169 preserved native purpose text | Android/iOS provider gating and bounded camera/photo denial copy exist; manual entry stays available. | No share extension/intent filter, complete limited-library/settings recovery, or real Android/iOS permission/device matrix. | P01/#358 |
 | 4 | On-device OCR provider selection | `implemented` | `pubspec.yaml`/lock; `mlkit_receipt_ocr_provider.dart`; `app_bootstrap.dart`; provider/parser tests; decision and #436 plans; seam PRs #104/#105 and concrete runtime PR #108 | Authenticated app bootstrap injects `MlKitReceiptOcrProvider`; Android/iOS use ML Kit behind `ReceiptOcrProvider`; tests may inject fake/unsupported providers; recognized text is parsed without routine logging. | No provider-selection gap. Native packaging and device acceptance remain separate rows. | E01/closed #436 |
-| 5 | ML Kit native dependency/model/build behavior | `blocked` | `google_mlkit_text_recognition` 0.15.1 and commons 0.11.1; plugin Android `implementation` Latin plus `compileOnly` optional scripts; exact-main release build evidence in section 4 | Latin recognizer is the intended current Settleora call; debug resolution includes bundled Latin recognition. Failure returns bounded UI state when runtime reaches the provider. | Release R8 sees bridge references to four absent optional script option classes. Intended release package/model set, size and offline behavior are not accepted. | P02/#1209 |
+| 5 | ML Kit native dependency/model/build behavior | `implemented` | `google_mlkit_text_recognition` 0.15.1 and commons 0.11.1; plugin Android `implementation` Latin plus `compileOnly` optional scripts; PR #1212 exact dependency, archive, mapping, size and build evidence | Latin remains the sole Settleora script selection. Debug and release runtime classpaths contain `com.google.mlkit:text-recognition:16.0.1` plus bundled common/model inputs, with no optional script recognizer artifacts. Eight exact R8 warnings cover only unreachable compile-only bridge arms. | Physical-device OCR and any future non-Latin provider/model decision remain outside this compile/package result. | P02/#1209 completed |
 | 6 | Android debug build | `implemented` | Android project plus release-readiness audit B08; root mobile validation/debug artifact history including #1169/#1202 | Debug APK compiles and provides a native test artifact. | Debug is not minified, signed for production, store-ready, or device OCR acceptance. R01 must preserve it as regression evidence. | E02/R01 regression |
-| 7 | Android release APK | `blocked` | `android/app/build.gradle.kts`; exact `flutter build apk --release` failure in section 4 | Build reaches R8 after Flutter/icon processing. Manual entry/runtime recovery cannot compensate for a missing artifact. | `minifyReleaseWithR8` fails; no valid current release APK. | P02/#1209 |
-| 8 | Android release AAB | `blocked` | Same release variant/config and release-readiness audit B09 | No accepted AAB exists; it must use the same corrected intended OCR release dependency set. | Release minification prerequisite is unresolved; no AAB/package inspection evidence. | P02/#1209 |
+| 7 | Android release APK | `implemented` | PR #1212 exact source; `flutter build apk --release`; R8 mapping and archive inspection | `minifyReleaseWithR8` passes; release APK is 96,920,419 bytes, SHA-256 `1354cc0881fe6e14daf5287e8102b209e8b0e9306f48a1239c6675ed1fd8db8d`, with bundled Latin model/native pipeline evidence. | Still debug-signed with placeholder identity; no device/store acceptance. | P02/#1209 completed |
+| 8 | Android release AAB | `implemented` | PR #1212 exact source; `flutter build appbundle --release`; archive inspection | Minification passes; release AAB is 77,132,675 bytes, SHA-256 `26cf964589a38e645337a4f0efa8e17639930b99952452d491c9feae00cf1444`, with the intended Latin contents and no optional-script expansion. | Still debug-signed with placeholder identity; no upload/device/store acceptance. | P02/#1209 completed |
 | 9 | iOS simulator/native compile | `implemented` | iOS project/Podfile; GitHub hosted-macOS `mobile-ios-validation`; #1185/#1192/#1201 and PR #1202 exact-head simulator evidence | Current mobile source has passed `flutter build ios --debug --simulator` with CocoaPods on hosted macOS. | Simulator compile is not a signed archive, physical-camera/OCR test, offline-model proof, or store acceptance. | E03/#1201 evidence |
 | 10 | Physical-device OCR acceptance | `externally-gated` | Native validation plan and #975 acceptance contract; no current bound device artifact | Safe expected path is capture/import, local OCR, edit, manual fallback, save, preview, and explicit apply. | Android/iOS device OCR, camera/photo permission, crash/log redaction, fresh-install and offline matrices are not run on final artifacts. | P12/#975 |
-| 11 | Offline behavior/model availability | `partial` | App bootstrap/local-mode/server-shell routing; ML Kit provider uses no Settleora server call; artifact cache reports `secure_receipt_cache_deferred`; #437 plan | A user already inside the authenticated shell retains the injected device-side provider after connectivity loss, so local extraction remains reachable in that warm session. Local Mode has no bill/OCR route, and an offline/server-unavailable cold path cannot bootstrap into the authenticated OCR shell; durable local review/queue behavior is absent. | Docs-only audit #971 must reconcile and split cold-start/local-mode reachability, persistence, queue and conflict behavior into approved focused implementation owners; it must not implement those gaps itself. R01/#1209 remains a prerequisite for packaged model/build facts; #975 and its children own final device evidence. | P09/#971 reconciliation and its approved children |
+| 11 | Offline behavior/model availability | `partial` | App bootstrap/local-mode/server-shell routing; ML Kit provider uses no Settleora server call; artifact cache reports `secure_receipt_cache_deferred`; #437 plan; completed #1209 packaged-model proof | A user already inside the authenticated shell retains the injected device-side provider after connectivity loss, so local extraction remains reachable in that warm session. Local Mode has no bill/OCR route, and an offline/server-unavailable cold path cannot bootstrap into the authenticated OCR shell; durable local review/queue behavior is absent. The bundled Latin model/package set is statically proven. | Docs-only audit #971 must reconcile and split cold-start/local-mode reachability, persistence, queue and conflict behavior into approved focused implementation owners; it must not implement those gaps itself. #975 and its children own final device/offline evidence. | P09/#971 reconciliation and its approved children |
 | 12 | Unsupported provider/platform state | `partial` | `unsupported_receipt_ocr_provider.dart`; platform check in ML Kit provider; parser/provider and bill widget tests | Unsupported platform/provider returns bounded text and preserves manual entry; tests can inject the fallback. | Material unsupported-state UX, recovery choices, provider availability/readiness, and visual/device acceptance remain incomplete. | P03/#438 |
 | 13 | Extraction failure and retry | `partial` | ML Kit provider failure categories; `_runReceiptOcrPreview` personal/group paths; widget/parser tests | Missing path, unreadable output, native exception, stale attachment callback, and selection failure do not apply bill data; manual editing remains. | Capture-stage OCR has no complete explicit retry/reselect/offline state matrix or approved visual evidence. Saved-review network retry does not close native extraction retry. | P03/#438 |
 | 14 | Manual-entry fallback | `partial` | Personal/group create forms and bounded failure copy in intake/provider paths; `bill_list_screen_test.dart` | Bill fields remain editable and users can continue when intake/OCR fails; no OCR result automatically overwrites them. | Every blocked/unsupported/permission/offline state is not yet proven to offer clear, accessible manual entry without data loss. | P03/#438 |
@@ -100,7 +113,7 @@ profile, reviewer tier, gates, dependency order, and close rule.
 
 ## 4. Exact Android release-build evidence
 
-One bounded read-only build was run from the clean exact baseline:
+The original bounded read-only build from the audit baseline ran:
 
 ```text
 cd apps/mobile
@@ -120,14 +133,24 @@ The plugin bridge imports and switches across all recognizer option classes,
 while its Android build declares Latin as `implementation` and the other four
 as `compileOnly`. Settleora calls only `TextRecognitionScript.latin`. This is
 enough to assign the problem to OCR/native-build dependency closure; it is not
-enough to choose the fix. #1209 must re-reconcile plugin/AGP behavior and prove
-the smallest safe direction. Blindly adding all language artifacts could alter
-size/offline/model behavior; blindly suppressing warnings requires packaged
-runtime proof. Neither action is authorized here.
+enough to identify the seam. #1209 then reconciled the resolved plugin source,
+debug/release runtime graphs, dependency insight, R8 output, and actual archives.
+It rejected an unrelated package update and adding all optional models. The
+final rule set names exactly the eight absent optional option/Builder types;
+there is no wildcard or blanket shrinker suppression.
 
-The current release audit records a passing debug APK. No release APK or AAB
-is accepted. A debug APK does not exercise R8. A compiling release artifact
-would still use debug signing and the placeholder application ID until R07.
+On exact source `2d7ceac310433870aef9bdf4ed93f84feec9dac3`, mobile doctor and
+`validate:mobile` passed (1,059 tests), as did clean debug APK, minified release
+APK, and minified release AAB builds. The debug APK is 193,739,763 bytes,
+SHA-256 `c4fdaba07e1d7c82deba813b31d2f26a5c798483e8e76b042af7416a289a93c4`;
+release hashes/sizes are recorded in rows 7 and 8. APK/AAB inspection found the
+Latin `Latn_ctc` model assets and ML Kit OCR pipeline native libraries. Runtime
+resolution remained `com.google.mlkit:text-recognition:16.0.1` and
+`text-recognition-bundled-common:17.0.0`; no Chinese, Devanagari, Japanese, or
+Korean recognizer artifact was resolved. Therefore the tracked fix has no model
+or dependency-size delta and does not change first-use/offline Latin behavior.
+Static packaging is not physical-device acceptance. All outputs still use debug
+signing and `com.example.mobile` until R07.
 
 ## 5. Ownership, path, validation, review, gates, dependencies, and close rules
 
