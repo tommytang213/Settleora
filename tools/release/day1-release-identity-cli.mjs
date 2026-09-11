@@ -8,6 +8,7 @@ import {
   buildManifest,
   canonicalJson,
   computeIdentityDigest,
+  containsSensitiveMaterial,
   validateRegistryDocument,
   validateRegistryRevision,
   validateManifest,
@@ -27,12 +28,12 @@ function args(values) {
   return result;
 }
 
-function safeInput(candidate, label) {
+export function safeInput(candidate, label) {
   const absolute = path.resolve(candidate);
   const metadata = lstatSync(absolute);
   if (!metadata.isFile() || metadata.isSymbolicLink() || realpathSync(absolute) !== absolute) throw new Error(`${label} must be a real regular file without symlink indirection`);
   const text = readFileSync(absolute, 'utf8');
-  if (/(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)\s*[:=]\s*[^\s",}]{8,}|\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{12,}|https?:\/\/[^/@\s]+:[^/@\s]+@)/iu.test(text)) {
+  if (containsSensitiveMaterial(text)) {
     throw new Error(`${label} contains potentially sensitive material`);
   }
   return JSON.parse(text);
@@ -192,10 +193,11 @@ function assertOwnedEvidenceDirectory(candidate) {
   }
 }
 
-function collectedAndroidInput(input, output, signature) {
+export function collectedAndroidInput(input, output, signature) {
   return {
     ...input,
     android: {
+      ...input.android,
       evidenceRoot: output,
       apkPath: path.join(output, 'app-release.apk'),
       aabPath: path.join(output, 'app-release.aab'),
@@ -228,8 +230,18 @@ function canonicalCandidateDirectory(input) {
   return expected;
 }
 
-try {
-  const options = args(process.argv.slice(2));
+export function canonicalAndroidInput(input, signature) {
+  return collectedAndroidInput(input, path.join(canonicalCandidateDirectory(input), 'android'), signature);
+}
+
+export function assertCleanCompletion(root, message) {
+  assertTrackedWorktreeMatchesHead(root);
+  if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error(message);
+}
+
+export function main(argv = process.argv.slice(2)) {
+ try {
+  const options = args(argv);
   if (options.command === 'collect-android') {
     if (!options.flutter || !options.output) throw new Error('collect-android requires --flutter and --output');
     collectAndroid(options);
@@ -243,8 +255,7 @@ try {
     const input = collectedAndroidInput(supplied, androidRoot, signature);
     const manifest = buildManifest(repoRoot, input);
     verifyLiveRegistry(input);
-    assertTrackedWorktreeMatchesHead(repoRoot);
-    if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Source changed before final manifest write');
+    assertCleanCompletion(repoRoot, 'Source changed before final manifest write');
     const output = safeOutput(input, options.output);
     assertOwnedEvidenceDirectory(path.dirname(output));
     writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
@@ -253,11 +264,12 @@ try {
     if (!options.manifest || !options.input) throw new Error('validate requires --manifest and --input for independent recollection');
     const manifest = validateManifest(safeInput(options.manifest, 'Manifest'));
     const supplied = safeInput(options.input, 'Evidence input');
-    const signature = verifyAndroidSignature(supplied, options);
-    const input = { ...supplied, android: { ...supplied.android, signerCertificateSha256: signature.certificate, embeddedR8MappingSha256: signature.embeddedR8MappingSha256 } };
+    const unsignedInput = canonicalAndroidInput(supplied, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
+    const signature = verifyAndroidSignature(unsignedInput, options);
+    const input = canonicalAndroidInput(supplied, signature);
     const rebuilt = buildManifest(repoRoot, input);
     verifyLiveRegistry(input);
-    assertTrackedWorktreeMatchesHead(repoRoot);
+    assertCleanCompletion(repoRoot, 'Source changed before validation completed');
     if (canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
       throw new Error('Manifest differs from independently recollected evidence');
     }
@@ -265,7 +277,12 @@ try {
   } else {
     throw new Error('Command must be assemble or validate');
   }
-} catch (error) {
+  } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
+ }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
 }

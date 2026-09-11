@@ -9,11 +9,13 @@ import {
   canonicalJson,
   collectMigrations,
   computeIdentityDigest,
+  containsSensitiveMaterial,
   sha256,
   validateRegistryDocument,
   validateRegistryRevision,
   validateManifest,
 } from '../day1-release-identity.mjs';
+import { assertCleanCompletion, canonicalAndroidInput, safeInput } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 
@@ -246,6 +248,37 @@ test('rejects a non-ancestor rollback and an R8 mapping not bound to the AAB', (
   const f = fixture(t);
   assert.throws(() => buildManifest(f.root, { ...f.input, rollback: { ...f.input.rollback, sourceCommit: f.commit, apiImage: { ...f.input.rollback.apiImage, configuredTag: `sha-${f.commit}`, ociRevision: f.commit } } }), /prior to the candidate/);
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, embeddedR8MappingSha256: '8'.repeat(64) } }), /does not match the signed AAB/);
+});
+
+test('rejects broad credential forms before retained evidence can be built', (t) => {
+  const f = fixture(t);
+  const tokenUrl = `https://github.com/actions/runs/1?access_token=${['gho', 'A'.repeat(30)].join('_')}`;
+  assert.equal(containsSensitiveMaterial(tokenUrl), true);
+  assert.throws(() => buildManifest(f.root, { ...f.input, apiImage: { ...f.input.apiImage, publicationRunUrl: tokenUrl } }), /potentially sensitive material/);
+  writeFileSync(f.paths.notesPath, `candidate notes\n${tokenUrl}\n`);
+  assert.throws(() => buildManifest(f.root, f.input), /potentially sensitive material/);
+});
+
+test('preserves expected Android identities and derives retained canonical paths', (t) => {
+  const f = fixture(t);
+  const expected = { apk: { size: 123, sha256: '8'.repeat(64) }, aab: { size: 456, sha256: '9'.repeat(64) } };
+  const input = { ...f.input, android: { ...f.input.android, expected } };
+  const signature = { certificate: 'a'.repeat(64), embeddedR8MappingSha256: 'b'.repeat(64) };
+  const canonical = canonicalAndroidInput(input, signature);
+  const androidRoot = `${input.retention.canonicalEvidenceDirectory}/android`;
+  assert.deepEqual(canonical.android.expected, expected);
+  assert.equal(canonical.android.evidenceRoot, androidRoot);
+  assert.equal(canonical.android.apkPath, `${androidRoot}/app-release.apk`);
+  assert.equal(canonical.android.aabPath, `${androidRoot}/app-release.aab`);
+});
+
+test('safe inputs reject URL query credentials and completion rejects untracked files', (t) => {
+  const f = fixture(t);
+  const inputPath = write(f.evidenceRoot, 'unsafe-input.json', JSON.stringify({ publicationRunUrl: `https://example.invalid/?access_token=${['gho', 'A'.repeat(30)].join('_')}` }));
+  assert.throws(() => safeInput(inputPath, 'Evidence input'), /potentially sensitive material/);
+  assert.doesNotThrow(() => assertCleanCompletion(f.root, 'source changed'));
+  write(f.root, 'untracked-after-registry.txt', 'race\n');
+  assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /source changed/);
 });
 
 test('validates registry index/platform linkage and API revision from fixture documents', () => {

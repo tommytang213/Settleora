@@ -24,9 +24,16 @@ const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const HEX256 = /^[0-9a-f]{64}$/u;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._/+:-]*$/u;
 const MIGRATION_FILE = /^(\d{14}_[A-Za-z0-9_]+)\.cs$/u;
+const SENSITIVE_MATERIAL_PATTERNS = [
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/iu,
+  /\b(?:gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{12,})\b/u,
+  /\b(?:[A-Za-z_][A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|api[_-]?key|authorization|x-goog-api-key)\b\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{8,}/iu,
+  /https?:\/\/[^/@\s]+:[^/@\s]+@/iu,
+];
 
 const fail = (message) => { throw new Error(message); };
 export const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+export const containsSensitiveMaterial = (value) => SENSITIVE_MATERIAL_PATTERNS.some((pattern) => pattern.test(value));
 
 export function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -83,7 +90,7 @@ function safeLabel(value, label) {
 
 function publicText(value, label) {
   string(value, label);
-  if (/(?:\/home\/|\/tmp\/|\\Users\\|\b(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)\s*[:=]|\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{12,}|https?:\/\/[^/@\s]+:[^/@\s]+@)/iu.test(value)) {
+  if (/(?:\/home\/|\/tmp\/|\\Users\\)/u.test(value) || containsSensitiveMaterial(value)) {
     fail(`${label} contains host-specific or potentially sensitive material`);
   }
   return value;
@@ -350,7 +357,7 @@ function collectReleaseNotes(input) {
   safeLabel(input.source, 'releaseNotes.source');
   publicText(input.candidateSummary, 'releaseNotes.candidateSummary');
   if (file.size === 0) fail('Release-note evidence must not be empty');
-  if (/(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)\s*[:=]\s*\S{8,}|\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{12,}|https?:\/\/[^/@\s]+:[^/@\s]+@)/iu.test(file.bytes.toString('utf8'))) fail('Release-note evidence contains potentially sensitive material');
+  if (containsSensitiveMaterial(file.bytes.toString('utf8'))) fail('Release-note evidence contains potentially sensitive material');
   return { source: input.source, sha256: sha256(file.bytes), size: file.size, candidateSummary: input.candidateSummary };
 }
 
