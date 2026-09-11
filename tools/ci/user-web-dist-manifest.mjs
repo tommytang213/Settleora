@@ -14,14 +14,18 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const shaPattern = /^[0-9a-f]{40}$/;
-const unsafePathPattern = /(^|\/)(\.env(?:\.|$)|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.(?:map|pem|key|p12|pfx))$/i;
+const unsafePathPatterns = [
+  /(^|\/)(\.env(?:\.|$)|\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.(?:map|pem|key|p12|pfx))$/i,
+  /(^|\/)(?:\.ssh|\.aws|\.azure|\.config\/gcloud)(?:\/|$)/i,
+];
 const unsafeContentPatterns = [
-  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
+  /-----BEGIN [^-\r\n]*PRIVATE KEY[^-\r\n]*-----/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}\b/,
   /["'](?:client_secret|private_key|refresh_token)["']\s*:/i,
-  /(?:\/workspace\/|\/home\/[^/\s]+\/|[A-Za-z]:\\Users\\)/,
-  /sourceMappingURL\s*=\s*data:/i,
+  /(?::_authToken|_auth|npmAuthToken)\s*[:=]\s*[^\s"']+/i,
+  /(?:\/workspace\/(?:repos|logs)\/|\/home\/[^/\s]+\/(?:work|workspace|repos)\/|\/Users\/[^/\s]+\/(?:work|workspace|repos)\/|[A-Za-z]:\\Users\\[^\\\s]+\\(?:work|workspace|repos)\\)/,
+  /sourceMappingURL\s*=/i,
 ];
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -74,7 +78,9 @@ function collectFiles(distRoot) {
 
 function scanPublicArtifact(files) {
   for (const file of files) {
-    if (unsafePathPattern.test(file.path)) throw new Error(`Unsafe public artifact path: ${file.path}`);
+    if (unsafePathPatterns.some((pattern) => pattern.test(file.path))) {
+      throw new Error(`Unsafe public artifact path: ${file.path}`);
+    }
     const contents = readFileSync(file.absolute);
     const text = contents.toString('utf8');
     for (const pattern of unsafeContentPatterns) {

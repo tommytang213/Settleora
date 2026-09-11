@@ -15,7 +15,7 @@ function fixture(t) {
   const dist = path.join(root, 'dist');
   mkdirSync(path.join(dist, 'assets'), { recursive: true });
   writeFileSync(path.join(dist, 'index.html'), '<!doctype html>\n');
-  writeFileSync(path.join(dist, 'assets/app.js'), 'console.log("safe");\n');
+  writeFileSync(path.join(dist, 'assets/app.js'), 'const routes = ["/workspace/settings", "/home/account/profile"];\n');
   mkdirSync(path.join(dist, '.well-known'));
   writeFileSync(path.join(dist, '.well-known/asset.txt'), 'public metadata\n');
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -81,6 +81,7 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['malformed', (f) => writeFileSync(path.join(f.dist, 'bad\nname.txt'), 'bad'), /Unsafe dist path/],
     ['source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map'), '{}'), /Unsafe public artifact path/],
     ['credentials', (f) => writeFileSync(path.join(f.dist, 'credentials.json'), '{}'), /Unsafe public artifact path/],
+    ['npm credential file', (f) => writeFileSync(path.join(f.dist, '.npmrc'), 'registry=https://example.invalid'), /Unsafe public artifact path/],
     ['private key', (f) => writeFileSync(
       path.join(f.dist, 'material.txt'),
       ['-----BEGIN ', 'PRIVATE KEY-----'].join(''),
@@ -89,9 +90,21 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
       path.join(f.dist, 'material.txt'),
       ['-----BEGIN ENCRYPTED ', 'PRIVATE KEY-----'].join(''),
     ), /Potential sensitive/],
+    ['PGP private key', (f) => writeFileSync(
+      path.join(f.dist, 'material.txt'),
+      ['-----BEGIN PGP ', 'PRIVATE KEY BLOCK-----'].join(''),
+    ), /Potential sensitive/],
+    ['npm auth assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['//registry.example.invalid/:_auth', 'Token=fake-value'].join(''),
+    ), /Potential sensitive/],
     ['inline source map', (f) => writeFileSync(
       path.join(f.dist, 'inline.js'),
       ['//# sourceMappingURL=', 'data:application/json;base64,e30='].join(''),
+    ), /Potential sensitive/],
+    ['external source map reference', (f) => writeFileSync(
+      path.join(f.dist, 'inline.js'),
+      ['//# source', 'MappingURL=assets/source.txt'].join(''),
     ), /Potential sensitive/],
     ['host path', (f) => writeFileSync(path.join(f.dist, 'path.txt'), '/workspace/repos/project'), /Potential sensitive/],
   ];
