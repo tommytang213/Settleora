@@ -23,7 +23,7 @@ test('scaffold orchestration preserves the stable fail-closed aggregate', () => 
 
   const classify = scaffold.jobs.classify;
   assert.equal(classify.outputs.docs_only, '${{ steps.changes.outputs.docs_only }}');
-  for (const output of ['run_full_validation', 'run_mobile_validation', 'run_ios_validation']) {
+  for (const output of ['run_full_validation', 'run_mobile_validation', 'run_ios_validation', 'run_web_user_validation']) {
     assert.equal(classify.outputs[output], `\${{ steps.changes.outputs.${output} }}`);
   }
   assert.ok(runCommands(classify).includes('npm run validate:scaffold'));
@@ -32,7 +32,7 @@ test('scaffold orchestration preserves the stable fail-closed aggregate', () => 
   const aggregate = scaffold.jobs.aggregate;
   assert.equal(aggregate.name, 'Validate scaffold');
   assert.equal(aggregate.if, '${{ always() }}');
-  assert.deepEqual(aggregate.needs, ['classify', 'full-validation', 'mobile-validation', 'ios-validation']);
+  assert.deepEqual(aggregate.needs, ['classify', 'full-validation', 'mobile-validation', 'ios-validation', 'web-user-validation']);
   const gateStep = stepsFor(aggregate).find((step) => step.run?.includes('--validate-gate'));
   assert.ok(gateStep);
   assert.deepEqual(Object.keys(gateStep.env).sort(), [
@@ -44,7 +44,30 @@ test('scaffold orchestration preserves the stable fail-closed aggregate', () => 
     'RUN_FULL_VALIDATION',
     'RUN_IOS_VALIDATION',
     'RUN_MOBILE_VALIDATION',
+    'RUN_WEB_USER_VALIDATION',
+    'WEB_USER_RESULT',
   ]);
+});
+
+test('user-web lane builds an exact source head and uploads only bounded package evidence', () => {
+  const job = workflow('scaffold-validation.yml').jobs['web-user-validation'];
+  assert.equal(job.if, "${{ github.event_name == 'pull_request' && needs.classify.outputs.run_web_user_validation == 'true' }}");
+  const checkout = stepsFor(job).find((step) => step.uses?.startsWith('actions/checkout@'));
+  assert.equal(checkout.with.ref, '${{ github.event.pull_request.head.sha }}');
+  const setupNode = stepsFor(job).find((step) => step.uses?.startsWith('actions/setup-node@'));
+  assert.equal(setupNode.with['node-version'], '22');
+  assert.equal(setupNode.with['cache-dependency-path'], 'apps/web-user/package-lock.json');
+  for (const command of ['npm ci', 'npm run lint', 'npm test', 'npm run build']) {
+    assert.ok(stepsFor(job).some((step) => step.run === command && step['working-directory'] === 'apps/web-user'));
+  }
+  assert.ok(runCommands(job).some((command) => command.includes('user-web-dist-manifest.mjs')));
+  const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
+  assert.equal(upload.uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
+  assert.equal(upload.with.name, 'user-web-dist-${{ github.event.pull_request.head.sha }}');
+  assert.equal(upload.with.path, 'apps/web-user/dist/\napps/web-user/user-web-dist-manifest.json\n');
+  assert.equal(upload.with['if-no-files-found'], 'error');
+  assert.equal(upload.with['retention-days'], 14);
+  assert.doesNotMatch(JSON.stringify(job), /continue-on-error|npm run dev|vite preview|vite --host|deploy|pages|cloudflare|netlify|vercel/i);
 });
 
 test('full and mobile validation commands remain unweakened', () => {
