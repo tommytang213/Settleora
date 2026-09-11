@@ -14,7 +14,9 @@ R10 completion addendum: [Issue #1198](https://github.com/tommytang213/Settleora
 
 Mobile portability addendum: [Issue #1201](https://github.com/tommytang213/Settleora/issues/1201) is implemented by [PR #1202](https://github.com/tommytang213/Settleora/pull/1202), reviewed source `f5e2802a9decd4eb26185d3c6cd55fd6d5d5d0e0`, tree `483f095291e2c39051586b408dd4127d4d0a2e58`, normal merge `c6bcab3bf42cfe61b88e55131676cc1fe05de65c`. Shared font and visual-output discovery is portable across ordinary hosts and Codemagic configuration, GitHub Linux/macOS proof passed without `/opt/flutter`, and release/visual selection remains intact. The repository record does not infer source-bound provider acceptance beyond separately supplied operator evidence. This correction subsequently unblocked R02.
 
-R02 completion addendum: [Issue #1205](https://github.com/tommytang213/Settleora/issues/1205) is implemented by [PR #1206](https://github.com/tommytang213/Settleora/pull/1206) plus corrective convergence [PR #1207](https://github.com/tommytang213/Settleora/pull/1207). Final reviewed source `4df10f7d9ae5478288327cc24ad68ad78116110d`, tree `537684248fbc909a4939ac2522d5e049ba9c2a58`, normally merged as `01bf000ecfb718fa5708202892d77178fc9a7fb4`. Web-affecting PRs now produce source-bound, deterministic `dist` checksum/provenance and a retained GitHub artifact without deployment or serving. Open #970's adoption/split of R01 is the next dependency-safe step before full R03; #373 still owns product completeness and R08 remains blocked on it.
+R02 completion addendum: [Issue #1205](https://github.com/tommytang213/Settleora/issues/1205) is implemented by [PR #1206](https://github.com/tommytang213/Settleora/pull/1206) plus corrective convergence [PR #1207](https://github.com/tommytang213/Settleora/pull/1207). Final reviewed source `4df10f7d9ae5478288327cc24ad68ad78116110d`, tree `537684248fbc909a4939ac2522d5e049ba9c2a58`, normally merged as `01bf000ecfb718fa5708202892d77178fc9a7fb4`. Web-affecting PRs now produce source-bound, deterministic `dist` checksum/provenance and a retained GitHub artifact without deployment or serving. Completed R01 now allows R03 to consume this web evidence with the Android package evidence; #373 still owns product completeness and R08 remains blocked on it.
+
+R01 completion addendum: [Issue #1209](https://github.com/tommytang213/Settleora/issues/1209) is implemented by [PR #1212](https://github.com/tommytang213/Settleora/pull/1212), reviewed source `2d7ceac310433870aef9bdf4ed93f84feec9dac3`, tree `fa21fe8238e6753b969dc6107f5b5c838edd1014`, normal merge `6ee8250b7e7c1a1bdb425daaec50f32d14dabaca`. Exact-source debug APK, minified release APK and minified release AAB builds passed with the bundled Latin ML Kit model and no optional-script dependency expansion. This is compile/package correctness only: `com.example.mobile`, debug release signing, Play and physical-device acceptance remain R07/#975 gaps. R03 may now consume the Android and completed R02 web evidence, but autonomous queue activation remains disabled.
 
 ## 1. Scope, method, and conclusion
 
@@ -33,8 +35,8 @@ user web produces exact-source pull-request build/package evidence with a
 deterministic `dist` manifest and retained artifact, and Android produces a
 debug APK.
 
-Those facts do not close the release gate. The Android release build currently
-fails in R8 on missing ML Kit recognizer classes. Android still has a placeholder
+Those facts do not close the release gate. Android release APK/AAB compilation
+and packaging now pass R8 with the intended Latin ML Kit inputs, but Android still has a placeholder
 application ID and debug release signing. User-web serving/deployment and its
 product/auth prerequisites remain absent despite automatic build/package CI.
 Admin web has no application package. The TrueNAS catalog, automated install/upgrade,
@@ -49,9 +51,9 @@ remain R05. iOS signing, App Store Connect processing, and TestFlight
 availability/install remain external/manual; current TrueNAS acceptance is
 blocked on the repository gaps, and production/staging exposure is unavailable.
 
-With the #1195 R12, #1198 R10, #1201 mobile-portability and #1205 R02 repository slices, the 69 evaluated
-capabilities comprise 25 `implemented`, 18 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
-`unavailable`, 7 `blocked`, 1 `superseded`, and 1 `later-day`.
+With the #1195 R12, #1198 R10, #1201 mobile-portability, #1205 R02 and #1209 R01 repository slices, the 69 evaluated
+capabilities comprise 26 `implemented`, 19 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
+`unavailable`, 5 `blocked`, 1 `superseded`, and 1 `later-day`.
 
 Method:
 
@@ -134,13 +136,13 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | B05 | TrueNAS/LAN image package | `partial` | `infra/docker-compose.truenas-lan.image.yml` | Config validates; defaults to floating `ghcr.io/tommytang213/settleora-api:main`, while operators may set an exact SHA tag/digest | R03/R04; pinning/release identity is not enforced |
 | B06 | User-web production build artifact | `partial` | `apps/web-user/package.json`; `vite.config.ts`; `scaffold-validation.yml`; manifest helper | Web-affecting PRs run clean install, lint, 139 tests and production build from the exact source head, then upload staged `dist/` plus deterministic source/lock/tool/per-file/tree provenance for 14 days. Final #1207 evidence is artifact ID `10190883387`, tree digest `6bf6cd64...`; the PR-only job intentionally skips protected-branch pushes | Completed R02/#1205 satisfies its PR close rule. Protected-push artifact coverage required by the broader CI/CD architecture remains absent; this is not serving, deployment or #373 completion |
 | B07 | Admin-web artifact | `unavailable` | `apps/web-admin/README.md` only | No package, build command, runtime, tests, or artifact path | R13 after #964 reconciles the #376 runtime graph; completed/planning issues are prerequisites, not artifact owners |
-| B08 | Android debug artifact | `implemented` | `apps/mobile/android/`; `apps/mobile/pubspec.yaml` | `flutter build apk --debug` passed on baseline; artifact `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`; not automatic CI or releasable | R01 owns release-build preparation; #975 only consumes later platform evidence |
-| B09 | Android release APK/AAB | `blocked` | `apps/mobile/android/app/build.gradle.kts` | `flutter build apk --release` failed on baseline in `:app:minifyReleaseWithR8`: missing ML Kit Chinese/Japanese/Korean/Devanagari recognizer option classes. No valid AAB evidence | R01 first; R07 after compile succeeds |
+| B08 | Android debug artifact | `implemented` | `apps/mobile/android/`; `apps/mobile/pubspec.yaml` | Exact PR #1212 source built a 193,739,763-byte debug APK, SHA-256 `c4fdaba0...`; not minified, signed for production or releasable | Completed R01 regression evidence; #975 only consumes later platform evidence |
+| B09 | Android release APK/AAB | `implemented` | `apps/mobile/android/app/build.gradle.kts`; exact `proguard-rules.pro`; PR #1212 | Exact-source minified release APK (96,920,419 bytes, SHA-256 `1354cc08...`) and AAB (77,132,675 bytes, SHA-256 `26cf9645...`) passed R8. Archives contain bundled Latin model/native pipeline inputs; runtime graphs contain no optional-script recognizer artifact | Completed R01/#1209; R07 still owns identity/signing/store |
 | B10 | iOS simulator artifact evidence | `implemented` | mobile iOS project; GitHub macOS workflow | Exact-head simulator compile passed PR #1186; output is an unsigned simulator `.app` inside CI workspace and is not uploaded/retained by the workflow | Completed #1185; #975 consumes physical-platform evidence later |
 | B11 | Signed iOS IPA/archive | `externally-gated` | `codemagic.yaml` `mobile-ios-testflight-internal` | Configured paths: `build/ios/ipa/*.ipa`, `build/ios/archive/*.xcarchive`; no current observable cloud artifact/run | R06 |
 | B12 | Signed Android/store artifact | `unavailable` | Android release currently uses debug signing and `com.example.mobile` | No production keystore config, signed release identity, Play publishing block, upload, or console evidence; secrets must remain external | R07 |
 | B13 | Generated contracts/clients as inputs | `implemented` | OpenAPI plus `packages/client-web/src/generated/` and `packages/client-dart/lib/generated/` | `validate:clients` regenerates to temp and hashes current files; automatic non-doc CI. These are source inputs, not deployable artifacts | #1185; no release-artifact claim |
-| B14 | Checksums/digests/version identity across artifacts | `partial` | GHCR labels/tags/digest; R02 web manifest; mobile `1.0.0+1`; Codemagic build number | API has exact SHA/digest evidence and R02 supplies exact-source web file/tree checksums. Android has no accepted release artifact, mobile version is static, and no unified Day 1 release manifest binds the platforms | R03 |
+| B14 | Checksums/digests/version identity across artifacts | `partial` | GHCR labels/tags/digest; R02 web manifest; mobile `1.0.0+1`; Codemagic build number | API has exact SHA/digest evidence, R02 supplies exact-source web checksums, and R01 supplies exact-source Android APK/AAB hashes. Mobile version is static and no unified Day 1 release manifest binds the platforms | R03 |
 | C01 | Supported self-host targets | `partial` | deployment docs and LAN Compose files | Trusted LAN/TrueNAS custom-app is the only exercised target; production/public and polished catalog are not supported/accepted | R04/R05/R09 |
 | C02 | Environment example and secret boundary | `partial` | `infra/env/.env.truenas-lan.example` | Required variables and placeholders are documented; real values remain operator-managed. No catalog form, secret generation, rotation, or validation UI exists | R04; secret mutation is manual-gated |
 | C03 | PostgreSQL/RabbitMQ/storage persistence | `implemented` | both LAN Compose files; `infra/rabbitmq/settleora-entrypoint.sh`; focused validator | [PR #1190](https://github.com/tommytang213/Settleora/pull/1190) requires one stable hostname/nodename, refuses missing, mismatched, multiple, or ambiguous persisted identities, and proves durable marker queue/message continuity over repeated recreation plus non-destructive pre-change identity adoption in both variants | Completed R11/#1189; live TrueNAS use remains within R05 |
@@ -158,7 +160,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | E01 | User-web serving/deployment readiness | `blocked` | real Vite source and `dist` build; completed audit #963 | Build exists, but protected routes lack a normal credential lifecycle; no container/static host config, deploy workflow, env injection contract, exposure proof, or smoke evidence | R08 owns serving after #373's product/auth prerequisites and R02's build package |
 | E02 | Admin-web serving/deployment readiness | `blocked` | `apps/web-admin/README.md`; open audit #964 and umbrella #376 | No runtime/build exists. Admin exposure must remain private/protected and separately reviewed | R13 owns the future package after #964 reconciles the #376 runtime graph |
 | F01 | Automatic Linux mobile validation and macOS simulator compile | `implemented` | A04/A05 | PR #1202's Linux lane passed the shared 1,059-test release gate without `/opt/flutter`; the reusable hosted-macOS lane explicitly validated source head `f5e2802a...`, including real material-font loading before the simulator build. Both used Flutter 3.44.8; neither is signing/upload/install | Completed #1185/#1192/#1201; retain both distinct identities and lanes |
-| F02 | Android package readiness | `blocked` | B08/B09/B12 | Debug APK works; release R8 fails; app ID/signing/store path is absent | R01 -> R07 |
+| F02 | Android package readiness | `partial` | B08/B09/B12 | Debug APK and minified release APK/AAB compile/package correctly; app ID/signing/store path remains absent | Completed R01 -> R07 |
 | F03 | iOS project/signing configuration | `partial` | bundle ID in Xcode project and Codemagic App Store signing integration reference | Repository identifiers and selection exist; credentials/profiles/certificates are external and unverified | R06 |
 | F04 | Codemagic trigger and portable test-output posture | `implemented` | `codemagic.yaml`; CI policy tests | Every mobile workflow pins Flutter 3.44.8; validation/TestFlight reuse the shared normal gate. Visual output binds `SETTLEORA_VISUAL_OUTPUT_ROOT` and artifact collection to `$CM_BUILD_DIR`, while 31 dedicated and 2 mixed tagged files remain separate without overlap. No workflow has `triggering`; GitHub Actions invokes no Codemagic API/webhook | Completed #1185/#1192/#1201/#383; dashboard/account and cloud-run state remain external |
 | F05 | Manual internal-TestFlight workflow | `partial` | `mobile-ios-testflight-internal` | Pins Flutter 3.44.8, invokes the shared normal gate, uses `testFlightInternalTestingOnly`, `FLUTTER_BUILD_NAME=1.0.0`, Codemagic `$BUILD_NUMBER`, signed IPA build, and IPA/archive artifact declarations | R06; repository validation parity is complete, real cloud/signing/upload evidence is not |
@@ -196,7 +198,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | User web | Vite | `apps/web-user/dist/` | Local ignored output only | Builds, but has no automatic package/publish/serve path |
 | Admin web | none | none | none | Unavailable |
 | Android debug APK | Flutter | `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk` | Local ignored output only | Local build evidence only |
-| Android release APK/AAB | Flutter/Gradle | expected Flutter output paths | None | Blocked by R8; identity/signing also not release-ready |
+| Android release APK/AAB | Flutter/Gradle | exact PR #1212 local output hashes | Local ignored output only | Compile/package implemented; identity/signing/store remain not ready |
 | iOS simulator app | GitHub macOS Flutter build | ephemeral workflow build output | Not uploaded by workflow | Compile evidence only |
 | Signed iOS IPA/archive | Codemagic manual workflow | `build/ios/ipa/*.ipa`; `build/ios/archive/*.xcarchive` | Would be retained by Codemagic and uploaded to App Store Connect | Configured, externally unverified |
 
@@ -218,7 +220,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | Linux validity | root `validate:mobile` and portable Flutter test fonts | automatic/pass on #1202 synthetic merge `f7d73d30...`, whose tree `483f0952...` equals reviewed source `f5e2802a...`; 1,059 tests and no `/opt/flutter` compatibility alias | PR-validity evidence; not a signed/released artifact identity |
 | iOS simulator | exact-head GitHub-hosted macOS font proof and build | automatic/pass on #1202 source `f5e2802a...` | proves SDK/font portability plus simulator compile, not signing/device evidence |
 | Android debug | Flutter Gradle project | local pass on audit baseline | not a release artifact |
-| Android release | Flutter/Gradle | R8 failure; debug signing and placeholder app ID | R01, then signing/store R07 |
+| Android release | Flutter/Gradle | exact-source APK/AAB R8, archive and hash evidence passed; debug signing and placeholder app ID remain | compile/package R01 completed; signing/store R07 |
 | iOS signing | App Store distribution/bundle ID configured in Codemagic | no certificate/profile/cloud result observed | manual Apple/Codemagic gate |
 | Internal iOS upload | signed IPA plus integration-auth publishing block | configured only; both submission flags false | manual run, processing, tester/device proof |
 | Version identity | `1.0.0+1`; Codemagic name `1.0.0` and provider build number | no accepted signed candidate | R03/R06/R07 |
@@ -423,8 +425,8 @@ Findings:
 - #359/#437 describe OCR/native validation, but #437 closed planning-only and
   explicitly recorded that Android/iOS native build proof was not performed.
   #959 owns parser quality, not Gradle/R8 release-build closure. #357 and #359
-  explicitly reserve native-build reconciliation and duplicate prevention to
-  open audit #970, so #970 must adopt or split R01 before implementation.
+  reserved native-build reconciliation and duplicate prevention to #970; that
+  audit assigned focused R01 owner #1209, which PR #1212 has now completed.
 - #381/#483-#487 completed bounded LAN evidence and plans but did not implement
   stable RabbitMQ recreate identity. #1189/PR #1190 has now completed that R11
   repository prerequisite with disposable continuity and adoption evidence;
@@ -445,7 +447,7 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 
 | Owner | Scope and non-goals | Gate | Lane / paths | Validation / review | Close rule and dependencies |
 | --- | --- | --- | --- | --- | --- |
-| R01 — **new focused recommendation, conditional on #970:** Android release-build dependency/R8 closure | Make current Flutter Android release APK and AAB compile with the intended on-device OCR dependency set. Non-goals: application-ID decision, keystore/signing, Play upload, parser behavior, #959 mutation | Native dependency/build-config review; no signing secret | `mobile-build-config`; `apps/mobile/android/**`, dependency manifest/lock only if required | root `validate:mobile`; debug APK; release APK and AAB; strong independent + Android build review | #970 must first adopt this gap or authorize a non-duplicate focused split under #357/#359. The implementation closes only when exact-head release APK/AAB builds pass, ML Kit scripts used by current code are packaged, size/offline-model impact is recorded, and no debug-signed output is called store-ready |
+| R01 — **completed by Issue #1209 / PR #1212:** Android release-build dependency/R8 closure | Current Flutter Android release APK and AAB compile with the intended Latin on-device OCR dependency set; no application-ID, signing, Play, parser or #959 change | Native dependency/build-config review completed; no signing secret | `mobile-build-config`; exactly app release Gradle input and focused ProGuard rules | root `validate:mobile`; debug APK; release APK/AAB; dependency/archive/size/offline evidence; Gemini/local/GitHub Codex reviews and full CI | Reviewed source `2d7ceac3...` merged normally as `6ee8250b...`; exact eight optional bridge warnings only, bundled Latin retained, no optional model expansion. R07/#975 retain identity/signing/store/device work |
 | R02 — **completed by Issue #1205 / PRs #1206 and #1207:** additive user-web CI build/package lane | #1185 classifier/aggregate now runs exact-source `apps/web-user` clean install/lint/test/build and publishes staged `dist` plus canonical provenance for web-affecting PRs. No deploy, auth completion, public exposure or redesign | CI/workflow gate completed | workflow, classifier, manifest helper and focused policy/tests | final source `4df10f7d...`; 139 tests, repeated deterministic build, downloaded artifact match, full CI/scanners and strong reviews | Exact web-affecting proof is complete; this docs-only hygiene PR supplies intentional skip under the unchanged `Validate scaffold` context. #373 and R08 retain product/serving work; R03 may consume the checksum primitive |
 | R03 — **new focused recommendation:** Day 1 release identity manifest | Define a bounded generated evidence manifest binding source SHA/tree, API tag/digest, resolved PostgreSQL/RabbitMQ image digests, migration set, web checksum when available, mobile version/build, release notes, rollback artifact, and retention location. Non-goals: release epochs, environment promotion, deployment | Artifact publication/promotion remains manual | `docker-compose-ci-deployment`; focused release tooling/docs | deterministic unit tests, docs/scaffold, sample exact-SHA manifest; strong independent | Close when one non-production candidate manifest is reproducible and rejects API or dependency-image identity mismatches. Depends on R01 for Android entry and R02 for web entry; #946 remains later-day |
 | R04 — **new focused recommendation:** TrueNAS catalog package skeleton and render validation | Implement unpublished metadata/form/topology/dataset/secret-input/migration-hook package from #486 plan, defaulting to the R12 private transport and immutable image selection. Non-goals: publish, deploy, real secrets, public/admin exposure | Docker/Compose/deployment config manual gate | `docker-compose-ci-deployment`; new focused catalog paths plus tests | catalog schema/render tests, Compose checks, API image check as scoped; strong deployment/security review | Close with offline render/install-plan validation, private-service proof, migration failure surfacing, backup warning, exact image identity, and zero publication. R11 is complete; depends on R03/R12 |
@@ -465,16 +467,16 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 
 1. **Critical blockers and owner prerequisites:** completed #1189/R11 supplies
    RabbitMQ recreation continuity; completed #1195/R12 supplies the repository
-   private transport contract; and #970 must reconcile/adopt or split R01's
-   Android release failure under #357/#359.
+   private transport contract; completed #970 assigned R01, and completed
+   #1209/PR #1212 closes the Android compile/package failure under #357/#359.
 2. **Product prerequisites:** completed #963 supplies user-web audit evidence and
    #373 remains its product umbrella; #964 must reconcile the #376 admin runtime
    graph before R13; broader mobile/product owners complete independently of
    release infrastructure.
 3. **New focused repository recommendations:** completed R10 supplies the
    reconciled dependency graph and completed R02 supplies deterministic
-   user-web package evidence. Open #970 must next adopt or split R01's Android
-   release-build gap; after R01, R03 release identity can bind the Android and
+   user-web package evidence and completed R01 supplies Android release hashes.
+   R03 release identity can now bind the Android and
    web entries, followed by the R04 unpublished catalog skeleton.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
    signed/TestFlight/device, R07 Android identity/signing/Play/device, and R09
@@ -488,27 +490,27 @@ Dependency summary:
 completed #1189/R11 --------+---------------------------> R04 -> R05 --+
 completed #1195/R12 --------+---------------------------> R04 -> R05 --+--> #975
 completed R10 -> completed R02 web package -> R03 identity -> R04 ---+
-#970 adopt/split -> R01 Android compile -> R03/R07 -------------------+
+completed #970 -> completed R01 Android compile -> R03/R07 ----------+
 #373 user web -> R08; #964 -> admin runtime -> R13 -------------------+
 R12 + domain reviews -> R09 production/exposure ---------------------+
 complete Day 1 + #975 acceptance -------------------------------> #946 (later day)
 ```
 
-### First dependency-safe next logical task for GPT review
+### Possible next dependency-safe logical task for GPT review
 
-Select **#970's reconciliation/adoption or focused split of R01's Android
-release-build gap for GPT review**. R02 now supplies exact-source web checksums
-and retained package evidence without deploying or serving the web, but R03's
-declared close rule also requires R01's Android entry. After #970 and R01,
-proceed to R03 and then R04. Autonomous queue activation remains disabled, so
-neither the prerequisite nor R03 was started by the R02 task.
+If separately selected, R03 is a dependency-safe repository recommendation for
+GPT review: R02 supplies exact-source web checksums and retained package
+evidence, while R01 supplies the required Android APK/AAB entry. R04 remains
+dependent on R03. Autonomous queue activation remains disabled, so no successor
+was started.
 
 ## 13. Final Day 1 readiness statement
 
 The repository has credible automatic CI, API image publication, LAN Compose
-foundations, guarded migration ordering, source-bound user-web package evidence, a debug Android
-build, and an iOS simulator compile path. It does **not** yet have a complete
-Day 1 release candidate: Android release packaging is broken; web/admin package
+foundations, guarded migration ordering, source-bound user-web package evidence,
+debug and minified release Android build evidence, and an iOS simulator compile
+path. It does **not** yet have a complete Day 1 release candidate: Android
+identity/signing/store acceptance remains absent; web/admin package
 and deployment boundaries are incomplete; release identity/retention is partial;
 TrueNAS private transport is repository-implemented but live DNS/certificate/
 device proof, catalog/upgrade/restore/rollback remain incomplete; signed iOS evidence
