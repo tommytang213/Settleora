@@ -91,15 +91,15 @@ function inspectRecord(reference) {
   return inspect(reference, '{{json .}}');
 }
 
-function verifyLiveRegistry(input) {
+function verifyLiveRegistry(input, retained = false) {
   if (input.registryResolutionMode !== 'live-read-only') throw new Error('CLI requires registryResolutionMode=live-read-only');
   const platform = input.platform;
   const verify = (image, label, revision) => {
-    const reference = registryReference(image);
+    const reference = retained ? `${image.repository}@${image.indexDigest}` : registryReference(image);
     const record = inspectRecord(reference);
     validateRegistryDocument(image, record.manifest, platform, label);
     if (revision) {
-      const selected = inspectRecord(`${reference}@${image.platformDigest}`);
+      const selected = inspectRecord(`${image.repository}@${image.platformDigest}`);
       validateRegistryRevision(image, selected.image, revision, label);
     }
     return reference;
@@ -162,6 +162,7 @@ function trustedTool(candidate, expectedName, label) {
 }
 
 function assertSystemRuntime(root) {
+  const visited = new Set();
   const visit = (candidate) => {
     const metadata = lstatSync(candidate);
     if (metadata.isSymbolicLink()) {
@@ -173,11 +174,12 @@ function assertSystemRuntime(root) {
         if (error?.code === 'ENOENT') return;
         throw error;
       }
-      const targetMetadata = statSync(target);
-      if (targetMetadata.uid !== 0 || (targetMetadata.mode & 0o022) !== 0) throw new Error('Java runtime symlink target is not system-controlled');
-      return;
+      return visit(target);
     }
     if (metadata.uid !== 0 || (metadata.mode & 0o022) !== 0) throw new Error('Java runtime must be root-owned and not writable by the invoking user, group, or others');
+    const key = `${metadata.dev}:${metadata.ino}`;
+    if (visited.has(key)) return;
+    visited.add(key);
     if (metadata.isDirectory()) {
       for (const entry of readdirSync(candidate)) visit(path.join(candidate, entry));
     } else if (!metadata.isFile()) {
@@ -233,6 +235,11 @@ function sealedAndroidVerification(kind, artifact, tools, sourceCommit, javaPath
 }
 
 export function verifyAndroidSignature(input, options) {
+  const checkout = {
+    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+  };
+  if (input.source?.commit !== checkout.commit || input.source?.tree !== checkout.tree) throw new Error('Android verifier source does not match the captured checkout');
   const sdkRoot = path.resolve(options['android-sdk-root'] ?? '');
   const versions = lstatSync(path.join(sdkRoot, 'build-tools'), { throwIfNoEntry: false });
   if (!versions?.isDirectory() || versions.isSymbolicLink()) throw new Error('Trusted Android SDK root is invalid');
@@ -565,6 +572,12 @@ export function main(argv = process.argv.slice(2)) {
     }
   } else if (options.command === 'validate') {
     if (!options.manifest || !options.input) throw new Error('validate requires --manifest and --input for independent recollection');
+    const requestedManifest = path.resolve(options.manifest);
+    const requestedCandidateRoot = path.dirname(requestedManifest);
+    if (path.dirname(requestedCandidateRoot) !== '/workspace/logs/settleora-release-candidates'
+      || path.basename(requestedManifest) !== 'release-identity-manifest.json') throw new Error('Manifest is not in a canonical candidate directory');
+    validateCandidateId(path.basename(requestedCandidateRoot));
+    assertOwnedEvidenceDirectory(requestedCandidateRoot);
     const initialManifestBytes = safeBytes(options.manifest, 'Manifest');
     const manifest = validateManifest(JSON.parse(initialManifestBytes.toString('utf8')));
     canonicalManifestPath(manifest, options.manifest);
@@ -579,7 +592,7 @@ export function main(argv = process.argv.slice(2)) {
       collectWebExactSource(webValidation);
       const rebuiltInput = canonicalAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), signature);
       const rebuilt = buildManifest(repoRoot, rebuiltInput);
-      verifyLiveRegistry(retainedInput);
+      verifyLiveRegistry(retainedInput, true);
       const retainedAfterRebuild = buildManifest(repoRoot, retainedInput);
       assertCleanCompletion(repoRoot, 'Source changed before validation completed');
       if (canonicalJson({ ...retained, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)

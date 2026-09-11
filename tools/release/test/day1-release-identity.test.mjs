@@ -14,6 +14,7 @@ import {
   validateRegistryDocument,
   validateRegistryRevision,
   validateManifest,
+  migrationAttributeIds,
   validatePublicationJobDocument,
   validatePublicationJobLog,
   validatePublicationProvenance,
@@ -262,6 +263,17 @@ test('binds migration bytes to the initially captured source commit', (t) => {
   git(f.root, ['add', 'services/api/src/Settleora.Api/Persistence/Migrations/20260101000000_Initial.cs']);
   git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'move mutable head']);
   assert.throws(() => collectMigrations(f.root, undefined, f.commit), /captured source blob/);
+});
+
+test('migration attribute parsing ignores comments and string literals', () => {
+  const active = '20260101000000_Active';
+  assert.deepEqual(migrationAttributeIds([
+    `// [Migration("20260101000001_LineComment")]`,
+    `/* [Migration("20260101000002_BlockComment")] */`,
+    `const string text = "[Migration(\\"20260101000003_String\\")]";`,
+    `[Migration("${active}")]`,
+    '',
+  ].join('\n')), [active]);
 });
 
 test('rejects symlinked evidence and a tampered manifest identity digest', (t) => {

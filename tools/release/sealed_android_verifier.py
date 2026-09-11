@@ -8,6 +8,7 @@ import json
 import os
 import re
 import stat
+import struct
 import subprocess
 import sys
 import zipfile
@@ -21,6 +22,7 @@ MAX_VERIFIER_OUTPUT_BYTES = 32 * 1024 * 1024
 MAX_VERIFIER_ENTRIES = 200_000
 MAX_AAB_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_AAB_EXPANDED_BYTES = 512 * 1024 * 1024
+MAX_AAB_CENTRAL_DIRECTORY_BYTES = 64 * 1024 * 1024
 
 
 def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 * 1024, executable: str | None = None) -> str:
@@ -201,6 +203,36 @@ def sealed_executable_snapshot(source_descriptor: int) -> tuple[int, str]:
 
 
 def preflight_aab(descriptor: int) -> None:
+    metadata = os.fstat(descriptor)
+    tail_size = min(metadata.st_size, 65_557)
+    tail = os.pread(descriptor, tail_size, metadata.st_size - tail_size)
+    eocd_offset = tail.rfind(b"PK\x05\x06")
+    if eocd_offset < 0 or len(tail) - eocd_offset < 22:
+        raise ValueError("Android bundle has no bounded ZIP end record")
+    disk, central_disk, disk_entries, total_entries, central_size, central_offset = struct.unpack_from("<HHHHII", tail, eocd_offset + 4)
+    if disk != 0 or central_disk != 0 or disk_entries != total_entries:
+        raise ValueError("Android bundle must be a single-disk ZIP")
+    if total_entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:
+        raise ValueError("Android bundle ZIP64 metadata is not accepted")
+    if total_entries < 1 or total_entries > MAX_VERIFIER_ENTRIES or central_size > MAX_AAB_CENTRAL_DIRECTORY_BYTES:
+        raise ValueError("Android bundle central directory exceeds its evidence limit")
+    if central_offset + central_size > metadata.st_size:
+        raise ValueError("Android bundle central directory is outside the sealed artifact")
+    central = os.pread(descriptor, central_size, central_offset)
+    if len(central) != central_size:
+        raise ValueError("Android bundle central directory changed during preflight")
+    position = 0
+    parsed_entries = 0
+    while position < len(central):
+        if len(central) - position < 46 or central[position:position + 4] != b"PK\x01\x02":
+            raise ValueError("Android bundle central directory is malformed")
+        name_size, extra_size, comment_size = struct.unpack_from("<HHH", central, position + 28)
+        position += 46 + name_size + extra_size + comment_size
+        parsed_entries += 1
+        if parsed_entries > MAX_VERIFIER_ENTRIES or position > len(central):
+            raise ValueError("Android bundle central directory exceeds its evidence limit")
+    if parsed_entries != total_entries:
+        raise ValueError("Android bundle central-directory count does not match its end record")
     total = 0
     count = 0
     with os.fdopen(os.dup(descriptor), "rb") as artifact_file, zipfile.ZipFile(artifact_file) as bundle:
@@ -213,6 +245,8 @@ def preflight_aab(descriptor: int) -> None:
             total += info.file_size
             if total > MAX_AAB_EXPANDED_BYTES:
                 raise ValueError("Android bundle exceeds its aggregate expanded-size limit")
+    if count != total_entries:
+        raise ValueError("Android bundle central-directory entry count changed during inspection")
 
 
 def main() -> None:

@@ -302,7 +302,7 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
   const runtimeIds = new Set();
   for (const name of names.filter((candidate) => candidate.endsWith('.cs'))) {
     const text = exactTrackedFile(repoRoot, `${relativeRoot}/${name}`, `migration source ${name}`, capturedCommit).bytes.toString('utf8');
-    for (const match of text.matchAll(/\[Migration\("(\d{14}_[A-Za-z0-9_]+)"\)\]/gu)) runtimeIds.add(match[1]);
+    for (const id of migrationAttributeIds(text)) runtimeIds.add(id);
   }
   if (canonicalJson([...runtimeIds].sort()) !== canonicalJson(ids)) fail('Migration filename inventory differs from EF runtime migration attributes');
   const entries = ids.map((id) => ({
@@ -323,6 +323,52 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
     count: entries.length,
     entries,
   };
+}
+
+export function migrationAttributeIds(text) {
+  const ids = [];
+  for (let index = 0; index < text.length;) {
+    if (text.startsWith('//', index)) {
+      index = text.indexOf('\n', index + 2);
+      if (index < 0) break;
+      continue;
+    }
+    if (text.startsWith('/*', index)) {
+      const end = text.indexOf('*/', index + 2);
+      index = end < 0 ? text.length : end + 2;
+      continue;
+    }
+    if (text[index] === '[') {
+      const match = /^\[\s*(?:Microsoft\.EntityFrameworkCore\.Migrations\.)?Migration\s*\(\s*"(\d{14}_[A-Za-z0-9_]+)"\s*\)\s*\]/u.exec(text.slice(index));
+      if (match) {
+        ids.push(match[1]);
+        index += match[0].length;
+        continue;
+      }
+    }
+    if (text[index] === '"' || (text[index] === '@' && text[index + 1] === '"')) {
+      const verbatim = text[index] === '@';
+      index += verbatim ? 2 : 1;
+      while (index < text.length) {
+        if (verbatim && text.startsWith('""', index)) { index += 2; continue; }
+        if (!verbatim && text[index] === '\\') { index += 2; continue; }
+        if (text[index] === '"') { index += 1; break; }
+        index += 1;
+      }
+      continue;
+    }
+    if (text[index] === '\'') {
+      index += 1;
+      while (index < text.length) {
+        if (text[index] === '\\') { index += 2; continue; }
+        if (text[index] === '\'') { index += 1; break; }
+        index += 1;
+      }
+      continue;
+    }
+    index += 1;
+  }
+  return ids;
 }
 
 function validateImage(image, label, sourceCommit, expectedTag, expectedRepository) {
