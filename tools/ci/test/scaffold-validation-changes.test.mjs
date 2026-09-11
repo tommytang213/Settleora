@@ -41,24 +41,29 @@ for (const [filename, full] of [['docs/guide.md', false], ['services/api/source.
 }
 
 for (const [filename, expected] of [
-  ['README.md', { docs: true, full: false, mobile: false, ios: false }],
-  ['docs/workflow/something.md', { docs: true, full: false, mobile: false, ios: false }],
-  ['docs/static/diagram.png', { docs: true, full: false, mobile: false, ios: false }],
-  ['apps/mobile/lib/app.dart', { docs: false, full: true, mobile: true, ios: true }],
-  ['apps/mobile/test/app_test.dart', { docs: false, full: true, mobile: true, ios: true }],
-  ['apps/mobile/ios/Podfile', { docs: false, full: true, mobile: true, ios: true }],
-  ['apps/mobile/pubspec.yaml', { docs: false, full: true, mobile: true, ios: true }],
-  ['apps/mobile/tool/validate-release.sh', { docs: false, full: true, mobile: true, ios: true }],
-  ['packages/client-dart/lib/generated/client.dart', { docs: false, full: true, mobile: true, ios: true }],
-  ['.github/workflows/scaffold-validation.yml', { docs: false, full: true, mobile: true, ios: true }],
-  ['.github/workflows/mobile-ios-validation.yml', { docs: false, full: true, mobile: true, ios: true }],
-  ['tools/ci/scaffold-validation-changes.mjs', { docs: false, full: true, mobile: true, ios: true }],
-  ['tools/ci/test/scaffold-validation-changes.test.mjs', { docs: false, full: true, mobile: true, ios: true }],
-  ['tools/ci/test/ci-workflow-policy.test.mjs', { docs: false, full: true, mobile: true, ios: true }],
-  ['package.json', { docs: false, full: true, mobile: true, ios: false }],
-  ['tools/doctor-validation.mjs', { docs: false, full: true, mobile: true, ios: false }],
-  ['codemagic.yaml', { docs: false, full: true, mobile: true, ios: true }],
-  ['services/api/source.cs', { docs: false, full: true, mobile: false, ios: false }],
+  ['README.md', { docs: true, full: false, mobile: false, ios: false, web: false }],
+  ['docs/workflow/something.md', { docs: true, full: false, mobile: false, ios: false, web: false }],
+  ['docs/static/diagram.png', { docs: true, full: false, mobile: false, ios: false, web: false }],
+  ['apps/web-user/src/App.tsx', { docs: false, full: true, mobile: false, ios: false, web: true }],
+  ['apps/web-user/package-lock.json', { docs: false, full: true, mobile: false, ios: false, web: true }],
+  ['packages/client-web/src/generated/index.ts', { docs: false, full: true, mobile: false, ios: false, web: true }],
+  ['apps/mobile/lib/app.dart', { docs: false, full: true, mobile: true, ios: true, web: false }],
+  ['apps/mobile/test/app_test.dart', { docs: false, full: true, mobile: true, ios: true, web: false }],
+  ['apps/mobile/ios/Podfile', { docs: false, full: true, mobile: true, ios: true, web: false }],
+  ['apps/mobile/pubspec.yaml', { docs: false, full: true, mobile: true, ios: true, web: false }],
+  ['apps/mobile/tool/validate-release.sh', { docs: false, full: true, mobile: true, ios: true, web: false }],
+  ['packages/client-dart/lib/generated/client.dart', { docs: false, full: true, mobile: true, ios: true, web: false }],
+  ['.github/workflows/scaffold-validation.yml', { docs: false, full: true, mobile: true, ios: true, web: true }],
+  ['.github/workflows/mobile-ios-validation.yml', { docs: false, full: true, mobile: true, ios: true, web: false }],
+  ['tools/ci/scaffold-validation-changes.mjs', { docs: false, full: true, mobile: true, ios: true, web: true }],
+  ['tools/ci/user-web-dist-manifest.mjs', { docs: false, full: true, mobile: false, ios: false, web: true }],
+  ['tools/ci/test/scaffold-validation-changes.test.mjs', { docs: false, full: true, mobile: true, ios: true, web: true }],
+  ['tools/ci/test/ci-workflow-policy.test.mjs', { docs: false, full: true, mobile: true, ios: true, web: true }],
+  ['tools/ci/test/user-web-dist-manifest.test.mjs', { docs: false, full: true, mobile: false, ios: false, web: true }],
+  ['package.json', { docs: false, full: true, mobile: true, ios: false, web: false }],
+  ['tools/doctor-validation.mjs', { docs: false, full: true, mobile: true, ios: false, web: false }],
+  ['codemagic.yaml', { docs: false, full: true, mobile: true, ios: true, web: false }],
+  ['services/api/source.cs', { docs: false, full: true, mobile: false, ios: false, web: false }],
 ]) {
   test(`routing matrix: ${filename}`, (t) => {
     const f = fixture(t, filename);
@@ -70,6 +75,7 @@ for (const [filename, expected] of [
         full: result.run_full_validation,
         mobile: result.run_mobile_validation,
         ios: result.run_ios_validation,
+        web: result.run_web_user_validation,
       },
       expected,
     );
@@ -85,8 +91,8 @@ for (const ref of ['refs/heads/main', 'refs/tags/docs/test', '', undefined]) {
     const f = fixture(t); f.env.EVENT_REF = ref;
     const result = classifyChanges(f.env, f.git);
     assert.deepEqual(
-      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
-      [true, true, true],
+      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation, result.run_web_user_validation],
+      [true, true, true, true],
     );
   });
 }
@@ -113,8 +119,8 @@ for (const [label, command, output] of [
     };
     const result = classifyChanges(f.env, git);
     assert.deepEqual(
-      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
-      [true, true, true],
+      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation, result.run_web_user_validation],
+      [true, true, true, true],
     );
   });
 }
@@ -123,8 +129,8 @@ test('ancestry inconsistency fails closed', (t) => {
   const git = (args) => { if (args.includes('--is-ancestor')) throw new Error('Not ancestor'); return f.git(args); };
   const result = classifyChanges(f.env, git);
   assert.deepEqual(
-    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
-    [true, true, true],
+    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation, result.run_web_user_validation],
+    [true, true, true, true],
   );
 });
 test('shallow history fails closed', (t) => {
@@ -132,8 +138,8 @@ test('shallow history fails closed', (t) => {
   const git = (args) => args.includes('--is-shallow-repository') ? 'true\n' : f.git(args);
   const result = classifyChanges(f.env, git);
   assert.deepEqual(
-    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
-    [true, true, true],
+    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation, result.run_web_user_validation],
+    [true, true, true, true],
   );
 });
 test('wrong current head and invalid event SHA fail closed', (t) => {
@@ -141,15 +147,15 @@ test('wrong current head and invalid event SHA fail closed', (t) => {
   for (const head of [f.base, '0'.repeat(40), '--upload-pack=bad', undefined]) {
     const result = classifyChanges({ ...f.env, CURRENT_SHA: head }, f.git);
     assert.deepEqual(
-      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
-      [true, true, true],
+      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation, result.run_web_user_validation],
+      [true, true, true, true],
     );
   }
   for (const base of ['--upload-pack=bad', 'f'.repeat(40)]) {
     const result = classifyChanges({ ...f.env, BEFORE_SHA: base }, f.git);
     assert.deepEqual(
-      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
-      [true, true, true],
+      [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation, result.run_web_user_validation],
+      [true, true, true, true],
     );
   }
 });
@@ -158,8 +164,8 @@ test('real empty branch delta fails closed', (t) => {
   f.git(['switch', 'main']); f.env.CURRENT_SHA = f.base;
   const result = classifyChanges(f.env, f.git);
   assert.deepEqual(
-    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation],
-    [true, true, true],
+    [result.run_full_validation, result.run_mobile_validation, result.run_ios_validation, result.run_web_user_validation],
+    [true, true, true, true],
   );
 });
 test('source renamed into docs requires full validation', (t) => {
@@ -197,7 +203,8 @@ test('CLI stdout is fixed outputs only; evidence cannot inject workflow outputs'
     'run_full_validation=false\n' +
       'docs_only=true\n' +
       'run_mobile_validation=false\n' +
-      'run_ios_validation=false\n',
+      'run_ios_validation=false\n' +
+      'run_web_user_validation=false\n',
   );
 });
 
@@ -207,9 +214,11 @@ const passingGate = {
   RUN_FULL_VALIDATION: 'true',
   RUN_MOBILE_VALIDATION: 'true',
   RUN_IOS_VALIDATION: 'true',
+  RUN_WEB_USER_VALIDATION: 'true',
   FULL_RESULT: 'success',
   MOBILE_RESULT: 'success',
   IOS_RESULT: 'success',
+  WEB_USER_RESULT: 'success',
 };
 
 test('aggregate accepts required successful validation and intentional docs-only skips', () => {
@@ -219,9 +228,11 @@ test('aggregate accepts required successful validation and intentional docs-only
     RUN_FULL_VALIDATION: 'false',
     RUN_MOBILE_VALIDATION: 'false',
     RUN_IOS_VALIDATION: 'false',
+    RUN_WEB_USER_VALIDATION: 'false',
     FULL_RESULT: 'skipped',
     MOBILE_RESULT: 'skipped',
     IOS_RESULT: 'skipped',
+    WEB_USER_RESULT: 'skipped',
   }).ok, true);
 });
 
@@ -231,10 +242,15 @@ for (const [label, patch] of [
   ['iOS failure', { IOS_RESULT: 'failure' }],
   ['iOS cancellation', { IOS_RESULT: 'cancelled' }],
   ['full failure', { FULL_RESULT: 'failure' }],
+  ['user-web failure', { WEB_USER_RESULT: 'failure' }],
+  ['user-web cancellation', { WEB_USER_RESULT: 'cancelled' }],
   ['classifier failure', { CLASSIFY_RESULT: 'failure' }],
   ['missing classifier output', { RUN_MOBILE_VALIDATION: '' }],
   ['required mobile skip', { MOBILE_RESULT: 'skipped' }],
+  ['required user-web skip', { WEB_USER_RESULT: 'skipped' }],
+  ['missing user-web classifier output', { RUN_WEB_USER_VALIDATION: '' }],
   ['unrequired mobile execution', { RUN_MOBILE_VALIDATION: 'false' }],
+  ['unrequired user-web execution', { RUN_WEB_USER_VALIDATION: 'false' }],
 ]) {
   test(`aggregate rejects ${label}`, () => {
     assert.equal(aggregateGateDecision({ ...passingGate, ...patch }).ok, false);
@@ -247,5 +263,6 @@ test('aggregate accepts skipped PR-only lanes on a push but still requires full 
     EVENT_NAME: 'push',
     MOBILE_RESULT: 'skipped',
     IOS_RESULT: 'skipped',
+    WEB_USER_RESULT: 'skipped',
   }).ok, true);
 });

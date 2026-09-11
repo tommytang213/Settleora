@@ -25,6 +25,7 @@ jobs:
       run_full_validation: ${{ steps.changes.outputs.run_full_validation }}
       run_mobile_validation: ${{ steps.changes.outputs.run_mobile_validation }}
       run_ios_validation: ${{ steps.changes.outputs.run_ios_validation }}
+      run_web_user_validation: ${{ steps.changes.outputs.run_web_user_validation }}
 
     steps:
       - name: Checkout
@@ -149,6 +150,85 @@ jobs:
       checkout_ref: ${{ github.event.pull_request.head.sha }}
       expected_head: ${{ github.event.pull_request.head.sha }}
 
+  web-user-validation:
+    name: Validate and package user web
+    needs: classify
+    if: ${{ github.event_name == 'pull_request' && needs.classify.outputs.run_web_user_validation == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout exact pull request source head
+        # Pinned from actions/checkout@v6.
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify exact pull request source head
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Setup Node
+        # Pinned from actions/setup-node@v6.
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web-user/package-lock.json
+
+      - name: Clean install user-web dependencies
+        working-directory: apps/web-user
+        run: npm ci
+
+      - name: Lint and typecheck user web
+        working-directory: apps/web-user
+        run: npm run lint
+
+      - name: Test user web
+        working-directory: apps/web-user
+        run: npm test
+
+      - name: Build production user web
+        working-directory: apps/web-user
+        run: npm run build
+
+      - name: Generate and scan deterministic package evidence
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          node tools/ci/user-web-dist-manifest.mjs
+          --expected-source-sha "$EXPECTED_HEAD"
+          --output apps/web-user/user-web-dist-manifest.json
+
+      - name: Upload exact user-web package evidence
+        id: upload
+        # Pinned from actions/upload-artifact@v4.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: user-web-dist-${{ github.event.pull_request.head.sha }}
+          path: |
+            apps/web-user/dist/
+            apps/web-user/user-web-dist-manifest.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Record discoverable artifact identity
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
+        run: |
+          test -n "$ARTIFACT_ID"
+          test -n "$ARTIFACT_URL"
+          test -n "$ARTIFACT_DIGEST"
+          {
+            echo "User-web artifact ID: $ARTIFACT_ID"
+            echo "User-web artifact URL: $ARTIFACT_URL"
+            echo "Upload archive digest: $ARTIFACT_DIGEST"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   aggregate:
     name: Validate scaffold
     if: ${{ always() }}
@@ -157,6 +237,7 @@ jobs:
       - full-validation
       - mobile-validation
       - ios-validation
+      - web-user-validation
     runs-on: ubuntu-latest
 
     steps:
@@ -174,4 +255,6 @@ jobs:
           FULL_RESULT: ${{ needs.full-validation.result }}
           MOBILE_RESULT: ${{ needs.mobile-validation.result }}
           IOS_RESULT: ${{ needs.ios-validation.result }}
+          RUN_WEB_USER_VALIDATION: ${{ needs.classify.outputs.run_web_user_validation }}
+          WEB_USER_RESULT: ${{ needs.web-user-validation.result }}
         run: node tools/ci/scaffold-validation-changes.mjs --validate-gate

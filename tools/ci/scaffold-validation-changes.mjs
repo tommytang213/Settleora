@@ -20,6 +20,18 @@ const mobileOnlyExactPaths = new Set([
   'package.json',
   'tools/doctor-validation.mjs',
 ]);
+const webUserPatterns = [
+  /^apps\/web-user\//,
+  /^packages\/client-web\//,
+];
+const webUserExactPaths = new Set([
+  '.github/workflows/scaffold-validation.yml',
+  'tools/ci/scaffold-validation-changes.mjs',
+  'tools/ci/user-web-dist-manifest.mjs',
+  'tools/ci/test/scaffold-validation-changes.test.mjs',
+  'tools/ci/test/ci-workflow-policy.test.mjs',
+  'tools/ci/test/user-web-dist-manifest.test.mjs',
+]);
 const gitCommand = (args) => execFileSync('git', args, {
   encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000,
 });
@@ -31,6 +43,7 @@ export function classifyChanges(env, git = gitCommand) {
     run_full_validation: true,
     run_mobile_validation: true,
     run_ios_validation: true,
+    run_web_user_validation: true,
     reason,
   });
   try {
@@ -75,11 +88,14 @@ export function classifyChanges(env, git = gitCommand) {
     const runIosValidation = paths.some((p) =>
       mobileAndIosExactPaths.has(p) || mobileAndIosPatterns.some((pattern) => pattern.test(p)));
     const runMobileValidation = runIosValidation || paths.some((p) => mobileOnlyExactPaths.has(p));
+    const runWebUserValidation = paths.some((p) =>
+      webUserExactPaths.has(p) || webUserPatterns.some((pattern) => pattern.test(p)));
     return {
       docs_only: docsOnly,
       run_full_validation: !docsOnly,
       run_mobile_validation: runMobileValidation,
       run_ios_validation: runIosValidation,
+      run_web_user_validation: runWebUserValidation,
       reason: proof,
       base,
       head,
@@ -91,7 +107,12 @@ export function classifyChanges(env, git = gitCommand) {
 }
 
 export function aggregateGateDecision(env) {
-  const booleanKeys = ['RUN_FULL_VALIDATION', 'RUN_MOBILE_VALIDATION', 'RUN_IOS_VALIDATION'];
+  const booleanKeys = [
+    'RUN_FULL_VALIDATION',
+    'RUN_MOBILE_VALIDATION',
+    'RUN_IOS_VALIDATION',
+    'RUN_WEB_USER_VALIDATION',
+  ];
   const invalidBoolean = booleanKeys.find((key) => !['true', 'false'].includes(env[key]));
   if (invalidBoolean) return { ok: false, reason: `Invalid or missing ${invalidBoolean}` };
   if (env.CLASSIFY_RESULT !== 'success') return { ok: false, reason: 'Classifier/scaffold validation did not succeed' };
@@ -100,6 +121,7 @@ export function aggregateGateDecision(env) {
     ['full validation', env.RUN_FULL_VALIDATION === 'true', env.FULL_RESULT],
     ['mobile validation', env.EVENT_NAME === 'pull_request' && env.RUN_MOBILE_VALIDATION === 'true', env.MOBILE_RESULT],
     ['iOS validation', env.EVENT_NAME === 'pull_request' && env.RUN_IOS_VALIDATION === 'true', env.IOS_RESULT],
+    ['user-web validation', env.EVENT_NAME === 'pull_request' && env.RUN_WEB_USER_VALIDATION === 'true', env.WEB_USER_RESULT],
   ];
   for (const [label, required, result] of requirements) {
     const expected = required ? 'success' : 'skipped';
@@ -120,7 +142,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       `run_full_validation=${result.run_full_validation}\n` +
       `docs_only=${result.docs_only}\n` +
       `run_mobile_validation=${result.run_mobile_validation}\n` +
-      `run_ios_validation=${result.run_ios_validation}\n`,
+      `run_ios_validation=${result.run_ios_validation}\n` +
+      `run_web_user_validation=${result.run_web_user_validation}\n`,
     );
     console.error(JSON.stringify({ event: process.env.EVENT_NAME, before: process.env.BEFORE_SHA, ...result }));
   }
