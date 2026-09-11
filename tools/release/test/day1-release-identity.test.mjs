@@ -158,6 +158,7 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   assert.equal(first.rollback.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety, false);
   assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
   assert.doesNotThrow(() => validateManifest(first));
+  assert.throws(() => buildManifest(f.root, { ...f.input, generatedAt: 'unknown' }), /normalized RFC 3339 UTC timestamp/);
 });
 
 test('rejects source, API revision, API digest and floating-tag mismatches', (t) => {

@@ -15,11 +15,19 @@ removing only `generatedAt` and `identityDigest`. Thus collection time may vary
 without changing identity. All source, image, migration, web, Android, release
 note, rollback and retention fields remain identity-relevant.
 
+For a standalone Android preflight, use a disposable path that is not the
+canonical assembly destination:
+
 ```bash
 node tools/release/day1-release-identity-cli.mjs collect-android \
   --flutter /trusted/flutter/bin/flutter \
-  --output /workspace/logs/settleora-release-candidates/<candidate-id>/android
+  --output /workspace/logs/settleora-android-preflight/<source-sha>
+```
 
+For the end-to-end candidate flow, start with no canonical `android/` directory;
+`assemble` creates it and performs both builds itself:
+
+```bash
 node tools/release/day1-release-identity-cli.mjs assemble \
   --input /workspace/logs/settleora-release-candidates/<candidate-id>/inputs.json \
   --output /workspace/logs/settleora-release-candidates/<candidate-id>/release-identity-manifest.json \

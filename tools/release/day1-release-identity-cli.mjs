@@ -53,16 +53,20 @@ function inspect(reference, format) {
   }));
 }
 
+function inspectRecord(reference) {
+  return inspect(reference, '{{json .}}');
+}
+
 function verifyLiveRegistry(input) {
   if (input.registryResolutionMode !== 'live-read-only') throw new Error('CLI requires registryResolutionMode=live-read-only');
   const platform = input.platform;
   const verify = (image, label, revision) => {
     const reference = registryReference(image);
-    const document = inspect(reference, '{{json .Manifest}}');
-    validateRegistryDocument(image, document, platform, label);
+    const record = inspectRecord(reference);
+    validateRegistryDocument(image, record.manifest, platform, label);
     if (revision) {
-      const selected = inspect(`${reference}@${image.platformDigest}`, '{{json .Image}}');
-      validateRegistryRevision(image, selected, revision, label);
+      const selected = inspectRecord(`${reference}@${image.platformDigest}`);
+      validateRegistryRevision(image, selected.image, revision, label);
     }
   };
   verify(input.apiImage, 'apiImage', input.source.commit);
@@ -106,7 +110,7 @@ function verifyAndroidSignature(input, options) {
   const contentEntries = aabVerification.split(/\r?\n/u).filter((line) => /^[smk? ]{3}\s+\d+\s+\w{3}\s/u.test(line));
   const unsignedEntries = contentEntries.filter((line) => !/^s/u.test(line) && !signatureControl.test(line));
   if (!/jar verified\./u.test(aabVerification) || contentEntries.length === 0 || unsignedEntries.length) throw new Error('Android AAB contains unsigned entries');
-  const aabCertificate = execFileSync(keytool, ['-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
+  const aabCertificate = execFileSync(keytool, ['-J-Duser.language=en', '-J-Duser.country=US', '-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
   const aabDigest = /SHA256:\s*([0-9A-F:]{95})/u.exec(aabCertificate)?.[1]?.replaceAll(':', '').toLowerCase();
   if (!/Owner:.*CN=Android Debug/u.test(aabCertificate) || aabDigest !== certificate) {
     throw new Error('Android AAB signature observation mismatch');

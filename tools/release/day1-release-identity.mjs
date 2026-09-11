@@ -50,6 +50,14 @@ function string(value, label) {
   return value;
 }
 
+function utcTimestamp(value, label) {
+  string(value, label);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString() !== value.replace(/Z$/u, '.000Z')) {
+    fail(`${label} must be a normalized RFC 3339 UTC timestamp`);
+  }
+  return value;
+}
+
 function sha40(value, label) {
   if (!SHA40.test(value)) fail(`${label} must be a lowercase 40-character Git SHA`);
   return value;
@@ -351,7 +359,7 @@ export function validateManifest(manifest) {
   assertKeys(manifest, ['schema', 'identityDigestAlgorithm', 'identityDigest', 'generatedAt', 'source', 'apiImage', 'dependencyImages', 'migrations', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention'], 'manifest');
   if (manifest.schema !== SCHEMA) fail('Unsupported Day 1 release-identity schema');
   if (manifest.identityDigestAlgorithm !== DIGEST_ALGORITHM) fail('Unsupported identity-digest algorithm');
-  string(manifest.generatedAt, 'generatedAt');
+  utcTimestamp(manifest.generatedAt, 'generatedAt');
   sha40(manifest.source?.commit, 'source.commit');
   assertKeys(manifest.source, ['repository', 'commit', 'tree', 'candidateId', 'exactSource', 'cleanTrackedCheckout'], 'source');
   if (manifest.source.repository !== 'tommytang213/Settleora') fail('Source repository mismatch');
@@ -490,7 +498,7 @@ export function buildManifest(repoRoot, input) {
   const manifest = {
     schema: SCHEMA,
     identityDigestAlgorithm: DIGEST_ALGORITHM,
-    generatedAt: string(input.generatedAt, 'generatedAt'),
+    generatedAt: utcTimestamp(input.generatedAt, 'generatedAt'),
     source,
     apiImage,
     dependencyImages,

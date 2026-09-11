@@ -8,7 +8,7 @@
     "schema": { "const": "settleora.day1-release-identity.v1" },
     "identityDigestAlgorithm": { "const": "sha256(canonical-json-v1;excludes=generatedAt,identityDigest)" },
     "identityDigest": { "$ref": "#/$defs/hexSha256" },
-    "generatedAt": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
     "source": { "type": "object", "additionalProperties": false, "required": ["repository", "commit", "tree", "candidateId", "exactSource", "cleanTrackedCheckout"], "properties": { "repository": { "const": "tommytang213/Settleora" }, "commit": { "$ref": "#/$defs/sha40" }, "tree": { "$ref": "#/$defs/sha40" }, "candidateId": { "type": "string" }, "exactSource": { "const": true }, "cleanTrackedCheckout": { "const": true } } },
     "apiImage": { "$ref": "#/$defs/image" },
     "dependencyImages": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/image" } },
