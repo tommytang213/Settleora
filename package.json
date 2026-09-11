@@ -26,6 +26,7 @@
     "validate:mobile": "node tools/doctor-validation.mjs --mobile && cd apps/mobile && ./tool/validate-release.sh",
     "validate:api-runtime": "node tools/validate-api-runtime.mjs",
     "validate:api-migrations": "node tools/validate-api-migrations.mjs",
+    "validate:release-identity": "node --test tools/release/test/*.test.mjs",
     "doctor:npm": "node tools/diagnose-npm-env.mjs"
   },
   "devDependencies": {

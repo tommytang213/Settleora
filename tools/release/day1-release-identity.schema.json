@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tommytang213/Settleora/tools/release/day1-release-identity.schema.json",
+  "title": "Settleora Day 1 release identity manifest v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "identityDigestAlgorithm",
+    "identityDigest",
+    "generatedAt",
+    "source",
+    "apiImage",
+    "dependencyImages",
+    "migrations",
+    "userWeb",
+    "android",
+    "releaseNotes",
+    "rollback",
+    "retention"
+  ],
+  "properties": {
+    "schema": { "const": "settleora.day1-release-identity.v1" },
+    "identityDigestAlgorithm": { "const": "sha256(canonical-json-v1;excludes=generatedAt,identityDigest)" },
+    "identityDigest": { "$ref": "#/$defs/hexSha256" },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "source": { "type": "object" },
+    "apiImage": { "$ref": "#/$defs/image" },
+    "dependencyImages": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "$ref": "#/$defs/image" } },
+    "migrations": { "type": "object" },
+    "userWeb": { "type": "object" },
+    "android": { "type": "object" },
+    "releaseNotes": { "type": "object" },
+    "rollback": { "type": "object" },
+    "retention": { "type": "object" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "hexSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "image": {
+      "type": "object",
+      "required": ["repository", "configuredTag", "indexDigest", "platformDigest", "os", "architecture"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "configuredTag": { "type": "string", "minLength": 1 },
+        "indexDigest": { "$ref": "#/$defs/digest" },
+        "platformDigest": { "$ref": "#/$defs/digest" },
+        "os": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "ociRevision": { "type": "string" },
+        "name": { "type": "string" },
+        "sourceComposePath": { "type": "string" },
+        "publicationRunUrl": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
