@@ -201,12 +201,11 @@ def main() -> None:
     parser.add_argument("kind", choices=("apk", "aab"))
     arguments = parser.parse_args()
     descriptor, size, digest = sealed_snapshot(3)
+    java_path = os.readlink("/proc/self/fd/4")
     if arguments.kind == "apk":
-        java_path = os.readlink("/proc/self/fd/4")
         tool_descriptors = [sealed_executable_snapshot(5)]
     else:
-        java_path = ""
-        tool_descriptors = [sealed_executable_snapshot(value) for value in (4, 5)]
+        tool_descriptors = []
     held_path = f"/proc/self/fd/{descriptor}"
     try:
         result: dict[str, object] = {"size": size, "sha256": digest}
@@ -217,12 +216,12 @@ def main() -> None:
             )
         else:
             result.update(inspect_jar_signatures(
-                [f"/proc/self/fd/{tool_descriptors[0]}", "-J-Duser.language=en", "-J-Duser.country=US", "-verify", "-verbose", "-certs", held_path],
-                (descriptor, tool_descriptors[0]),
+                [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.jarsigner.Main", "-verify", "-verbose", "-certs", held_path],
+                (descriptor,),
             ))
             certificate = run(
-                [f"/proc/self/fd/{tool_descriptors[1]}", "-J-Duser.language=en", "-J-Duser.country=US", "-printcert", "-jarfile", held_path],
-                (descriptor, tool_descriptors[1]),
+                [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.keytool.Main", "-printcert", "-jarfile", held_path],
+                (descriptor,),
             )
             result["certificateDigests"] = sorted(
                 set(match.group(1).replace(":", "").lower() for match in re.finditer(r"SHA256:\s*([0-9A-F:]{95})", certificate))

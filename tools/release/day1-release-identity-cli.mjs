@@ -196,9 +196,7 @@ export function verifyAndroidSignature(input, options) {
   const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [java, apksignerJar]);
   const certificate = parseSingleApkSigner(apkObservation.verificationOutput);
   const apk = { size: apkObservation.size, sha256: apkObservation.sha256 };
-  const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
-  const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
-  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [jarsigner, keytool]);
+  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [java]);
   const aab = { size: aabObservation.size, sha256: aabObservation.sha256 };
   if (aabObservation.jarVerified !== true || aabObservation.contentEntryCount < 1 || aabObservation.unsignedEntryCount !== 0) throw new Error('Android AAB contains unsigned entries');
   if (aabObservation.certificateDigests?.length !== 1 || aabObservation.certificateDigests[0] !== certificate || aabObservation.signerNames?.length !== 1 || !aabObservation.signerNames[0].includes('CN=Android Debug')) {
