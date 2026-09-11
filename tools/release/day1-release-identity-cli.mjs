@@ -598,16 +598,15 @@ export function assertCleanCompletion(root, message) {
   if (gitExec(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error(message);
 }
 
-function collectCompiledMigrationIds(privateParent) {
+export function collectCompiledMigrationIds(privateParent) {
   assertOwnedEvidenceDirectory(privateParent);
-  assertCleanCompletion(repoRoot, 'Compiled migration collection requires a clean exact-source checkout');
-  assertCommitHasNoSymlinks(processSource.commit, 'Compiled migration');
-  const output = path.join(privateParent, `.ef-migration-inventory-${randomUUID()}`);
-  mkdirSync(output, { recursive: false, mode: 0o700 });
-  try {
-    const project = path.join(repoRoot, 'tools/release/ef-migration-inventory/Settleora.EfMigrationInventory.csproj');
+  return exactSourceSnapshot('migrations', privateParent, (snapshot, source) => {
+    if (canonicalJson(source) !== canonicalJson(processSource)) throw new Error('Compiled migration snapshot differs from process-bound source');
+    const output = path.join(snapshot, '.release-ef-migration-output');
+    mkdirSync(output, { recursive: false, mode: 0o700 });
+    const project = path.join(snapshot, 'tools/release/ef-migration-inventory/Settleora.EfMigrationInventory.csproj');
     execFileSync('dotnet', ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--verbosity', 'quiet'], {
-      cwd: repoRoot,
+      cwd: snapshot,
       stdio: ['ignore', 'ignore', 'pipe'],
       maxBuffer: 16 * 1024 * 1024,
     });
@@ -624,12 +623,8 @@ function collectCompiledMigrationIds(privateParent) {
     if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((item) => typeof item?.Id !== 'string' || typeof item?.Type !== 'string')) {
       throw new Error('Compiled EF migration inventory output is invalid');
     }
-    assertCleanCompletion(repoRoot, 'Source changed during compiled migration collection');
     return parsed.map((item) => item.Id);
-  } finally {
-    const metadata = lstatSync(output, { throwIfNoEntry: false });
-    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(output, { recursive: true, force: false });
-  }
+  });
 }
 
 export function main(argv = process.argv.slice(2)) {
