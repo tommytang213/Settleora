@@ -206,8 +206,8 @@ and requires package/model/size/offline evidence before close.
   credited, while share/offline/web/replacement/complete-normalization and
   device permission coverage remain.
 - **#359:** keep open. Provider integration is implemented, #437/#439 are
-  planning evidence only, R01/#1209 now owns native release closure, #959 owns
-  its parser chain, and #438 owns failure/recovery UX.
+  planning evidence only, completed R01/#1209 supplies native release closure,
+  #959 owns its parser chain, and #438 owns failure/recovery UX.
 - **#360:** keep open; completed server revision routing is credited and #442
   remains the OCR-specific client/visual gate.
 - **#438:** keep open at its Figma/reference gate.
@@ -222,10 +222,10 @@ and requires package/model/size/offline evidence before close.
   inventing byte/cache/vault policy here.
 - **#967:** keep open; it must reconcile and split the broader Day 1 OCR line
   correction semantics without widening #959's exact parser contract.
-- **#970:** close only after this audit/ledger merge, #1209 creation, and
-  post-merge #357/#359/#380/#1209 linkage.
-- **#380:** keep open; after merge, record that R01 now has #1209 and remains a
-  prerequisite for R03. R07 still owns identity/signing/store readiness.
+- **#970:** closed after its audit/ledger merge, #1209 creation, and parent/owner
+  linkage; do not replay it.
+- **#380:** keep open; completed R01/#1209 may now supply Android evidence to a
+  separately selected R03. R07 still owns identity/signing/store readiness.
 - **#975:** keep open and consume this map only after domain owners complete;
   no final acceptance is inferred here.
 
@@ -250,10 +250,12 @@ gate.
 
 ## 9. Dependency-safe execution order
 
-1. Merge #970 and complete issue/parent/owner reconciliation.
-2. Run R01/#1209. It may proceed independently of #959 and must not mutate it.
-3. R03 may combine completed R02 web package evidence with a valid R01 Android
-   release entry. R07 later owns application identity/signing/store artifacts.
+1. Completed #970 supplied issue/parent/owner reconciliation.
+2. Completed R01/#1209 supplied the Android release compile/package entry
+   independently of #959 and did not mutate it.
+3. If separately selected, R03 may combine completed R02 web package evidence
+   with the completed R01 Android release entry. R07 later owns application
+   identity/signing/store artifacts.
 4. In parallel after their own gates: #358 intake/normalization split, #401
    duplicate-warning reconciliation, #438 visual fallback/retry, preserved
    #959 parser recovery, #442 revision UX, #966 storage/privacy audit, #967

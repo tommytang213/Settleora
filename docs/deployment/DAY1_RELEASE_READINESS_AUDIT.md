@@ -496,12 +496,13 @@ R12 + domain reviews -> R09 production/exposure ---------------------+
 complete Day 1 + #975 acceptance -------------------------------> #946 (later day)
 ```
 
-### First dependency-safe next logical task for GPT review
+### Possible next dependency-safe logical task for GPT review
 
-R03 is the next dependency-safe repository recommendation for GPT review: R02
-supplies exact-source web checksums and retained package evidence, while R01 now
-supplies the required Android APK/AAB entry. Proceed to R04 only after R03.
-Autonomous queue activation remains disabled, so no successor was started.
+If separately selected, R03 is a dependency-safe repository recommendation for
+GPT review: R02 supplies exact-source web checksums and retained package
+evidence, while R01 supplies the required Android APK/AAB entry. R04 remains
+dependent on R03. Autonomous queue activation remains disabled, so no successor
+was started.
 
 ## 13. Final Day 1 readiness statement
 
