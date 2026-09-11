@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -173,6 +173,26 @@ function trustedTool(candidate, expectedName, label) {
 
 function assertSystemRuntime(root) {
   const visited = new Set();
+  const assertProtectedAncestorChain = (missing) => {
+    let existing = path.dirname(missing);
+    while (!lstatSync(existing, { throwIfNoEntry: false })) {
+      const parent = path.dirname(existing);
+      if (parent === existing) throw new Error('Java runtime broken symlink has no protected ancestor');
+      existing = parent;
+    }
+    const assertChain = (candidate) => {
+      let cursor = '/';
+      for (const part of candidate.split(path.sep).filter(Boolean)) {
+        cursor = path.join(cursor, part);
+        const metadata = lstatSync(cursor);
+        if (metadata.uid !== 0 || (!metadata.isSymbolicLink() && (metadata.mode & 0o022) !== 0)) {
+          throw new Error('Java runtime broken symlink target is not protected by system-owned ancestors');
+        }
+      }
+    };
+    assertChain(existing);
+    assertChain(realpathSync(existing));
+  };
   const visit = (candidate) => {
     const metadata = lstatSync(candidate);
     if (metadata.isSymbolicLink()) {
@@ -181,7 +201,12 @@ function assertSystemRuntime(root) {
       try {
         target = realpathSync(candidate);
       } catch (error) {
-        if (error?.code === 'ENOENT') throw new Error('Java runtime contains a broken symlink');
+        if (error?.code === 'ENOENT') {
+          target = path.resolve(path.dirname(candidate), readlinkSync(candidate));
+          if (lstatSync(target, { throwIfNoEntry: false })) return visit(target);
+          assertProtectedAncestorChain(target);
+          return;
+        }
         throw error;
       }
       return visit(target);
