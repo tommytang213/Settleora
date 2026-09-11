@@ -21,7 +21,7 @@ const unsafePathPatterns = [
   /(^|\/)\.env($|[./-])/i,
   /(^|\/)(?:secrets?|credentials?|tokens?|ssh|private[-_]?keys?)(?:\/|$)/i,
   /(^|\/)[^/]*private[-_]?key[^/]*$/i,
-  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.map[^/]*|[^/]+\.(?:pem|key|p12|pfx))$/i,
+  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]*\.map[^/]*|[^/]+\.(?:pem|key|p12|pfx))$/i,
   /(^|\/)(?:\.ssh|\.aws|\.azure|\.config\/gcloud)(?:\/|$)/i,
 ];
 const unsafeContentPatterns = [
@@ -51,6 +51,21 @@ function git(args) {
 }
 
 function assertTrackedWorktreeMatchesHead() {
+  const verifiedDirectories = new Set([repoRoot]);
+  const assertRealDirectoryAncestors = (absolute) => {
+    const pending = [];
+    for (let directory = path.dirname(absolute); !verifiedDirectories.has(directory); directory = path.dirname(directory)) {
+      assertInside(repoRoot, directory, 'Tracked input directory');
+      pending.push(directory);
+    }
+    for (const directory of pending.reverse()) {
+      const metadata = lstatSync(directory, { throwIfNoEntry: false });
+      if (!metadata?.isDirectory() || metadata.isSymbolicLink()) {
+        throw new Error(`Tracked build input ancestor is not a real directory: ${directory}`);
+      }
+      verifiedDirectories.add(directory);
+    }
+  };
   const records = execFileSync('git', ['ls-tree', '-rz', '--full-tree', 'HEAD'], {
     cwd: repoRoot,
     encoding: 'utf8',
@@ -62,6 +77,7 @@ function assertTrackedWorktreeMatchesHead() {
     if (!match) throw new Error(`Unsupported tracked HEAD entry: ${JSON.stringify(record)}`);
     const [, expectedMode, expectedObject, relative] = match;
     const absolute = path.join(repoRoot, relative);
+    assertRealDirectoryAncestors(absolute);
     const metadata = lstatSync(absolute, { throwIfNoEntry: false });
     if (!metadata) throw new Error(`Tracked build input is missing: ${relative}`);
     const actualMode = metadata.isSymbolicLink() ? '120000' : ((metadata.mode & 0o111) ? '100755' : '100644');
