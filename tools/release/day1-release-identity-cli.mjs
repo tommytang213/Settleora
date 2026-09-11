@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  bindCompiledMigrationIds,
   buildManifest,
   canonicalJson,
   computeIdentityDigest,
@@ -23,16 +24,19 @@ import {
 import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const gitExec = (args, options) => execFileSync('git', ['--no-replace-objects', ...args], options);
+const replacementRefs = gitExec(['for-each-ref', '--format=%(refname)', 'refs/replace'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+if (replacementRefs) throw new Error('Git replacement refs are not allowed for provenance collection');
 const maxTrustedToolBytes = 256 * 1024 * 1024;
 const maxAndroidArtifactBytes = 256 * 1024 * 1024;
 const maxAndroidMappingBytes = 128 * 1024 * 1024;
 const maxAndroidMetadataBytes = 4 * 1024 * 1024;
-const processCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+const processCommit = gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
 const processSource = Object.freeze({
   commit: processCommit,
-  tree: execFileSync('git', ['rev-parse', `${processCommit}^{tree}`], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+  tree: gitExec(['rev-parse', `${processCommit}^{tree}`], { cwd: repoRoot, encoding: 'utf8' }).trim(),
 });
-const committedVerifierHelper = execFileSync('git', ['show', `${processSource.commit}:tools/release/sealed_android_verifier.py`], {
+const committedVerifierHelper = gitExec(['show', `${processSource.commit}:tools/release/sealed_android_verifier.py`], {
   cwd: repoRoot,
   stdio: ['ignore', 'pipe', 'pipe'],
   maxBuffer: 1024 * 1024,
@@ -306,7 +310,7 @@ export function verifyAndroidSignature(input, options) {
 }
 
 export function assertCommitHasNoSymlinks(commit, label, root = repoRoot) {
-  const records = execFileSync('git', ['ls-tree', '-r', '-z', commit], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
+  const records = gitExec(['ls-tree', '-r', '-z', commit], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
     .toString('utf8').split('\0').filter(Boolean);
   if (records.some((record) => record.startsWith('120000 '))) throw new Error(`${label} source snapshot contains a tracked symlink`);
 }
@@ -354,8 +358,8 @@ export function copyBoundedFile(source, target, maxBytes, label) {
 
 function exactSourceSnapshot(prefix, privateParent, callback) {
   const source = {
-    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
-    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    commit: gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    tree: gitExec(['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
   };
   assertCleanCompletion(repoRoot, `${prefix} requires a clean exact-source checkout`);
   assertOwnedEvidenceDirectory(privateParent);
@@ -366,7 +370,7 @@ function exactSourceSnapshot(prefix, privateParent, callback) {
   mkdirSync(snapshot, { recursive: false, mode: 0o700 });
   try {
     assertCommitHasNoSymlinks(source.commit, prefix);
-    execFileSync('git', ['archive', '--format=tar', `--output=${archive}`, source.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
+    gitExec(['archive', '--format=tar', `--output=${archive}`, source.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
     execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshot], { stdio: ['ignore', 'ignore', 'pipe'] });
     rmSync(archive, { force: false });
     return callback(snapshot, source);
@@ -374,8 +378,8 @@ function exactSourceSnapshot(prefix, privateParent, callback) {
     const metadata = lstatSync(container, { throwIfNoEntry: false });
     if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(container, { recursive: true, force: false });
     const after = {
-      commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
-      tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+      commit: gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+      tree: gitExec(['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
     };
     if (canonicalJson(after) !== canonicalJson(source)) throw new Error(`${prefix} source changed during collection`);
     assertCleanCompletion(repoRoot, `${prefix} source changed during collection`);
@@ -421,11 +425,11 @@ function collectAndroidUnsafe(options, emit = true) {
   if (lstatSync(output, { throwIfNoEntry: false })) throw new Error('Android evidence output directory must not already exist');
   mkdirSync(output, { recursive: false, mode: 0o700 });
   const sourceBefore = {
-    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
-    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    commit: gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    tree: gitExec(['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
   };
   assertTrackedWorktreeMatchesHead(repoRoot);
-  if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
+  if (gitExec(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Android build requires a clean exact-source checkout');
   const snapshotContainer = path.join(output, `.settleora-android-source-${randomUUID()}`);
   const snapshotRoot = path.join(snapshotContainer, 'source');
   const archive = path.join(snapshotContainer, 'source.tar');
@@ -434,7 +438,7 @@ function collectAndroidUnsafe(options, emit = true) {
   let copiedIdentities;
   try {
     assertCommitHasNoSymlinks(sourceBefore.commit, 'Android');
-    execFileSync('git', ['archive', '--format=tar', `--output=${archive}`, sourceBefore.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
+    gitExec(['archive', '--format=tar', `--output=${archive}`, sourceBefore.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
     execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshotRoot], { stdio: ['ignore', 'ignore', 'pipe'] });
     rmSync(archive, { force: false });
     execFileSync(flutter, ['clean'], { cwd: path.join(snapshotRoot, 'apps/mobile'), stdio: 'inherit' });
@@ -458,11 +462,11 @@ function collectAndroidUnsafe(options, emit = true) {
     if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(snapshotContainer, { recursive: true, force: false });
   }
   const source = {
-    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
-    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    commit: gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    tree: gitExec(['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
   };
   assertTrackedWorktreeMatchesHead(repoRoot);
-  if (canonicalJson(source) !== canonicalJson(sourceBefore) || execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) {
+  if (canonicalJson(source) !== canonicalJson(sourceBefore) || gitExec(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) {
     throw new Error('Android build source changed during collection');
   }
   const files = {
@@ -591,7 +595,41 @@ export function canonicalReleaseNotesInput(input) {
 
 export function assertCleanCompletion(root, message) {
   assertTrackedWorktreeMatchesHead(root);
-  if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error(message);
+  if (gitExec(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error(message);
+}
+
+function collectCompiledMigrationIds(privateParent) {
+  assertOwnedEvidenceDirectory(privateParent);
+  assertCleanCompletion(repoRoot, 'Compiled migration collection requires a clean exact-source checkout');
+  assertCommitHasNoSymlinks(processSource.commit, 'Compiled migration');
+  const output = path.join(privateParent, `.ef-migration-inventory-${randomUUID()}`);
+  mkdirSync(output, { recursive: false, mode: 0o700 });
+  try {
+    const project = path.join(repoRoot, 'tools/release/ef-migration-inventory/Settleora.EfMigrationInventory.csproj');
+    execFileSync('dotnet', ['publish', project, '--configuration', 'Release', '--output', output, '--no-self-contained', '--verbosity', 'quiet'], {
+      cwd: repoRoot,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const stdout = execFileSync('dotnet', [path.join(output, 'Settleora.EfMigrationInventory.dll')], {
+      cwd: output,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    const marker = 'SETTLEORA_MIGRATIONS_JSON:';
+    const records = stdout.split(/\r?\n/u).filter((line) => line.startsWith(marker));
+    if (records.length !== 1) throw new Error('Compiled EF migration inventory output is ambiguous');
+    const parsed = JSON.parse(records[0].slice(marker.length));
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((item) => typeof item?.Id !== 'string' || typeof item?.Type !== 'string')) {
+      throw new Error('Compiled EF migration inventory output is invalid');
+    }
+    assertCleanCompletion(repoRoot, 'Source changed during compiled migration collection');
+    return parsed.map((item) => item.Id);
+  } finally {
+    const metadata = lstatSync(output, { throwIfNoEntry: false });
+    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(output, { recursive: true, force: false });
+  }
 }
 
 export function main(argv = process.argv.slice(2)) {
@@ -602,9 +640,10 @@ export function main(argv = process.argv.slice(2)) {
     collectAndroid(options);
   } else if (options.command === 'assemble') {
     if (!options.input || !options.output || !options.flutter) throw new Error('assemble requires --input, --output and --flutter');
-    const supplied = safeInput(options.input, 'Evidence input');
+    let supplied = safeInput(options.input, 'Evidence input');
     const candidateRoot = canonicalCandidateDirectory(supplied);
     assertOwnedEvidenceDirectory(candidateRoot);
+    supplied = bindCompiledMigrationIds(supplied, collectCompiledMigrationIds(candidateRoot));
     const androidRoot = path.join(candidateRoot, 'android');
     const webRoot = path.join(candidateRoot, 'web');
     const notesPath = path.join(candidateRoot, 'release-notes.md');
@@ -668,7 +707,7 @@ export function main(argv = process.argv.slice(2)) {
     const initialManifestBytes = safeBytes(options.manifest, 'Manifest');
     const manifest = validateManifest(JSON.parse(initialManifestBytes.toString('utf8')));
     canonicalManifestPath(manifest, options.manifest);
-    const supplied = safeInput(options.input, 'Evidence input');
+    const supplied = bindCompiledMigrationIds(safeInput(options.input, 'Evidence input'), collectCompiledMigrationIds(requestedCandidateRoot));
     const webValidation = path.join(canonicalCandidateDirectory(supplied), `.web-validation-${randomUUID()}`);
     try {
       const canonicalInputs = canonicalReleaseNotesInput(canonicalWebInput(supplied));

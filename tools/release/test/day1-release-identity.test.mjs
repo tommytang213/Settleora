@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   buildManifest,
+  bindCompiledMigrationIds,
   canonicalJson,
   collectMigrations,
   computeIdentityDigest,
@@ -15,7 +16,6 @@ import {
   validateRegistryRevision,
   validateSelectedPlatformDocument,
   validateManifest,
-  migrationAttributeIds,
   validatePublicationJobDocument,
   validatePublicationJobLog,
   validatePublicationProvenance,
@@ -153,6 +153,7 @@ function fixture(t) {
       apiRegistryIdentity: 'ghcr.io immutable digest plus GitHub Actions run',
     },
   };
+  bindCompiledMigrationIds(input, ['20260101000000_Initial', '20260102000000_SourceOnly']);
   return { root, evidenceRoot, input, commit, tree, paths: { apkPath, webManifestPath, notesPath } };
 }
 
@@ -165,9 +166,11 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   assert.equal(first.migrations.count, 2);
   assert.equal(first.migrations.entries[1].files.length, 2);
   assert.equal(first.migrations.stateClaim, 'repository-source-only-not-applied');
+  assert.equal(first.migrations.runtimeInventory, 'compiled-ef-metadata-v1');
   assert.equal(first.rollback.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety, false);
   assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
   assert.doesNotThrow(() => validateManifest(first));
+  assert.throws(() => buildManifest(f.root, JSON.parse(JSON.stringify(f.input))), /Compiled EF runtime migration inventory is required/);
   assert.throws(() => buildManifest(f.root, { ...f.input, generatedAt: 'unknown' }), /normalized RFC 3339 UTC timestamp/);
   const webManifest = JSON.parse(readFileSync(f.paths.webManifestPath));
   webManifest.buildTools.node = 'v22.999.0';
@@ -259,7 +262,7 @@ test('rejects hidden tracked-source changes and nonconforming migration sources'
   write(f.root, 'services/api/src/Settleora.Api/Persistence/Migrations/CustomMigration.cs', '[Migration("20260103000000_Custom")]\n');
   git(f.root, ['add', 'services/api/src/Settleora.Api/Persistence/Migrations/CustomMigration.cs']);
   git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'invalid migration fixture']);
-  assert.throws(() => collectMigrations(f.root), /Unrecognized migration source files/);
+  assert.throws(() => collectMigrations(f.root, undefined, undefined, ['20260101000000_Initial', '20260102000000_SourceOnly']), /Unrecognized migration source files/);
 });
 
 test('binds migration bytes to the initially captured source commit', (t) => {
@@ -268,7 +271,7 @@ test('binds migration bytes to the initially captured source commit', (t) => {
   writeFileSync(migration, 'different migration bytes\n');
   git(f.root, ['add', 'services/api/src/Settleora.Api/Persistence/Migrations/20260101000000_Initial.cs']);
   git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'move mutable head']);
-  assert.throws(() => collectMigrations(f.root, undefined, f.commit), /captured source blob/);
+  assert.throws(() => collectMigrations(f.root, undefined, f.commit, ['20260101000000_Initial', '20260102000000_SourceOnly']), /captured source blob/);
 });
 
 test('migration inventory includes normalized nested source paths', (t) => {
@@ -278,36 +281,14 @@ test('migration inventory includes normalized nested source paths', (t) => {
   write(f.root, `${root}/nested/20260103000000_Nested.Designer.cs`, '[Migration("20260103000000_Nested")] partial class Nested {}\n');
   git(f.root, ['add', `${root}/nested/20260103000000_Nested.cs`, `${root}/nested/20260103000000_Nested.Designer.cs`]);
   git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'nested migration fixture']);
-  const migrations = collectMigrations(f.root);
+  const migrations = collectMigrations(f.root, undefined, undefined, ['20260101000000_Initial', '20260102000000_SourceOnly', '20260103000000_Nested']);
   assert.equal(migrations.count, 3);
   assert.ok(migrations.entries.at(-1).files.some((file) => file.path === `${root}/nested/20260103000000_Nested.cs`));
 });
 
-test('migration inventory rejects duplicate runtime attribute occurrences', (t) => {
+test('migration inventory rejects duplicate compiled runtime IDs', (t) => {
   const f = fixture(t);
-  const migration = 'services/api/src/Settleora.Api/Persistence/Migrations/20260102000000_SourceOnly.Designer.cs';
-  writeFileSync(path.join(f.root, migration), '[Migration("20260102000000_SourceOnly")] partial class SourceOnly {}\n[Migration("20260102000000_SourceOnly")] partial class SourceOnly {}\n');
-  git(f.root, ['add', migration]);
-  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'duplicate runtime migration fixture']);
-  assert.throws(() => collectMigrations(f.root), /Duplicate EF runtime migration IDs/);
-});
-
-test('migration attribute parsing ignores comments and string literals', () => {
-  const active = '20260101000000_Active';
-  assert.deepEqual(migrationAttributeIds([
-    `// [Migration("20260101000001_LineComment")]`,
-    `/* [Migration("20260101000002_BlockComment")] */`,
-    `const string text = "[Migration(\\"20260101000003_String\\")]";`,
-    `[Migration("${active}")] partial class Active`,
-    '',
-  ].join('\n')), [active]);
-  assert.throws(() => migrationAttributeIds(`[Migration("${active}")] partial class Helper`, active), /not bound/);
-  assert.throws(() => migrationAttributeIds([
-    '#if false',
-    '[Migration("20260911123456_InactiveMigration")]',
-    '#endif',
-  ].join('\n')), /conditional-compilation directives/);
-  assert.throws(() => migrationAttributeIds('var value = """[Migration("20260911123456_Decoy")]""";'), /raw string syntax/);
+  assert.throws(() => collectMigrations(f.root, undefined, undefined, ['20260101000000_Initial', '20260101000000_Initial']), /Duplicate EF runtime migration IDs/);
 });
 
 test('rejects symlinked evidence and a tampered manifest identity digest', (t) => {
@@ -402,6 +383,12 @@ test('snapshot inputs reject tracked symlinks and Android copies enforce pre-cop
   assert.throws(() => assertCommitHasNoSymlinks(git(f.root, ['rev-parse', 'HEAD']), 'test', f.root), /tracked symlink/);
   const oversized = write(f.evidenceRoot, 'oversized.bin', '0123456789abcdef');
   assert.throws(() => copyBoundedFile(oversized, path.join(f.evidenceRoot, 'copy.bin'), 8, 'Android test'), /evidence boundary/);
+});
+
+test('provenance collection rejects Git replacement refs', (t) => {
+  const f = fixture(t);
+  git(f.root, ['replace', f.commit, `${f.commit}^`]);
+  assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /replacement refs/);
 });
 
 test('validates registry index/platform linkage and API revision from fixture documents', () => {

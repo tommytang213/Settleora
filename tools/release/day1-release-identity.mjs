@@ -21,6 +21,7 @@ const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const HEX256 = /^[0-9a-f]{64}$/u;
 const SAFE_LABEL = /^[A-Za-z0-9][A-Za-z0-9._/+:-]*$/u;
 const MIGRATION_FILE = /^(\d{14}_[A-Za-z0-9_]+)\.cs$/u;
+const runtimeMigrationIdsSymbol = Symbol('settleora.compiled-runtime-migration-ids');
 const SENSITIVE_MATERIAL_PATTERNS = [
   /-----BEGIN [^-\r\n]*PRIVATE KEY[^-\r\n]*-----/u,
   /\bAKIA[0-9A-Z]{16}\b/u,
@@ -37,6 +38,14 @@ const SENSITIVE_MATERIAL_PATTERNS = [
 const fail = (message) => { throw new Error(message); };
 export const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 export const containsSensitiveMaterial = (value) => SENSITIVE_MATERIAL_PATTERNS.some((pattern) => pattern.test(value));
+
+export function bindCompiledMigrationIds(input, ids) {
+  if (!input || typeof input !== 'object' || !Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !/^\d{14}_[A-Za-z0-9_]+$/u.test(id))) {
+    fail('Compiled EF migration inventory is invalid');
+  }
+  Object.defineProperty(input, runtimeMigrationIdsSymbol, { value: Object.freeze([...ids]), enumerable: true });
+  return input;
+}
 
 export function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -225,14 +234,14 @@ function exactRegularFile(candidate, label, allowedRoot, maxBytes = 256 * 1024 *
 }
 
 function git(root, args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  return execFileSync('git', ['--no-replace-objects', ...args], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
 function exactTrackedFile(repoRoot, relative, label, sourceCommit) {
   safeLabel(relative, `${label} path`);
   sha40(sourceCommit, `${label} source commit`);
   const file = exactRegularFile(path.join(repoRoot, relative), label, repoRoot);
-  const committed = execFileSync('git', ['show', `${sourceCommit}:${relative}`], {
+  const committed = execFileSync('git', ['--no-replace-objects', 'show', `${sourceCommit}:${relative}`], {
     cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     maxBuffer: Math.max(file.size + 1024 * 1024, 2 * 1024 * 1024),
@@ -290,10 +299,10 @@ export function validateSelectedPlatformDocument(image, record, platform, label 
   return true;
 }
 
-export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD'])) {
+export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD']), compiledRuntimeIds) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   sha40(capturedCommit, 'migration captured source commit');
-  const names = execFileSync('git', ['ls-tree', '-r', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
+  const names = execFileSync('git', ['--no-replace-objects', 'ls-tree', '-r', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
     .toString('utf8').split('\0').filter(Boolean);
   const unexpected = names.filter((name) => {
     const basename = path.posix.basename(name);
@@ -307,20 +316,9 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
     .sort();
   if (ids.length === 0) fail('No repository migrations found');
   if (new Set(ids).size !== ids.length) fail('Duplicate migration IDs exist in repository source');
-  const runtimeOccurrences = [];
-  for (const id of ids) {
-    const primary = names.find((name) => path.posix.basename(name) === `${id}.cs`);
-    if (!primary) fail(`Migration ${id} is missing its primary source file`);
-    const designer = names.find((name) => path.posix.basename(name) === `${id}.Designer.cs`);
-    const attributeSource = designer ?? primary;
-    const attributeText = exactTrackedFile(repoRoot, `${relativeRoot}/${attributeSource}`, `migration source ${attributeSource}`, capturedCommit).bytes.toString('utf8');
-    runtimeOccurrences.push(...migrationAttributeIds(attributeText, id));
-    const text = primary === attributeSource ? attributeText : exactTrackedFile(repoRoot, `${relativeRoot}/${primary}`, `migration source ${primary}`, capturedCommit).bytes.toString('utf8');
-    const expectedClass = id.slice(id.indexOf('_') + 1);
-    if (!migrationInheritanceClassNames(text).includes(expectedClass)) fail(`Migration ${id} primary class is not bound to Migration inheritance`);
-  }
-  const runtimeIds = new Set(runtimeOccurrences);
-  if (runtimeIds.size !== runtimeOccurrences.length) fail('Duplicate EF runtime migration IDs exist in repository source');
+  if (!Array.isArray(compiledRuntimeIds) || compiledRuntimeIds.length === 0) fail('Compiled EF runtime migration inventory is required');
+  const runtimeIds = new Set(compiledRuntimeIds);
+  if (runtimeIds.size !== compiledRuntimeIds.length) fail('Duplicate EF runtime migration IDs exist in compiled metadata');
   if (canonicalJson([...runtimeIds].sort()) !== canonicalJson(ids)) fail('Migration filename inventory differs from EF runtime migration attributes');
   const entries = ids.map((id) => ({
     id,
@@ -334,126 +332,13 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
   if (expectedDigest && expectedDigest !== setSha256) fail(`Migration-set digest mismatch: expected ${expectedDigest}, found ${setSha256}`);
   return {
     stateClaim: 'repository-source-only-not-applied',
+    runtimeInventory: 'compiled-ef-metadata-v1',
     ordering: 'migration-id-byte-order-v1',
     setDigestAlgorithm: 'sha256(canonical-json-v1:migration-entries)',
     setSha256,
     count: entries.length,
     entries,
   };
-}
-
-export function migrationAttributeIds(text, expectedId) {
-  if (/^\s*#\s*(?:if|elif|else|endif)\b/mu.test(text)) {
-    fail('Migration source contains conditional-compilation directives that cannot be reproduced by the bounded parser');
-  }
-  if (/"{3,}/u.test(text)) fail('Migration source contains raw string syntax that cannot be reproduced by the bounded parser');
-  const ids = [];
-  for (let index = 0; index < text.length;) {
-    if (text.startsWith('//', index)) {
-      index = text.indexOf('\n', index + 2);
-      if (index < 0) break;
-      continue;
-    }
-    if (text.startsWith('/*', index)) {
-      const end = text.indexOf('*/', index + 2);
-      index = end < 0 ? text.length : end + 2;
-      continue;
-    }
-    if (text[index] === '[') {
-      const match = /^\[\s*(?:Microsoft\.EntityFrameworkCore\.Migrations\.)?Migration\s*\(\s*"(\d{14}_[A-Za-z0-9_]+)"\s*\)\s*\]/u.exec(text.slice(index));
-      if (match) {
-        const declaration = /^\s*(?:(?:public|internal|protected|private|abstract|sealed|static)\s+)*partial\s+class\s+([A-Za-z_][A-Za-z0-9_]*)\b/u.exec(text.slice(index + match[0].length));
-        const expectedClass = match[1].slice(match[1].indexOf('_') + 1);
-        if (!declaration || declaration[1] !== expectedClass || (expectedId && match[1] !== expectedId)) {
-          fail('Migration attribute is not bound to its expected partial migration class');
-        }
-        ids.push(match[1]);
-        index += match[0].length;
-        continue;
-      }
-    }
-    if (text[index] === '"' || (text[index] === '@' && text[index + 1] === '"')) {
-      const verbatim = text[index] === '@';
-      index += verbatim ? 2 : 1;
-      while (index < text.length) {
-        if (verbatim && text.startsWith('""', index)) { index += 2; continue; }
-        if (!verbatim && text[index] === '\\') { index += 2; continue; }
-        if (text[index] === '"') { index += 1; break; }
-        index += 1;
-      }
-      continue;
-    }
-    if (text[index] === '\'') {
-      index += 1;
-      while (index < text.length) {
-        if (text[index] === '\\') { index += 2; continue; }
-        if (text[index] === '\'') { index += 1; break; }
-        index += 1;
-      }
-      continue;
-    }
-    index += 1;
-  }
-  return ids;
-}
-
-export function migrationInheritanceClassNames(text) {
-  if (/^\s*#\s*(?:if|elif|else|endif)\b/mu.test(text)) fail('Migration source contains conditional-compilation directives that cannot be reproduced by the bounded parser');
-  const classes = [];
-  for (let index = 0; index < text.length;) {
-    if (text.startsWith('//', index)) {
-      index = text.indexOf('\n', index + 2);
-      if (index < 0) break;
-      continue;
-    }
-    if (text.startsWith('/*', index)) {
-      const end = text.indexOf('*/', index + 2);
-      index = end < 0 ? text.length : end + 2;
-      continue;
-    }
-    if (text[index] === '"') {
-      let delimiterLength = 0;
-      while (text[index + delimiterLength] === '"') delimiterLength += 1;
-      if (delimiterLength >= 3) {
-        index += delimiterLength;
-        while (index < text.length) {
-          let quoteRun = 0;
-          while (text[index + quoteRun] === '"') quoteRun += 1;
-          if (quoteRun >= delimiterLength) { index += quoteRun; break; }
-          index += Math.max(1, quoteRun);
-        }
-        continue;
-      }
-    }
-    if (text[index] === '"' || (text[index] === '@' && text[index + 1] === '"')) {
-      const verbatim = text[index] === '@';
-      index += verbatim ? 2 : 1;
-      while (index < text.length) {
-        if (verbatim && text.startsWith('""', index)) { index += 2; continue; }
-        if (!verbatim && text[index] === '\\') { index += 2; continue; }
-        if (text[index] === '"') { index += 1; break; }
-        index += 1;
-      }
-      continue;
-    }
-    if (text[index] === '\'') {
-      index += 1;
-      while (index < text.length) {
-        if (text[index] === '\\') { index += 2; continue; }
-        if (text[index] === '\'') { index += 1; break; }
-        index += 1;
-      }
-      continue;
-    }
-    const declaration = /^(?:(?:public|internal|protected|private|abstract|sealed|static)\s+)*partial\s+class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:[A-Za-z_][A-Za-z0-9_.]*\.)?Migration\b/u.exec(text.slice(index));
-    if (declaration) {
-      classes.push(declaration[1]);
-      index += declaration[0].length;
-      continue;
-    }
-    index += 1;
-  }
-  return classes;
 }
 
 function validateImage(image, label, sourceCommit, expectedTag, expectedRepository) {
@@ -635,9 +520,9 @@ export function validateManifest(manifest) {
   }
   if (expectedDependencies.size) fail('Missing dependency image');
   if (manifest.migrations?.stateClaim !== 'repository-source-only-not-applied') fail('Migrations must not be described as applied');
-  assertKeys(manifest.migrations, ['stateClaim', 'ordering', 'setDigestAlgorithm', 'setSha256', 'count', 'entries', 'source'], 'migrations');
+  assertKeys(manifest.migrations, ['stateClaim', 'runtimeInventory', 'ordering', 'setDigestAlgorithm', 'setSha256', 'count', 'entries', 'source'], 'migrations');
   assertKeys(manifest.migrations.source, ['commit', 'tree'], 'migrations.source');
-  if (manifest.migrations.ordering !== 'migration-id-byte-order-v1' || manifest.migrations.setDigestAlgorithm !== 'sha256(canonical-json-v1:migration-entries)') fail('Migration algorithm mismatch');
+  if (manifest.migrations.runtimeInventory !== 'compiled-ef-metadata-v1' || manifest.migrations.ordering !== 'migration-id-byte-order-v1' || manifest.migrations.setDigestAlgorithm !== 'sha256(canonical-json-v1:migration-entries)') fail('Migration algorithm mismatch');
   if (manifest.migrations.source.commit !== manifest.source.commit || manifest.migrations.source.tree !== manifest.source.tree) fail('Migration source mismatch');
   let priorMigration = '';
   for (const [index, entry] of manifest.migrations.entries?.entries?.() ?? []) {
@@ -741,7 +626,7 @@ export function buildManifest(repoRoot, input) {
       const expectedTag = configuredImage(repoRoot, image.sourceComposePath, services[image.name], source.commit);
       return validateImage(withPlatform(image, platform, `dependencyImages.${image.name}`), `dependencyImages.${image.name}`, undefined, expectedTag, repositories[image.name]);
     });
-  const migrations = collectMigrations(repoRoot, input.expectedMigrationSetSha256, source.commit);
+  const migrations = collectMigrations(repoRoot, input.expectedMigrationSetSha256, source.commit, input[runtimeMigrationIdsSymbol]);
   migrations.source = { commit: source.commit, tree: source.tree };
   const rollbackCommit = sha40(input.rollback.sourceCommit, 'rollback.sourceCommit');
   try {

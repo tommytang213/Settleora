@@ -81,3 +81,8 @@ Assembly also copies the bounded release-note input into canonical retained
 The migration section describes repository source only and deliberately never
 claims that migrations are applied. A prior API artifact is availability
 evidence only; it is never proof of database, schema, or file rollback safety.
+Runtime migration IDs come from a freshly published local helper that reflects
+the exact API assembly's EF `MigrationAttribute` metadata; the tooling compares
+that compiled inventory with deterministic repository migration filenames and
+source hashes. All provenance Git reads disable replacement objects, and any
+local `refs/replace/*` makes collection fail closed.

@@ -53,7 +53,7 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const canonicalJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
 function git(args) {
-  return execFileSync('git', args, {
+  return execFileSync('git', ['--no-replace-objects', ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -66,6 +66,12 @@ const gitBlobObjectId = (contents) => createHash('sha1')
   .digest('hex');
 
 export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
+  const replacements = execFileSync('git', ['--no-replace-objects', 'for-each-ref', '--format=%(refname)', 'refs/replace'], {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+  if (replacements) throw new Error('Git replacement refs are not allowed for provenance collection');
   const rootBytes = Buffer.from(root);
   const verifiedDirectories = new Set(['']);
   const displayPath = (relative) => JSON.stringify(relative.toString('utf8'));
@@ -87,7 +93,7 @@ export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
       verifiedDirectories.add(key);
     }
   };
-  const output = execFileSync('git', ['ls-tree', '-rz', '--full-tree', 'HEAD'], {
+  const output = execFileSync('git', ['--no-replace-objects', 'ls-tree', '-rz', '--full-tree', 'HEAD'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
