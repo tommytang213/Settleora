@@ -43,8 +43,8 @@ remain R05. iOS signing, App Store Connect processing, and TestFlight
 availability/install remain external/manual; current TrueNAS acceptance is
 blocked on the repository gaps, and production/staging exposure is unavailable.
 
-With the #1195 R12 repository slice, the 69 evaluated capabilities comprise 24
-`implemented`, 19 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
+With the #1195 R12 and #1198 R10 repository slices, the 69 evaluated
+capabilities comprise 25 `implemented`, 18 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
 `unavailable`, 7 `blocked`, 1 `superseded`, and 1 `later-day`.
 
 Method:
@@ -293,8 +293,11 @@ All entries below are future gates, not blockers to this documentation audit.
   baseline-browser-mapping to `4.28.7`/`2.11.0` and the exact-coupled Vitest
   family to `4.1.11`; Nano ID also moved to its minimum independent audit patch.
 - Clean install/audit, dependency-path and registry-integrity proof, 139 tests,
-  production build, root checks, fresh Gemini/local/GitHub Codex reviews, and
-  all hosted checks/scanners passed on reviewed source `439cbe7f...`.
+  production build, root checks, and fresh Gemini/local/GitHub Codex reviews
+  passed on reviewed source `439cbe7f...`. Hosted CodeQL checked that source
+  head; checkout-based classifier/full validation, Semgrep CE, and Trivy
+  repository jobs passed on synthetic merge `d3b55624...`, whose tree equals
+  the source tree. Their aggregate provider checks also passed.
 - The vulnerable and patched lock graphs produce byte-identical three-file
   browser artifacts. The packages remain build/test-host execution risk, not
   shipped browser runtime. Dependabot #32/#34-#36 closed automatically as fixed
