@@ -10,9 +10,11 @@ Source baseline: `origin/main` `f350e5f3ba6ff737cc38781dbc3348db68d45055`, tree 
 
 R12 completion addendum: [Issue #1195](https://github.com/tommytang213/Settleora/issues/1195) is implemented by [PR #1196](https://github.com/tommytang213/Settleora/pull/1196), reviewed source `849c5695fc5e90eddf788777cab588ab9e90c784`, tree `91e414b4d58b8640124e34bb35f0c168cc0d4ca5`, normal merge `43a828b9e5172069a00e80928069e815ae0dec9e`. This is repository/disposable proof only; R05/#975 retain real private DNS, certificate, TrueNAS and physical-device evidence.
 
-R10 completion addendum: [Issue #1198](https://github.com/tommytang213/Settleora/issues/1198) is implemented by [PR #1199](https://github.com/tommytang213/Settleora/pull/1199), reviewed source `439cbe7f33edf82f4b7e752c08c32056799fc58d`, tree `8a8b751b0115e2ceac02d54afb9951e7d6cd201c`, normal merge `5fc712695657be51baf54548ecefc1892497fdb7`. Dependabot #32/#34-#36 closed automatically as fixed with no dismissal/suppression; affected development tooling is absent from the byte-identical browser artifact. R02 is now the next dependency-safe repository recommendation.
+R10 completion addendum: [Issue #1198](https://github.com/tommytang213/Settleora/issues/1198) is implemented by [PR #1199](https://github.com/tommytang213/Settleora/pull/1199), reviewed source `439cbe7f33edf82f4b7e752c08c32056799fc58d`, tree `8a8b751b0115e2ceac02d54afb9951e7d6cd201c`, normal merge `5fc712695657be51baf54548ecefc1892497fdb7`. Dependabot #32/#34-#36 closed automatically as fixed with no dismissal/suppression; affected development tooling is absent from the byte-identical browser artifact. This reconciled graph subsequently enabled R02.
 
-Mobile portability addendum: [Issue #1201](https://github.com/tommytang213/Settleora/issues/1201) is implemented by [PR #1202](https://github.com/tommytang213/Settleora/pull/1202), reviewed source `f5e2802a9decd4eb26185d3c6cd55fd6d5d5d0e0`, tree `483f095291e2c39051586b408dd4127d4d0a2e58`, normal merge `c6bcab3bf42cfe61b88e55131676cc1fe05de65c`. Shared font and visual-output discovery is portable across ordinary hosts and Codemagic configuration, GitHub Linux/macOS proof passed without `/opt/flutter`, and release/visual selection remains intact. No Codemagic cloud run is claimed; manual provider evidence remains pending. R02 remains the next dependency-safe repository recommendation.
+Mobile portability addendum: [Issue #1201](https://github.com/tommytang213/Settleora/issues/1201) is implemented by [PR #1202](https://github.com/tommytang213/Settleora/pull/1202), reviewed source `f5e2802a9decd4eb26185d3c6cd55fd6d5d5d0e0`, tree `483f095291e2c39051586b408dd4127d4d0a2e58`, normal merge `c6bcab3bf42cfe61b88e55131676cc1fe05de65c`. Shared font and visual-output discovery is portable across ordinary hosts and Codemagic configuration, GitHub Linux/macOS proof passed without `/opt/flutter`, and release/visual selection remains intact. The repository record does not infer source-bound provider acceptance beyond separately supplied operator evidence. This correction subsequently unblocked R02.
+
+R02 completion addendum: [Issue #1205](https://github.com/tommytang213/Settleora/issues/1205) is implemented by [PR #1206](https://github.com/tommytang213/Settleora/pull/1206) plus corrective convergence [PR #1207](https://github.com/tommytang213/Settleora/pull/1207). Final reviewed source `4df10f7d9ae5478288327cc24ad68ad78116110d`, tree `537684248fbc909a4939ac2522d5e049ba9c2a58`, normally merged as `01bf000ecfb718fa5708202892d77178fc9a7fb4`. Web-affecting PRs now produce source-bound, deterministic `dist` checksum/provenance and a retained GitHub artifact without deployment or serving. Open #970's adoption/split of R01 is the next dependency-safe step before full R03; #373 still owns product completeness and R08 remains blocked on it.
 
 ## 1. Scope, method, and conclusion
 
@@ -27,13 +29,15 @@ release**. Automatic pull-request routing is implemented and credited to
 built and is published to GHCR on `main`; source-build and image-based LAN
 Compose packages exist; a historical maintainer-run TrueNAS SCALE `25.10.4`
 custom-app check passed bounded migration, liveness, and readiness checks. The
-user web produces a Vite `dist` build locally, and Android produces a debug APK.
+user web produces exact-source pull-request build/package evidence with a
+deterministic `dist` manifest and retained artifact, and Android produces a
+debug APK.
 
 Those facts do not close the release gate. The Android release build currently
 fails in R8 on missing ML Kit recognizer classes. Android still has a placeholder
-application ID and debug release signing. User-web build/package validation is
-not in automatic GitHub CI and no web serving/deployment package exists. Admin
-web has no application package. The TrueNAS catalog, automated install/upgrade,
+application ID and debug release signing. User-web serving/deployment and its
+product/auth prerequisites remain absent despite automatic build/package CI.
+Admin web has no application package. The TrueNAS catalog, automated install/upgrade,
 backup-before-upgrade, and tested restore/rollback paths do not exist. The LAN
 package now has a stable, fail-closed RabbitMQ persistence identity through
 [#1189](https://github.com/tommytang213/Settleora/issues/1189). Issue
@@ -45,7 +49,7 @@ remain R05. iOS signing, App Store Connect processing, and TestFlight
 availability/install remain external/manual; current TrueNAS acceptance is
 blocked on the repository gaps, and production/staging exposure is unavailable.
 
-With the #1195 R12, #1198 R10 and #1201 mobile-portability repository slices, the 69 evaluated
+With the #1195 R12, #1198 R10, #1201 mobile-portability and #1205 R02 repository slices, the 69 evaluated
 capabilities comprise 25 `implemented`, 18 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
 `unavailable`, 7 `blocked`, 1 `superseded`, and 1 `later-day`.
 
@@ -128,7 +132,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | B03 | Local development Compose package | `implemented` | `infra/docker-compose.yml`; `infra/env/.env.example` | `validate:compose` is automatic for non-doc PRs; builds API plus PostgreSQL/RabbitMQ, but exposes dependency ports and is explicitly development-only | #380; not a supported production package |
 | B04 | TrueNAS/LAN source-build package | `partial` | `infra/docker-compose.truenas-lan.yml`; `.env.truenas-lan.example` | Compose validation exists; package builds `migrate`/`api`, publishes only exact-host private HTTPS, keeps API HTTP un-published, and separates ingress from PostgreSQL/RabbitMQ. Historical #483 live evidence is not current-head install proof | R04/R05 |
 | B05 | TrueNAS/LAN image package | `partial` | `infra/docker-compose.truenas-lan.image.yml` | Config validates; defaults to floating `ghcr.io/tommytang213/settleora-api:main`, while operators may set an exact SHA tag/digest | R03/R04; pinning/release identity is not enforced |
-| B06 | User-web production build artifact | `partial` | `apps/web-user/package.json`; `vite.config.ts` | `npm run build --prefix apps/web-user` passed on baseline and produced `apps/web-user/dist/`; no automatic CI, upload, retention, checksum, or serving package | R02; product completeness stays #373 |
+| B06 | User-web production build artifact | `partial` | `apps/web-user/package.json`; `vite.config.ts`; `scaffold-validation.yml`; manifest helper | Web-affecting PRs run clean install, lint, 139 tests and production build from the exact source head, then upload staged `dist/` plus deterministic source/lock/tool/per-file/tree provenance for 14 days. Final #1207 evidence is artifact ID `10190883387`, tree digest `6bf6cd64...`; the PR-only job intentionally skips protected-branch pushes | Completed R02/#1205 satisfies its PR close rule. Protected-push artifact coverage required by the broader CI/CD architecture remains absent; this is not serving, deployment or #373 completion |
 | B07 | Admin-web artifact | `unavailable` | `apps/web-admin/README.md` only | No package, build command, runtime, tests, or artifact path | R13 after #964 reconciles the #376 runtime graph; completed/planning issues are prerequisites, not artifact owners |
 | B08 | Android debug artifact | `implemented` | `apps/mobile/android/`; `apps/mobile/pubspec.yaml` | `flutter build apk --debug` passed on baseline; artifact `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`; not automatic CI or releasable | R01 owns release-build preparation; #975 only consumes later platform evidence |
 | B09 | Android release APK/AAB | `blocked` | `apps/mobile/android/app/build.gradle.kts` | `flutter build apk --release` failed on baseline in `:app:minifyReleaseWithR8`: missing ML Kit Chinese/Japanese/Korean/Devanagari recognizer option classes. No valid AAB evidence | R01 first; R07 after compile succeeds |
@@ -136,7 +140,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | B11 | Signed iOS IPA/archive | `externally-gated` | `codemagic.yaml` `mobile-ios-testflight-internal` | Configured paths: `build/ios/ipa/*.ipa`, `build/ios/archive/*.xcarchive`; no current observable cloud artifact/run | R06 |
 | B12 | Signed Android/store artifact | `unavailable` | Android release currently uses debug signing and `com.example.mobile` | No production keystore config, signed release identity, Play publishing block, upload, or console evidence; secrets must remain external | R07 |
 | B13 | Generated contracts/clients as inputs | `implemented` | OpenAPI plus `packages/client-web/src/generated/` and `packages/client-dart/lib/generated/` | `validate:clients` regenerates to temp and hashes current files; automatic non-doc CI. These are source inputs, not deployable artifacts | #1185; no release-artifact claim |
-| B14 | Checksums/digests/version identity across artifacts | `partial` | GHCR labels/tags/digest; mobile `1.0.0+1`; Codemagic build number | API has exact SHA/digest evidence. Web/Android outputs have no published checksum/provenance; mobile version is static; no unified Day 1 release manifest | R03 |
+| B14 | Checksums/digests/version identity across artifacts | `partial` | GHCR labels/tags/digest; R02 web manifest; mobile `1.0.0+1`; Codemagic build number | API has exact SHA/digest evidence and R02 supplies exact-source web file/tree checksums. Android has no accepted release artifact, mobile version is static, and no unified Day 1 release manifest binds the platforms | R03 |
 | C01 | Supported self-host targets | `partial` | deployment docs and LAN Compose files | Trusted LAN/TrueNAS custom-app is the only exercised target; production/public and polished catalog are not supported/accepted | R04/R05/R09 |
 | C02 | Environment example and secret boundary | `partial` | `infra/env/.env.truenas-lan.example` | Required variables and placeholders are documented; real values remain operator-managed. No catalog form, secret generation, rotation, or validation UI exists | R04; secret mutation is manual-gated |
 | C03 | PostgreSQL/RabbitMQ/storage persistence | `implemented` | both LAN Compose files; `infra/rabbitmq/settleora-entrypoint.sh`; focused validator | [PR #1190](https://github.com/tommytang213/Settleora/pull/1190) requires one stable hostname/nodename, refuses missing, mismatched, multiple, or ambiguous persisted identities, and proves durable marker queue/message continuity over repeated recreation plus non-destructive pre-change identity adoption in both variants | Completed R11/#1189; live TrueNAS use remains within R05 |
@@ -320,6 +324,38 @@ All entries below are future gates, not blockers to this documentation audit.
   provider proof; `mobile-ios-testflight-internal` remains the distinct R06
   signing/upload action and is unnecessary for this portability check.
 
+### #1205 R02 additive user-web CI build/package lane
+
+- Initial [PR #1206](https://github.com/tommytang213/Settleora/pull/1206)
+  merged source `be5516cc...` normally as `497b8c40...`; the orchestrator had
+  printed but failed to assert the unresolved-thread count before that merge.
+  Same-task [PR #1207](https://github.com/tommytang213/Settleora/pull/1207)
+  resolved every review finding, passed the complete gates on source
+  `4df10f7d9ae5478288327cc24ad68ad78116110d` (tree `53768424...`), and
+  normally merged as `01bf000ecfb718fa5708202892d77178fc9a7fb4`.
+- `run_web_user_validation` selects `apps/web-user/**`,
+  `packages/client-web/**`, and its workflow/classifier/helper/test control
+  surface. Unknown proof selects web plus every existing expensive lane;
+  docs-only changes intentionally skip them. `Validate scaffold` remains the
+  sole stable required context and rejects missing or incorrectly skipped web
+  results.
+- The exact-source-head job runs Node 22, web `npm ci`, lint, 139 tests and the
+  production build. It stages only `dist/` and an external canonical manifest
+  containing source/tree, lock identity, bounded tool versions, sorted file
+  sizes/SHA-256 values, and the deterministic tree digest. Tracked inputs are
+  byte/mode checked against HEAD with raw path handling; symlinks, special
+  files, source maps, unsafe paths and likely sensitive/host material fail
+  closed.
+- Final artifact `user-web-dist-4df10f7d9ae5478288327cc24ad68ad78116110d`
+  (ID `10190883387`, 14-day retention) contains three files totaling 426,988
+  bytes plus the external manifest. Downloaded bytes independently regenerated
+  the same manifest and tree digest `6bf6cd648121edfc0633cc8bb15ce7a3980881a9b7b2feb2572b24af86da00be`.
+  Full API/Docker, mobile, iOS, CodeQL, Semgrep, Trivy and aggregate checks and
+  final Gemini/local/GitHub Codex reviews passed with zero unresolved threads.
+- No web was served, deployed, exposed or declared product-complete. #373 stays
+  open, R08 retains product/auth/privacy and serving gates, and R03 may consume
+  only this bounded checksum/provenance primitive.
+
 ### #1198 R10 user-web dependency-alert remediation
 
 - [PR #1199](https://github.com/tommytang213/Settleora/pull/1199) changed only
@@ -410,7 +446,7 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 | Owner | Scope and non-goals | Gate | Lane / paths | Validation / review | Close rule and dependencies |
 | --- | --- | --- | --- | --- | --- |
 | R01 — **new focused recommendation, conditional on #970:** Android release-build dependency/R8 closure | Make current Flutter Android release APK and AAB compile with the intended on-device OCR dependency set. Non-goals: application-ID decision, keystore/signing, Play upload, parser behavior, #959 mutation | Native dependency/build-config review; no signing secret | `mobile-build-config`; `apps/mobile/android/**`, dependency manifest/lock only if required | root `validate:mobile`; debug APK; release APK and AAB; strong independent + Android build review | #970 must first adopt this gap or authorize a non-duplicate focused split under #357/#359. The implementation closes only when exact-head release APK/AAB builds pass, ML Kit scripts used by current code are packaged, size/offline-model impact is recorded, and no debug-signed output is called store-ready |
-| R02 — **new focused recommendation:** additive user-web CI build/package lane | Preserve #1185 classifier/aggregate and add automatic `apps/web-user` install/test/build plus a discoverable `dist` artifact/checksum for web-affecting PRs. Non-goals: deploy, auth completion, public exposure, redesign | CI/workflow manual gate | `docker-compose-ci-deployment` plus web build files/workflow only | web lock install, tests, build, CI policy tests, full docs/scaffold; strong independent | Close on an exact web-affecting PR proving build/package and a docs-only PR proving intentional skip without changing required context. Depends on #1185 architecture; deployment waits for #373 |
+| R02 — **completed by Issue #1205 / PRs #1206 and #1207:** additive user-web CI build/package lane | #1185 classifier/aggregate now runs exact-source `apps/web-user` clean install/lint/test/build and publishes staged `dist` plus canonical provenance for web-affecting PRs. No deploy, auth completion, public exposure or redesign | CI/workflow gate completed | workflow, classifier, manifest helper and focused policy/tests | final source `4df10f7d...`; 139 tests, repeated deterministic build, downloaded artifact match, full CI/scanners and strong reviews | Exact web-affecting proof is complete; this docs-only hygiene PR supplies intentional skip under the unchanged `Validate scaffold` context. #373 and R08 retain product/serving work; R03 may consume the checksum primitive |
 | R03 — **new focused recommendation:** Day 1 release identity manifest | Define a bounded generated evidence manifest binding source SHA/tree, API tag/digest, resolved PostgreSQL/RabbitMQ image digests, migration set, web checksum when available, mobile version/build, release notes, rollback artifact, and retention location. Non-goals: release epochs, environment promotion, deployment | Artifact publication/promotion remains manual | `docker-compose-ci-deployment`; focused release tooling/docs | deterministic unit tests, docs/scaffold, sample exact-SHA manifest; strong independent | Close when one non-production candidate manifest is reproducible and rejects API or dependency-image identity mismatches. Depends on R01 for Android entry and R02 for web entry; #946 remains later-day |
 | R04 — **new focused recommendation:** TrueNAS catalog package skeleton and render validation | Implement unpublished metadata/form/topology/dataset/secret-input/migration-hook package from #486 plan, defaulting to the R12 private transport and immutable image selection. Non-goals: publish, deploy, real secrets, public/admin exposure | Docker/Compose/deployment config manual gate | `docker-compose-ci-deployment`; new focused catalog paths plus tests | catalog schema/render tests, Compose checks, API image check as scoped; strong deployment/security review | Close with offline render/install-plan validation, private-service proof, migration failure surfacing, backup warning, exact image identity, and zero publication. R11 is complete; depends on R03/R12 |
 | R05 — **new focused manual/external evidence recommendation:** current TrueNAS acceptance | After R12, collect current TrueNAS install/upgrade, pre-upgrade backup, bounded non-destructive operator restore evidence using the existing Day 1 runbook, rollback limits, health/auth/mobile smoke. Non-goals: destructive production restore, hidden env change, or product-integrated restore automation | Host, secret, database/storage, migration, deployment manual gates | external operator lane; no unattended repo mutation | exact version/digest, sanitized migration/health/readiness/smoke, consistency-set and recovery evidence; human + strong deployment review | Close only with current-candidate TrueNAS evidence and separately approved operator restore/rollback evidence. R11 is complete; depends on R03/R04/R12 and product acceptance readiness; #380 remains the umbrella and #975 consumes the result. Automated integrity verification, disposable restore environments, freshness tracking, scheduling, and admin UX remain Day 2 under #1077 |
@@ -418,7 +454,7 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 | R07 — **new focused recommendation plus later manual acceptance:** Android application identity/signing/store plan | After R01, select non-placeholder application ID, secure signing boundary, AAB output, and manual Play acceptance plan. Non-goals: commit keys, upload, public release | Identity, keystore, Play Console, tester/store manual gates | `mobile-build-config` for repo-safe config; external release action later | release AAB identity/signature inspection, no-secret scan, provider/device evidence; strong security/release review | Repository slice closes with approved external-secret contract and reproducible signed-build handoff; store evidence closes only after explicit manual action. Depends on R01 |
 | R08 — **new focused recommendation:** user-web serving package | Add a non-production serving/deployment package only after the user surface has required runtime/auth/privacy readiness. Non-goals: infer readiness from Vite, deploy, expose publicly, or absorb product work | Auth/security, storage/privacy, deployment/exposure gates | deployment lane; focused user-web serving/package paths | product tests/visual acceptance first, then container/static-host validation; strong review | Close on a reproducible unpublished package and private smoke plan after #373’s protected-route/product prerequisites and R02 build/package CI |
 | R09 — **new focused manual/external recommendation:** final environment/network activation | Define/approve any staging/production deployment and any DNS/TLS/proxy activation only after the relevant domain reviews and R12 private baseline. Non-goals: automatic promotion, public default, or duplicating auth/admin review | Production, network, secrets, auth/security, storage/privacy, destructive migration | manual deployment/security lane | threat/exposure review, exact artifacts, backup/rollback, health/smoke, disable path | R12 closes the private baseline first; #777 must close the auth public-exposure review; user/admin product prerequisites must close; #485 is the completed planning baseline. Final activation closes only with explicit human approval and live evidence; #380 stays the umbrella and #946 owns later automation |
-| R10 — **completed by Issue #1198 / PR #1199:** current user-web dependency-alert triage | Smallest lockfile-only update patched `browserslist`, `baseline-browser-mapping`, `@vitest/mocker`, and `vitest`; no product, deployment, serving or suppression scope | Dependency/security review completed; no waiver/dismissal used | `apps/web-user/package-lock.json` only; reviewed source `439cbe7f33edf82f4b7e752c08c32056799fc58d`, normal merge `5fc712695657be51baf54548ecefc1892497fdb7` | clean install/audit, explain/list/integrity, 139 tests, production build and byte-identical artifact comparison, Gemini/local/GitHub reviews, full CI/scanners | #32/#34-#36 closed automatically as fixed; development tooling remains build/test-host risk and is absent from browser output. R02 is unblocked but not started |
+| R10 — **completed by Issue #1198 / PR #1199:** current user-web dependency-alert triage | Smallest lockfile-only update patched `browserslist`, `baseline-browser-mapping`, `@vitest/mocker`, and `vitest`; no product, deployment, serving or suppression scope | Dependency/security review completed; no waiver/dismissal used | `apps/web-user/package-lock.json` only; reviewed source `439cbe7f33edf82f4b7e752c08c32056799fc58d`, normal merge `5fc712695657be51baf54548ecefc1892497fdb7` | clean install/audit, explain/list/integrity, 139 tests, production build and byte-identical artifact comparison, Gemini/local/GitHub reviews, full CI/scanners | #32/#34-#36 closed automatically as fixed; development tooling remains build/test-host risk and is absent from browser output. R02 subsequently consumed the reconciled graph |
 | R11 — **completed by Issue #1189:** stable RabbitMQ persistence identity | Both LAN Compose variants require one explicit stable node hostname/nodename and fail closed before an existing dataset can be masked by a new identity. No deploy, credential, clustering, or application messaging change | Repository Docker/Compose and persisted-data review completed; any real-host exercise remains separately manual | [PR #1190](https://github.com/tommytang213/Settleora/pull/1190); two LAN Compose files, example env, entrypoint, focused validator/runbook | Clean and repeated recreate, durable queue/message, pre-change direct discovery/adoption, missing/wrong/multiple/ambiguous refusal, health, Compose/full CI, Gemini/local/GitHub Codex | Completed from source `231cc64a3f481be556f09ff213807a48c704f878`, tree `2199949a64b9ca9bd9678f3c8be005f6ab6454db`, normal merge `861d5ef1c9462e04eca778a1375abce2aa786fd3`; live TrueNAS migration/reset remains manual-gated |
 | R12 — **completed by Issue #1195 / PR #1196:** fail-closed private LAN bind and mobile-safe transport | Both LAN variants require an RFC1918 interface, publish only exact-host HTTPS through Caddy, isolate the proxy from backend dependencies, and require operator-external trusted TLS material. Mobile retains strict platform trust and declares Android network/iOS local-network access | Repository network/TLS/security review completed; all live DNS/certificate/host/device actions remain manual | PR #1196 source `849c5695fc5e90eddf788777cab588ab9e90c784`, tree `91e414b4d58b8640124e34bb35f0c168cc0d4ca5`, normal merge `43a828b9e5172069a00e80928069e815ae0dec9e`; LAN Compose/env/Caddy/tests/runbooks plus mobile platform declarations | fail-closed matrices, aligned Compose JSON, disposable trusted HTTPS readiness, R11 regressions, mobile validation, Gemini/local/GitHub security review | Repository contract complete; R05 owns real private DNS, certificate, TrueNAS and physical-device proof, while R09 owns any wider exposure. No public/admin activation or secret material is included |
 | R13 — **new focused recommendation after #964:** admin-web serving package | Add an unpublished private serving package only after #964 has split and the resulting focused admin runtime/auth prerequisites are complete. Non-goals: build the admin product, change auth/API, deploy, or expose publicly | Admin auth/security, storage/privacy, deployment/exposure gates | deployment lane; future focused admin serving/package paths | completed product tests/visual/authz evidence first, then package/render/private-smoke validation; strong security/deployment review | Close on a reproducible unpublished private package after #964's reconciled runtime graph; #376 remains the umbrella and completed/planning issues are dependencies, not execution owners |
@@ -436,9 +472,10 @@ Recommendation IDs are audit outputs only; no child issue is created here.
    graph before R13; broader mobile/product owners complete independently of
    release infrastructure.
 3. **New focused repository recommendations:** completed R10 supplies the
-   reconciled dependency graph; next is R02 additive user-web build/package CI,
-   then R03 release identity with infrastructure digests, then R04 unpublished
-   catalog skeleton.
+   reconciled dependency graph and completed R02 supplies deterministic
+   user-web package evidence. Open #970 must next adopt or split R01's Android
+   release-build gap; after R01, R03 release identity can bind the Android and
+   web entries, followed by the R04 unpublished catalog skeleton.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
    signed/TestFlight/device, R07 Android identity/signing/Play/device, and R09
    any production/exposure action; #975 consumes the final evidence.
@@ -450,7 +487,7 @@ Dependency summary:
 ```text
 completed #1189/R11 --------+---------------------------> R04 -> R05 --+
 completed #1195/R12 --------+---------------------------> R04 -> R05 --+--> #975
-completed R10 -> R02 web package -> R03 identity -------> R04 --------+
+completed R10 -> completed R02 web package -> R03 identity -> R04 ---+
 #970 adopt/split -> R01 Android compile -> R03/R07 -------------------+
 #373 user web -> R08; #964 -> admin runtime -> R13 -------------------+
 R12 + domain reviews -> R09 production/exposure ---------------------+
@@ -459,16 +496,17 @@ complete Day 1 + #975 acceptance -------------------------------> #946 (later da
 
 ### First dependency-safe next logical task for GPT review
 
-Select **R02's additive user-web CI build/package lane for GPT review**. R10's
-dependency graph is reconciled and its alerts closed without dismissal; R02 can
-now add automatic build/package evidence without deploying or serving the web.
-#970 independently controls R01 without touching #959, while R04 still waits
-for R03 as well as completed R12.
+Select **#970's reconciliation/adoption or focused split of R01's Android
+release-build gap for GPT review**. R02 now supplies exact-source web checksums
+and retained package evidence without deploying or serving the web, but R03's
+declared close rule also requires R01's Android entry. After #970 and R01,
+proceed to R03 and then R04. Autonomous queue activation remains disabled, so
+neither the prerequisite nor R03 was started by the R02 task.
 
 ## 13. Final Day 1 readiness statement
 
 The repository has credible automatic CI, API image publication, LAN Compose
-foundations, guarded migration ordering, a local user-web build, a debug Android
+foundations, guarded migration ordering, source-bound user-web package evidence, a debug Android
 build, and an iOS simulator compile path. It does **not** yet have a complete
 Day 1 release candidate: Android release packaging is broken; web/admin package
 and deployment boundaries are incomplete; release identity/retention is partial;
