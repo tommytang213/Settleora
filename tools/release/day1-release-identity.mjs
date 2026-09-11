@@ -95,7 +95,11 @@ function safeLabel(value, label) {
 }
 
 export function validateCandidateId(value) {
-  return safeLabel(value, 'source.candidateId');
+  string(value, 'source.candidateId');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(value) || value.includes('..')) {
+    fail('source.candidateId must be a single safe evidence-directory name');
+  }
+  return value;
 }
 
 export function validatePublicationRunUrl(value, sourceCommit) {

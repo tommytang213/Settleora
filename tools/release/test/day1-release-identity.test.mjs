@@ -287,7 +287,9 @@ test('preserves expected Android identities and derives retained canonical paths
   assert.equal(canonical.android.apkPath, `${androidRoot}/app-release.apk`);
   assert.equal(canonical.android.aabPath, `${androidRoot}/app-release.aab`);
   const traversal = { ...input, source: { ...input.source, candidateId: '../../../../tmp/x' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/../../../../tmp/x' } };
-  assert.throws(() => canonicalAndroidInput(traversal, signature), /safe non-absolute evidence label/);
+  assert.throws(() => canonicalAndroidInput(traversal, signature), /single safe evidence-directory name/);
+  const nested = { ...input, source: { ...input.source, candidateId: 'nested/name' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/nested/name' } };
+  assert.throws(() => canonicalAndroidInput(nested, signature), /single safe evidence-directory name/);
 });
 
 test('safe inputs reject URL query credentials and completion rejects untracked files', (t) => {
