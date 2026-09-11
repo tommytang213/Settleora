@@ -311,7 +311,7 @@ function executeSealedFlutter(flutter, values, cwd) {
   }, [flutter.snapshot]);
 }
 
-function toolchainTreeDigest(root, label) {
+function toolchainTreeDigest(root, label, excludedPrefixes = []) {
   const absoluteRoot = path.resolve(root);
   const rootMetadata = lstatSync(absoluteRoot, { throwIfNoEntry: false });
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(absoluteRoot) !== absoluteRoot) throw new Error(`${label} root is not a stable directory`);
@@ -326,6 +326,7 @@ function toolchainTreeDigest(root, label) {
       const target = path.join(directory, entry.name);
       const relative = path.relative(absoluteRoot, target).split(path.sep).join('/');
       if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) throw new Error(`${label} contains an unsafe path`);
+      if (excludedPrefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))) continue;
       const metadata = lstatSync(target);
       if (metadata.isDirectory()) {
         walk(target, depth + 1);
@@ -364,7 +365,7 @@ function toolchainTreeDigest(root, label) {
     }
   };
   walk(absoluteRoot, 0);
-  return { algorithm: 'sha256(canonical-toolchain-tree-v1)', sha256: createHash('sha256').update(records.join('')).digest('hex'), fileCount, totalBytes };
+  return { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: createHash('sha256').update(records.join('')).digest('hex'), fileCount, totalBytes };
 }
 
 function assertSystemRuntime(root) {
@@ -651,8 +652,8 @@ function collectAndroidUnsafe(options, emit = true) {
     assertCommitHasNoSymlinks(sourceBefore.commit, 'Android');
     materializeExactTree(sourceBefore.commit, snapshotRoot, 'Android');
     const toolchainsBefore = {
-      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK'),
-      android: toolchainTreeDigest(androidSdkRoot, 'Android SDK'),
+      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle']),
+      android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', ['.knownPackages']),
     };
     const buildCaches = path.join(snapshotContainer, 'build-caches');
     mkdirSync(buildCaches, { recursive: false, mode: 0o700 });
@@ -672,8 +673,8 @@ function collectAndroidUnsafe(options, emit = true) {
     executeSealedFlutter(flutter, ['build', 'apk', '--release'], path.join(snapshotRoot, 'apps/mobile'));
     executeSealedFlutter(flutter, ['build', 'appbundle', '--release'], path.join(snapshotRoot, 'apps/mobile'));
     const toolchainsAfter = {
-      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK'),
-      android: toolchainTreeDigest(androidSdkRoot, 'Android SDK'),
+      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle']),
+      android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', ['.knownPackages']),
     };
     if (canonicalJson(toolchainsAfter) !== canonicalJson(toolchainsBefore)) throw new Error('Android build toolchain changed during collection');
     const files = {

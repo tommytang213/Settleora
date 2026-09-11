@@ -67,6 +67,9 @@ revalidates their device, inode, size, timestamps, and SHA-256 after every comma
 Flutter and Android SDK content inventories are compared across the build, while
 pub and Gradle use fresh private caches and a bounded environment. The committed
 Gradle wrapper distribution SHA-256 prevents distribution substitution.
+The stable-content inventories exclude only tool-owned runtime metadata (`.git`,
+Flutter's lock/internal Gradle state, and Android's `.knownPackages` marker), none
+of which supplies build executables, libraries, packages, or platform content.
 Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,

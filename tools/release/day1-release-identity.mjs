@@ -454,7 +454,7 @@ function collectAndroid(repoRoot, input, source) {
   assertKeys(provenance.toolchains, ['flutter', 'android'], 'Android build provenance toolchains');
   for (const [name, inventory] of Object.entries(provenance.toolchains)) {
     assertKeys(inventory, ['algorithm', 'sha256', 'fileCount', 'totalBytes'], `Android ${name} toolchain inventory`);
-    if (inventory.algorithm !== 'sha256(canonical-toolchain-tree-v1)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
+    if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v1)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
     hexDigest(inventory.sha256, `Android ${name} toolchain inventory SHA-256`);
     if (!Number.isSafeInteger(inventory.fileCount) || inventory.fileCount < 1 || !Number.isSafeInteger(inventory.totalBytes) || inventory.totalBytes < 1) {
       fail(`Android ${name} toolchain inventory is invalid`);

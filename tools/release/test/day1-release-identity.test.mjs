@@ -108,8 +108,8 @@ function fixture(t) {
     schema: 'settleora.android-exact-source-build.v1', source: { commit, tree },
     commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
     toolchains: {
-      flutter: { algorithm: 'sha256(canonical-toolchain-tree-v1)', sha256: '8'.repeat(64), fileCount: 1, totalBytes: 1 },
-      android: { algorithm: 'sha256(canonical-toolchain-tree-v1)', sha256: '9'.repeat(64), fileCount: 1, totalBytes: 1 },
+      flutter: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '8'.repeat(64), fileCount: 1, totalBytes: 1 },
+      android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v1)', sha256: '9'.repeat(64), fileCount: 1, totalBytes: 1 },
     },
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },
