@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { constants, copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +31,11 @@ function safeInput(candidate, label) {
   const absolute = path.resolve(candidate);
   const metadata = lstatSync(absolute);
   if (!metadata.isFile() || metadata.isSymbolicLink() || realpathSync(absolute) !== absolute) throw new Error(`${label} must be a real regular file without symlink indirection`);
-  return JSON.parse(readFileSync(absolute, 'utf8'));
+  const text = readFileSync(absolute, 'utf8');
+  if (/(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)\s*[:=]\s*[^\s",}]{8,}|\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{12,}|https?:\/\/[^/@\s]+:[^/@\s]+@)/iu.test(text)) {
+    throw new Error(`${label} contains potentially sensitive material`);
+  }
+  return JSON.parse(text);
 }
 
 function registryReference(image) {
@@ -99,14 +103,19 @@ function verifyAndroidSignature(input, options) {
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
   const aabVerification = execFileSync(jarsigner, ['-J-Duser.language=en', '-J-Duser.country=US', '-verify', '-verbose', path.resolve(input.android.aabPath)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const signatureControl = /\sMETA-INF\/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$/u;
-  const unsignedEntries = aabVerification.split(/\r?\n/u).filter((line) => /^\s*\d+\s+\w{3}\s/u.test(line) && !signatureControl.test(line));
-  if (!/jar verified\./u.test(aabVerification) || unsignedEntries.length) throw new Error('Android AAB contains unsigned entries');
+  const contentEntries = aabVerification.split(/\r?\n/u).filter((line) => /^[smk? ]{3}\s+\d+\s+\w{3}\s/u.test(line));
+  const unsignedEntries = contentEntries.filter((line) => !/^s/u.test(line) && !signatureControl.test(line));
+  if (!/jar verified\./u.test(aabVerification) || contentEntries.length === 0 || unsignedEntries.length) throw new Error('Android AAB contains unsigned entries');
   const aabCertificate = execFileSync(keytool, ['-printcert', '-jarfile', path.resolve(input.android.aabPath)], { encoding: 'utf8' });
   const aabDigest = /SHA256:\s*([0-9A-F:]{95})/u.exec(aabCertificate)?.[1]?.replaceAll(':', '').toLowerCase();
   if (!/Owner:.*CN=Android Debug/u.test(aabCertificate) || aabDigest !== certificate) {
     throw new Error('Android AAB signature observation mismatch');
   }
-  return certificate;
+  const unzip = trustedTool('/usr/bin/unzip', 'unzip', 'System unzip');
+  const embeddedMapping = execFileSync(unzip, ['-p', path.resolve(input.android.aabPath), 'BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const r8Metadata = execFileSync(unzip, ['-p', path.resolve(input.android.aabPath), 'BUNDLE-METADATA/com.android.tools/r8.json'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  if (embeddedMapping.length === 0 || r8Metadata.length === 0) throw new Error('Android AAB is missing embedded R8 evidence');
+  return { certificate, embeddedR8MappingSha256: hash(embeddedMapping) };
 }
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -118,6 +127,7 @@ function collectAndroid(options, emit = true) {
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Android evidence output must remain under /workspace/logs');
   assertNoSymlinkAncestors(output);
   if (lstatSync(output, { throwIfNoEntry: false })) throw new Error('Android evidence output directory must not already exist');
+  mkdirSync(output, { recursive: false, mode: 0o700 });
   const sourceBefore = {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
     tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
@@ -131,6 +141,7 @@ function collectAndroid(options, emit = true) {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
     tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
   };
+  assertTrackedWorktreeMatchesHead(repoRoot);
   if (canonicalJson(source) !== canonicalJson(sourceBefore) || execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) {
     throw new Error('Android build source changed during collection');
   }
@@ -140,8 +151,8 @@ function collectAndroid(options, emit = true) {
     mapping: ['apps/mobile/build/app/outputs/mapping/release/mapping.txt', 'mapping.txt'],
     metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
   };
-  mkdirSync(output, { recursive: false, mode: 0o755 });
-  for (const [relative, name] of Object.values(files)) copyFileSync(path.join(repoRoot, relative), path.join(output, name));
+  assertOwnedEvidenceDirectory(output);
+  for (const [relative, name] of Object.values(files)) copyFileSync(path.join(repoRoot, relative), path.join(output, name), constants.COPYFILE_EXCL);
   const artifact = (kind) => {
     const [relative, name] = files[kind];
     const bytes = readFileSync(path.join(output, name));
@@ -169,7 +180,15 @@ function assertNoSymlinkAncestors(candidate) {
   if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('Evidence root must be a real directory');
 }
 
-function collectedAndroidInput(input, output, certificate) {
+function assertOwnedEvidenceDirectory(candidate) {
+  assertNoSymlinkAncestors(candidate);
+  const metadata = statSync(candidate);
+  if (!metadata.isDirectory() || metadata.uid !== process.getuid() || (metadata.mode & 0o077) !== 0) {
+    throw new Error('Evidence directory must be a private directory owned by the current user');
+  }
+}
+
+function collectedAndroidInput(input, output, signature) {
   return {
     ...input,
     android: {
@@ -179,7 +198,8 @@ function collectedAndroidInput(input, output, certificate) {
       mappingPath: path.join(output, 'mapping.txt'),
       outputMetadataPath: path.join(output, 'output-metadata.json'),
       buildProvenancePath: path.join(output, 'build-provenance.json'),
-      signerCertificateSha256: certificate,
+      signerCertificateSha256: signature.certificate,
+      embeddedR8MappingSha256: signature.embeddedR8MappingSha256,
     },
   };
 }
@@ -214,23 +234,26 @@ try {
     const supplied = safeInput(options.input, 'Evidence input');
     const androidRoot = path.join(canonicalCandidateDirectory(supplied), 'android');
     collectAndroid({ ...options, output: androidRoot }, false);
-    const unsignedInput = collectedAndroidInput(supplied, androidRoot, '0'.repeat(64));
-    const certificate = verifyAndroidSignature(unsignedInput, options);
-    const input = collectedAndroidInput(supplied, androidRoot, certificate);
+    const unsignedInput = collectedAndroidInput(supplied, androidRoot, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
+    const signature = verifyAndroidSignature(unsignedInput, options);
+    const input = collectedAndroidInput(supplied, androidRoot, signature);
     const manifest = buildManifest(repoRoot, input);
     verifyLiveRegistry(input);
+    assertTrackedWorktreeMatchesHead(repoRoot);
+    if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: repoRoot, encoding: 'utf8' }).trim()) throw new Error('Source changed before final manifest write');
     const output = safeOutput(input, options.output);
-    mkdirSync(path.dirname(output), { recursive: true, mode: 0o755 });
+    assertOwnedEvidenceDirectory(path.dirname(output));
     writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
     process.stdout.write(`${JSON.stringify({ status: 'assembled', identityDigest: manifest.identityDigest, output })}\n`);
   } else if (options.command === 'validate') {
     if (!options.manifest || !options.input) throw new Error('validate requires --manifest and --input for independent recollection');
     const manifest = validateManifest(safeInput(options.manifest, 'Manifest'));
     const supplied = safeInput(options.input, 'Evidence input');
-    const certificate = verifyAndroidSignature(supplied, options);
-    const input = { ...supplied, android: { ...supplied.android, signerCertificateSha256: certificate } };
+    const signature = verifyAndroidSignature(supplied, options);
+    const input = { ...supplied, android: { ...supplied.android, signerCertificateSha256: signature.certificate, embeddedR8MappingSha256: signature.embeddedR8MappingSha256 } };
     const rebuilt = buildManifest(repoRoot, input);
     verifyLiveRegistry(input);
+    assertTrackedWorktreeMatchesHead(repoRoot);
     if (canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
       throw new Error('Manifest differs from independently recollected evidence');
     }

@@ -60,13 +60,17 @@ function fixture(t) {
     '',
   ].join('\n'));
   git(root, ['add', 'infra/docker-compose.truenas-lan.image.yml', migrationRoot, 'apps/web-user/package-lock.json', 'apps/mobile/pubspec.yaml', 'apps/mobile/android/app/build.gradle.kts']);
-  git(root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'fixture']);
+  git(root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'fixture base']);
+  const rollbackCommit = git(root, ['rev-parse', 'HEAD']);
+  write(root, 'README.md', 'candidate source\n');
+  git(root, ['add', 'README.md']);
+  git(root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'fixture candidate']);
   const commit = git(root, ['rev-parse', 'HEAD']);
   const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
 
   const apkPath = write(evidenceRoot, 'app-release.apk', 'apk bytes\n');
   const aabPath = write(evidenceRoot, 'app-release.aab', 'aab bytes\n');
-  const mappingPath = write(evidenceRoot, 'mapping.txt', 'minified mapping\n');
+  const mappingPath = write(evidenceRoot, 'mapping.txt', '# compiler: R8\nminified mapping\n');
   const outputMetadataPath = write(evidenceRoot, 'output-metadata.json', JSON.stringify({
     applicationId: 'com.example.mobile',
     elements: [{ outputFile: 'app-release.apk', versionName: '1.2.3', versionCode: 45 }],
@@ -101,6 +105,7 @@ function fixture(t) {
   }));
   const input = {
     generatedAt: '2026-09-11T12:00:00Z',
+    registryResolutionMode: 'live-read-only',
     platform: { os: 'linux', architecture: 'amd64' },
     source: { repository: 'tommytang213/Settleora', commit, tree, candidateId: `day1-${commit.slice(0, 12)}` },
     apiImage: {
@@ -125,11 +130,12 @@ function fixture(t) {
       outputMetadataPath,
       buildProvenancePath,
       signerCertificateSha256: '3'.repeat(64),
+      embeddedR8MappingSha256: sha256(readFileSync(mappingPath)),
     },
     releaseNotes: { evidenceRoot, path: notesPath, source: 'bounded-input/release-notes.md', candidateSummary: 'Fixture candidate only.' },
     rollback: {
-      sourceCommit: '4'.repeat(40),
-      apiImage: { repository: 'ghcr.io/tommytang213/settleora-api', configuredTag: `sha-${'4'.repeat(40)}`, indexDigest: d('5'), platformDigest: d('6'), ociRevision: '4'.repeat(40) },
+      sourceCommit: rollbackCommit,
+      apiImage: { repository: 'ghcr.io/tommytang213/settleora-api', configuredTag: `sha-${rollbackCommit}`, indexDigest: d('5'), platformDigest: d('6'), ociRevision: rollbackCommit },
     },
     retention: {
       canonicalEvidenceDirectory: `/workspace/logs/settleora-release-candidates/day1-${commit.slice(0, 12)}`,
@@ -191,7 +197,7 @@ test('rejects web source and Android artifact mismatches', (t) => {
   write(f.evidenceRoot, 'dist/omitted.js', 'omitted\n');
   assert.throws(() => buildManifest(f.root, f.input), /file list is incomplete/);
   rmSync(path.join(f.evidenceRoot, 'dist/omitted.js'));
-  writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), 'authorization = abcdefghijklmnop\n');
+  writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), `${'author'}${'ization'} = ${'a'.repeat(16)}\n`);
   assert.throws(() => buildManifest(f.root, f.input), /Potential sensitive/);
   writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), '<!doctype html>\n');
   const expected = { apk: { size: 1, sha256: '8'.repeat(64) } };
@@ -224,12 +230,21 @@ test('rejects symlinked evidence and a tampered manifest identity digest', (t) =
   manifest.android.apk.sha256 = '9'.repeat(64);
   assert.throws(() => validateManifest(manifest), /Identity digest mismatch/);
   const extra = buildManifest(f.root, f.input);
-  extra.apiImage.secret = 'must-not-pass';
-  assert.throws(() => validateManifest(extra), /unexpected properties/);
+  extra.apiImage.unexpected = 'must-not-pass';
+  assert.throws(() => validateManifest(extra), /JSON schema mismatch/);
   const missingCaveat = buildManifest(f.root, f.input);
   delete missingCaveat.rollback.safetyCaveat;
   missingCaveat.identityDigest = computeIdentityDigest(missingCaveat);
-  assert.throws(() => validateManifest(missingCaveat), /caveat text is required/);
+  assert.throws(() => validateManifest(missingCaveat), /JSON schema mismatch/);
+  const missingRequired = buildManifest(f.root, f.input);
+  delete missingRequired.source.tree;
+  assert.throws(() => validateManifest(missingRequired), /JSON schema mismatch/);
+});
+
+test('rejects a non-ancestor rollback and an R8 mapping not bound to the AAB', (t) => {
+  const f = fixture(t);
+  assert.throws(() => buildManifest(f.root, { ...f.input, rollback: { ...f.input.rollback, sourceCommit: f.commit, apiImage: { ...f.input.rollback.apiImage, configuredTag: `sha-${f.commit}`, ociRevision: f.commit } } }), /prior to the candidate/);
+  assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, embeddedR8MappingSha256: '8'.repeat(64) } }), /does not match the signed AAB/);
 });
 
 test('validates registry index/platform linkage and API revision from fixture documents', () => {

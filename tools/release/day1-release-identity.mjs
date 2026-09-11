@@ -8,7 +8,13 @@ import {
   statSync,
 } from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { assertTrackedWorktreeMatchesHead, collectFiles, scanPublicArtifact } from '../ci/user-web-dist-manifest.mjs';
+
+const require = createRequire(import.meta.url);
+const Ajv2020 = require('ajv/dist/2020').default;
+const manifestSchema = require('./day1-release-identity.schema.json');
+const schemaValidator = new Ajv2020({ allErrors: true, strict: true }).compile(manifestSchema);
 
 export const SCHEMA = 'settleora.day1-release-identity.v1';
 export const DIGEST_ALGORITHM = 'sha256(canonical-json-v1;excludes=generatedAt,identityDigest)';
@@ -193,7 +199,7 @@ export function collectMigrations(repoRoot, expectedDigest) {
 }
 
 function validateImage(image, label, sourceCommit, expectedTag, expectedRepository) {
-  assertKeys(image, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'name', 'sourceComposePath', 'ociRevision', 'publicationRunUrl'], label);
+  assertKeys(image, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'name', 'sourceComposePath', 'ociRevision', 'publicationRunUrl'], label, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture']);
   string(image.repository, `${label}.repository`);
   string(image.configuredTag, `${label}.configuredTag`);
   digest(image.indexDigest, `${label}.indexDigest`);
@@ -279,7 +285,8 @@ function collectAndroid(repoRoot, input) {
   const apk = exactRegularFile(input.apkPath, 'Android APK', input.evidenceRoot);
   const aab = exactRegularFile(input.aabPath, 'Android AAB', input.evidenceRoot);
   const mapping = exactRegularFile(input.mappingPath, 'Android R8 mapping', input.evidenceRoot);
-  if (mapping.size === 0) fail('Android R8 mapping must not be empty');
+  if (mapping.size === 0 || !mapping.bytes.toString('utf8').startsWith('# compiler: R8\n')) fail('Android R8 mapping must be a non-empty R8 mapping');
+  if (hexDigest(input.embeddedR8MappingSha256, 'Android embedded R8 mapping SHA-256') !== sha256(mapping.bytes)) fail('Android R8 mapping does not match the signed AAB');
   const metadataFile = exactRegularFile(input.outputMetadataPath, 'Android output metadata', input.evidenceRoot);
   const metadata = JSON.parse(metadataFile.bytes);
   const provenanceFile = exactRegularFile(input.buildProvenancePath, 'Android build provenance', input.evidenceRoot);
@@ -335,10 +342,12 @@ function collectReleaseNotes(input) {
   safeLabel(input.source, 'releaseNotes.source');
   publicText(input.candidateSummary, 'releaseNotes.candidateSummary');
   if (file.size === 0) fail('Release-note evidence must not be empty');
+  if (/(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)\s*[:=]\s*\S{8,}|\b(?:ghp_|github_pat_|sk-)[A-Za-z0-9_-]{12,}|https?:\/\/[^/@\s]+:[^/@\s]+@)/iu.test(file.bytes.toString('utf8'))) fail('Release-note evidence contains potentially sensitive material');
   return { source: input.source, sha256: sha256(file.bytes), size: file.size, candidateSummary: input.candidateSummary };
 }
 
 export function validateManifest(manifest) {
+  if (!schemaValidator(manifest)) fail(`Manifest JSON schema mismatch: ${schemaValidator.errors.map((error) => `${error.instancePath || '/'} ${error.message}`).join('; ')}`);
   assertKeys(manifest, ['schema', 'identityDigestAlgorithm', 'identityDigest', 'generatedAt', 'source', 'apiImage', 'dependencyImages', 'migrations', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention'], 'manifest');
   if (manifest.schema !== SCHEMA) fail('Unsupported Day 1 release-identity schema');
   if (manifest.identityDigestAlgorithm !== DIGEST_ALGORITHM) fail('Unsupported identity-digest algorithm');
@@ -426,13 +435,35 @@ export function validateManifest(manifest) {
   return manifest;
 }
 
-function assertKeys(value, allowed, label) {
+function assertKeys(value, allowed, label, required = allowed) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object`);
   const extras = Object.keys(value).filter((key) => !allowed.includes(key));
   if (extras.length) fail(`${label} has unexpected properties: ${extras.join(', ')}`);
+  const missing = required.filter((key) => !(key in value));
+  if (missing.length) fail(`${label} is missing required properties: ${missing.join(', ')}`);
+}
+
+function assertInput(input) {
+  assertKeys(input, ['generatedAt', 'registryResolutionMode', 'platform', 'source', 'apiImage', 'dependencyImages', 'expectedMigrationSetSha256', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention'], 'input', ['generatedAt', 'registryResolutionMode', 'platform', 'source', 'apiImage', 'dependencyImages', 'userWeb', 'android', 'releaseNotes', 'rollback', 'retention']);
+  assertKeys(input.platform, ['os', 'architecture'], 'input.platform');
+  assertKeys(input.source, ['repository', 'commit', 'tree', 'candidateId'], 'input.source');
+  assertKeys(input.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision', 'publicationRunUrl'], 'input.apiImage');
+  for (const [index, image] of input.dependencyImages?.entries?.() ?? []) assertKeys(image, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'sourceComposePath', 'os', 'architecture'], `input.dependencyImages.${index}`, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'sourceComposePath']);
+  assertKeys(input.userWeb, ['evidenceRoot', 'manifestPath'], 'input.userWeb');
+  assertKeys(input.android, ['evidenceRoot', 'apkPath', 'aabPath', 'mappingPath', 'outputMetadataPath', 'buildProvenancePath', 'signerCertificateSha256', 'embeddedR8MappingSha256', 'expected'], 'input.android', ['evidenceRoot', 'apkPath', 'aabPath', 'mappingPath', 'outputMetadataPath', 'buildProvenancePath', 'signerCertificateSha256', 'embeddedR8MappingSha256']);
+  if (input.android.expected !== undefined) {
+    assertKeys(input.android.expected, ['apk', 'aab'], 'input.android.expected', []);
+    for (const kind of ['apk', 'aab']) if (input.android.expected[kind] !== undefined) assertKeys(input.android.expected[kind], ['size', 'sha256'], `input.android.expected.${kind}`);
+  }
+  assertKeys(input.releaseNotes, ['evidenceRoot', 'path', 'source', 'candidateSummary'], 'input.releaseNotes');
+  assertKeys(input.rollback, ['sourceCommit', 'apiImage'], 'input.rollback');
+  assertKeys(input.rollback.apiImage, ['repository', 'configuredTag', 'indexDigest', 'platformDigest', 'ociRevision'], 'input.rollback.apiImage');
+  assertKeys(input.retention, ['canonicalEvidenceDirectory', 'policy', 'apiRegistryIdentity'], 'input.retention');
+  if (!Array.isArray(input.dependencyImages) || input.dependencyImages.length !== 3) fail('Input requires exactly three dependency images');
 }
 
 export function buildManifest(repoRoot, input) {
+  assertInput(input);
   const source = collectSource(repoRoot, input.source);
   const platform = { os: string(input.platform?.os, 'platform.os'), architecture: string(input.platform?.architecture, 'platform.architecture') };
   const apiRepository = 'ghcr.io/tommytang213/settleora-api';
@@ -447,6 +478,15 @@ export function buildManifest(repoRoot, input) {
     });
   const migrations = collectMigrations(repoRoot, input.expectedMigrationSetSha256);
   migrations.source = { commit: source.commit, tree: source.tree };
+  const rollbackCommit = sha40(input.rollback.sourceCommit, 'rollback.sourceCommit');
+  try {
+    git(repoRoot, ['cat-file', '-e', `${rollbackCommit}^{commit}`]);
+    if (rollbackCommit === source.commit) fail('Rollback source must be prior to the candidate source');
+    git(repoRoot, ['merge-base', '--is-ancestor', rollbackCommit, source.commit]);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Rollback source must be prior to the candidate source') throw error;
+    fail('Rollback source must be an existing prior ancestor of the candidate source');
+  }
   const manifest = {
     schema: SCHEMA,
     identityDigestAlgorithm: DIGEST_ALGORITHM,
@@ -459,7 +499,7 @@ export function buildManifest(repoRoot, input) {
     android: collectAndroid(repoRoot, input.android),
     releaseNotes: collectReleaseNotes(input.releaseNotes),
     rollback: {
-      sourceCommit: sha40(input.rollback.sourceCommit, 'rollback.sourceCommit'),
+      sourceCommit: rollbackCommit,
       apiImage: validateImage(withPlatform(input.rollback.apiImage, platform, 'rollback.apiImage'), 'rollback.apiImage', input.rollback.sourceCommit, undefined, apiRepository),
       artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety: false,
       safetyCaveat: 'Artifact availability does not prove database, schema, or file rollback safety.',
