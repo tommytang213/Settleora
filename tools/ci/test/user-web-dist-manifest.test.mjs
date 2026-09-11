@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createUserWebDistManifest } from '../user-web-dist-manifest.mjs';
+import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../user-web-dist-manifest.mjs';
 
 const provenance = {
   source: { commit: 'a'.repeat(40), tree: 'b'.repeat(40) },
@@ -26,6 +27,52 @@ function fixture(t) {
   return { root, dist, output: path.join(root, 'manifest.json') };
 }
 
+test('tracked-input verification preserves non-UTF-8 path bytes', (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'web-dist-git-path-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync('git', ['init', '--quiet'], { cwd: root });
+  const relative = Buffer.from([0x6e, 0x6f, 0x6e, 0x75, 0x74, 0x66, 0x38, 0x2d, 0x80, 0x2e, 0x74, 0x78, 0x74]);
+  const absolute = Buffer.concat([Buffer.from(root), Buffer.from(path.sep), relative]);
+  const contents = Buffer.from('exact tracked bytes\n');
+  const fifoRelative = Buffer.from('tracked-fifo-candidate');
+  const fifoAbsolute = path.join(root, fifoRelative.toString());
+  writeFileSync(absolute, contents);
+  writeFileSync(fifoAbsolute, contents);
+  const object = execFileSync('git', ['hash-object', '-w', '--stdin'], {
+    cwd: root,
+    input: contents,
+    encoding: 'utf8',
+  }).trim();
+  execFileSync('git', ['update-index', '-z', '--index-info'], {
+    cwd: root,
+    input: Buffer.concat([
+      Buffer.from(`100644 ${object}\t`), relative, Buffer.from([0]),
+      Buffer.from(`100644 ${object}\t`), fifoRelative, Buffer.from([0]),
+    ]),
+  });
+  const tree = execFileSync('git', ['write-tree'], { cwd: root, encoding: 'utf8' }).trim();
+  const commit = execFileSync('git', ['commit-tree', tree, '-m', 'fixture'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Settleora Test',
+      GIT_AUTHOR_EMAIL: 'test@example.invalid',
+      GIT_COMMITTER_NAME: 'Settleora Test',
+      GIT_COMMITTER_EMAIL: 'test@example.invalid',
+    },
+  }).trim();
+  execFileSync('git', ['update-ref', 'HEAD', commit], { cwd: root });
+
+  assert.doesNotThrow(() => assertTrackedWorktreeMatchesHead(root));
+  writeFileSync(absolute, 'changed\n');
+  assert.throws(() => assertTrackedWorktreeMatchesHead(root), /differs from HEAD/);
+  writeFileSync(absolute, contents);
+  unlinkSync(fifoAbsolute);
+  execFileSync('mkfifo', [fifoAbsolute]);
+  assert.throws(() => assertTrackedWorktreeMatchesHead(root), /is not a regular file/);
+});
+
 test('manifest is stable, sorted, bounded and contains no raw environment', (t) => {
   const f = fixture(t);
   const first = createUserWebDistManifest({ ...f, provenance, expectedSourceSha: 'a'.repeat(40) });
@@ -39,6 +86,19 @@ test('manifest is stable, sorted, bounded and contains no raw environment', (t) 
   assert.match(first.artifact.treeSha256, /^[0-9a-f]{64}$/);
   assert.equal(first.publicArtifactChecks.sensitiveMaterialScan, 'passed');
   assert.doesNotMatch(firstBytes.toString(), /process\.env|\/tmp\/web-dist-manifest-|PATH|HOME/);
+});
+
+test('staged package evidence is an isolated exact snapshot', (t) => {
+  const f = fixture(t);
+  const staging = path.join(f.root, 'package-evidence');
+  const manifest = createUserWebDistManifest({ ...f, output: undefined, staging, provenance });
+  writeFileSync(path.join(f.dist, 'index.html'), 'changed after staging\n');
+  assert.equal(readFileSync(path.join(staging, 'dist/index.html'), 'utf8'), '<!doctype html>\n');
+  assert.deepEqual(JSON.parse(readFileSync(path.join(staging, 'user-web-dist-manifest.json'))), manifest);
+  assert.throws(
+    () => createUserWebDistManifest({ ...f, output: undefined, staging, provenance }),
+    /staging path must not already exist/,
+  );
 });
 
 test('manifest rejects a source mismatch and self-reference', (t) => {
@@ -97,6 +157,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['symlink', (f) => symlinkSync(path.join(f.dist, 'index.html'), path.join(f.dist, 'linked.html')), /Symlinks are not allowed/],
     ['malformed', (f) => writeFileSync(path.join(f.dist, 'bad\nname.txt'), 'bad'), /Unsafe dist path/],
     ['source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map'), '{}'), /Unsafe public artifact path/],
+    ['compressed source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map.gz'), 'opaque'), /Unsafe public artifact path/],
+    ['arbitrary compressed source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map.lz4'), 'opaque'), /Unsafe public artifact path/],
+    ['non-dot source map suffix', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map~'), 'opaque'), /Unsafe public artifact path/],
+    ['source map dotfile', (f) => writeFileSync(path.join(f.dist, '.map.gz'), 'opaque'), /Unsafe public artifact path/],
     ['suffixed dotenv file', (f) => writeFileSync(path.join(f.dist, '.env.production.local'), 'TOKEN=fake'), /Unsafe public artifact path/],
     ['standalone source map payload', (f) => writeFileSync(
       path.join(f.dist, 'assets/source.txt'),
@@ -110,6 +174,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['generic secret directory', (f) => {
       mkdirSync(path.join(f.dist, 'secrets'));
       writeFileSync(path.join(f.dist, 'secrets/token.bin'), 'opaque');
+    }, /Unsafe public artifact path/],
+    ['version-control metadata', (f) => {
+      mkdirSync(path.join(f.dist, '.git'));
+      writeFileSync(path.join(f.dist, '.git/config'), 'opaque');
     }, /Unsafe public artifact path/],
     ['private key filename', (f) => writeFileSync(path.join(f.dist, 'account-private-key.dat'), 'opaque'), /Unsafe public artifact path/],
     ['npm credential file', (f) => writeFileSync(path.join(f.dist, '.npmrc'), 'registry=https://example.invalid'), /Unsafe public artifact path/],

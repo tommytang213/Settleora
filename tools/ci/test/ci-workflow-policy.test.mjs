@@ -58,6 +58,7 @@ test('scaffold orchestration preserves the stable fail-closed aggregate', () => 
 
 test('user-web lane builds an exact source head and uploads only bounded package evidence', () => {
   const job = workflow('scaffold-validation.yml').jobs['web-user-validation'];
+  const manifestHelper = read('tools/ci/user-web-dist-manifest.mjs');
   assert.equal(job.if, "${{ github.event_name == 'pull_request' && needs.classify.outputs.run_web_user_validation == 'true' }}");
   const checkout = stepsFor(job).find((step) => step.uses?.startsWith('actions/checkout@'));
   assert.equal(checkout.with.ref, '${{ github.event.pull_request.head.sha }}');
@@ -68,10 +69,22 @@ test('user-web lane builds an exact source head and uploads only bounded package
     assert.ok(stepsFor(job).some((step) => step.run === command && step['working-directory'] === 'apps/web-user'));
   }
   assert.ok(runCommands(job).some((command) => command.includes('user-web-dist-manifest.mjs')));
+  const packageStep = stepsFor(job).find((step) => step.id === 'package');
+  assert.match(packageStep.run, /--staging "\$package_evidence_dir"/);
+  assert.match(packageStep.run, /package_evidence_dir=\$package_evidence_dir/);
+  assert.match(manifestHelper, /\['ls-tree', '-rz', '--full-tree', 'HEAD'\]/);
+  assert.match(manifestHelper, /const record = output\.subarray\(start, end\)/);
+  assert.match(manifestHelper, /const relative = record\.subarray\(tab \+ 1\)/);
+  assert.match(manifestHelper, /createHash\('sha1'\)[\s\S]*`blob \$\{contents\.length\}\\0`/);
+  assert.doesNotMatch(manifestHelper, /ls-tree[\s\S]{0,200}encoding: 'utf8'/);
+  assert.match(manifestHelper, /readlinkSync\(absolute, \{ encoding: 'buffer' \}\)/);
+  assert.match(manifestHelper, /readFileSync\(absolute\)/);
+  assert.match(manifestHelper, /Tracked build input ancestor is not a real directory/);
+  assert.doesNotMatch(manifestHelper, /git\(\['status'/);
   const upload = stepsFor(job).find((step) => step.uses?.startsWith('actions/upload-artifact@'));
   assert.equal(upload.uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
   assert.equal(upload.with.name, 'user-web-dist-${{ github.event.pull_request.head.sha }}');
-  assert.equal(upload.with.path, 'apps/web-user/dist/\napps/web-user/user-web-dist-manifest.json\n');
+  assert.equal(upload.with.path, '${{ steps.package.outputs.package_evidence_dir }}/');
   assert.equal(upload.with['include-hidden-files'], true);
   assert.equal(upload.with['if-no-files-found'], 'error');
   assert.equal(upload.with['retention-days'], 14);

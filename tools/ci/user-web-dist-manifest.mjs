@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   realpathSync,
   statSync,
@@ -15,10 +17,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const shaPattern = /^[0-9a-f]{40}$/;
 const unsafePathPatterns = [
+  /(^|\/)(?:\.git|\.hg|\.svn|\.bzr|_darcs)(?:\/|$)/i,
   /(^|\/)\.env($|[./-])/i,
   /(^|\/)(?:secrets?|credentials?|tokens?|ssh|private[-_]?keys?)(?:\/|$)/i,
   /(^|\/)[^/]*private[-_]?key[^/]*$/i,
-  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.(?:map|pem|key|p12|pfx))$/i,
+  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]*\.map[^/]*|[^/]+\.(?:pem|key|p12|pfx))$/i,
   /(^|\/)(?:\.ssh|\.aws|\.azure|\.config\/gcloud)(?:\/|$)/i,
 ];
 const unsafeContentPatterns = [
@@ -45,6 +48,69 @@ function git(args) {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
+}
+
+const gitBlobObjectId = (contents) => createHash('sha1')
+  .update(`blob ${contents.length}\0`)
+  .update(contents)
+  .digest('hex');
+
+export function assertTrackedWorktreeMatchesHead(root = repoRoot) {
+  const rootBytes = Buffer.from(root);
+  const verifiedDirectories = new Set(['']);
+  const displayPath = (relative) => JSON.stringify(relative.toString('utf8'));
+  const absolutePath = (relative) => Buffer.concat([rootBytes, Buffer.from(path.sep), relative]);
+  const assertRealDirectoryAncestors = (relative) => {
+    const separatorOffsets = [];
+    for (let index = 0; index < relative.length; index += 1) {
+      if (relative[index] === 0x2f) separatorOffsets.push(index);
+    }
+    for (const offset of separatorOffsets) {
+      const directoryRelative = relative.subarray(0, offset);
+      const key = directoryRelative.toString('hex');
+      if (verifiedDirectories.has(key)) continue;
+      const directory = absolutePath(directoryRelative);
+      const metadata = lstatSync(directory, { throwIfNoEntry: false });
+      if (!metadata?.isDirectory() || metadata.isSymbolicLink()) {
+        throw new Error(`Tracked build input ancestor is not a real directory: ${displayPath(directoryRelative)}`);
+      }
+      verifiedDirectories.add(key);
+    }
+  };
+  const output = execFileSync('git', ['ls-tree', '-rz', '--full-tree', 'HEAD'], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  for (let start = 0; start < output.length;) {
+    const end = output.indexOf(0, start);
+    if (end < 0) throw new Error('Malformed NUL-delimited tracked HEAD listing');
+    const record = output.subarray(start, end);
+    start = end + 1;
+    if (record.length === 0) continue;
+    const tab = record.indexOf(0x09);
+    const header = tab < 0 ? '' : record.subarray(0, tab).toString('ascii');
+    const match = /^(100644|100755|120000) blob ([0-9a-f]{40})$/u.exec(header);
+    if (!match || tab === record.length - 1) {
+      throw new Error(`Unsupported tracked HEAD entry header: ${JSON.stringify(header)}`);
+    }
+    const [, expectedMode, expectedObject] = match;
+    const relative = record.subarray(tab + 1);
+    const absolute = absolutePath(relative);
+    assertRealDirectoryAncestors(relative);
+    const metadata = lstatSync(absolute, { throwIfNoEntry: false });
+    if (!metadata) throw new Error(`Tracked build input is missing: ${displayPath(relative)}`);
+    const actualMode = metadata.isSymbolicLink() ? '120000' : ((metadata.mode & 0o111) ? '100755' : '100644');
+    if (actualMode !== expectedMode) throw new Error(`Tracked build input mode differs from HEAD: ${displayPath(relative)}`);
+    if (expectedMode !== '120000' && !metadata.isFile()) {
+      throw new Error(`Tracked build input is not a regular file: ${displayPath(relative)}`);
+    }
+    const contents = metadata.isSymbolicLink()
+      ? readlinkSync(absolute, { encoding: 'buffer' })
+      : readFileSync(absolute);
+    if (gitBlobObjectId(contents) !== expectedObject) {
+      throw new Error(`Tracked build input differs from HEAD: ${displayPath(relative)}`);
+    }
+  }
 }
 
 function packageVersion(lock, packageName) {
@@ -133,12 +199,16 @@ function scanPublicArtifact(files) {
 
 export function createUserWebDistManifest({
   dist = path.join(repoRoot, 'apps/web-user/dist'),
-  output = path.join(repoRoot, 'apps/web-user/user-web-dist-manifest.json'),
+  output,
+  staging,
   expectedSourceSha,
   provenance,
 } = {}) {
   const distAbsolute = path.resolve(dist);
-  const outputAbsolute = path.resolve(output);
+  const stagingAbsolute = staging ? path.resolve(staging) : undefined;
+  const outputAbsolute = path.resolve(output ?? (stagingAbsolute
+    ? path.join(stagingAbsolute, 'user-web-dist-manifest.json')
+    : path.join(repoRoot, 'apps/web-user/user-web-dist-manifest.json')));
   const artifactRoot = artifactRootLabel(distAbsolute, provenance);
   if (lstatSync(distAbsolute).isSymbolicLink()) throw new Error(`User-web dist root must not be a symlink: ${distAbsolute}`);
   if (!statSync(distAbsolute).isDirectory()) throw new Error(`User-web dist is not a directory: ${distAbsolute}`);
@@ -150,9 +220,7 @@ export function createUserWebDistManifest({
   if (lstatSync(outputAbsolute, { throwIfNoEntry: false })?.isSymbolicLink()) {
     throw new Error('Manifest output must not be a symlink');
   }
-  if (!provenance && git(['status', '--porcelain=v1', '--untracked-files=no'])) {
-    throw new Error('Tracked build inputs changed after checkout');
-  }
+  if (!provenance) assertTrackedWorktreeMatchesHead();
 
   const files = collectFiles(distAbsolute);
   if (files.length === 0) throw new Error('User-web dist must contain at least one regular file');
@@ -204,8 +272,6 @@ export function createUserWebDistManifest({
       sensitiveMaterialScan: 'passed',
     },
   };
-  mkdirSync(path.dirname(outputAbsolute), { recursive: true });
-  writeFileSync(outputAbsolute, canonicalJson(manifest), { flag: 'w', mode: 0o644 });
   const verifiedEntries = collectFiles(distAbsolute).map((file) => ({
     path: file.path,
     size: file.size,
@@ -213,6 +279,32 @@ export function createUserWebDistManifest({
   }));
   if (canonicalJson(verifiedEntries) !== canonicalJson(fileEntries)) {
     throw new Error('User-web dist changed while package evidence was generated');
+  }
+  if (stagingAbsolute) {
+    if (existsSync(stagingAbsolute)) throw new Error('Package evidence staging path must not already exist');
+    if (outputAbsolute !== path.join(stagingAbsolute, 'user-web-dist-manifest.json')) {
+      throw new Error('Staged manifest output must be the canonical staging manifest path');
+    }
+    const stagedDist = path.join(stagingAbsolute, 'dist');
+    mkdirSync(stagedDist, { recursive: true, mode: 0o755 });
+    for (const file of files) {
+      const target = path.join(stagedDist, ...file.path.split('/'));
+      assertInside(stagedDist, target, 'Staged file');
+      mkdirSync(path.dirname(target), { recursive: true, mode: 0o755 });
+      writeFileSync(target, file.contents, { flag: 'wx', mode: 0o444 });
+    }
+    writeFileSync(outputAbsolute, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
+    const stagedEntries = collectFiles(stagedDist).map((file) => ({
+      path: file.path,
+      size: file.size,
+      sha256: sha256(file.contents),
+    }));
+    if (canonicalJson(stagedEntries) !== canonicalJson(fileEntries)) {
+      throw new Error('Staged package evidence differs from scanned user-web dist');
+    }
+  } else {
+    mkdirSync(path.dirname(outputAbsolute), { recursive: true });
+    writeFileSync(outputAbsolute, canonicalJson(manifest), { flag: 'w', mode: 0o644 });
   }
   return manifest;
 }
@@ -222,11 +314,12 @@ function parseArgs(args) {
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index];
     const value = args[index + 1];
-    if (!value || !['--dist', '--output', '--expected-source-sha'].includes(key)) {
-      throw new Error('Usage: user-web-dist-manifest.mjs [--dist PATH] [--output PATH] [--expected-source-sha SHA]');
+    if (!value || !['--dist', '--output', '--staging', '--expected-source-sha'].includes(key)) {
+      throw new Error('Usage: user-web-dist-manifest.mjs [--dist PATH] [--output PATH] [--staging PATH] [--expected-source-sha SHA]');
     }
     if (key === '--dist') options.dist = value;
     if (key === '--output') options.output = value;
+    if (key === '--staging') options.staging = value;
     if (key === '--expected-source-sha') options.expectedSourceSha = value;
   }
   return options;
