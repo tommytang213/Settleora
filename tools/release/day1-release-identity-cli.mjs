@@ -45,14 +45,34 @@ function protectedSystemCommand(candidate, expectedName) {
 const gitCommand = protectedSystemCommand('/usr/bin/git', 'git');
 const dockerCommand = protectedSystemCommand('/usr/bin/docker', 'docker');
 const ghCommand = protectedSystemCommand('/usr/bin/gh', 'gh');
-const nodeCommand = protectedSystemCommand(process.execPath, 'node');
-const npmCliCandidate = [
-  process.env.npm_execpath,
-  path.resolve(path.dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js'),
-  '/usr/lib/node_modules/npm/bin/npm-cli.js',
-].find((candidate) => candidate && lstatSync(candidate, { throwIfNoEntry: false }));
-const npmCli = protectedSystemCommand(npmCliCandidate ?? '', 'npm-cli.js');
-const npmExec = (values, options) => execFileSync(nodeCommand, [npmCli, ...values], options);
+const currentNodeTarget = realpathSync('/proc/self/exe');
+if (currentNodeTarget !== realpathSync(process.execPath)) throw new Error('Current Node executable identity is inconsistent');
+const nodeInstallRoot = realpathSync(path.resolve(path.dirname(process.execPath), '..'));
+const npmCli = path.resolve(path.dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js');
+if (!npmCli.startsWith(`${nodeInstallRoot}${path.sep}`) || path.basename(npmCli) !== 'npm-cli.js') throw new Error('npm CLI is outside the current Node installation');
+const npmCliDescriptor = openSync(npmCli, constants.O_RDONLY | constants.O_NOFOLLOW);
+const npmCliOpened = fstatSync(npmCliDescriptor);
+const npmCliCurrent = lstatSync(npmCli);
+if (!npmCliOpened.isFile() || npmCliCurrent.isSymbolicLink() || npmCliCurrent.dev !== npmCliOpened.dev || npmCliCurrent.ino !== npmCliOpened.ino || realpathSync(npmCli) !== npmCli) {
+  throw new Error('npm CLI is not a stable regular file in the current Node installation');
+}
+for (let cursor = path.dirname(npmCli); ; cursor = path.dirname(cursor)) {
+  const metadata = lstatSync(cursor);
+  if (metadata.isSymbolicLink() || (metadata.mode & 0o022) !== 0) throw new Error('npm CLI has a writable or symlinked installation ancestor');
+  if (cursor === nodeInstallRoot) break;
+  if (cursor === '/') throw new Error('npm CLI escaped the current Node installation');
+}
+const npmExec = (values, options = {}) => {
+  const current = lstatSync(npmCli);
+  if (current.isSymbolicLink() || current.dev !== npmCliOpened.dev || current.ino !== npmCliOpened.ino) throw new Error('npm CLI path changed before use');
+  const inheritedStdio = options.stdio === 'inherit'
+    ? ['inherit', 'inherit', 'inherit', npmCliDescriptor]
+    : ['ignore', 'pipe', 'pipe', npmCliDescriptor];
+  const result = execFileSync('/proc/self/exe', ['/proc/self/fd/3', ...values], { ...options, stdio: inheritedStdio });
+  const after = lstatSync(npmCli);
+  if (after.isSymbolicLink() || after.dev !== npmCliOpened.dev || after.ino !== npmCliOpened.ino) throw new Error('npm CLI path changed during use');
+  return result;
+};
 const gitExec = (args, options) => execFileSync(gitCommand, ['--no-replace-objects', ...args], options);
 const replacementRefs = gitExec(['for-each-ref', '--format=%(refname)', 'refs/replace'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 if (replacementRefs) throw new Error('Git replacement refs are not allowed for provenance collection');

@@ -409,3 +409,12 @@ test('validates registry index/platform linkage and API revision from fixture do
   assert.equal(validateSelectedPlatformDocument(image, selected, platform), true);
   assert.throws(() => validateSelectedPlatformDocument(image, { ...selected, image: { ...selected.image, rootfs: { type: 'layers', diff_ids: [] } } }, platform), /not a runnable/);
 });
+
+test('npm execution is sealed to the current Node installation and an opened script descriptor', () => {
+  const cliSource = readFileSync(new URL('../day1-release-identity-cli.mjs', import.meta.url), 'utf8');
+  assert.match(cliSource, /realpathSync\('\/proc\/self\/exe'\)/);
+  assert.match(cliSource, /constants\.O_RDONLY \| constants\.O_NOFOLLOW/);
+  assert.match(cliSource, /'\/proc\/self\/fd\/3'/);
+  assert.match(cliSource, /current\.dev !== npmCliOpened\.dev \|\| current\.ino !== npmCliOpened\.ino/);
+  assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
+});
