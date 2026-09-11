@@ -8,6 +8,7 @@ import { createUserWebDistManifest } from '../user-web-dist-manifest.mjs';
 const provenance = {
   source: { commit: 'a'.repeat(40), tree: 'b'.repeat(40) },
   buildTools: { node: 'v22.0.0', npm: '10.0.0', typescript: '5.9.3', vite: '8.1.0' },
+  artifactRoot: 'test-fixture/dist',
 };
 
 function fixture(t) {
@@ -31,6 +32,7 @@ test('manifest is stable, sorted, bounded and contains no raw environment', (t) 
   assert.deepEqual(readFileSync(f.output), firstBytes);
   assert.deepEqual(first.artifact.files.map((file) => file.path), ['.well-known/asset.txt', 'assets/app.js', 'index.html']);
   assert.equal(first.artifact.fileCount, 3);
+  assert.equal(first.artifact.root, 'test-fixture/dist');
   assert.match(first.artifact.treeSha256, /^[0-9a-f]{64}$/);
   assert.equal(first.publicArtifactChecks.sensitiveMaterialScan, 'passed');
   assert.doesNotMatch(firstBytes.toString(), /process\.env|\/tmp\/web-dist-manifest-|PATH|HOME/);
@@ -45,6 +47,18 @@ test('manifest rejects a source mismatch and self-reference', (t) => {
   assert.throws(
     () => createUserWebDistManifest({ ...f, output: path.join(f.dist, 'manifest.json'), provenance }),
     /outside the hashed dist tree/,
+  );
+});
+
+test('manifest rejects a noncanonical dist without a safe provenance label', (t) => {
+  const f = fixture(t);
+  assert.throws(
+    () => createUserWebDistManifest({ ...f, provenance: { ...provenance, artifactRoot: undefined } }),
+    /requires a safe provenance artifactRoot label/,
+  );
+  assert.throws(
+    () => createUserWebDistManifest({ ...f, provenance: { ...provenance, artifactRoot: '../outside' } }),
+    /requires a safe provenance artifactRoot label/,
   );
 });
 
@@ -111,6 +125,14 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['npm auth assignment', (f) => writeFileSync(
       path.join(f.dist, 'config.txt'),
       ['//registry.example.invalid/:_auth', 'Token=fake-value'].join(''),
+    ), /Potential sensitive/],
+    ['generic credential assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['API_', 'TOKEN=abcdefghijklmnop'].join(''),
+    ), /Potential sensitive/],
+    ['bearer token', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['Authorization: Bearer ', 'abcdefghijklmnop'].join(''),
     ), /Potential sensitive/],
     ['inline source map', (f) => writeFileSync(
       path.join(f.dist, 'inline.js'),

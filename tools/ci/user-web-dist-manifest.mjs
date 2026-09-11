@@ -28,6 +28,8 @@ const unsafeContentPatterns = [
   /\bsk-[A-Za-z0-9]{20,}\b/,
   /\b(?:gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/,
   /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/,
+  /\b(?:[A-Za-z_][A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION)|api[_-]?key|authorization|x-goog-api-key)\b\s*[:=]\s*["']?[A-Za-z0-9._~+/-]{8,}/i,
+  /\bbearer\s+[A-Za-z0-9._~+/-]{12,}/i,
   /["'](?:client_secret|private_key|refresh_token)["']\s*:/i,
   /(?::_authToken|_auth|npmAuthToken)\s*[:=]\s*[^\s"']+/i,
   /(?:\/workspace\/(?:repos|logs)\/|\/home\/[^/\s]+\/(?:work|workspace|repos)\/|\/Users\/[^/\s]+\/(?:work|workspace|repos)\/|[A-Za-z]:\\Users\\[^\\\s]+\\(?:work|workspace|repos)\\)/,
@@ -58,6 +60,22 @@ function assertInside(root, candidate, label) {
   }
 }
 
+function artifactRootLabel(distAbsolute, provenance) {
+  const canonicalDist = path.join(repoRoot, 'apps/web-user/dist');
+  if (distAbsolute === canonicalDist) return 'apps/web-user/dist';
+  const label = provenance?.artifactRoot;
+  if (
+    typeof label !== 'string'
+    || !label
+    || path.isAbsolute(label)
+    || /[\\\r\n\0]/u.test(label)
+    || label.split('/').includes('..')
+  ) {
+    throw new Error('Noncanonical dist requires a safe provenance artifactRoot label');
+  }
+  return label;
+}
+
 function collectFiles(distRoot) {
   const files = [];
   const visit = (directory) => {
@@ -72,7 +90,9 @@ function collectFiles(distRoot) {
         if (!relative || relative.startsWith('/') || relative.split('/').includes('..') || /[\r\n\0]/u.test(relative)) {
           throw new Error(`Unsafe dist path: ${JSON.stringify(relative)}`);
         }
-        files.push({ absolute, path: relative, size: metadata.size });
+        const contents = readFileSync(absolute);
+        if (contents.length !== metadata.size) throw new Error(`User-web dist changed while reading: ${absolute}`);
+        files.push({ absolute, path: relative, size: contents.length, contents });
       } else {
         throw new Error(`Only regular files are allowed in user-web dist: ${absolute}`);
       }
@@ -87,15 +107,14 @@ function scanPublicArtifact(files) {
     if (unsafePathPatterns.some((pattern) => pattern.test(file.path))) {
       throw new Error(`Unsafe public artifact path: ${file.path}`);
     }
-    const contents = readFileSync(file.absolute);
-    const text = contents.toString('utf8');
+    const text = file.contents.toString('utf8');
     try {
       const candidate = JSON.parse(text);
       if (
         candidate
         && typeof candidate === 'object'
         && !Array.isArray(candidate)
-        && Number.isInteger(candidate.version)
+        && candidate.version === 3
         && (
           (Array.isArray(candidate.sources) && typeof candidate.mappings === 'string')
           || Array.isArray(candidate.sections)
@@ -120,6 +139,7 @@ export function createUserWebDistManifest({
 } = {}) {
   const distAbsolute = path.resolve(dist);
   const outputAbsolute = path.resolve(output);
+  const artifactRoot = artifactRootLabel(distAbsolute, provenance);
   if (lstatSync(distAbsolute).isSymbolicLink()) throw new Error(`User-web dist root must not be a symlink: ${distAbsolute}`);
   if (!statSync(distAbsolute).isDirectory()) throw new Error(`User-web dist is not a directory: ${distAbsolute}`);
   assertInside(realpathSync(path.dirname(distAbsolute)), realpathSync(distAbsolute), 'Dist');
@@ -153,7 +173,7 @@ export function createUserWebDistManifest({
   const fileEntries = files.map((file) => ({
     path: file.path,
     size: file.size,
-    sha256: sha256(readFileSync(file.absolute)),
+    sha256: sha256(file.contents),
   }));
   const treeInput = fileEntries.map((file) => `${file.sha256}  ${file.size}  ${file.path}\n`).join('');
   const manifest = {
@@ -171,7 +191,7 @@ export function createUserWebDistManifest({
       vite: packageVersion(lock, 'vite'),
     },
     artifact: {
-      root: 'apps/web-user/dist',
+      root: artifactRoot,
       fileCount: fileEntries.length,
       totalBytes: fileEntries.reduce((sum, file) => sum + file.size, 0),
       treeDigestAlgorithm: 'sha256(canonical-file-records-v1)',
@@ -189,7 +209,7 @@ export function createUserWebDistManifest({
   const verifiedEntries = collectFiles(distAbsolute).map((file) => ({
     path: file.path,
     size: file.size,
-    sha256: sha256(readFileSync(file.absolute)),
+    sha256: sha256(file.contents),
   }));
   if (canonicalJson(verifiedEntries) !== canonicalJson(fileEntries)) {
     throw new Error('User-web dist changed while package evidence was generated');
