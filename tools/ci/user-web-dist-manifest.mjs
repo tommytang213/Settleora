@@ -15,13 +15,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const shaPattern = /^[0-9a-f]{40}$/;
 const unsafePathPatterns = [
-  /(^|\/)(\.env(?:\.|$)|\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.(?:map|pem|key|p12|pfx))$/i,
+  /(^|\/)(\.env(?:\.[^/]+)*|\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.(?:map|pem|key|p12|pfx))$/i,
   /(^|\/)(?:\.ssh|\.aws|\.azure|\.config\/gcloud)(?:\/|$)/i,
 ];
 const unsafeContentPatterns = [
   /-----BEGIN [^-\r\n]*PRIVATE KEY[^-\r\n]*-----/,
   /\bAKIA[0-9A-Z]{16}\b/,
-  /\bgh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}\b/,
+  /\b(?:gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/,
   /["'](?:client_secret|private_key|refresh_token)["']\s*:/i,
   /(?::_authToken|_auth|npmAuthToken)\s*[:=]\s*[^\s"']+/i,
   /(?:\/workspace\/(?:repos|logs)\/|\/home\/[^/\s]+\/(?:work|workspace|repos)\/|\/Users\/[^/\s]+\/(?:work|workspace|repos)\/|[A-Za-z]:\\Users\\[^\\\s]+\\(?:work|workspace|repos)\\)/,
@@ -83,6 +83,21 @@ function scanPublicArtifact(files) {
     }
     const contents = readFileSync(file.absolute);
     const text = contents.toString('utf8');
+    try {
+      const candidate = JSON.parse(text);
+      if (
+        candidate
+        && typeof candidate === 'object'
+        && !Array.isArray(candidate)
+        && Number.isInteger(candidate.version)
+        && Array.isArray(candidate.sources)
+        && typeof candidate.mappings === 'string'
+      ) {
+        throw new Error(`Source-map payload is not allowed in public artifact: ${file.path}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Source-map payload')) throw error;
+    }
     for (const pattern of unsafeContentPatterns) {
       if (pattern.test(text)) throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
     }

@@ -80,6 +80,11 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['symlink', (f) => symlinkSync(path.join(f.dist, 'index.html'), path.join(f.dist, 'linked.html')), /Symlinks are not allowed/],
     ['malformed', (f) => writeFileSync(path.join(f.dist, 'bad\nname.txt'), 'bad'), /Unsafe dist path/],
     ['source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map'), '{}'), /Unsafe public artifact path/],
+    ['suffixed dotenv file', (f) => writeFileSync(path.join(f.dist, '.env.production.local'), 'TOKEN=fake'), /Unsafe public artifact path/],
+    ['standalone source map payload', (f) => writeFileSync(
+      path.join(f.dist, 'assets/source.txt'),
+      JSON.stringify({ version: 3, sources: ['src/main.ts'], sourcesContent: ['secret source'], names: [], mappings: 'AAAA' }),
+    ), /Source-map payload/],
     ['credentials', (f) => writeFileSync(path.join(f.dist, 'credentials.json'), '{}'), /Unsafe public artifact path/],
     ['npm credential file', (f) => writeFileSync(path.join(f.dist, '.npmrc'), 'registry=https://example.invalid'), /Unsafe public artifact path/],
     ['private key', (f) => writeFileSync(
@@ -105,6 +110,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['external source map reference', (f) => writeFileSync(
       path.join(f.dist, 'inline.js'),
       ['//# source', 'MappingURL=assets/source.txt'].join(''),
+    ), /Potential sensitive/],
+    ['fine-grained GitHub token', (f) => writeFileSync(
+      path.join(f.dist, 'token.txt'),
+      ['github_pat_', '11AA22BB33CC44DD55EE66FF77'].join(''),
     ), /Potential sensitive/],
     ['host path', (f) => writeFileSync(path.join(f.dist, 'path.txt'), '/workspace/repos/project'), /Potential sensitive/],
   ];
