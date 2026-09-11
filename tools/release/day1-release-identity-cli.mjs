@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,12 +17,16 @@ import {
   validatePublicationRunUrl,
   validateRegistryDocument,
   validateRegistryRevision,
+  validateSelectedPlatformDocument,
   validateManifest,
 } from './day1-release-identity.mjs';
 import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const maxTrustedToolBytes = 256 * 1024 * 1024;
+const maxAndroidArtifactBytes = 256 * 1024 * 1024;
+const maxAndroidMappingBytes = 128 * 1024 * 1024;
+const maxAndroidMetadataBytes = 4 * 1024 * 1024;
 const processCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
 const processSource = Object.freeze({
   commit: processCommit,
@@ -108,8 +112,9 @@ function verifyLiveRegistry(input, retained = false) {
     const reference = retained ? `${image.repository}@${image.indexDigest}` : registryReference(image);
     const record = inspectRecord(reference);
     validateRegistryDocument(image, record.manifest, platform, label);
+    const selected = inspectRecord(`${image.repository}@${image.platformDigest}`);
+    validateSelectedPlatformDocument(image, selected, platform, label);
     if (revision) {
-      const selected = inspectRecord(`${image.repository}@${image.platformDigest}`);
       validateRegistryRevision(image, selected.image, revision, label);
     }
     return reference;
@@ -300,7 +305,52 @@ export function verifyAndroidSignature(input, options) {
   return { certificate, embeddedR8MappingSha256: aabObservation.embeddedR8MappingSha256, apk, aab };
 }
 
-const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+export function assertCommitHasNoSymlinks(commit, label, root = repoRoot) {
+  const records = execFileSync('git', ['ls-tree', '-r', '-z', commit], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] })
+    .toString('utf8').split('\0').filter(Boolean);
+  if (records.some((record) => record.startsWith('120000 '))) throw new Error(`${label} source snapshot contains a tracked symlink`);
+}
+
+export function copyBoundedFile(source, target, maxBytes, label) {
+  let sourceDescriptor;
+  let targetDescriptor;
+  try {
+    sourceDescriptor = openSync(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const opened = fstatSync(sourceDescriptor);
+    const current = lstatSync(source);
+    if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino
+      || realpathSync(source) !== source || !Number.isSafeInteger(opened.size) || opened.size < 1 || opened.size > maxBytes) {
+      throw new Error(`${label} exceeds its evidence boundary or is not a stable regular file`);
+    }
+    targetDescriptor = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o444);
+    const digest = createHash('sha256');
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let total = 0;
+    while (true) {
+      const count = readSync(sourceDescriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      total += count;
+      if (total > maxBytes) throw new Error(`${label} exceeds its evidence size limit`);
+      let written = 0;
+      while (written < count) {
+        const countWritten = writeSync(targetDescriptor, buffer, written, count - written);
+        if (countWritten < 1) throw new Error(`${label} evidence copy stopped before completion`);
+        written += countWritten;
+      }
+      digest.update(buffer.subarray(0, count));
+    }
+    const after = fstatSync(sourceDescriptor);
+    const sourceAfter = lstatSync(source);
+    if (total !== opened.size || after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size
+      || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs || sourceAfter.dev !== opened.dev
+      || sourceAfter.ino !== opened.ino || sourceAfter.size !== opened.size || sourceAfter.mtimeMs !== opened.mtimeMs
+      || sourceAfter.ctimeMs !== opened.ctimeMs) throw new Error(`${label} changed while it was copied`);
+    return { size: total, sha256: digest.digest('hex') };
+  } finally {
+    if (targetDescriptor !== undefined) closeSync(targetDescriptor);
+    if (sourceDescriptor !== undefined) closeSync(sourceDescriptor);
+  }
+}
 
 function exactSourceSnapshot(prefix, privateParent, callback) {
   const source = {
@@ -315,6 +365,7 @@ function exactSourceSnapshot(prefix, privateParent, callback) {
   mkdirSync(container, { recursive: false, mode: 0o700 });
   mkdirSync(snapshot, { recursive: false, mode: 0o700 });
   try {
+    assertCommitHasNoSymlinks(source.commit, prefix);
     execFileSync('git', ['archive', '--format=tar', `--output=${archive}`, source.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
     execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshot], { stdio: ['ignore', 'ignore', 'pipe'] });
     rmSync(archive, { force: false });
@@ -380,7 +431,9 @@ function collectAndroidUnsafe(options, emit = true) {
   const archive = path.join(snapshotContainer, 'source.tar');
   mkdirSync(snapshotContainer, { recursive: false, mode: 0o700 });
   mkdirSync(snapshotRoot, { recursive: false, mode: 0o700 });
+  let copiedIdentities;
   try {
+    assertCommitHasNoSymlinks(sourceBefore.commit, 'Android');
     execFileSync('git', ['archive', '--format=tar', `--output=${archive}`, sourceBefore.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
     execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshotRoot], { stdio: ['ignore', 'ignore', 'pipe'] });
     rmSync(archive, { force: false });
@@ -394,7 +447,12 @@ function collectAndroidUnsafe(options, emit = true) {
       metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
     };
     assertOwnedEvidenceDirectory(output);
-    for (const [relative, name] of Object.values(files)) copyFileSync(path.join(snapshotRoot, relative), path.join(output, name), constants.COPYFILE_EXCL);
+    copiedIdentities = {
+      apk: copyBoundedFile(path.join(snapshotRoot, files.apk[0]), path.join(output, files.apk[1]), maxAndroidArtifactBytes, 'Android APK'),
+      aab: copyBoundedFile(path.join(snapshotRoot, files.aab[0]), path.join(output, files.aab[1]), maxAndroidArtifactBytes, 'Android AAB'),
+      mapping: copyBoundedFile(path.join(snapshotRoot, files.mapping[0]), path.join(output, files.mapping[1]), maxAndroidMappingBytes, 'Android R8 mapping'),
+    };
+    copyBoundedFile(path.join(snapshotRoot, files.metadata[0]), path.join(output, files.metadata[1]), maxAndroidMetadataBytes, 'Android output metadata');
   } finally {
     const metadata = lstatSync(snapshotContainer, { throwIfNoEntry: false });
     if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(snapshotContainer, { recursive: true, force: false });
@@ -413,15 +471,12 @@ function collectAndroidUnsafe(options, emit = true) {
     mapping: ['apps/mobile/build/app/outputs/mapping/release/mapping.txt', 'mapping.txt'],
     metadata: ['apps/mobile/build/app/outputs/apk/release/output-metadata.json', 'output-metadata.json'],
   };
-  const artifact = (kind) => {
-    const [relative, name] = files[kind];
-    const bytes = readFileSync(path.join(output, name));
-    return { path: relative, size: bytes.length, sha256: hash(bytes) };
-  };
+  if (!copiedIdentities) throw new Error('Android bounded evidence identities were not collected');
+  const artifact = (kind) => ({ path: files[kind][0], ...copiedIdentities[kind] });
   const provenance = {
     schema: 'settleora.android-exact-source-build.v1', source,
     commands: ['flutter clean', 'flutter build apk --release', 'flutter build appbundle --release'],
-    artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: hash(readFileSync(path.join(output, files.mapping[1]))) },
+    artifacts: { apk: artifact('apk'), aab: artifact('aab'), r8MappingSha256: copiedIdentities.mapping.sha256 },
   };
   writeFileSync(path.join(output, 'build-provenance.json'), canonicalJson(provenance), { flag: 'wx', mode: 0o444 });
   const result = { status: 'collected', output, source };

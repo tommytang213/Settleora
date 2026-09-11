@@ -24,6 +24,8 @@ const shaPattern = /^[0-9a-f]{40}$/;
 const maxPublicArtifactFileBytes = 32 * 1024 * 1024;
 const maxPublicArtifactTotalBytes = 128 * 1024 * 1024;
 const maxPublicArtifactFiles = 10_000;
+const maxPublicArtifactDirectories = 10_000;
+const maxPublicArtifactDepth = 64;
 const unsafePathPatterns = [
   /(^|\/)(?:\.git|\.hg|\.svn|\.bzr|_darcs)(?:\/|$)/i,
   /(^|\/)\.env($|[./-])/i,
@@ -153,13 +155,17 @@ function artifactRootLabel(distAbsolute, provenance) {
 export function collectFiles(distRoot) {
   const files = [];
   let totalBytes = 0;
-  const visit = (directory) => {
+  let directoryCount = 0;
+  const visit = (directory, depth) => {
+    if (depth > maxPublicArtifactDepth) throw new Error('User-web dist exceeds its directory-depth limit');
+    directoryCount += 1;
+    if (directoryCount > maxPublicArtifactDirectories) throw new Error('User-web dist exceeds its directory-count limit');
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
       const metadata = lstatSync(absolute);
       if (metadata.isSymbolicLink()) throw new Error(`Symlinks are not allowed in user-web dist: ${absolute}`);
       if (metadata.isDirectory()) {
-        visit(absolute);
+        visit(absolute, depth + 1);
       } else if (metadata.isFile()) {
         if (files.length >= maxPublicArtifactFiles) throw new Error('User-web dist exceeds its file-count limit');
         const relative = path.relative(distRoot, absolute).split(path.sep).join('/');
@@ -200,7 +206,7 @@ export function collectFiles(distRoot) {
       }
     }
   };
-  visit(distRoot);
+  visit(distRoot, 0);
   return files.sort((left, right) => Buffer.from(left.path).compare(Buffer.from(right.path)));
 }
 

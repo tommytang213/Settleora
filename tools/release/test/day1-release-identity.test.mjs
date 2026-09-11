@@ -13,6 +13,7 @@ import {
   sha256,
   validateRegistryDocument,
   validateRegistryRevision,
+  validateSelectedPlatformDocument,
   validateManifest,
   migrationAttributeIds,
   validatePublicationJobDocument,
@@ -21,7 +22,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, parseSingleApkSigner, safeInput } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, parseSingleApkSigner, safeInput } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 
@@ -55,9 +56,10 @@ function fixture(t) {
     '',
   ].join('\n'));
   const migrationRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
-  write(root, `${migrationRoot}/20260101000000_Initial.cs`, 'migration\n');
-  write(root, `${migrationRoot}/20260101000000_Initial.Designer.cs`, '[Migration("20260101000000_Initial")]\ndesigner\n');
-  write(root, `${migrationRoot}/20260102000000_SourceOnly.cs`, '[Migration("20260102000000_SourceOnly")]\nsource-only migration\n');
+  write(root, `${migrationRoot}/20260101000000_Initial.cs`, 'public partial class Initial : Migration {}\n');
+  write(root, `${migrationRoot}/20260101000000_Initial.Designer.cs`, '[Migration("20260101000000_Initial")]\npartial class Initial {}\n');
+  write(root, `${migrationRoot}/20260102000000_SourceOnly.cs`, 'public partial class SourceOnly : Migration {}\n');
+  write(root, `${migrationRoot}/20260102000000_SourceOnly.Designer.cs`, '[Migration("20260102000000_SourceOnly")]\npartial class SourceOnly {}\n');
   write(root, 'apps/web-user/package-lock.json', '{"lockfileVersion":3}\n');
   write(root, 'apps/mobile/pubspec.yaml', 'version: 1.2.3+45\n');
   write(root, 'apps/mobile/android/app/build.gradle.kts', [
@@ -161,7 +163,7 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   assert.equal(first.identityDigest, second.identityDigest);
   assert.equal(first.identityDigest, computeIdentityDigest(first));
   assert.equal(first.migrations.count, 2);
-  assert.equal(first.migrations.entries[1].files.length, 1);
+  assert.equal(first.migrations.entries[1].files.length, 2);
   assert.equal(first.migrations.stateClaim, 'repository-source-only-not-applied');
   assert.equal(first.rollback.artifactAvailabilityProvesDatabaseSchemaFileRollbackSafety, false);
   assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
@@ -272,18 +274,19 @@ test('binds migration bytes to the initially captured source commit', (t) => {
 test('migration inventory includes normalized nested source paths', (t) => {
   const f = fixture(t);
   const root = 'services/api/src/Settleora.Api/Persistence/Migrations';
-  write(f.root, `${root}/nested/20260103000000_Nested.cs`, '[Migration("20260103000000_Nested")]\n');
-  git(f.root, ['add', `${root}/nested/20260103000000_Nested.cs`]);
+  write(f.root, `${root}/nested/20260103000000_Nested.cs`, 'public partial class Nested : Migration {}\n');
+  write(f.root, `${root}/nested/20260103000000_Nested.Designer.cs`, '[Migration("20260103000000_Nested")] partial class Nested {}\n');
+  git(f.root, ['add', `${root}/nested/20260103000000_Nested.cs`, `${root}/nested/20260103000000_Nested.Designer.cs`]);
   git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'nested migration fixture']);
   const migrations = collectMigrations(f.root);
   assert.equal(migrations.count, 3);
-  assert.equal(migrations.entries.at(-1).files[0].path, `${root}/nested/20260103000000_Nested.cs`);
+  assert.ok(migrations.entries.at(-1).files.some((file) => file.path === `${root}/nested/20260103000000_Nested.cs`));
 });
 
 test('migration inventory rejects duplicate runtime attribute occurrences', (t) => {
   const f = fixture(t);
-  const migration = 'services/api/src/Settleora.Api/Persistence/Migrations/20260102000000_SourceOnly.cs';
-  writeFileSync(path.join(f.root, migration), '[Migration("20260101000000_Initial")]\n[Migration("20260102000000_SourceOnly")]\n');
+  const migration = 'services/api/src/Settleora.Api/Persistence/Migrations/20260102000000_SourceOnly.Designer.cs';
+  writeFileSync(path.join(f.root, migration), '[Migration("20260102000000_SourceOnly")] partial class SourceOnly {}\n[Migration("20260102000000_SourceOnly")] partial class SourceOnly {}\n');
   git(f.root, ['add', migration]);
   git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'duplicate runtime migration fixture']);
   assert.throws(() => collectMigrations(f.root), /Duplicate EF runtime migration IDs/);
@@ -295,9 +298,10 @@ test('migration attribute parsing ignores comments and string literals', () => {
     `// [Migration("20260101000001_LineComment")]`,
     `/* [Migration("20260101000002_BlockComment")] */`,
     `const string text = "[Migration(\\"20260101000003_String\\")]";`,
-    `[Migration("${active}")]`,
+    `[Migration("${active}")] partial class Active`,
     '',
   ].join('\n')), [active]);
+  assert.throws(() => migrationAttributeIds(`[Migration("${active}")] partial class Helper`, active), /not bound/);
   assert.throws(() => migrationAttributeIds([
     '#if false',
     '[Migration("20260911123456_InactiveMigration")]',
@@ -390,6 +394,16 @@ test('safe inputs reject URL query credentials and completion rejects untracked 
   assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /source changed/);
 });
 
+test('snapshot inputs reject tracked symlinks and Android copies enforce pre-copy bounds', (t) => {
+  const f = fixture(t);
+  symlinkSync('README.md', path.join(f.root, 'tracked-link'));
+  git(f.root, ['add', 'tracked-link']);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'tracked symlink fixture']);
+  assert.throws(() => assertCommitHasNoSymlinks(git(f.root, ['rev-parse', 'HEAD']), 'test', f.root), /tracked symlink/);
+  const oversized = write(f.evidenceRoot, 'oversized.bin', '0123456789abcdef');
+  assert.throws(() => copyBoundedFile(oversized, path.join(f.evidenceRoot, 'copy.bin'), 8, 'Android test'), /evidence boundary/);
+});
+
 test('validates registry index/platform linkage and API revision from fixture documents', () => {
   const image = { indexDigest: d('a'), platformDigest: d('b'), ociRevision: 'c'.repeat(40) };
   const platform = { os: 'linux', architecture: 'amd64' };
@@ -399,4 +413,7 @@ test('validates registry index/platform linkage and API revision from fixture do
   assert.throws(() => validateRegistryDocument(image, { ...document, digest: d('d') }, platform), /index digest mismatch/);
   assert.throws(() => validateRegistryDocument(image, { ...document, manifests: [{ digest: d('e'), platform }] }, platform), /platform\/digest relationship mismatch/);
   assert.throws(() => validateRegistryRevision(image, { config: { Labels: { 'org.opencontainers.image.revision': 'f'.repeat(40) } } }, 'c'.repeat(40)), /OCI revision mismatch/);
+  const selected = { manifest: { digest: image.platformDigest }, image: { os: 'linux', architecture: 'amd64', rootfs: { type: 'layers', diff_ids: [d('d')] }, config: {} } };
+  assert.equal(validateSelectedPlatformDocument(image, selected, platform), true);
+  assert.throws(() => validateSelectedPlatformDocument(image, { ...selected, image: { ...selected.image, rootfs: { type: 'layers', diff_ids: [] } } }, platform), /not a runnable/);
 });

@@ -53,7 +53,8 @@ Assembly also performs `npm ci` and the canonical user-web build in a disposable
 exact-source Git archive, then retains the R02 package manifest and `dist/` under
 the candidate directory. Validation repeats that exact-source web build and
 compares it with the retained identity, so caller-authored source claims are not
-trusted.
+trusted. Executable source snapshots reject tracked symlinks, and web artifact
+walking is bounded by file, byte, directory-count, and directory-depth limits.
 
 `collect-android` cleans generated state, invokes the two fixed release-build commands, and writes a
 source/tree/artifact attestation. Assembly always performs that collection itself
@@ -71,6 +72,9 @@ captured source commit rather than a later movable `HEAD`.
 Android collection is staged under the private candidate directory and removed
 on assembly failure before promotion to canonical evidence. Validation accepts
 only that candidate's canonical retained `release-identity-manifest.json`.
+APK, AAB, mapping, and output-metadata sizes are checked on stable descriptors
+before copying, and their hashes are computed incrementally from those same
+bounded streams.
 Assembly also copies the bounded release-note input into canonical retained
 `release-notes.md`; validation never depends on the caller's original path.
 

@@ -161,6 +161,16 @@ test('manifest rejects an empty dist tree', (t) => {
   );
 });
 
+test('manifest bounds dist directory depth before recursive traversal', (t) => {
+  const f = fixture(t);
+  let directory = f.dist;
+  for (let depth = 0; depth < 65; depth += 1) {
+    directory = path.join(directory, 'd');
+    mkdirSync(directory);
+  }
+  assert.throws(() => collectFiles(f.dist), /directory-depth limit/);
+});
+
 test('manifest rejects symlinks, malformed names, source maps and sensitive content', (t) => {
   const cases = [
     ['symlink', (f) => symlinkSync(path.join(f.dist, 'index.html'), path.join(f.dist, 'linked.html')), /Symlinks are not allowed/],

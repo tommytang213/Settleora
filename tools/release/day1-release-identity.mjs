@@ -280,6 +280,16 @@ export function validateRegistryRevision(image, imageDocument, expectedRevision,
   return true;
 }
 
+export function validateSelectedPlatformDocument(image, record, platform, label = 'registry image') {
+  if (record?.manifest?.digest !== image.platformDigest || record?.image?.os !== platform.os
+    || record?.image?.architecture !== platform.architecture || record?.image?.rootfs?.type !== 'layers'
+    || !Array.isArray(record.image.rootfs.diff_ids) || record.image.rootfs.diff_ids.length === 0
+    || !record.image.config || typeof record.image.config !== 'object' || Array.isArray(record.image.config)) {
+    fail(`${label} selected platform manifest is unavailable or not a runnable ${platform.os}/${platform.architecture} image`);
+  }
+  return true;
+}
+
 export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD'])) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   sha40(capturedCommit, 'migration captured source commit');
@@ -298,9 +308,16 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
   if (ids.length === 0) fail('No repository migrations found');
   if (new Set(ids).size !== ids.length) fail('Duplicate migration IDs exist in repository source');
   const runtimeOccurrences = [];
-  for (const name of names.filter((candidate) => candidate.endsWith('.cs'))) {
-    const text = exactTrackedFile(repoRoot, `${relativeRoot}/${name}`, `migration source ${name}`, capturedCommit).bytes.toString('utf8');
-    runtimeOccurrences.push(...migrationAttributeIds(text));
+  for (const id of ids) {
+    const primary = names.find((name) => path.posix.basename(name) === `${id}.cs`);
+    if (!primary) fail(`Migration ${id} is missing its primary source file`);
+    const designer = names.find((name) => path.posix.basename(name) === `${id}.Designer.cs`);
+    const attributeSource = designer ?? primary;
+    const attributeText = exactTrackedFile(repoRoot, `${relativeRoot}/${attributeSource}`, `migration source ${attributeSource}`, capturedCommit).bytes.toString('utf8');
+    runtimeOccurrences.push(...migrationAttributeIds(attributeText, id));
+    const text = primary === attributeSource ? attributeText : exactTrackedFile(repoRoot, `${relativeRoot}/${primary}`, `migration source ${primary}`, capturedCommit).bytes.toString('utf8');
+    const expectedClass = id.slice(id.indexOf('_') + 1);
+    if (!migrationInheritanceClassNames(text).includes(expectedClass)) fail(`Migration ${id} primary class is not bound to Migration inheritance`);
   }
   const runtimeIds = new Set(runtimeOccurrences);
   if (runtimeIds.size !== runtimeOccurrences.length) fail('Duplicate EF runtime migration IDs exist in repository source');
@@ -325,7 +342,7 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
   };
 }
 
-export function migrationAttributeIds(text) {
+export function migrationAttributeIds(text, expectedId) {
   if (/^\s*#\s*(?:if|elif|else|endif)\b/mu.test(text)) {
     fail('Migration source contains conditional-compilation directives that cannot be reproduced by the bounded parser');
   }
@@ -345,6 +362,11 @@ export function migrationAttributeIds(text) {
     if (text[index] === '[') {
       const match = /^\[\s*(?:Microsoft\.EntityFrameworkCore\.Migrations\.)?Migration\s*\(\s*"(\d{14}_[A-Za-z0-9_]+)"\s*\)\s*\]/u.exec(text.slice(index));
       if (match) {
+        const declaration = /^\s*(?:(?:public|internal|protected|private|abstract|sealed|static)\s+)*partial\s+class\s+([A-Za-z_][A-Za-z0-9_]*)\b/u.exec(text.slice(index + match[0].length));
+        const expectedClass = match[1].slice(match[1].indexOf('_') + 1);
+        if (!declaration || declaration[1] !== expectedClass || (expectedId && match[1] !== expectedId)) {
+          fail('Migration attribute is not bound to its expected partial migration class');
+        }
         ids.push(match[1]);
         index += match[0].length;
         continue;
@@ -373,6 +395,65 @@ export function migrationAttributeIds(text) {
     index += 1;
   }
   return ids;
+}
+
+export function migrationInheritanceClassNames(text) {
+  if (/^\s*#\s*(?:if|elif|else|endif)\b/mu.test(text)) fail('Migration source contains conditional-compilation directives that cannot be reproduced by the bounded parser');
+  const classes = [];
+  for (let index = 0; index < text.length;) {
+    if (text.startsWith('//', index)) {
+      index = text.indexOf('\n', index + 2);
+      if (index < 0) break;
+      continue;
+    }
+    if (text.startsWith('/*', index)) {
+      const end = text.indexOf('*/', index + 2);
+      index = end < 0 ? text.length : end + 2;
+      continue;
+    }
+    if (text[index] === '"') {
+      let delimiterLength = 0;
+      while (text[index + delimiterLength] === '"') delimiterLength += 1;
+      if (delimiterLength >= 3) {
+        index += delimiterLength;
+        while (index < text.length) {
+          let quoteRun = 0;
+          while (text[index + quoteRun] === '"') quoteRun += 1;
+          if (quoteRun >= delimiterLength) { index += quoteRun; break; }
+          index += Math.max(1, quoteRun);
+        }
+        continue;
+      }
+    }
+    if (text[index] === '"' || (text[index] === '@' && text[index + 1] === '"')) {
+      const verbatim = text[index] === '@';
+      index += verbatim ? 2 : 1;
+      while (index < text.length) {
+        if (verbatim && text.startsWith('""', index)) { index += 2; continue; }
+        if (!verbatim && text[index] === '\\') { index += 2; continue; }
+        if (text[index] === '"') { index += 1; break; }
+        index += 1;
+      }
+      continue;
+    }
+    if (text[index] === '\'') {
+      index += 1;
+      while (index < text.length) {
+        if (text[index] === '\\') { index += 2; continue; }
+        if (text[index] === '\'') { index += 1; break; }
+        index += 1;
+      }
+      continue;
+    }
+    const declaration = /^(?:(?:public|internal|protected|private|abstract|sealed|static)\s+)*partial\s+class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?:[A-Za-z_][A-Za-z0-9_.]*\.)?Migration\b/u.exec(text.slice(index));
+    if (declaration) {
+      classes.push(declaration[1]);
+      index += declaration[0].length;
+      continue;
+    }
+    index += 1;
+  }
+  return classes;
 }
 
 function validateImage(image, label, sourceCommit, expectedTag, expectedRepository) {
