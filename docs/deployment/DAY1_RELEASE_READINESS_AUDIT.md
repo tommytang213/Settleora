@@ -10,6 +10,8 @@ Source baseline: `origin/main` `f350e5f3ba6ff737cc38781dbc3348db68d45055`, tree 
 
 R12 completion addendum: [Issue #1195](https://github.com/tommytang213/Settleora/issues/1195) is implemented by [PR #1196](https://github.com/tommytang213/Settleora/pull/1196), reviewed source `849c5695fc5e90eddf788777cab588ab9e90c784`, tree `91e414b4d58b8640124e34bb35f0c168cc0d4ca5`, normal merge `43a828b9e5172069a00e80928069e815ae0dec9e`. This is repository/disposable proof only; R05/#975 retain real private DNS, certificate, TrueNAS and physical-device evidence.
 
+R10 completion addendum: [Issue #1198](https://github.com/tommytang213/Settleora/issues/1198) is implemented by [PR #1199](https://github.com/tommytang213/Settleora/pull/1199), reviewed source `439cbe7f33edf82f4b7e752c08c32056799fc58d`, tree `8a8b751b0115e2ceac02d54afb9951e7d6cd201c`, normal merge `5fc712695657be51baf54548ecefc1892497fdb7`. Dependabot #32/#34-#36 closed automatically as fixed with no dismissal/suppression; affected development tooling is absent from the byte-identical browser artifact. R02 is now the next dependency-safe repository recommendation.
+
 ## 1. Scope, method, and conclusion
 
 This is a source-of-truth inventory, not a release. It reconciles the current
@@ -118,7 +120,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 | A09 | Trivy | `partial` | `.github/workflows/security-trivy.yml` | PR/push/schedule repository scan exists; `exit-code: "0"` makes findings non-blocking; current-main run `34480120189` succeeded | #380; same enforcement distinction as A08 |
 | A10 | Default CodeQL | `implemented` | GitHub default setup, not a repository workflow file | Live API: configured/default suite, weekly, standard runner, languages actions/C/C++/C#/JS/TS/Python/TypeScript; PR #1186 and #1187 analyses passed | GitHub/security settings; not the required ruleset context |
 | A11 | AI integration scope guard | `implemented` | `.github/workflows/ai-integration-scope-guard.yml` | Automatic only for PRs to `ai/integration`; exact script authority is `scripts/ai/v3-scope-guard.mjs`; does not protect `main` | Existing AI workflow program; main protection remains A02 |
-| A12 | Dependency alerts and build-toolchain audit | `partial` | Dependabot plus `apps/web-user/package-lock.json` | Live alerts #32/#34-#36 cover development-scope `browserslist`, `baseline-browser-mapping`, `@vitest/mocker`, and `vitest`: one high and three medium alerts. Baseline `npm audit` reports two high/three moderate advisories; this is build/test-toolchain risk, not proof that vulnerable code ships in the browser bundle | R10; triage before R02 publishes a web artifact |
+| A12 | Dependency alerts and build-toolchain audit | `implemented` | Dependabot plus `apps/web-user/package-lock.json` | R10/PR #1199 moved `browserslist`, `baseline-browser-mapping`, `@vitest/mocker`, and `vitest` to their minimum patched releases, cleared the baseline two-high/three-moderate npm audit, and closed #32/#34-#36 automatically as fixed. Pre/post production artifacts are byte-identical, so the affected development tooling does not ship in the browser bundle | #1198/PR #1199; R02 may now consume the reconciled graph |
 | B01 | API container image can build | `implemented` | `services/api/Dockerfile`; `validate:api-docker` | Automatic non-doc PR build validation; local Compose build command exists; image filesystem is the artifact | #1185/#380; build is not deployment |
 | B02 | GHCR publication and tags | `implemented` | `.github/workflows/api-image-ghcr.yml` | `main`, `v*`, and dispatch publish `sha-<40-sha>` plus `main`, tag, or input tag. Run [34480120543](https://github.com/tommytang213/Settleora/actions/runs/34480120543) published baseline SHA and digest `sha256:7052b043cb13698ef8aa638d78b6b18288ccd33fa5a81efc951026f0409c3b1f` | #380; `main` is floating and publication is not promotion/deployment |
 | B03 | Local development Compose package | `implemented` | `infra/docker-compose.yml`; `infra/env/.env.example` | `validate:compose` is automatic for non-doc PRs; builds API plus PostgreSQL/RabbitMQ, but exposes dependency ports and is explicitly development-only | #380; not a supported production package |
@@ -284,6 +286,20 @@ All entries below are future gates, not blockers to this documentation audit.
   TestFlight installation or store action ran. R06 and #975 retain that
   external/manual evidence.
 
+### #1198 R10 user-web dependency-alert remediation
+
+- [PR #1199](https://github.com/tommytang213/Settleora/pull/1199) changed only
+  `apps/web-user/package-lock.json`, moving Browserslist and
+  baseline-browser-mapping to `4.28.7`/`2.11.0` and the exact-coupled Vitest
+  family to `4.1.11`; Nano ID also moved to its minimum independent audit patch.
+- Clean install/audit, dependency-path and registry-integrity proof, 139 tests,
+  production build, root checks, fresh Gemini/local/GitHub Codex reviews, and
+  all hosted checks/scanners passed on reviewed source `439cbe7f...`.
+- The vulnerable and patched lock graphs produce byte-identical three-file
+  browser artifacts. The packages remain build/test-host execution risk, not
+  shipped browser runtime. Dependabot #32/#34-#36 closed automatically as fixed
+  on merge `5fc71269...`; dismissal/suppression fields remain null.
+
 ### Earlier release-readiness work
 
 - #381-#383 are closed for their checklist/planning scopes. PR #482 merged the
@@ -365,7 +381,7 @@ Recommendation IDs are audit outputs only; no child issue is created here.
 | R07 — **new focused recommendation plus later manual acceptance:** Android application identity/signing/store plan | After R01, select non-placeholder application ID, secure signing boundary, AAB output, and manual Play acceptance plan. Non-goals: commit keys, upload, public release | Identity, keystore, Play Console, tester/store manual gates | `mobile-build-config` for repo-safe config; external release action later | release AAB identity/signature inspection, no-secret scan, provider/device evidence; strong security/release review | Repository slice closes with approved external-secret contract and reproducible signed-build handoff; store evidence closes only after explicit manual action. Depends on R01 |
 | R08 — **new focused recommendation:** user-web serving package | Add a non-production serving/deployment package only after the user surface has required runtime/auth/privacy readiness. Non-goals: infer readiness from Vite, deploy, expose publicly, or absorb product work | Auth/security, storage/privacy, deployment/exposure gates | deployment lane; focused user-web serving/package paths | product tests/visual acceptance first, then container/static-host validation; strong review | Close on a reproducible unpublished package and private smoke plan after #373’s protected-route/product prerequisites and R02 build/package CI |
 | R09 — **new focused manual/external recommendation:** final environment/network activation | Define/approve any staging/production deployment and any DNS/TLS/proxy activation only after the relevant domain reviews and R12 private baseline. Non-goals: automatic promotion, public default, or duplicating auth/admin review | Production, network, secrets, auth/security, storage/privacy, destructive migration | manual deployment/security lane | threat/exposure review, exact artifacts, backup/rollback, health/smoke, disable path | R12 closes the private baseline first; #777 must close the auth public-exposure review; user/admin product prerequisites must close; #485 is the completed planning baseline. Final activation closes only with explicit human approval and live evidence; #380 stays the umbrella and #946 owns later automation |
-| R10 — **new focused recommendation:** current user-web dependency-alert triage | Reconcile Dependabot alerts #32/#34-#36, update the smallest safe web build/test dependency set, and prove whether each advisory affects shipped output. Non-goals: suppress/dismiss alerts, deploy web, or broaden user-web product scope | Dependency/security review; no alert dismissal waiver | `web-user-ui`; `apps/web-user/package.json` and lockfile only unless evidence requires a separately scoped tool change | `npm ci`, `npm audit`, lint/test/build, docs/scaffold, exact alert reread; strong security review | Close only when current alerts are remediated by reviewed dependency updates or separately proven non-applicable through the repository's normal security process; depends only on current main and precedes R02 artifact publication |
+| R10 — **completed by Issue #1198 / PR #1199:** current user-web dependency-alert triage | Smallest lockfile-only update patched `browserslist`, `baseline-browser-mapping`, `@vitest/mocker`, and `vitest`; no product, deployment, serving or suppression scope | Dependency/security review completed; no waiver/dismissal used | `apps/web-user/package-lock.json` only; reviewed source `439cbe7f33edf82f4b7e752c08c32056799fc58d`, normal merge `5fc712695657be51baf54548ecefc1892497fdb7` | clean install/audit, explain/list/integrity, 139 tests, production build and byte-identical artifact comparison, Gemini/local/GitHub reviews, full CI/scanners | #32/#34-#36 closed automatically as fixed; development tooling remains build/test-host risk and is absent from browser output. R02 is unblocked but not started |
 | R11 — **completed by Issue #1189:** stable RabbitMQ persistence identity | Both LAN Compose variants require one explicit stable node hostname/nodename and fail closed before an existing dataset can be masked by a new identity. No deploy, credential, clustering, or application messaging change | Repository Docker/Compose and persisted-data review completed; any real-host exercise remains separately manual | [PR #1190](https://github.com/tommytang213/Settleora/pull/1190); two LAN Compose files, example env, entrypoint, focused validator/runbook | Clean and repeated recreate, durable queue/message, pre-change direct discovery/adoption, missing/wrong/multiple/ambiguous refusal, health, Compose/full CI, Gemini/local/GitHub Codex | Completed from source `231cc64a3f481be556f09ff213807a48c704f878`, tree `2199949a64b9ca9bd9678f3c8be005f6ab6454db`, normal merge `861d5ef1c9462e04eca778a1375abce2aa786fd3`; live TrueNAS migration/reset remains manual-gated |
 | R12 — **completed by Issue #1195 / PR #1196:** fail-closed private LAN bind and mobile-safe transport | Both LAN variants require an RFC1918 interface, publish only exact-host HTTPS through Caddy, isolate the proxy from backend dependencies, and require operator-external trusted TLS material. Mobile retains strict platform trust and declares Android network/iOS local-network access | Repository network/TLS/security review completed; all live DNS/certificate/host/device actions remain manual | PR #1196 source `849c5695fc5e90eddf788777cab588ab9e90c784`, tree `91e414b4d58b8640124e34bb35f0c168cc0d4ca5`, normal merge `43a828b9e5172069a00e80928069e815ae0dec9e`; LAN Compose/env/Caddy/tests/runbooks plus mobile platform declarations | fail-closed matrices, aligned Compose JSON, disposable trusted HTTPS readiness, R11 regressions, mobile validation, Gemini/local/GitHub security review | Repository contract complete; R05 owns real private DNS, certificate, TrueNAS and physical-device proof, while R09 owns any wider exposure. No public/admin activation or secret material is included |
 | R13 — **new focused recommendation after #964:** admin-web serving package | Add an unpublished private serving package only after #964 has split and the resulting focused admin runtime/auth prerequisites are complete. Non-goals: build the admin product, change auth/API, deploy, or expose publicly | Admin auth/security, storage/privacy, deployment/exposure gates | deployment lane; future focused admin serving/package paths | completed product tests/visual/authz evidence first, then package/render/private-smoke validation; strong security/deployment review | Close on a reproducible unpublished private package after #964's reconciled runtime graph; #376 remains the umbrella and completed/planning issues are dependencies, not execution owners |
@@ -382,9 +398,10 @@ Recommendation IDs are audit outputs only; no child issue is created here.
    #373 remains its product umbrella; #964 must reconcile the #376 admin runtime
    graph before R13; broader mobile/product owners complete independently of
    release infrastructure.
-3. **New focused repository recommendations:** R10 dependency-alert
-   remediation; then R02 additive user-web build/package CI; then R03 release
-   identity with infrastructure digests; then R04 unpublished catalog skeleton.
+3. **New focused repository recommendations:** completed R10 supplies the
+   reconciled dependency graph; next is R02 additive user-web build/package CI,
+   then R03 release identity with infrastructure digests, then R04 unpublished
+   catalog skeleton.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
    signed/TestFlight/device, R07 Android identity/signing/Play/device, and R09
    any production/exposure action; #975 consumes the final evidence.
@@ -396,7 +413,7 @@ Dependency summary:
 ```text
 completed #1189/R11 --------+---------------------------> R04 -> R05 --+
 completed #1195/R12 --------+---------------------------> R04 -> R05 --+--> #975
-R10 alerts -> R02 web package -> R03 identity ----------> R04 --------+
+completed R10 -> R02 web package -> R03 identity -------> R04 --------+
 #970 adopt/split -> R01 Android compile -> R03/R07 -------------------+
 #373 user web -> R08; #964 -> admin runtime -> R13 -------------------+
 R12 + domain reviews -> R09 production/exposure ---------------------+
@@ -405,11 +422,11 @@ complete Day 1 + #975 acceptance -------------------------------> #946 (later da
 
 ### First dependency-safe next logical task for GPT review
 
-Select **R10's current user-web dependency-alert triage for GPT review**. R12's
-repository contract is complete; R10 depends only on current main and precedes
-R02 artifact publication. It must not dismiss/suppress alerts or broaden into
-deployment or product work. #970 independently controls R01 without touching
-#959, while R04 still waits for R03 as well as completed R12.
+Select **R02's additive user-web CI build/package lane for GPT review**. R10's
+dependency graph is reconciled and its alerts closed without dismissal; R02 can
+now add automatic build/package evidence without deploying or serving the web.
+#970 independently controls R01 without touching #959, while R04 still waits
+for R03 as well as completed R12.
 
 ## 13. Final Day 1 readiness statement
 
