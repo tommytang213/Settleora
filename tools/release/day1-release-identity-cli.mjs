@@ -548,6 +548,7 @@ export function main(argv = process.argv.slice(2)) {
     if (!options.input || !options.output || !options.flutter) throw new Error('assemble requires --input, --output and --flutter');
     const supplied = safeInput(options.input, 'Evidence input');
     const candidateRoot = canonicalCandidateDirectory(supplied);
+    assertOwnedEvidenceDirectory(candidateRoot);
     const androidRoot = path.join(candidateRoot, 'android');
     const webRoot = path.join(candidateRoot, 'web');
     const notesPath = path.join(candidateRoot, 'release-notes.md');

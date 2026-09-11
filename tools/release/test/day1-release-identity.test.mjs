@@ -269,6 +269,17 @@ test('binds migration bytes to the initially captured source commit', (t) => {
   assert.throws(() => collectMigrations(f.root, undefined, f.commit), /captured source blob/);
 });
 
+test('migration inventory includes normalized nested source paths', (t) => {
+  const f = fixture(t);
+  const root = 'services/api/src/Settleora.Api/Persistence/Migrations';
+  write(f.root, `${root}/nested/20260103000000_Nested.cs`, '[Migration("20260103000000_Nested")]\n');
+  git(f.root, ['add', `${root}/nested/20260103000000_Nested.cs`]);
+  git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'nested migration fixture']);
+  const migrations = collectMigrations(f.root);
+  assert.equal(migrations.count, 3);
+  assert.equal(migrations.entries.at(-1).files[0].path, `${root}/nested/20260103000000_Nested.cs`);
+});
+
 test('migration attribute parsing ignores comments and string literals', () => {
   const active = '20260101000000_Active';
   assert.deepEqual(migrationAttributeIds([

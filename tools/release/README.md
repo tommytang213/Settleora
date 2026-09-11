@@ -30,9 +30,11 @@ node tools/release/day1-release-identity-cli.mjs collect-android \
 ```
 
 For the end-to-end candidate flow, start with no canonical `android/` directory;
-`assemble` creates it and performs both builds itself:
+create the candidate directory privately, then `assemble` creates the retained
+evidence and performs both builds itself:
 
 ```bash
+install -d -m 700 /workspace/logs/settleora-release-candidates/<candidate-id>
 node tools/release/day1-release-identity-cli.mjs assemble \
   --input /workspace/logs/settleora-release-candidates/<candidate-id>/inputs.json \
   --output /workspace/logs/settleora-release-candidates/<candidate-id>/release-identity-manifest.json \

@@ -289,16 +289,20 @@ export function validateRegistryRevision(image, imageDocument, expectedRevision,
 export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git(repoRoot, ['rev-parse', 'HEAD'])) {
   const relativeRoot = 'services/api/src/Settleora.Api/Persistence/Migrations';
   sha40(capturedCommit, 'migration captured source commit');
-  const names = execFileSync('git', ['ls-tree', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
+  const names = execFileSync('git', ['ls-tree', '-r', '-z', '--name-only', `${capturedCommit}:${relativeRoot}`], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] })
     .toString('utf8').split('\0').filter(Boolean);
-  const unexpected = names.filter((name) => name.endsWith('.cs') && name !== 'SettleoraDbContextModelSnapshot.cs' && !/^(\d{14}_[A-Za-z0-9_]+)(?:\.Designer)?\.cs$/u.test(name));
+  const unexpected = names.filter((name) => {
+    const basename = path.posix.basename(name);
+    return name.endsWith('.cs') && basename !== 'SettleoraDbContextModelSnapshot.cs' && !/^(\d{14}_[A-Za-z0-9_]+)(?:\.Designer)?\.cs$/u.test(basename);
+  });
   if (unexpected.length) fail(`Unrecognized migration source files: ${unexpected.join(', ')}`);
   const ids = names
     .filter((name) => !name.endsWith('.Designer.cs'))
-    .map((name) => MIGRATION_FILE.exec(name)?.[1])
+    .map((name) => MIGRATION_FILE.exec(path.posix.basename(name))?.[1])
     .filter(Boolean)
     .sort();
   if (ids.length === 0) fail('No repository migrations found');
+  if (new Set(ids).size !== ids.length) fail('Duplicate migration IDs exist in repository source');
   const runtimeIds = new Set();
   for (const name of names.filter((candidate) => candidate.endsWith('.cs'))) {
     const text = exactTrackedFile(repoRoot, `${relativeRoot}/${name}`, `migration source ${name}`, capturedCommit).bytes.toString('utf8');
@@ -307,7 +311,7 @@ export function collectMigrations(repoRoot, expectedDigest, capturedCommit = git
   if (canonicalJson([...runtimeIds].sort()) !== canonicalJson(ids)) fail('Migration filename inventory differs from EF runtime migration attributes');
   const entries = ids.map((id) => ({
     id,
-    files: [`${id}.cs`, `${id}.Designer.cs`].filter((name) => names.includes(name)).sort().map((name) => {
+    files: names.filter((name) => path.posix.basename(name) === `${id}.cs` || path.posix.basename(name) === `${id}.Designer.cs`).sort().map((name) => {
       const relative = `${relativeRoot}/${name}`;
       const file = exactTrackedFile(repoRoot, relative, `migration ${id}`, capturedCommit);
       return { path: relative, sha256: sha256(file.bytes), size: file.size };

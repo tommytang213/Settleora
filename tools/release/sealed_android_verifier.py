@@ -203,7 +203,7 @@ def sealed_executable_snapshot(source_descriptor: int) -> tuple[int, str]:
         os.close(source_fd)
 
 
-def preflight_aab(descriptor: int) -> None:
+def preflight_aab(descriptor: int) -> int:
     metadata = os.fstat(descriptor)
     tail_size = min(metadata.st_size, 65_557)
     tail = os.pread(descriptor, tail_size, metadata.st_size - tail_size)
@@ -232,6 +232,11 @@ def preflight_aab(descriptor: int) -> None:
         if len(central) - position < 46 or central[position:position + 4] != b"PK\x01\x02":
             raise ValueError("Android bundle central directory is malformed")
         name_size, extra_size, comment_size = struct.unpack_from("<HHH", central, position + 28)
+        entry_name = central[position + 46:position + 46 + name_size]
+        if any(byte < 0x20 or byte == 0x7F for byte in entry_name):
+            raise ValueError("Android bundle entry path contains control characters")
+        if entry_name.startswith(b"/") or b"\\" in entry_name or any(part in (b"", b".", b"..") for part in entry_name.rstrip(b"/").split(b"/")):
+            raise ValueError("Android bundle entry path is not a canonical relative path")
         position += 46 + name_size + extra_size + comment_size
         parsed_entries += 1
         if parsed_entries > MAX_VERIFIER_ENTRIES or position > len(central):
@@ -252,6 +257,7 @@ def preflight_aab(descriptor: int) -> None:
                 raise ValueError("Android bundle exceeds its aggregate expanded-size limit")
     if count != total_entries:
         raise ValueError("Android bundle central-directory entry count changed during inspection")
+    return total_entries
 
 
 def main() -> None:
@@ -272,8 +278,7 @@ def main() -> None:
             tool_descriptors.append(tool_descriptor)
             if observed_digest != expected_digest:
                 raise ValueError("Android verifier tool snapshot differs from its trusted bytes")
-        if arguments.kind == "aab":
-            preflight_aab(descriptor)
+        expected_aab_entries = preflight_aab(descriptor) if arguments.kind == "aab" else None
         held_path = f"/proc/self/fd/{descriptor}"
         result: dict[str, object] = {"size": size, "sha256": digest}
         if arguments.kind == "apk":
@@ -286,6 +291,8 @@ def main() -> None:
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.jarsigner.Main", "-verify", "-verbose", "-certs", held_path],
                 (descriptor,),
             ))
+            if result["contentEntryCount"] != expected_aab_entries:
+                raise ValueError("Android jarsigner entry inventory differs from the sealed ZIP directory")
             certificate = run(
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.keytool.Main", "-printcert", "-jarfile", held_path],
                 (descriptor,),
