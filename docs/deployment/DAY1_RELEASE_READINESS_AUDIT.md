@@ -29,13 +29,14 @@ release**. Automatic pull-request routing is implemented and credited to
 built and is published to GHCR on `main`; source-build and image-based LAN
 Compose packages exist; a historical maintainer-run TrueNAS SCALE `25.10.4`
 custom-app check passed bounded migration, liveness, and readiness checks. The
-user web produces a Vite `dist` build locally, and Android produces a debug APK.
+user web produces exact-source CI build/package evidence with a deterministic
+`dist` manifest and retained artifact, and Android produces a debug APK.
 
 Those facts do not close the release gate. The Android release build currently
 fails in R8 on missing ML Kit recognizer classes. Android still has a placeholder
-application ID and debug release signing. User-web build/package validation is
-not in automatic GitHub CI and no web serving/deployment package exists. Admin
-web has no application package. The TrueNAS catalog, automated install/upgrade,
+application ID and debug release signing. User-web serving/deployment and its
+product/auth prerequisites remain absent despite automatic build/package CI.
+Admin web has no application package. The TrueNAS catalog, automated install/upgrade,
 backup-before-upgrade, and tested restore/rollback paths do not exist. The LAN
 package now has a stable, fail-closed RabbitMQ persistence identity through
 [#1189](https://github.com/tommytang213/Settleora/issues/1189). Issue
@@ -47,8 +48,8 @@ remain R05. iOS signing, App Store Connect processing, and TestFlight
 availability/install remain external/manual; current TrueNAS acceptance is
 blocked on the repository gaps, and production/staging exposure is unavailable.
 
-With the #1195 R12, #1198 R10 and #1201 mobile-portability repository slices, the 69 evaluated
-capabilities comprise 25 `implemented`, 18 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
+With the #1195 R12, #1198 R10, #1201 mobile-portability and #1205 R02 repository slices, the 69 evaluated
+capabilities comprise 26 `implemented`, 17 `partial`, 7 `documentation-only`, 5 `externally-gated`, 5
 `unavailable`, 7 `blocked`, 1 `superseded`, and 1 `later-day`.
 
 Method:
@@ -471,8 +472,9 @@ Recommendation IDs are audit outputs only; no child issue is created here.
    release infrastructure.
 3. **New focused repository recommendations:** completed R10 supplies the
    reconciled dependency graph and completed R02 supplies deterministic
-   user-web package evidence; next is R03 release identity with infrastructure
-   digests, then R04 unpublished catalog skeleton.
+   user-web package evidence. Open #970 must next adopt or split R01's Android
+   release-build gap; after R01, R03 release identity can bind the Android and
+   web entries, followed by the R04 unpublished catalog skeleton.
 4. **External/manual acceptance:** R05 TrueNAS upgrade/restore/rollback, R06 iOS
    signed/TestFlight/device, R07 Android identity/signing/Play/device, and R09
    any production/exposure action; #975 consumes the final evidence.
@@ -493,16 +495,17 @@ complete Day 1 + #975 acceptance -------------------------------> #946 (later da
 
 ### First dependency-safe next logical task for GPT review
 
-Select **R03's Day 1 release identity manifest for GPT review**. R02 now supplies
-exact-source web checksums and retained package evidence without deploying or
-serving the web. #970 independently controls R01 without touching #959, while
-R04 still waits for R03 as well as completed R12. Autonomous queue activation
-remains disabled, so R03 was not started by the R02 task.
+Select **#970's reconciliation/adoption or focused split of R01's Android
+release-build gap for GPT review**. R02 now supplies exact-source web checksums
+and retained package evidence without deploying or serving the web, but R03's
+declared close rule also requires R01's Android entry. After #970 and R01,
+proceed to R03 and then R04. Autonomous queue activation remains disabled, so
+neither the prerequisite nor R03 was started by the R02 task.
 
 ## 13. Final Day 1 readiness statement
 
 The repository has credible automatic CI, API image publication, LAN Compose
-foundations, guarded migration ordering, a local user-web build, a debug Android
+foundations, guarded migration ordering, source-bound user-web package evidence, a debug Android
 build, and an iOS simulator compile path. It does **not** yet have a complete
 Day 1 release candidate: Android release packaging is broken; web/admin package
 and deployment boundaries are incomplete; release identity/retention is partial;
