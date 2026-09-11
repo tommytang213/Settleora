@@ -211,7 +211,7 @@ close rule, and dependency order from section 11. `Local / automatic / artifact
 
 | Concern | Repository state | Evidence state | Remaining gate |
 | --- | --- | --- | --- |
-| Linux validity | root `validate:mobile` and portable Flutter test fonts | automatic/pass on #1202 for reviewed head `f5e2802a...`; 1,059 tests and no `/opt/flutter` compatibility alias | PR-validity evidence; not a signed/released artifact identity |
+| Linux validity | root `validate:mobile` and portable Flutter test fonts | automatic/pass on #1202 synthetic merge `f7d73d30...`, whose tree `483f0952...` equals reviewed source `f5e2802a...`; 1,059 tests and no `/opt/flutter` compatibility alias | PR-validity evidence; not a signed/released artifact identity |
 | iOS simulator | exact-head GitHub-hosted macOS font proof and build | automatic/pass on #1202 source `f5e2802a...` | proves SDK/font portability plus simulator compile, not signing/device evidence |
 | Android debug | Flutter Gradle project | local pass on audit baseline | not a release artifact |
 | Android release | Flutter/Gradle | R8 failure; debug signing and placeholder app ID | R01, then signing/store R07 |
