@@ -130,23 +130,32 @@ export function parseSingleApkSigner(output) {
   return certificate;
 }
 
-function sealedAndroidVerification(kind, artifact, toolDirectories) {
+function sealedAndroidVerification(kind, artifact, toolPaths) {
   const helper = path.join(repoRoot, 'tools/release/sealed_android_verifier.py');
   const absolute = path.resolve(artifact);
   let descriptor;
+  const toolDescriptors = [];
   let result;
   try {
     descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
     const opened = fstatSync(descriptor);
     const current = lstatSync(absolute);
     if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute) throw new Error(`Android ${kind.toUpperCase()} artifact path is not stable`);
+    for (const toolPath of toolPaths) {
+      const toolDescriptor = openSync(toolPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const toolOpened = fstatSync(toolDescriptor);
+      const toolCurrent = lstatSync(toolPath);
+      if (!toolOpened.isFile() || toolCurrent.isSymbolicLink() || toolCurrent.dev !== toolOpened.dev || toolCurrent.ino !== toolOpened.ino || realpathSync(toolPath) !== toolPath) throw new Error(`Android ${kind.toUpperCase()} verifier executable changed before use`);
+      toolDescriptors.push(toolDescriptor);
+    }
     result = JSON.parse(execFileSync('/usr/bin/python3', [helper, kind], {
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe', descriptor],
-      env: { PATH: [...toolDirectories, '/usr/bin'].join(':'), LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+      stdio: ['ignore', 'pipe', 'pipe', descriptor, ...toolDescriptors],
+      env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
       maxBuffer: 4 * 1024 * 1024,
     }));
   } finally {
+    for (const toolDescriptor of toolDescriptors) closeSync(toolDescriptor);
     if (descriptor !== undefined) closeSync(descriptor);
   }
   if (!Number.isSafeInteger(result.size) || result.size < 1 || !/^[0-9a-f]{64}$/u.test(result.sha256)) throw new Error(`Android ${kind.toUpperCase()} sealed snapshot identity is invalid`);
@@ -164,13 +173,13 @@ export function verifyAndroidSignature(input, options) {
     .at(-1);
   const apksigner = path.join(sdkRoot, 'build-tools', version ?? '', 'apksigner');
   const tool = trustedTool(apksigner, 'apksigner', 'Android apksigner');
-  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [path.dirname(tool)]);
+  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [tool]);
   const certificate = parseSingleApkSigner(apkObservation.verificationOutput);
   const apk = { size: apkObservation.size, sha256: apkObservation.sha256 };
   const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
-  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [path.dirname(jarsigner)]);
+  const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [jarsigner, keytool]);
   const aab = { size: aabObservation.size, sha256: aabObservation.sha256 };
   if (aabObservation.jarVerified !== true || aabObservation.contentEntryCount < 1 || aabObservation.unsignedEntryCount !== 0) throw new Error('Android AAB contains unsigned entries');
   if (aabObservation.certificateDigests?.length !== 1 || aabObservation.certificateDigests[0] !== certificate || aabObservation.signerNames?.length !== 1 || !aabObservation.signerNames[0].includes('CN=Android Debug')) {
