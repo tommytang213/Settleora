@@ -15,13 +15,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const shaPattern = /^[0-9a-f]{40}$/;
 const unsafePathPatterns = [
-  /(^|\/)(\.env(?:\.[^/]+)?|\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.(?:map|pem|key|p12|pfx))$/i,
+  /(^|\/)\.env($|[./-])/i,
+  /(^|\/)(?:secrets?|credentials?|tokens?|ssh|private[-_]?keys?)(?:\/|$)/i,
+  /(^|\/)[^/]*private[-_]?key[^/]*$/i,
+  /(^|\/)(\.npmrc|\.yarnrc(?:\.yml)?|\.pnpmrc|\.netrc|\.pypirc|\.git-credentials|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.(?:map|pem|key|p12|pfx))$/i,
   /(^|\/)(?:\.ssh|\.aws|\.azure|\.config\/gcloud)(?:\/|$)/i,
 ];
 const unsafeContentPatterns = [
   /-----BEGIN [^-\r\n]*PRIVATE KEY[^-\r\n]*-----/,
   /\bAKIA[0-9A-Z]{16}\b/,
+  /\bAIza[0-9A-Za-z_-]{24,}\b/,
+  /\bsk-[A-Za-z0-9]{20,}\b/,
   /\b(?:gh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/,
+  /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/,
   /["'](?:client_secret|private_key|refresh_token)["']\s*:/i,
   /(?::_authToken|_auth|npmAuthToken)\s*[:=]\s*[^\s"']+/i,
   /(?:\/workspace\/(?:repos|logs)\/|\/home\/[^/\s]+\/(?:work|workspace|repos)\/|\/Users\/[^/\s]+\/(?:work|workspace|repos)\/|[A-Za-z]:\\Users\\[^\\\s]+\\(?:work|workspace|repos)\\)/,
@@ -90,8 +96,10 @@ function scanPublicArtifact(files) {
         && typeof candidate === 'object'
         && !Array.isArray(candidate)
         && Number.isInteger(candidate.version)
-        && Array.isArray(candidate.sources)
-        && typeof candidate.mappings === 'string'
+        && (
+          (Array.isArray(candidate.sources) && typeof candidate.mappings === 'string')
+          || Array.isArray(candidate.sections)
+        )
       ) {
         throw new Error(`Source-map payload is not allowed in public artifact: ${file.path}`);
       }

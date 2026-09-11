@@ -85,7 +85,16 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
       path.join(f.dist, 'assets/source.txt'),
       JSON.stringify({ version: 3, sources: ['src/main.ts'], sourcesContent: ['secret source'], names: [], mappings: 'AAAA' }),
     ), /Source-map payload/],
+    ['indexed source map payload', (f) => writeFileSync(
+      path.join(f.dist, 'assets/indexed.txt'),
+      JSON.stringify({ version: 3, sections: [{ offset: { line: 0, column: 0 }, map: { version: 3, sources: ['src/main.ts'], mappings: 'AAAA' } }] }),
+    ), /Source-map payload/],
     ['credentials', (f) => writeFileSync(path.join(f.dist, 'credentials.json'), '{}'), /Unsafe public artifact path/],
+    ['generic secret directory', (f) => {
+      mkdirSync(path.join(f.dist, 'secrets'));
+      writeFileSync(path.join(f.dist, 'secrets/token.bin'), 'opaque');
+    }, /Unsafe public artifact path/],
+    ['private key filename', (f) => writeFileSync(path.join(f.dist, 'account-private-key.dat'), 'opaque'), /Unsafe public artifact path/],
     ['npm credential file', (f) => writeFileSync(path.join(f.dist, '.npmrc'), 'registry=https://example.invalid'), /Unsafe public artifact path/],
     ['private key', (f) => writeFileSync(
       path.join(f.dist, 'material.txt'),
@@ -114,6 +123,18 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['fine-grained GitHub token', (f) => writeFileSync(
       path.join(f.dist, 'token.txt'),
       ['github_pat_', '11AA22BB33CC44DD55EE66FF77'].join(''),
+    ), /Potential sensitive/],
+    ['Google API key', (f) => writeFileSync(
+      path.join(f.dist, 'token.txt'),
+      ['AIza', '11AA22BB33CC44DD55EE66FF77'].join(''),
+    ), /Potential sensitive/],
+    ['OpenAI API key', (f) => writeFileSync(
+      path.join(f.dist, 'token.txt'),
+      ['sk-', '11AA22BB33CC44DD55EE66FF77'].join(''),
+    ), /Potential sensitive/],
+    ['Slack token', (f) => writeFileSync(
+      path.join(f.dist, 'token.txt'),
+      ['xoxb-', '11AA22BB33CC44DD55EE66FF77'].join(''),
     ), /Potential sensitive/],
     ['host path', (f) => writeFileSync(path.join(f.dist, 'path.txt'), '/workspace/repos/project'), /Potential sensitive/],
   ];
