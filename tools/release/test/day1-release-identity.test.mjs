@@ -17,7 +17,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, canonicalAndroidInput, safeInput } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, canonicalAndroidInput, canonicalManifestPath, safeInput } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 
@@ -205,6 +205,10 @@ test('rejects web source and Android artifact mismatches', (t) => {
   writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
   assert.throws(() => buildManifest(f.root, f.input), /User-web source\/tree mismatch/);
   web.source.commit = f.commit;
+  web.dependencyLock.lockfileVersion = 2;
+  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  assert.throws(() => buildManifest(f.root, f.input), /lockfile version mismatch/);
+  web.dependencyLock.lockfileVersion = 3;
   writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
   write(f.evidenceRoot, 'dist/omitted.js', 'omitted\n');
   assert.throws(() => buildManifest(f.root, f.input), /file list is incomplete/);
@@ -290,6 +294,9 @@ test('preserves expected Android identities and derives retained canonical paths
   assert.throws(() => canonicalAndroidInput(traversal, signature), /single safe evidence-directory name/);
   const nested = { ...input, source: { ...input.source, candidateId: 'nested/name' }, retention: { ...input.retention, canonicalEvidenceDirectory: '/workspace/logs/settleora-release-candidates/nested/name' } };
   assert.throws(() => canonicalAndroidInput(nested, signature), /single safe evidence-directory name/);
+  const manifestPath = `${input.retention.canonicalEvidenceDirectory}/release-identity-manifest.json`;
+  assert.equal(canonicalManifestPath(input, manifestPath), manifestPath);
+  assert.throws(() => canonicalManifestPath(input, `${f.evidenceRoot}/manifest-copy.json`), /canonical retained candidate manifest/);
 });
 
 test('safe inputs reject URL query credentials and completion rejects untracked files', (t) => {

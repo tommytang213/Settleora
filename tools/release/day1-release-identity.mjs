@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
+  closeSync,
+  constants,
+  fstatSync,
   lstatSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
-  statSync,
 } from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -164,10 +167,21 @@ function exactRegularFile(candidate, label, allowedRoot) {
     cursor = path.dirname(cursor);
   }
   if (!lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink()) fail(`${label} root must be a real directory`);
-  const metadata = statSync(absolute);
-  if (!metadata.isFile()) fail(`${label} must be a regular file`);
-  if (realpathSync(absolute) !== absolute) fail(`${label} must resolve without indirection`);
-  return { absolute, bytes: readFileSync(absolute), size: metadata.size };
+  let descriptor;
+  try {
+    descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const metadata = fstatSync(descriptor);
+    if (!metadata.isFile()) fail(`${label} must be a regular file`);
+    const bytes = readFileSync(descriptor);
+    const current = lstatSync(absolute);
+    if (current.isSymbolicLink() || current.dev !== metadata.dev || current.ino !== metadata.ino || realpathSync(absolute) !== absolute) {
+      fail(`${label} changed or resolved through indirection while being read`);
+    }
+    if (bytes.length !== metadata.size) fail(`${label} changed size while being read`);
+    return { absolute, bytes, size: bytes.length };
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
 }
 
 function git(root, args) {
@@ -292,6 +306,13 @@ function collectWeb(repoRoot, input, source) {
   if (manifest.dependencyLock?.path !== 'apps/web-user/package-lock.json' || manifest.dependencyLock?.sha256 !== sha256(lock.bytes)) {
     fail('User-web dependency lock mismatch');
   }
+  let lockfileVersion;
+  try {
+    lockfileVersion = JSON.parse(lock.bytes).lockfileVersion;
+  } catch {
+    fail('User-web dependency lock is not valid JSON');
+  }
+  if (manifest.dependencyLock?.lockfileVersion !== lockfileVersion) fail('User-web dependency lockfile version mismatch');
   hexDigest(manifest.artifact?.treeSha256, 'userWeb treeSha256');
   hexDigest(manifest.dependencyLock?.sha256, 'userWeb dependency lock SHA-256');
   if (!Number.isSafeInteger(manifest.artifact.fileCount) || manifest.artifact.fileCount < 1) fail('Invalid user-web file count');

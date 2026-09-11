@@ -53,6 +53,9 @@ stale Android binaries. Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
 AAB debug certificate. Validation always recollects source, registry, web,
 migration and retained Android evidence; digest-only validation is intentionally absent.
+Android collection is staged under the private candidate directory and removed
+on assembly failure before promotion to canonical evidence. Validation accepts
+only that candidate's canonical retained `release-identity-manifest.json`.
 
 The migration section describes repository source only and deliberately never
 claims that migrations are applied. A prior API artifact is availability

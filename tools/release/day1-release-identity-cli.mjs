@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { constants, copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { constants, copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -240,6 +240,13 @@ function canonicalCandidateDirectory(input) {
   return expected;
 }
 
+export function canonicalManifestPath(input, candidate) {
+  const expected = path.join(canonicalCandidateDirectory(input), 'release-identity-manifest.json');
+  const actual = path.resolve(candidate);
+  if (actual !== expected) throw new Error('Validation manifest must be the canonical retained candidate manifest');
+  return actual;
+}
+
 export function canonicalAndroidInput(input, signature) {
   return collectedAndroidInput(input, path.join(canonicalCandidateDirectory(input), 'android'), signature);
 }
@@ -258,21 +265,40 @@ export function main(argv = process.argv.slice(2)) {
   } else if (options.command === 'assemble') {
     if (!options.input || !options.output || !options.flutter) throw new Error('assemble requires --input, --output and --flutter');
     const supplied = safeInput(options.input, 'Evidence input');
-    const androidRoot = path.join(canonicalCandidateDirectory(supplied), 'android');
-    collectAndroid({ ...options, output: androidRoot }, false);
-    const unsignedInput = collectedAndroidInput(supplied, androidRoot, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
-    const signature = verifyAndroidSignature(unsignedInput, options);
-    const input = collectedAndroidInput(supplied, androidRoot, signature);
-    const manifest = buildManifest(repoRoot, input);
-    verifyLiveRegistry(input);
-    assertCleanCompletion(repoRoot, 'Source changed before final manifest write');
-    const output = safeOutput(input, options.output);
-    assertOwnedEvidenceDirectory(path.dirname(output));
-    writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
-    process.stdout.write(`${JSON.stringify({ status: 'assembled', identityDigest: manifest.identityDigest, output })}\n`);
+    const candidateRoot = canonicalCandidateDirectory(supplied);
+    const androidRoot = path.join(candidateRoot, 'android');
+    if (lstatSync(androidRoot, { throwIfNoEntry: false })) throw new Error('Canonical Android evidence directory must not already exist');
+    const stagingRoot = path.join(candidateRoot, `.android-staging-${randomUUID()}`);
+    let promoted = false;
+    let completed = false;
+    try {
+      collectAndroid({ ...options, output: stagingRoot }, false);
+      const unsignedInput = collectedAndroidInput(supplied, stagingRoot, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
+      const signature = verifyAndroidSignature(unsignedInput, options);
+      const input = collectedAndroidInput(supplied, stagingRoot, signature);
+      const manifest = buildManifest(repoRoot, input);
+      verifyLiveRegistry(input);
+      assertCleanCompletion(repoRoot, 'Source changed before final manifest write');
+      const output = safeOutput(input, options.output);
+      assertOwnedEvidenceDirectory(path.dirname(output));
+      if (lstatSync(androidRoot, { throwIfNoEntry: false })) throw new Error('Canonical Android evidence directory appeared during assembly');
+      renameSync(stagingRoot, androidRoot);
+      promoted = true;
+      writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
+      completed = true;
+      process.stdout.write(`${JSON.stringify({ status: 'assembled', identityDigest: manifest.identityDigest, output })}\n`);
+    } catch (error) {
+      if (!completed) {
+        const generated = promoted ? androidRoot : stagingRoot;
+        const metadata = lstatSync(generated, { throwIfNoEntry: false });
+        if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(generated, { recursive: true, force: false });
+      }
+      throw error;
+    }
   } else if (options.command === 'validate') {
     if (!options.manifest || !options.input) throw new Error('validate requires --manifest and --input for independent recollection');
     const manifest = validateManifest(safeInput(options.manifest, 'Manifest'));
+    canonicalManifestPath(manifest, options.manifest);
     const supplied = safeInput(options.input, 'Evidence input');
     const unsignedInput = canonicalAndroidInput(supplied, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
     const signature = verifyAndroidSignature(unsignedInput, options);
