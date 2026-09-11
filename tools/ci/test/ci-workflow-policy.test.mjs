@@ -65,6 +65,7 @@ test('user-web lane builds an exact source head and uploads only bounded package
   assert.equal(upload.uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
   assert.equal(upload.with.name, 'user-web-dist-${{ github.event.pull_request.head.sha }}');
   assert.equal(upload.with.path, 'apps/web-user/dist/\napps/web-user/user-web-dist-manifest.json\n');
+  assert.equal(upload.with['include-hidden-files'], true);
   assert.equal(upload.with['if-no-files-found'], 'error');
   assert.equal(upload.with['retention-days'], 14);
   assert.doesNotMatch(JSON.stringify(job), /continue-on-error|npm run dev|vite preview|vite --host|deploy|pages|cloudflare|netlify|vercel/i);

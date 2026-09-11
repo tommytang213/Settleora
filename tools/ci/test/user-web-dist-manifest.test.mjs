@@ -16,6 +16,8 @@ function fixture(t) {
   mkdirSync(path.join(dist, 'assets'), { recursive: true });
   writeFileSync(path.join(dist, 'index.html'), '<!doctype html>\n');
   writeFileSync(path.join(dist, 'assets/app.js'), 'console.log("safe");\n');
+  mkdirSync(path.join(dist, '.well-known'));
+  writeFileSync(path.join(dist, '.well-known/asset.txt'), 'public metadata\n');
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return { root, dist, output: path.join(root, 'manifest.json') };
 }
@@ -27,8 +29,8 @@ test('manifest is stable, sorted, bounded and contains no raw environment', (t) 
   const second = createUserWebDistManifest({ ...f, provenance, expectedSourceSha: 'a'.repeat(40) });
   assert.deepEqual(second, first);
   assert.deepEqual(readFileSync(f.output), firstBytes);
-  assert.deepEqual(first.artifact.files.map((file) => file.path), ['assets/app.js', 'index.html']);
-  assert.equal(first.artifact.fileCount, 2);
+  assert.deepEqual(first.artifact.files.map((file) => file.path), ['.well-known/asset.txt', 'assets/app.js', 'index.html']);
+  assert.equal(first.artifact.fileCount, 3);
   assert.match(first.artifact.treeSha256, /^[0-9a-f]{64}$/);
   assert.equal(first.publicArtifactChecks.sensitiveMaterialScan, 'passed');
   assert.doesNotMatch(firstBytes.toString(), /process\.env|\/tmp\/web-dist-manifest-|PATH|HOME/);
@@ -43,6 +45,22 @@ test('manifest rejects a source mismatch and self-reference', (t) => {
   assert.throws(
     () => createUserWebDistManifest({ ...f, output: path.join(f.dist, 'manifest.json'), provenance }),
     /outside the hashed dist tree/,
+  );
+});
+
+test('manifest rejects symlinked roots and output paths', (t) => {
+  const f = fixture(t);
+  const linkedDist = path.join(f.root, 'linked-dist');
+  symlinkSync(f.dist, linkedDist);
+  assert.throws(
+    () => createUserWebDistManifest({ dist: linkedDist, output: f.output, provenance }),
+    /dist root must not be a symlink/,
+  );
+  const linkedOutput = path.join(f.root, 'linked-manifest.json');
+  symlinkSync(path.join(f.root, 'target.json'), linkedOutput);
+  assert.throws(
+    () => createUserWebDistManifest({ dist: f.dist, output: linkedOutput, provenance }),
+    /output must not be a symlink/,
   );
 });
 
@@ -66,6 +84,14 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['private key', (f) => writeFileSync(
       path.join(f.dist, 'material.txt'),
       ['-----BEGIN ', 'PRIVATE KEY-----'].join(''),
+    ), /Potential sensitive/],
+    ['encrypted private key', (f) => writeFileSync(
+      path.join(f.dist, 'material.txt'),
+      ['-----BEGIN ENCRYPTED ', 'PRIVATE KEY-----'].join(''),
+    ), /Potential sensitive/],
+    ['inline source map', (f) => writeFileSync(
+      path.join(f.dist, 'inline.js'),
+      ['//# sourceMappingURL=', 'data:application/json;base64,e30='].join(''),
     ), /Potential sensitive/],
     ['host path', (f) => writeFileSync(path.join(f.dist, 'path.txt'), '/workspace/repos/project'), /Potential sensitive/],
   ];

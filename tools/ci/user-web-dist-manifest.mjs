@@ -16,11 +16,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const shaPattern = /^[0-9a-f]{40}$/;
 const unsafePathPattern = /(^|\/)(\.env(?:\.|$)|(?:credentials?|secrets?)\.(?:json|ya?ml|txt)|[^/]+\.(?:map|pem|key|p12|pfx))$/i;
 const unsafeContentPatterns = [
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+  /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,
   /\bAKIA[0-9A-Z]{16}\b/,
   /\bgh(?:p|o|u|s|r)_[A-Za-z0-9]{20,}\b/,
   /["'](?:client_secret|private_key|refresh_token)["']\s*:/i,
   /(?:\/workspace\/|\/home\/[^/\s]+\/|[A-Za-z]:\\Users\\)/,
+  /sourceMappingURL\s*=\s*data:/i,
 ];
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -90,11 +91,18 @@ export function createUserWebDistManifest({
 } = {}) {
   const distAbsolute = path.resolve(dist);
   const outputAbsolute = path.resolve(output);
+  if (lstatSync(distAbsolute).isSymbolicLink()) throw new Error(`User-web dist root must not be a symlink: ${distAbsolute}`);
   if (!statSync(distAbsolute).isDirectory()) throw new Error(`User-web dist is not a directory: ${distAbsolute}`);
   assertInside(realpathSync(path.dirname(distAbsolute)), realpathSync(distAbsolute), 'Dist');
   const outputRelativeToDist = path.relative(distAbsolute, outputAbsolute);
   if (!outputRelativeToDist.startsWith(`..${path.sep}`) && outputRelativeToDist !== '..') {
     throw new Error('Manifest output must remain outside the hashed dist tree');
+  }
+  if (lstatSync(outputAbsolute, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new Error('Manifest output must not be a symlink');
+  }
+  if (!provenance && git(['status', '--porcelain=v1', '--untracked-files=no'])) {
+    throw new Error('Tracked build inputs changed after checkout');
   }
 
   const files = collectFiles(distAbsolute);
@@ -149,6 +157,14 @@ export function createUserWebDistManifest({
   };
   mkdirSync(path.dirname(outputAbsolute), { recursive: true });
   writeFileSync(outputAbsolute, canonicalJson(manifest), { flag: 'w', mode: 0o644 });
+  const verifiedEntries = collectFiles(distAbsolute).map((file) => ({
+    path: file.path,
+    size: file.size,
+    sha256: sha256(readFileSync(file.absolute)),
+  }));
+  if (canonicalJson(verifiedEntries) !== canonicalJson(fileEntries)) {
+    throw new Error('User-web dist changed while package evidence was generated');
+  }
   return manifest;
 }
 
