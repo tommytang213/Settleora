@@ -166,7 +166,13 @@ function assertSystemRuntime(root) {
     const metadata = lstatSync(candidate);
     if (metadata.isSymbolicLink()) {
       if (metadata.uid !== 0) throw new Error('Java runtime symlink is not system-controlled');
-      const target = realpathSync(candidate);
+      let target;
+      try {
+        target = realpathSync(candidate);
+      } catch (error) {
+        if (error?.code === 'ENOENT') return;
+        throw error;
+      }
       const targetMetadata = statSync(target);
       if (targetMetadata.uid !== 0 || (targetMetadata.mode & 0o022) !== 0) throw new Error('Java runtime symlink target is not system-controlled');
       return;
