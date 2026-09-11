@@ -41,6 +41,19 @@ test('manifest is stable, sorted, bounded and contains no raw environment', (t) 
   assert.doesNotMatch(firstBytes.toString(), /process\.env|\/tmp\/web-dist-manifest-|PATH|HOME/);
 });
 
+test('staged package evidence is an isolated exact snapshot', (t) => {
+  const f = fixture(t);
+  const staging = path.join(f.root, 'package-evidence');
+  const manifest = createUserWebDistManifest({ ...f, output: undefined, staging, provenance });
+  writeFileSync(path.join(f.dist, 'index.html'), 'changed after staging\n');
+  assert.equal(readFileSync(path.join(staging, 'dist/index.html'), 'utf8'), '<!doctype html>\n');
+  assert.deepEqual(JSON.parse(readFileSync(path.join(staging, 'user-web-dist-manifest.json'))), manifest);
+  assert.throws(
+    () => createUserWebDistManifest({ ...f, output: undefined, staging, provenance }),
+    /staging path must not already exist/,
+  );
+});
+
 test('manifest rejects a source mismatch and self-reference', (t) => {
   const f = fixture(t);
   assert.throws(
@@ -97,6 +110,7 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['symlink', (f) => symlinkSync(path.join(f.dist, 'index.html'), path.join(f.dist, 'linked.html')), /Symlinks are not allowed/],
     ['malformed', (f) => writeFileSync(path.join(f.dist, 'bad\nname.txt'), 'bad'), /Unsafe dist path/],
     ['source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map'), '{}'), /Unsafe public artifact path/],
+    ['compressed source map', (f) => writeFileSync(path.join(f.dist, 'bundle.js.map.gz'), 'opaque'), /Unsafe public artifact path/],
     ['suffixed dotenv file', (f) => writeFileSync(path.join(f.dist, '.env.production.local'), 'TOKEN=fake'), /Unsafe public artifact path/],
     ['standalone source map payload', (f) => writeFileSync(
       path.join(f.dist, 'assets/source.txt'),
@@ -110,6 +124,10 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
     ['generic secret directory', (f) => {
       mkdirSync(path.join(f.dist, 'secrets'));
       writeFileSync(path.join(f.dist, 'secrets/token.bin'), 'opaque');
+    }, /Unsafe public artifact path/],
+    ['version-control metadata', (f) => {
+      mkdirSync(path.join(f.dist, '.git'));
+      writeFileSync(path.join(f.dist, '.git/config'), 'opaque');
     }, /Unsafe public artifact path/],
     ['private key filename', (f) => writeFileSync(path.join(f.dist, 'account-private-key.dat'), 'opaque'), /Unsafe public artifact path/],
     ['npm credential file', (f) => writeFileSync(path.join(f.dist, '.npmrc'), 'registry=https://example.invalid'), /Unsafe public artifact path/],

@@ -194,12 +194,16 @@ jobs:
         run: npm run build
 
       - name: Generate and scan deterministic package evidence
+        id: package
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: >-
-          node tools/ci/user-web-dist-manifest.mjs
-          --expected-source-sha "$EXPECTED_HEAD"
-          --output apps/web-user/user-web-dist-manifest.json
+        run: |
+          package_evidence_dir="$RUNNER_TEMP/user-web-package-evidence"
+          test ! -e "$package_evidence_dir"
+          node tools/ci/user-web-dist-manifest.mjs \
+            --expected-source-sha "$EXPECTED_HEAD" \
+            --staging "$package_evidence_dir"
+          echo "package_evidence_dir=$package_evidence_dir" >> "$GITHUB_OUTPUT"
 
       - name: Upload exact user-web package evidence
         id: upload
@@ -207,9 +211,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: user-web-dist-${{ github.event.pull_request.head.sha }}
-          path: |
-            apps/web-user/dist/
-            apps/web-user/user-web-dist-manifest.json
+          path: ${{ steps.package.outputs.package_evidence_dir }}/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
