@@ -463,7 +463,6 @@ function collectWeb(repoRoot, input, source) {
       fileCount: manifest.artifact.fileCount,
       totalBytes: manifest.artifact.totalBytes,
     },
-    manifestSha256: sha256(file.bytes),
   };
 }
 
@@ -577,14 +576,13 @@ export function validateManifest(manifest) {
   if (manifest.migrations.count !== manifest.migrations.entries?.length) fail('Migration count mismatch');
   if (sha256(canonicalJson(manifest.migrations.entries)) !== manifest.migrations.setSha256) fail('Migration-set content mismatch');
   if (manifest.userWeb?.schema !== 'settleora.user-web-dist-manifest.v1') fail('Canonical R02 user-web schema is required');
-  assertKeys(manifest.userWeb, ['schema', 'source', 'dependencyLock', 'artifact', 'manifestSha256'], 'userWeb');
+  assertKeys(manifest.userWeb, ['schema', 'source', 'dependencyLock', 'artifact'], 'userWeb');
   assertKeys(manifest.userWeb.source, ['commit', 'tree'], 'userWeb.source');
   assertKeys(manifest.userWeb.dependencyLock, ['path', 'sha256', 'lockfileVersion'], 'userWeb.dependencyLock');
   assertKeys(manifest.userWeb.artifact, ['treeDigestAlgorithm', 'treeSha256', 'fileCount', 'totalBytes'], 'userWeb.artifact');
   if (manifest.userWeb.dependencyLock.path !== 'apps/web-user/package-lock.json' || manifest.userWeb.artifact.treeDigestAlgorithm !== 'sha256(canonical-file-records-v1)') fail('User-web algorithm/path mismatch');
   hexDigest(manifest.userWeb.dependencyLock.sha256, 'userWeb.dependencyLock.sha256');
   hexDigest(manifest.userWeb.artifact.treeSha256, 'userWeb.artifact.treeSha256');
-  hexDigest(manifest.userWeb.manifestSha256, 'userWeb.manifestSha256');
   if (!Number.isSafeInteger(manifest.userWeb.artifact.fileCount) || manifest.userWeb.artifact.fileCount < 1 || !Number.isSafeInteger(manifest.userWeb.artifact.totalBytes) || manifest.userWeb.artifact.totalBytes < 1) fail('User-web aggregate values are invalid');
   if (manifest.userWeb.source?.commit !== manifest.source.commit || manifest.userWeb.source?.tree !== manifest.source.tree) fail('User-web source/tree mismatch');
   if (manifest.android?.source?.commit !== manifest.source.commit || manifest.android?.source?.tree !== manifest.source.tree) fail('Android source/tree mismatch');

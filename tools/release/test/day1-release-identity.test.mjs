@@ -167,6 +167,10 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   assert.deepEqual(first.dependencyImages.map((image) => image.name), ['caddy', 'postgres', 'rabbitmq']);
   assert.doesNotThrow(() => validateManifest(first));
   assert.throws(() => buildManifest(f.root, { ...f.input, generatedAt: 'unknown' }), /normalized RFC 3339 UTC timestamp/);
+  const webManifest = JSON.parse(readFileSync(f.paths.webManifestPath));
+  webManifest.buildTools.node = 'v22.999.0';
+  writeFileSync(f.paths.webManifestPath, JSON.stringify(webManifest));
+  assert.equal(buildManifest(f.root, f.input).identityDigest, first.identityDigest);
 });
 
 test('rejects source, API revision, API digest and floating-tag mismatches', (t) => {

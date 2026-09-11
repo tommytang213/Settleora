@@ -56,7 +56,7 @@ def inspect_jar_signatures(command: list[str], descriptors: tuple[int, ...], exe
     signer_names: set[str] = set()
     jar_verified = False
     output_bytes = 0
-    entry_pattern = re.compile(rb"^([smk? ]{5})\s+(\d+)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\d{4}\s+(.+?)\r?\n?$")
+    entry_pattern = re.compile(rb"^([smk? ]{5})\s+(\d+)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\d{4} (.+?)\r?\n?$")
     signature_control = re.compile(rb"^META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
     signer_pattern = re.compile(rb"^\s+X\.509,\s*(.+)$")
     try:
@@ -99,7 +99,7 @@ def inspect_jar_signatures(command: list[str], descriptors: tuple[int, ...], exe
 def unsigned_content_entry_count(verification: str) -> tuple[int, int]:
     content_entries = []
     for line in verification.splitlines():
-        match = re.match(r"^([smk? ]{5})\s+(\d+)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\d{4}\s+(.+)$", line)
+        match = re.match(r"^([smk? ]{5})\s+(\d+)\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\d{4} (.+)$", line)
         if match:
             content_entries.append((match.group(3), match.group(1), int(match.group(2))))
     signature_control = re.compile(r"^META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
