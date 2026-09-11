@@ -75,14 +75,18 @@ function assertTrackedWorktreeMatchesHead() {
       }).trim();
       if (actualObject !== expectedObject) throw new Error(`Tracked build input differs from HEAD: ${relative}`);
     } else {
-      regularFiles.push({ relative, expectedObject });
+      regularFiles.push({ absolute, relative, expectedObject });
     }
   }
-  const actualObjects = execFileSync('git', ['hash-object', '--no-filters', '--stdin-paths', '-z'], {
+  const actualObjects = execFileSync('git', [
+    'hash-object',
+    '--no-filters',
+    '--',
+    ...regularFiles.map(({ absolute }) => absolute),
+  ], {
     cwd: repoRoot,
-    input: Buffer.from(`${regularFiles.map(({ relative }) => relative).join('\0')}\0`),
     encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   }).trim().split('\n');
   if (actualObjects.length !== regularFiles.length) throw new Error('Tracked build input hash count differs from HEAD');
   for (let index = 0; index < regularFiles.length; index += 1) {

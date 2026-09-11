@@ -73,7 +73,7 @@ test('user-web lane builds an exact source head and uploads only bounded package
   assert.match(packageStep.run, /--staging "\$package_evidence_dir"/);
   assert.match(packageStep.run, /package_evidence_dir=\$package_evidence_dir/);
   assert.match(manifestHelper, /\['ls-tree', '-rz', '--full-tree', 'HEAD'\]/);
-  assert.match(manifestHelper, /\['hash-object', '--no-filters', '--stdin-paths', '-z'\]/);
+  assert.match(manifestHelper, /'hash-object',[\s\S]*'--no-filters',[\s\S]*\.\.\.regularFiles\.map/);
   assert.doesNotMatch(manifestHelper, /hash-object', `--path=/);
   assert.match(manifestHelper, /readlinkSync\(absolute, \{ encoding: 'buffer' \}\)/);
   assert.doesNotMatch(manifestHelper, /git\(\['status'/);
