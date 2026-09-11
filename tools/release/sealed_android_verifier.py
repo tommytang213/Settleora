@@ -16,18 +16,79 @@ import zipfile
 MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_MAPPING_BYTES = 128 * 1024 * 1024
 MAX_R8_METADATA_BYTES = 1024 * 1024
+MAX_TOOL_BYTES = 256 * 1024 * 1024
+MAX_VERIFIER_OUTPUT_BYTES = 32 * 1024 * 1024
+MAX_VERIFIER_ENTRIES = 200_000
 
 
-def run(command: list[str], descriptors: tuple[int, ...]) -> str:
-    completed = subprocess.run(
-        command,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        pass_fds=descriptors,
-    )
-    return completed.stdout
+def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 * 1024) -> str:
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=descriptors)
+    assert process.stdout is not None
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        while chunk := process.stdout.read(64 * 1024):
+            size += len(chunk)
+            if size > limit:
+                raise ValueError("Android verifier output exceeds its evidence size limit")
+            chunks.append(chunk)
+        if process.wait() != 0:
+            raise subprocess.CalledProcessError(process.returncode, command)
+        return b"".join(chunks).decode("utf-8")
+    except Exception:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        raise
+    finally:
+        process.stdout.close()
+
+
+def inspect_jar_signatures(command: list[str], descriptors: tuple[int, ...]) -> dict[str, object]:
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, pass_fds=descriptors)
+    assert process.stdout is not None
+    content_entry_count = 0
+    unsigned_entry_count = 0
+    signer_names: set[str] = set()
+    jar_verified = False
+    output_bytes = 0
+    entry_pattern = re.compile(rb"^([smk? ]{5})\s+(\d+)\s+\w{3}\s")
+    signature_control = re.compile(rb"\sMETA-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
+    signer_pattern = re.compile(rb"^\s+X\.509,\s*(.+)$")
+    try:
+        for line in process.stdout:
+            output_bytes += len(line)
+            if output_bytes > MAX_VERIFIER_OUTPUT_BYTES:
+                raise ValueError("Android jarsigner output exceeds its evidence size limit")
+            match = entry_pattern.match(line)
+            if match:
+                content_entry_count += 1
+                if content_entry_count > MAX_VERIFIER_ENTRIES:
+                    raise ValueError("Android bundle exceeds its verifier entry-count limit")
+                status = match.group(1)
+                size = int(match.group(2))
+                if b"s" not in status and not (size == 0 and line.rstrip().endswith(b"/")) and not signature_control.search(line.rstrip()):
+                    unsigned_entry_count += 1
+            signer = signer_pattern.match(line.rstrip(b"\r\n"))
+            if signer:
+                signer_names.add(signer.group(1).decode("utf-8"))
+            if b"jar verified." in line:
+                jar_verified = True
+        if process.wait() != 0:
+            raise subprocess.CalledProcessError(process.returncode, command)
+    except Exception:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        raise
+    finally:
+        process.stdout.close()
+    return {
+        "jarVerified": jar_verified,
+        "contentEntryCount": content_entry_count,
+        "unsignedEntryCount": unsigned_entry_count,
+        "signerNames": sorted(signer_names),
+    }
 
 
 def unsigned_content_entry_count(verification: str) -> tuple[int, int]:
@@ -99,35 +160,64 @@ def sealed_snapshot(source_descriptor: int) -> tuple[int, int, str]:
         os.close(source_fd)
 
 
+def sealed_executable_snapshot(source_descriptor: int) -> int:
+    source_fd = os.dup(source_descriptor)
+    sealed_fd = os.memfd_create("settleora-verifier-tool", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    size = 0
+    try:
+        metadata = os.fstat(source_fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("Android verifier tool descriptor is not a regular file")
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_TOOL_BYTES:
+                raise ValueError("Android verifier tool exceeds its snapshot limit")
+            view = memoryview(chunk)
+            while view:
+                written = os.write(sealed_fd, view)
+                view = view[written:]
+        if size < 1 or size != metadata.st_size:
+            raise ValueError("Android verifier tool changed size while snapshotting")
+        os.fchmod(sealed_fd, 0o500)
+        fcntl.fcntl(
+            sealed_fd,
+            fcntl.F_ADD_SEALS,
+            fcntl.F_SEAL_WRITE | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_SEAL,
+        )
+        os.lseek(sealed_fd, 0, os.SEEK_SET)
+        return sealed_fd
+    except Exception:
+        os.close(sealed_fd)
+        raise
+    finally:
+        os.close(source_fd)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("kind", choices=("apk", "aab"))
     arguments = parser.parse_args()
     descriptor, size, digest = sealed_snapshot(3)
+    tool_descriptors = [sealed_executable_snapshot(value) for value in (4, 5)]
     held_path = f"/proc/self/fd/{descriptor}"
     try:
         result: dict[str, object] = {"size": size, "sha256": digest}
         if arguments.kind == "apk":
             result["verificationOutput"] = run(
-                ["/proc/self/fd/4", "verify", "--verbose", "--print-certs", held_path], (descriptor, 4)
+                [f"/proc/self/fd/{tool_descriptors[0]}", "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[1]}", "verify", "--verbose", "--print-certs", held_path],
+                (descriptor, *tool_descriptors),
             )
         else:
-            verification = run(
-                ["/proc/self/fd/4", "-J-Duser.language=en", "-J-Duser.country=US", "-verify", "-verbose", "-certs", held_path],
-                (descriptor, 4),
-            )
-            content_entry_count, unsigned_entry_count = unsigned_content_entry_count(verification)
-            result.update(
-                {
-                    "jarVerified": "jar verified." in verification,
-                    "contentEntryCount": content_entry_count,
-                    "unsignedEntryCount": unsigned_entry_count,
-                    "signerNames": sorted(set(match.group(1) for match in re.finditer(r"^\s+X\.509,\s*(.+)$", verification, re.MULTILINE))),
-                }
-            )
+            result.update(inspect_jar_signatures(
+                [f"/proc/self/fd/{tool_descriptors[0]}", "-J-Duser.language=en", "-J-Duser.country=US", "-verify", "-verbose", "-certs", held_path],
+                (descriptor, tool_descriptors[0]),
+            ))
             certificate = run(
-                ["/proc/self/fd/5", "-J-Duser.language=en", "-J-Duser.country=US", "-printcert", "-jarfile", held_path],
-                (descriptor, 5),
+                [f"/proc/self/fd/{tool_descriptors[1]}", "-J-Duser.language=en", "-J-Duser.country=US", "-printcert", "-jarfile", held_path],
+                (descriptor, tool_descriptors[1]),
             )
             result["certificateDigests"] = sorted(
                 set(match.group(1).replace(":", "").lower() for match in re.finditer(r"SHA256:\s*([0-9A-F:]{95})", certificate))
@@ -148,6 +238,8 @@ def main() -> None:
         json.dump(result, sys.stdout, separators=(",", ":"), sort_keys=True)
         sys.stdout.write("\n")
     finally:
+        for tool_descriptor in tool_descriptors:
+            os.close(tool_descriptor)
         os.close(descriptor)
 
 

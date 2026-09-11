@@ -8,6 +8,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readSync,
   readFileSync,
   readlinkSync,
   readdirSync,
@@ -20,6 +21,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const shaPattern = /^[0-9a-f]{40}$/;
+const maxPublicArtifactFileBytes = 32 * 1024 * 1024;
+const maxPublicArtifactTotalBytes = 128 * 1024 * 1024;
+const maxPublicArtifactFiles = 10_000;
 const unsafePathPatterns = [
   /(^|\/)(?:\.git|\.hg|\.svn|\.bzr|_darcs)(?:\/|$)/i,
   /(^|\/)\.env($|[./-])/i,
@@ -148,6 +152,7 @@ function artifactRootLabel(distAbsolute, provenance) {
 
 export function collectFiles(distRoot) {
   const files = [];
+  let totalBytes = 0;
   const visit = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
@@ -156,6 +161,7 @@ export function collectFiles(distRoot) {
       if (metadata.isDirectory()) {
         visit(absolute);
       } else if (metadata.isFile()) {
+        if (files.length >= maxPublicArtifactFiles) throw new Error('User-web dist exceeds its file-count limit');
         const relative = path.relative(distRoot, absolute).split(path.sep).join('/');
         if (!relative || relative.startsWith('/') || relative.split('/').includes('..') || /[\r\n\0]/u.test(relative)) {
           throw new Error(`Unsafe dist path: ${JSON.stringify(relative)}`);
@@ -165,7 +171,21 @@ export function collectFiles(distRoot) {
         try {
           descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
           const opened = fstatSync(descriptor);
-          contents = readFileSync(descriptor);
+          if (!opened.isFile() || !Number.isSafeInteger(opened.size) || opened.size < 0 || opened.size > maxPublicArtifactFileBytes) {
+            throw new Error(`User-web dist file exceeds its evidence size limit: ${absolute}`);
+          }
+          if (!Number.isSafeInteger(totalBytes + opened.size) || totalBytes + opened.size > maxPublicArtifactTotalBytes) {
+            throw new Error('User-web dist exceeds its aggregate evidence size limit');
+          }
+          contents = Buffer.allocUnsafe(opened.size);
+          let offset = 0;
+          while (offset < opened.size) {
+            const count = readSync(descriptor, contents, offset, opened.size - offset, null);
+            if (count === 0) throw new Error(`User-web dist changed while reading: ${absolute}`);
+            offset += count;
+          }
+          const extra = Buffer.allocUnsafe(1);
+          if (readSync(descriptor, extra, 0, 1, null) !== 0) throw new Error(`User-web dist changed while reading: ${absolute}`);
           const current = lstatSync(absolute);
           if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute || contents.length !== opened.size) {
             throw new Error(`User-web dist changed while reading: ${absolute}`);
@@ -173,6 +193,7 @@ export function collectFiles(distRoot) {
         } finally {
           if (descriptor !== undefined) closeSync(descriptor);
         }
+        totalBytes += contents.length;
         files.push({ absolute, path: relative, size: contents.length, contents });
       } else {
         throw new Error(`Only regular files are allowed in user-web dist: ${absolute}`);

@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, rmSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../user-web-dist-manifest.mjs';
+import { assertTrackedWorktreeMatchesHead, collectFiles, createUserWebDistManifest } from '../user-web-dist-manifest.mjs';
 
 const provenance = {
   source: { commit: 'a'.repeat(40), tree: 'b'.repeat(40) },
@@ -86,6 +86,15 @@ test('manifest is stable, sorted, bounded and contains no raw environment', (t) 
   assert.match(first.artifact.treeSha256, /^[0-9a-f]{64}$/);
   assert.equal(first.publicArtifactChecks.sensitiveMaterialScan, 'passed');
   assert.doesNotMatch(firstBytes.toString(), /process\.env|\/tmp\/web-dist-manifest-|PATH|HOME/);
+});
+
+test('retained web files are rejected from metadata before oversized allocation', (t) => {
+  const f = fixture(t);
+  const oversized = path.join(f.dist, 'oversized.bin');
+  const descriptor = openSync(oversized, 'wx');
+  closeSync(descriptor);
+  truncateSync(oversized, 32 * 1024 * 1024 + 1);
+  assert.throws(() => collectFiles(f.dist), /file exceeds its evidence size limit/);
 });
 
 test('staged package evidence is an isolated exact snapshot', (t) => {

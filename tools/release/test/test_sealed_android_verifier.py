@@ -1,7 +1,9 @@
 import hashlib
 import importlib.util
 import io
+import os
 import pathlib
+import tempfile
 import unittest
 import zipfile
 
@@ -46,6 +48,32 @@ class SealedAndroidVerifierTests(unittest.TestCase):
                 VERIFIER.bounded_zip_entry_digest(bundle, "mapping", 1024, "fixture"),
                 hashlib.sha256(payload).hexdigest(),
             )
+
+    def test_streamed_jarsigner_output_is_bounded(self):
+        prior = VERIFIER.MAX_VERIFIER_OUTPUT_BYTES
+        VERIFIER.MAX_VERIFIER_OUTPUT_BYTES = 8
+        try:
+            with self.assertRaisesRegex(ValueError, "output exceeds its evidence size limit"):
+                VERIFIER.inspect_jar_signatures(["/usr/bin/printf", "123456789"], ())
+        finally:
+            VERIFIER.MAX_VERIFIER_OUTPUT_BYTES = prior
+
+    def test_executable_snapshot_is_immutable_after_source_change(self):
+        with tempfile.NamedTemporaryFile() as source:
+            source.write(b"first executable bytes")
+            source.flush()
+            source.seek(0)
+            sealed = VERIFIER.sealed_executable_snapshot(source.fileno())
+            try:
+                source.seek(0)
+                source.write(b"later executable bytes")
+                source.flush()
+                os.lseek(sealed, 0, os.SEEK_SET)
+                self.assertEqual(os.read(sealed, 1024), b"first executable bytes")
+                with self.assertRaises(OSError):
+                    os.write(sealed, b"tamper")
+            finally:
+                os.close(sealed)
 
 
 if __name__ == "__main__":

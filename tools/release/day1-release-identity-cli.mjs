@@ -122,13 +122,17 @@ function verifyLiveRegistry(input) {
   verifyPublication(input.rollback.apiImage, input.rollback.sourceCommit, 'rollback.apiImage');
 }
 
-function trustedTool(candidate, expectedName, label) {
+function trustedFile(candidate, expectedName, label, executable = false) {
   const tool = path.resolve(candidate ?? '');
   const metadata = lstatSync(tool, { throwIfNoEntry: false });
-  if (path.basename(tool) !== expectedName || !metadata?.isFile() || metadata.isSymbolicLink() || realpathSync(tool) !== tool || !(metadata.mode & 0o111)) {
-    throw new Error(`${label} must be an explicitly trusted real executable named ${expectedName}`);
+  if (path.basename(tool) !== expectedName || !metadata?.isFile() || metadata.isSymbolicLink() || realpathSync(tool) !== tool || (executable && !(metadata.mode & 0o111))) {
+    throw new Error(`${label} must be an explicitly trusted real ${executable ? 'executable' : 'file'} named ${expectedName}`);
   }
   return { path: tool, dev: metadata.dev, ino: metadata.ino };
+}
+
+function trustedTool(candidate, expectedName, label) {
+  return trustedFile(candidate, expectedName, label, true);
 }
 
 export function parseSingleApkSigner(output) {
@@ -185,12 +189,13 @@ export function verifyAndroidSignature(input, options) {
     .map((entry) => entry.name)
     .sort(new Intl.Collator('en', { numeric: true }).compare)
     .at(-1);
-  const apksigner = path.join(sdkRoot, 'build-tools', version ?? '', 'apksigner');
-  const tool = trustedTool(apksigner, 'apksigner', 'Android apksigner');
-  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [tool]);
+  const buildToolsRoot = path.join(sdkRoot, 'build-tools', version ?? '');
+  const javaHome = path.resolve(options['java-home'] ?? '');
+  const java = trustedTool(path.join(javaHome, 'bin', 'java'), 'java', 'Java runtime');
+  const apksignerJar = trustedFile(path.join(buildToolsRoot, 'lib', 'apksigner.jar'), 'apksigner.jar', 'Android apksigner JAR');
+  const apkObservation = sealedAndroidVerification('apk', input.android.apkPath, [java, apksignerJar]);
   const certificate = parseSingleApkSigner(apkObservation.verificationOutput);
   const apk = { size: apkObservation.size, sha256: apkObservation.sha256 };
-  const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
   const aabObservation = sealedAndroidVerification('aab', input.android.aabPath, [jarsigner, keytool]);
@@ -247,7 +252,7 @@ function collectWebExactSource(output) {
     const webRoot = path.join(snapshot, 'apps/web-user');
     execFileSync('npm', ['ci'], { cwd: webRoot, stdio: 'inherit' });
     execFileSync('npm', ['run', 'build'], { cwd: webRoot, stdio: 'inherit' });
-    const lock = JSON.parse(readFileSync(path.join(repoRoot, 'apps/web-user/package-lock.json'), 'utf8'));
+    const lock = JSON.parse(readFileSync(path.join(webRoot, 'package-lock.json'), 'utf8'));
     const version = (name) => {
       const value = lock.packages?.[`node_modules/${name}`]?.version;
       if (typeof value !== 'string' || !value) throw new Error(`Missing ${name} version in exact-source web lock`);
@@ -267,7 +272,7 @@ function collectWebExactSource(output) {
   });
 }
 
-function collectAndroidUnsafe(options, emit = true) {
+function collectAndroidUnsafe(options, emit = true, outputOwnership = {}) {
   const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool').path;
   const output = path.resolve(options.output ?? '');
   const relative = path.relative('/workspace/logs', output);
@@ -275,6 +280,9 @@ function collectAndroidUnsafe(options, emit = true) {
   assertNoSymlinkAncestors(output);
   if (lstatSync(output, { throwIfNoEntry: false })) throw new Error('Android evidence output directory must not already exist');
   mkdirSync(output, { recursive: false, mode: 0o700 });
+  const created = lstatSync(output);
+  outputOwnership.dev = created.dev;
+  outputOwnership.ino = created.ino;
   const sourceBefore = {
     commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
     tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
@@ -337,14 +345,13 @@ function collectAndroidUnsafe(options, emit = true) {
 
 function collectAndroid(options, emit = true) {
   const output = path.resolve(options.output ?? '');
-  const existed = lstatSync(output, { throwIfNoEntry: false }) !== undefined;
+  const outputOwnership = {};
   try {
-    return collectAndroidUnsafe(options, emit);
+    return collectAndroidUnsafe(options, emit, outputOwnership);
   } catch (error) {
-    if (!existed) {
-      const metadata = lstatSync(output, { throwIfNoEntry: false });
-      if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(output, { recursive: true, force: false });
-    }
+    const metadata = lstatSync(output, { throwIfNoEntry: false });
+    if (outputOwnership.dev !== undefined && metadata?.isDirectory() && !metadata.isSymbolicLink()
+      && metadata.dev === outputOwnership.dev && metadata.ino === outputOwnership.ino) rmSync(output, { recursive: true, force: false });
     throw error;
   }
 }
