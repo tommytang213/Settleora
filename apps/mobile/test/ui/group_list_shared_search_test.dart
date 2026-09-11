@@ -12,8 +12,9 @@ import '../group_list_screen_test.dart' as group;
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _capture = Key('group-list-search-capture');
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260908-0050-group-list-search';
+final _output = settleoraVisualOutputDirectory(
+  '20260908-0050-group-list-search',
+);
 
 Future<void> _tap(WidgetTester tester, Finder target) async {
   await tester.ensureVisible(target);

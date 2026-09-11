@@ -12,8 +12,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../bill_list_screen_test.dart' as bills;
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260703-1840-mobile-bills-list-create-visual-followup-dev-only';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260703-1840-mobile-bills-list-create-visual-followup-dev-only',
+);
 
 const _billId = '11111111-1111-1111-1111-111111111111';
 const _fileId = '22222222-2222-2222-2222-222222222222';

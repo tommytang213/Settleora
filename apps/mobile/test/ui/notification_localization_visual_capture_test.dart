@@ -12,8 +12,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../notification_screen_test.dart' as notifications;
 
-const _outputDirectory =
-    '/workspace/logs/issue-1171-mobile-localization/visual-evidence';
+final _outputDirectory = settleoraVisualOutputDirectory(
+  'issue-1171-mobile-localization/visual-evidence',
+);
 const _captureKey = Key('notification-localization-capture');
 
 void main() {

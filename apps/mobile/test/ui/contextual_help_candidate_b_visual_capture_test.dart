@@ -19,8 +19,9 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../recurring_bill_screen_test.dart' as recurring;
 import '../settlement_list_screen_test.dart' as settlements;
 
-const _outputDirectory =
-    '/workspace/logs/issue-1181-contextual-help-localization/visual-evidence/candidate-b';
+final _outputDirectory = settleoraVisualOutputDirectory(
+  'issue-1181-contextual-help-localization/visual-evidence/candidate-b',
+);
 const _captureKey = Key('contextual-help-candidate-b-capture');
 
 void main() {

@@ -10,8 +10,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../group_bill_list_screen_test.dart' as group;
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-1650-mobile-group-bill-money-fields';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260622-1650-mobile-group-bill-money-fields',
+);
 
 const _groupId = '11111111-1111-1111-1111-111111111111';
 const _profileId = '55555555-5555-5555-5555-555555555555';

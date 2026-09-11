@@ -135,16 +135,6 @@ jobs:
           flutter-version: "3.44.8"
           cache: true
 
-      - name: Prepare repository mobile test paths
-        shell: bash
-        run: |
-          flutter_root="$(dirname "$(dirname "$(command -v flutter)")")"
-          if [[ ! -e /opt/flutter ]]; then
-            sudo ln -s "$flutter_root" /opt/flutter
-          fi
-          test "$(readlink -f /opt/flutter)" = "$(readlink -f "$flutter_root")"
-          sudo install -d -o "$(id -u)" -g "$(id -g)" /workspace/logs
-
       - name: Validate mobile
         run: npm run validate:mobile
 

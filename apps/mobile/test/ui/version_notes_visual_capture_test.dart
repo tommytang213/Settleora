@@ -16,8 +16,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
-const _outputDirectory =
-    '/workspace/logs/issue-1176-mobile-whats-new/visual-evidence';
+final _outputDirectory = settleoraVisualOutputDirectory(
+  'issue-1176-mobile-whats-new/visual-evidence',
+);
 const _captureKey = Key('version-notes-visual-capture');
 
 void main() {

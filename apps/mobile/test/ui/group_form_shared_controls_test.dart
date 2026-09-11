@@ -12,7 +12,7 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../group_list_screen_test.dart' as fixtures;
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _output = '/workspace/logs/settleora-visual-qa/20260907-1725-group-form';
+final _output = settleoraVisualOutputDirectory('20260907-1725-group-form');
 const _captureKey = Key('group-form-capture');
 Finder control(String key) => find.byKey(Key('group-form-$key'));
 Finder get editable =>

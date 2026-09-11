@@ -13,8 +13,7 @@ import '../settlement_list_screen_test.dart' as fixtures;
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _viewer = '88888888-8888-8888-8888-888888888888';
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260907-1954-detail-search';
+final _output = settleoraVisualOutputDirectory('20260907-1954-detail-search');
 const _capture = Key('detail-search-capture');
 const _names = ['lines', 'payments'];
 const _labels = ['Search request lines', 'Search payments and residuals'];

@@ -12,8 +12,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-1408-mobile-money-date-form';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260622-1408-mobile-money-date-form',
+);
 
 void main() {
   testWidgets('captures money date form visual QA evidence', (tester) async {

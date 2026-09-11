@@ -15,8 +15,7 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../profile_screen_test.dart' as fixtures;
 
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260907-1548-profile-form';
+final _output = settleoraVisualOutputDirectory('20260907-1548-profile-form');
 const _capture = Key('profile-form-capture');
 Finder control(String key) => find.byKey(Key(key));
 Finder textField(String key) =>

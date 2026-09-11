@@ -14,8 +14,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
-const _outputDirectory =
-    '/workspace/logs/issue-1181-contextual-help-localization/visual-evidence/candidate-a';
+final _outputDirectory = settleoraVisualOutputDirectory(
+  'issue-1181-contextual-help-localization/visual-evidence/candidate-a',
+);
 const _captureKey = Key('contextual-help-candidate-a-capture');
 
 void main() {

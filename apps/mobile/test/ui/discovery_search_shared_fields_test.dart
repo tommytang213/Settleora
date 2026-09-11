@@ -17,7 +17,7 @@ import '../recurring_bill_screen_test.dart' as recurring;
 import '../receipt_ocr_review_screen_test.dart' as ocr;
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _output = '/workspace/logs/settleora-visual-qa/20260907-1805-discovery';
+final _output = settleoraVisualOutputDirectory('20260907-1805-discovery');
 const _capture = Key('discovery-capture');
 const _keys = [
   'monthly-report-search',

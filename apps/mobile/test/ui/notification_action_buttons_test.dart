@@ -15,8 +15,7 @@ import '../notification_screen_test.dart' as f;
 
 const _id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const _capture = Key('notification-actions-capture');
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260907-1906-notifications';
+final _output = settleoraVisualOutputDirectory('20260907-1906-notifications');
 final _bulk = find.byKey(const Key('notification-mark-visible-read'));
 Finder _primary(String kind) =>
     find.byKey(ValueKey('notification-open-$kind-0'));

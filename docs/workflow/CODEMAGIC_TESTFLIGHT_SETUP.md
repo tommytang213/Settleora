@@ -73,7 +73,24 @@ flutter test -r expanded --tags visual <visual-tagged mixed files>
 
 The workflow prints the selected visual capture and visual-tagged test counts
 and file lists, and publishes captured PNG evidence from
-`/workspace/logs/settleora-visual-qa/` when tests produce it.
+`$CM_BUILD_DIR/apps/mobile/build/settleora-visual-qa/` when tests produce it.
+Codemagic binds `SETTLEORA_VISUAL_OUTPUT_ROOT` to that directory before running
+the tests. Codemagic documents `CM_BUILD_DIR` as the absolute clone root and
+allows environment variables in artifact patterns.
+
+Runnable visual tests use the shared output resolver. Without an override it
+writes under `apps/mobile/build/settleora-visual-qa/`, which is ignored build
+output and works on ordinary Linux and macOS hosts. DevBox/Codex tasks that need
+durable operator evidence may explicitly set, for example:
+
+```bash
+SETTLEORA_VISUAL_OUTPUT_ROOT=/workspace/logs/settleora-visual-qa \
+  flutter test test/ui/example_visual_capture_test.dart
+```
+
+The shared font helper uses Codemagic's documented absolute `FLUTTER_ROOT`
+when present and otherwise derives the SDK from the active Flutter test runtime.
+It does not require `/opt/flutter` or a provider-specific compatibility alias.
 
 ## Manual Codemagic Setup
 

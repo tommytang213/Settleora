@@ -19,8 +19,9 @@ import '../helpers/settleora_visual_test_fonts.dart';
 import '../profile_screen_test.dart' as profile;
 import '../server_mode_shell_dashboard_test.dart' as dashboard;
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260703-1110-mobile-shell-home-setup-signin-copy-followup-dev-only';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260703-1110-mobile-shell-home-setup-signin-copy-followup-dev-only',
+);
 
 void main() {
   testWidgets('captures shell home more profile parity visual evidence', (

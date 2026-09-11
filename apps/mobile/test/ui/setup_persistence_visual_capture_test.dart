@@ -13,8 +13,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 
 import '../helpers/settleora_visual_test_fonts.dart';
 
-const _outputDirectory =
-    '/workspace/logs/settleora-visual-qa/20260908-2243-issue-1096/candidate-b';
+final _outputDirectory = settleoraVisualOutputDirectory(
+  '20260908-2243-issue-1096/candidate-b',
+);
 const _captureKey = Key('setup-persistence-capture');
 const _serverFieldKey = Key('setup-server-base-url');
 const _saveKey = Key('setup-save');

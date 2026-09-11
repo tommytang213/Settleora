@@ -13,8 +13,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 
 const _captureKey = Key('receipt-review-state-panel-capture');
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260908-1103-receipt-review-state-panels';
+final _output = settleoraVisualOutputDirectory(
+  '20260908-1103-receipt-review-state-panels',
+);
 const _billId = '22222222-2222-2222-2222-222222222222';
 const _fileId = '44444444-4444-4444-4444-444444444444';
 const _reviewId = '77777777-7777-7777-7777-777777777777';

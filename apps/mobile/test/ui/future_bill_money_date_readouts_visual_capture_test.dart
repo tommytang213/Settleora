@@ -12,8 +12,9 @@ import 'package:mobile/ui/settleora_theme.dart';
 import '../helpers/settleora_visual_test_fonts.dart';
 import '../recurring_bill_screen_test.dart' as recurring;
 
-const _visualOutputDir =
-    '/workspace/logs/settleora-visual-qa/20260622-2232-mobile-future-bill-money-date-readouts';
+final _visualOutputDir = settleoraVisualOutputDirectory(
+  '20260622-2232-mobile-future-bill-money-date-readouts',
+);
 
 void main() {
   testWidgets('captures future bill money and date readout visual evidence', (

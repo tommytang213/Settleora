@@ -20,8 +20,9 @@ import '../notification_screen_test.dart' as notifications;
 import '../profile_screen_test.dart' as profile;
 
 const _captureKey = Key('sign-in-required-state-action-capture');
-const _output =
-    '/workspace/logs/settleora-visual-qa/20260908-0828-failure-retry-state-actions';
+final _output = settleoraVisualOutputDirectory(
+  '20260908-0828-failure-retry-state-actions',
+);
 
 enum _Host { profile, monthlyReport, notifications }
 

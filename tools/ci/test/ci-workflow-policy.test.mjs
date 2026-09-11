@@ -64,11 +64,7 @@ test('full and mobile validation commands remain unweakened', () => {
   const mobileFlutter = stepsFor(mobile).find((step) => step.uses?.startsWith('subosito/flutter-action@'));
   assert.equal(mobileFlutter.with.channel, 'stable');
   assert.equal(mobileFlutter.with['flutter-version'], flutterVersion);
-  const mobilePreparation = stepsFor(mobile).find(
-    (step) => step.name === 'Prepare repository mobile test paths',
-  );
-  assert.match(mobilePreparation.run, /\/opt\/flutter/);
-  assert.match(mobilePreparation.run, /\/workspace\/logs/);
+  assert.doesNotMatch(JSON.stringify(mobile), /\/opt\/flutter|\/workspace\/logs/);
   assert.doesNotMatch(JSON.stringify(mobile), /continue-on-error|--no-fatal-warnings|\|\|\s*true/);
 
   const packageJson = JSON.parse(read('package.json'));
@@ -100,6 +96,11 @@ test('iOS build procedure is reusable, manual, pinned, and simulator-only', () =
   for (const command of ['flutter pub get', 'pod install', 'flutter build ios --debug --simulator']) {
     assert.ok(runCommands(job).includes(command));
   }
+  assert.ok(
+    runCommands(job).some((command) =>
+      command.includes('settleora_visual_test_environment_test.dart') &&
+      command.includes('loads the real Roboto and Material Icons font files')),
+  );
   assert.doesNotMatch(JSON.stringify(job), /continue-on-error|--no-fatal-warnings|\|\|\s*true/);
 });
 
@@ -206,7 +207,72 @@ test('Codemagic visual evidence remains a separate explicit test lane', () => {
   assert.match(scripts, /\*visual\*capture_test\.dart/);
   assert.match(scripts, /\*visual\*evidence\*_test\.dart/);
   assert.match(scripts, /flutter test -r expanded --tags visual/);
+  assert.match(
+    scripts,
+    /case "\$TEST_FILE" in[\s\S]*\*visual\*capture_test\.dart\|\*visual\*evidence\*_test\.dart\) ;;/,
+  );
+  assert.match(
+    scripts,
+    /SETTLEORA_VISUAL_OUTPUT_ROOT="\$CM_BUILD_DIR\/apps\/mobile\/build\/settleora-visual-qa"/,
+  );
+  assert.ok(
+    visual.artifacts.includes(
+      '$CM_BUILD_DIR/apps/mobile/build/settleora-visual-qa/**/*.png',
+    ),
+  );
   assert.doesNotMatch(scripts, /validate-release\.sh/);
+
+  const testFiles = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(absolute);
+      else if (entry.name.endsWith('test.dart')) testFiles.push(absolute);
+    }
+  };
+  visit(path.join(repoRoot, 'apps/mobile/test'));
+  const dedicated = new Set(
+    testFiles.filter((file) =>
+      /visual.*capture_test\.dart$|visual.*evidence.*_test\.dart$/.test(file)),
+  );
+  const tagged = testFiles.filter((file) => /tags:[^#]*visual/.test(readFileSync(file, 'utf8')));
+  assert.ok(tagged.some((file) => dedicated.has(file)));
+  assert.deepEqual(
+    tagged
+      .filter((file) => !dedicated.has(file))
+      .map((file) => path.relative(path.join(repoRoot, 'apps/mobile'), file))
+      .sort(),
+    [
+      'test/ui/settlement_detail_search_shared_fields_test.dart',
+      'test/ui/settleora_component_guardrail_test.dart',
+    ],
+  );
+});
+
+test('runnable mobile test infrastructure has no provider-specific absolute roots', () => {
+  const mobileTestRoot = path.join(repoRoot, 'apps/mobile/test');
+  const visit = (directory) => {
+    const files = [];
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) files.push(...visit(absolute));
+      else if (entry.name.endsWith('.dart')) files.push(absolute);
+    }
+    return files;
+  };
+  const runnableSource = visit(mobileTestRoot)
+    .map((file) => readFileSync(file, 'utf8'))
+    .join('\n');
+  assert.doesNotMatch(runnableSource, /\/opt\/flutter|\/workspace\/logs|\/Users\/builder/);
+
+  const environmentHelper = read(
+    'apps/mobile/test/helpers/settleora_visual_test_fonts.dart',
+  );
+  assert.match(environmentHelper, /Platform\.environment/);
+  assert.match(environmentHelper, /\['FLUTTER_ROOT'\]/);
+  assert.match(environmentHelper, /Platform\.resolvedExecutable/);
+  assert.match(environmentHelper, /SETTLEORA_VISUAL_OUTPUT_ROOT/);
+  assert.match(read('apps/mobile/.gitignore'), /^\/build\/$/m);
 });
 
 test('GitHub workflows contain no Codemagic build trigger or release invocation', () => {
