@@ -10,8 +10,9 @@ resolution and exact-source local builds. Local paths are collector inputs and
 are not copied into identity fields. Candidate manifests belong outside Git at
 `/workspace/logs/settleora-release-candidates/<candidate-id>/`.
 Assembly and validation require `gh` access to read the canonical GitHub Actions
-publication-run URL and fail unless it is the successful API image workflow
-push run for the exact source commit.
+publication-run URL, its job record, and its authenticated provider log. They
+fail unless the exact index digest is both published for the exact-SHA tag and
+reported as the successful build action output for the exact-source push run.
 
 The identity digest is SHA-256 over canonical, recursively key-sorted JSON after
 removing only `generatedAt` and `identityDigest`. Thus collection time may vary
@@ -46,12 +47,18 @@ node tools/release/day1-release-identity-cli.mjs validate \
   --java-home /trusted/jdk
 ```
 
+Assembly also performs `npm ci` and the canonical user-web build in a disposable
+exact-source Git archive, then retains the R02 package manifest and `dist/` under
+the candidate directory. Validation repeats that exact-source web build and
+compares it with the retained identity, so caller-authored source claims are not
+trusted.
+
 `collect-android` cleans generated state, invokes the two fixed release-build commands, and writes a
 source/tree/artifact attestation. Assembly always performs that collection itself
 inside the canonical candidate directory, so it cannot accept caller-selected
 stale Android binaries. Assembly and validation resolve `apksigner`
 only below the separately supplied trusted SDK root and verify both the APK and
-AAB debug certificate. Validation always recollects source, registry, web,
+AAB debug certificate and rejects additional APK or AAB signers. Validation always recollects source, registry, web,
 migration and retained Android evidence; digest-only validation is intentionally absent.
 Android collection is staged under the private candidate directory and removed
 on assembly failure before promotion to canonical evidence. Validation accepts

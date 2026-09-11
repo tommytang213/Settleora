@@ -128,6 +128,31 @@ export function validatePublicationRunDocument(publication, run, sourceCommit) {
   return true;
 }
 
+export function validatePublicationJobDocument(jobs, sourceCommit) {
+  sha40(sourceCommit, 'source.commit');
+  const matches = jobs?.jobs?.filter((job) => job?.name === 'Publish API image') ?? [];
+  const buildStep = matches[0]?.steps?.find((step) => step?.name === 'Build and publish API image');
+  if (jobs?.total_count !== 1 || matches.length !== 1 || matches[0]?.conclusion !== 'success' || buildStep?.conclusion !== 'success') {
+    fail('API image publication job provenance mismatch');
+  }
+  if (!Number.isSafeInteger(matches[0].id) || matches[0].id < 1) fail('API image publication job ID is invalid');
+  return matches[0].id;
+}
+
+export function validatePublicationJobLog(log, image, sourceCommit) {
+  if (typeof log !== 'string' || log.length === 0 || log.includes('\0')) fail('API image publication job log must be non-empty text');
+  sha40(sourceCommit, 'source.commit');
+  digest(image.indexDigest, 'apiImage.indexDigest');
+  const reference = `${image.repository}:sha-${sourceCommit}@`;
+  const escaped = reference.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const pushed = new Set([...log.matchAll(new RegExp(`pushing manifest for ${escaped}(sha256:[0-9a-f]{64})(?:\\s|$)`, 'gu'))].map((match) => match[1]));
+  const actionOutputs = new Set([...log.matchAll(/"containerimage\.digest":\s*"(sha256:[0-9a-f]{64})"/gu)].map((match) => match[1]));
+  if (pushed.size !== 1 || !pushed.has(image.indexDigest) || actionOutputs.size !== 1 || !actionOutputs.has(image.indexDigest)) {
+    fail('Authenticated API publication log digest mismatch');
+  }
+  return true;
+}
+
 export function validatePublicationProvenance(publication, provenance, sourceCommit) {
   const builder = provenance?.runDetails?.builder?.id;
   const vcs = provenance?.buildDefinition?.externalParameters?.request?.root?.configSource?.request?.args;

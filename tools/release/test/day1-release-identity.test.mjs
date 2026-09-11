@@ -14,11 +14,13 @@ import {
   validateRegistryDocument,
   validateRegistryRevision,
   validateManifest,
+  validatePublicationJobDocument,
+  validatePublicationJobLog,
   validatePublicationProvenance,
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, canonicalAndroidInput, canonicalManifestPath, safeInput } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, canonicalAndroidInput, canonicalManifestPath, canonicalWebInput, parseSingleApkSigner, safeInput } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 
@@ -180,6 +182,12 @@ test('rejects source, API revision, API digest and floating-tag mismatches', (t)
   const run = { html_url: publication.url, head_repository: { full_name: 'tommytang213/Settleora' }, head_sha: f.commit, event: 'push', conclusion: 'success', path: '.github/workflows/api-image-ghcr.yml' };
   assert.equal(validatePublicationRunDocument(publication, run, f.commit), true);
   assert.throws(() => validatePublicationRunDocument(publication, { ...run, head_sha: '0'.repeat(40) }, f.commit), /publication run provenance mismatch/);
+  const jobs = { total_count: 1, jobs: [{ id: 123, name: 'Publish API image', conclusion: 'success', steps: [{ name: 'Build and publish API image', conclusion: 'success' }] }] };
+  assert.equal(validatePublicationJobDocument(jobs, f.commit), 123);
+  assert.throws(() => validatePublicationJobDocument({ ...jobs, jobs: [{ ...jobs.jobs[0], conclusion: 'failure' }] }, f.commit), /publication job provenance mismatch/);
+  const publicationLog = `pushing manifest for ghcr.io/tommytang213/settleora-api:sha-${f.commit}@${f.input.apiImage.indexDigest} done\n  "containerimage.digest": "${f.input.apiImage.indexDigest}"\n`;
+  assert.equal(validatePublicationJobLog(publicationLog, f.input.apiImage, f.commit), true);
+  assert.throws(() => validatePublicationJobLog(publicationLog.replaceAll(f.input.apiImage.indexDigest, d('9')), f.input.apiImage, f.commit), /publication log digest mismatch/);
   const provenance = { runDetails: { builder: { id: `${publication.url}/attempts/1` } }, buildDefinition: { externalParameters: { request: { root: { configSource: { request: { args: { 'vcs:revision': f.commit, 'vcs:source': 'https://github.com/tommytang213/Settleora' } } } } } } } };
   assert.equal(validatePublicationProvenance(publication, provenance, f.commit), true);
   provenance.runDetails.builder.id = 'https://github.com/other/repo/actions/runs/1/attempts/1';
@@ -302,6 +310,14 @@ test('preserves expected Android identities and derives retained canonical paths
   const manifestPath = `${input.retention.canonicalEvidenceDirectory}/release-identity-manifest.json`;
   assert.equal(canonicalManifestPath(input, manifestPath), manifestPath);
   assert.throws(() => canonicalManifestPath(input, `${f.evidenceRoot}/manifest-copy.json`), /canonical retained candidate manifest/);
+  assert.equal(canonicalWebInput(input).userWeb.manifestPath, `${input.retention.canonicalEvidenceDirectory}/web/user-web-dist-manifest.json`);
+});
+
+test('accepts exactly one debug APK signer and rejects additional signers', () => {
+  const digest = 'a'.repeat(64);
+  const single = `Signer #1 certificate DN: CN=Android Debug, O=Android, C=US\nSigner #1 certificate SHA-256 digest: ${digest}\n`;
+  assert.equal(parseSingleApkSigner(single), digest);
+  assert.throws(() => parseSingleApkSigner(`${single}Signer #2 certificate DN: CN=Other\nSigner #2 certificate SHA-256 digest: ${'b'.repeat(64)}\n`), /APK signature observation mismatch/);
 });
 
 test('safe inputs reject URL query credentials and completion rejects untracked files', (t) => {

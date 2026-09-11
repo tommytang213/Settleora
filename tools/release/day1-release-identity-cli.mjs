@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { constants, copyFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,8 @@ import {
   computeIdentityDigest,
   containsSensitiveMaterial,
   validateCandidateId,
+  validatePublicationJobDocument,
+  validatePublicationJobLog,
   validatePublicationProvenance,
   validatePublicationRunDocument,
   validatePublicationRunUrl,
@@ -17,7 +19,7 @@ import {
   validateRegistryRevision,
   validateManifest,
 } from './day1-release-identity.mjs';
-import { assertTrackedWorktreeMatchesHead } from '../ci/user-web-dist-manifest.mjs';
+import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -34,9 +36,19 @@ function args(values) {
 
 export function safeInput(candidate, label) {
   const absolute = path.resolve(candidate);
-  const metadata = lstatSync(absolute);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || realpathSync(absolute) !== absolute) throw new Error(`${label} must be a real regular file without symlink indirection`);
-  const text = readFileSync(absolute, 'utf8');
+  let descriptor;
+  let text;
+  try {
+    descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const opened = fstatSync(descriptor);
+    text = readFileSync(descriptor, 'utf8');
+    const current = lstatSync(absolute);
+    if (!opened.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino || realpathSync(absolute) !== absolute || Buffer.byteLength(text) !== opened.size) {
+      throw new Error(`${label} changed or resolved through indirection while being read`);
+    }
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
   if (containsSensitiveMaterial(text)) {
     throw new Error(`${label} contains potentially sensitive material`);
   }
@@ -82,6 +94,17 @@ function verifyLiveRegistry(input) {
     stdio: ['ignore', 'pipe', 'pipe'],
   }));
   validatePublicationRunDocument(publication, run, input.source.commit);
+  const jobs = JSON.parse(execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/runs/${publication.runId}/jobs?per_page=100`], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }));
+  const jobId = validatePublicationJobDocument(jobs, input.source.commit);
+  const jobLog = execFileSync('gh', ['api', `repos/tommytang213/Settleora/actions/jobs/${jobId}/logs`], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  validatePublicationJobLog(jobLog, input.apiImage, input.source.commit);
   const provenance = inspect(apiReference, '{{json .Provenance.SLSA}}');
   validatePublicationProvenance(publication, provenance, input.source.commit);
   validateRegistryDocument(input.apiImage, inspectRecord(apiReference).manifest, platform, 'apiImage after provenance');
@@ -96,6 +119,17 @@ function trustedTool(candidate, expectedName, label) {
     throw new Error(`${label} must be an explicitly trusted real executable named ${expectedName}`);
   }
   return tool;
+}
+
+export function parseSingleApkSigner(output) {
+  const apkDigests = [...output.matchAll(/Signer #(\d+) certificate SHA-256 digest:\s*([0-9a-f]{64})/giu)];
+  const apkNames = [...output.matchAll(/Signer #(\d+) certificate DN:\s*(.+)$/gmu)];
+  const signerNumbers = new Set([...apkDigests, ...apkNames].map((match) => match[1]));
+  const certificate = apkDigests[0]?.[2]?.toLowerCase();
+  if (apkDigests.length !== 1 || apkNames.length !== 1 || signerNumbers.size !== 1 || !signerNumbers.has('1') || !apkNames[0][2].includes('CN=Android Debug') || !certificate) {
+    throw new Error('Android APK signature observation mismatch');
+  }
+  return certificate;
 }
 
 function verifyAndroidSignature(input, options) {
@@ -113,10 +147,7 @@ function verifyAndroidSignature(input, options) {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const certificate = /Signer #1 certificate SHA-256 digest:\s*([0-9a-f]{64})/iu.exec(output)?.[1]?.toLowerCase();
-  if (!/Signer #1 certificate DN:.*CN=Android Debug/u.test(output) || !certificate) {
-    throw new Error('Android APK signature observation mismatch');
-  }
+  const certificate = parseSingleApkSigner(output);
   const javaHome = path.resolve(options['java-home'] ?? '');
   const jarsigner = trustedTool(path.join(javaHome, 'bin', 'jarsigner'), 'jarsigner', 'Java jarsigner');
   const keytool = trustedTool(path.join(javaHome, 'bin', 'keytool'), 'keytool', 'Java keytool');
@@ -141,6 +172,64 @@ function verifyAndroidSignature(input, options) {
 }
 
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+
+function exactSourceSnapshot(prefix, callback) {
+  const source = {
+    commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+  };
+  assertCleanCompletion(repoRoot, `${prefix} requires a clean exact-source checkout`);
+  const container = path.join('/workspace/logs', `.settleora-${prefix}-source-${randomUUID()}`);
+  const snapshot = path.join(container, 'source');
+  const archive = path.join(container, 'source.tar');
+  mkdirSync(container, { recursive: false, mode: 0o700 });
+  mkdirSync(snapshot, { recursive: false, mode: 0o700 });
+  try {
+    execFileSync('git', ['archive', '--format=tar', `--output=${archive}`, source.commit], { cwd: repoRoot, stdio: ['ignore', 'ignore', 'pipe'] });
+    execFileSync('/usr/bin/tar', ['-xf', archive, '-C', snapshot], { stdio: ['ignore', 'ignore', 'pipe'] });
+    rmSync(archive, { force: false });
+    return callback(snapshot, source);
+  } finally {
+    const metadata = lstatSync(container, { throwIfNoEntry: false });
+    if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(container, { recursive: true, force: false });
+    const after = {
+      commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+      tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+    };
+    if (canonicalJson(after) !== canonicalJson(source)) throw new Error(`${prefix} source changed during collection`);
+    assertCleanCompletion(repoRoot, `${prefix} source changed during collection`);
+  }
+}
+
+function collectWebExactSource(output) {
+  const absolute = path.resolve(output);
+  const relative = path.relative('/workspace/logs', absolute);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('User-web evidence output must remain under /workspace/logs');
+  assertNoSymlinkAncestors(absolute);
+  if (lstatSync(absolute, { throwIfNoEntry: false })) throw new Error('User-web evidence output directory must not already exist');
+  return exactSourceSnapshot('web', (snapshot, source) => {
+    const webRoot = path.join(snapshot, 'apps/web-user');
+    execFileSync('npm', ['ci'], { cwd: webRoot, stdio: 'inherit' });
+    execFileSync('npm', ['run', 'build'], { cwd: webRoot, stdio: 'inherit' });
+    const lock = JSON.parse(readFileSync(path.join(repoRoot, 'apps/web-user/package-lock.json'), 'utf8'));
+    const version = (name) => {
+      const value = lock.packages?.[`node_modules/${name}`]?.version;
+      if (typeof value !== 'string' || !value) throw new Error(`Missing ${name} version in exact-source web lock`);
+      return value;
+    };
+    createUserWebDistManifest({
+      dist: path.join(webRoot, 'dist'),
+      staging: absolute,
+      expectedSourceSha: source.commit,
+      provenance: {
+        source,
+        artifactRoot: 'apps/web-user/dist',
+        buildTools: { node: process.version, npm: execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim(), typescript: version('typescript'), vite: version('vite') },
+      },
+    });
+    return source;
+  });
+}
 
 function collectAndroidUnsafe(options, emit = true) {
   const flutter = trustedTool(options.flutter, 'flutter', 'Flutter tool');
@@ -260,6 +349,16 @@ export function collectedAndroidInput(input, output, signature) {
   };
 }
 
+export function collectedWebInput(input, output) {
+  return {
+    ...input,
+    userWeb: {
+      evidenceRoot: output,
+      manifestPath: path.join(output, 'user-web-dist-manifest.json'),
+    },
+  };
+}
+
 function safeOutput(input, candidate) {
   const expectedDirectory = path.resolve(input.retention.canonicalEvidenceDirectory);
   const output = path.resolve(candidate);
@@ -292,6 +391,10 @@ export function canonicalAndroidInput(input, signature) {
   return collectedAndroidInput(input, path.join(canonicalCandidateDirectory(input), 'android'), signature);
 }
 
+export function canonicalWebInput(input) {
+  return collectedWebInput(input, path.join(canonicalCandidateDirectory(input), 'web'));
+}
+
 export function assertCleanCompletion(root, message) {
   assertTrackedWorktreeMatchesHead(root);
   if (execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error(message);
@@ -308,31 +411,40 @@ export function main(argv = process.argv.slice(2)) {
     const supplied = safeInput(options.input, 'Evidence input');
     const candidateRoot = canonicalCandidateDirectory(supplied);
     const androidRoot = path.join(candidateRoot, 'android');
+    const webRoot = path.join(candidateRoot, 'web');
     if (lstatSync(androidRoot, { throwIfNoEntry: false })) throw new Error('Canonical Android evidence directory must not already exist');
-    const stagingRoot = path.join(candidateRoot, `.android-staging-${randomUUID()}`);
-    let promoted = false;
+    if (lstatSync(webRoot, { throwIfNoEntry: false })) throw new Error('Canonical user-web evidence directory must not already exist');
+    const androidStaging = path.join(candidateRoot, `.android-staging-${randomUUID()}`);
+    const webStaging = path.join(candidateRoot, `.web-staging-${randomUUID()}`);
+    let androidPromoted = false;
+    let webPromoted = false;
     let completed = false;
     try {
-      collectAndroid({ ...options, output: stagingRoot }, false);
-      const unsignedInput = collectedAndroidInput(supplied, stagingRoot, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
+      collectWebExactSource(webStaging);
+      collectAndroid({ ...options, output: androidStaging }, false);
+      const unsignedInput = collectedAndroidInput(collectedWebInput(supplied, webStaging), androidStaging, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
       const signature = verifyAndroidSignature(unsignedInput, options);
-      const input = collectedAndroidInput(supplied, stagingRoot, signature);
+      const input = collectedAndroidInput(collectedWebInput(supplied, webStaging), androidStaging, signature);
       const manifest = buildManifest(repoRoot, input);
       verifyLiveRegistry(input);
       assertCleanCompletion(repoRoot, 'Source changed before final manifest write');
       const output = safeOutput(input, options.output);
       assertOwnedEvidenceDirectory(path.dirname(output));
       if (lstatSync(androidRoot, { throwIfNoEntry: false })) throw new Error('Canonical Android evidence directory appeared during assembly');
-      renameSync(stagingRoot, androidRoot);
-      promoted = true;
+      if (lstatSync(webRoot, { throwIfNoEntry: false })) throw new Error('Canonical user-web evidence directory appeared during assembly');
+      renameSync(webStaging, webRoot);
+      webPromoted = true;
+      renameSync(androidStaging, androidRoot);
+      androidPromoted = true;
       writeFileSync(output, canonicalJson(manifest), { flag: 'wx', mode: 0o444 });
       completed = true;
       process.stdout.write(`${JSON.stringify({ status: 'assembled', identityDigest: manifest.identityDigest, output })}\n`);
     } catch (error) {
       if (!completed) {
-        const generated = promoted ? androidRoot : stagingRoot;
-        const metadata = lstatSync(generated, { throwIfNoEntry: false });
-        if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(generated, { recursive: true, force: false });
+        for (const generated of [androidPromoted ? androidRoot : androidStaging, webPromoted ? webRoot : webStaging]) {
+          const metadata = lstatSync(generated, { throwIfNoEntry: false });
+          if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(generated, { recursive: true, force: false });
+        }
       }
       throw error;
     }
@@ -341,14 +453,24 @@ export function main(argv = process.argv.slice(2)) {
     const manifest = validateManifest(safeInput(options.manifest, 'Manifest'));
     canonicalManifestPath(manifest, options.manifest);
     const supplied = safeInput(options.input, 'Evidence input');
-    const unsignedInput = canonicalAndroidInput(supplied, { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
-    const signature = verifyAndroidSignature(unsignedInput, options);
-    const input = canonicalAndroidInput(supplied, signature);
-    const rebuilt = buildManifest(repoRoot, input);
-    verifyLiveRegistry(input);
-    assertCleanCompletion(repoRoot, 'Source changed before validation completed');
-    if (canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
-      throw new Error('Manifest differs from independently recollected evidence');
+    const webValidation = path.join(canonicalCandidateDirectory(supplied), `.web-validation-${randomUUID()}`);
+    try {
+      const unsignedInput = canonicalAndroidInput(canonicalWebInput(supplied), { certificate: '0'.repeat(64), embeddedR8MappingSha256: '0'.repeat(64) });
+      const signature = verifyAndroidSignature(unsignedInput, options);
+      const retainedInput = canonicalAndroidInput(canonicalWebInput(supplied), signature);
+      const retained = buildManifest(repoRoot, retainedInput);
+      collectWebExactSource(webValidation);
+      const rebuiltInput = canonicalAndroidInput(collectedWebInput(supplied, webValidation), signature);
+      const rebuilt = buildManifest(repoRoot, rebuiltInput);
+      verifyLiveRegistry(retainedInput);
+      assertCleanCompletion(repoRoot, 'Source changed before validation completed');
+      if (canonicalJson({ ...retained, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)
+        || canonicalJson({ ...rebuilt, generatedAt: manifest.generatedAt }) !== canonicalJson(manifest)) {
+        throw new Error('Manifest differs from independently recollected evidence');
+      }
+    } finally {
+      const metadata = lstatSync(webValidation, { throwIfNoEntry: false });
+      if (metadata?.isDirectory() && !metadata.isSymbolicLink()) rmSync(webValidation, { recursive: true, force: false });
     }
     process.stdout.write(`${JSON.stringify({ status: 'valid', identityDigest: computeIdentityDigest(manifest) })}\n`);
   } else {
