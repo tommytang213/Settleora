@@ -6,6 +6,7 @@ import {
   fstatSync,
   lstatSync,
   openSync,
+  readSync,
   readFileSync,
   realpathSync,
 } from 'node:fs';
@@ -186,7 +187,7 @@ function withPlatform(image, platform, label) {
   return result;
 }
 
-function exactRegularFile(candidate, label, allowedRoot) {
+function exactRegularFile(candidate, label, allowedRoot, maxBytes = 256 * 1024 * 1024) {
   const absolute = path.resolve(candidate);
   const root = path.resolve(allowedRoot);
   const relative = path.relative(root, absolute);
@@ -206,7 +207,18 @@ function exactRegularFile(candidate, label, allowedRoot) {
     descriptor = openSync(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
     const metadata = fstatSync(descriptor);
     if (!metadata.isFile()) fail(`${label} must be a regular file`);
-    const bytes = readFileSync(descriptor);
+    if (metadata.size < 0 || metadata.size > maxBytes) fail(`${label} exceeds its evidence size limit`);
+    const chunks = [];
+    let total = 0;
+    const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, Math.max(1, maxBytes)));
+    while (true) {
+      const count = readSync(descriptor, buffer, 0, buffer.length, null);
+      if (count === 0) break;
+      total += count;
+      if (total > maxBytes) fail(`${label} exceeds its evidence size limit`);
+      chunks.push(Buffer.from(buffer.subarray(0, count)));
+    }
+    const bytes = Buffer.concat(chunks, total);
     const current = lstatSync(absolute);
     if (current.isSymbolicLink() || current.dev !== metadata.dev || current.ino !== metadata.ino || realpathSync(absolute) !== absolute) {
       fail(`${label} changed or resolved through indirection while being read`);
@@ -408,7 +420,7 @@ function collectWeb(repoRoot, input, source) {
 function collectAndroid(repoRoot, input, source) {
   const apk = exactRegularFile(input.apkPath, 'Android APK', input.evidenceRoot);
   const aab = exactRegularFile(input.aabPath, 'Android AAB', input.evidenceRoot);
-  const mapping = exactRegularFile(input.mappingPath, 'Android R8 mapping', input.evidenceRoot);
+  const mapping = exactRegularFile(input.mappingPath, 'Android R8 mapping', input.evidenceRoot, 128 * 1024 * 1024);
   if (mapping.size === 0 || !mapping.bytes.toString('utf8').startsWith('# compiler: R8\n')) fail('Android R8 mapping must be a non-empty R8 mapping');
   if (hexDigest(input.embeddedR8MappingSha256, 'Android embedded R8 mapping SHA-256') !== sha256(mapping.bytes)) fail('Android R8 mapping does not match the signed AAB');
   const metadataFile = exactRegularFile(input.outputMetadataPath, 'Android output metadata', input.evidenceRoot);

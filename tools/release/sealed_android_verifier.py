@@ -31,12 +31,16 @@ def run(command: list[str], descriptors: tuple[int, ...]) -> str:
 
 
 def unsigned_content_entry_count(verification: str) -> tuple[int, int]:
-    content_entries = [line for line in verification.splitlines() if re.match(r"^[smk? ]{3}\s+\d+\s+\w{3}\s", line)]
+    content_entries = []
+    for line in verification.splitlines():
+        match = re.match(r"^[smk? ]{3}\s+(\d+)\s+\w{3}\s", line)
+        if match:
+            content_entries.append((line, int(match.group(1))))
     signature_control = re.compile(r"\sMETA-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
     unsigned = sum(
         1
-        for line in content_entries
-        if not line.startswith("s") and not line.rstrip().endswith("/") and not signature_control.search(line)
+        for line, size in content_entries
+        if not line.startswith("s") and not (size == 0 and line.rstrip().endswith("/")) and not signature_control.search(line)
     )
     return len(content_entries), unsigned
 

@@ -21,9 +21,10 @@ class SealedAndroidVerifierTests(unittest.TestCase):
                 "    5 Fri Jan 01 00:00:00 UTC 2026 META-INF/CERT.SF",
                 "s   7 Fri Jan 01 00:00:00 UTC 2026 base/assets/signed.txt",
                 "    9 Fri Jan 01 00:00:00 UTC 2026 base/assets/unsigned.txt",
+                "    16 Fri Jan 01 00:00:00 UTC 2026 base/assets/payload/",
             )
         )
-        self.assertEqual(VERIFIER.unsigned_content_entry_count(verification), (4, 1))
+        self.assertEqual(VERIFIER.unsigned_content_entry_count(verification), (5, 2))
 
     def test_bounded_digest_rejects_from_metadata_before_opening_entry(self):
         archive = io.BytesIO()

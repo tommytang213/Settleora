@@ -22,6 +22,7 @@ import {
 import { assertTrackedWorktreeMatchesHead, createUserWebDistManifest } from '../ci/user-web-dist-manifest.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const sealedAndroidVerifierSource = readFileSync(new URL('./sealed_android_verifier.py', import.meta.url));
 
 function args(values) {
   const result = { command: values[0] };
@@ -131,7 +132,8 @@ export function parseSingleApkSigner(output) {
 }
 
 function sealedAndroidVerification(kind, artifact, toolPaths) {
-  const helper = path.join(repoRoot, 'tools/release/sealed_android_verifier.py');
+  const committedHelper = execFileSync('git', ['show', 'HEAD:tools/release/sealed_android_verifier.py'], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1024 * 1024 });
+  if (!sealedAndroidVerifierSource.equals(committedHelper)) throw new Error('Android sealed verifier does not match the captured source checkout');
   const absolute = path.resolve(artifact);
   let descriptor;
   const toolDescriptors = [];
@@ -148,9 +150,10 @@ function sealedAndroidVerification(kind, artifact, toolPaths) {
       if (!toolOpened.isFile() || toolCurrent.isSymbolicLink() || toolCurrent.dev !== toolOpened.dev || toolCurrent.ino !== toolOpened.ino || realpathSync(toolPath) !== toolPath) throw new Error(`Android ${kind.toUpperCase()} verifier executable changed before use`);
       toolDescriptors.push(toolDescriptor);
     }
-    result = JSON.parse(execFileSync('/usr/bin/python3', [helper, kind], {
+    result = JSON.parse(execFileSync('/usr/bin/python3', ['-', kind], {
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe', descriptor, ...toolDescriptors],
+      input: sealedAndroidVerifierSource,
+      stdio: ['pipe', 'pipe', 'pipe', descriptor, ...toolDescriptors],
       env: { PATH: '/usr/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
       maxBuffer: 4 * 1024 * 1024,
     }));
