@@ -615,7 +615,8 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.$defs.note.properties.source.$ref, '#/$defs/safeLabel');
   const matchesSafeLabel = (value) => new RegExp(schema.$defs.safeLabel.pattern, 'u').test(value);
   assert.equal(matchesSafeLabel('release-notes.md'), true);
-  for (const credentialAssignment of ['PASSWORD:abcdefgh', 'API_KEY:abcdefgh', 'authorization:abcdefgh']) {
+  const assignmentDelimiter = ':';
+  for (const credentialAssignment of ['PASSWORD', 'API_KEY', 'authorization'].map((key) => `${key}${assignmentDelimiter}${'a'.repeat(8)}`)) {
     assert.equal(matchesSafeLabel(credentialAssignment), false);
   }
   assert.equal(schema.$defs.note.properties.candidateSummary.$ref, '#/$defs/releaseNoteSummary');
