@@ -607,6 +607,9 @@ function sealedAndroidVerification(kind, artifact, tools, javaPath) {
     || canonicalJson([...result.signatureControlEntries].sort()) !== canonicalJson(result.signatureControlEntries)) {
     throw new Error(`Android ${kind.toUpperCase()} signature-control inventory is invalid`);
   }
+  if (kind === 'apk' && canonicalJson(result.apkSigningBlockIds) !== canonicalJson(['42726577', '504b4453', '7109871a'])) {
+    throw new Error('Android APK signing-block ID inventory is invalid');
+  }
   return result;
 }
 
@@ -645,7 +648,7 @@ export function verifyAndroidSignature(input, options) {
     apk,
     aab,
     payloads: {
-      apk: { sha256: apkObservation.payloadTreeSha256, count: apkObservation.payloadEntryCount, signatureControls: apkObservation.signatureControlEntries },
+      apk: { sha256: apkObservation.payloadTreeSha256, count: apkObservation.payloadEntryCount, signatureControls: apkObservation.signatureControlEntries, signingBlockIds: apkObservation.apkSigningBlockIds },
       aab: { sha256: aabObservation.payloadTreeSha256, count: aabObservation.payloadEntryCount, signatureControls: aabObservation.signatureControlEntries },
     },
   };

@@ -24,6 +24,8 @@ MAX_AAB_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_AAB_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_AAB_CENTRAL_DIRECTORY_BYTES = 64 * 1024 * 1024
 SIGNATURE_CONTROL = re.compile(r"^META-INF/(?:MANIFEST\.MF|[^/]+\.(?:SF|RSA|DSA|EC))$")
+APK_SIGNING_BLOCK_MAGIC = b"APK Sig Block 42"
+EXPECTED_APK_SIGNING_BLOCK_IDS = {0x7109871A, 0x504B4453, 0x42726577}
 
 
 def run(command: list[str], descriptors: tuple[int, ...], limit: int = 4 * 1024 * 1024, executable: str | None = None) -> str:
@@ -193,6 +195,47 @@ def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int, list[str]]:
     return identity.hexdigest(), len(records), sorted(signature_controls)
 
 
+def apk_signing_block_ids(descriptor: int) -> list[str]:
+    """Parse and constrain the complete APK Signing Block ID inventory."""
+    metadata = os.fstat(descriptor)
+    tail_size = min(metadata.st_size, 65_557)
+    tail = os.pread(descriptor, tail_size, metadata.st_size - tail_size)
+    eocd_offset = tail.rfind(b"PK\x05\x06")
+    if eocd_offset < 0 or len(tail) - eocd_offset < 22:
+        raise ValueError("Android APK has no bounded ZIP end record")
+    central_offset = struct.unpack_from("<I", tail, eocd_offset + 16)[0]
+    comment_size = struct.unpack_from("<H", tail, eocd_offset + 20)[0]
+    absolute_eocd_offset = metadata.st_size - tail_size + eocd_offset
+    if absolute_eocd_offset + 22 + comment_size != metadata.st_size or central_offset < 24:
+        raise ValueError("Android APK end record is malformed")
+    footer = os.pread(descriptor, 24, central_offset - 24)
+    if len(footer) != 24 or footer[8:] != APK_SIGNING_BLOCK_MAGIC:
+        raise ValueError("Android APK signing block is missing")
+    block_size = struct.unpack_from("<Q", footer, 0)[0]
+    if block_size < 24 or block_size + 8 > central_offset or block_size > MAX_ARTIFACT_BYTES:
+        raise ValueError("Android APK signing block size is invalid")
+    block_start = central_offset - block_size - 8
+    block = os.pread(descriptor, block_size + 8, block_start)
+    if len(block) != block_size + 8 or struct.unpack_from("<Q", block, 0)[0] != block_size:
+        raise ValueError("Android APK signing block headers disagree")
+    position = 8
+    pairs_end = len(block) - 24
+    identifiers: list[int] = []
+    while position < pairs_end:
+        if pairs_end - position < 12:
+            raise ValueError("Android APK signing block pair is truncated")
+        pair_size = struct.unpack_from("<Q", block, position)[0]
+        if pair_size < 4 or position + 8 + pair_size > pairs_end:
+            raise ValueError("Android APK signing block pair size is invalid")
+        identifiers.append(struct.unpack_from("<I", block, position + 8)[0])
+        position += 8 + pair_size
+    if position != pairs_end or len(identifiers) != len(set(identifiers)):
+        raise ValueError("Android APK signing block IDs are malformed or duplicated")
+    if set(identifiers) != EXPECTED_APK_SIGNING_BLOCK_IDS:
+        raise ValueError("Android APK signing block contains an unexpected ID inventory")
+    return sorted(f"{identifier:08x}" for identifier in identifiers)
+
+
 def sealed_snapshot(source_descriptor: int) -> tuple[int, int, str]:
     source_fd = os.dup(source_descriptor)
     sealed_fd = os.memfd_create("settleora-android-artifact", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
@@ -299,6 +342,8 @@ def preflight_aab(descriptor: int) -> int:
         if len(central) - position < 46 or central[position:position + 4] != b"PK\x01\x02":
             raise ValueError("Android bundle central directory is malformed")
         name_size, extra_size, comment_size = struct.unpack_from("<HHH", central, position + 28)
+        if comment_size != 0:
+            raise ValueError("Android bundle entry comments are not accepted")
         entry_name = central[position + 46:position + 46 + name_size]
         if any(byte < 0x20 or byte == 0x7F for byte in entry_name):
             raise ValueError("Android bundle entry path contains control characters")
@@ -350,6 +395,7 @@ def main() -> None:
         result: dict[str, object] = {"size": size, "sha256": digest}
         result["payloadTreeSha256"], result["payloadEntryCount"], result["signatureControlEntries"] = canonical_zip_payload_digest(descriptor)
         if arguments.kind == "apk":
+            result["apkSigningBlockIds"] = apk_signing_block_ids(descriptor)
             result["verificationOutput"] = run(
                 [java_path, "-Xmx1024M", "-jar", f"/proc/self/fd/{tool_descriptors[0]}", "verify", "--verbose", "--print-certs", held_path],
                 (descriptor, *tool_descriptors),

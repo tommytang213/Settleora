@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pathlib
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -168,6 +169,36 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             source.seek(0)
             with self.assertRaisesRegex(ValueError, "ZIP comments"):
                 VERIFIER.preflight_aab(source.fileno())
+
+    def test_aab_preflight_rejects_entry_comment(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as output:
+            entry = zipfile.ZipInfo("entry")
+            entry.comment = b"unbound entry comment"
+            output.writestr(entry, b"content")
+        with tempfile.TemporaryFile() as source:
+            source.write(archive.getvalue())
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "entry comments"):
+                VERIFIER.preflight_aab(source.fileno())
+
+    def test_apk_signing_block_rejects_unknown_ids(self):
+        def artifact(identifiers):
+            pairs = b"".join(struct.pack("<QI", 4, identifier) for identifier in identifiers)
+            block_size = len(pairs) + 24
+            block = struct.pack("<Q", block_size) + pairs + struct.pack("<Q", block_size) + VERIFIER.APK_SIGNING_BLOCK_MAGIC
+            eocd = b"PK\x05\x06" + struct.pack("<HHHHIIH", 0, 0, 0, 0, 0, len(block), 0)
+            return block + eocd
+
+        with tempfile.TemporaryFile() as source:
+            source.write(artifact(VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS))
+            source.seek(0)
+            self.assertEqual(VERIFIER.apk_signing_block_ids(source.fileno()), ["42726577", "504b4453", "7109871a"])
+        with tempfile.TemporaryFile() as source:
+            source.write(artifact((*VERIFIER.EXPECTED_APK_SIGNING_BLOCK_IDS, 0xDEADBEEF)))
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "unexpected ID inventory"):
+                VERIFIER.apk_signing_block_ids(source.fileno())
 
     def test_aab_preflight_rejects_multiline_entry_name(self):
         archive = io.BytesIO()

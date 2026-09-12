@@ -273,15 +273,15 @@ test('rejects web source and Android artifact mismatches', (t) => {
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected: expectedAab } }), /AAB identity mismatch/);
   const provenance = JSON.parse(readFileSync(f.input.android.buildProvenancePath));
   provenance.unbound = true;
-  writeFileSync(f.input.android.buildProvenancePath, JSON.stringify(provenance));
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /Android build provenance has unexpected properties/);
   delete provenance.unbound;
   provenance.source.unbound = true;
-  writeFileSync(f.input.android.buildProvenancePath, JSON.stringify(provenance));
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source has unexpected properties/);
   delete provenance.source.unbound;
   provenance.source.tree = '6'.repeat(40);
-  writeFileSync(f.input.android.buildProvenancePath, JSON.stringify(provenance));
+  writeFileSync(f.input.android.buildProvenancePath, canonicalJson(provenance));
   assert.throws(() => buildManifest(f.root, f.input), /Android build provenance source mismatch/);
 });
 
@@ -296,6 +296,14 @@ test('rejects hidden tracked-source changes and nonconforming migration sources'
   git(f.root, ['add', 'services/api/src/Settleora.Api/Persistence/Migrations/CustomMigration.cs']);
   git(f.root, ['-c', 'user.name=Settleora Test', '-c', 'user.email=test@example.invalid', 'commit', '--quiet', '-m', 'invalid migration fixture']);
   assert.throws(() => collectMigrations(f.root, undefined, undefined, ['20260101000000_Initial', '20260102000000_SourceOnly']), /Unrecognized migration source files/);
+});
+
+test('rejects ambiguous Android build provenance serialization', (t) => {
+  const f = fixture(t);
+  const canonical = readFileSync(f.input.android.buildProvenancePath, 'utf8');
+  const conflictingSource = JSON.stringify({ commit: '0'.repeat(40), tree: '1'.repeat(40) });
+  writeFileSync(f.input.android.buildProvenancePath, `{"source":${conflictingSource},${canonical.slice(1)}`);
+  assert.throws(() => buildManifest(f.root, f.input), /unique canonical serialization/);
 });
 
 test('binds migration bytes to the initially captured source commit', (t) => {
@@ -587,6 +595,12 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.$defs.apiImage.properties.repository.const, 'ghcr.io/tommytang213/settleora-api');
   assert.equal(schema.$defs.apiImage.properties.configuredTag.pattern, '^sha-[0-9a-f]{40}$');
   assert.equal(schema.$defs.apiImage.properties.publicationRunUrl.pattern, '^https://github\\.com/tommytang213/Settleora/actions/runs/[1-9][0-9]*$');
+  assert.deepEqual(schema.$defs.apiImage.properties.os, { $ref: '#/$defs/ociPlatformName' });
+  assert.deepEqual(schema.$defs.apiImage.properties.architecture, { $ref: '#/$defs/ociPlatformName' });
+  assert.deepEqual(schema.$defs.dependencyImage.properties.os, { $ref: '#/$defs/ociPlatformName' });
+  assert.deepEqual(schema.$defs.dependencyImage.properties.architecture, { $ref: '#/$defs/ociPlatformName' });
+  assert.equal(new RegExp(schema.$defs.ociPlatformName.pattern).test(''), false);
+  assert.equal(new RegExp(schema.$defs.ociPlatformName.pattern).test('amd64'), true);
   assert.equal(schema.$defs.dependencyImage.properties.configuredTag.pattern, '^(?!(?:.*:)?(?:main|latest)$).+$');
   assert.deepEqual(schema.properties.dependencyImages.prefixItems.map((item) => item.allOf[1].properties.configuredTag.const), [
     'caddy:2.11.4-alpine',

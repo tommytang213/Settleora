@@ -516,6 +516,9 @@ function collectAndroid(repoRoot, input, source) {
   const metadata = JSON.parse(metadataFile.bytes);
   const provenanceFile = exactRegularFile(input.buildProvenancePath, 'Android build provenance', input.evidenceRoot);
   const provenance = JSON.parse(provenanceFile.bytes);
+  if (!provenanceFile.bytes.equals(Buffer.from(canonicalJson(provenance), 'utf8'))) {
+    fail('Android build provenance must use its unique canonical serialization');
+  }
   assertKeys(provenance, ['schema', 'source', 'commands', 'toolchains', 'artifacts'], 'Android build provenance');
   assertKeys(provenance.source, ['commit', 'tree'], 'Android build provenance source');
   assertKeys(provenance.artifacts, ['apk', 'aab', 'r8MappingSha256'], 'Android build provenance artifacts');
