@@ -22,7 +22,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseSingleApkSigner, retainReleaseNotes, safeInput, toolchainTreeDigest } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, toolchainTreeDigest } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 
@@ -613,6 +613,11 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
   assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^(?!.*\\.\\.)services/api/src/Settleora\\.Api/Persistence/Migrations/(?:[A-Za-z0-9][A-Za-z0-9._+:-]*/)*[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
   assert.equal(schema.$defs.note.properties.source.$ref, '#/$defs/safeLabel');
+  const matchesSafeLabel = (value) => new RegExp(schema.$defs.safeLabel.pattern, 'u').test(value);
+  assert.equal(matchesSafeLabel('release-notes.md'), true);
+  for (const credentialAssignment of ['PASSWORD:abcdefgh', 'API_KEY:abcdefgh', 'authorization:abcdefgh']) {
+    assert.equal(matchesSafeLabel(credentialAssignment), false);
+  }
   assert.equal(schema.$defs.note.properties.candidateSummary.$ref, '#/$defs/releaseNoteSummary');
   assert.equal(schema.$defs.releaseNoteSummary.minLength, 1);
   assert.equal(schema.$defs.releaseNoteSummary.maxLength, 500);
@@ -629,6 +634,17 @@ test('published schema requires role-specific image provenance', () => {
     { role: 'postgres', minimum: 1, maximum: 1 },
     { role: 'rabbitmq', minimum: 1, maximum: 1 },
   ]);
+});
+
+test('retained manifest JSON requires one canonical unambiguous serialization', () => {
+  const canonical = Buffer.from(canonicalJson({ identityDigest: 'a'.repeat(64), source: { commit: 'b'.repeat(40) } }));
+  assert.deepEqual(parseCanonicalJson(canonical, 'Manifest'), {
+    identityDigest: 'a'.repeat(64),
+    source: { commit: 'b'.repeat(40) },
+  });
+  const duplicate = Buffer.from(`{"source":{"commit":"${'c'.repeat(40)}"},"source":{"commit":"${'b'.repeat(40)}"},"identityDigest":"${'a'.repeat(64)}"}\n`);
+  assert.throws(() => parseCanonicalJson(duplicate, 'Manifest'), /unique canonical serialization/);
+  assert.throws(() => parseCanonicalJson(Buffer.from('{"source": {}}\n'), 'Manifest'), /unique canonical serialization/);
 });
 
 test('direct manifest validation rejects cross-role image fields and unsafe release summaries', (t) => {

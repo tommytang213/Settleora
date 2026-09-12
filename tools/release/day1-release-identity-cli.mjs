@@ -154,6 +154,15 @@ export function safeInput(candidate, label) {
   return parsed;
 }
 
+export function parseCanonicalJson(bytes, label) {
+  if (!Buffer.isBuffer(bytes)) throw new Error(`${label} must be read as bytes`);
+  const parsed = JSON.parse(bytes.toString('utf8'));
+  if (!bytes.equals(Buffer.from(canonicalJson(parsed), 'utf8'))) {
+    throw new Error(`${label} JSON must use the unique canonical serialization`);
+  }
+  return parsed;
+}
+
 function safeBytes(candidate, label) {
   const absolute = path.resolve(candidate);
   const maxBytes = 4 * 1024 * 1024;
@@ -1153,7 +1162,7 @@ export function main(argv = process.argv.slice(2)) {
     validateCandidateId(path.basename(requestedCandidateRoot));
     assertOwnedEvidenceDirectory(requestedCandidateRoot);
     const initialManifestBytes = safeBytes(options.manifest, 'Manifest');
-    const manifest = validateManifest(JSON.parse(initialManifestBytes.toString('utf8')), repoRoot);
+    const manifest = validateManifest(parseCanonicalJson(initialManifestBytes, 'Manifest'), repoRoot);
     canonicalManifestPath(manifest, options.manifest);
     const supplied = bindCompiledMigrationIds(safeInput(options.input, 'Evidence input'), collectCompiledMigrationIds(requestedCandidateRoot));
     const webValidation = path.join(canonicalCandidateDirectory(supplied), `.web-validation-${randomUUID()}`);
