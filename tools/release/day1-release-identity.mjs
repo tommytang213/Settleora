@@ -566,6 +566,8 @@ export function validateManifest(manifest, repoRoot) {
   validateImage(manifest.apiImage, 'apiImage', manifest.source.commit, undefined, apiRepository);
   if (manifest.apiImage.publicationRunUrl === undefined) fail('API image publication run provenance is required');
   if (!Array.isArray(manifest.dependencyImages) || manifest.dependencyImages.length !== 3) fail('Exactly three dependency images are required');
+  const canonicalDependencyOrder = ['caddy', 'postgres', 'rabbitmq'];
+  if (manifest.dependencyImages.some((image, index) => image.name !== canonicalDependencyOrder[index])) fail('Dependency images must use canonical caddy, postgres, rabbitmq order');
   const expectedDependencies = new Set(['caddy', 'postgres', 'rabbitmq']);
   const dependencyRepositories = { postgres: 'docker.io/library/postgres', rabbitmq: 'docker.io/library/rabbitmq', caddy: 'docker.io/library/caddy' };
   const dependencyServices = { postgres: 'postgres', rabbitmq: 'rabbitmq', caddy: 'ingress' };

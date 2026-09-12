@@ -22,7 +22,7 @@ import {
   validatePublicationRunDocument,
   validatePublicationRunUrl,
 } from '../day1-release-identity.mjs';
-import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, parseSingleApkSigner, safeInput } from '../day1-release-identity-cli.mjs';
+import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, parseSingleApkSigner, retainReleaseNotes, safeInput } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
 
@@ -392,6 +392,20 @@ test('safe inputs reject URL query credentials and completion rejects untracked 
   assert.throws(() => assertCleanCompletion(f.root, 'source changed'), /source changed/);
 });
 
+test('release-note retention enforces the declared root and bounded filename', (t) => {
+  const f = fixture(t);
+  const outside = write(f.root, 'release-notes.md', 'outside notes\n');
+  assert.throws(() => retainReleaseNotes({ releaseNotes: { evidenceRoot: f.evidenceRoot, path: outside } }, path.join(f.evidenceRoot, 'copy.md')), /inside its declared evidence root/);
+  const wrongName = write(f.evidenceRoot, '.env', 'ordinary text\n');
+  assert.throws(() => retainReleaseNotes({ releaseNotes: { evidenceRoot: f.evidenceRoot, path: wrongName } }, path.join(f.evidenceRoot, 'copy.md')), /bounded release-notes\.md filename/);
+  const retainedRoot = mkdtempSync('/workspace/logs/.r03-release-note-test-');
+  t.after(() => rmSync(retainedRoot, { recursive: true, force: true }));
+  const boundedNote = write(retainedRoot, 'release-notes.md', 'candidate notes\n');
+  const retained = path.join(retainedRoot, 'retained.md');
+  retainReleaseNotes({ releaseNotes: { evidenceRoot: retainedRoot, path: boundedNote } }, retained);
+  assert.equal(readFileSync(retained, 'utf8'), 'candidate notes\n');
+});
+
 test('snapshot inputs reject tracked symlinks and Android copies enforce pre-copy bounds', (t) => {
   const f = fixture(t);
   symlinkSync('README.md', path.join(f.root, 'tracked-link'));
@@ -456,6 +470,11 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
   wrongDependencyPlatform.identityDigest = computeIdentityDigest(wrongDependencyPlatform);
   assert.throws(() => validateManifest(wrongDependencyPlatform, f.root), /platform mismatch/);
 
+  const reorderedDependencies = structuredClone(original);
+  reorderedDependencies.dependencyImages.reverse();
+  reorderedDependencies.identityDigest = computeIdentityDigest(reorderedDependencies);
+  assert.throws(() => validateManifest(reorderedDependencies, f.root), /canonical caddy, postgres, rabbitmq order/);
+
   const wrongRollbackPlatform = structuredClone(original);
   wrongRollbackPlatform.rollback.apiImage.os = 'windows';
   wrongRollbackPlatform.identityDigest = computeIdentityDigest(wrongRollbackPlatform);
@@ -497,7 +516,16 @@ test('published schema requires role-specific image provenance', () => {
   assert.deepEqual(schema.$defs.dependencyImage.required, ['name', 'repository', 'configuredTag', 'indexDigest', 'platformDigest', 'os', 'architecture', 'sourceComposePath']);
   assert.equal(schema.properties.apiImage.$ref, '#/$defs/apiImage');
   assert.equal(schema.properties.rollback.properties.apiImage.$ref, '#/$defs/apiImage');
-  assert.equal(schema.properties.dependencyImages.items.$ref, '#/$defs/dependencyImage');
+  assert.equal(schema.properties.dependencyImages.items, false);
+  assert.deepEqual(schema.properties.dependencyImages.prefixItems.map((item) => ({
+    base: item.allOf[0].$ref,
+    role: item.allOf[1].properties.name.const,
+    repository: item.allOf[1].properties.repository.const,
+  })), [
+    { base: '#/$defs/dependencyImage', role: 'caddy', repository: 'docker.io/library/caddy' },
+    { base: '#/$defs/dependencyImage', role: 'postgres', repository: 'docker.io/library/postgres' },
+    { base: '#/$defs/dependencyImage', role: 'rabbitmq', repository: 'docker.io/library/rabbitmq' },
+  ]);
   assert.equal(schema.$defs.apiImage.properties.repository.const, 'ghcr.io/tommytang213/settleora-api');
   assert.equal(schema.properties.source.properties.candidateId.pattern, '^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._-]*$');
   assert.deepEqual(schema.properties.userWeb.required, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact']);
@@ -525,6 +553,7 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/libexec\/docker\/cli-plugins\/docker-buildx', 'docker-buildx'\)/);
   assert.match(cliSource, /gitObjectId\('commit', processCommitBytes\) !== processCommit/);
   assert.match(cliSource, /gitObjectId\('tree', processTreeBytes\) !== processTree/);
+  assert.match(cliSource, /gitObjectId\('tree', treeBytes\) !== treeId/);
   assert.doesNotMatch(cliSource, /\['fsck'/);
   assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
   assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);

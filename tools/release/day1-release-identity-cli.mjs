@@ -84,6 +84,39 @@ if (gitObjectId('commit', processCommitBytes) !== processCommit) throw new Error
 const processTree = gitExec(['rev-parse', `${processCommit}^{tree}`], { cwd: repoRoot, encoding: 'utf8' }).trim();
 const processTreeBytes = gitExec(['cat-file', 'tree', processTree], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 });
 if (gitObjectId('tree', processTreeBytes) !== processTree) throw new Error('Captured source tree Git object identity mismatch');
+const reachableTreeListing = gitExec(['ls-tree', '-r', '-t', '-z', processTree], {
+  cwd: repoRoot,
+  stdio: ['ignore', 'pipe', 'pipe'],
+  maxBuffer: 256 * 1024 * 1024,
+});
+const reachableTreeIds = new Set();
+for (const record of reachableTreeListing.subarray(0, -1).toString('utf8').split('\0')) {
+  const header = record.slice(0, record.indexOf('\t'));
+  const match = /^(?:040000|40000) tree ([0-9a-f]{40})$/u.exec(header);
+  if (match) reachableTreeIds.add(match[1]);
+}
+const orderedTreeIds = [...reachableTreeIds].sort();
+const reachableTreeBytes = gitExec(['cat-file', '--batch'], {
+  cwd: repoRoot,
+  input: `${orderedTreeIds.join('\n')}\n`,
+  stdio: ['pipe', 'pipe', 'pipe'],
+  maxBuffer: 256 * 1024 * 1024,
+});
+let treeBatchOffset = 0;
+for (const treeId of orderedTreeIds) {
+  const headerEnd = reachableTreeBytes.indexOf(0x0a, treeBatchOffset);
+  if (headerEnd < 0) throw new Error('Reachable source tree Git batch response is incomplete');
+  const match = /^([0-9a-f]{40}) tree ([0-9]+)$/u.exec(reachableTreeBytes.subarray(treeBatchOffset, headerEnd).toString('ascii'));
+  if (!match || match[1] !== treeId) throw new Error('Reachable source tree Git batch response mismatch');
+  const size = Number(match[2]);
+  const contentsStart = headerEnd + 1;
+  const contentsEnd = contentsStart + size;
+  if (!Number.isSafeInteger(size) || contentsEnd >= reachableTreeBytes.length || reachableTreeBytes[contentsEnd] !== 0x0a) throw new Error('Reachable source tree Git batch size mismatch');
+  const treeBytes = reachableTreeBytes.subarray(contentsStart, contentsEnd);
+  if (gitObjectId('tree', treeBytes) !== treeId) throw new Error('Reachable source tree Git object identity mismatch');
+  treeBatchOffset = contentsEnd + 1;
+}
+if (treeBatchOffset !== reachableTreeBytes.length) throw new Error('Reachable source tree Git batch response has trailing data');
 const processSource = Object.freeze({
   commit: processCommit,
   tree: processTree,
@@ -848,6 +881,7 @@ function collectAndroid(options, emit = true) {
 function assertNoSymlinkAncestors(candidate) {
   let cursor = path.resolve(candidate);
   while (cursor !== '/workspace/logs') {
+    if (cursor === '/') throw new Error('Evidence path must remain within /workspace/logs');
     const metadata = lstatSync(cursor, { throwIfNoEntry: false });
     if (metadata?.isSymbolicLink()) throw new Error('Evidence path must not contain symlink ancestors');
     cursor = path.dirname(cursor);
@@ -900,8 +934,16 @@ function collectedReleaseNotesInput(input, notePath) {
   return { ...input, releaseNotes: { ...input.releaseNotes, evidenceRoot: path.dirname(notePath), path: notePath } };
 }
 
-function retainReleaseNotes(input, output) {
-  const bytes = safeBytes(input.releaseNotes.path, 'Release-note evidence input');
+export function retainReleaseNotes(input, output) {
+  const evidenceRoot = path.resolve(input.releaseNotes.evidenceRoot ?? '');
+  const notePath = path.resolve(input.releaseNotes.path ?? '');
+  const relative = path.relative(evidenceRoot, notePath);
+  if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) throw new Error('Release-note evidence input must remain inside its declared evidence root');
+  if (path.basename(notePath) !== 'release-notes.md') throw new Error('Release-note evidence input must use the bounded release-notes.md filename');
+  assertNoSymlinkAncestors(evidenceRoot);
+  const rootMetadata = lstatSync(evidenceRoot, { throwIfNoEntry: false });
+  if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(evidenceRoot) !== evidenceRoot) throw new Error('Release-note evidence root must be a real directory');
+  const bytes = safeBytes(notePath, 'Release-note evidence input');
   if (bytes.length === 0 || containsSensitiveMaterial(bytes.toString('utf8'))) throw new Error('Release-note evidence input is empty or contains potentially sensitive material');
   writeFileSync(output, bytes, { flag: 'wx', mode: 0o444 });
 }
