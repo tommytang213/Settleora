@@ -599,8 +599,10 @@ test('published schema requires role-specific image provenance', () => {
   assert.deepEqual(schema.$defs.apiImage.properties.architecture, { $ref: '#/$defs/ociPlatformName' });
   assert.deepEqual(schema.$defs.dependencyImage.properties.os, { $ref: '#/$defs/ociPlatformName' });
   assert.deepEqual(schema.$defs.dependencyImage.properties.architecture, { $ref: '#/$defs/ociPlatformName' });
-  assert.equal(new RegExp(schema.$defs.ociPlatformName.pattern).test(''), false);
-  assert.equal(new RegExp(schema.$defs.ociPlatformName.pattern).test('amd64'), true);
+  const ociPlatformNamePattern = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u;
+  assert.equal(schema.$defs.ociPlatformName.pattern, ociPlatformNamePattern.source);
+  assert.equal(ociPlatformNamePattern.test(''), false);
+  assert.equal(ociPlatformNamePattern.test('amd64'), true);
   assert.equal(schema.$defs.dependencyImage.properties.configuredTag.pattern, '^(?!(?:.*:)?(?:main|latest)$).+$');
   assert.deepEqual(schema.properties.dependencyImages.prefixItems.map((item) => item.allOf[1].properties.configuredTag.const), [
     'caddy:2.11.4-alpine',
