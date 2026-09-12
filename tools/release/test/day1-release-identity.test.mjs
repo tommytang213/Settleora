@@ -470,6 +470,15 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.apiImage.$ref, '#/$defs/apiImage');
   assert.equal(schema.properties.rollback.properties.apiImage.$ref, '#/$defs/apiImage');
   assert.equal(schema.properties.dependencyImages.items.$ref, '#/$defs/dependencyImage');
+  assert.deepEqual(schema.properties.dependencyImages.allOf.map((rule) => ({
+    role: rule.contains.properties.name.const,
+    minimum: rule.minContains,
+    maximum: rule.maxContains,
+  })), [
+    { role: 'caddy', minimum: 1, maximum: 1 },
+    { role: 'postgres', minimum: 1, maximum: 1 },
+    { role: 'rabbitmq', minimum: 1, maximum: 1 },
+  ]);
 });
 
 test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {
