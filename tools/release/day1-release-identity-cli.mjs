@@ -989,8 +989,11 @@ function collectAndroidUnsafe(options, emit = true) {
     mkdirSync(path.join(buildHome, '.android'), { recursive: false, mode: 0o700 });
     const copiedKeystore = copyBoundedFile(debugKeystore.path, path.join(buildHome, '.android', 'debug.keystore'), maxAndroidDebugKeystoreBytes, 'Android debug signing keystore');
     if (copiedKeystore.sha256 !== debugKeystore.sha256) throw new Error('Android debug signing keystore snapshot identity mismatch');
+    const flutterMutableMetadata = readdirSync(path.join(flutter.root, 'bin/cache'), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && !entry.isSymbolicLink() && /^[A-Za-z0-9._-]+\.(?:stamp|realm)$/u.test(entry.name))
+      .map((entry) => `bin/cache/${entry.name}`);
     const toolchainConfiguration = [
-      { label: 'flutter', root: flutter.root, excludedPrefixes: ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle'] },
+      { label: 'flutter', root: flutter.root, excludedPrefixes: ['.git', 'bin/cache/lockfile', 'packages/flutter_tools/gradle/.gradle', ...flutterMutableMetadata] },
       { label: 'android', root: androidSdkRoot, excludedPrefixes: ['.knownPackages'] },
     ];
     mutationGuard = startToolchainMutationGuard(toolchainConfiguration, snapshotContainer);

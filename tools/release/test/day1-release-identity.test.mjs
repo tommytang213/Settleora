@@ -489,6 +489,12 @@ test('toolchain mutation guard fails closed on a write during the guarded window
   const guard = startToolchainMutationGuard([{ label: 'fixture', root: toolchain, excludedPrefixes: [] }], state);
   writeFileSync(path.join(toolchain, 'compiler'), 'after');
   assert.throws(() => guard.finish(), /toolchain changed/);
+
+  const runtimeMarker = path.join(toolchain, 'runtime.stamp');
+  writeFileSync(runtimeMarker, 'before');
+  const excludedGuard = startToolchainMutationGuard([{ label: 'fixture', root: toolchain, excludedPrefixes: ['runtime.stamp'] }], state);
+  writeFileSync(runtimeMarker, 'after');
+  assert.doesNotThrow(() => excludedGuard.finish());
 });
 
 test('Android rebuild projection normalizes only raw retained artifact identities', (t) => {

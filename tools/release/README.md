@@ -86,8 +86,10 @@ Flutter and Android SDK content inventories are compared across the build, while
 pub and Gradle use fresh private caches and a bounded environment. The committed
 Gradle wrapper distribution SHA-256 prevents distribution substitution.
 The stable-content inventories exclude only tool-owned runtime metadata (`.git`,
-Flutter's lock/internal Gradle state, and Android's `.knownPackages` marker), none
-of which supplies build executables, libraries, packages, or platform content.
+Flutter's lock, pre-existing top-level cache `.stamp`/`.realm` markers and
+internal Gradle state, plus Android's `.knownPackages` marker), none of which
+supplies build executables, libraries, packages, or platform content. New cache
+markers are not silently excluded.
 An independent inotify guard covers every non-excluded toolchain directory from
 before the initial inventory through both builds and the final inventory; any
 mutation or event-queue overflow fails closed. An explicitly supplied debug
