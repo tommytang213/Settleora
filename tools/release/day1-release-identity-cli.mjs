@@ -635,7 +635,7 @@ libc = ctypes.CDLL(None, use_errno=True)
 fd = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
 if fd < 0:
     raise OSError(ctypes.get_errno(), "inotify_init1 failed")
-mask = 0x00000002 | 0x00000004 | 0x00000008 | 0x00000040 | 0x00000080 | 0x00000100 | 0x00000200 | 0x00000400 | 0x00000800 | 0x00004000
+mask = 0x00000002 | 0x00000008 | 0x00000040 | 0x00000080 | 0x00000100 | 0x00000200 | 0x00000400 | 0x00000800 | 0x00004000
 watches = {}
 
 def excluded(relative, prefixes, transient_bases):
@@ -669,7 +669,7 @@ def tree_digest(root, prefixes, transient_bases):
                 after = os.stat(entry.path, follow_symlinks=False)
                 if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns):
                     raise RuntimeError("guarded tree changed during inventory")
-                record("file", relative, "\0" + str(metadata.st_size) + "\0" + file_digest.hexdigest())
+                record("file", relative, "\0" + str(stat.S_IMODE(metadata.st_mode)) + "\0" + str(metadata.st_size) + "\0" + file_digest.hexdigest())
             else:
                 raise RuntimeError("guarded tree contains an unsupported entry")
     visit(root, "")
@@ -808,7 +808,7 @@ function guardedTreeDigest(root, excludedPrefixes = [], excludedTransientBases =
         if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
           throw new Error('Guarded tree changed during inventory');
         }
-        record('file', relative, `\0${before.size}\0${createHash('sha256').update(bytes).digest('hex')}`);
+        record('file', relative, `\0${before.mode & 0o7777n}\0${before.size}\0${createHash('sha256').update(bytes).digest('hex')}`);
       } else throw new Error('Guarded tree contains an unsupported entry');
     }
   };
