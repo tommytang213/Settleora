@@ -158,6 +158,17 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not contiguous"):
                 VERIFIER.preflight_aab(source.fileno())
 
+    def test_aab_preflight_rejects_archive_comment(self):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("entry", b"content")
+            output.comment = b"unbound comment"
+        with tempfile.TemporaryFile() as source:
+            source.write(archive.getvalue())
+            source.seek(0)
+            with self.assertRaisesRegex(ValueError, "ZIP comments"):
+                VERIFIER.preflight_aab(source.fileno())
+
     def test_aab_preflight_rejects_multiline_entry_name(self):
         archive = io.BytesIO()
         with zipfile.ZipFile(archive, "w") as output:

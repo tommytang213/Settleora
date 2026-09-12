@@ -228,6 +228,18 @@ test('manifest rejects symlinks, malformed names, source maps and sensitive cont
       path.join(f.dist, 'config.txt'),
       ['TO', 'KEN=abcdefghijklmnop'].join(''),
     ), /Potential sensitive/],
+    ['quoted JSON credential assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"PASS', 'WORD":"abcdefghijklmnop"}'].join(''),
+    ), /Potential sensitive/],
+    ['quoted JSON API-key assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"API_', 'KEY":"abcdefghijklmnop"}'].join(''),
+    ), /Potential sensitive/],
+    ['quoted JSON authorization assignment', (f) => writeFileSync(
+      path.join(f.dist, 'config.txt'),
+      ['{"author', 'ization":"abcdefghijklmnop"}'].join(''),
+    ), /Potential sensitive/],
     ['bearer token', (f) => writeFileSync(
       path.join(f.dist, 'config.txt'),
       ['Authorization: Bearer ', 'abcdefghijklmnop'].join(''),

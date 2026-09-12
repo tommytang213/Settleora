@@ -278,6 +278,8 @@ def preflight_aab(descriptor: int) -> int:
     disk, central_disk, disk_entries, total_entries, central_size, central_offset = struct.unpack_from("<HHHHII", tail, eocd_offset + 4)
     comment_size = struct.unpack_from("<H", tail, eocd_offset + 20)[0]
     absolute_eocd_offset = metadata.st_size - tail_size + eocd_offset
+    if comment_size != 0:
+        raise ValueError("Android bundle ZIP comments are not accepted")
     if disk != 0 or central_disk != 0 or disk_entries != total_entries:
         raise ValueError("Android bundle must be a single-disk ZIP")
     if total_entries == 0xFFFF or central_size == 0xFFFFFFFF or central_offset == 0xFFFFFFFF:

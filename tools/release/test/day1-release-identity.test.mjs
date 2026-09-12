@@ -25,6 +25,7 @@ import {
 import { assertCleanCompletion, assertCommitHasNoSymlinks, canonicalAndroidInput, canonicalManifestPath, canonicalReleaseNotesInput, canonicalWebInput, copyBoundedFile, deterministicAndroidRebuildProjection, parseCanonicalJson, parseSingleApkSigner, retainReleaseNotes, safeInput, toolchainTreeDigest } from '../day1-release-identity-cli.mjs';
 
 const d = (character) => `sha256:${character.repeat(64)}`;
+const producerJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
 function write(root, relative, contents) {
   const absolute = path.join(root, relative);
@@ -88,7 +89,7 @@ function fixture(t) {
   const webFile = write(evidenceRoot, 'dist/index.html', '<!doctype html>\n');
   const webRecord = { path: 'index.html', size: readFileSync(webFile).length, sha256: sha256(readFileSync(webFile)) };
   const lockBytes = readFileSync(path.join(root, 'apps/web-user/package-lock.json'));
-  const webManifestPath = write(evidenceRoot, 'user-web-dist-manifest.json', canonicalJson({
+  const webManifestPath = write(evidenceRoot, 'user-web-dist-manifest.json', producerJson({
     schema: 'settleora.user-web-dist-manifest.v1',
     source: { commit, tree },
     dependencyLock: { path: 'apps/web-user/package-lock.json', sha256: sha256(lockBytes), lockfileVersion: 3 },
@@ -178,7 +179,7 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   assert.throws(() => buildManifest(f.root, { ...f.input, generatedAt: 'unknown' }), /normalized RFC 3339 UTC timestamp/);
   const webManifest = JSON.parse(readFileSync(f.paths.webManifestPath));
   webManifest.buildTools.node = 'v22.999.0';
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(webManifest));
+  writeFileSync(f.paths.webManifestPath, producerJson(webManifest));
   assert.notEqual(buildManifest(f.root, f.input).identityDigest, first.identityDigest);
 });
 
@@ -232,15 +233,18 @@ test('rejects dependency tag/platform/digest and migration-set mismatches', (t) 
 test('rejects web source and Android artifact mismatches', (t) => {
   const f = fixture(t);
   const web = JSON.parse(readFileSync(f.paths.webManifestPath));
+  const canonicalWeb = readFileSync(f.paths.webManifestPath, 'utf8');
+  writeFileSync(f.paths.webManifestPath, canonicalWeb.replace('{\n', `{\n  "source": {"commit":"${'8'.repeat(40)}","tree":"${'9'.repeat(40)}"},\n`));
+  assert.throws(() => buildManifest(f.root, f.input), /unique producer-canonical serialization/);
   web.source.commit = '7'.repeat(40);
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   assert.throws(() => buildManifest(f.root, f.input), /User-web source\/tree mismatch/);
   web.source.commit = f.commit;
   web.dependencyLock.lockfileVersion = 2;
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   assert.throws(() => buildManifest(f.root, f.input), /lockfile version mismatch/);
   web.dependencyLock.lockfileVersion = 3;
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   write(f.evidenceRoot, 'dist/omitted.js', 'omitted\n');
   assert.throws(() => buildManifest(f.root, f.input), /file list is incomplete/);
   rmSync(path.join(f.evidenceRoot, 'dist/omitted.js'));
@@ -248,21 +252,21 @@ test('rejects web source and Android artifact mismatches', (t) => {
   assert.throws(() => buildManifest(f.root, f.input), /Potential sensitive/);
   writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), '<!doctype html>\n');
   web.artifact.root = 'fabricated/dist';
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   assert.throws(() => buildManifest(f.root, f.input), /User-web artifact root mismatch/);
   web.artifact.root = 'apps/web-user/dist';
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   const buildTools = web.buildTools;
   web.buildTools = {};
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   assert.throws(() => buildManifest(f.root, f.input), /missing required properties/);
   web.buildTools = buildTools;
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   web.unbound = true;
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   assert.throws(() => buildManifest(f.root, f.input), /unexpected properties/);
   delete web.unbound;
-  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  writeFileSync(f.paths.webManifestPath, producerJson(web));
   const expected = { apk: { size: 1, sha256: '8'.repeat(64) } };
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected } }), /APK identity mismatch/);
   const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
@@ -613,14 +617,20 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
   assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^(?!.*\\.\\.)services/api/src/Settleora\\.Api/Persistence/Migrations/(?:[A-Za-z0-9][A-Za-z0-9._+:-]*/)*[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
   assert.equal(schema.$defs.note.properties.source.$ref, '#/$defs/safeLabel');
-  const safeLabelPattern = /^(?!.*\.\.)(?!.*(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{24,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{20,}))[A-Za-z0-9][A-Za-z0-9._/+-]*$/u;
+  const safeLabelPattern = /^(?!.*\.\.)(?!.*(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{24,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{20,}))(?!(?:.*(?:[Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]|[Xx]-[Gg][Oo][Oo][Gg]-[Aa][Pp][Ii]-[Kk][Ee][Yy]):[A-Za-z0-9._/+:-]{8,}))[A-Za-z0-9][A-Za-z0-9._/+:-]*$/u;
   assert.equal(schema.$defs.safeLabel.pattern, safeLabelPattern.source);
   const matchesSafeLabel = (value) => safeLabelPattern.test(value);
   assert.equal(matchesSafeLabel('release-notes.md'), true);
+  assert.equal(matchesSafeLabel('issue:974'), true);
   const assignmentDelimiter = ':';
   for (const credentialAssignment of ['PASSWORD', 'API_KEY', 'authorization'].map((key) => `${key}${assignmentDelimiter}${'a'.repeat(8)}`)) {
     assert.equal(matchesSafeLabel(credentialAssignment), false);
   }
+  assert.equal(schema.properties.retention.properties.policy.$ref, '#/$defs/publicText');
+  assert.equal(schema.properties.retention.properties.apiRegistryIdentity.$ref, '#/$defs/publicText');
+  const publicTextSchema = JSON.stringify(schema.$defs.publicText);
+  assert.equal(publicTextSchema.includes('[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]'), true);
+  assert.equal(publicTextSchema.includes('/home/'), true);
   assert.equal(schema.$defs.note.properties.candidateSummary.$ref, '#/$defs/releaseNoteSummary');
   assert.equal(schema.$defs.releaseNoteSummary.minLength, 1);
   assert.equal(schema.$defs.releaseNoteSummary.maxLength, 500);
@@ -668,6 +678,10 @@ test('direct manifest validation rejects cross-role image fields and unsafe rele
   manifest.releaseNotes.source = `ghp_${'A'.repeat(20)}`;
   manifest.identityDigest = computeIdentityDigest(manifest);
   assert.throws(() => validateManifest(manifest, f.root), /potentially sensitive material/);
+  manifest.releaseNotes.source = 'release-notes.md';
+  manifest.retention.policy = ['PASS', 'WORD:', 'abcdefgh'].join('');
+  manifest.identityDigest = computeIdentityDigest(manifest);
+  assert.throws(() => validateManifest(manifest, f.root), /host-specific or potentially sensitive material/);
 });
 
 test('release execution uses protected system runtimes and bypasses user plugin configuration', () => {

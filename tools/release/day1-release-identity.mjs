@@ -434,6 +434,9 @@ function configuredImage(repoRoot, sourcePath, service, capturedCommit, requireW
 function collectWeb(repoRoot, input, source) {
   const file = exactRegularFile(input.manifestPath, 'userWeb manifest', input.evidenceRoot);
   const manifest = JSON.parse(file.bytes);
+  if (!file.bytes.equals(Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8'))) {
+    fail('User-web retained manifest must use its unique producer-canonical serialization');
+  }
   assertKeys(manifest, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact', 'publicArtifactChecks'], 'userWeb retained manifest');
   assertKeys(manifest.source, ['commit', 'tree'], 'userWeb retained source');
   assertKeys(manifest.dependencyLock, ['path', 'sha256', 'lockfileVersion'], 'userWeb retained dependencyLock');
