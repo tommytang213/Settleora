@@ -74,6 +74,8 @@ test('user-web lane builds an exact source head and uploads only bounded package
   assert.match(packageStep.run, /package_evidence_dir=\$package_evidence_dir/);
   assert.match(manifestHelper, /\['--no-replace-objects', 'ls-tree', '-rz', '--full-tree', 'HEAD'\]/);
   assert.match(manifestHelper, /Git replacement refs are not allowed/);
+  assert.match(manifestHelper, /'\/proc\/self\/fd\/3'/);
+  assert.doesNotMatch(manifestHelper, /process\.env\.npm_execpath|\/usr\/bin\/npm/);
   assert.match(manifestHelper, /const record = output\.subarray\(start, end\)/);
   assert.match(manifestHelper, /const relative = record\.subarray\(tab \+ 1\)/);
   assert.match(manifestHelper, /createHash\('sha1'\)[\s\S]*`blob \$\{contents\.length\}\\0`/);

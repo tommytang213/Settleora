@@ -4,13 +4,17 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, openSync, closeSync, readFileSync, rmSync, symlinkSync, truncateSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { assertTrackedWorktreeMatchesHead, collectFiles, createUserWebDistManifest } from '../user-web-dist-manifest.mjs';
+import { assertTrackedWorktreeMatchesHead, collectFiles, createUserWebDistManifest, currentNpmVersion } from '../user-web-dist-manifest.mjs';
 
 const provenance = {
   source: { commit: 'a'.repeat(40), tree: 'b'.repeat(40) },
   buildTools: { node: 'v22.0.0', npm: '10.0.0', typescript: '5.9.3', vite: '8.1.0' },
   artifactRoot: 'test-fixture/dist',
 };
+
+test('npm version collection uses the sealed current Node installation', () => {
+  assert.match(currentNpmVersion(), /^\d+\.\d+\.\d+/u);
+});
 
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), 'web-dist-manifest-'));
