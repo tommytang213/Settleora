@@ -536,6 +536,11 @@ test('direct validation rejects empty migrations, noncanonical artifacts and unp
   wrongDependencyPlatform.identityDigest = computeIdentityDigest(wrongDependencyPlatform);
   assert.throws(() => validateManifest(wrongDependencyPlatform, f.root), /platform mismatch/);
 
+  const unsafePlatform = structuredClone(original);
+  for (const image of [unsafePlatform.apiImage, ...unsafePlatform.dependencyImages, unsafePlatform.rollback.apiImage]) image.os = 'password:abcdefgh';
+  unsafePlatform.identityDigest = computeIdentityDigest(unsafePlatform);
+  assert.throws(() => validateManifest(unsafePlatform, f.root), /safe canonical OCI platform name/);
+
   const reorderedDependencies = structuredClone(original);
   reorderedDependencies.dependencyImages.reverse();
   reorderedDependencies.identityDigest = computeIdentityDigest(reorderedDependencies);
@@ -636,6 +641,7 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(matchesTimestamp('2100-02-29T00:00:00Z'), false);
   assert.equal(matchesTimestamp('2026-99-99T25:61:61Z'), false);
   assert.equal(schema.properties.migrations.properties.entries.items.properties.id.pattern, '^[0-9]{14}_[A-Za-z0-9_]+$');
+  assert.match(schema.$comment, /MUST also run the repository-owned validateManifest semantic validator/);
   assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
   assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^(?!.*\\.\\.)services/api/src/Settleora\\.Api/Persistence/Migrations/(?:[A-Za-z0-9][A-Za-z0-9._+:-]*/)*[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
   assert.equal(schema.$defs.note.properties.source.$ref, '#/$defs/safeLabel');

@@ -146,6 +146,16 @@ function assertUniqueJsonMembers(text) {
   if (offset !== text.length) throw new Error('Unexpected trailing JSON content');
 }
 
+function decodeStaticScriptEscapesForScan(text) {
+  return text
+    .replace(/\\u\{([0-9A-Fa-f]{1,6})\}/gu, (escape, digits) => {
+      const value = Number.parseInt(digits, 16);
+      return value <= 0x10ffff ? String.fromCodePoint(value) : escape;
+    })
+    .replace(/\\u([0-9A-Fa-f]{4})/gu, (_escape, digits) => String.fromCharCode(Number.parseInt(digits, 16)))
+    .replace(/\\x([0-9A-Fa-f]{2})/gu, (_escape, digits) => String.fromCharCode(Number.parseInt(digits, 16)));
+}
+
 function git(args) {
   return execFileSync('/usr/bin/git', ['--no-replace-objects', ...args], {
     cwd: repoRoot,
@@ -316,6 +326,7 @@ export function scanPublicArtifact(files) {
       throw new Error(`Unsafe public artifact path: ${file.path}`);
     }
     const text = file.contents.toString('utf8');
+    const decodedScriptText = decodeStaticScriptEscapesForScan(text);
     let decodedJsonText;
     let candidate;
     try {
@@ -347,7 +358,7 @@ export function scanPublicArtifact(files) {
       decodedJsonText = JSON.stringify(candidate);
     }
     for (const pattern of unsafeContentPatterns) {
-      if (pattern.test(text) || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {
+      if (pattern.test(text) || pattern.test(decodedScriptText) || (decodedJsonText !== undefined && pattern.test(decodedJsonText))) {
         throw new Error(`Potential sensitive or host-specific material in ${file.path}`);
       }
     }

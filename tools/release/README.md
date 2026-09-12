@@ -24,6 +24,13 @@ removing only `generatedAt` and `identityDigest`. Thus collection time may vary
 without changing identity. All source, image, migration, web, Android, release
 note, rollback and retention fields remain identity-relevant.
 
+The published JSON Schema is structural validation only. A consumer must also
+run the repository-owned `validateManifest` semantic validator (the `validate`
+command does so) before accepting a manifest. In particular, JSON Schema cannot
+express the declared bytewise migration-ID ordering or the source/digest and
+cross-field relationships; schema success alone is never release-identity
+certification.
+
 For a standalone Android preflight, use a disposable path that is not the
 canonical assembly destination:
 

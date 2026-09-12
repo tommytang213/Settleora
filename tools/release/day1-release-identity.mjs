@@ -95,6 +95,14 @@ function hexDigest(value, label) {
   return value;
 }
 
+function ociPlatformName(value, label) {
+  string(value, label);
+  if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/u.test(value) || containsSensitiveMaterial(value)) {
+    fail(`${label} must be a safe canonical OCI platform name`);
+  }
+  return value;
+}
+
 function safeLabel(value, label) {
   string(value, label);
   if (!SAFE_LABEL.test(value) || value.includes('..') || path.isAbsolute(value) || value.includes('\\')) {
@@ -404,8 +412,8 @@ function validateImage(image, label, sourceCommit, expectedTag, expectedReposito
   string(image.configuredTag, `${label}.configuredTag`);
   digest(image.indexDigest, `${label}.indexDigest`);
   digest(image.platformDigest, `${label}.platformDigest`);
-  string(image.os, `${label}.os`);
-  string(image.architecture, `${label}.architecture`);
+  ociPlatformName(image.os, `${label}.os`);
+  ociPlatformName(image.architecture, `${label}.architecture`);
   if (expectedRepository && image.repository !== expectedRepository) fail(`${label} repository mismatch`);
   if (image.indexDigest === image.platformDigest) fail(`${label} index and selected platform digests must remain distinct`);
   if (expectedTag && image.configuredTag !== expectedTag) fail(`${label} configured tag mismatch`);
@@ -747,7 +755,7 @@ export function buildManifest(repoRoot, input) {
   if (input.retention.canonicalEvidenceDirectory !== `/workspace/logs/settleora-release-candidates/${source.candidateId}`) {
     fail('Retention input directory must exactly bind the candidate ID under the approved external root');
   }
-  const platform = { os: string(input.platform?.os, 'platform.os'), architecture: string(input.platform?.architecture, 'platform.architecture') };
+  const platform = { os: ociPlatformName(input.platform?.os, 'platform.os'), architecture: ociPlatformName(input.platform?.architecture, 'platform.architecture') };
   const apiRepository = 'ghcr.io/tommytang213/settleora-api';
   const apiImage = validateImage(withPlatform(input.apiImage, platform, 'apiImage'), 'apiImage', source.commit, undefined, apiRepository);
   const services = { postgres: 'postgres', rabbitmq: 'rabbitmq', caddy: 'ingress' };

@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/tommytang213/Settleora/tools/release/day1-release-identity.schema.json",
   "title": "Settleora Day 1 release identity manifest v1",
+  "$comment": "This schema validates structural shape only. Consumers MUST also run the repository-owned validateManifest semantic validator, which enforces migration ordering, counts, digests, source identity, and cross-field relationships.",
   "type": "object",
   "required": ["schema", "identityDigestAlgorithm", "identityDigest", "generatedAt", "source", "apiImage", "dependencyImages", "migrations", "userWeb", "android", "releaseNotes", "rollback", "retention"],
   "properties": {
