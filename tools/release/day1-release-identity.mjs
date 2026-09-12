@@ -439,6 +439,12 @@ function collectWeb(repoRoot, input, source) {
   if (!manifest.buildTools || typeof manifest.buildTools !== 'object' || manifest.publicArtifactChecks?.symlinksRejected !== true || manifest.publicArtifactChecks?.sourceMapsRejected !== true || manifest.publicArtifactChecks?.sensitiveMaterialScan !== 'passed') {
     fail('User-web canonical build/security evidence is incomplete');
   }
+  assertKeys(manifest.buildTools, ['node', 'npm', 'typescript', 'vite'], 'userWeb buildTools');
+  for (const name of ['node', 'npm', 'typescript', 'vite']) string(manifest.buildTools[name], `userWeb buildTools.${name}`);
+  const sourceLock = JSON.parse(lock.bytes);
+  for (const name of ['typescript', 'vite']) {
+    if (manifest.buildTools[name] !== sourceLock.packages?.[`node_modules/${name}`]?.version) fail(`User-web ${name} build-tool version mismatch`);
+  }
   const distRoot = path.join(path.dirname(file.absolute), 'dist');
   const canonicalFiles = collectFiles(distRoot);
   scanPublicArtifact(canonicalFiles);
@@ -462,6 +468,7 @@ function collectWeb(repoRoot, input, source) {
     schema: manifest.schema,
     source: { commit: source.commit, tree: source.tree },
     dependencyLock: { path: manifest.dependencyLock.path, sha256: manifest.dependencyLock.sha256, lockfileVersion: manifest.dependencyLock.lockfileVersion },
+    buildTools: { ...manifest.buildTools },
     artifact: {
       treeDigestAlgorithm: manifest.artifact.treeDigestAlgorithm,
       treeSha256: manifest.artifact.treeSha256,
@@ -597,9 +604,10 @@ export function validateManifest(manifest, repoRoot) {
   const sourceMigrationEntries = migrationEntriesAtCommit(repoRoot, manifest.source.commit);
   if (canonicalJson(manifest.migrations.entries) !== canonicalJson(sourceMigrationEntries)) fail('Migration entries do not match the captured source commit');
   if (manifest.userWeb?.schema !== 'settleora.user-web-dist-manifest.v1') fail('Canonical R02 user-web schema is required');
-  assertKeys(manifest.userWeb, ['schema', 'source', 'dependencyLock', 'artifact'], 'userWeb');
+  assertKeys(manifest.userWeb, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact'], 'userWeb');
   assertKeys(manifest.userWeb.source, ['commit', 'tree'], 'userWeb.source');
   assertKeys(manifest.userWeb.dependencyLock, ['path', 'sha256', 'lockfileVersion'], 'userWeb.dependencyLock');
+  assertKeys(manifest.userWeb.buildTools, ['node', 'npm', 'typescript', 'vite'], 'userWeb.buildTools');
   assertKeys(manifest.userWeb.artifact, ['treeDigestAlgorithm', 'treeSha256', 'fileCount', 'totalBytes'], 'userWeb.artifact');
   if (manifest.userWeb.dependencyLock.path !== 'apps/web-user/package-lock.json' || manifest.userWeb.artifact.treeDigestAlgorithm !== 'sha256(canonical-file-records-v1)') fail('User-web algorithm/path mismatch');
   hexDigest(manifest.userWeb.dependencyLock.sha256, 'userWeb.dependencyLock.sha256');
@@ -615,6 +623,11 @@ export function validateManifest(manifest, repoRoot) {
   }
   if (manifest.userWeb.dependencyLock.sha256 !== sha256(sourceWebLock.bytes)
     || manifest.userWeb.dependencyLock.lockfileVersion !== sourceLockfileVersion) fail('User-web dependency lock does not match the captured source commit');
+  const sourceWebPackageLock = JSON.parse(sourceWebLock.bytes);
+  for (const name of ['node', 'npm', 'typescript', 'vite']) string(manifest.userWeb.buildTools[name], `userWeb.buildTools.${name}`);
+  for (const name of ['typescript', 'vite']) {
+    if (manifest.userWeb.buildTools[name] !== sourceWebPackageLock.packages?.[`node_modules/${name}`]?.version) fail(`userWeb.buildTools.${name} does not match the captured source lock`);
+  }
   if (manifest.android?.source?.commit !== manifest.source.commit || manifest.android?.source?.tree !== manifest.source.tree) fail('Android source/tree mismatch');
   assertKeys(manifest.android, ['source', 'semanticVersion', 'buildNumber', 'applicationId', 'r8Minified', 'r8MappingSha256', 'signingState', 'signerCertificateSha256', 'apk', 'aab', 'buildProvenanceSha256'], 'android');
   assertKeys(manifest.android.source, ['commit', 'tree'], 'android.source');

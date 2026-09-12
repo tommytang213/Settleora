@@ -71,6 +71,7 @@ const npmExec = (values, options = {}) => {
   return execFileSync('/usr/bin/npm', values, options);
 };
 const gitExec = (args, options) => execFileSync(gitCommand, ['--no-replace-objects', ...args], options);
+const gitObjectId = (type, contents) => createHash('sha1').update(`${type} ${contents.length}\0`).update(contents).digest('hex');
 const replacementRefs = gitExec(['for-each-ref', '--format=%(refname)', 'refs/replace'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 if (replacementRefs) throw new Error('Git replacement refs are not allowed for provenance collection');
 const maxTrustedToolBytes = 256 * 1024 * 1024;
@@ -78,21 +79,21 @@ const maxAndroidArtifactBytes = 256 * 1024 * 1024;
 const maxAndroidMappingBytes = 128 * 1024 * 1024;
 const maxAndroidMetadataBytes = 4 * 1024 * 1024;
 const processCommit = gitExec(['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim();
+const processCommitBytes = gitExec(['cat-file', 'commit', processCommit], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
+if (gitObjectId('commit', processCommitBytes) !== processCommit) throw new Error('Captured source commit Git object identity mismatch');
+const processTree = gitExec(['rev-parse', `${processCommit}^{tree}`], { cwd: repoRoot, encoding: 'utf8' }).trim();
+const processTreeBytes = gitExec(['cat-file', 'tree', processTree], { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 });
+if (gitObjectId('tree', processTreeBytes) !== processTree) throw new Error('Captured source tree Git object identity mismatch');
 const processSource = Object.freeze({
   commit: processCommit,
-  tree: gitExec(['rev-parse', `${processCommit}^{tree}`], { cwd: repoRoot, encoding: 'utf8' }).trim(),
-});
-gitExec(['fsck', '--strict', '--no-dangling', '--no-progress', processSource.commit], {
-  cwd: repoRoot,
-  stdio: ['ignore', 'ignore', 'pipe'],
-  maxBuffer: 16 * 1024 * 1024,
+  tree: processTree,
 });
 const committedVerifierHelper = gitExec(['show', `${processSource.commit}:tools/release/sealed_android_verifier.py`], {
   cwd: repoRoot,
   stdio: ['ignore', 'pipe', 'pipe'],
   maxBuffer: 1024 * 1024,
 });
-const gitBlobObjectId = (contents) => createHash('sha1').update(`blob ${contents.length}\0`).update(contents).digest('hex');
+const gitBlobObjectId = (contents) => gitObjectId('blob', contents);
 const committedVerifierOid = gitExec(['rev-parse', `${processSource.commit}:tools/release/sealed_android_verifier.py`], { cwd: repoRoot, encoding: 'utf8' }).trim();
 if (gitBlobObjectId(committedVerifierHelper) !== committedVerifierOid) throw new Error('Committed verifier Git blob identity mismatch');
 

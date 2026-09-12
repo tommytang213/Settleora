@@ -60,7 +60,7 @@ function fixture(t) {
   write(root, `${migrationRoot}/20260101000000_Initial.Designer.cs`, '[Migration("20260101000000_Initial")]\npartial class Initial {}\n');
   write(root, `${migrationRoot}/20260102000000_SourceOnly.cs`, 'public partial class SourceOnly : Migration {}\n');
   write(root, `${migrationRoot}/20260102000000_SourceOnly.Designer.cs`, '[Migration("20260102000000_SourceOnly")]\npartial class SourceOnly {}\n');
-  write(root, 'apps/web-user/package-lock.json', '{"lockfileVersion":3}\n');
+  write(root, 'apps/web-user/package-lock.json', '{"lockfileVersion":3,"packages":{"node_modules/typescript":{"version":"5.0.0"},"node_modules/vite":{"version":"7.0.0"}}}\n');
   write(root, 'apps/mobile/pubspec.yaml', 'version: 1.2.3+45\n');
   write(root, 'apps/mobile/android/app/build.gradle.kts', [
     'android {',
@@ -179,7 +179,7 @@ test('builds a deterministic canonical identity and excludes generatedAt from it
   const webManifest = JSON.parse(readFileSync(f.paths.webManifestPath));
   webManifest.buildTools.node = 'v22.999.0';
   writeFileSync(f.paths.webManifestPath, JSON.stringify(webManifest));
-  assert.equal(buildManifest(f.root, f.input).identityDigest, first.identityDigest);
+  assert.notEqual(buildManifest(f.root, f.input).identityDigest, first.identityDigest);
 });
 
 test('rejects source, API revision, API digest and floating-tag mismatches', (t) => {
@@ -247,6 +247,12 @@ test('rejects web source and Android artifact mismatches', (t) => {
   writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), `${'author'}${'ization'} = ${'a'.repeat(16)}\n`);
   assert.throws(() => buildManifest(f.root, f.input), /Potential sensitive/);
   writeFileSync(path.join(f.evidenceRoot, 'dist/index.html'), '<!doctype html>\n');
+  const buildTools = web.buildTools;
+  web.buildTools = {};
+  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
+  assert.throws(() => buildManifest(f.root, f.input), /missing required properties/);
+  web.buildTools = buildTools;
+  writeFileSync(f.paths.webManifestPath, JSON.stringify(web));
   const expected = { apk: { size: 1, sha256: '8'.repeat(64) } };
   assert.throws(() => buildManifest(f.root, { ...f.input, android: { ...f.input.android, expected } }), /APK identity mismatch/);
   const expectedAab = { aab: { size: 1, sha256: '8'.repeat(64) } };
@@ -492,6 +498,9 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.apiImage.$ref, '#/$defs/apiImage');
   assert.equal(schema.properties.rollback.properties.apiImage.$ref, '#/$defs/apiImage');
   assert.equal(schema.properties.dependencyImages.items.$ref, '#/$defs/dependencyImage');
+  assert.equal(schema.$defs.apiImage.properties.repository.const, 'ghcr.io/tommytang213/settleora-api');
+  assert.equal(schema.properties.source.properties.candidateId.pattern, '^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9._-]*$');
+  assert.deepEqual(schema.properties.userWeb.required, ['schema', 'source', 'dependencyLock', 'buildTools', 'artifact']);
   assert.equal(schema.$defs.dependencyImage.properties.sourceComposePath.const, 'infra/docker-compose.truenas-lan.image.yml');
   assert.deepEqual(schema.properties.dependencyImages.allOf.map((rule) => ({
     role: rule.contains.properties.name.const,
@@ -514,7 +523,9 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /assertSystemRuntime\(`\/usr\/lib\/\$\{pythonRuntimeName\}`/);
   assert.match(cliSource, /assertSystemRuntime\('\/usr\/lib\/dotnet', 'system \.NET runtime'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/libexec\/docker\/cli-plugins\/docker-buildx', 'docker-buildx'\)/);
-  assert.match(cliSource, /\['fsck', '--strict', '--no-dangling', '--no-progress', processSource\.commit\]/);
+  assert.match(cliSource, /gitObjectId\('commit', processCommitBytes\) !== processCommit/);
+  assert.match(cliSource, /gitObjectId\('tree', processTreeBytes\) !== processTree/);
+  assert.doesNotMatch(cliSource, /\['fsck'/);
   assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
   assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);
   assert.match(cliSource, /HOME: npmHome/);
