@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import io
+import json
 import os
 import pathlib
 import tempfile
@@ -67,6 +68,24 @@ class SealedAndroidVerifierTests(unittest.TestCase):
 
         self.assertEqual(identity(archive(b"same", b"one")), identity(archive(b"same", b"two")))
         self.assertNotEqual(identity(archive(b"same", b"one")), identity(archive(b"changed", b"one")))
+
+    def test_payload_digest_normalizes_only_r8_build_duration(self):
+        def archive(duration: int, checksum: str) -> bytes:
+            output = io.BytesIO()
+            metadata = {"compilation": {"buildTimeNs": duration, "numberOfThreads": 6}, "dexFiles": [{"checksum": checksum}]}
+            with zipfile.ZipFile(output, "w") as bundle:
+                bundle.writestr("BUNDLE-METADATA/com.android.tools/r8.json", json.dumps(metadata))
+                bundle.writestr("payload.txt", b"same")
+            return output.getvalue()
+
+        def identity(data: bytes) -> tuple[str, int]:
+            with tempfile.TemporaryFile() as source:
+                source.write(data)
+                source.seek(0)
+                return VERIFIER.canonical_zip_payload_digest(source.fileno())
+
+        self.assertEqual(identity(archive(1, "same")), identity(archive(2, "same")))
+        self.assertNotEqual(identity(archive(1, "same")), identity(archive(1, "changed")))
 
     def test_streamed_jarsigner_output_is_bounded(self):
         prior = VERIFIER.MAX_VERIFIER_OUTPUT_BYTES

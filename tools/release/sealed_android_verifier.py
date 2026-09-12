@@ -166,7 +166,20 @@ def canonical_zip_payload_digest(descriptor: int) -> tuple[str, int]:
                     digest.update(chunk)
             if observed != info.file_size:
                 raise ValueError("Android archive payload entry changed size during inspection")
-            records.append((name, info.file_size, digest.hexdigest()))
+            record_size = info.file_size
+            record_digest = digest.hexdigest()
+            if info.filename == "BUNDLE-METADATA/com.android.tools/r8.json":
+                with bundle.open(info) as entry:
+                    metadata = json.loads(entry.read(MAX_R8_METADATA_BYTES + 1))
+                if not isinstance(metadata, dict) or not isinstance(metadata.get("compilation"), dict) \
+                        or not isinstance(metadata["compilation"].get("buildTimeNs"), int):
+                    raise ValueError("Android R8 metadata cannot be canonically normalized")
+                metadata["compilation"] = dict(metadata["compilation"])
+                del metadata["compilation"]["buildTimeNs"]
+                normalized = json.dumps(metadata, separators=(",", ":"), sort_keys=True).encode("utf-8")
+                record_size = len(normalized)
+                record_digest = hashlib.sha256(normalized).hexdigest()
+            records.append((name, record_size, record_digest))
     identity = hashlib.sha256()
     for name, size, digest in sorted(records):
         identity.update(name)
