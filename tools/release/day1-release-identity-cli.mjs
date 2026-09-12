@@ -67,6 +67,11 @@ const processSource = Object.freeze({
   commit: processCommit,
   tree: gitExec(['rev-parse', `${processCommit}^{tree}`], { cwd: repoRoot, encoding: 'utf8' }).trim(),
 });
+gitExec(['fsck', '--strict', '--no-dangling', '--no-progress', processSource.commit], {
+  cwd: repoRoot,
+  stdio: ['ignore', 'ignore', 'pipe'],
+  maxBuffer: 16 * 1024 * 1024,
+});
 const committedVerifierHelper = gitExec(['show', `${processSource.commit}:tools/release/sealed_android_verifier.py`], {
   cwd: repoRoot,
   stdio: ['ignore', 'pipe', 'pipe'],

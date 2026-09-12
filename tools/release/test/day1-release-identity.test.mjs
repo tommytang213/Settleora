@@ -444,6 +444,7 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/node', 'node'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/npm', 'npm'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/libexec\/docker\/cli-plugins\/docker-buildx', 'docker-buildx'\)/);
+  assert.match(cliSource, /\['fsck', '--strict', '--no-dangling', '--no-progress', processSource\.commit\]/);
   assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
   assert.match(cliSource, /BUILDX_CONFIG: path\.join\(dockerConfig, 'buildx'\)/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
