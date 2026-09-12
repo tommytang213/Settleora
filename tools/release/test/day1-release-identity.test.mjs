@@ -613,7 +613,9 @@ test('published schema requires role-specific image provenance', () => {
   assert.equal(schema.properties.migrations.properties.entries.items.properties.files.items.$ref, '#/$defs/migrationFile');
   assert.equal(schema.$defs.migrationFile.allOf[1].properties.path.pattern, '^(?!.*\\.\\.)services/api/src/Settleora\\.Api/Persistence/Migrations/(?:[A-Za-z0-9][A-Za-z0-9._+:-]*/)*[0-9]{14}_[A-Za-z0-9_]+(?:\\.Designer)?\\.cs$');
   assert.equal(schema.$defs.note.properties.source.$ref, '#/$defs/safeLabel');
-  const matchesSafeLabel = (value) => new RegExp(schema.$defs.safeLabel.pattern, 'u').test(value);
+  const safeLabelPattern = /^(?!.*\.\.)(?!.*(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{24,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{20,}))[A-Za-z0-9][A-Za-z0-9._/+-]*$/u;
+  assert.equal(schema.$defs.safeLabel.pattern, safeLabelPattern.source);
+  const matchesSafeLabel = (value) => safeLabelPattern.test(value);
   assert.equal(matchesSafeLabel('release-notes.md'), true);
   const assignmentDelimiter = ':';
   for (const credentialAssignment of ['PASSWORD', 'API_KEY', 'authorization'].map((key) => `${key}${assignmentDelimiter}${'a'.repeat(8)}`)) {
