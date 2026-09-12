@@ -1272,6 +1272,7 @@ function collectAndroidUnsafe(options, emit = true) {
       'apps/mobile/android/.gradle',
       'apps/mobile/android/local.properties',
       'apps/mobile/build',
+      'apps/mobile/lib/.dart_tool',
     ];
     const sourceGuard = { label: 'android-exact-source', root: snapshotRoot, excludedPrefixes: sourceGeneratedPaths };
     const toolchainsBefore = {

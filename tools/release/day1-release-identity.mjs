@@ -594,7 +594,7 @@ function collectAndroid(repoRoot, input, source) {
     || !Array.isArray(provenance.toolchainMutationGuard.flutterExcludedTransientBases)
     || !Array.isArray(provenance.toolchainMutationGuard.pubExcludedBuildPaths)
     || !Array.isArray(provenance.toolchainMutationGuard.gradleWrapperLockPaths)
-    || canonicalJson(provenance.toolchainMutationGuard.sourceGeneratedPaths) !== canonicalJson(['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/local.properties', 'apps/mobile/build'])
+    || canonicalJson(provenance.toolchainMutationGuard.sourceGeneratedPaths) !== canonicalJson(['apps/mobile/.dart_tool', 'apps/mobile/.flutter-plugins-dependencies', 'apps/mobile/android/.gradle', 'apps/mobile/android/local.properties', 'apps/mobile/build', 'apps/mobile/lib/.dart_tool'])
     || canonicalJson(provenance.toolchainMutationGuard.runtimeGradleMutablePaths.slice(0, 12)) !== canonicalJson(['.tmp', 'caches/8.14.4', 'caches/build-cache-1', 'caches/jars-9', 'caches/journal-1', 'caches/modules-2/gc.properties', 'caches/modules-2/modules-2.lock', 'caches/transforms-4', 'daemon', 'native', 'notifications', 'workers'])
     || provenance.toolchainMutationGuard.runtimeGradleMutablePaths.length !== 13
     || provenance.toolchainMutationGuard.runtimeGradleMutablePaths[12] !== `wrapper/${provenance.toolchainMutationGuard.gradleWrapperLockPaths[0]}`
