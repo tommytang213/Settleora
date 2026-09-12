@@ -56,12 +56,19 @@ const npmCliCurrent = lstatSync(npmCli);
 if (!npmCliOpened.isFile() || npmCliCurrent.isSymbolicLink() || npmCliCurrent.dev !== npmCliOpened.dev || npmCliCurrent.ino !== npmCliOpened.ino || realpathSync(npmCli) !== npmCli) {
   throw new Error('npm CLI is not a stable regular file in the current Node installation');
 }
-for (let cursor = path.dirname(npmCli); ; cursor = path.dirname(cursor)) {
-  const metadata = lstatSync(cursor);
-  if (metadata.isSymbolicLink() || (metadata.mode & 0o022) !== 0) throw new Error('npm CLI has a writable or symlinked installation ancestor');
-  if (cursor === nodeInstallRoot) break;
-  if (cursor === '/') throw new Error('npm CLI escaped the current Node installation');
+if (npmCliOpened.size < 1 || npmCliOpened.size > 2 * 1024 * 1024 || (npmCliCurrent.mode & 0o022) !== 0) throw new Error('npm CLI has unsafe metadata');
+function descriptorSha256(descriptor, size) {
+  const hash = createHash('sha256');
+  const buffer = Buffer.alloc(64 * 1024);
+  for (let offset = 0; offset < size;) {
+    const count = readSync(descriptor, buffer, 0, Math.min(buffer.length, size - offset), offset);
+    if (count < 1) throw new Error('npm CLI descriptor ended before its declared size');
+    hash.update(buffer.subarray(0, count));
+    offset += count;
+  }
+  return hash.digest('hex');
 }
+const npmCliSha256 = descriptorSha256(npmCliDescriptor, npmCliOpened.size);
 const npmExec = (values, options = {}) => {
   const current = lstatSync(npmCli);
   if (current.isSymbolicLink() || current.dev !== npmCliOpened.dev || current.ino !== npmCliOpened.ino) throw new Error('npm CLI path changed before use');
@@ -71,6 +78,7 @@ const npmExec = (values, options = {}) => {
   const result = execFileSync('/proc/self/exe', ['/proc/self/fd/3', ...values], { ...options, stdio: inheritedStdio });
   const after = lstatSync(npmCli);
   if (after.isSymbolicLink() || after.dev !== npmCliOpened.dev || after.ino !== npmCliOpened.ino) throw new Error('npm CLI path changed during use');
+  if (descriptorSha256(npmCliDescriptor, npmCliOpened.size) !== npmCliSha256) throw new Error('npm CLI bytes changed during use');
   return result;
 };
 const gitExec = (args, options) => execFileSync(gitCommand, ['--no-replace-objects', ...args], options);

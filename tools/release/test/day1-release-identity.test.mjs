@@ -416,5 +416,6 @@ test('npm execution is sealed to the current Node installation and an opened scr
   assert.match(cliSource, /constants\.O_RDONLY \| constants\.O_NOFOLLOW/);
   assert.match(cliSource, /'\/proc\/self\/fd\/3'/);
   assert.match(cliSource, /current\.dev !== npmCliOpened\.dev \|\| current\.ino !== npmCliOpened\.ino/);
+  assert.match(cliSource, /descriptorSha256\(npmCliDescriptor, npmCliOpened\.size\) !== npmCliSha256/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
 });
