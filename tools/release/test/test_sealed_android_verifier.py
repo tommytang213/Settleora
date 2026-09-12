@@ -207,10 +207,10 @@ class SealedAndroidVerifierTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "timestamps are not canonical"):
                 VERIFIER.preflight_aab(source.fileno())
 
-    def test_aab_layout_identity_binds_compression_and_entry_order(self):
+    def test_aab_requires_canonical_compression_and_binds_entry_order(self):
         def identity(compression: int, names: tuple[str, ...]) -> str:
             archive = io.BytesIO()
-            with zipfile.ZipFile(archive, "w") as output:
+            with zipfile.ZipFile(archive, "w", compresslevel=6) as output:
                 for name in names:
                     entry = zipfile.ZipInfo(name, date_time=(1981, 1, 1, 1, 1, 2))
                     entry.compress_type = compression
@@ -221,8 +221,23 @@ class SealedAndroidVerifierTests(unittest.TestCase):
                 return VERIFIER.preflight_aab(source.fileno())[1]
 
         baseline = identity(zipfile.ZIP_DEFLATED, ("a", "b"))
-        self.assertNotEqual(baseline, identity(zipfile.ZIP_STORED, ("a", "b")))
+        with self.assertRaisesRegex(ValueError, "canonical raw DEFLATE representation"):
+            identity(zipfile.ZIP_STORED, ("a", "b"))
         self.assertNotEqual(baseline, identity(zipfile.ZIP_DEFLATED, ("b", "a")))
+
+        def compressed_identity(level: int) -> str:
+            archive = io.BytesIO()
+            with zipfile.ZipFile(archive, "w") as output:
+                entry = zipfile.ZipInfo("recompressed", date_time=(1981, 1, 1, 1, 1, 2))
+                entry.compress_type = zipfile.ZIP_DEFLATED
+                entry._compresslevel = level
+                output.writestr(entry, b"compressible content " * 4096)
+            with tempfile.TemporaryFile() as source:
+                source.write(archive.getvalue())
+                source.seek(0)
+                return VERIFIER.preflight_aab(source.fileno())[2]
+
+        self.assertNotEqual(compressed_identity(1), compressed_identity(9))
 
     def test_apk_signing_block_rejects_unknown_ids(self):
         def artifact(identifiers):

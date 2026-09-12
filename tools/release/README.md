@@ -107,9 +107,11 @@ before retention. Output metadata is rejected if ambiguous, retained in unique
 canonical JSON, and its full SHA-256 is bound through both Android provenance
 and the manifest so the independent rebuild must match it. AAB preflight rejects
 central or local ZIP extra fields because they are not signed payload identity.
-It also binds ordered ZIP representation metadata, including each entry's
-compression method, so an exact-source rebuild rejects a repacked bundle with
-the same expanded signed payload.
+It also binds ordered ZIP representation metadata and the exact compressed
+spans of deterministic payload entries. The varying signed-control and R8
+metadata entries must use their producer's fixed raw-DEFLATE settings. Thus an
+exact-source rebuild rejects a repacked bundle with the same expanded signed
+payload, including a same-method archive made with another compression level.
 Assembly also copies the bounded release-note input into canonical retained
 `release-notes.md`; validation never depends on the caller's original path.
 

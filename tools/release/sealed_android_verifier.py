@@ -12,6 +12,7 @@ import struct
 import subprocess
 import sys
 import zipfile
+import zlib
 
 
 MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
@@ -313,7 +314,7 @@ def sealed_executable_snapshot(source_descriptor: int) -> tuple[int, str]:
         os.close(source_fd)
 
 
-def preflight_aab(descriptor: int) -> tuple[int, str]:
+def preflight_aab(descriptor: int) -> tuple[int, str, str]:
     metadata = os.fstat(descriptor)
     tail_size = min(metadata.st_size, 65_557)
     tail = os.pread(descriptor, tail_size, metadata.st_size - tail_size)
@@ -347,6 +348,7 @@ def preflight_aab(descriptor: int) -> tuple[int, str]:
         name_size, extra_size, comment_size = struct.unpack_from("<HHH", central, position + 28)
         if comment_size != 0 or extra_size != 0:
             raise ValueError("Android bundle entry comments and extra fields are not accepted")
+        flags, compression = struct.unpack_from("<HH", central, position + 8)
         modified_time, modified_date = struct.unpack_from("<HH", central, position + 12)
         if (modified_time, modified_date) != (EXPECTED_ANDROID_ZIP_DOS_TIME, EXPECTED_ANDROID_ZIP_DOS_DATE):
             raise ValueError("Android bundle entry timestamps are not canonical")
@@ -355,8 +357,9 @@ def preflight_aab(descriptor: int) -> tuple[int, str]:
         local_name_size, local_extra_size = struct.unpack_from("<HH", local_header, 26) if len(local_header) == 30 else (0, 0)
         local_name = os.pread(descriptor, local_name_size, local_offset + 30) if len(local_header) == 30 else b""
         if len(local_header) != 30 or local_header[:4] != b"PK\x03\x04" \
-                or struct.unpack_from("<HH", local_header, 6) != struct.unpack_from("<HH", central, position + 8) \
+                or struct.unpack_from("<HH", local_header, 6) != (flags, compression) \
                 or struct.unpack_from("<HH", local_header, 10) != (modified_time, modified_date) \
+                or struct.unpack_from("<III", local_header, 14) != struct.unpack_from("<III", central, position + 16) \
                 or local_extra_size != 0 or local_name != central[position + 46:position + 46 + name_size]:
             raise ValueError("Android bundle local header metadata is not canonical")
         entry_name = central[position + 46:position + 46 + name_size]
@@ -364,6 +367,8 @@ def preflight_aab(descriptor: int) -> tuple[int, str]:
             raise ValueError("Android bundle entry path contains control characters")
         if entry_name.startswith(b"/") or b"\\" in entry_name or any(part in (b"", b".", b"..") for part in entry_name.rstrip(b"/").split(b"/")):
             raise ValueError("Android bundle entry path is not a canonical relative path")
+        if flags != 0 or compression != zipfile.ZIP_DEFLATED:
+            raise ValueError("Android bundle entries must use canonical raw DEFLATE representation")
         # Bind central-directory order and the representation metadata that is
         # expected to survive deterministic re-signing. Expanded payload bytes
         # and signature-control names are bound separately.
@@ -387,6 +392,7 @@ def preflight_aab(descriptor: int) -> tuple[int, str]:
         raise ValueError("Android bundle central-directory count does not match its end record")
     total = 0
     count = 0
+    compressed_payload_identity = hashlib.sha256()
     with os.fdopen(os.dup(descriptor), "rb") as artifact_file, zipfile.ZipFile(artifact_file) as bundle:
         for info in bundle.infolist():
             count += 1
@@ -397,9 +403,44 @@ def preflight_aab(descriptor: int) -> tuple[int, str]:
             total += info.file_size
             if total > MAX_AAB_EXPANDED_BYTES:
                 raise ValueError("Android bundle exceeds its aggregate expanded-size limit")
+            local_header = os.pread(descriptor, 30, info.header_offset)
+            local_name_size, local_extra_size = struct.unpack_from("<HH", local_header, 26)
+            compressed_offset = info.header_offset + 30 + local_name_size + local_extra_size
+            compressed_digest = hashlib.sha256()
+            compressed_observed = 0
+            while compressed_observed < info.compress_size:
+                chunk = os.pread(descriptor, min(1024 * 1024, info.compress_size - compressed_observed), compressed_offset + compressed_observed)
+                if not chunk:
+                    raise ValueError("Android bundle compressed entry changed during inspection")
+                compressed_observed += len(chunk)
+                compressed_digest.update(chunk)
+            if SIGNATURE_CONTROL.fullmatch(info.filename) or info.filename == "BUNDLE-METADATA/com.android.tools/r8.json":
+                canonical_digest = hashlib.sha256()
+                canonical_size = 0
+                compression_level = 1 if SIGNATURE_CONTROL.fullmatch(info.filename) else 6
+                compressor = zlib.compressobj(level=compression_level, method=zlib.DEFLATED, wbits=-15)
+                with bundle.open(info) as entry:
+                    while chunk := entry.read(1024 * 1024):
+                        canonical = compressor.compress(chunk)
+                        canonical_size += len(canonical)
+                        canonical_digest.update(canonical)
+                canonical = compressor.flush()
+                canonical_size += len(canonical)
+                canonical_digest.update(canonical)
+                if canonical_size != info.compress_size or canonical_digest.digest() != compressed_digest.digest():
+                    raise ValueError("Android bundle nondeterministic entry does not use its canonical raw DEFLATE bytes")
+            else:
+                compressed_payload_identity.update(str(count).encode("ascii"))
+                compressed_payload_identity.update(b"\0")
+                compressed_payload_identity.update(info.filename.encode("utf-8"))
+                compressed_payload_identity.update(b"\0")
+                compressed_payload_identity.update(str(info.compress_size).encode("ascii"))
+                compressed_payload_identity.update(b"\0")
+                compressed_payload_identity.update(compressed_digest.hexdigest().encode("ascii"))
+                compressed_payload_identity.update(b"\n")
     if count != total_entries:
         raise ValueError("Android bundle central-directory entry count changed during inspection")
-    return total_entries, layout_identity.hexdigest()
+    return total_entries, layout_identity.hexdigest(), compressed_payload_identity.hexdigest()
 
 
 def main() -> None:
@@ -432,7 +473,7 @@ def main() -> None:
             )
         else:
             assert aab_preflight is not None
-            expected_aab_entries, result["archiveLayoutSha256"] = aab_preflight
+            expected_aab_entries, result["archiveLayoutSha256"], result["compressedPayloadTreeSha256"] = aab_preflight
             result.update(inspect_jar_signatures(
                 [java_path, "-Duser.language=en", "-Duser.country=US", "sun.security.tools.jarsigner.Main", "-verify", "-verbose", "-certs", held_path],
                 (descriptor,),
