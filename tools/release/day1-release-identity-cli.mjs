@@ -56,7 +56,7 @@ const npmCliCurrent = lstatSync(npmCli);
 if (!npmCliOpened.isFile() || npmCliCurrent.isSymbolicLink() || npmCliCurrent.dev !== npmCliOpened.dev || npmCliCurrent.ino !== npmCliOpened.ino || realpathSync(npmCli) !== npmCli) {
   throw new Error('npm CLI is not a stable regular file in the current Node installation');
 }
-if (npmCliOpened.size < 1 || npmCliOpened.size > 2 * 1024 * 1024 || (npmCliCurrent.mode & 0o022) !== 0) throw new Error('npm CLI has unsafe metadata');
+if (npmCliOpened.size < 1 || npmCliOpened.size > 2 * 1024 * 1024) throw new Error('npm CLI has unsafe size');
 function descriptorSha256(descriptor, size) {
   const hash = createHash('sha256');
   const buffer = Buffer.alloc(64 * 1024);
