@@ -578,7 +578,8 @@ function collectAndroid(repoRoot, input, source) {
   if (canonicalJson(provenance.dependencyCaches.gradleModules.excludedPaths) !== canonicalJson(['gc.properties', 'modules-2.lock'])) {
     fail('Android Gradle-cache exclusions exceed the collector-owned allowlist');
   }
-  if (provenance.dependencyCaches.pub.excludedPaths.some((entry) => !/^hosted\/pub\.dev\/[A-Za-z0-9_.+-]+\/android\/\.cxx$/u.test(entry))) {
+  if (provenance.dependencyCaches.pub.excludedPaths.length !== 1
+    || !/^hosted\/pub\.dev\/jni-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\/android\/\.cxx$/u.test(provenance.dependencyCaches.pub.excludedPaths[0])) {
     fail('Android pub-cache exclusions exceed the collector-owned build-directory allowlist');
   }
   const verificationMetadata = exactTrackedFile(repoRoot, 'apps/mobile/android/gradle/verification-metadata.xml', 'Gradle verification metadata', commit);

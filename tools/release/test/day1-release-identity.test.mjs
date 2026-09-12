@@ -114,12 +114,12 @@ function fixture(t) {
       android: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: '9'.repeat(64), excludedPaths: ['.knownPackages'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
     dependencyCaches: {
-      pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: [], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
+      pub: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'a'.repeat(64), excludedPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
       gradleModules: { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: 'b'.repeat(64), excludedPaths: ['gc.properties', 'modules-2.lock'], fileCount: 1, directoryCount: 1, symlinkCount: 0, totalBytes: 1 },
     },
     gradleVerificationMetadataSha256: sha256(readFileSync(gradleVerificationMetadata)),
     verificationTools: { apksignerJarSha256: 'c'.repeat(64) },
-    toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v2', flutterExcludedTransientBases: ['bin/cache/runtime.stamp'], pubExcludedBuildPaths: [], queueOverflowFailsClosed: true },
+    toolchainMutationGuard: { algorithm: 'linux-inotify-authenticated-runner-v2', flutterExcludedTransientBases: ['bin/cache/runtime.stamp'], pubExcludedBuildPaths: ['hosted/pub.dev/jni-1.0.0/android/.cxx'], queueOverflowFailsClosed: true },
     signingInput: { kind: 'explicit-debug-keystore-sha256-v1', sha256: '7'.repeat(64) },
     artifacts: {
       apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: readFileSync(apkPath).length, sha256: sha256(readFileSync(apkPath)) },

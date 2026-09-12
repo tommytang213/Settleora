@@ -1092,6 +1092,10 @@ function collectAndroidUnsafe(options, emit = true) {
       throw new Error('Android dependency prefetch did not produce the required Gradle caches');
     }
     const pubExcludedBuildPaths = relativeDirectoriesNamed(pubCache, '.cxx');
+    if (pubExcludedBuildPaths.length !== 1
+      || !/^hosted\/pub\.dev\/jni-[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?\/android\/\.cxx$/u.test(pubExcludedBuildPaths[0])) {
+      throw new Error('Android pub-cache native-build exclusion does not match the exact locked jni package');
+    }
     const dependencyCaches = {
       pub: toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths),
       gradleModules: toolchainTreeDigest(gradleModules, 'Gradle module dependency cache', ['gc.properties', 'modules-2.lock']),
