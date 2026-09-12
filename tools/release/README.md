@@ -105,7 +105,8 @@ files that a same-UID build child can forge. The offline release-build window
 also watches the bound dependency caches. An explicitly supplied debug
 keystore is copied into a private controlled user home and its SHA-256 is bound
 to Android provenance without retaining the signing input itself.
-The v2 toolchain-tree record includes its exact sorted exclusion inventory, and
+The v3 toolchain-tree record includes its exact sorted exclusion inventory and
+recognizes only numeric atomic-update siblings of those bound Flutter markers;
 the Android provenance binds toolchain and dependency-cache identities, Gradle
 verification-metadata identity, the authenticated-runner algorithm,
 transient-marker/build-directory subsets, and fail-closed queue-overflow policy.

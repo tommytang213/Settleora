@@ -432,11 +432,14 @@ function executeSealedFlutter(flutter, values, cwd) {
   }, [flutter.snapshot]);
 }
 
-export function toolchainTreeDigest(root, label, excludedPrefixes = []) {
+export function toolchainTreeDigest(root, label, excludedPrefixes = [], excludedTransientBases = []) {
   const absoluteRoot = path.resolve(root);
   const canonicalExcludedPaths = [...new Set(excludedPrefixes)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
-  if (canonicalExcludedPaths.some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\')
+  const canonicalTransientBases = [...new Set(excludedTransientBases)].sort((left, right) => Buffer.from(left).compare(Buffer.from(right)));
+  if ([...canonicalExcludedPaths, ...canonicalTransientBases].some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\')
     || entry.split('/').some((part) => !part || part === '.' || part === '..'))) throw new Error(`${label} exclusion inventory contains an unsafe path`);
+  const excluded = (relative) => canonicalExcludedPaths.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
+    || canonicalTransientBases.some((base) => relative.startsWith(`${base}.tmp.`) && /^[0-9]+$/u.test(relative.slice(base.length + 5)));
   const rootMetadata = lstatSync(absoluteRoot, { throwIfNoEntry: false });
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink() || realpathSync(absoluteRoot) !== absoluteRoot) throw new Error(`${label} root is not a stable directory`);
   const records = [];
@@ -455,7 +458,7 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = []) {
       const target = path.join(directory, entry.name);
       const relative = path.relative(absoluteRoot, target).split(path.sep).join('/');
       if (!relative || relative.startsWith('../') || path.isAbsolute(relative)) throw new Error(`${label} contains an unsafe path`);
-      if (canonicalExcludedPaths.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))) continue;
+      if (excluded(relative)) continue;
       const metadata = lstatSync(target);
       if (metadata.isDirectory()) {
         directoryCount += 1;
@@ -506,7 +509,7 @@ export function toolchainTreeDigest(root, label, excludedPrefixes = []) {
     }
   };
   walk(absoluteRoot, 0);
-  return { algorithm: 'sha256(canonical-stable-toolchain-tree-v2)', sha256: createHash('sha256').update(records.join('')).digest('hex'), excludedPaths: canonicalExcludedPaths, fileCount, directoryCount, symlinkCount, totalBytes };
+  return { algorithm: 'sha256(canonical-stable-toolchain-tree-v3)', sha256: createHash('sha256').update(records.join('')).digest('hex'), excludedPaths: canonicalExcludedPaths, fileCount, directoryCount, symlinkCount, totalBytes };
 }
 
 function makeTreeReadOnly(root, label) {
@@ -563,6 +566,7 @@ import select
 import struct
 import subprocess
 import sys
+import time
 
 configuration, commands, cwd = sys.argv[1:4]
 libc = ctypes.CDLL(None, use_errno=True)
@@ -636,6 +640,9 @@ try:
                 process.wait()
                 raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
         drain(0)
+        quiet_deadline = time.monotonic() + 2.0
+        while time.monotonic() < quiet_deadline:
+            drain(min(0.05, quiet_deadline - time.monotonic()))
         if changed:
             raise RuntimeError("Android toolchain changed while release artifacts were built: " + changed)
         if process.returncode != 0:
@@ -1057,7 +1064,7 @@ function collectAndroidUnsafe(options, emit = true) {
       { label: 'android', root: androidSdkRoot, excludedPrefixes: ['.knownPackages'] },
     ];
     const toolchainsBefore = {
-      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes),
+      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes, toolchainConfiguration[0].excludedTransientBases),
       android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', toolchainConfiguration[1].excludedPrefixes),
     };
     const buildEnvironment = {
@@ -1120,10 +1127,14 @@ function collectAndroidUnsafe(options, emit = true) {
       ['build', 'appbundle', '--release', '--no-pub'],
     ], mobileRoot, offlineGuardConfiguration);
     const toolchainsAfter = {
-      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes),
+      flutter: toolchainTreeDigest(flutter.root, 'Flutter SDK', toolchainConfiguration[0].excludedPrefixes, toolchainConfiguration[0].excludedTransientBases),
       android: toolchainTreeDigest(androidSdkRoot, 'Android SDK', toolchainConfiguration[1].excludedPrefixes),
     };
-    if (canonicalJson(toolchainsAfter) !== canonicalJson(toolchainsBefore)) throw new Error('Android build toolchain changed during collection');
+    for (const name of ['flutter', 'android']) {
+      if (canonicalJson(toolchainsAfter[name]) !== canonicalJson(toolchainsBefore[name])) {
+        throw new Error(`Android ${name} toolchain changed during collection: ${toolchainsBefore[name].sha256} -> ${toolchainsAfter[name].sha256}`);
+      }
+    }
     if (canonicalJson(toolchainTreeDigest(pubCache, 'Dart pub dependency cache', pubExcludedBuildPaths)) !== canonicalJson(dependencyCaches.pub)
       || canonicalJson(toolchainTreeDigest(runtimeModules, 'Gradle runtime module dependency cache', ['gc.properties', 'modules-2.lock'])) !== canonicalJson(dependencyCaches.gradleModules)) {
       throw new Error('Android immutable dependency cache changed during offline release builds');

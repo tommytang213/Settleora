@@ -557,7 +557,7 @@ function collectAndroid(repoRoot, input, source) {
   hexDigest(provenance.signingInput.sha256, 'Android build provenance signing-input SHA-256');
   for (const [name, inventory] of Object.entries({ ...provenance.toolchains, ...provenance.dependencyCaches })) {
     assertKeys(inventory, ['algorithm', 'sha256', 'excludedPaths', 'fileCount', 'directoryCount', 'symlinkCount', 'totalBytes'], `Android ${name} toolchain inventory`);
-    if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v2)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
+    if (inventory.algorithm !== 'sha256(canonical-stable-toolchain-tree-v3)') fail(`Android ${name} toolchain inventory algorithm mismatch`);
     if (!Array.isArray(inventory.excludedPaths) || canonicalJson([...inventory.excludedPaths].sort()) !== canonicalJson(inventory.excludedPaths)
       || inventory.excludedPaths.some((entry) => typeof entry !== 'string' || !entry || entry.startsWith('/') || entry.includes('\\') || entry.split('/').some((part) => !part || part === '.' || part === '..'))) {
       fail(`Android ${name} toolchain exclusion inventory is invalid`);
