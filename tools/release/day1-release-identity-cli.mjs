@@ -61,6 +61,7 @@ const systemNodeCommand = invokedDirectly
   : null;
 let npmRuntimeChecked = false;
 let pythonRuntimeChecked = false;
+let dotnetRuntimeChecked = false;
 const npmExec = (values, options = {}) => {
   if (!npmRuntimeChecked) {
     protectedSystemCommand('/usr/bin/npm', 'npm');
@@ -334,6 +335,10 @@ function trustedDotnet() {
   const expected = '/usr/lib/dotnet/dotnet';
   const tool = trustedTool(expected, 'dotnet', 'dotnet runtime');
   assertRootProtectedTool(tool, expected, 'dotnet runtime');
+  if (!dotnetRuntimeChecked) {
+    assertSystemRuntime('/usr/lib/dotnet', 'system .NET runtime');
+    dotnetRuntimeChecked = true;
+  }
   return tool;
 }
 
@@ -968,7 +973,7 @@ export function collectCompiledMigrationIds(privateParent) {
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       NUGET_PACKAGES: packages,
     };
-    const isolatedMsbuildProperties = ['-p:ImportDirectoryBuildProps=false', '-p:ImportDirectoryBuildTargets=false'];
+    const isolatedMsbuildProperties = ['-p:ImportDirectoryBuildProps=false', '-p:ImportDirectoryBuildTargets=false', '-p:ImportDirectoryPackagesProps=false'];
     executeSealedTool(dotnet, ['restore', project, '--locked-mode', '--configfile', nugetConfig, '--packages', packages, '--verbosity', 'quiet', ...isolatedMsbuildProperties], {
       cwd: snapshot,
       env: dotnetEnvironment,
@@ -1092,7 +1097,12 @@ export function main(argv = process.argv.slice(2)) {
         || rebuiltSignature.embeddedR8MappingSha256 !== signature.embeddedR8MappingSha256) {
         throw new Error('Retained Android signed payload differs from the exact-source rebuild');
       }
-      const rebuiltInput = canonicalAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), signature);
+      const retainedProvenance = JSON.parse(safeBytes(retainedInput.android.buildProvenancePath, 'Retained Android build provenance'));
+      const rebuiltProvenance = JSON.parse(safeBytes(rebuiltAndroidUnsigned.android.buildProvenancePath, 'Rebuilt Android build provenance'));
+      if (canonicalJson(retainedProvenance.toolchains) !== canonicalJson(rebuiltProvenance.toolchains)) {
+        throw new Error('Retained Android toolchain provenance differs from the exact-source rebuild');
+      }
+      const rebuiltInput = collectedAndroidInput(collectedWebInput(canonicalReleaseNotesInput(supplied), webValidation), androidValidation, rebuiltSignature);
       const rebuilt = buildManifest(repoRoot, rebuiltInput);
       verifyLiveRegistry(retainedInput, true);
       const retainedAfterRebuild = buildManifest(repoRoot, retainedInput);

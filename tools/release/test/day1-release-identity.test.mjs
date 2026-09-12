@@ -314,6 +314,12 @@ test('rejects symlinked evidence and a tampered manifest identity digest', (t) =
   const missingRequired = buildManifest(f.root, f.input);
   delete missingRequired.source.tree;
   assert.throws(() => validateManifest(missingRequired, f.root), /missing required properties/);
+  for (const [field, value] of [['semanticVersion', '9.9.9'], ['buildNumber', '999'], ['applicationId', 'com.example.forged'], ['signingState', 'release-signing']]) {
+    const changedMetadata = buildManifest(f.root, f.input);
+    changedMetadata.android[field] = value;
+    changedMetadata.identityDigest = computeIdentityDigest(changedMetadata);
+    assert.throws(() => validateManifest(changedMetadata, f.root), new RegExp(`android\\.${field} does not match the captured source commit`));
+  }
 });
 
 test('rejects a non-ancestor rollback and an R8 mapping not bound to the AAB', (t) => {
@@ -506,6 +512,7 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/npm', 'npm'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/bin\/python3', 'python3'\)/);
   assert.match(cliSource, /assertSystemRuntime\(`\/usr\/lib\/\$\{pythonRuntimeName\}`/);
+  assert.match(cliSource, /assertSystemRuntime\('\/usr\/lib\/dotnet', 'system \.NET runtime'\)/);
   assert.match(cliSource, /protectedSystemCommand\('\/usr\/libexec\/docker\/cli-plugins\/docker-buildx', 'docker-buildx'\)/);
   assert.match(cliSource, /\['fsck', '--strict', '--no-dangling', '--no-progress', processSource\.commit\]/);
   assert.match(cliSource, /GH_CONFIG_DIR: '\/nonexistent'/);
@@ -514,6 +521,12 @@ test('release execution uses protected system runtimes and bypasses user plugin 
   assert.match(cliSource, /npm_config_userconfig: npmUserConfig/);
   assert.match(cliSource, /ImportDirectoryBuildProps=false/);
   assert.match(cliSource, /ImportDirectoryBuildTargets=false/);
+  assert.match(cliSource, /ImportDirectoryPackagesProps=false/);
+  assert.match(cliSource, /Retained Android toolchain provenance differs from the exact-source rebuild/);
+  assert.match(cliSource, /collectedAndroidInput\([^;]*androidValidation, rebuiltSignature\)/s);
   assert.match(cliSource, /SETTLEORA_RELEASE_CLEAN_NODE/);
   assert.doesNotMatch(cliSource, /process\.env\.npm_execpath/);
+  const apiDockerfile = readFileSync(new URL('../../../services/api/Dockerfile', import.meta.url), 'utf8');
+  assert.match(apiDockerfile, /COPY services\/api\/src\/Settleora\.Api\/packages\.lock\.json services\/api\/src\/Settleora\.Api\//);
+  assert.match(apiDockerfile, /dotnet restore services\/api\/src\/Settleora\.Api\/Settleora\.Api\.csproj --locked-mode/);
 });

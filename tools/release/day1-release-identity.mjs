@@ -261,6 +261,26 @@ function exactTrackedFile(repoRoot, relative, label, sourceCommit) {
   return file;
 }
 
+function androidSourceMetadata(repoRoot, sourceCommit, requireExactCheckout = false) {
+  const trackedFile = requireExactCheckout ? exactTrackedFile : committedTrackedFile;
+  const pubspec = trackedFile(repoRoot, 'apps/mobile/pubspec.yaml', 'mobile pubspec', sourceCommit).bytes.toString('utf8');
+  const version = /^version:\s*([^+\s]+)\+(\d+)\s*$/gmu;
+  const versionMatches = [...pubspec.matchAll(version)];
+  if (versionMatches.length !== 1) fail('Mobile semantic version/build is missing or ambiguous in pubspec');
+  const gradle = trackedFile(repoRoot, 'apps/mobile/android/app/build.gradle.kts', 'Android release config', sourceCommit).bytes.toString('utf8');
+  const applicationIds = [...gradle.matchAll(/applicationId\s*=\s*"([^"]+)"/gu)];
+  if (applicationIds.length !== 1 || applicationIds[0][1] !== 'com.example.mobile') fail('Android application ID mismatch');
+  if (!/release\s*\{[\s\S]*?signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)/u.test(gradle)) {
+    fail('Android signing state does not match the bounded debug-signing observation');
+  }
+  return {
+    semanticVersion: versionMatches[0][1],
+    buildNumber: versionMatches[0][2],
+    applicationId: applicationIds[0][1],
+    signingState: 'debug-signing-non-store-ready',
+  };
+}
+
 export function collectSource(repoRoot, expected) {
   if (lstatSync(repoRoot).isSymbolicLink()) fail('Repository root must not be a symlink');
   assertTrackedWorktreeMatchesHead(repoRoot);
@@ -479,25 +499,17 @@ function collectAndroid(repoRoot, input, source) {
   }
   const element = metadata.elements?.find((candidate) => candidate.outputFile === path.basename(input.apkPath));
   if (!element) fail('Android APK is absent from output metadata');
-  const pubspec = exactTrackedFile(repoRoot, 'apps/mobile/pubspec.yaml', 'mobile pubspec', commit).bytes.toString('utf8');
-  const version = /^version:\s*([^+\s]+)\+(\d+)\s*$/mu.exec(pubspec);
-  if (!version) fail('Mobile semantic version/build is missing from pubspec');
-  if (element.versionName !== version[1] || String(element.versionCode) !== version[2]) fail('Android artifact version/build mismatch');
-  const gradle = exactTrackedFile(repoRoot, 'apps/mobile/android/app/build.gradle.kts', 'Android release config', commit).bytes.toString('utf8');
-  if (!/applicationId\s*=\s*"com\.example\.mobile"/u.test(gradle) || metadata.applicationId !== 'com.example.mobile') {
-    fail('Android application ID mismatch');
-  }
-  if (!/release\s*\{[\s\S]*?signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)/u.test(gradle)) {
-    fail('Android signing state does not match the bounded debug-signing observation');
-  }
+  const sourceMetadata = androidSourceMetadata(repoRoot, commit, true);
+  if (element.versionName !== sourceMetadata.semanticVersion || String(element.versionCode) !== sourceMetadata.buildNumber) fail('Android artifact version/build mismatch');
+  if (metadata.applicationId !== sourceMetadata.applicationId) fail('Android application ID mismatch');
   const result = {
     source: { commit, tree },
-    semanticVersion: version[1],
-    buildNumber: version[2],
-    applicationId: metadata.applicationId,
+    semanticVersion: sourceMetadata.semanticVersion,
+    buildNumber: sourceMetadata.buildNumber,
+    applicationId: sourceMetadata.applicationId,
     r8Minified: true,
     r8MappingSha256: sha256(mapping.bytes),
-    signingState: 'debug-signing-non-store-ready',
+    signingState: sourceMetadata.signingState,
     signerCertificateSha256: hexDigest(input.signerCertificateSha256, 'Android signer certificate SHA-256'),
     apk: { path: 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk', size: apk.size, sha256: sha256(apk.bytes) },
     aab: { path: 'apps/mobile/build/app/outputs/bundle/release/app-release.aab', size: aab.size, sha256: sha256(aab.bytes) },
@@ -611,6 +623,10 @@ export function validateManifest(manifest, repoRoot) {
   if (manifest.android.apk.path !== 'apps/mobile/build/app/outputs/flutter-apk/app-release.apk'
     || manifest.android.aab.path !== 'apps/mobile/build/app/outputs/bundle/release/app-release.aab') fail('Android artifact paths must be canonical release outputs');
   for (const key of ['semanticVersion', 'buildNumber', 'applicationId']) string(manifest.android[key], `android.${key}`);
+  const sourceAndroid = androidSourceMetadata(repoRoot, manifest.source.commit);
+  for (const key of ['semanticVersion', 'buildNumber', 'applicationId', 'signingState']) {
+    if (manifest.android[key] !== sourceAndroid[key]) fail(`android.${key} does not match the captured source commit`);
+  }
   if (manifest.android.r8Minified !== true) fail('Android R8/minification assertion is required');
   hexDigest(manifest.android.r8MappingSha256, 'android.r8MappingSha256');
   hexDigest(manifest.android.signerCertificateSha256, 'android.signerCertificateSha256');
